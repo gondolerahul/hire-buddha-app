@@ -1,0 +1,67 @@
+# cortex-memory — standalone distribution manifest (Phase 12 `04` Stage C).
+#
+# The package modules live flat in this directory; `package-dir` maps the
+# `cortex_memory` import package to "." so a wheel can be built straight from
+# here (`python -m build`) without disturbing the host's in-repo CWD import.
+# When this moves to its own repo, this file becomes the repo-root pyproject.
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cortex-memory"
+description = "CORTEX — a navigable, writable hierarchical-memory engine for LLM agents (PostgreSQL + pgvector)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "HireBuddha" }]
+keywords = ["llm", "agents", "memory", "rag", "pgvector", "cortex", "knowledge-graph"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+dependencies = [
+    "SQLAlchemy>=2.0",
+    "pgvector>=0.2.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "coverage>=7.0",
+    "mypy>=1.5",
+    "asyncpg>=0.28",        # for the DB-backed integration tests
+]
+
+[project.urls]
+Homepage = "https://github.com/hirebuddha/cortex-memory"
+Repository = "https://github.com/hirebuddha/cortex-memory"
+
+[tool.setuptools]
+packages = ["cortex_memory"]
+package-dir = { "cortex_memory" = "." }
+
+[tool.setuptools.package-data]
+cortex_memory = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "cortex_memory.__version__" }
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+follow_imports = "silent"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

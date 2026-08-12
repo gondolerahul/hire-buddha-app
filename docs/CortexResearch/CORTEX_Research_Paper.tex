@@ -1,0 +1,1327 @@
+% =============================================================================
+% CORTEX: A Unified Cognitive Tree Architecture for Persistent, Navigable,
+% and Self-Consolidating LLM Agent Memory
+%
+% arXiv-style preprint. Compile with pdflatex (twice) or latexmk -pdf.
+% =============================================================================
+\documentclass[11pt,a4paper]{article}
+
+% ---- Page geometry & typography --------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+
+% ---- Math, theorems, symbols -----------------------------------------------
+\usepackage{amsmath,amssymb,amsthm}
+
+% ---- Tables ----------------------------------------------------------------
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{longtable}
+
+% ---- Graphics, color, hyperlinks -------------------------------------------
+\usepackage{graphicx}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!60!black,
+  pdftitle={CORTEX: A Unified Cognitive Tree Architecture},
+  pdfauthor={Anonymous}
+]{hyperref}
+\usepackage{url}
+
+% ---- Lists, captions, headers ----------------------------------------------
+\usepackage{enumitem}
+\setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=2pt}
+\setlist[enumerate]{leftmargin=*,topsep=2pt,itemsep=2pt}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+
+% ---- Code listings ---------------------------------------------------------
+\usepackage{listings}
+\definecolor{codebg}{rgb}{0.97,0.97,0.97}
+\definecolor{codecmt}{rgb}{0.4,0.4,0.4}
+\definecolor{codekey}{rgb}{0.0,0.0,0.6}
+\definecolor{codestr}{rgb}{0.0,0.5,0.0}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebg},
+  commentstyle=\color{codecmt}\itshape,
+  keywordstyle=\color{codekey}\bfseries,
+  stringstyle=\color{codestr},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  framerule=0pt,
+  framesep=4pt,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=8pt,
+  belowskip=8pt,
+}
+\lstdefinelanguage{Python}{
+  keywords={async, await, def, return, if, else, elif, for, while, in, not,
+    and, or, is, None, True, False, class, import, from, try, except,
+    raise, with, as, lambda, yield, assert, pass, break, continue, global,
+    nonlocal, self},
+  morecomment=[l]{\#},
+  morestring=[b]",
+  morestring=[b]',
+}
+\lstdefinelanguage{SQL}{
+  keywords={SELECT, FROM, WHERE, AND, OR, JOIN, LEFT, RIGHT, ON, INSERT,
+    UPDATE, DELETE, INTO, VALUES, AS, ORDER, BY, GROUP, HAVING, LIMIT,
+    UNION, ALL, WITH, RECURSIVE, RETURNING, NULL, IS, NOT, IN, SET,
+    INTERVAL, NOW, COALESCE, GREATEST, ANY, CAST, EXISTS, CASE, WHEN,
+    THEN, END, DISTINCT, MAX, MIN, COUNT, AVG, SUM},
+  morecomment=[l]{--},
+  morestring=[b]'
+}
+
+% ---- Theorem-like environments for formal properties -----------------------
+\newtheoremstyle{cortexprop}%
+  {8pt}{8pt}%        space above/below
+  {}%                body font
+  {}%                indent
+  {\bfseries}%       head font
+  {.}%               head punctuation
+  {0.5em}%           space after head
+  {\thmname{#1}~\thmnumber{#2}\thmnote{ (\textit{#3})}}
+\theoremstyle{cortexprop}
+\newtheorem{property}{Property}
+
+% ---- Title block -----------------------------------------------------------
+\title{
+  \vspace{-1.5em}
+  \textbf{CORTEX: A Unified Cognitive Tree Architecture for\\
+  Persistent, Navigable, and Self-Consolidating LLM Agent Memory}
+  \vspace{0.5em}
+}
+\author{
+  Author One$^{1}$ \quad Author Two$^{1}$ \quad Author Three$^{1}$\\[0.5em]
+  \small $^{1}$\textit{Affiliation, Address}\\
+  \small Correspondence: \texttt{author1@org.tld}
+}
+\date{\small Preprint --- May 2026}
+
+% ---- Custom commands -------------------------------------------------------
+\newcommand{\cortex}{\textsc{Cortex}}
+\newcommand{\op}[1]{\textsc{#1}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+% =============================================================================
+\begin{document}
+\maketitle
+
+% =============================================================================
+\begin{abstract}
+\noindent
+Long-running LLM agents face a structural tension: their reasoning is bounded
+by a finite context window, yet useful tasks demand continuity across hours,
+days, and many tool invocations. Existing agent memory systems address parts
+of the problem --- episodic logs (Mem0, Zep), tiered context management
+(MemGPT/Letta), reflection trees (Generative Agents), reasoning-based
+retrieval (PageIndex), and recursive task decomposition (RLM) --- but no
+public framework integrates a writable cognitive workspace, persistent
+multi-domain memory, automatic consolidation, sub-agent isolation, and an
+associative graph overlay into a single coherent runtime. We present
+\textsc{Cortex} (Cognitive Orchestrated Recursive Tree EXecution), an
+agent-memory architecture in which the agent's complete cognitive state is a
+typed, persistent tree, and its language-model context window is merely a
+bounded \textit{viewport} onto that tree. \textsc{Cortex} unifies four memory
+domains --- Knowledge, Episodic, Experience, and Intelligence --- onto a
+single ORM model trio (\code{tree / node / edge}), disambiguated by
+enumeration. A background ``Dreaming'' pipeline consolidates episodes into
+observations, observations into patterns, and patterns into actionable rules,
+mirroring established cognitive-science models. A semantic graph layer
+overlaying all trees enables hybrid embedding-plus-graph retrieval with
+auto-decay maintenance. We describe the data model, the seven primitive
+operations, the consolidation pipeline, the multi-tenant scope hierarchy,
+integration with an execution engine, and the system's invariants. We
+characterize \textsc{Cortex}'s design properties, position it against the
+contemporary memory-framework landscape, and discuss limitations and open
+questions.
+\end{abstract}
+
+\smallskip
+\noindent\textbf{Keywords:} large language models, agent memory, cognitive
+architecture, hierarchical retrieval, knowledge consolidation, multi-agent
+systems, context engineering.
+
+% =============================================================================
+\section{Introduction}
+\label{sec:intro}
+
+The capabilities of large language model (LLM) agents have advanced rapidly,
+yet four structural problems persist across deployed systems:
+
+\begin{enumerate}
+  \item \textbf{Context rot.} Empirical and anecdotal evidence shows that
+  model accuracy degrades as prompt length grows, even within stated context
+  limits --- a phenomenon Anthropic terms ``context rot.'' Filling the window
+  with running transcripts is therefore not a viable long-task strategy.
+
+  \item \textbf{Opaque retrieval.} Vector-based retrieval-augmented generation
+  (RAG) flattens document hierarchy into embeddings, sacrificing structural
+  information and provenance. Recent work (PageIndex, Vectify AI 2025)
+  demonstrates that reasoning-based retrieval over a hierarchical document
+  tree can lift FinanceBench accuracy from approximately 31\% to 98.7\%.
+
+  \item \textbf{Cross-run amnesia.} Most production agents start each
+  invocation from a blank slate. Persistent memory frameworks like Mem0 and
+  Zep address this for facts but do not provide a writable workspace the
+  agent can edit and revisit.
+
+  \item \textbf{No learning loop.} Systems that record execution history
+  typically lack a mechanism to abstract that history into reusable rules.
+  The cognitive-science literature on \textit{memory consolidation} ---
+  episodic experience compressed into semantic knowledge --- has obvious
+  parallels but is implemented in few production systems.
+\end{enumerate}
+
+We argue that addressing these four problems requires not a new model, but a
+new \textit{runtime substrate} for the agent's cognitive state. Specifically,
+we propose that the agent's working state should be modeled as a persistent,
+navigable, writable typed tree, and that the language model itself should
+only ever see a bounded slice --- a \textit{viewport} --- of that tree. All
+other context is reachable by navigation, paging, or sub-task delegation.
+
+\paragraph{Contributions.} This paper makes the following contributions:
+
+\begin{enumerate}
+  \item \textbf{A unified data model} in which four orthogonal memory domains
+  (Knowledge, Episodic, Experience, Intelligence) and a transient runtime
+  workspace share a single ORM trio (\code{tree / node / edge}),
+  disambiguated by enumeration. One set of query, retrieval, graph, and
+  embedding primitives serves every domain (\S\ref{sec:overview},
+  \S\ref{sec:datamodel}).
+
+  \item \textbf{Seven primitive operations} (\op{Navigate}, \op{Read},
+  \op{Write}, \op{Recurse}, \op{Await\_Children}, \op{Checkpoint},
+  \op{Assemble}) that an agent invokes to manipulate its cognitive tree,
+  formalizing the ``agent-as-tree-explorer'' pattern. We elevate these to
+  first-class planner step types rather than hiding them behind tool calls
+  (\S\ref{sec:ops}).
+
+  \item \textbf{A Dreaming consolidation pipeline} that runs the cognitive
+  sequence \textit{episode $\to$ observation $\to$ pattern $\to$ rule} as a
+  typed three-phase background job with confidence and recurrence
+  thresholds, embedding-based clustering, and a generation counter
+  (\S\ref{sec:dreaming}).
+
+  \item \textbf{A semantic-graph overlay} (\code{cortex\_edges}) enabling
+  associative cross-tree, cross-domain retrieval with auto-edge creation on
+  embedding, weight decay over inactivity, and co-access tracking during
+  execution (\S\ref{sec:graph}).
+
+  \item \textbf{A six-level scope hierarchy} (App $\to$ Partner $\to$ Tenant
+  $\to$ User $\to$ Entity $\to$ Runtime) that unifies platform-wide,
+  multi-tenant, per-user, per-agent, and per-run state within the same
+  schema (\S\ref{sec:scope}).
+
+  \item \textbf{Subtree-isolated recursive children} via a recursive-CTE
+  ancestry check, solving the ``sub-agent leaking context to parent''
+  failure mode common in multi-agent systems (\S\ref{sec:isolation}).
+\end{enumerate}
+
+We position \textsc{Cortex} against contemporary frameworks in
+\S\ref{sec:related}, describe the architecture and implementation in
+\S\ref{sec:overview}--\S\ref{sec:impl}, characterize design properties in
+\S\ref{sec:discussion}, discuss limitations in \S\ref{sec:limits}, and
+outline future work in \S\ref{sec:future}.
+
+% =============================================================================
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Tiered and Operating-System-Inspired Memory}
+MemGPT~\cite{packer2023memgpt}, now developed as Letta, treats the LLM as an
+operating system with core memory, archival memory, and recall memory tiers,
+paging information between tiers via tool calls. \textsc{Cortex} adopts the
+paging idea but extends it from a tiered store to a typed tree, adds four
+orthogonal domains rather than three abstract tiers, and supplements the
+agent-driven paging with system-driven background consolidation.
+
+\subsection{Memory-as-a-Service Frameworks}
+Mem0~\cite{bansal2025mem0} extracts facts from conversations into a hybrid
+vector + graph + key-value store with user, session, and agent scopes.
+Zep introduces a temporal knowledge graph capturing state changes (``I used
+to live in London, but I moved to Tokyo''). Cognee emphasizes deep knowledge
+graphs. These systems excel at fact recall but do not provide a writable
+workspace, recursive sub-task scoping, or output canvas.
+
+\subsection{Reflection and Generative Agents}
+Park et al.~\cite{park2023generative} introduced reflection trees in which
+agents periodically summarize the latest ${\sim}100$ memories into
+higher-level insights, retrieved via a weighted combination of recency,
+importance, and relevance. \textsc{Cortex}'s Dreaming Engine generalizes
+this from a single LLM reflection prompt to a typed three-phase pipeline
+with explicit confidence/strength thresholds and edge creation between
+phases.
+
+\subsection{Cognitive-Architecture-Inspired Frameworks}
+The Cognitive Architectures for Language Agents
+framework~\cite{sumers2023coala} (CoALA) provides the canonical taxonomy:
+working, episodic, semantic, and procedural memory. \textsc{Cortex} is a
+concrete instantiation of CoALA with one refinement: it splits CoALA's
+``semantic + procedural'' into three orthogonal domains (Knowledge /
+Experience / Intelligence), with Experience serving as the explicit
+consolidation midpoint between raw episodes and actionable rules. The
+classical cognitive architectures Soar~\cite{laird2022soar} and ACT-R
+provide the broader inspiration --- production rules, declarative memory,
+and chunking.
+
+\subsection{Reasoning-Based Retrieval}
+PageIndex~\cite{vectifyai2025pageindex} demonstrates that hierarchical tree
+navigation by an LLM agent outperforms vector search on structured
+documents. \textsc{Cortex} adopts PageIndex's bounded-viewport navigation
+primitive but extends the tree from a read-only document index to a
+writable workspace that persists across runs and overlays a vector + graph
+layer for hybrid retrieval rather than purely-reasoning retrieval.
+
+\subsection{Recursive Language Models}
+Recursive Language Models (RLM)~\cite{zhang2025rlm} let the LLM treat the
+prompt as a variable and recursively sub-query itself, achieving robust
+performance at 10M+ token inputs. \textsc{Cortex}'s \op{Recurse} primitive
+applies the same idea to a typed tree: a child run is spawned scoped to a
+subtree (\code{scoped\_subtree\_root\_id}) and results are collected via
+\op{Await\_Children}. The tree itself is the bounded environment.
+
+\subsection{Hierarchical Multi-Agent Memory}
+G-Memory~\cite{wang2025gmemory} introduces a three-tier hierarchical memory
+(insight / query / interaction graphs) for multi-agent systems.
+ByteRover~\cite{byterover2026} represents knowledge in a Domain $\to$ Topic
+$\to$ Subtopic $\to$ Entry context tree with importance scoring and maturity
+tiers. \textsc{Cortex} overlaps these on importance scoring
+(\code{importance\_score}), generation counters
+(\code{consolidation\_generation}), and decay (\code{access\_count}, edge
+weight decay), while broadening scope coverage and integrating tightly with
+an execution engine.
+
+\subsection{Filesystem-as-Memory}
+Cognitive Workspace~\cite{liu2025cogworkspace} and Letta's
+filesystem-benchmark work argue that a plain filesystem with markdown notes
+can match or beat vector RAG for agents that manage their own scratchpad.
+\textsc{Cortex} can be viewed as a \textit{schematized} filesystem: every
+``file'' carries type, status, embedding, parent, summary, content,
+provenance, importance, and edges. The structure enables both LLM
+navigation and SQL queries --- a property a plain filesystem lacks.
+
+\subsection{Summary of Positioning}
+Individual ideas in \textsc{Cortex} have published antecedents. The
+contribution is an \textbf{integrated runtime}: to our knowledge, no public
+framework simultaneously provides (a) a single schema unifying knowledge,
+episodic, experience, intelligence, and runtime working state; (b)
+six-level scope inheritance; (c) automatic Dreaming-style consolidation;
+(d) viewport-based bounded context with paged reads; (e) recursive
+subtree-isolated children; and (f) a graph layer with auto-edge creation,
+decay, and co-access tracking, behind one ORM model and seven primitive
+operations.
+
+% =============================================================================
+\section{System Overview}
+\label{sec:overview}
+
+\subsection{Core Thesis}
+
+\begin{quote}
+\itshape
+The agent's complete cognitive state is the tree. The language model's
+context window is a viewport onto the tree.
+\end{quote}
+
+Every observation, finding, knowledge reference, sub-task, checkpoint, and
+output paragraph the agent produces is a node in a persistent typed tree.
+The LLM's input at any step is the rendered viewport of the current cursor
+node --- its title, summary, immediate children's summaries, parent, and
+breadcrumb --- plus an enumeration of the seven \textsc{Cortex} operations
+the agent can invoke.
+
+\subsection{Logical Layering}
+
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
++---------------------------------------------------------------------+
+|   Execution Engine (DAG / Recursive planner)                        |
+|                                                                     |
+|   CortexBridge   ---->  CortexRouter (7 ops)  ---->  PostgreSQL +   |
+|   (interface)           MemoryAssembler              pgvector       |
+|                         DreamingEngine                              |
+|                         SemanticGraphService                        |
++---------------------------------------------------------------------+
+\end{lstlisting}
+
+\subsection{The Four Memory Domains}
+
+\textsc{Cortex} persists four orthogonal long-lived trees per agent entity,
+plus one transient runtime tree per execution
+(Table~\ref{tab:domains}).
+
+\begin{table}[h]
+\centering
+\caption{The four persistent memory domains and the transient runtime
+workspace.}
+\label{tab:domains}
+\small
+\begin{tabularx}{\linewidth}{lXXX}
+\toprule
+\textbf{Domain} & \textbf{Source} & \textbf{Written by} & \textbf{Used for}\\
+\midrule
+Knowledge & User documents, scraped data & Ingestion pipelines & Reference recall \\
+Episodic & Completed execution runs & System (on run completion) & Recent history \\
+Experience & Distilled from episodes & Dreaming Engine (phases 1--2) & Observations and patterns \\
+Intelligence & Distilled from patterns & Dreaming Engine (phase 3) & Actionable rules \\
+\midrule
+Runtime \textit{(transient)} & The current execution & Agent and execution engine & Working memory, current output \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Design Principles}
+
+\textsc{Cortex} is built on four invariants that are enforced in code:
+
+\begin{enumerate}
+  \item \textbf{Summary Always Exists.} A node cannot have children unless
+  its \code{summary} is set. This guarantees a parent's viewport is always
+  informative.
+  \item \textbf{No Unbounded Viewports.} A node's direct-children count is
+  bounded by \code{max\_children} (default 12). Exceeding the bound triggers
+  asynchronous re-clustering into a group node.
+  \item \textbf{Content is Always Paged.} Large \code{content} fields are
+  read in slices of \code{page\_size\_tokens} (default 8000 tokens). No
+  single read returns more than one page.
+  \item \textbf{Write-Once Content.} Node content is immutable; revisions
+  are modeled as child nodes, not in-place edits. This makes provenance
+  traceable and prevents subtle race conditions.
+\end{enumerate}
+
+% =============================================================================
+\section{Data Model}
+\label{sec:datamodel}
+
+\textsc{Cortex} uses three tables stored in PostgreSQL with the
+\code{pgvector} extension.
+
+\subsection{The \code{cortex\_trees} Table}
+
+Each tree row is a cognitive context. Key columns:
+
+\begin{itemize}
+  \item \code{id}, \code{entity\_id}, \code{user\_id}, \code{company\_id} ---
+  ownership and tenancy.
+  \item \code{task\_description}, \code{status} $\in$ \{active, suspended,
+  complete, archived\}.
+  \item \code{root\_node\_id}, \code{output\_root\_id},
+  \code{resume\_cursor\_id} --- cursors into the node table.
+  \code{resume\_cursor\_id} is the single source of truth for ``where the
+  agent is.''
+  \item \code{max\_children} (default 12), \code{page\_size\_tokens}
+  (default 8000), \code{context\_budget\_pct} (default 40) --- invariants
+  and tunables.
+  \item \code{memory\_domain} $\in$ \{knowledge, episodic, experience,
+  intelligence\}, \code{scope\_level} $\in$ \{app, partner, tenant, user,
+  entity, runtime\} --- the two enums that disambiguate every tree.
+  \item \code{last\_consolidated\_at}, \code{consolidation\_generation},
+  \code{source\_run\_ids} --- Dreaming metadata.
+  \item \code{resume\_schedule}, \code{next\_resume\_at} --- multi-day
+  scheduled wake-ups.
+\end{itemize}
+
+\subsection{The \code{cortex\_nodes} Table}
+
+Every piece of information is a node. Key columns:
+
+\begin{itemize}
+  \item \code{id}, \code{tree\_id}, \code{parent\_id} --- structural.
+  \item \code{node\_type} --- one of 18 typed values: \code{root},
+  \code{knowledge}, \code{finding}, \code{task}, \code{output},
+  \code{checkpoint}, \code{group}, \code{document}, \code{section},
+  \code{chunk}, \code{observation}, \code{pattern}, \code{suggestion},
+  \code{instruction}, \code{strategy}, \code{preference}, \code{episode},
+  \code{episode\_group}.
+  \item \code{title}, \code{summary}, \code{content},
+  \code{content\_tokens} --- display and content.
+  \item \code{status} $\in$ \{pending, active, complete, summarised\}.
+  \item \code{source\_ref}, \code{execution\_run\_id},
+  \code{metadata\_extra} --- provenance.
+  \item \code{embedding} (\code{pgvector.Vector(768)}),
+  \code{embedding\_model} --- semantic vector.
+  \item \code{cross\_refs}, \code{access\_count}, \code{last\_accessed\_at},
+  \code{importance\_score} --- graph and learning signals.
+\end{itemize}
+
+\subsection{The \code{cortex\_edges} Table}
+
+Directed, weighted, typed edges overlaying all trees. Edges may cross
+trees, domains, and scope levels.
+
+\begin{itemize}
+  \item \code{source\_node\_id}, \code{target\_node\_id},
+  \code{edge\_type}, \code{weight} $\in [0,1]$.
+  \item \code{traversal\_count}, \code{last\_traversed\_at} --- for
+  boosting and decay.
+  \item \code{created\_by} --- provenance string (e.g.,
+  \code{"dreaming\_engine"}, \code{"embedding\_pipeline"}).
+  \item Uniqueness: \code{(source, target, edge\_type)}. Inserts are
+  upserts.
+\end{itemize}
+
+The edge-type vocabulary is given in Table~\ref{tab:edgetypes}.
+
+\begin{table}[h]
+\centering
+\caption{Edge-type vocabulary in the semantic graph layer.}
+\label{tab:edgetypes}
+\small
+\begin{tabularx}{\linewidth}{lXl}
+\toprule
+\textbf{Edge type} & \textbf{Semantics} & \textbf{Created by}\\
+\midrule
+\code{semantic\_similar} & Cosine similarity $\geq 0.85$ & Auto on embedding \\
+\code{derived\_from} & Pattern derived from observation & Dreaming phase 2 \\
+\code{generalizes} & Rule generalizes a pattern & Dreaming phase 3 \\
+\code{co\_accessed} & Read together in the same step & Runtime tracking \\
+\code{references} & Citation between nodes & Ingestion \\
+\code{precedes, contradicts, supersedes, applies\_to} & Reserved for future use & --- \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Schema Property: One Trio Generalizes All Domains}
+
+Because the three tables are disambiguated only by enums, the same
+\code{CortexRouter.read}, \code{write}, \code{navigate}, vector-search SQL,
+and graph-traversal CTEs work uniformly across Knowledge, Episodic,
+Experience, Intelligence, and Runtime trees. New domains can be added by
+extending the enum without altering the storage layer.
+
+% =============================================================================
+\section{The CORTEX Operations}
+\label{sec:ops}
+
+The \code{CortexRouter} class implements seven primitive operations. These
+are surfaced to the agent both as planner step types (\op{Navigate},
+\op{Read}, \op{Write}, \op{Recurse}, \op{Await\_Children}) and as direct
+method calls (\op{Checkpoint}, \op{Assemble}).
+
+\subsection{The Seven Primitives}
+
+Table~\ref{tab:ops} lists the operations.
+
+\begin{table}[h]
+\centering
+\caption{The seven primitive \textsc{Cortex} operations.}
+\label{tab:ops}
+\small
+\begin{tabularx}{\linewidth}{lXX}
+\toprule
+\textbf{Op} & \textbf{Signature} & \textbf{Behavior}\\
+\midrule
+\op{Navigate} & \code{navigate(node\_id) $\to$ Viewport} & Move cursor; return current + children + parent + breadcrumb \\
+\op{Read} & \code{read(node\_id, page=0) $\to$ NodeContent} & Return one page; promote node \code{pending} $\to$ \code{active} \\
+\op{Write} & \code{write(parent\_id, type, title, content, summary, ...) $\to$ UUID} & Create child node; enforce invariants 1 and 2 \\
+\op{Recurse} & \code{recurse(node\_id, task, result\_slot, ...) $\to$ (task\_node\_id, child\_run\_id)} & Create scoped-subtree child execution \\
+\op{Await\_Children} & \code{await\_children(parent\_id) $\to$ \{slot: NodeSummary\}} & Collect results from completed child task nodes \\
+\op{Checkpoint} & \code{checkpoint(tree\_id, progress, key\_facts, next\_steps) $\to$ UUID} & Compress context into a checkpoint node \\
+\op{Assemble} & \code{assemble\_output(tree\_id, coherence\_pass=True) $\to$ str} & DFS the Output subtree; LLM-generate transition paragraphs \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{The Viewport}
+
+A viewport is the bounded representation of the agent's current position.
+Token cost is bounded by $\text{max\_children} \times {\sim}40$ tokens per
+child summary, plus the current node's summary, the parent's summary, and
+the breadcrumb. The viewport is serialized as structured text:
+
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+## Navigation Path
+<breadcrumb>
+
+## Current Node: <title>
+Type / Status / Depth / Summary
+
+## Children
+  [1] <title> (<type>, <status>) -- <summary>
+  ...
+
+## Available CORTEX Operations
+NAVIGATE(...) | READ(...) | WRITE(...) | RECURSE(...) |
+AWAIT_CHILDREN() | CHECKPOINT(...)
+\end{lstlisting}
+
+\subsection{Bounded Context Property}
+\label{sec:bounded}
+
+\begin{property}[Bounded Viewport]
+For any tree $T$ with $\text{max\_children} = M$, the prompt cost of
+$\text{navigate}(n)$ for any node $n \in T$ is $O(M + \text{depth}(n))$
+tokens, independent of $|T|$.
+\end{property}
+
+\begin{proof}[Justification]
+The viewport contains the current node's summary ($O(1)$), at most $M$
+child summaries ($O(M)$), one parent summary ($O(1)$), and a breadcrumb
+whose length equals $\text{depth}(n)$.
+\end{proof}
+
+This property is the central design invariant: the agent's prompt cost is
+decoupled from the tree's size. A tree with 100{,}000 nodes presents the
+same per-step prompt cost as a tree with 10 nodes.
+
+\subsection{Subtree Isolation}
+\label{sec:isolation}
+
+When a \code{CortexRouter} is constructed with
+\code{scoped\_subtree\_root\_id}, every \code{\_get\_node} call validates
+that the requested node is a descendant of the scope root via a single
+recursive CTE:
+
+\begin{lstlisting}[language=SQL]
+WITH RECURSIVE ancestors AS (
+  SELECT id, parent_id FROM cortex_nodes WHERE id = :node_id
+  UNION ALL
+  SELECT cn.id, cn.parent_id
+  FROM cortex_nodes cn JOIN ancestors a ON cn.id = a.parent_id
+)
+SELECT 1 FROM ancestors WHERE id = :ancestor_id LIMIT 1;
+\end{lstlisting}
+
+Out-of-scope access raises an error.
+
+\begin{property}[Subtree Isolation]
+A child execution constructed with \code{scoped\_subtree\_root\_id}~$=s$
+cannot read or write any node $n$ such that $s$ is not an ancestor of
+$n$.
+\end{property}
+
+\subsection{Re-Clustering on Viewport Overflow}
+
+When \op{Write} would cause a node's child count to exceed
+\code{max\_children}, an asynchronous re-clustering routine moves the
+first half of children under a new \code{group} node. The group inherits
+the type of the moved children, preserving semantic homogeneity within
+groups.
+
+\subsection{Resumability}
+
+A tree maintains \code{resume\_cursor\_id} updated by every \op{Navigate},
+\op{Read}, and \op{Write}. On \code{resume\_tree(tree\_id)}:
+
+\begin{enumerate}
+  \item Status is flipped from \code{suspended} to \code{active}.
+  \item The viewport at \code{resume\_cursor\_id} is loaded.
+  \item The most recent \code{checkpoint} node under the cursor is
+  returned.
+  \item The execution engine's \code{\_\_completed\_steps\_\_} set is
+  restored, causing already-finished steps to be skipped.
+\end{enumerate}
+
+This makes resumption deterministic and idempotent at step granularity.
+
+% =============================================================================
+\section{The Dreaming Consolidation Pipeline}
+\label{sec:dreaming}
+
+The \code{DreamingEngine} runs the cognitive sequence \textit{episode $\to$
+observation $\to$ pattern $\to$ rule} as a three-phase background job.
+
+\subsection{Trigger}
+
+The pipeline runs when:
+\begin{itemize}
+  \item \code{dreaming\_worker} is enqueued (post-run hook or scheduled),
+  and
+  \item $\text{now}() - \text{experience\_tree.last\_consolidated\_at}
+  \geq \text{CONSOLIDATION\_INTERVAL\_HOURS}$ (default 24), or
+  \item \code{force=True}.
+\end{itemize}
+
+\subsection{Phase 1 --- Observation Extraction}
+
+Inputs: episodes since \code{last\_consolidated\_at} (capped at
+$\text{BATCH\_SIZE} = 20$), minimum
+$\text{MIN\_EPISODES\_FOR\_DREAMING} = 5$.
+
+The engine builds episode summaries
+\code{\{id, task, status, tools\_used, cost\_usd, execution\_time\_ms\}}
+and calls the LLM with \code{OBSERVATION\_EXTRACTION\_PROMPT}, asking for
+observations across five categories: tool patterns, success factors,
+failure patterns, cost patterns, and time patterns. Observations with
+$\text{confidence} < 0.5$ are filtered. Survivors are written as
+\code{OBSERVATION} nodes under the Experience tree's Observations section,
+embedded via \code{EmbeddingService.embed\_node}, with
+$\text{importance\_score} = \text{confidence}$.
+
+\subsection{Phase 2 --- Pattern Recognition}
+
+Observations are clustered by greedy embedding-cosine similarity
+($> 0.75$). For each cluster of size $\geq 2$:
+
+\begin{enumerate}
+  \item The LLM is called with \code{PATTERN\_RECOGNITION\_PROMPT} over
+  the cluster's summaries.
+  \item A \code{PATTERN} node is written with
+  \code{metadata\_extra = \{source\_observations, pattern\_strength,
+  recurrence\_count, success\_correlation\}}.
+  \item For each source observation, a
+  \code{CortexEdge(edge\_type = "derived\_from",
+  weight = 1/|cluster|,
+  created\_by = "dreaming\_engine")} is created from pattern
+  $\to$ observation.
+\end{enumerate}
+
+\subsection{Phase 3 --- Intelligence Distillation}
+
+Strong patterns ($\text{strength} \geq 0.7$,
+$\text{recurrence} \geq \text{MIN\_PATTERNS\_FOR\_DISTILLATION} = 2$)
+are fed to the LLM with \code{INTELLIGENCE\_DISTILLATION\_PROMPT}
+alongside existing rule summaries (for de-duplication). Output is an
+array of typed rules: instruction, strategy, or preference. Each rule
+becomes an \code{INSTRUCTION}, \code{STRATEGY}, or \code{PREFERENCE} node
+under the appropriate Intelligence section. The tree's
+\code{consolidation\_generation} is incremented and
+\code{last\_consolidated\_at} is set.
+
+\subsection{Properties of the Consolidation Pipeline}
+
+\begin{itemize}
+  \item \textbf{Monotonic accumulation.} Existing rules are not deleted;
+  new generations add on top. Conflict resolution between generations is
+  reserved for the \code{contradicts} and \code{supersedes} edge types
+  (future work).
+
+  \item \textbf{Confidence-weighted retrieval.} Rule retrieval at runtime
+  (\code{IntelligenceTreeService.get\_applicable\_rules}) ranks by
+  $\text{confidence} \times \text{cosine\_similarity}$, then bulk-updates
+  \code{access\_count} and \code{last\_accessed\_at}. This implements a
+  form of frequency-weighted importance.
+
+  \item \textbf{Domain coupling via edges.} The \code{derived\_from} and
+  (future) \code{generalizes} edges create a back-pointer chain from
+  rule $\to$ pattern $\to$ observation $\to$ episode, making every rule
+  fully traceable to the runs that produced it.
+\end{itemize}
+
+% =============================================================================
+\section{The Semantic Graph Layer}
+\label{sec:graph}
+
+The \code{cortex\_edges} overlay provides associative cross-tree retrieval.
+
+\subsection{Hybrid Search}
+
+\code{SemanticGraphService.semantic\_graph\_search} proceeds in three
+steps:
+
+\begin{enumerate}
+  \item Embed the query with $\text{task\_type} = $ \code{RETRIEVAL\_QUERY}.
+  \item \textbf{Seed.} Run pgvector cosine search restricted to
+  \code{(ct.entity\_id = :entity\_id OR ct.scope\_level IN ('app','tenant'))}
+  and optionally to specified \code{memory\_domain}s. Return top-$k$
+  seeds.
+  \item \textbf{Expand.} For each seed, run BFS via a recursive CTE with
+  cycle protection (\code{NOT (target\_node\_id = ANY(path))}), depth
+  $\leq$ \code{expansion\_depth}, traversing edges with $\text{weight}
+  \geq \text{min\_weight}$. Multiply weights along paths.
+  \item \textbf{Re-rank.} Combine:
+  $\text{combined\_score} = 0.7 \cdot \text{similarity}
+  + 0.3 \cdot \text{edge\_weight}$. Sort descending, truncate to
+  $2k$.
+\end{enumerate}
+
+This couples the precision of embedding search with the recall of graph
+expansion.
+
+\subsection{Auto-Edge Creation}
+
+After any node is embedded, \code{create\_similarity\_edges(node\_id)}
+finds up to 5 nodes with cosine similarity $\geq 0.85$ and creates
+\code{semantic\_similar} edges weighted by the similarity score.
+
+\subsection{Co-Access Tracking}
+
+\code{track\_co\_access(node\_ids, run\_id)} creates pairwise
+\code{co\_accessed} edges (initial weight 0.3) between all nodes the
+agent reads in the same step. Subsequent re-traversals boost the weight
+by $\text{BOOST\_ON\_TRAVERSAL} = 0.05$, capped at 1.0. Over time the
+graph organizes along trajectories of nodes that are useful together.
+
+\subsection{Maintenance}
+
+A daily \code{graph\_maintenance\_worker}:
+
+\begin{lstlisting}[language=SQL]
+-- Decay weights of edges not traversed in 30 days
+UPDATE cortex_edges
+   SET weight = GREATEST(MIN_WEIGHT, weight * 0.95)
+ WHERE last_traversed_at < NOW() - INTERVAL '30 days'
+    OR last_traversed_at IS NULL;
+
+-- Prune edges below minimum
+DELETE FROM cortex_edges WHERE weight < MIN_WEIGHT;
+\end{lstlisting}
+
+Decay plus prune produces a self-trimming graph whose size scales with
+active relevance rather than accumulated history.
+
+% =============================================================================
+\section{Scope Hierarchy}
+\label{sec:scope}
+
+\textsc{Cortex} implements a six-level scope hierarchy via the
+\code{scope\_level} enum, allowing the same schema to represent
+platform-wide, multi-tenant, per-user, per-agent, and per-run state
+(Table~\ref{tab:scope}).
+
+\begin{table}[h]
+\centering
+\caption{The six scope levels and their typical uses.}
+\label{tab:scope}
+\small
+\begin{tabularx}{\linewidth}{lll>{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Level} & \textbf{Value} & \textbf{Inherits to} & \textbf{Typical use}\\
+\midrule
+L0 & \code{app} & All tenants & Platform-wide instructions shared across all tenants \\
+L1 & \code{partner} & Partner's tenants & Shared across tenants under a partner organization \\
+L2 & \code{tenant} & Tenant's users & Tenant-level knowledge (company-wide playbook) \\
+L3 & \code{user} & User's entities & Per-user preferences \\
+L4 & \code{entity} & Entity's runs & Per-agent persistent trees \\
+L5 & \code{runtime} & --- & One per execution (working memory) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The \code{semantic\_graph\_search} SQL clause
+\code{(ct.entity\_id = :entity\_id OR ct.scope\_level IN ('app','tenant'))}
+is the inheritance primitive: an entity sees its own trees plus shared
+app/tenant trees, without duplicating data.
+
+% =============================================================================
+\section{Implementation}
+\label{sec:impl}
+
+\subsection{Stack}
+
+\begin{itemize}
+  \item \textbf{Language.} Python 3.10+.
+  \item \textbf{Async ORM.} SQLAlchemy 2.x with asyncio support.
+  \item \textbf{Database.} PostgreSQL with the \code{pgvector} extension.
+  \item \textbf{Embeddings.} Pluggable; reference implementation uses
+  Vertex AI (\code{text-embedding-005}, 768-dim) but the resolution path
+  supports per-tenant override via an admin configuration table.
+  \item \textbf{LLM.} Pluggable via an internal \code{LLMRouter}
+  (reference implementation supports OpenAI, Anthropic, and Google
+  providers).
+  \item \textbf{Background jobs.} \code{arq} (Redis-backed) for
+  \code{dreaming\_worker}, \code{graph\_maintenance\_worker},
+  \code{cortex\_resume\_scheduled} (cron, every 5 minutes),
+  \code{resume\_execution}, and \code{process\_document}.
+\end{itemize}
+
+\subsection{Execution Engine Integration}
+
+The reference \code{ExecutionEngine} invokes \textsc{Cortex} in five
+phases (C1--C5):
+
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+C1: Create or resume CORTEX tree
+C2: Memory assembly (assemble_memory facade routes v1/v2)
+C3: Build context from viewport, knowledge subtree, context sources
+C4: Locate working memory root
+C5: Execute plan steps with per-step write_step, refresh_viewport,
+    and periodic write_checkpoint
+\end{lstlisting}
+
+CORTEX-native step types (\op{Navigate}, \op{Read}, \op{Write},
+\op{Recurse}, \op{Await\_Children}) are handled by
+\code{CortexBridge.execute\_cortex\_step}. Conventional step types
+(\op{Thought}, \op{Action}, \op{Tool\_Call},
+\op{Child\_Entity\_Invocation}) are handled by the step executor, which
+post-processes by writing each step result as a \code{finding} node and,
+after tool calls, ingesting tool output as \code{knowledge} nodes with
+provenance metadata.
+
+\subsection{Performance Engineering}
+
+Several optimizations were applied during development:
+
+\begin{itemize}
+  \item \textbf{Recursive CTEs replace iterative parent walks.}
+  \code{\_build\_breadcrumb} and \code{\_is\_descendant\_of} use single
+  recursive CTE queries, replacing $O(\text{depth})$ sequential SELECTs
+  with one round-trip.
+
+  \item \textbf{Incremental context-size tracking.}
+  \code{update\_context\_size(key, old, new)} mutates an $O(1)$ counter
+  on every \code{store\_step\_output}, replacing $O(n)$ full-context
+  scans before auto-compaction checks.
+
+  \item \textbf{Redis viewport caching.} \code{refresh\_viewport} caches
+  the rendered viewport text under
+  \code{cortex:viewport:\{tree.id\}:\{cursor\_id\}} with a 30~s TTL,
+  avoiding redundant tree traversals when the cursor has not moved
+  between steps.
+
+  \item \textbf{Batch embedding.} \code{EmbeddingService.embed\_batch}
+  batches at $\text{BATCH\_SIZE} = 100$ (the Vertex AI limit) with
+  per-text truncation to 8000 characters.
+
+  \item \textbf{UUID caching for long sessions.}
+  \code{working\_root\_id}, \code{\_tree\_output\_root\_id}, and
+  \code{\_tree\_id} are captured as locals before the first session
+  commit to avoid \code{MissingGreenlet} errors from ORM-attribute
+  expiry during long step loops.
+\end{itemize}
+
+\subsection{Safety and Multi-Tenancy}
+
+\begin{itemize}
+  \item \textbf{Tenant isolation.} Every \code{CortexRouter} is
+  constructed with a \code{company\_id}; all SQL filters by it.
+  \item \textbf{Subtree isolation.} See \S\ref{sec:isolation}.
+  \item \textbf{Sensitive-context redaction.} A
+  \code{\_SENSITIVE\_CONTEXT\_KEYS} set redacts substrings like
+  \code{api\_key}, \code{secret}, \code{token}, \code{password} from
+  \code{context\_state} before any database write.
+  \item \textbf{Parent $\to$ child memory leak prevention.} When the
+  execution engine spawns a child via \op{Child\_Entity\_Invocation},
+  it strips parent-scoped memory keys (\code{\_\_memory\_\_},
+  \code{\_\_episodic\_memory\_\_}, \code{\_\_semantic\_context\_\_},
+  etc.) before child invocation.
+  \item \textbf{Null-byte sanitization.} Auto-ingested context sources
+  are stripped of \code{\textbackslash x00} bytes that PostgreSQL UTF-8
+  columns reject.
+  \item \textbf{REST authorization.} All \code{/api/v1/cortex/*}
+  endpoints require authentication; \code{company\_id} is taken from
+  the authenticated user, never from the request body.
+\end{itemize}
+
+% =============================================================================
+\section{Discussion: Design Properties and Trade-Offs}
+\label{sec:discussion}
+
+\subsection{Properties}
+
+Table~\ref{tab:properties} summarizes the system's design properties and
+the mechanisms that produce them.
+
+\begin{table}[h]
+\centering
+\caption{Design properties and the mechanisms that produce them.}
+\label{tab:properties}
+\small
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+\textbf{Property} & \textbf{Mechanism}\\
+\midrule
+Bounded per-step prompt cost & Viewport contains at most $M + \text{depth}(n)$ summaries \\
+Cross-run continuity & Four persistent entity-scoped trees \\
+Deterministic resumability & \code{resume\_cursor\_id} + checkpoint nodes + \code{\_\_completed\_steps\_\_} \\
+Sub-agent isolation & \code{scoped\_subtree\_root\_id} with recursive-CTE ancestry check \\
+Traceable provenance & \code{source\_ref} + \code{metadata\_extra.provenance\_chain} per node \\
+Self-organizing graph & Edge weight boost on traversal, decay on inactivity, prune on threshold \\
+Domain extensibility & Adding a domain or scope level is an enum extension, not a schema change \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Trade-Offs}
+
+\begin{itemize}
+  \item \textbf{Postgres-only.} The recursive CTEs and pgvector
+  dependencies preclude SQLite or MongoDB backends. This is by design ---
+  the structural query patterns are the architectural moat.
+
+  \item \textbf{Async-only API.} Practical for modern Python agents but
+  excludes synchronous codebases.
+
+  \item \textbf{Operational complexity.} Running \textsc{Cortex} in
+  production requires PostgreSQL, pgvector, Redis, and an arq worker.
+  This is higher operational overhead than a library like Mem0 that runs
+  in-process.
+
+  \item \textbf{LLM cost during consolidation.} Dreaming makes three LLM
+  calls per cycle. At typical observation/pattern volumes, this is
+  sub-dollar per entity per day but is not free.
+
+  \item \textbf{Greedy clustering in dreaming.}
+  \code{\_cluster\_observations} is $O(n^2)$. Degrades past a few hundred
+  observations; a HNSW-backed clustering pass is planned
+  (\S\ref{sec:future}).
+
+  \item \textbf{Synchronous re-clustering.} Triggered inside
+  \code{write()} rather than queued; can briefly block step execution
+  under high write pressure.
+
+  \item \textbf{No node-level ACLs.} The unit of access is the tree.
+  Per-node ACLs are reserved for future work.
+\end{itemize}
+
+\subsection{When \textsc{Cortex} Is and Is Not the Right Choice}
+
+\textsc{Cortex} is well-suited to:
+
+\begin{itemize}
+  \item Long-horizon agents (multi-step, multi-hour, multi-day tasks).
+  \item Agents that must produce structured output documents.
+  \item Multi-tenant SaaS platforms with per-customer learning loops.
+  \item Multi-agent systems where sub-agent isolation is critical.
+\end{itemize}
+
+\textsc{Cortex} is overkill for:
+
+\begin{itemize}
+  \item Single-turn chatbots needing only conversation history.
+  \item Stateless RAG over a fixed document corpus (PageIndex or vanilla
+  vector RAG suffice).
+  \item Agents whose memory needs are exhausted by Mem0-style fact
+  extraction.
+\end{itemize}
+
+% =============================================================================
+\section{Limitations}
+\label{sec:limits}
+
+We list limitations honestly to delineate the system's current scope:
+
+\begin{enumerate}
+  \item \textbf{No empirical benchmarks yet.} This paper is a system
+  description. Standard agent-memory benchmarks (LoCoMo, LongMemEval,
+  AgentBench) are in the planning phase. No numerical claims about
+  retrieval accuracy, downstream task completion, or token cost
+  reduction are made here.
+
+  \item \textbf{Dreaming has no automatic post-run trigger.}
+  \code{dreaming\_worker} must be explicitly enqueued; a hook chained
+  from \code{MemoryRouter.write\_episodic} is planned.
+
+  \item \textbf{Memory scope \code{RUN\_SCOPED} is currently identical
+  to \code{FULL}.} The filter to restrict retrieval to the current
+  run's tree is not yet implemented.
+
+  \item \textbf{Tree status remains \code{active} after run completion.}
+  Long-term archival sweeps are not yet designed.
+
+  \item \textbf{Concurrent writes under the same parent} rely on
+  $\text{MAX}(\text{sibling\_order}) + 1$ without \code{SELECT FOR
+  UPDATE}; the race window is small but not formally prevented.
+
+  \item \textbf{v1 and v2 retrieval pipelines coexist.} The
+  \code{MemoryAssemblyService} (v2) is implemented but the default
+  per-entity pipeline is v1. Migration is gated by a feature flag on
+  the entity capability config.
+
+  \item \textbf{Reserved edge types} (\code{generalizes},
+  \code{contradicts}, \code{supersedes}, \code{applies\_to}) are
+  defined in the vocabulary but not yet emitted by the system.
+
+  \item \textbf{No formal quality gate on distilled rules.}
+  Low-confidence LLM outputs can pollute the Intelligence tree; a
+  validation pass is planned.
+\end{enumerate}
+
+% =============================================================================
+\section{Future Work}
+\label{sec:future}
+
+\subsection{Empirical Evaluation}
+
+Planned experiments:
+
+\begin{itemize}
+  \item \textbf{Long-horizon task coherence} (analogous to Letta's
+  30-day continuous-run benchmark).
+  \item \textbf{Cross-session fact recall} (LoCoMo / LongMemEval
+  comparison vs Mem0, Zep, Letta).
+  \item \textbf{Cost per task} (Dreaming amortization vs naive
+  context-stuffing baselines).
+  \item \textbf{Sub-agent isolation correctness} (formal verification
+  of Property 2 via fuzz testing).
+  \item \textbf{Retrieval ablations}: pure embedding vs embedding +
+  graph-1-hop vs embedding + graph-2-hop.
+\end{itemize}
+
+\subsection{Algorithmic Improvements}
+
+\begin{itemize}
+  \item Replace greedy $O(n^2)$ observation clustering with HNSW-backed
+  batched clustering.
+  \item Implement automatic post-run dreaming triggers gated by run
+  count and time since last consolidation.
+  \item Add LLM-based quality gate before writing Intelligence rules.
+  \item Implement \code{contradicts}/\code{supersedes} edge emission
+  during distillation; resolve conflicts at retrieval time.
+\end{itemize}
+
+\subsection{Operational Improvements}
+
+\begin{itemize}
+  \item Node-level ACLs for fine-grained sharing.
+  \item Tree archival sweeps (move \code{complete} and
+  $\text{inactive} > N$ days trees to a cold store).
+  \item Async (queued) re-clustering instead of synchronous in
+  \code{write()}.
+  \item Backend-agnostic abstraction (although the design will remain
+  Postgres-first).
+\end{itemize}
+
+\subsection{Theoretical Work}
+
+\begin{itemize}
+  \item Formalize the relationship between viewport bounded-context
+  and downstream task accuracy.
+  \item Connect the Dreaming consolidation pipeline to formal models
+  of memory consolidation in cognitive science (e.g., the two-stage
+  hippocampal-neocortical model).
+  \item Investigate whether Intelligence rules form a useful ``policy
+  distillation'' target for fine-tuning smaller models.
+\end{itemize}
+
+\subsection{Ecosystem}
+
+Open-source as a standalone \code{pip}-installable package, with backend
+plugins for OpenAI / Anthropic / litellm LLM providers and Vertex /
+OpenAI / sentence-transformers embedding providers (planned).
+
+% =============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented \textsc{Cortex}, an agent-memory architecture in which the
+agent's complete cognitive state is a typed, persistent, navigable,
+writable tree, and the language model's context window is a bounded
+viewport onto that tree. \textsc{Cortex} unifies four memory domains and
+a transient runtime workspace on a single ORM model trio, with seven
+primitive operations, a three-phase background consolidation pipeline,
+a semantic graph overlay, and a six-level scope hierarchy. Each
+individual element draws on prior work --- MemGPT's tiering, PageIndex's
+hierarchical navigation, RLM's recursive decomposition, Park et al.'s
+reflection trees, CoALA's memory taxonomy --- but the integration into
+one coherent runtime with one schema and one set of primitives is, to
+our knowledge, novel. We have characterized the system's design
+properties, documented its limitations, and outlined a path to
+empirical evaluation. The architecture is in production use; the source
+is available for inspection and extension.
+
+% =============================================================================
+\section*{Acknowledgments}
+
+We thank the broader community working on LLM agent memory --- including
+the teams behind MemGPT/Letta, Mem0, Zep, Cognee, Generative Agents,
+PageIndex, and the CoALA framework --- for the foundational ideas this
+work builds upon. Any errors or unsupported claims remain our own.
+
+% =============================================================================
+\begin{thebibliography}{99}
+
+\bibitem{packer2023memgpt}
+C.~Packer, S.~Wooders, K.~Lin, et~al.
+\newblock {MemGPT: Towards LLMs as Operating Systems}.
+\newblock \textit{arXiv preprint arXiv:2310.08560}, 2023.
+
+\bibitem{bansal2025mem0}
+P.~Bansal et~al.
+\newblock {Mem0: Building Production-Ready AI Agents with Scalable
+Long-Term Memory}.
+\newblock \textit{arXiv preprint arXiv:2504.19413}, 2025.
+
+\bibitem{park2023generative}
+J.~S. Park, J.~C. O'Brien, C.~J. Cai, M.~R. Morris, P.~Liang, and
+M.~S.~Bernstein.
+\newblock {Generative Agents: Interactive Simulacra of Human Behavior}.
+\newblock In \textit{Proceedings of UIST}, 2023.
+
+\bibitem{sumers2023coala}
+T.~R. Sumers, S.~Yao, K.~Narasimhan, and T.~L.~Griffiths.
+\newblock {Cognitive Architectures for Language Agents}.
+\newblock \textit{arXiv preprint arXiv:2309.02427}, 2023.
+
+\bibitem{laird2022soar}
+J.~E.~Laird.
+\newblock {Introduction to the Soar Cognitive Architecture}.
+\newblock \textit{arXiv preprint arXiv:2205.03854}, 2022.
+
+\bibitem{vectifyai2025pageindex}
+Vectify AI.
+\newblock {PageIndex: Document Index for Vectorless, Reasoning-Based RAG}.
+\newblock Technical report and open-source release, 2025.
+\newblock \url{https://github.com/VectifyAI/PageIndex}.
+
+\bibitem{zhang2025rlm}
+A.~L. Zhang.
+\newblock {Recursive Language Models}.
+\newblock \textit{arXiv preprint arXiv:2512.24601}, 2025.
+
+\bibitem{wang2025gmemory}
+J.~Wang et~al.
+\newblock {G-Memory: Tracing Hierarchical Memory for Multi-Agent Systems}.
+\newblock In \textit{Advances in Neural Information Processing Systems},
+2025.
+
+\bibitem{byterover2026}
+ByteRover Team.
+\newblock {ByteRover: Agent-Native Memory Through LLM-Curated Hierarchical
+Context}.
+\newblock \textit{arXiv preprint arXiv:2604.01599}, 2026.
+
+\bibitem{liu2025cogworkspace}
+S.~Liu et~al.
+\newblock {Cognitive Workspace: Active Memory Management for LLMs --- An
+Empirical Study of Functional Infinite Context}.
+\newblock \textit{arXiv preprint arXiv:2508.13171}, 2025.
+
+\bibitem{lettafs2025}
+Letta Inc.
+\newblock {Benchmarking AI Agent Memory: Is a Filesystem All You Need?}
+\newblock Letta blog, 2025.
+\newblock \url{https://www.letta.com/blog/benchmarking-ai-agent-memory}.
+
+\bibitem{memorysurvey2026}
+{Anonymous}.
+\newblock {Rethinking Memory Mechanisms of Foundation Agents in the
+Second Half: A Survey}.
+\newblock \textit{arXiv preprint arXiv:2602.06052}, 2026.
+
+\end{thebibliography}
+
+% =============================================================================
+\appendix
+
+\section{Glossary}
+\label{app:glossary}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+\textbf{Term} & \textbf{Definition}\\
+\midrule
+\textsc{Cortex} & Cognitive Orchestrated Recursive Tree EXecution \\
+Viewport & The bounded representation of the agent's current tree position \\
+Cursor & \code{tree.resume\_cursor\_id} --- the node the agent is ``at'' \\
+Domain & One of \{knowledge, episodic, experience, intelligence\} \\
+Scope & Six-level hierarchy \{app, partner, tenant, user, entity, runtime\} \\
+Dreaming & The three-phase background consolidation pipeline \\
+Subtree anchor & A direct child of the runtime tree's root (Knowledge / Working / Output) \\
+Working memory & The subtree where step \code{finding} nodes accumulate \\
+Episode & A row in the persistent Episodic Tree representing one completed run \\
+Observation & An LLM-extracted insight about a cluster of episodes \\
+Pattern & A recurring behavior synthesized from clustered observations \\
+Rule & An actionable directive distilled from strong patterns \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{The Seven Operations --- Pseudocode Reference}
+\label{app:pseudocode}
+
+\begin{lstlisting}[language=Python]
+# 1. NAVIGATE -- bounded read of one level of the tree
+async def navigate(node_id) -> Viewport:
+    node = await _get_node(node_id)
+    tree.resume_cursor_id = node_id
+    children = SELECT * FROM cortex_nodes
+               WHERE parent_id = node_id ORDER BY sibling_order
+    parent = await _get_node(node.parent_id) if node.parent_id else None
+    breadcrumb = RECURSIVE_CTE_walk_to_root(node_id)
+    return Viewport(node, children, parent, breadcrumb)
+
+# 2. READ -- paged content access
+async def read(node_id, page=0) -> NodeContent:
+    node = await _get_node(node_id)
+    if node.status == PENDING: node.status = ACTIVE
+    tree.resume_cursor_id = node_id
+    page_chars = tree.page_size_tokens * CHARS_PER_TOKEN
+    return node.content[page * page_chars : (page + 1) * page_chars]
+
+# 3. WRITE -- create child node; enforce invariants
+async def write(parent_id, node_type, title, content, summary, ...) -> UUID:
+    parent = await _get_node(parent_id)
+    assert parent.summary, "Invariant 1: parent must have summary"
+    if child_count(parent_id) >= tree.max_children:
+        await _schedule_reclustering(parent_id)
+    sibling_order = SELECT COALESCE(MAX(sibling_order), -1) + 1
+                    FROM cortex_nodes WHERE parent_id = parent_id
+    INSERT new node
+    tree.total_nodes += 1
+    tree.resume_cursor_id = new_node.id
+    return new_node.id
+
+# 4. RECURSE -- scoped subtree execution
+async def recurse(node_id, task, result_slot) -> (UUID, UUID):
+    task_node_id = await write(
+        parent_id=node_id, node_type="task",
+        content={task, result_slot, scoped_to: node_id}, ...
+    )
+    child_run = ExecutionRun(
+        parent=current,
+        input={cortex_tree_id, subtree_root_id: node_id, task, ...}
+    )
+    enqueue_async("execute_run", child_run.id)
+    return (task_node_id, child_run.id)
+
+# 5. AWAIT_CHILDREN -- collect completed child tasks
+async def await_children(parent_node_id) -> Dict[str, NodeSummary]:
+    children = SELECT * FROM cortex_nodes
+               WHERE parent_id = parent_node_id
+                 AND node_type = 'task' AND status = 'complete'
+    return {c.metadata.result_slot: NodeSummary(c) for c in children}
+
+# 6. CHECKPOINT -- compress context into a node
+async def checkpoint(tree_id, progress, key_facts, next_steps) -> UUID:
+    cursor = tree.resume_cursor_id
+    return await write(
+        parent_id=cursor, node_type="checkpoint",
+        content={progress, key_facts, next_steps,
+                 nodes_written, time_elapsed}, ...
+    )
+
+# 7. ASSEMBLE -- DFS output subtree + bridge paragraphs
+async def assemble_output(tree_id, coherence_pass=True) -> str:
+    sections = DFS_collect(tree.output_root_id, where status='complete')
+    if coherence_pass and len(sections) > 1:
+        bridges = LLM(
+            prompt="Write transitions between sections", sections
+        )
+        return interleave(sections, bridges)
+    return "\n\n".join(sections)
+\end{lstlisting}
+
+\section{Reproducibility}
+\label{app:repro}
+
+A reference implementation is available at the project repository (URL
+to be released with the package) under an OSI-approved license. Postgres
+schema migrations are shipped with the package. To reproduce the system
+locally:
+
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+# Prerequisites: PostgreSQL 14+ with pgvector, Redis
+pip install cortex-memory
+createdb cortex_dev && psql cortex_dev -c "CREATE EXTENSION vector;"
+cortex-memory migrate --database-url postgresql+asyncpg://localhost/cortex_dev
+
+# Minimal usage
+from cortex_memory import CortexRouter, OpenAIEmbeddings, OpenAILLM
+router = CortexRouter(
+    db=session, tenant_id=..., embeddings=..., llm=...
+)
+tree = await router.create_tree(owner_id=..., task="Draft Q3 report")
+node_id = await router.write(
+    parent_id=tree.root_node_id, node_type="finding",
+    title=..., summary=..., content=...
+)
+\end{lstlisting}
+
+\end{document}

@@ -1,0 +1,79 @@
+name: cortex-memory
+
+# CI for the standalone cortex_memory package (Phase 12 `04` Stage C).
+#
+# In-repo the package lives flat in backend/cortex_memory/ (its pyproject maps
+# the import package to "."). When it moves to its own repo this becomes the
+# repo-root workflow; only the working-directory / paths change.
+
+on:
+  push:
+    paths: ["backend/cortex_memory/**"]
+  pull_request:
+    paths: ["backend/cortex_memory/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cortex_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      CORTEX_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/cortex_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package + dev deps
+        run: pip install -e "cortex_memory[dev]"
+
+      - name: Type-check (mypy --strict, package modules only)
+        run: mypy --strict --follow-imports=silent --exclude '/(tests|examples)/' cortex_memory
+
+      - name: Test with coverage (fail under 85%)
+        working-directory: backend/cortex_memory
+        run: |
+          coverage run --source=cortex_memory -m pytest -q
+          coverage report --fail-under=85 --omit="cortex_memory/tests/*"
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/cortex_memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          pip install build
+          python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cortex-memory-dist
+          path: backend/cortex_memory/dist/*

@@ -1,0 +1,18 @@
+{
+  "web_search_action": "34d2376e-5f99-43dd-a452-081d5c953e94",
+  "page_scrape_action": "34dead6c-63f7-46fe-b049-89d338d1f720",
+  "content_extract_action": "c6d4441c-9a99-4723-ac1f-929d6f1461f6",
+  "fact_check_action": "6a9e24f1-6f1d-440d-bf22-fa3ffe92a219",
+  "section_writer_action": "1d8db6d2-bba3-4fa1-9da4-0bb515a8ea6e",
+  "outline_generator_action": "b4f058c0-8a26-4e59-9e87-c9f8b2aef4d6",
+  "pdf_export_action": "e976b356-e715-4b69-b619-8ffaab2d67c0",
+  "citation_generator_action": "77515d02-bef0-47ce-915a-f185a3ef1ae7",
+  "query_decomposer_skill": "1d8d0f1a-ed37-40d8-95ae-99fa463bee4f",
+  "source_discoverer_skill": "5e071f04-2e99-411d-b3e4-a795751c4edd",
+  "source_analyzer_skill": "74f72b66-5879-43af-ace6-ccf0c2d192df",
+  "fact_verifier_skill": "635b8672-5416-4f40-b8ac-2f1217636b4d",
+  "knowledge_synthesizer_skill": "a6bfeeee-2248-422f-9973-9565d74aa02b",
+  "research_director_agent": "533a64dd-a907-4ad7-ab0c-f7547dd32e23",
+  "report_synthesizer_agent": "218ca581-c7c4-4192-ba4b-cf2fa622204e",
+  "deep_research_process": "858c9dab-d469-4af1-b475-1765766901aa"
+}

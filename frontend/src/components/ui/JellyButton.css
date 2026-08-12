@@ -1,0 +1,94 @@
+.jelly-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-2);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    background: var(--color-glass-bg);
+    backdrop-filter: blur(var(--blur-sm));
+    -webkit-backdrop-filter: blur(var(--blur-sm));
+    transition: all var(--transition-base);
+    font-weight: var(--font-weight-medium);
+}
+
+.jelly-button--md {
+    padding: var(--spacing-3) var(--spacing-6);
+    font-size: var(--font-size-base);
+}
+
+.jelly-button--sm {
+    padding: var(--spacing-2) var(--spacing-4);
+    font-size: var(--font-size-sm);
+}
+
+.jelly-button--lg {
+    padding: var(--spacing-4) var(--spacing-8);
+    font-size: var(--font-size-lg);
+}
+
+/* Variants */
+.jelly-button--primary {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--color-glass-stroke-bright);
+}
+
+.jelly-button--primary:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--color-accent-primary);
+    box-shadow: 0 0 15px rgba(197, 142, 127, 0.2);
+}
+
+.jelly-button--rose-gold {
+    background: var(--gradient-rose-gold);
+    border: none;
+    color: #000;
+}
+
+.jelly-button--rose-gold .jelly-button-content {
+    font-weight: var(--font-weight-bold);
+}
+
+.jelly-button--ghost {
+    background: transparent;
+    border-color: transparent;
+    backdrop-filter: none;
+}
+
+.jelly-button--ghost:hover {
+    background: var(--color-glass-overlay);
+    border-color: var(--color-glass-stroke);
+}
+
+.jelly-button--danger:hover {
+    background: rgba(255, 77, 79, 0.15);
+    border-color: var(--color-error);
+    color: var(--color-error);
+}
+
+.jelly-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.jelly-button-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+}
+
+.jelly-button-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.3;
+}

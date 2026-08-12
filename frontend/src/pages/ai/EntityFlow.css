@@ -1,0 +1,495 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   Entity Flow — Hierarchy Designer — Liquid Glass Theme
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Outer wrapper ─────────────────────────────────────────────────────────── */
+.entity-flow-wrapper {
+    display: flex;
+    height: 100%;
+    min-height: 600px;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    flex: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Sidebar
+   ─────────────────────────────────────────────────────────────────────────── */
+.entity-flow-sidebar {
+    width: 264px;
+    flex-shrink: 0;
+    background: rgba(0, 0, 0, 0.35);
+    border-right: 1px solid var(--color-glass-stroke);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ── Sidebar tab strip ─────────────────────────────────────────────────────── */
+.sidebar-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    border-bottom: 1px solid var(--color-glass-stroke);
+}
+
+.sidebar-tab-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 11px 4px;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 0.67rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.sidebar-tab-btn:hover {
+    color: var(--color-text-secondary);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.sidebar-tab-btn.active {
+    color: var(--color-accent-primary);
+    border-bottom-color: var(--color-accent-primary);
+    background: rgba(197, 142, 127, 0.04);
+}
+
+/* ── Add step button ───────────────────────────────────────────────────────── */
+.sidebar-add-btn {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-glass-stroke);
+}
+
+.sidebar-add-btn button {
+    width: 100%;
+    justify-content: center;
+}
+
+/* ── Scrollable section ────────────────────────────────────────────────────── */
+.sidebar-section {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.06) transparent;
+}
+
+.sidebar-section::-webkit-scrollbar {
+    width: 3px;
+}
+
+.sidebar-section::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+}
+
+/* ── Search bar ────────────────────────────────────────────────────────────── */
+.sidebar-search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 11px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+    margin-bottom: 6px;
+}
+
+.sidebar-search input {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-xs);
+    width: 100%;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Draggable library items
+   ─────────────────────────────────────────────────────────────────────────── */
+.draggable-item {
+    padding: 9px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-md);
+    cursor: grab;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    user-select: none;
+}
+
+.draggable-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--color-glass-stroke-bright);
+    transform: translateY(-1px);
+}
+
+.draggable-item:active {
+    cursor: grabbing;
+    transform: scale(0.98);
+}
+
+/* Entity-type left accent */
+.entity-item.entity-type-process {
+    border-left: 3px solid rgba(124, 58, 237, 0.7);
+}
+
+.entity-item.entity-type-agent {
+    border-left: 3px solid rgba(37, 99, 235, 0.7);
+}
+
+.entity-item.entity-type-skill {
+    border-left: 3px solid rgba(5, 150, 105, 0.7);
+}
+
+.entity-item.entity-type-action {
+    border-left: 3px solid rgba(217, 119, 6, 0.7);
+}
+
+.item-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: 3px;
+}
+
+.item-description {
+    font-size: 0.67rem;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+    margin-left: 19px;
+
+    /* clamp to 2 lines */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ── Badge pills ───────────────────────────────────────────────────────────── */
+.type-badge {
+    display: inline-block;
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 1px 7px;
+    border-radius: var(--radius-full);
+    margin-left: 19px;
+    margin-top: 4px;
+}
+
+.type-badge-process {
+    background: rgba(124, 58, 237, 0.15);
+    color: #a78bfa;
+}
+
+.type-badge-agent {
+    background: rgba(37, 99, 235, 0.15);
+    color: #93c5fd;
+}
+
+.type-badge-skill {
+    background: rgba(5, 150, 105, 0.15);
+    color: #6ee7b7;
+}
+
+.type-badge-action {
+    background: rgba(217, 119, 6, 0.15);
+    color: #fcd34d;
+}
+
+.type-badge-tool_call {
+    background: rgba(8, 145, 178, 0.15);
+    color: #67e8f9;
+}
+
+.type-badge-thought {
+    background: rgba(107, 114, 128, 0.15);
+    color: #d1d5db;
+}
+
+/* Empty / loading states */
+.library-loading,
+.library-empty {
+    text-align: center;
+    padding: 24px 8px;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Node Config Panel (sidebar Config tab)
+   ─────────────────────────────────────────────────────────────────────────── */
+.node-config-panel {
+    gap: 12px;
+}
+
+.config-node-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-glass-stroke);
+}
+
+.step-order-badge {
+    font-size: 0.67rem;
+    font-weight: 700;
+    color: var(--color-accent-primary);
+    background: rgba(197, 142, 127, 0.12);
+    border: 1px solid rgba(197, 142, 127, 0.2);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+}
+
+/* Compact form controls inside config panel */
+.node-config-panel .form-group {
+    margin-bottom: 0;
+    gap: 5px;
+}
+
+.node-config-panel .form-group label {
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+}
+
+.node-config-panel .form-group input,
+.node-config-panel .form-group select,
+.node-config-panel .form-group textarea {
+    padding: 8px 11px;
+    font-size: var(--font-size-xs);
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    width: 100%;
+    outline: none;
+    transition: border-color 0.15s;
+    font-family: var(--font-family-primary);
+}
+
+.node-config-panel .form-group input:focus,
+.node-config-panel .form-group select:focus,
+.node-config-panel .form-group textarea:focus {
+    border-color: var(--color-accent-primary);
+    box-shadow: 0 0 0 2px rgba(197, 142, 127, 0.1);
+}
+
+.node-config-panel .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    font-weight: 500;
+    cursor: pointer;
+    padding: 8px 11px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-md);
+}
+
+.node-config-panel .checkbox-label input[type="checkbox"] {
+    accent-color: var(--color-accent-primary);
+    width: 14px;
+    height: 14px;
+}
+
+/* ── No node selected ──────────────────────────────────────────────────────── */
+.no-selection-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 40px 16px;
+    text-align: center;
+    color: var(--color-text-muted);
+}
+
+.no-selection-hint p {
+    font-size: var(--font-size-xs);
+    line-height: 1.6;
+    max-width: 180px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Canvas
+   ─────────────────────────────────────────────────────────────────────────── */
+.entity-flow-canvas {
+    flex: 1;
+    position: relative;
+    background: #080c13;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Relationship edge labels
+   ─────────────────────────────────────────────────────────────────────────── */
+.edge-relationship-label {
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.edge-relationship-label:hover {
+    transform: scale(1.08);
+}
+
+.rel-sequential {
+    background: rgba(197, 142, 127, 0.12);
+    color: var(--color-accent-primary);
+    border-color: rgba(197, 142, 127, 0.25);
+}
+
+.rel-parallel {
+    background: rgba(34, 197, 94, 0.1);
+    color: #4ade80;
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+.rel-conditional {
+    background: rgba(251, 191, 36, 0.1);
+    color: #fbbf24;
+    border-color: rgba(251, 191, 36, 0.2);
+}
+
+/* ── Edge legend ───────────────────────────────────────────────────────────── */
+.edge-legend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px;
+    background: var(--color-glass-bg);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-full);
+    backdrop-filter: blur(var(--blur-md));
+}
+
+.edge-legend .legend-item {
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+    border: 1px solid transparent;
+}
+
+.edge-legend small {
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    padding-left: 4px;
+}
+
+/* ── MiniMap glass ─────────────────────────────────────────────────────────── */
+.react-flow__minimap.glass {
+    background: rgba(0, 0, 0, 0.5) !important;
+    border: 1px solid var(--color-glass-stroke) !important;
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(8px);
+}
+
+/* ── Utility ───────────────────────────────────────────────────────────────── */
+.w-full {
+    width: 100%;
+}
+
+/* ── Layout Direction Select ──────────────────────────────────────────────── */
+.layout-direction-select {
+    padding: 6px 10px;
+    background: var(--color-glass-bg);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    backdrop-filter: blur(8px);
+}
+
+.layout-direction-select:focus {
+    border-color: var(--color-accent-primary);
+}
+
+/* ── Validation Issues in Config Panel ────────────────────────────────────── */
+.config-validation-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.validation-issue {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    font-size: 0.68rem;
+    line-height: 1.5;
+}
+
+.validation-issue.error {
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+    color: #fca5a5;
+}
+
+.validation-issue.warning {
+    background: rgba(251, 191, 36, 0.06);
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    color: #fcd34d;
+}
+
+.validation-issue svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+/* ── Validation Summary in Legend ─────────────────────────────────────────── */
+.validation-summary {
+    display: flex;
+    gap: 8px;
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 1px solid var(--color-glass-stroke);
+}
+
+.validation-error-count {
+    color: #f87171;
+    font-size: 0.62rem;
+    font-weight: 700;
+}
+
+.validation-warning-count {
+    color: #fbbf24;
+    font-size: 0.62rem;
+    font-weight: 700;
+}

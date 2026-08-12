@@ -1,0 +1,7 @@
+{
+  "user_request": "Create a tool that scrapes a URL and returns its main content as JSON with title, byline, and paragraphs.",
+  "expected_kind": "SKILL",
+  "must_use_tools": ["scraper"],
+  "must_not_use_tools": [],
+  "rationale": "Smallest Meta-Agent flow: one tool, one wrapper SKILL, no orchestration."
+}

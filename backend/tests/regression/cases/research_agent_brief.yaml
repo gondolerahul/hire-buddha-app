@@ -1,0 +1,27 @@
+# Mid-complexity case: AGENT with REACT + CORTEX + 5 tools producing a brief.
+case_id: research_agent_brief
+entity_fixture: research_agent
+track_min: 2          # AgentLoop required for autonomous-mode parity
+timeout_seconds: 600
+input:
+  topic: "post-quantum cryptography standardisation status"
+expected_status: COMPLETED
+expected_min_cost_usd: 0.05
+expected_max_cost_usd: 1.50
+expected_must_mention:
+  - "NIST"
+  - "FIPS"
+expected_must_not_mention:
+  - "according to my training data"   # canned LLM disclaimers are a smell
+tags: ["agent", "research", "cortex"]
+acceptance:
+  llm_judge_threshold: 0.7
+  output_min_chars: 250
+  output_max_chars: 6500
+  judge_rubric: |
+    The brief must:
+      1. Mention NIST as the standards body.
+      2. Reference at least one FIPS standard number (203 / 204 / 205).
+      3. Cite at least one external source.
+      4. Be at most 800 words.
+    Score = (fraction of the above present) clamped to [0,1].

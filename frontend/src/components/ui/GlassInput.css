@@ -1,0 +1,97 @@
+.glass-input-wrapper {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    margin-top: var(--spacing-4);
+    margin-bottom: var(--spacing-4);
+}
+
+.glass-input-container {
+    position: relative;
+    background: var(--color-glass-bg);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-md);
+    transition: all var(--transition-base);
+    display: flex;
+    flex-direction: column;
+    padding: var(--spacing-1) 0;
+}
+
+.glass-input-container.focused {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--color-accent-primary);
+    box-shadow: 0 0 0 4px rgba(197, 142, 127, 0.1), 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.glass-input-container.error {
+    border-color: var(--color-error);
+}
+
+.glass-input-label {
+    position: absolute;
+    left: var(--spacing-4);
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    font-size: var(--font-size-base);
+    color: var(--color-text-tertiary);
+    z-index: 10;
+    transform-origin: left top;
+}
+
+.glass-input-inner {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--spacing-4);
+    min-height: 48px;
+}
+
+.glass-input-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: var(--spacing-3);
+    color: var(--color-text-tertiary);
+    transition: color var(--transition-base);
+}
+
+.focused .glass-input-icon {
+    color: var(--color-accent-primary);
+}
+
+.glass-input-field {
+    flex: 1;
+    background: transparent !important;
+    border: none !important;
+    padding: var(--spacing-2) 0 !important;
+    color: var(--color-text-primary) !important;
+    font-size: var(--font-size-base) !important;
+    outline: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    width: 100%;
+}
+
+.glass-input-border {
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--gradient-rose-gold);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    transform-origin: center;
+}
+
+.glass-input-error-msg {
+    color: var(--color-error);
+    font-size: var(--font-size-xs);
+    margin-top: var(--spacing-1);
+    margin-left: var(--spacing-2);
+}
+
+/* Hide standard placeholder when focusing/active because we have our own label */
+.glass-input-field:focus::placeholder {
+    color: transparent;
+}

@@ -1,0 +1,16 @@
+# Python libraries baked into hb-sandbox for the Document Factory scripts and
+# autonomous data work. Kept in sync with the host backend's pyproject.toml so a
+# script behaves identically whether it runs under SubprocessRuntime (host venv)
+# or ContainerRuntime (this image). Pinned to compatible ranges; the image is
+# pinned by digest at build time (build.sh), which is the real lock.
+python-docx>=1.1.0,<2
+openpyxl>=3.1.0,<4
+pypdf>=3.0.1,<5
+pdfplumber>=0.10,<1
+lxml>=4.9,<6
+defusedxml>=0.7,<1
+validators>=0.20,<1
+reportlab>=4.0,<5
+Pillow>=10.0.0,<11
+pandas>=2.0,<3
+requests>=2.31,<3

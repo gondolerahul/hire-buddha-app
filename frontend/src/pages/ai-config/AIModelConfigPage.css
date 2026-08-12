@@ -1,0 +1,55 @@
+.ai-config-page {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.ai-task-card {
+    transition: all 0.3s ease;
+}
+
+.ai-task-card:hover {
+    border-color: rgba(225, 175, 160, 0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 15px rgba(225, 175, 160, 0.1);
+}
+
+.ai-task-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--color-rose-gold);
+}
+
+.mode-toggle {
+    display: flex;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.mode-toggle button {
+    flex: 1;
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 6px;
+    color: var(--color-gray-400);
+    transition: all 0.2s;
+}
+
+.mode-toggle button.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.mode-toggle button:hover:not(.active) {
+    color: var(--color-gray-200);
+    background: rgba(255, 255, 255, 0.05);
+}

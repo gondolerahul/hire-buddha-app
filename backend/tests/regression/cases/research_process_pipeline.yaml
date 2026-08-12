@@ -1,0 +1,23 @@
+# Highest-complexity case: PROCESS orchestrating two AGENT children.
+# Exercises CHILD_ENTITY_INVOCATION + cross-agent context carry.
+case_id: research_process_pipeline
+entity_fixture: research_process
+track_min: 2
+timeout_seconds: 1200
+input:
+  topic: "lattice cryptography in 2025"
+# Seed the child AGENT both CHILD_ENTITY_INVOCATION steps delegate to, and wire
+# its id into the parent plan so the PROCESS resolves children and completes.
+child_fixtures:
+  test_research_agent: research_agent
+expected_status: COMPLETED
+expected_min_cost_usd: 0.10
+expected_max_cost_usd: 3.50
+expected_must_mention:
+  - "lattice"
+  - "NIST"
+expected_must_not_mention: []
+tags: ["process", "research", "multi-agent"]
+acceptance:
+  llm_judge_threshold: 0.65    # process pipelines are noisier
+  output_min_chars: 400

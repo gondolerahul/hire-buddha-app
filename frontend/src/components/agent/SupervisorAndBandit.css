@@ -1,0 +1,96 @@
+/* ---------- Supervisor verdict card ---------- */
+.agentk-super-card {
+    border-left: 4px solid;
+    border-radius: 6px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    margin-bottom: 12px;
+}
+.agentk-super-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.agentk-super-card__rec { font-size: 13px; }
+.agentk-super-card__rec strong { letter-spacing: 0.5px; }
+.agentk-super-card__conf { font-size: 11px; color: var(--color-text-secondary, #888); }
+.agentk-super-card__reasoning {
+    margin: 4px 0;
+    font-size: 12px;
+    color: var(--color-text-primary, #ddd);
+}
+.agentk-super-card__subgoals {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.agentk-super-card__subgoals h5 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary, #888);
+}
+.agentk-super-card__subgoals ul {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 12px;
+}
+.agentk-super-card__priority {
+    margin-left: 8px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.06);
+    font-size: 10px;
+    color: var(--color-text-secondary, #888);
+}
+
+/* ---------- Critic gauge ---------- */
+.agentk-critic-gauge {
+    width: 80px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--color-text-secondary, #aaa);
+}
+.agentk-critic-gauge__ring { width: 60px; height: 60px; }
+.agentk-critic-gauge__bg { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 3; }
+.agentk-critic-gauge__fill { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke-dasharray 0.4s ease; }
+.agentk-critic-gauge__text { fill: var(--color-text-primary, #fff); font-size: 8px; font-weight: 700; text-anchor: middle; }
+.agentk-critic-gauge__label { margin-top: 4px; }
+
+/* ---------- Bandit panel ---------- */
+.agentk-bandit-panel {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.02);
+}
+.agentk-bandit-panel--error { color: var(--color-danger, #d33); }
+.agentk-bandit-panel h4 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary, #aaa);
+}
+.agentk-bandit-panel__empty { font-size: 12px; font-style: italic; color: var(--color-text-secondary, #888); }
+.agentk-bandit-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.agentk-bandit-panel th,
+.agentk-bandit-panel td {
+    padding: 4px 6px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.agentk-bandit-panel th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary, #888);
+}
+.agentk-bandit-panel__arm { font-family: monospace; font-size: 11px; }
+.agentk-bandit-panel__ts { font-size: 10px; color: var(--color-text-secondary, #888); }

@@ -1,0 +1,99 @@
+/* ====================================
+   Color System & Theming
+   ==================================== */
+
+:root {
+    /* Rose Gold / Copper Gradient (Sophisticated - Shared) */
+    --gradient-rose-gold: linear-gradient(135deg, #c58e7f 0%, #e8c4b9 50%, #a46d5f 100%);
+    --gradient-rose-gold-light: linear-gradient(135deg, #d4a397 0%, #f2d7cf 100%);
+    --gradient-rose-gold-text: linear-gradient(to right, #c58e7f, #f2d7cf, #a46d5f);
+    --gradient-gold: var(--gradient-rose-gold);
+
+    /* Functional Colors */
+    --color-success: #52c41a;
+    --color-error: #ff4d4f;
+    --color-warning: #faad14;
+    --color-info: #1890ff;
+
+    /* Accents (Shared) */
+    --color-accent-primary: #c58e7f;
+    --color-accent-secondary: #e8c4b9;
+    --color-accent-tertiary: #8e5a4f;
+}
+
+/* Default Theme (Dark) */
+:root,
+[data-theme='dark'] {
+    --color-bg-primary: #050505;
+    --color-bg-secondary: #0c0c0c;
+    --color-bg-tertiary: #121212;
+    --color-bg-surface: #181818;
+
+    --color-text-primary: #ffffff;
+    --color-text-secondary: rgba(255, 255, 255, 0.75);
+    --color-text-tertiary: rgba(255, 255, 255, 0.5);
+    --color-text-muted: rgba(255, 255, 255, 0.3);
+
+    --color-glass-bg: rgba(20, 20, 20, 0.4);
+    --color-glass-stroke: rgba(255, 255, 255, 0.08);
+    --color-glass-stroke-bright: rgba(255, 255, 255, 0.15);
+    --color-glass-overlay: rgba(255, 255, 255, 0.03);
+
+    /* Liquid background components for dark mode */
+    --liquid-bg-1: radial-gradient(circle at 20% 30%, rgba(197, 142, 127, 0.12) 0%, transparent 50%);
+    --liquid-bg-2: radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.03) 0%, transparent 50%);
+    --liquid-bg-3: radial-gradient(circle at 50% 50%, rgba(197, 142, 127, 0.05) 0%, transparent 60%);
+}
+
+/* Light Theme */
+[data-theme='light'] {
+    --color-bg-primary: #fdfdfd;
+    --color-bg-secondary: #ffffff;
+    --color-bg-tertiary: #f8fafc;
+    --color-bg-surface: #f1f5f9;
+
+    --color-text-primary: #1e293b;
+    --color-text-secondary: #475569;
+    --color-text-tertiary: #64748b;
+    --color-text-muted: #94a3b8;
+
+    --color-glass-bg: rgba(255, 255, 255, 0.7);
+    --color-glass-stroke: rgba(0, 0, 0, 0.06);
+    --color-glass-stroke-bright: rgba(0, 0, 0, 0.12);
+    --color-glass-overlay: rgba(0, 0, 0, 0.02);
+
+    /* Liquid background components for light mode */
+    --liquid-bg-1: radial-gradient(circle at 10% 20%, rgba(197, 142, 127, 0.08) 0%, transparent 40%);
+    --liquid-bg-2: radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.04) 0%, transparent 40%);
+    --liquid-bg-3: radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.03) 0%, transparent 60%);
+}
+
+/* ====================================
+   Shared Themed Components
+   ==================================== */
+
+.liquid-background::before,
+.liquid-background::after,
+.liquid-background {
+    background: var(--liquid-bg-1), var(--liquid-bg-2), var(--liquid-bg-3);
+}
+
+.glass {
+    background: var(--color-glass-bg);
+    border: 1px solid var(--color-glass-stroke);
+    backdrop-filter: blur(var(--blur-md));
+    -webkit-backdrop-filter: blur(var(--blur-md));
+}
+
+.glass-card {
+    background: var(--color-glass-bg);
+    border: 1px solid var(--color-glass-stroke);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    transition: all var(--transition-base);
+}
+
+.glass-card:hover {
+    border-color: var(--color-glass-stroke-bright);
+    box-shadow: var(--shadow-lg), var(--shadow-rose-glow);
+}

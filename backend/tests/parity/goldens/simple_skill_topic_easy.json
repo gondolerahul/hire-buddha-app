@@ -1,0 +1,42 @@
+{
+  "run_id": "fe5b63f9-d228-4319-b692-c3afaed52915",
+  "entity_id": "71e7f9ab-2359-4005-9888-11b06b9ed395",
+  "status": "COMPLETED",
+  "total_cost_usd": 0.0,
+  "total_tokens": 160,
+  "execution_time_ms": 219,
+  "iterations": 2,
+  "step_count": 2,
+  "error_message": null,
+  "output_text": "Post-quantum cryptography advanced in 2025 as NIST finalized its lattice-based standards. This is a deterministic parity summary; the content is fixed so engine-vs-engine comparison is reproducible.",
+  "plan_step_types": [
+    "TOOL_CALL",
+    "ACTION"
+  ],
+  "steps": [
+    {
+      "step_id": "step_1",
+      "name": "web_search",
+      "type": "TOOL_CALL",
+      "status": "success",
+      "cost_usd": 0.0,
+      "latency_ms": 0,
+      "tool_id": "web_search",
+      "output_len": 101
+    },
+    {
+      "step_id": "step_2",
+      "name": "summarise",
+      "type": "ACTION",
+      "status": "success",
+      "cost_usd": 0.0,
+      "latency_ms": 1,
+      "tool_id": null,
+      "output_len": 198
+    }
+  ],
+  "meta": {
+    "llm_call_count": 1,
+    "tool_call_count": 1
+  }
+}

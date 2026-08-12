@@ -1,0 +1,100 @@
+.agentk-kpi-page__tabs {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 14px;
+    align-items: center;
+}
+.agentk-kpi-page__tabs button {
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--color-text-secondary, #aaa);
+    cursor: pointer;
+    font-size: 13px;
+}
+.agentk-kpi-page__tabs button.active {
+    color: var(--color-text-primary, #fff);
+    border-bottom-color: var(--color-secondary, #5b6fff);
+}
+.agentk-kpi-page__window {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: var(--color-text-secondary, #aaa);
+    font-size: 12px;
+}
+.agentk-kpi-page__window select {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 3px 8px;
+    color: var(--color-text-primary, #fff);
+}
+.agentk-kpi-page__body { padding: 8px 0; }
+.agentk-kpi-page__placeholder {
+    color: var(--color-text-secondary, #888);
+    font-style: italic;
+    padding: 18px;
+    border: 1px dashed rgba(255,255,255,0.08);
+    border-radius: 6px;
+}
+.agentk-kpi-page__placeholder code {
+    background: rgba(255,255,255,0.05);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.agentk-kpi-page__cards {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.agentk-kpi-page__card {
+    flex: 1 1 160px;
+    padding: 14px 18px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+}
+.agentk-kpi-page__card--highlight { border-color: var(--color-warning, #d80); }
+.agentk-kpi-page__card-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary, #888);
+    margin-bottom: 4px;
+}
+.agentk-kpi-page__card-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--color-text-primary, #fff);
+    font-variant-numeric: tabular-nums;
+}
+.agentk-kpi-page__subhead {
+    margin-top: 16px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--color-text-secondary, #aaa);
+}
+.agentk-kpi-page__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.agentk-kpi-page__table th,
+.agentk-kpi-page__table td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.agentk-kpi-page__table th {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--color-text-secondary, #888);
+}

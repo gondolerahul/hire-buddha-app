@@ -1,0 +1,42 @@
+{
+  "run_id": "437622f5-13e6-4b68-9f0b-9a5431aae52e",
+  "entity_id": "b8d439c5-61fb-4878-9e32-755536b4299f",
+  "status": "COMPLETED",
+  "total_cost_usd": 0.0,
+  "total_tokens": 0,
+  "execution_time_ms": 522,
+  "iterations": 2,
+  "step_count": 2,
+  "error_message": null,
+  "output_text": "Success",
+  "plan_step_types": [
+    "CHILD_ENTITY_INVOCATION",
+    "CHILD_ENTITY_INVOCATION"
+  ],
+  "steps": [
+    {
+      "step_id": "step_researcher",
+      "name": "delegate_research",
+      "type": "CHILD_ENTITY_INVOCATION",
+      "status": "success",
+      "cost_usd": 0.0,
+      "latency_ms": 0,
+      "tool_id": null,
+      "output_len": 0
+    },
+    {
+      "step_id": "step_synthesiser",
+      "name": "delegate_synthesis",
+      "type": "CHILD_ENTITY_INVOCATION",
+      "status": "success",
+      "cost_usd": 0.0,
+      "latency_ms": 0,
+      "tool_id": null,
+      "output_len": 0
+    }
+  ],
+  "meta": {
+    "llm_call_count": 0,
+    "tool_call_count": 0
+  }
+}

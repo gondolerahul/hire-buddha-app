@@ -1,0 +1,18 @@
+{
+  "run_id": "296a686c-0b2e-4840-a536-4a37486772bd",
+  "entity_id": "4151f814-ee91-442f-914b-ccf80a2a5e2c",
+  "status": "COMPLETED",
+  "total_cost_usd": 0.0,
+  "total_tokens": 0,
+  "execution_time_ms": 262,
+  "iterations": 0,
+  "step_count": 0,
+  "error_message": null,
+  "output_text": "Success",
+  "plan_step_types": [],
+  "steps": [],
+  "meta": {
+    "llm_call_count": 0,
+    "tool_call_count": 0
+  }
+}

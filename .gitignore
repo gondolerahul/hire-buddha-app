@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.env
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+build/
+.next/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+logs/
+*.log
+
+# Backend runtime / generated directories
+backend/uploads/
+backend/artifact/
+backend/assets/
+
+# Claude
+.claude/
+
+# DB Backup artifacts (scripts are tracked, dumps/logs are not)
+deploy/backup/dumps/
+deploy/backup/logs/

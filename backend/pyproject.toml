@@ -1,0 +1,82 @@
+[tool.poetry]
+name = "hirebuddha-platform"
+version = "0.1.0"
+description = "HireBuddha Platform v2.0 Backend"
+authors = ["HireBuddha Team"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.25"}
+asyncpg = "^0.29.0"
+pydantic = {extras = ["email"], version = "^2.5.3"}
+pydantic-settings = "^2.1.0"
+alembic = "^1.13.1"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["argon2"], version = "^1.7.4"}
+python-multipart = "^0.0.6"
+arq = "^0.25.0"
+redis = "^5.0.1"
+httpx = "^0.26.0"
+pypdf2 = "^3.0.1"
+python-docx = "^1.1.0"
+pgvector = "^0.2.4"
+opentelemetry-api = "^1.22.0"
+opentelemetry-sdk = "^1.22.0"
+opentelemetry-instrumentation-fastapi = "^0.43b0"
+opentelemetry-exporter-otlp = "^1.22.0"
+prometheus-client = "^0.19.0"
+stripe = "^7.0.0"
+slowapi = "^0.1.9"
+google-genai = "^0.4.0"
+openai = "^2.0.0"
+google-api-python-client = "^2.116.0"
+google-auth-httplib2 = "^0.2.0"
+google-auth-oauthlib = "^1.2.0"
+html2text = "^2024.2.26"
+razorpay = "^2.0.0"
+cachetools = "^5.3.0"  # P0.2: TTL cache for API key resolution
+python-pptx = "^1.0.0"
+openpyxl = "^3.1.0"
+matplotlib = "^3.8.0"
+Pillow = "^10.0.0"
+CairoSVG = "^2.7.0"
+# Voice & streaming
+audioop-lts = {version = "^0.2.1", python = ">=3.13"}  # Audio processing (Python 3.13+ compat)
+pydub = "^0.25.1"       # Audio manipulation
+numpy = "^1.24.0"       # Numerical operations
+websockets = "^13.0"    # WebSocket support (>=13 required by google-genai)
+twilio = "^9.0.0"       # Voice calls, SMS, WhatsApp
+hb-cortex-memory = "0.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.3"
+ruff = "^0.1.14"
+black = "^24.1.1"
+mypy = "^1.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "B"]
+ignore = []
+
+[tool.ruff.isort]
+known-first-party = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+
+# Strict checking is rolled out one package at a time (C12) and enforced by
+# scripts/typecheck_ai.py over a growing allowlist; whole-tree strict is not
+# yet green. This section only sets the shared baseline so editor/manual mypy
+# runs agree with the gate (which adds --strict --follow-imports=silent).

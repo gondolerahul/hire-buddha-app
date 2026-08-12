@@ -1,0 +1,22 @@
+.a11y-chart {
+    margin: 0 0 18px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+}
+.a11y-chart__caption {
+    font-size: 13px;
+    color: var(--color-text-primary, #fff);
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+.a11y-chart__viz {
+    width: 100%;
+}
+.a11y-chart__source {
+    margin: 8px 0 0;
+    color: var(--color-text-secondary, #888);
+    font-size: 10px;
+    font-style: italic;
+}

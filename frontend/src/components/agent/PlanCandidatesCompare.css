@@ -1,0 +1,100 @@
+.agentk-plancmp-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.agentk-plancmp-modal {
+    background: #14151b;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    max-width: 1100px;
+    width: 95vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+.agentk-plancmp-modal__header {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.agentk-plancmp-modal__header h3 { margin: 0; }
+.agentk-plancmp-modal__header button {
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary, #aaa);
+    cursor: pointer;
+    font-size: 18px;
+}
+.agentk-plancmp-modal__body { padding: 18px; overflow-y: auto; }
+.agentk-plancmp-modal__empty { font-style: italic; color: var(--color-text-secondary, #888); }
+.agentk-plancmp-modal__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+}
+.agentk-plancmp-modal__judge {
+    margin-top: 16px;
+    padding: 10px 14px;
+    background: rgba(91, 111, 255, 0.08);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.agentk-plancmp-card {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+.agentk-plancmp-card--chosen {
+    border-color: var(--color-success, #2a8);
+    box-shadow: 0 0 12px rgba(42, 136, 100, 0.2);
+}
+.agentk-plancmp-card header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.agentk-plancmp-card__style {
+    font-size: 10px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(91, 111, 255, 0.15);
+    color: #5b6fff;
+}
+.agentk-plancmp-card__cost { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--color-text-secondary, #aaa); }
+.agentk-plancmp-card__violations {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: var(--color-warning, #d80);
+}
+.agentk-plancmp-card__judge {
+    font-size: 11px;
+    color: var(--color-text-secondary, #888);
+    margin-bottom: 6px;
+}
+.agentk-plancmp-card__steps {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--color-text-primary, #ddd);
+}
+.agentk-plancmp-card__steps code {
+    background: rgba(255,255,255,0.05);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    margin-right: 4px;
+}
+.agentk-plancmp-card__more { color: var(--color-text-secondary, #888); font-style: italic; }

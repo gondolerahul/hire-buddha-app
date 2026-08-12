@@ -1,0 +1,157 @@
+.entity-builder {
+    /* Updated negative margins to perfectly offset MainLayout's cumulative padding:
+       Top is calc(padding-top of .main-content + padding of main) = var(--spacing-4) + var(--spacing-4)
+       Left/Right/Bottom is calc(padding of main) = var(--spacing-8) / var(--spacing-4)
+    */
+    margin: calc(-2 * var(--spacing-4)) calc(-1 * var(--spacing-8)) calc(-1 * var(--spacing-4)) calc(-1 * var(--spacing-8));
+
+    /* Height must be exactly 100vh to cover screen, but since it's shifted up by 2*spacing-4, 
+       we need to ensure it doesn't cause a scroll on the parent. 
+       Actually, if it's shifted up, it might be better to just set height: 100vh and let it bleed.
+    */
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+    position: relative;
+    animation: fadeIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+    background: transparent;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.builder-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 0;
+    padding: var(--spacing-xl) var(--spacing-2xl) var(--spacing-lg);
+    background: rgba(0, 0, 0, 0.4);
+    /* Darker header for better contrast */
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(20px);
+    z-index: 20;
+}
+
+.title-section .breadcrumb {
+    font-size: 0.65rem;
+    color: var(--color-accent-primary);
+    /* Use accent color for breadcrumb */
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    font-weight: 900;
+    margin-bottom: 6px;
+}
+
+.title-section h1 {
+    font-size: 2.8rem;
+    font-weight: 950;
+    margin: 0;
+    background: linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, 0.5) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.06em;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xl);
+}
+
+.builder-main {
+    flex: 1;
+    position: relative;
+    background: rgba(0, 0, 0, 0.1);
+    /* Subtle dark base */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Glass Accent line at the very top of the main area */
+.builder-main::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.1) 50%,
+            transparent 100%);
+    z-index: 5;
+    opacity: 0.8;
+}
+
+.loading-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xl);
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(50px);
+}
+
+.spinner {
+    width: 64px;
+    height: 64px;
+    border: 4px solid rgba(255, 255, 255, 0.05);
+    border-top-color: var(--color-accent-primary);
+    border-radius: 50%;
+    animation: spin 1s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.error-toast {
+    position: absolute;
+    bottom: var(--spacing-xl);
+    right: var(--spacing-xl);
+    padding: 16px 32px;
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: var(--radius-2xl);
+    color: #fca5a5;
+    backdrop-filter: blur(40px);
+    z-index: 1000;
+    animation: slideInRight 0.5s cubic-bezier(0.1, 1, 0.1, 1);
+    font-weight: 800;
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.7);
+    font-size: 0.95rem;
+    max-width: 450px;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}

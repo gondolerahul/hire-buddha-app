@@ -1,0 +1,7 @@
+{
+  "user_request": "Make me an agent that researches a topic and writes a brief with cited sources.",
+  "expected_kind": "AGENT",
+  "must_use_tools": ["web_search"],
+  "must_not_use_tools": [],
+  "rationale": "Realistic Meta-Agent ask. Should produce an AGENT with REACT + web_search + scraper, NOT an unknown tool."
+}

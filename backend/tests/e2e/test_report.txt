@@ -1,0 +1,296 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0 -- /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend
+configfile: pytest.ini
+plugins: anyio-4.11.0, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=session, asyncio_default_test_loop_scope=session
+collecting ... collected 107 items
+
+tests/e2e/test_01_auth.py::test_register_new_user PASSED                 [  0%]
+tests/e2e/test_01_auth.py::test_register_duplicate_email PASSED          [  1%]
+tests/e2e/test_01_auth.py::test_login_valid_credentials PASSED           [  2%]
+tests/e2e/test_01_auth.py::test_login_wrong_password PASSED              [  3%]
+tests/e2e/test_01_auth.py::test_login_nonexistent_email PASSED           [  4%]
+tests/e2e/test_01_auth.py::test_get_me_authenticated PASSED              [  5%]
+tests/e2e/test_01_auth.py::test_get_me_no_token PASSED                   [  6%]
+tests/e2e/test_01_auth.py::test_get_me_invalid_token PASSED              [  7%]
+tests/e2e/test_01_auth.py::test_refresh_token PASSED                     [  8%]
+tests/e2e/test_01_auth.py::test_refresh_invalid_token PASSED             [  9%]
+tests/e2e/test_01_auth.py::test_admin_only_as_admin PASSED               [ 10%]
+tests/e2e/test_01_auth.py::test_admin_only_as_user PASSED                [ 11%]
+tests/e2e/test_02_rbac_companies.py::test_app_admin_can_list_partners PASSED [ 12%]
+tests/e2e/test_02_rbac_companies.py::test_partner_admin_cannot_list_partners PASSED [ 13%]
+tests/e2e/test_02_rbac_companies.py::test_tenant_admin_cannot_list_partners PASSED [ 14%]
+tests/e2e/test_02_rbac_companies.py::test_app_admin_can_list_tenants PASSED [ 14%]
+tests/e2e/test_02_rbac_companies.py::test_partner_admin_lists_own_tenants PASSED [ 15%]
+tests/e2e/test_02_rbac_companies.py::test_app_admin_creates_partner PASSED [ 16%]
+tests/e2e/test_02_rbac_companies.py::test_app_admin_creates_tenant PASSED [ 17%]
+tests/e2e/test_02_rbac_companies.py::test_partner_admin_creates_tenant PASSED [ 18%]
+tests/e2e/test_02_rbac_companies.py::test_partner_admin_cannot_create_partner PASSED [ 19%]
+tests/e2e/test_02_rbac_companies.py::test_update_own_company PASSED      [ 20%]
+tests/e2e/test_02_rbac_companies.py::test_update_company_cross_tenant_blocked PASSED [ 21%]
+tests/e2e/test_02_rbac_companies.py::test_suspended_company_blocks_access PASSED [ 22%]
+tests/e2e/test_03_users.py::test_app_admin_lists_all_users PASSED        [ 23%]
+tests/e2e/test_03_users.py::test_partner_admin_lists_scoped_users PASSED [ 24%]
+tests/e2e/test_03_users.py::test_tenant_admin_lists_own_users PASSED     [ 25%]
+tests/e2e/test_03_users.py::test_regular_user_cannot_list_users PASSED   [ 26%]
+tests/e2e/test_03_users.py::test_admin_creates_user PASSED               [ 27%]
+tests/e2e/test_03_users.py::test_admin_updates_user PASSED               [ 28%]
+tests/e2e/test_03_users.py::test_cross_company_user_update_blocked PASSED [ 28%]
+tests/e2e/test_04_integrations.py::test_admin_creates_integration PASSED [ 29%]
+tests/e2e/test_04_integrations.py::test_tenant_admin_creates_integration PASSED [ 30%]
+tests/e2e/test_04_integrations.py::test_regular_user_cannot_create_integration PASSED [ 31%]
+tests/e2e/test_04_integrations.py::test_tenant_admin_cannot_create_for_other_company PASSED [ 32%]
+tests/e2e/test_04_integrations.py::test_list_integrations PASSED         [ 33%]
+tests/e2e/test_04_integrations.py::test_get_integration PASSED           [ 34%]
+tests/e2e/test_04_integrations.py::test_get_cross_company_integration_blocked PASSED [ 35%]
+tests/e2e/test_04_integrations.py::test_update_integration PASSED        [ 36%]
+tests/e2e/test_04_integrations.py::test_list_models PASSED               [ 37%]
+tests/e2e/test_04_integrations.py::test_delete_integration PASSED        [ 38%]
+tests/e2e/test_05_entities.py::test_create_action PASSED                 [ 39%]
+tests/e2e/test_05_entities.py::test_create_skill PASSED                  [ 40%]
+tests/e2e/test_05_entities.py::test_create_agent PASSED                  [ 41%]
+tests/e2e/test_05_entities.py::test_create_process PASSED                [ 42%]
+tests/e2e/test_05_entities.py::test_list_all_entities PASSED             [ 42%]
+tests/e2e/test_05_entities.py::test_filter_entities_by_type PASSED       [ 43%]
+tests/e2e/test_05_entities.py::test_get_single_entity PASSED             [ 44%]
+tests/e2e/test_05_entities.py::test_update_entity PASSED                 [ 45%]
+tests/e2e/test_05_entities.py::test_entity_not_found PASSED              [ 46%]
+tests/e2e/test_05_entities.py::test_delete_entity PASSED                 [ 47%]
+tests/e2e/test_06_executions_hitl.py::test_list_tools PASSED             [ 48%]
+tests/e2e/test_06_executions_hitl.py::test_list_documents PASSED         [ 49%]
+tests/e2e/test_06_executions_hitl.py::test_search_documents SKIPPED      [ 50%]
+tests/e2e/test_06_executions_hitl.py::test_trigger_execution PASSED      [ 51%]
+tests/e2e/test_06_executions_hitl.py::test_list_executions PASSED        [ 52%]
+tests/e2e/test_06_executions_hitl.py::test_get_execution_detail PASSED   [ 53%]
+tests/e2e/test_06_executions_hitl.py::test_list_pending_approvals PASSED [ 54%]
+tests/e2e/test_06_executions_hitl.py::test_respond_to_approval_not_found PASSED [ 55%]
+tests/e2e/test_07_campaigns.py::test_upload_valid_csv PASSED             [ 56%]
+tests/e2e/test_07_campaigns.py::test_upload_invalid_csv_missing_phone PASSED [ 57%]
+tests/e2e/test_07_campaigns.py::test_create_campaign PASSED              [ 57%]
+tests/e2e/test_07_campaigns.py::test_list_campaigns PASSED               [ 58%]
+tests/e2e/test_07_campaigns.py::test_get_campaign PASSED                 [ 59%]
+tests/e2e/test_07_campaigns.py::test_get_campaign_status PASSED          [ 60%]
+tests/e2e/test_07_campaigns.py::test_get_active_calls PASSED             [ 61%]
+tests/e2e/test_07_campaigns.py::test_update_campaign_status PASSED       [ 62%]
+tests/e2e/test_08_billing_credits.py::test_get_billing_config_global PASSED [ 63%]
+tests/e2e/test_08_billing_credits.py::test_update_billing_config_admin PASSED [ 64%]
+tests/e2e/test_08_billing_credits.py::test_update_billing_config_non_admin_blocked PASSED [ 65%]
+tests/e2e/test_08_billing_credits.py::test_get_credit_balance PASSED     [ 66%]
+tests/e2e/test_08_billing_credits.py::test_initiate_topup SKIPPED (P...) [ 67%]
+tests/e2e/test_08_billing_credits.py::test_create_subscription SKIPPED   [ 68%]
+tests/e2e/test_08_billing_credits.py::test_get_subscription PASSED       [ 69%]
+tests/e2e/test_08_billing_credits.py::test_get_costing_report PASSED     [ 70%]
+tests/e2e/test_08_billing_credits.py::test_get_billing_report PASSED     [ 71%]
+tests/e2e/test_08_billing_credits.py::test_cron_daily_credits_admin_only PASSED [ 71%]
+tests/e2e/test_08_billing_credits.py::test_cron_monthly_billing_admin_only PASSED [ 72%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_assign_phone_number PASSED [ 73%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_list_phone_numbers PASSED [ 74%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_get_phone_number PASSED [ 75%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_delete_phone_number PASSED [ 76%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_list_voice_sessions PASSED [ 77%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_list_whatsapp_sessions PASSED [ 78%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_get_conversation_history PASSED [ 79%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_get_streaming_stats PASSED [ 80%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_twilio_voice_webhook_no_twilio_header PASSED [ 81%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_twilio_whatsapp_webhook PASSED [ 82%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_twilio_status_webhook PASSED [ 83%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_tata_voice_webhook PASSED [ 84%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_tata_whatsapp_webhook PASSED [ 85%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_send_whatsapp_message SKIPPED [ 85%]
+tests/e2e/test_09_phone_numbers_sessions.py::test_send_whatsapp_template SKIPPED [ 86%]
+tests/e2e/test_10_assets_email.py::test_upload_asset PASSED              [ 87%]
+tests/e2e/test_10_assets_email.py::test_upload_invalid_asset_type PASSED [ 88%]
+tests/e2e/test_10_assets_email.py::test_list_assets PASSED               [ 89%]
+tests/e2e/test_10_assets_email.py::test_get_asset_metadata PASSED        [ 90%]
+tests/e2e/test_10_assets_email.py::test_download_asset PASSED            [ 91%]
+tests/e2e/test_10_assets_email.py::test_delete_asset PASSED              [ 92%]
+tests/e2e/test_10_assets_email.py::test_get_email_providers PASSED       [ 93%]
+tests/e2e/test_10_assets_email.py::test_create_email_connection PASSED   [ 94%]
+tests/e2e/test_10_assets_email.py::test_list_email_connections PASSED    [ 95%]
+tests/e2e/test_10_assets_email.py::test_validate_email_connection PASSED [ 96%]
+tests/e2e/test_10_assets_email.py::test_delete_email_connection PASSED   [ 97%]
+tests/e2e/test_11_profile.py::test_upload_user_avatar PASSED             [ 98%]
+tests/e2e/test_11_profile.py::test_upload_company_logo PASSED            [ 99%]
+tests/e2e/test_11_profile.py::test_non_admin_cannot_upload_logo PASSED   [100%]
+
+=============================== warnings summary ===============================
+src/auth/schemas.py:45
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/auth/schemas.py:45: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CompanyResponse(CompanyBase):
+
+src/auth/schemas.py:57
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/auth/schemas.py:57: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class UserResponse(BaseModel):
+
+.venv/lib/python3.12/site-packages/passlib/utils/__init__.py:854
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/.venv/lib/python3.12/site-packages/passlib/utils/__init__.py:854: DeprecationWarning: 'crypt' is deprecated and slated for removal in Python 3.13
+    from crypt import crypt as _crypt
+
+src/config/schemas.py:34
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/config/schemas.py:34: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class IntegrationRegistryResponse(IntegrationRegistryBase):
+
+src/ai/schemas.py:284
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/schemas.py:284: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class HierarchicalEntityResponse(HierarchicalEntityBase):
+
+src/ai/schemas.py:313
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/schemas.py:313: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class LLMInteractionLogResponse(BaseModel):
+
+src/ai/schemas.py:330
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/schemas.py:330: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ToolInteractionLogResponse(BaseModel):
+
+src/ai/schemas.py:346
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/schemas.py:346: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class HumanApprovalResponse(BaseModel):
+
+src/ai/schemas.py:359
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/schemas.py:359: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ExecutionRunSummary(BaseModel):
+
+src/ai/schemas.py:405
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/schemas.py:405: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class DocumentUploadResponse(BaseModel):
+
+src/ai/schemas.py:415
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/schemas.py:415: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class DocumentResponse(BaseModel):
+
+src/ai/asset_router.py:25
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/asset_router.py:25: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AssetResponse(BaseModel):
+
+src/billing/billing_router.py:32
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/billing_router.py:32: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class BillingEventResponse(BaseModel):
+
+src/ai/email_router.py:39
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/email_router.py:39: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class EmailConnectionResponse(BaseModel):
+
+tests/e2e/test_01_auth.py: 37 warnings
+tests/e2e/test_02_rbac_companies.py: 21 warnings
+tests/e2e/test_03_users.py: 2 warnings
+tests/e2e/test_04_integrations.py: 5 warnings
+tests/e2e/test_05_entities.py: 10 warnings
+tests/e2e/test_06_executions_hitl.py: 3 warnings
+tests/e2e/test_07_campaigns.py: 5 warnings
+tests/e2e/test_08_billing_credits.py: 13 warnings
+tests/e2e/test_09_phone_numbers_sessions.py: 3 warnings
+tests/e2e/test_10_assets_email.py: 3 warnings
+tests/e2e/test_11_profile.py: 2 warnings
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/e2e/test_01_auth.py::test_register_new_user
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/.venv/lib/python3.12/site-packages/passlib/handlers/argon2.py:716: DeprecationWarning: Accessing argon2.__version__ is deprecated and will be removed in a future release. Use importlib.metadata directly to query for argon2-cffi's packaging metadata.
+    _argon2_cffi.__version__, max_version)
+
+tests/e2e/test_01_auth.py::test_register_new_user
+tests/e2e/test_01_auth.py::test_register_duplicate_email
+tests/e2e/test_01_auth.py::test_login_valid_credentials
+tests/e2e/test_01_auth.py::test_get_me_authenticated
+tests/e2e/test_01_auth.py::test_refresh_token
+tests/e2e/test_01_auth.py::test_admin_only_as_user
+tests/e2e/test_02_rbac_companies.py::test_partner_admin_cannot_list_partners
+tests/e2e/test_02_rbac_companies.py::test_tenant_admin_cannot_list_partners
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/common/security.py:21: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expire = datetime.utcnow() + expires_delta
+
+tests/e2e/test_01_auth.py::test_login_valid_credentials
+tests/e2e/test_01_auth.py::test_login_valid_credentials
+tests/e2e/test_01_auth.py::test_get_me_authenticated
+tests/e2e/test_01_auth.py::test_get_me_authenticated
+tests/e2e/test_01_auth.py::test_refresh_token
+tests/e2e/test_01_auth.py::test_refresh_token
+tests/e2e/test_01_auth.py::test_admin_only_as_user
+tests/e2e/test_02_rbac_companies.py::test_partner_admin_cannot_list_partners
+tests/e2e/test_02_rbac_companies.py::test_tenant_admin_cannot_list_partners
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/common/security.py:23: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+
+tests/e2e/test_01_auth.py::test_login_valid_credentials
+tests/e2e/test_01_auth.py::test_login_valid_credentials
+tests/e2e/test_01_auth.py::test_get_me_authenticated
+tests/e2e/test_01_auth.py::test_get_me_authenticated
+tests/e2e/test_01_auth.py::test_refresh_token
+tests/e2e/test_01_auth.py::test_refresh_token
+tests/e2e/test_01_auth.py::test_admin_only_as_user
+tests/e2e/test_02_rbac_companies.py::test_partner_admin_cannot_list_partners
+tests/e2e/test_02_rbac_companies.py::test_tenant_admin_cannot_list_partners
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/auth/service.py:111: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at = datetime.utcnow() + timedelta(days=7)
+
+tests/e2e/test_01_auth.py::test_refresh_token
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/auth/service.py:151: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if not refresh_token or refresh_token.revoked or refresh_token.expires_at < datetime.utcnow():
+
+tests/e2e/test_01_auth.py::test_refresh_token
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/auth/service.py:134: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if refresh_token.expires_at < datetime.utcnow():
+
+tests/e2e/test_06_executions_hitl.py::test_trigger_execution
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/service.py:194: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+    await redis.close()
+
+tests/e2e/test_07_campaigns.py::test_update_campaign_status
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/campaign_service.py:281: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updates = {"status": status, "updated_at": datetime.utcnow()}
+
+tests/e2e/test_07_campaigns.py::test_update_campaign_status
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/campaign_service.py:284: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updates["started_at"] = datetime.utcnow()
+
+tests/e2e/test_07_campaigns.py::test_update_campaign_status
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/campaign_router.py:347: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+    await redis.close()
+
+tests/e2e/test_08_billing_credits.py::test_update_billing_config_admin
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/billing_service.py:202: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    config.updated_at = datetime.utcnow()
+
+tests/e2e/test_08_billing_credits.py: 13 warnings
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/credit_service.py:42: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    tomorrow = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+tests/e2e/test_08_billing_credits.py::test_get_credit_balance
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/credit_service.py:58: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/e2e/test_08_billing_credits.py: 116 warnings
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/credit_service.py:210: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    tomorrow = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+tests/e2e/test_08_billing_credits.py: 116 warnings
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/credit_service.py:213: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    wallet.updated_at = datetime.utcnow()
+
+tests/e2e/test_08_billing_credits.py::test_cron_daily_credits_admin_only
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/cron_service.py:62: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return {"processed": processed, "errors": errors, "timestamp": datetime.utcnow().isoformat()}
+
+tests/e2e/test_08_billing_credits.py::test_cron_monthly_billing_admin_only
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/billing/cron_service.py:134: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return {"processed": processed, "errors": errors, "timestamp": datetime.utcnow().isoformat()}
+
+tests/e2e/test_09_phone_numbers_sessions.py::test_get_streaming_stats
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/streaming/sessions_router.py:302: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    since = datetime.utcnow() - timedelta(days=days)
+
+tests/e2e/test_10_assets_email.py::test_upload_asset
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/tests/e2e/../../src/ai/asset_service.py:33: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+tests/e2e/test_10_assets_email.py::test_upload_invalid_asset_type
+  /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend/.venv/lib/python3.12/site-packages/fastapi/routing.py:290: DeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    return await dependant.call(**values)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================ 102 passed, 5 skipped, 403 warnings in 21.67s =================
+Failed to export traces to localhost:4317, error code: StatusCode.UNAVAILABLE
+Transient error StatusCode.UNAVAILABLE encountered while exporting traces to localhost:4317, retrying in 0.94s.
+Failed to export traces to localhost:4317, error code: StatusCode.UNAVAILABLE

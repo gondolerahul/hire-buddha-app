@@ -1,0 +1,122 @@
+.campaign-detail-page {
+    padding: 2.5rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.campaign-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.campaign-detail-header .header-title {
+    flex: 1;
+}
+
+.campaign-detail-header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text-primary, #e2e8f0);
+}
+
+.campaign-detail-header .header-sub {
+    font-size: 0.85rem;
+    color: var(--text-secondary, #a0a0b0);
+    margin: 0.25rem 0 0 0;
+}
+
+.campaign-detail-page .btn-back {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    color: var(--text-secondary, #a0a0b0);
+    padding: 0.55rem 1rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+
+.campaign-detail-page .btn-back:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary, #e2e8f0);
+}
+
+.campaign-detail-body {
+    padding: 1.5rem;
+}
+
+/* Self-contained copies of shared classes so this lazy-loaded page
+   renders correctly even when no other page chunk has loaded them. */
+.campaign-detail-page .detail-section {
+    margin-bottom: 2rem;
+}
+
+.campaign-detail-page .detail-section h3 {
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+    font-size: 1.125rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.campaign-detail-page .status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.campaign-detail-page .data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.campaign-detail-page .data-table thead {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.campaign-detail-page .data-table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.campaign-detail-page .data-table td {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.campaign-detail-page .data-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* The modal capped the table at 300px; the full page can breathe. */
+.campaign-detail-page .call-records-table.full-page {
+    max-height: none;
+}
+
+.campaign-detail-page .disposition-reason {
+    text-transform: capitalize;
+    color: var(--text-secondary);
+}
+
+.campaign-detail-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 1rem;
+    color: var(--text-secondary, #a0a0b0);
+}

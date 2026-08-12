@@ -1,0 +1,237 @@
+.rep-page {
+    padding-bottom: 40px;
+}
+.rep-page__loading {
+    padding: 24px;
+    color: var(--color-text-secondary, #888);
+}
+.rep-page__controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    font-size: 13px;
+}
+.rep-page__controls select {
+    margin-left: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--color-text-primary, #fff);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 4px 10px;
+    border-radius: 4px;
+}
+.rep-page__controls button {
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--color-text-secondary, #aaa);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.rep-page__overall {
+    margin-left: auto;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.rep-page__overall--ok { background: rgba(80, 200, 120, 0.18); color: #6c8; }
+.rep-page__overall--warn { background: rgba(255, 180, 0, 0.18); color: #fa3; }
+.rep-page__overall--breach { background: rgba(255, 70, 80, 0.22); color: #f88; }
+
+.rep-page__section {
+    margin-bottom: 30px;
+    padding: 18px 20px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+}
+.rep-page__section h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin: 0 0 4px;
+    font-size: 16px;
+}
+.rep-page__as-of {
+    color: var(--color-text-secondary, #888);
+    font-size: 11px;
+    margin: 0 0 14px;
+}
+
+.rep-page__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.rep-page__table th,
+.rep-page__table td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: top;
+}
+.rep-page__table th {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--color-text-secondary, #888);
+    background: rgba(255, 255, 255, 0.03);
+}
+.rep-page__num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: monospace;
+}
+.rep-page__id {
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--color-text-secondary, #aaa);
+}
+.rep-page__detail {
+    color: var(--color-text-secondary, #888);
+    font-size: 11px;
+    max-width: 320px;
+}
+.rep-page__row--breach {
+    background: rgba(255, 70, 80, 0.06);
+}
+.rep-page__row--warn {
+    background: rgba(255, 180, 0, 0.05);
+}
+.rep-page__pill {
+    padding: 2px 9px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+.rep-page__pill--ok { background: rgba(80, 200, 120, 0.18); color: #6c8; }
+.rep-page__pill--warn { background: rgba(255, 180, 0, 0.18); color: #fa3; }
+.rep-page__pill--breach { background: rgba(255, 70, 80, 0.22); color: #f88; }
+
+.rep-page__exit-count {
+    margin-left: auto;
+    color: var(--color-text-secondary, #aaa);
+    font-size: 12px;
+    font-weight: normal;
+}
+.rep-page__exit-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.rep-page__exit-item {
+    display: grid;
+    grid-template-columns: 24px 80px 1fr 2fr;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 4px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.rep-page__exit-item--ok .rep-page__exit-mark { color: #6c8; }
+.rep-page__exit-item--pending .rep-page__exit-mark { color: #fa3; }
+.rep-page__exit-mark {
+    font-size: 16px;
+    text-align: center;
+}
+.rep-page__exit-title {
+    color: var(--color-text-primary, #fff);
+}
+.rep-page__exit-detail {
+    color: var(--color-text-secondary, #888);
+    font-size: 11px;
+}
+
+.rep-page__add-btn {
+    margin-left: auto;
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid var(--color-secondary, #5b6fff);
+    color: var(--color-secondary, #5b6fff);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.rep-page__decision-form {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    gap: 10px;
+    padding: 12px;
+    margin-bottom: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    align-items: end;
+}
+.rep-page__decision-form label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--color-text-secondary, #888);
+    margin-bottom: 4px;
+}
+.rep-page__decision-form input,
+.rep-page__decision-form select {
+    width: 100%;
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--color-text-primary, #fff);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    font-size: 12px;
+}
+.rep-page__form-wide {
+    grid-column: span 1;
+}
+.rep-page__decision-form button[type="submit"] {
+    padding: 8px 18px;
+    background: var(--color-secondary, #5b6fff);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    height: 34px;
+}
+.rep-page__decisions {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.rep-page__decision {
+    display: grid;
+    grid-template-columns: 100px 90px 1fr;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    font-size: 13px;
+}
+.rep-page__decision-date {
+    font-family: monospace;
+    color: var(--color-text-secondary, #aaa);
+}
+.rep-page__decision-kind {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    text-align: center;
+    height: 18px;
+}
+.rep-page__decision-kind--decision { background: rgba(91, 111, 255, 0.18); color: var(--color-secondary, #5b6fff); }
+.rep-page__decision-kind--pivot { background: rgba(255, 180, 0, 0.18); color: #fa3; }
+.rep-page__decision-kind--defer { background: rgba(180, 180, 180, 0.16); color: #aaa; }
+.rep-page__decision-kind--accept-risk { background: rgba(255, 70, 80, 0.18); color: #f88; }
+.rep-page__decision-summary {
+    color: var(--color-text-primary, #fff);
+}
+.rep-page__decision-rationale {
+    grid-column: 3;
+    color: var(--color-text-secondary, #888);
+    font-size: 11px;
+}
+.rep-page__empty {
+    color: var(--color-text-secondary, #888);
+    font-style: italic;
+    margin: 8px 0;
+}

@@ -1,0 +1,89 @@
+{
+  "name": "test_research_process",
+  "display_name": "Research Process (test fixture)",
+  "description": "PROCESS that orchestrates two AGENT children: researcher (finds material) and synthesiser (writes the brief). Exercises CHILD_ENTITY_INVOCATION + cross-agent context flow.",
+  "goal": "Coordinate a researcher and a synthesiser agent to produce a topic brief.",
+  "type": "PROCESS",
+  "version": "1.0.0",
+  "status": "ACTIVE",
+  "tags": ["fixture", "phase11", "regression", "process"],
+
+  "logic_gate": {
+    "reasoning_config": {
+      "task_type": "text_generation",
+      "model_provider": "anthropic",
+      "model_name": "claude-sonnet-4-5",
+      "temperature": 0.3,
+      "max_tokens": 2048,
+      "reasoning_mode": "CHAIN_OF_THOUGHT",
+      "execution_mode": "STANDARD"
+    }
+  },
+
+  "planning": {
+    "static_plan": {
+      "enabled": true,
+      "fallback_behavior": "STRICT",
+      "steps": [
+        {
+          "step_id": "step_researcher",
+          "order": 1,
+          "name": "delegate_research",
+          "description": "Invoke the researcher AGENT to gather material on {{topic}}.",
+          "type": "CHILD_ENTITY_INVOCATION",
+          "target": {
+            "entity_id": null,
+            "entity_name_hint": "test_research_agent",
+            "prompt_template": "Research the topic in depth: {{topic}}",
+            "input_dependencies": []
+          },
+          "required": true
+        },
+        {
+          "step_id": "step_synthesiser",
+          "order": 2,
+          "name": "delegate_synthesis",
+          "description": "Invoke the synthesiser AGENT to write the brief using {{step_researcher}}.",
+          "type": "CHILD_ENTITY_INVOCATION",
+          "target": {
+            "entity_id": null,
+            "entity_name_hint": "test_research_agent",
+            "prompt_template": "Write a brief based on:\n{{step_researcher}}",
+            "input_dependencies": ["step_researcher"]
+          },
+          "required": true
+        }
+      ]
+    }
+  },
+
+  "capabilities": {
+    "tools": [],
+    "memory": {"enabled": true, "mode": "STANDARD"},
+    "context_engineering": {
+      "inject_episodic_memory": true,
+      "inject_semantic_context": false,
+      "inject_cortex_viewport": false,
+      "no_truncation": true
+    },
+    "meta_cognition": {"platform_awareness": true, "registry_search": false, "self_modification": false}
+  },
+
+  "governance": {
+    "max_cost_usd": 3.00,
+    "timeout_ms": 1200000,
+    "max_recursion_depth": 4,
+    "hitl_checkpoints": []
+  },
+
+  "io_contract": {
+    "input_schema": {
+      "type": "object",
+      "properties": {"topic": {"type": "string"}},
+      "required": ["topic"]
+    },
+    "output_schema": {"type": "object", "properties": {"brief": {"type": "string"}}}
+  },
+
+  "observability": {"log_level": "INFO", "log_thoughts": true, "track_cost": true}
+}

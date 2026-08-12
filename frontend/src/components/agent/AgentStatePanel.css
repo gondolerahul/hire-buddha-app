@@ -1,0 +1,58 @@
+.agentk-state-panel {
+    position: sticky;
+    top: 80px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    font-size: 13px;
+}
+.agentk-state-panel h3 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--color-text-secondary, #aaa);
+}
+.agentk-state-panel h4 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary, #aaa);
+}
+.agentk-state-panel__section { margin-bottom: 16px; }
+.agentk-state-panel__taskclass { font-size: 11px; margin-top: 4px; color: var(--color-text-secondary, #aaa); }
+.agentk-state-panel__taskclass code { background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 3px; }
+.agentk-state-panel__empty,
+.agentk-state-panel__loading { color: var(--color-text-secondary, #888); font-style: italic; font-size: 12px; }
+.agentk-state-panel__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.agentk-state-panel__list--muted { color: var(--color-text-secondary, #888); }
+.agentk-state-panel__blocked { color: var(--color-warning, #d80); font-size: 11px; margin-left: 6px; }
+.agentk-state-panel__blocker-kind { color: var(--color-danger, #d33); margin-right: 6px; text-transform: uppercase; font-size: 10px; }
+.agentk-state-panel__obs { margin: 4px 0 0; font-size: 12px; }
+.agentk-state-panel__outcome { padding: 1px 6px; border-radius: 6px; font-size: 10px; margin-right: 6px; }
+.agentk-state-panel__outcome--success { background: var(--color-success, #2a8); color: white; }
+.agentk-state-panel__outcome--partial { background: var(--color-warning, #d80); color: white; }
+.agentk-state-panel__outcome--fail    { background: var(--color-danger, #d33); color: white; }
+.agentk-state-panel__outcome--blocked { background: #888; color: white; }
+.agentk-state-panel__muted { color: var(--color-text-secondary, #888); font-size: 11px; }
+.agentk-state-panel__refl { display: flex; gap: 6px; align-items: flex-start; }
+.agentk-state-panel__refl-scope {
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9px;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.06);
+}
+.agentk-state-panel__refl-scope--entity { background: rgba(91, 111, 255, 0.2); color: #5b6fff; }
+.agentk-state-panel__refl-scope--task_class { background: rgba(168, 111, 255, 0.2); color: #a06fff; }

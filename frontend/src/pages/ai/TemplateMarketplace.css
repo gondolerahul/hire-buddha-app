@@ -1,0 +1,265 @@
+.template-marketplace-page {
+    padding: var(--spacing-xl);
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* ── Template Card ────────────────────────────────── */
+
+.template-card {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+
+.template-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg,
+        var(--card-accent, var(--color-primary)) 0%,
+        transparent 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.template-card:hover::before {
+    opacity: 1;
+}
+
+.template-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(198, 168, 124, 0.2), rgba(198, 168, 124, 0.05));
+    color: var(--color-rose-gold);
+    border: 1px solid rgba(198, 168, 124, 0.25);
+    backdrop-filter: blur(8px);
+}
+
+.template-card .card-header {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: flex-start;
+}
+
+.template-card .card-icon-wrapper {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.template-card .entity-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.template-card .title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.template-card .title-row h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.template-card .badge-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+
+.template-card .version-tag {
+    font-size: 0.7rem;
+    color: var(--color-text-tertiary);
+    font-weight: 600;
+}
+
+.template-card .entity-type-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    text-transform: uppercase;
+}
+
+.template-card .status-badge {
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+/* ── Description ───────────────────────────────────── */
+
+.template-description {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin: var(--spacing-sm) 0 var(--spacing-md) 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    height: 2.7rem;
+}
+
+/* ── Goal ──────────────────────────────────────────── */
+
+.template-goal {
+    font-size: 0.82rem;
+    color: var(--color-text-tertiary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-sm);
+    border-left: 2px solid var(--color-rose-gold);
+    margin-bottom: var(--spacing-md);
+    font-style: italic;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ── Meta Row ──────────────────────────────────────── */
+
+.template-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    margin-top: auto;
+    margin-bottom: var(--spacing-lg);
+}
+
+.template-meta .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.78rem;
+    color: var(--color-text-tertiary);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ── Actions Row ───────────────────────────────────── */
+
+.template-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+}
+
+.template-actions a {
+    flex: 1;
+}
+
+.template-actions a button,
+.template-actions > button {
+    width: 100%;
+}
+
+/* Clone button gradient */
+.clone-btn {
+    background: linear-gradient(135deg,
+        var(--color-rose-gold) 0%,
+        hsl(32, 50%, 55%) 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em;
+    transition: transform 0.15s ease, box-shadow 0.2s ease !important;
+}
+
+.clone-btn:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 20px rgba(198, 168, 124, 0.35) !important;
+}
+
+.clone-btn:disabled {
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+}
+
+/* ── Toast Notification ────────────────────────────── */
+
+.template-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 14px 24px;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    font-weight: 600;
+    z-index: 10000;
+    animation: toastSlideIn 0.3s ease-out, toastFadeOut 0.4s ease-in 3.6s forwards;
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.template-toast.success {
+    background: linear-gradient(135deg, rgba(46, 204, 113, 0.9), rgba(39, 174, 96, 0.85));
+    color: #fff;
+    box-shadow: 0 8px 32px rgba(46, 204, 113, 0.3);
+}
+
+.template-toast.error {
+    background: linear-gradient(135deg, rgba(231, 76, 60, 0.9), rgba(192, 57, 43, 0.85));
+    color: #fff;
+    box-shadow: 0 8px 32px rgba(231, 76, 60, 0.3);
+}
+
+@keyframes toastSlideIn {
+    from { transform: translateX(100px); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes toastFadeOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+
+/* ── Hierarchy Preview ─────────────────────────────── */
+
+.hierarchy-preview {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.hierarchy-chip {
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}

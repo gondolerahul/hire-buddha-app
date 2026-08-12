@@ -1,0 +1,23 @@
+{
+  "tree": {
+    "task_description": "Canonical CORTEX seed tree for harness tests",
+    "status": "active",
+    "max_children": 12,
+    "page_size_tokens": 8000,
+    "context_budget_pct": 40
+  },
+  "knowledge_nodes": [
+    {"title": "doc-1: post-quantum cryptography overview", "node_type": "knowledge", "summary": "NIST PQC standardisation candidate algorithms (Kyber, Dilithium).", "content": "Kyber is a lattice-based KEM standardised as ML-KEM (FIPS-203). Dilithium is a lattice-based signature standardised as ML-DSA (FIPS-204)."},
+    {"title": "doc-2: lattice cryptography primer", "node_type": "knowledge", "summary": "Hardness of LWE and Module-LWE underlies most PQC.", "content": "Module-LWE generalises LWE by working over polynomial rings, reducing key size while preserving security."},
+    {"title": "doc-3: NIST PQC timeline", "node_type": "knowledge", "summary": "2024-08 standards release; 2025 transition guidance.", "content": "FIPS-203 / 204 / 205 released August 2024; NIST SP 800-208 covers stateful hash-based signatures."}
+  ],
+  "episodic_episodes": [
+    {"title": "ep-1: prior research run", "node_type": "knowledge", "summary": "Earlier brief on PQC for finance.", "content": "Previous brief found CRYSTALS-Kyber recommended for KEM in fintech."},
+    {"title": "ep-2: failed scrape", "node_type": "knowledge", "summary": "scraper returned 403 on nist.gov", "content": "Switched to web_search; problem recurred 2 of 5 attempts."}
+  ],
+  "intelligence_rules": [
+    {"title": "rule-1: cite NIST when discussing PQC standards", "node_type": "knowledge", "summary": "Always cite the NIST FIPS doc IDs.", "content": "When the topic mentions PQC, output MUST mention 'NIST' and at least one of 'FIPS-203', 'FIPS-204', 'FIPS-205'."},
+    {"title": "rule-2: prefer web_search over scraper for .gov sources", "node_type": "knowledge", "summary": "scraper is unreliable on .gov; web_search returns better excerpts.", "content": "Reliability observation across 12 prior runs."},
+    {"title": "rule-3: keep brief under 800 words", "node_type": "knowledge", "summary": "Reader preference fixed in feedback corpus.", "content": "Outputs above 800 words trigger 'too long' user feedback."}
+  ]
+}

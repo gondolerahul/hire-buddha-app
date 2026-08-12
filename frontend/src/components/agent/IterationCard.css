@@ -1,0 +1,50 @@
+.agentk-iter-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-left-width: 3px;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: rgba(255, 255, 255, 0.02);
+}
+.agentk-iter-card--success { border-left-color: var(--color-success, #2a8); }
+.agentk-iter-card--partial { border-left-color: var(--color-warning, #d80); }
+.agentk-iter-card--fail    { border-left-color: var(--color-danger, #d33); }
+.agentk-iter-card--blocked { border-left-color: #888; }
+.agentk-iter-card--pending { border-left-color: #5b6fff; }
+
+.agentk-iter-card__header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.agentk-iter-card__num {
+    font-weight: 700;
+    color: var(--color-text-primary, #fff);
+}
+.agentk-iter-card__decision {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-secondary, #aaa);
+    margin-left: auto;
+}
+.agentk-iter-card__cost {
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: var(--color-text-secondary, #aaa);
+}
+.agentk-iter-card__verdicts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+.agentk-iter-card__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+}

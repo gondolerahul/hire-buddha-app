@@ -1,0 +1,3 @@
+# Golden RunResult snapshots produced by backend/scripts/record_golden_runs.py.
+# Filenames: <case_id>.json (matching tests/regression/cases/<case_id>.yaml).
+# Commit these so CI parity tests don't need a live LLM budget.

@@ -1,0 +1,7 @@
+{
+  "user_request": "Make me an agent that uses tool `unicorn_search` to find unicorn locations and uses `magic_scry` to verify them.",
+  "expected_kind": "AGENT",
+  "must_use_tools": [],
+  "must_not_use_tools": ["unicorn_search", "magic_scry"],
+  "rationale": "Adversarial: the named tools don't exist. Meta-Agent v4 (Track 5) MUST have the spec_critic flag this and reject the spec rather than hallucinate the tools."
+}

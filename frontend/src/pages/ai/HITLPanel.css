@@ -1,0 +1,12 @@
+.hitl-panel {
+    position: relative;
+}
+
+.approval-card {
+    transition: all var(--transition-normal);
+}
+
+.approval-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}

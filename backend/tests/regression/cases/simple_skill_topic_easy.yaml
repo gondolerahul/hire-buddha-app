@@ -1,0 +1,20 @@
+# Simplest regression case: SKILL, single topic.
+# Track 0 (pre-AgentLoop): runs against the legacy engine.
+case_id: simple_skill_topic_easy
+entity_fixture: simple_skill
+track_min: 0
+timeout_seconds: 120
+input:
+  topic: "post-quantum cryptography 2025 progress"
+expected_status: COMPLETED
+expected_min_cost_usd: 0.005
+expected_max_cost_usd: 0.30
+expected_must_mention:
+  - "NIST"
+  - "lattice"
+expected_must_not_mention:
+  - "asset management"
+tags: ["skill", "research", "smoke"]
+acceptance:
+  llm_judge_threshold: 0.7
+  output_min_chars: 80

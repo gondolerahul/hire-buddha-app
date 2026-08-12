@@ -1,0 +1,115 @@
+{
+  "name": "test_research_agent",
+  "display_name": "Research Agent (test fixture)",
+  "description": "REACT-mode AGENT with CORTEX + 5 tools. Used by parity + regression suites as a realistic mid-complexity entity.",
+  "goal": "Given a research topic, produce a brief that cites at least 3 sources and surfaces 2-3 key findings.",
+  "type": "AGENT",
+  "version": "1.0.0",
+  "status": "ACTIVE",
+  "tags": ["fixture", "phase11", "regression", "react"],
+
+  "logic_gate": {
+    "reasoning_config": {
+      "task_type": "text_generation",
+      "model_provider": "anthropic",
+      "model_name": "claude-sonnet-4-5",
+      "temperature": 0.4,
+      "max_tokens": 4096,
+      "reasoning_mode": "REACT",
+      "execution_mode": "AUTONOMOUS",
+      "goal_validation_interval": 2,
+      "confidence_threshold": 0.85,
+      "max_replanning_attempts": 2,
+      "self_reflection_enabled": true
+    },
+    "retry_policy": {
+      "max_retries": 2,
+      "backoff_strategy": "EXPONENTIAL",
+      "retry_on": ["TOOL_FAILURE", "LLM_ERROR"]
+    },
+    "review_mechanism": {
+      "enabled": true,
+      "on_failure": "RETRY"
+    },
+    "context_policy": {
+      "type": "FULL",
+      "summarize_threshold": 12000,
+      "preserve_keys": ["topic"]
+    }
+  },
+
+  "planning": {
+    "static_plan": {"enabled": false},
+    "dynamic_planning": {
+      "enabled": true,
+      "reconciliation_strategy": "DYNAMIC_PRIORITY",
+      "allowed_deviations": {
+        "can_add_steps": true,
+        "can_skip_optional_steps": true,
+        "can_reorder_steps": true,
+        "can_change_tools": false
+      }
+    }
+  },
+
+  "capabilities": {
+    "tools": [
+      {"tool_id": "web_search"},
+      {"tool_id": "scraper"},
+      {"tool_id": "batch_search"},
+      {"tool_id": "calculator"},
+      {"tool_id": "document_save"}
+    ],
+    "memory": {
+      "enabled": true,
+      "mode": "CORTEX",
+      "memory_scope": "FULL",
+      "cortex_config": {
+        "max_children": 12,
+        "page_size_tokens": 8000,
+        "context_budget_pct": 40,
+        "auto_checkpoint": true,
+        "resume_enabled": true
+      }
+    },
+    "context_engineering": {
+      "inject_episodic_memory": true,
+      "inject_semantic_context": true,
+      "inject_cortex_viewport": true,
+      "no_truncation": true
+    },
+    "meta_cognition": {
+      "platform_awareness": true,
+      "registry_search": true,
+      "self_modification": false
+    }
+  },
+
+  "governance": {
+    "max_cost_usd": 1.50,
+    "timeout_ms": 600000,
+    "max_recursion_depth": 3,
+    "execution_limits": {"max_recursion_depth": 3, "max_tool_calls": 25},
+    "hitl_checkpoints": []
+  },
+
+  "io_contract": {
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "topic": {"type": "string"}
+      },
+      "required": ["topic"]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "brief": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": "string"}},
+        "sources": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+
+  "observability": {"log_level": "INFO", "log_thoughts": true, "track_cost": true}
+}

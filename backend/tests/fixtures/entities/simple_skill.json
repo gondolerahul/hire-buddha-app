@@ -1,0 +1,101 @@
+{
+  "name": "test_simple_skill",
+  "display_name": "Simple Skill (test fixture)",
+  "description": "Two-step SKILL: web_search → summarise. Used by parity + regression suites as the smallest meaningful run.",
+  "goal": "Search for the user-supplied topic and produce a 2-3 sentence summary.",
+  "type": "SKILL",
+  "version": "1.0.0",
+  "status": "ACTIVE",
+  "tags": ["fixture", "phase11", "regression"],
+
+  "logic_gate": {
+    "reasoning_config": {
+      "task_type": "text_generation",
+      "model_provider": "anthropic",
+      "model_name": "claude-sonnet-4-5",
+      "temperature": 0.3,
+      "max_tokens": 1024,
+      "reasoning_mode": "REACT",
+      "execution_mode": "STANDARD"
+    }
+  },
+
+  "planning": {
+    "static_plan": {
+      "enabled": true,
+      "fallback_behavior": "ADAPTIVE",
+      "steps": [
+        {
+          "step_id": "step_1",
+          "order": 1,
+          "name": "web_search",
+          "description": "Search the web for the user-supplied {{topic}}.",
+          "type": "TOOL_CALL",
+          "target": {
+            "tool_id": "web_search",
+            "prompt_template": "{{topic}}",
+            "input_dependencies": []
+          },
+          "required": true
+        },
+        {
+          "step_id": "step_2",
+          "order": 2,
+          "name": "summarise",
+          "description": "Write a 2-3 sentence factual summary based on {{step_1}}. Do not invent facts.",
+          "type": "ACTION",
+          "target": {
+            "prompt_template": "Summarise:\n{{step_1}}",
+            "input_dependencies": ["step_1"]
+          },
+          "required": true
+        }
+      ]
+    }
+  },
+
+  "capabilities": {
+    "tools": [{"tool_id": "web_search"}],
+    "memory": {"enabled": false, "mode": "STANDARD"},
+    "context_engineering": {
+      "inject_episodic_memory": false,
+      "inject_semantic_context": false,
+      "inject_cortex_viewport": false,
+      "no_truncation": true
+    },
+    "meta_cognition": {
+      "platform_awareness": false,
+      "registry_search": false,
+      "self_modification": false
+    }
+  },
+
+  "governance": {
+    "max_cost_usd": 0.25,
+    "timeout_ms": 60000,
+    "max_recursion_depth": 1,
+    "hitl_checkpoints": []
+  },
+
+  "io_contract": {
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "topic": {"type": "string", "description": "Free-text topic to search."}
+      },
+      "required": ["topic"]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "summary": {"type": "string"}
+      }
+    }
+  },
+
+  "observability": {
+    "log_level": "INFO",
+    "log_thoughts": false,
+    "track_cost": true
+  }
+}

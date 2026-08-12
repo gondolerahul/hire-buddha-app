@@ -1,0 +1,23 @@
+.loading-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--font-size-lg);
+    color: var(--color-text-secondary);
+}
+
+.placeholder-page {
+    padding: var(--spacing-16);
+    text-align: center;
+}
+
+.placeholder-page h1 {
+    font-size: var(--font-size-4xl);
+    margin-bottom: var(--spacing-4);
+}
+
+.placeholder-page p {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-lg);
+}

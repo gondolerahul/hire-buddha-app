@@ -1,0 +1,533 @@
+/* ── Phone Numbers Unified Page ─────────────────────────────── */
+
+.phone-pool-page {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.phone-pool-page .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+}
+
+.phone-pool-page .page-header h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+}
+
+.phone-pool-page .subtitle {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.header-actions-pool {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+/* ── Filters ───────────────────────────────────────────────── */
+
+.pool-filters {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.pool-filters select {
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    background: var(--bg-surface, rgba(255, 255, 255, 0.05));
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.pool-filters select:focus {
+    outline: none;
+    border-color: var(--accent-primary, #8b5cf6);
+}
+
+/* ── Table ─────────────────────────────────────────────────── */
+
+.phone-table-container {
+    background: var(--bg-surface, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.phone-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.phone-table thead th {
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.phone-table tbody tr {
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.05));
+    transition: background 0.15s ease;
+}
+
+.phone-table tbody tr:hover {
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.03));
+}
+
+.phone-table td {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+td.phone-number {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    letter-spacing: 0.03em;
+    font-weight: 500;
+    color: var(--accent-secondary, #38bdf8);
+}
+
+.actions-cell {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* ── Status Badges ─────────────────────────────────────────── */
+
+.status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: capitalize;
+    letter-spacing: 0.03em;
+}
+
+.status-badge.available {
+    background: rgba(52, 211, 153, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.status-badge.claimed {
+    background: rgba(250, 204, 21, 0.15);
+    color: #facc15;
+    border: 1px solid rgba(250, 204, 21, 0.3);
+}
+
+.status-badge.assigned {
+    background: rgba(96, 165, 250, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.status-badge.retired {
+    background: rgba(156, 163, 175, 0.15);
+    color: #9ca3af;
+    border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+/* ── Provider Badges ───────────────────────────────────────── */
+
+.provider-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.provider-badge.twilio {
+    background: rgba(244, 67, 54, 0.12);
+    color: #ef5350;
+    border: 1px solid rgba(244, 67, 54, 0.25);
+}
+
+.provider-badge.tata_tele {
+    background: rgba(33, 150, 243, 0.12);
+    color: #42a5f5;
+    border: 1px solid rgba(33, 150, 243, 0.25);
+}
+
+/* ── Buttons ───────────────────────────────────────────────── */
+
+.btn-sync-numbers {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
+    color: #a78bfa;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-sync-numbers:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(59, 130, 246, 0.25));
+    transform: translateY(-1px);
+}
+
+.btn-sync-numbers:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sync-icon {
+    display: inline-block;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.sync-icon.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.btn-add-number {
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-add-number:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
+}
+
+.btn-claim {
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(52, 211, 153, 0.4);
+    background: rgba(52, 211, 153, 0.1);
+    color: #34d399;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-claim:hover {
+    background: rgba(52, 211, 153, 0.2);
+}
+
+.btn-release {
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(250, 204, 21, 0.4);
+    background: rgba(250, 204, 21, 0.08);
+    color: #facc15;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-release:hover {
+    background: rgba(250, 204, 21, 0.18);
+}
+
+.btn-delete {
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(244, 67, 54, 0.3);
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.btn-delete:hover {
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.btn-icon {
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Empty State ───────────────────────────────────────────── */
+
+.pool-empty {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--text-secondary);
+}
+
+.pool-empty .empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.pool-empty h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.pool-empty p {
+    font-size: 0.85rem;
+}
+
+/* ── Modals ────────────────────────────────────────────────── */
+
+.pool-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.pool-modal {
+    background: var(--bg-card, #1e1b2e);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    max-width: 560px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.pool-modal h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    color: var(--text-primary);
+}
+
+.add-number-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.add-number-form .form-group.full-width {
+    grid-column: 1 / -1;
+}
+
+.add-number-form .form-group label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.add-number-form .form-group input,
+.add-number-form .form-group select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+    background: var(--bg-surface, rgba(255, 255, 255, 0.05));
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    transition: border-color 0.2s ease;
+}
+
+.add-number-form .form-group input:focus,
+.add-number-form .form-group select:focus {
+    outline: none;
+    border-color: var(--accent-primary, #8b5cf6);
+}
+
+.pool-modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+}
+
+/* ── Sync Results ──────────────────────────────────────────── */
+
+.sync-results-modal {
+    max-width: 640px;
+}
+
+.sync-results-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.sync-results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.sync-provider-result {
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.sync-provider-result.success {
+    border-color: rgba(52, 211, 153, 0.3);
+}
+
+.sync-provider-result.warning {
+    border-color: rgba(250, 204, 21, 0.3);
+    background: rgba(250, 204, 21, 0.05);
+}
+
+.sync-provider-result.error {
+    border-color: rgba(244, 67, 54, 0.3);
+    background: rgba(244, 67, 54, 0.05);
+}
+
+.sync-provider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.sync-stats {
+    display: flex;
+    gap: 1.5rem;
+}
+
+.sync-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.sync-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.sync-stat-value.success {
+    color: #34d399;
+}
+
+.sync-stat-value.skipped {
+    color: #94a3b8;
+}
+
+.sync-stat-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 0.2rem;
+}
+
+.sync-error-msg {
+    color: #ef5350;
+    font-size: 0.85rem;
+    margin: 0.5rem 0 0;
+}
+
+.sync-warning-msg {
+    color: #facc15;
+    font-size: 0.82rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(250, 204, 21, 0.2);
+}
+
+/* ── Confirmation Modal ───────────────────────────────────── */
+
+.confirm-modal {
+    text-align: center;
+    max-width: 440px;
+}
+
+.confirm-modal .confirm-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.confirm-modal h3 {
+    text-align: center;
+}
+
+.confirm-message {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 1.5rem;
+}
+
+.confirm-modal .pool-modal-actions {
+    justify-content: center;
+}
+
+.btn-confirm-danger {
+    padding: 0.5rem 1.25rem;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-confirm-danger:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+}
+
+.btn-confirm-danger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
