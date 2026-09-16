@@ -20,7 +20,7 @@ passlib = {extras = ["argon2"], version = "^1.7.4"}
 python-multipart = "^0.0.6"
 arq = "^0.25.0"
 redis = "^5.0.1"
-httpx = "^0.26.0"
+httpx = "^0.28.1"  # >=0.28.1 required by google-genai >=1.71
 pypdf2 = "^3.0.1"
 python-docx = "^1.1.0"
 pgvector = "^0.2.4"
@@ -31,7 +31,10 @@ opentelemetry-exporter-otlp = "^1.22.0"
 prometheus-client = "^0.19.0"
 stripe = "^7.0.0"
 slowapi = "^0.1.9"
-google-genai = "^0.4.0"
+google-genai = "^1.71.0"  # Live API: send_realtime_input/send_tool_response +
+                          # input/output_audio_transcription & realtime_input_config.
+                          # 0.4.x silently drops those config keys and lacks the
+                          # send_* methods, which hangs up every voice call.
 openai = "^2.0.0"
 google-api-python-client = "^2.116.0"
 google-auth-httplib2 = "^0.2.0"
@@ -51,6 +54,8 @@ numpy = "^1.24.0"       # Numerical operations
 websockets = "^13.0"    # WebSocket support (>=13 required by google-genai)
 twilio = "^9.0.0"       # Voice calls, SMS, WhatsApp
 hb-cortex-memory = "0.1.0"
+setuptools = "<81"      # 81 removed pkg_resources, needed by
+                        # opentelemetry-instrumentation 0.43b0
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

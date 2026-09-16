@@ -82,8 +82,7 @@ graph TD
         L --> M[Monitor real-time Cost/Run Traces]
     end
 
-    1. DESIGN STAGE --> 2. DEPLOY STAGE
-    2. DEPLOY STAGE --> 3. EMPLOY STAGE
+    
 ```
 
 #### Step 1: Design

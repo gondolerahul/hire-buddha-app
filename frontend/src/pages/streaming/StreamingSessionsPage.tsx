@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { GlassCard } from '@/components/ui';
 import './StreamingSessionsPage.css';
+import { API_BASE_URL } from '@/config/api';
 
 interface VoiceSession {
     id: string;
@@ -80,7 +81,7 @@ export const StreamingSessionsPage: React.FC = () => {
     const fetchVoiceSessions = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/streaming/voice-sessions`, {
+            const response = await fetch(`${API_BASE_URL}/streaming/voice-sessions`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
@@ -95,7 +96,7 @@ export const StreamingSessionsPage: React.FC = () => {
     const fetchWhatsAppSessions = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/streaming/whatsapp-sessions`, {
+            const response = await fetch(`${API_BASE_URL}/streaming/whatsapp-sessions`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
@@ -110,7 +111,7 @@ export const StreamingSessionsPage: React.FC = () => {
     const fetchStats = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/streaming/stats?days=7`, {
+            const response = await fetch(`${API_BASE_URL}/streaming/stats?days=7`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
@@ -128,7 +129,7 @@ export const StreamingSessionsPage: React.FC = () => {
                 ? `voice-sessions/${sessionId}`
                 : `whatsapp-sessions/${sessionId}`;
 
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/streaming/${endpoint}`, {
+            const response = await fetch(`${API_BASE_URL}/streaming/${endpoint}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
@@ -402,7 +403,7 @@ export const StreamingSessionsPage: React.FC = () => {
                                 <div className="detail-row">
                                     <span>File:</span>
                                     <a
-                                        href={`${import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '')}${selectedSession.recording_url}`}
+                                        href={`${API_BASE_URL?.replace('/api/v1', '')}${selectedSession.recording_url}`}
                                         target="_blank"
                                         rel="noreferrer"
                                         download={selectedSession.recording_file_name || 'recording'}

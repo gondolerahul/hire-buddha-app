@@ -531,3 +531,11 @@ td.phone-number {
     cursor: not-allowed;
 }
 
+
+.pool-modal .form-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.55);
+}

@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '@/config/api';
 
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -54,7 +55,7 @@ export const oauthService = {
         }
 
         // Send code to backend for token exchange
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/oauth/${provider}`, {
+        const response = await fetch(`${API_BASE_URL}/auth/oauth/${provider}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

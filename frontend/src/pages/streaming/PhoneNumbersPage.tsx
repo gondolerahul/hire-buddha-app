@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { GlassCard } from '@/components/ui';
 import './PhoneNumbersPage.css';
+import { API_BASE_URL } from '@/config/api';
 
 // Helper function to generate UUID (compatible with all browsers)
 const generateUUID = (): string => {
@@ -85,7 +86,7 @@ export const PhoneNumbersPage: React.FC = () => {
 
     const fetchPhoneNumbers = async () => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/phone-numbers`, {
+            const response = await fetch(`${API_BASE_URL}/phone-numbers`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -101,7 +102,7 @@ export const PhoneNumbersPage: React.FC = () => {
 
     const fetchAgents = async (companyId?: string) => {
         try {
-            let url = `${import.meta.env.VITE_API_BASE_URL}/ai/entities?type=AGENT`;
+            let url = `${API_BASE_URL}/ai/entities?type=AGENT`;
             if (companyId) {
                 url += `&company_id=${companyId}`;
             }
@@ -136,7 +137,7 @@ export const PhoneNumbersPage: React.FC = () => {
     const fetchCustomers = async () => {
         try {
             // Fetch tenants from the correct endpoint
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/companies/tenants`, {
+            const response = await fetch(`${API_BASE_URL}/companies/tenants`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -178,7 +179,7 @@ export const PhoneNumbersPage: React.FC = () => {
 
     const fetchCompanies = async () => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/companies`, {
+            const response = await fetch(`${API_BASE_URL}/companies`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -216,7 +217,7 @@ export const PhoneNumbersPage: React.FC = () => {
                 delete submitData.company_id;
             }
 
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/phone-numbers`, {
+            const response = await fetch(`${API_BASE_URL}/phone-numbers`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -248,7 +249,7 @@ export const PhoneNumbersPage: React.FC = () => {
 
     const handleToggleActive = async (id: string, currentStatus: boolean) => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/phone-numbers/${id}`, {
+            const response = await fetch(`${API_BASE_URL}/phone-numbers/${id}`, {
                 method: 'PATCH',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -273,7 +274,7 @@ export const PhoneNumbersPage: React.FC = () => {
         }
 
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/phone-numbers/${id}`, {
+            const response = await fetch(`${API_BASE_URL}/phone-numbers/${id}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`

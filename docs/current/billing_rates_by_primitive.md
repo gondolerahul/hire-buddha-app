@@ -68,10 +68,10 @@ Where `divisor` = 1,000,000 for `1M Tokens`, 1,000 for `1K Tokens`, or 1.0 for o
 
 ### Code References
 
-- [usage_service.py — log_usage()](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/usage_service.py#L30-L133)
-- [step_executor.py — _log_usage()](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/step_executor.py#L1103-L1130)
-- [attributed_usage.py — log_llm_response_usage()](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/services/attributed_usage.py#L22-L59)
-- [cost_estimator.py — MODEL_PRICE_FACTOR](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L51-L65)
+- [usage_service.py — log_usage()](../../backend/src/ai/usage_service.py:30)
+- [step_executor.py — _log_usage()](../../backend/src/ai/step_executor.py:1103)
+- [attributed_usage.py — log_llm_response_usage()](../../backend/src/ai/services/attributed_usage.py:22)
+- [cost_estimator.py — MODEL_PRICE_FACTOR](../../backend/src/ai/planning/cost_estimator.py:51)
 
 ---
 
@@ -91,8 +91,8 @@ Where `divisor` = 1,000,000 for `1M Tokens`, 1,000 for `1K Tokens`, or 1.0 for o
 
 ### Code References
 
-- [cost_estimator.py — _BASE_THINKING_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L69)
-- [config/models.py — TASK_TYPES](file:///home/rahul/workspace/hb-proto-3/backend/src/config/models.py#L11-L23)
+- [cost_estimator.py — _BASE_THINKING_COST](../../backend/src/ai/planning/cost_estimator.py:69)
+- [config/models.py — TASK_TYPES](../../backend/src/config/models.py:11)
 
 ---
 
@@ -124,9 +124,9 @@ base_cost = base_cost_image_gen × image_gen_count
 
 ### Code References
 
-- [tool_cost_resolver.py — TOOL_FIXED_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py#L52-L58)
-- [tool_cost_resolver.py — TOOL_SKU_MAP](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py#L40-L47)
-- [billing_service.py — record_billing_event()](file:///home/rahul/workspace/hb-proto-3/backend/src/billing/billing_service.py#L112-L113)
+- [tool_cost_resolver.py — TOOL_FIXED_COST](../../backend/src/ai/governance/tool_cost_resolver.py:52)
+- [tool_cost_resolver.py — TOOL_SKU_MAP](../../backend/src/ai/governance/tool_cost_resolver.py:40)
+- [billing_service.py — record_billing_event()](../../backend/src/billing/billing_service.py:96)
 
 ---
 
@@ -152,9 +152,9 @@ The legacy `video_generation` mega-tool has been split into three composable too
 
 ### Code References
 
-- [tool_cost_resolver.py — TOOL_FIXED_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py#L54-L57)
-- [cost_estimator.py — TOOL_BASELINE_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L38-L41)
-- [video_generate.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/tools/media/video/video_generate.py)
+- [tool_cost_resolver.py — TOOL_FIXED_COST](../../backend/src/ai/governance/tool_cost_resolver.py:54)
+- [cost_estimator.py — TOOL_BASELINE_COST](../../backend/src/ai/planning/cost_estimator.py:38)
+- [video_generate.py](../../backend/src/ai/tools/media/video/video_generate.py)
 
 ---
 
@@ -202,9 +202,9 @@ base_cost = base_cost_telephony × total_minutes
 
 ### Code References
 
-- [voice/usage_logger.py — VoiceUsageLogger](file:///home/rahul/workspace/hb-proto-3/backend/src/voice/usage_logger.py#L27-L335)
-- [voice/usage_logger.py — TELEPHONY_SKU_MAP](file:///home/rahul/workspace/hb-proto-3/backend/src/voice/usage_logger.py#L37-L40)
-- [voice/usage_logger.py — _log_llm_audio_usage()](file:///home/rahul/workspace/hb-proto-3/backend/src/voice/usage_logger.py#L191-L256)
+- [voice/usage_logger.py — VoiceUsageLogger](../../backend/src/voice/usage_logger.py:27)
+- [voice/usage_logger.py — TELEPHONY_SKU_MAP](../../backend/src/voice/usage_logger.py:37)
+- [voice/usage_logger.py — _log_llm_audio_usage()](../../backend/src/voice/usage_logger.py:191)
 
 ---
 
@@ -230,8 +230,8 @@ base_cost = base_cost_telephony × total_minutes
 
 ### Code References
 
-- [tools/core/search.py — WebSearchTool](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/tools/core/search.py#L33-L412)
-- [tool_cost_resolver.py — TOOL_SKU_MAP](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py#L41-L42)
+- [tools/core/search.py — WebSearchTool](../../backend/src/ai/tools/core/search.py:33)
+- [tool_cost_resolver.py — TOOL_SKU_MAP](../../backend/src/ai/governance/tool_cost_resolver.py:41)
 
 ---
 
@@ -250,8 +250,8 @@ Cost is resolved from the Integration Registry entry for `firecrawl-api` or `fir
 
 ### Code References
 
-- [tool_cost_resolver.py — TOOL_SKU_MAP](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py#L43)
-- [cost_estimator.py — TOOL_BASELINE_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L37)
+- [tool_cost_resolver.py — TOOL_SKU_MAP](../../backend/src/ai/governance/tool_cost_resolver.py:43)
+- [cost_estimator.py — TOOL_BASELINE_COST](../../backend/src/ai/planning/cost_estimator.py:37)
 
 ---
 
@@ -269,8 +269,8 @@ Cost is resolved from the Integration Registry entry for `firecrawl-api` or `fir
 
 ### Code References
 
-- [tool_cost_resolver.py — TOOL_SKU_MAP](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py#L44)
-- [cost_estimator.py — TOOL_BASELINE_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L32)
+- [tool_cost_resolver.py — TOOL_SKU_MAP](../../backend/src/ai/governance/tool_cost_resolver.py:44)
+- [cost_estimator.py — TOOL_BASELINE_COST](../../backend/src/ai/planning/cost_estimator.py:32)
 
 ---
 
@@ -291,7 +291,7 @@ Same as LLM tokens (§1) — `internal_cost × billable_characters / divisor` �
 
 ### Code References
 
-- [memory/embedding_service.py — embedding cost logging](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/embedding_service.py#L345-L369)
+- [memory/embedding_service.py — embedding cost logging](../../backend/src/ai/memory/embedding_service.py:345)
 
 ---
 
@@ -330,9 +330,9 @@ SANDBOX_SKU_COST_PER_SECOND=0.00005 .venv/bin/python -m scripts.seed_sandbox_sku
 
 ### Code References
 
-- [tools/sandbox/metering.py — meter_sandbox_usage()](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/tools/sandbox/metering.py#L23-L66)
-- [scripts/seed_sandbox_sku.py](file:///home/rahul/workspace/hb-proto-3/backend/scripts/seed_sandbox_sku.py)
-- [common/config.py — SANDBOX_COST_SKU](file:///home/rahul/workspace/hb-proto-3/backend/src/common/config.py#L26)
+- [tools/sandbox/metering.py — meter_sandbox_usage()](../../backend/src/ai/tools/sandbox/metering.py:23)
+- [scripts/seed_sandbox_sku.py](../../backend/scripts/seed_sandbox_sku.py)
+- [common/config.py — SANDBOX_COST_SKU](../../backend/src/common/config.py:26)
 
 ---
 
@@ -351,8 +351,8 @@ SANDBOX_SKU_COST_PER_SECOND=0.00005 .venv/bin/python -m scripts.seed_sandbox_sku
 
 ### Code References
 
-- [tool_cost_resolver.py — TOOL_SKU_MAP](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py#L45)
-- [cost_estimator.py — TOOL_BASELINE_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L22-L44)
+- [tool_cost_resolver.py — TOOL_SKU_MAP](../../backend/src/ai/governance/tool_cost_resolver.py:45)
+- [cost_estimator.py — TOOL_BASELINE_COST](../../backend/src/ai/planning/cost_estimator.py:22)
 
 ---
 
@@ -369,8 +369,8 @@ SANDBOX_SKU_COST_PER_SECOND=0.00005 .venv/bin/python -m scripts.seed_sandbox_sku
 
 ### Code References
 
-- [cost_estimator.py — TOOL_BASELINE_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L27-L29)
-- [common/email.py — SMTP config](file:///home/rahul/workspace/hb-proto-3/backend/src/common/email.py#L16-L63)
+- [cost_estimator.py — TOOL_BASELINE_COST](../../backend/src/ai/planning/cost_estimator.py:27)
+- [common/email.py — SMTP config](../../backend/src/common/email.py:16)
 
 ---
 
@@ -386,7 +386,7 @@ This is a credential-only entry; no per-transaction cost is metered through the 
 
 ### Code References
 
-- [credits_router.py — _get_razorpay_creds()](file:///home/rahul/workspace/hb-proto-3/backend/src/billing/credits_router.py#L29-L44)
+- [credits_router.py — _get_razorpay_creds()](../../backend/src/billing/credits_router.py:29)
 
 ---
 
@@ -406,7 +406,7 @@ This is a credential-only entry; no per-transaction cost is metered through the 
 
 ### Code References
 
-- [cost_estimator.py — TOOL_BASELINE_COST](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/cost_estimator.py#L22-L46)
+- [cost_estimator.py — TOOL_BASELINE_COST](../../backend/src/ai/planning/cost_estimator.py:22)
 
 ---
 
@@ -443,8 +443,8 @@ Company-specific settings take priority; global is the fallback.
 
 ### Code References
 
-- [billing_service.py — calculate_tb()](file:///home/rahul/workspace/hb-proto-3/backend/src/billing/billing_service.py#L24-L49)
-- [billing_models.py — BillingConfig](file:///home/rahul/workspace/hb-proto-3/backend/src/billing/billing_models.py#L15-L43)
+- [billing_service.py — calculate_tb()](../../backend/src/billing/billing_service.py:24)
+- [billing_models.py — BillingConfig](../../backend/src/billing/billing_models.py:15)
 
 ---
 
@@ -488,9 +488,9 @@ Execution is blocked if available balance falls below:
 
 ### Code References
 
-- [credit_service.py — CreditService](file:///home/rahul/workspace/hb-proto-3/backend/src/billing/credit_service.py#L40-L220)
-- [billing_models.py — CreditWallet](file:///home/rahul/workspace/hb-proto-3/backend/src/billing/billing_models.py#L46-L78)
-- [cron_service.py — daily/monthly jobs](file:///home/rahul/workspace/hb-proto-3/backend/src/billing/cron_service.py)
+- [credit_service.py — CreditService](../../backend/src/billing/credit_service.py:40)
+- [billing_models.py — CreditWallet](../../backend/src/billing/billing_models.py:46)
+- [cron_service.py — daily/monthly jobs](../../backend/src/billing/cron_service.py)
 
 ---
 
@@ -521,8 +521,8 @@ Unknown attributions automatically fall back to `tool` with a logged warning, en
 
 ### Code References
 
-- [services/cost_attribution.py — CostAttribution enum](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/services/cost_attribution.py#L29-L48)
-- [services/cost_attribution.py — CostLedger](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/services/cost_attribution.py#L54-L153)
+- [services/cost_attribution.py — CostAttribution enum](../../backend/src/ai/services/cost_attribution.py:29)
+- [services/cost_attribution.py — CostLedger](../../backend/src/ai/services/cost_attribution.py:54)
 
 ---
 

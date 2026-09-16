@@ -149,10 +149,19 @@ export const AnimatedBackground: React.FC = () => {
         camera.lookAt(0, -8, -6);
 
         // Renderer
-        const renderer = new THREE.WebGLRenderer({
-            antialias: true,
-            powerPreference: 'high-performance'
-        });
+        // WebGL can be unavailable (no GPU, hardware acceleration off, blocked by
+        // policy). This background is decorative, so degrade to the plain black
+        // container instead of letting the throw unmount the whole app.
+        let renderer: THREE.WebGLRenderer;
+        try {
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                powerPreference: 'high-performance'
+            });
+        } catch (err) {
+            console.warn('[AnimatedBackground] WebGL unavailable, skipping 3D background:', err);
+            return;
+        }
         renderer.setSize(width, height);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         containerRef.current.appendChild(renderer.domElement);

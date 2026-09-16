@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { phonePoolService } from '@/services/platform.service';
 import './PhonePool.css';
+import { API_BASE_URL } from '@/config/api';
 
 interface PhoneNumberEntry {
     id: string;
@@ -109,7 +110,7 @@ const PhonePool: React.FC = () => {
         try {
             // Fetch only ACTIVE, voice-enabled agents for assignment
             const response = await fetch(
-                `${import.meta.env.VITE_API_BASE_URL}/ai/entities?type=AGENT&voice_enabled=true&status=ACTIVE`,
+                `${API_BASE_URL}/ai/entities?type=AGENT&voice_enabled=true&status=ACTIVE`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             if (!response.ok) return;
@@ -125,7 +126,7 @@ const PhonePool: React.FC = () => {
             const results: CustomerCompany[] = [];
             // Fetch tenants
             const tenantRes = await fetch(
-                `${import.meta.env.VITE_API_BASE_URL}/companies/tenants`,
+                `${API_BASE_URL}/companies/tenants`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             if (tenantRes.ok) {
@@ -136,7 +137,7 @@ const PhonePool: React.FC = () => {
             // Fetch partners (app_admin only)
             if (isAdmin) {
                 const partnerRes = await fetch(
-                    `${import.meta.env.VITE_API_BASE_URL}/companies/partners`,
+                    `${API_BASE_URL}/companies/partners`,
                     { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 if (partnerRes.ok) {
@@ -161,7 +162,7 @@ const PhonePool: React.FC = () => {
     const fetchCompanies = async () => {
         try {
             const response = await fetch(
-                `${import.meta.env.VITE_API_BASE_URL}/companies`,
+                `${API_BASE_URL}/companies`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             if (!response.ok) return;
@@ -635,6 +636,12 @@ const PhonePool: React.FC = () => {
                                             <option key={a.id} value={a.id}>{a.name}</option>
                                         ))}
                                     </select>
+                                    {agents.length === 0 && (
+                                        <small className="form-hint">
+                                            No voice-enabled agents found. Only ACTIVE agents with a
+                                            voice persona configured can be assigned to a phone number.
+                                        </small>
+                                    )}
                                 </div>
                                 <div className="form-group full-width">
                                     <label>Customer (optional)</label>

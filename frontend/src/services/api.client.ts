@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { API_BASE_URL } from '@/config/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://gateway.hirebuddha.com/api/v1';
 
 class ApiClient {
     private client: AxiosInstance;

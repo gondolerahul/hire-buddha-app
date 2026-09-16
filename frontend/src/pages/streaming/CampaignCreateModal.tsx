@@ -5,6 +5,7 @@ import { X, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
 import { HierarchicalEntity, EntityType } from '@/types';
 import './CampaignCreateModal.css';
+import { API_BASE_URL } from '@/config/api';
 
 interface CampaignCreateModalProps {
     isOpen: boolean;
@@ -72,7 +73,7 @@ export const CampaignCreateModal: React.FC<CampaignCreateModalProps> = ({ isOpen
 
         try {
             console.log('Uploading CSV with token:', token ? 'Token exists' : 'No token');
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns/upload-csv`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns/upload-csv`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -110,7 +111,7 @@ export const CampaignCreateModal: React.FC<CampaignCreateModalProps> = ({ isOpen
         setError('');
 
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,

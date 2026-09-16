@@ -5,6 +5,7 @@ import { GlassCard, JellyButton } from '@/components/ui';
 import { Plus, Play, Pause, Square, Info, RefreshCw, PhoneForwarded, Download, RotateCcw } from 'lucide-react';
 import { CampaignCreateModal } from './CampaignCreateModal';
 import './CampaignsPage.css';
+import { API_BASE_URL } from '@/config/api';
 
 interface Campaign {
     id: string;
@@ -57,7 +58,7 @@ export const CampaignsPage: React.FC = () => {
     const fetchCampaigns = async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
@@ -72,7 +73,7 @@ export const CampaignsPage: React.FC = () => {
     const downloadInterestedLeads = async () => {
         setDownloadingInterested(true);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns/interested/download`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns/interested/download`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
@@ -101,7 +102,7 @@ export const CampaignsPage: React.FC = () => {
         }
         setRetryingFailed(true);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns/retry-failed`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns/retry-failed`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -122,7 +123,7 @@ export const CampaignsPage: React.FC = () => {
     const updateStatus = async (campaignId: string, status: string) => {
         setActionLoading(campaignId);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns/${campaignId}/status?status=${status}`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}/status?status=${status}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `Bearer ${token}` }
             });

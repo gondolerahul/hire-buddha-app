@@ -887,17 +887,17 @@ graph TB
 
 | Diagram Section | Key Source Files |
 |---|---|
-| System Topology | [main.py](file:///home/rahul/workspace/hb-proto-3/backend/src/main.py), [start_services.sh](file:///home/rahul/workspace/hb-proto-3/start_services.sh) |
-| Agent Hierarchy | [models.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/orm/execution.py), [service.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/service.py) |
-| Agentic Loop | [agent_loop.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/core/agent_loop.py), [agent_state.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/core/agent_state.py) |
-| CORTEX Memory | [cortex_service.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/cortex_service.py), [cortex_bridge.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/cortex_bridge.py) |
-| Four Domains | [assembler.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/assembler.py), [domains/](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/domains/__init__.py) |
-| Dreaming/Learning | [dreaming_engine.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/dreaming_engine.py), [trust_learning.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/trust_learning.py), [rule_lifecycle.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/rule_lifecycle.py) |
-| Meta Agent | [meta_agent_template.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/meta/meta_agent_template.py), [board/](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/meta/board/__init__.py) |
-| Critic Pipeline | [critic_pipeline.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/critic_pipeline.py), [supervisor_critic.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/planning/supervisor_critic.py) |
-| Governance | [governance_service.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/governance_service.py), [tool_cost_resolver.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/governance/tool_cost_resolver.py) |
-| Suspend/Resume | [arq_jobs.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/core/arq_jobs.py), [child_entity.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/core/executors/child_entity.py) |
-| Voice | [websocket_handler.py](file:///home/rahul/workspace/hb-proto-3/backend/src/voice), [gemini_live.py](file:///home/rahul/workspace/hb-proto-3/backend/src/voice) |
-| Reasoning | [reasoning/](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/core/reasoning/__init__.py), [executors/](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/core/executors/__init__.py) |
-| Intelligence Rules | [rule_lifecycle.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/rule_lifecycle.py), [intelligence_tree_service.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/memory/intelligence_tree_service.py) |
-| Meta Intelligence | [meta_intelligence_tree.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/meta/meta_intelligence_tree.py), [skill_library.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/meta/skill_library.py), [prompt_evolution.py](file:///home/rahul/workspace/hb-proto-3/backend/src/ai/meta/prompt_evolution.py) |
+| System Topology | [main.py](../../backend/src/main.py), [start_services.sh](../../start_services.sh) |
+| Agent Hierarchy | [models.py](../../backend/src/ai/orm/execution.py), [service.py](../../backend/src/ai/service.py) |
+| Agentic Loop | [agent_loop.py](../../backend/src/ai/core/agent_loop.py), [agent_state.py](../../backend/src/ai/core/agent_state.py) |
+| CORTEX Memory | [cortex_service.py](../../backend/src/ai/memory/cortex_service.py), [cortex_bridge.py](../../backend/src/ai/memory/cortex_bridge.py) |
+| Four Domains | [assembler.py](../../backend/src/ai/memory/assembler.py), [domains/](../../backend/src/ai/memory/domains/__init__.py) |
+| Dreaming/Learning | [dreaming_engine.py](../../backend/src/ai/memory/dreaming_engine.py), [trust_learning.py](../../backend/src/ai/memory/trust_learning.py), [rule_lifecycle.py](../../backend/src/ai/memory/rule_lifecycle.py) |
+| Meta Agent | [meta_agent_template.py](../../backend/src/ai/meta/meta_agent_template.py), [board/](../../backend/src/ai/meta/board/__init__.py) |
+| Critic Pipeline | [critic_pipeline.py](../../backend/src/ai/planning/critic_pipeline.py), [supervisor_critic.py](../../backend/src/ai/planning/supervisor_critic.py) |
+| Governance | [governance_service.py](../../backend/src/ai/governance/governance_service.py), [tool_cost_resolver.py](../../backend/src/ai/governance/tool_cost_resolver.py) |
+| Suspend/Resume | [arq_jobs.py](../../backend/src/ai/core/arq_jobs.py), [child_entity.py](../../backend/src/ai/core/executors/child_entity.py) |
+| Voice | [websocket_handler.py](../../backend/src/voice/websocket_handler.py), [gemini_live.py](../../backend/src/voice/gemini_live.py) |
+| Reasoning | [reasoning/](../../backend/src/ai/core/reasoning/__init__.py), [executors/](../../backend/src/ai/core/executors/__init__.py) |
+| Intelligence Rules | [rule_lifecycle.py](../../backend/src/ai/memory/rule_lifecycle.py), [intelligence_tree_service.py](../../backend/src/ai/memory/intelligence_tree_service.py) |
+| Meta Intelligence | [meta_intelligence_tree.py](../../backend/src/ai/meta/meta_intelligence_tree.py), [skill_library.py](../../backend/src/ai/meta/skill_library.py), [prompt_evolution.py](../../backend/src/ai/meta/prompt_evolution.py) |

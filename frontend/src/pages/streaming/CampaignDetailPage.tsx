@@ -6,6 +6,7 @@ import { GlassCard, JellyButton } from '@/components/ui';
 import { ArrowLeft, Download, Info, RefreshCw, AlertCircle } from 'lucide-react';
 import './CampaignsPage.css';
 import './CampaignDetailPage.css';
+import { API_BASE_URL } from '@/config/api';
 
 interface CampaignCallRecord {
     id: string;
@@ -51,7 +52,7 @@ export const CampaignDetailPage: React.FC = () => {
     const fetchCampaign = async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns/${campaignId}`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (!response.ok) throw new Error('Campaign not found');
@@ -68,7 +69,7 @@ export const CampaignDetailPage: React.FC = () => {
 
     const downloadReport = async () => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/campaigns/${campaignId}/download`, {
+            const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}/download`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 

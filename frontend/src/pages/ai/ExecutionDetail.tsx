@@ -13,8 +13,9 @@ import { ExecutionRun, RunStatus, EntityType, LLMInteractionLog, ToolInteraction
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { AgentLoopExecutionDetail } from '@/components/agent/AgentLoopExecutionDetail';
 import './ExecutionDetail.css';
+import { API_BASE_URL } from '@/config/api';
 
-const _API_BASE = (import.meta.env.VITE_API_BASE_URL as string)
+const _API_BASE = (API_BASE_URL as string)
     || 'https://gateway.hirebuddha.com/api/v1';
 
 // Authenticated file download — uses apiClient (with auto token-refresh)

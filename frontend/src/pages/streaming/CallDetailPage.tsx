@@ -9,6 +9,7 @@ import {
   AlertCircle, Loader2, User, Bot, Calendar, Hash, Save
 } from 'lucide-react';
 import './CallDetailPage.css';
+import { API_BASE_URL } from '@/config/api';
 
 interface TranscriptTurn {
   turn_number: number;
@@ -68,7 +69,7 @@ export const CallDetailPage: React.FC = () => {
     setError(null);
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/streaming/voice-sessions/${sessionId}`,
+        `${API_BASE_URL}/streaming/voice-sessions/${sessionId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!response.ok) throw new Error('Failed to fetch session');
@@ -102,7 +103,7 @@ export const CallDetailPage: React.FC = () => {
 
   const getRecordingUrl = () => {
     if (!session?.recording_url) return null;
-    const base = import.meta.env.VITE_API_BASE_URL?.replace('/api/v1', '') || '';
+    const base = API_BASE_URL?.replace('/api/v1', '') || '';
     const url = `${base}${session.recording_url}`;
     // Append JWT token for authentication (the download endpoint supports ?token=)
     return token ? `${url}${url.includes('?') ? '&' : '?'}token=${token}` : url;
@@ -141,7 +142,7 @@ export const CallDetailPage: React.FC = () => {
     setActionSaved(false);
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/streaming/voice-sessions/${sessionId}/next-action`,
+        `${API_BASE_URL}/streaming/voice-sessions/${sessionId}/next-action`,
         {
           method: 'PATCH',
           headers: {
