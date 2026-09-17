@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HireBuddha Dialer</string>
+    <string name="dialer_label">HireBuddha Phone</string>
+    <string name="channel_run">Campaign run</string>
+    <string name="channel_calls">Incoming calls</string>
+</resources>

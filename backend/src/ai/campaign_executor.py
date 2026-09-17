@@ -80,6 +80,12 @@ class CampaignExecutor:
                 if campaign.status not in ["draft", "scheduled", "paused", "running"]:
                     raise ValueError(f"Campaign cannot be started from status: {campaign.status}")
 
+                if getattr(campaign, "execution_mode", "server_dialer") == "mobile_conference":
+                    # Reps dial these from the mobile app; the server must never
+                    # place calls for them (would double-dial leased leads).
+                    logger.warning(f"Refusing to server-dial mobile campaign {campaign_id}")
+                    return
+
                 # Update to running
                 await db.execute(
                     update(Campaign)

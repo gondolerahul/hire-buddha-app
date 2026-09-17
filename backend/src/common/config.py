@@ -89,6 +89,39 @@ class Settings(BaseSettings):
     # Country code prepended to 10-digit campaign contact numbers that lack
     # one (Tata rejects non-E.164 numbers with HTTP 422 "Invalid details").
     DEFAULT_PHONE_COUNTRY_CODE: str = "91"
+    # Key Smartflo's dynamic endpoint expects in our {"<key>": true, "wss_url"}
+    # reply. Historically "sucess"; Smartflo docs say "success". Verify, then flip.
+    TATA_STREAM_SUCCESS_KEY: str = "sucess"
+
+    # ── Mobile dialer (docs/mobile-dialer-app) ────────────────────────────
+    # A call attempt the app registered but whose AI leg never arrived.
+    MOBILE_ATTEMPT_TTL_SECONDS: int = 120
+    # After the AI-leg stream starts, wait this long for CLI/DTMF binding
+    # before starting the agent without lead context.
+    MOBILE_IDENT_TIMEOUT_SECONDS: int = 10
+    # A CLI-bound session still waits this long for the DTMF token that
+    # confirms (or corrects) the binding before loading the agent.
+    MOBILE_DTMF_CONFIRM_WAIT_SECONDS: int = 4
+    # Max wait for the app's 'merged' signal after the AI is ready.
+    MOBILE_MERGE_WAIT_SECONDS: int = 60
+    # Accept a lone '#' DTMF as the merged signal when mobile data is poor.
+    MOBILE_DTMF_MERGE_FALLBACK: bool = True
+    MOBILE_LEASE_SECONDS: int = 300
+    MOBILE_VERIFICATION_TTL_SECONDS: int = 300
+    MOBILE_VERIFICATION_MAX_CALL_SECONDS: int = 20
+    MOBILE_RECONCILE_WINDOW_SECONDS: int = 15
+    # Guardrails for reps calling from personal SIMs (TRAI TCCCPR, docs 08 §1.1).
+    MOBILE_CALLING_HOURS_START: str = "09:30"   # IST, inclusive
+    MOBILE_CALLING_HOURS_END: str = "19:30"     # IST, exclusive
+    MOBILE_CALLING_HOURS_ENFORCED: bool = True
+    MOBILE_REP_DAILY_ATTEMPT_CAP: int = 150
+    # Firebase service-account JSON for FCM fallback pushes; empty disables FCM.
+    MOBILE_FCM_SERVICE_ACCOUNT_FILE: str = ""
+    # Latest Android build offered for in-app update (private distribution).
+    MOBILE_APP_LATEST_VERSION_CODE: int = 1
+    MOBILE_APP_LATEST_VERSION_NAME: str = "1.0.0"
+    MOBILE_APP_MIN_SUPPORTED_VERSION_CODE: int = 1
+    MOBILE_APP_DOWNLOAD_URL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -403,3 +403,10 @@
 .danger {
     color: #f87171;
 }
+.mobile-mode-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    opacity: 0.8;
+}

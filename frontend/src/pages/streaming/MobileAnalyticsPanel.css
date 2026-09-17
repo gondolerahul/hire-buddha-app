@@ -1,0 +1,105 @@
+.mobile-analytics {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.mobile-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+}
+
+.mobile-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tile-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+}
+
+.tile-value {
+    font-size: 1.4rem;
+}
+
+.tile-caption {
+    font-size: 0.78rem;
+    opacity: 0.65;
+}
+
+.mobile-section h4 {
+    margin: 0 0 0.6rem;
+}
+
+.funnel-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 48px;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
+}
+
+.funnel-label {
+    font-size: 0.85rem;
+}
+
+.funnel-track {
+    height: 14px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+}
+
+.funnel-bar {
+    height: 100%;
+    background: var(--color-rose-gold, #c9a27e);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.funnel-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.outcome-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.outcome-chip {
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 0.82rem;
+}
+
+.mobile-analytics-alert {
+    padding: 0.6rem 0.9rem;
+    border-radius: 10px;
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    font-size: 0.88rem;
+}
+
+.mobile-analytics-loading,
+.mobile-analytics-error {
+    opacity: 0.7;
+    padding: 0.5rem 0;
+}
+
+@media (max-width: 520px) {
+    .funnel-row {
+        grid-template-columns: 110px 1fr 40px;
+    }
+}

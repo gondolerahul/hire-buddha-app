@@ -23,3 +23,11 @@ YYYY-MM-DD  <kind>  <one-line summary>
               rationale: out of scope; deterministic Strategist meets G1
 2026-05-29  decision  tools.resilience_v2_enabled default ON for both REACT and direct paths
               rationale: T8-3 unified path eliminates 60-line duplication
+2026-09-17  decision  Mobile dialer app: identify leads via call-intent + CLI match, DTMF token confirmation, gated AI start (ADR-001)
+              rationale: zero recurring cost, fits existing session cascade; see docs/mobile-dialer-app/03-adr-001-lead-identification.md
+2026-09-17  accept-risk  Mobile dialer reps call campaign leads from personal 10-digit SIMs (TRAI TCCCPR 2025)
+              rationale: confirmed by product; in-app calling-hours, daily cap and do-not-call guardrails kept
+2026-09-17  decision  Mobile dialer dial order is AI-first only; rep auto-muted after merge with unmute control
+              rationale: 5-27s AI setup would otherwise leave answered leads on hold
+2026-09-17  decision  Mobile dialer app distributed privately outside the Play Store; no public release
+              rationale: default-dialer role and pilot scope; avoids Play review

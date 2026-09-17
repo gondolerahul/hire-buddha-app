@@ -42,7 +42,9 @@ class CampaignService:
         scheduled_end: Optional[datetime] = None,
         max_concurrent_calls: int = 5,
         max_calls_per_hour: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        execution_mode: str = "server_dialer",
+        contact_upload_id: Optional[UUID] = None,
     ) -> Campaign:
         """
         Create a new campaign.
@@ -80,7 +82,9 @@ class CampaignService:
             max_concurrent_calls=max_concurrent_calls,
             max_calls_per_hour=max_calls_per_hour,
             status="draft",
-            campaign_metadata=metadata or {}
+            campaign_metadata=metadata or {},
+            execution_mode=execution_mode,
+            contact_upload_id=contact_upload_id,
         )
         
         self.db.add(campaign)

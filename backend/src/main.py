@@ -81,6 +81,11 @@ from src.ai.api.admin import router as kernel_admin_router
 app.include_router(kernel_admin_router, prefix="/api/v1")
 from src.ai.campaign_router import router as campaign_router
 app.include_router(campaign_router, prefix="/api/v1")
+# Mobile dialer app API (docs/mobile-dialer-app)
+from src.mobile.router import router as mobile_router
+app.include_router(mobile_router, prefix="/api/v1")
+from src.mobile.analytics_router import router as mobile_analytics_router
+app.include_router(mobile_analytics_router, prefix="/api/v1")
 
 # CORTEX Memory Architecture
 from src.ai.memory.cortex_router import router as cortex_router

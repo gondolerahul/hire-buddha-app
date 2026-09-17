@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, JellyButton } from '@/components/ui';
-import { Plus, Play, Pause, Square, Info, RefreshCw, PhoneForwarded, Download, RotateCcw } from 'lucide-react';
+import { Plus, Play, Pause, Square, Info, RefreshCw, PhoneForwarded, Download, RotateCcw, Smartphone } from 'lucide-react';
 import { CampaignCreateModal } from './CampaignCreateModal';
 import './CampaignsPage.css';
 import { API_BASE_URL } from '@/config/api';
@@ -19,6 +19,7 @@ interface Campaign {
     calls_calling?: number;
     calls_pending?: number;
     provider?: string;
+    execution_mode?: 'server_dialer' | 'mobile_conference';
     created_at: string;
 }
 
@@ -256,7 +257,12 @@ export const CampaignsPage: React.FC = () => {
                                     </div>
 
                                     <div className="campaign-actions">
-                                        {campaign.status === 'draft' || campaign.status === 'paused' || campaign.status === 'failed' || campaign.status === 'stopped' ? (
+                                        {campaign.execution_mode === 'mobile_conference' ? (
+                                            // Reps start, pause and stop these from the mobile app.
+                                            <span className="mobile-mode-hint" title="Run from the HireBuddha mobile app">
+                                                <Smartphone size={16} /> Run from mobile app
+                                            </span>
+                                        ) : campaign.status === 'draft' || campaign.status === 'paused' || campaign.status === 'failed' || campaign.status === 'stopped' ? (
                                             <button
                                                 className="action-btn start"
                                                 onClick={() => updateStatus(campaign.id, 'running')}
@@ -276,7 +282,7 @@ export const CampaignsPage: React.FC = () => {
                                             </button>
                                         ) : null}
 
-                                        {campaign.status === 'running' || campaign.status === 'paused' ? (
+                                        {campaign.execution_mode !== 'mobile_conference' && (campaign.status === 'running' || campaign.status === 'paused') ? (
                                             <button
                                                 className="action-btn stop"
                                                 onClick={() => updateStatus(campaign.id, 'stopped')}

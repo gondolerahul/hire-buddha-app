@@ -137,6 +137,9 @@ class BaseStreamHandler:
         self._vm_phrase_window = ""
         self._end_call_pushback_sent = False
         self._ringback_task: Optional[asyncio.Task] = None
+        # Mobile dialer: set by _prepare_mobile_session for AI legs placed by
+        # the rep's phone (src/mobile/stream_controller.py).
+        self.mobile = None
 
     # ------------------------------------------------------------------
     # Recording helpers (P0.4)
@@ -325,22 +328,27 @@ class BaseStreamHandler:
             agent_context, 'max_call_duration_seconds', 300
         )
             
-        # Send greeting trigger immediately
-        greeting = (
-            "[Call connected. Greet the customer to begin the conversation.]"
-            if self.voice_session.direction == "outbound"
-            else "[Call connected. Greet the caller to begin the conversation.]"
-        )
-        try:
-            # For gemini-3.1-flash-live-preview, send_client_content is only for
-            # seeding history. Must use send_realtime_input for live messages.
-            await self.gemini_session.send_realtime_input(text=greeting)
-            self._greeting_sent_at = time.time()
-            logger.info(f"Sent greeting trigger for session {self.session_id}")
-        except Exception as _ge:
-            logger.warning(f"Greeting trigger failed (non-fatal): {_ge}")
+        if self.mobile:
+            # Mobile conference: stay silent until the app reports the lead
+            # has been merged in; the controller sends the greeting then.
+            await self.mobile.on_model_connected()
+        else:
+            # Send greeting trigger immediately
+            greeting = (
+                "[Call connected. Greet the customer to begin the conversation.]"
+                if self.voice_session.direction == "outbound"
+                else "[Call connected. Greet the caller to begin the conversation.]"
+            )
+            try:
+                # For gemini-3.1-flash-live-preview, send_client_content is only for
+                # seeding history. Must use send_realtime_input for live messages.
+                await self.gemini_session.send_realtime_input(text=greeting)
+                self._greeting_sent_at = time.time()
+                logger.info(f"Sent greeting trigger for session {self.session_id}")
+            except Exception as _ge:
+                logger.warning(f"Greeting trigger failed (non-fatal): {_ge}")
 
-        self._pipeline_started_at = time.time()
+            self._pipeline_started_at = time.time()
 
         tasks = [
             asyncio.create_task(self._receive_from_provider()),
@@ -351,6 +359,8 @@ class BaseStreamHandler:
             asyncio.create_task(self._call_duration_watchdog()),
             asyncio.create_task(self._activity_watchdog()),
         ]
+        if self.mobile:
+            tasks.append(asyncio.create_task(self.mobile.control_listener()))
         try:
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -362,6 +372,11 @@ class BaseStreamHandler:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
         finally:
+            if self.mobile:
+                try:
+                    await self.mobile.notify_ended()
+                except Exception as _me:
+                    logger.warning(f"[Mobile] ai_ended push failed: {_me}")
             # Close the Gemini Live session context manager
             if hasattr(self, '_live_session_cm') and self._live_session_cm:
                 try:
@@ -397,6 +412,13 @@ class BaseStreamHandler:
                 elif event_type == "media":
                     await self._handle_media_event(event)
 
+                elif event_type == "dtmf":
+                    key = (event.get("dtmf") or {}).get("digit")
+                    if self.mobile:
+                        await self.mobile.on_dtmf(key)
+                    else:
+                        logger.info(f"DTMF '{key}' on session {self.session_id} (unused)")
+
                 elif event_type == "stop":
                     logger.info(f"Provider call stopped: {event}")
                     self._provider_stopped = True
@@ -424,6 +446,26 @@ class BaseStreamHandler:
         )
         self._start_ringback()
 
+    async def _prepare_mobile_session(self) -> bool:
+        """Mobile-dialer AI legs: identify the lead before the model starts.
+
+        Returns False when the call should end without an agent (device
+        verification finished, caller hung up, verification timed out).
+        """
+        from src.mobile.identification import is_mobile_session
+        from src.mobile.stream_controller import MobileCallController, PreModelOutcome
+
+        if not is_mobile_session(self.voice_session):
+            return True
+        self.mobile = MobileCallController(self)
+        outcome = await self.mobile.pre_model_phase()
+        if outcome == PreModelOutcome.FALLBACK_INBOUND:
+            self.mobile = None
+            if self.stream_sid:
+                self._start_ringback()
+            return True
+        return outcome == PreModelOutcome.CONTINUE
+
     async def _handle_media_event(self, event: Dict[str, Any]):
         """Decode base64 mulaw payload and push to incoming buffer."""
         payload = event.get("media", {}).get("payload")
@@ -437,6 +479,8 @@ class BaseStreamHandler:
 
     def _start_ringback(self):
         """Launch the ringback loop that masks setup latency until first audio."""
+        if self.mobile:
+            return  # the rep's phone holds this leg; nobody is waiting on it
         if self._ringback_task is None or self._ringback_task.done():
             self._ringback_task = asyncio.create_task(self._play_ringback_until_first_audio())
 
@@ -486,6 +530,24 @@ class BaseStreamHandler:
                     mulaw_chunk = self.incoming_audio_buffer.popleft()
                     forward_to_model = True
 
+                    if self.mobile and not self.mobile.merged:
+                        # Before the lead is merged the leg carries hold tones,
+                        # DTMF and the rep: keep the model hearing silence and
+                        # keep it out of the recording and speech guards.
+                        if self.gemini_session:
+                            try:
+                                from google.genai import types as genai_types
+                                await self.gemini_session.send_realtime_input(
+                                    audio=genai_types.Blob(
+                                        data=b"\x00" * (len(mulaw_chunk) * 4),
+                                        mime_type="audio/pcm;rate=16000",
+                                    )
+                                )
+                            except Exception as e:
+                                logger.error(f"Error sending silence to upstream provider: {e}")
+                                break
+                        continue
+
                     # Recording mix: inbound linear + outbound linear → write to file
                     try:
                         import audioop
@@ -534,7 +596,10 @@ class BaseStreamHandler:
                         # pickup-hello, which is normal for outbound calls.
                         if (
                             not self._first_audio_received
-                            and getattr(self.voice_session, "direction", "") == "outbound"
+                            and (
+                                getattr(self.voice_session, "direction", "") == "outbound"
+                                or self.mobile is not None
+                            )
                         ):
                             forward_to_model = False
                         mix_len = len(inbound_lin)
@@ -591,6 +656,8 @@ class BaseStreamHandler:
 
                     # ── 1. Audio PCM from model ──────────────────────────────
                     audio_data = response.data
+                    if audio_data and self.mobile and not self.mobile.merged:
+                        audio_data = None  # held leg: never play pre-merge model audio
                     if audio_data:
                         if not self._first_audio_received:
                             self._first_audio_received = True
@@ -794,6 +861,12 @@ class BaseStreamHandler:
 
                 now = time.time()
 
+                if self.mobile and not self.mobile.merged:
+                    # Lead ring time is expected silence; only bound the wait.
+                    if self.mobile.merge_wait_expired(now):
+                        self._terminate_call("merge_timeout")
+                    continue
+
                 # Perceived agent speech time: the lead keeps hearing the
                 # agent until the provider's playback buffer drains.
                 agent_audio_at = effective_agent_audio_at(
@@ -815,7 +888,12 @@ class BaseStreamHandler:
 
                 state = ActivityState(
                     now=now,
-                    direction=getattr(self.voice_session, "direction", "inbound"),
+                    # A merged mobile conference behaves like an outbound call:
+                    # the lead can land on voicemail.
+                    direction=(
+                        "outbound" if self.mobile
+                        else getattr(self.voice_session, "direction", "inbound")
+                    ),
                     pipeline_started_at=self._pipeline_started_at,
                     greeting_sent_at=self._greeting_sent_at,
                     first_audio_received=self._first_audio_received,
@@ -1126,6 +1204,9 @@ class BaseStreamHandler:
             limit = self.max_call_duration_seconds
             if limit <= 0:
                 return  # 0 = no limit
+            if self.mobile:
+                # The conversation limit starts when the lead joins.
+                await self.mobile.wait_merged()
 
             # Phase 1: wait until (limit - 15) seconds, then send wind-down
             warn_at = max(limit - 15, 0)
@@ -1501,6 +1582,13 @@ class BaseStreamHandler:
                 except Exception as cc_err:
                     logger.warning(f"Campaign call post-cleanup update failed: {cc_err}")
 
+                # --- Post-call: mobile dialer attempt bookkeeping ---
+                if self.mobile:
+                    try:
+                        await self.mobile.on_cleanup()
+                    except Exception as m_err:
+                        logger.warning(f"[Mobile] Post-call attempt update failed: {m_err}")
+
             except Exception as e:
                 logger.error(f"Error during cleanup DB update: {e}")
 
@@ -1742,6 +1830,8 @@ class TwilioStreamHandler(BaseStreamHandler):
                 return
 
             self.is_running = True
+            if not await self._prepare_mobile_session():
+                return
             await self._setup_live_and_run()
 
         except Exception as e:
@@ -1793,6 +1883,8 @@ class TataStreamHandler(BaseStreamHandler):
                 await self.websocket.close()
                 return
 
+            if not await self._prepare_mobile_session():
+                return
             self._start_ringback()
             await self._setup_live_and_run()
 
@@ -1867,6 +1959,21 @@ class TataStreamHandler(BaseStreamHandler):
             await self.session_manager.update_voice_session(
                 self.session_id,
                 {"call_sid": self.call_sid, "stream_sid": self.stream_sid, "status": "active"},
+            )
+            return
+
+        # ── Strategy 2b: Mobile dialer AI leg (rep's phone → agent DID) ──────
+        from src.mobile.identification import resolve_mobile_inbound
+        mobile_session = await resolve_mobile_inbound(
+            self.db, from_number=from_number, to_number=to_number,
+            call_sid=self.call_sid or f"pending_{self.stream_sid}", provider="tata_tele",
+            raw_metadata=start_data,
+        )
+        if mobile_session:
+            self.voice_session = mobile_session
+            self.session_id = mobile_session.id
+            await self.session_manager.update_voice_session(
+                self.session_id, {"stream_sid": self.stream_sid, "status": "active"},
             )
             return
 

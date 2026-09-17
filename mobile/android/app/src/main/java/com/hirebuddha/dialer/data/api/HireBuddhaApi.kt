@@ -1,0 +1,60 @@
+package com.hirebuddha.dialer.data.api
+
+import okhttp3.MultipartBody
+import retrofit2.Response
+import retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.Multipart
+import retrofit2.http.PATCH
+import retrofit2.http.POST
+import retrofit2.http.Part
+import retrofit2.http.Path
+import retrofit2.http.Query
+
+/** Paths are relative to `<server>/api/v1/`. */
+interface HireBuddhaApi {
+
+    @POST("auth/login") suspend fun login(@Body body: LoginRequest): Response<TokenResponse>
+    @GET("mobile/me") suspend fun me(): Response<MeDto>
+    @GET("mobile/app-version") suspend fun appVersion(@Query("version_code") versionCode: Int): Response<AppVersionDto>
+
+    @POST("mobile/devices") suspend fun registerDevice(@Body body: DeviceRegisterRequest): Response<DeviceDto>
+    @GET("mobile/devices/{id}") suspend fun device(@Path("id") id: String): Response<DeviceDto>
+    @POST("mobile/devices/{id}/verification") suspend fun reissueVerification(@Path("id") id: String): Response<DeviceDto>
+
+    @GET("mobile/campaigns") suspend fun campaigns(): Response<CampaignsResponse>
+    @GET("mobile/campaigns/{id}") suspend fun campaign(@Path("id") id: String): Response<CampaignDto>
+    @GET("mobile/agents") suspend fun agents(): Response<AgentsResponse>
+    @GET("mobile/reps") suspend fun reps(): Response<RepsResponse>
+
+    @Multipart
+    @POST("campaigns/upload-contacts")
+    suspend fun uploadContacts(@Part file: MultipartBody.Part): Response<UploadReportDto>
+
+    @POST("campaigns") suspend fun createCampaign(@Body body: CreateCampaignRequest): Response<CreateCampaignResponse>
+
+    @POST("mobile/campaigns/{id}/runs") suspend fun startRun(@Path("id") campaignId: String, @Body body: RunStartRequest): Response<RunDto>
+    @PATCH("mobile/runs/{id}") suspend fun updateRun(@Path("id") runId: String, @Body body: RunUpdateRequest): Response<RunDto>
+    @POST("mobile/runs/{id}/next") suspend fun nextLead(@Path("id") runId: String): Response<LeaseDto>
+
+    @POST("mobile/call-attempts") suspend fun createAttempt(@Body body: AttemptCreateRequest): Response<AttemptDto>
+    @GET("mobile/call-attempts/{id}") suspend fun attempt(@Path("id") attemptId: String): Response<AttemptDto>
+    @POST("mobile/call-attempts/{id}/events") suspend fun postEvents(@Path("id") attemptId: String, @Body body: EventBatch): Response<EventAck>
+    @GET("mobile/call-attempts/{id}/timeline") suspend fun timeline(@Path("id") attemptId: String): Response<TimelineDto>
+
+    @GET("campaigns/{id}/mobile-analytics") suspend fun campaignAnalytics(@Path("id") campaignId: String): Response<AnalyticsDto>
+    @GET("campaigns/{id}/calls") suspend fun campaignCalls(
+        @Path("id") campaignId: String,
+        @Query("disposition") disposition: String? = null,
+        @Query("status") status: String? = null,
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0,
+    ): Response<CallsPageDto>
+    @GET("mobile/analytics/summary") suspend fun analyticsSummary(
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+        @Query("user_id") userId: String? = null,
+    ): Response<AnalyticsDto>
+
+    @GET("streaming/voice-sessions/{id}") suspend fun voiceSession(@Path("id") sessionId: String): Response<VoiceSessionDto>
+}

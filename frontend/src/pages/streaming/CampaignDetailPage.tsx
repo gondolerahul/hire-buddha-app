@@ -7,6 +7,7 @@ import { ArrowLeft, Download, Info, RefreshCw, AlertCircle } from 'lucide-react'
 import './CampaignsPage.css';
 import './CampaignDetailPage.css';
 import { API_BASE_URL } from '@/config/api';
+import { MobileAnalyticsPanel } from './MobileAnalyticsPanel';
 
 interface CampaignCallRecord {
     id: string;
@@ -172,12 +173,27 @@ export const CampaignDetailPage: React.FC = () => {
 
             <GlassCard>
                 <div className="campaign-detail-body">
+                    {campaign.execution_mode === 'mobile_conference' && (
+                        <div className="detail-section">
+                            <h3>Mobile App Performance</h3>
+                            <p className="header-sub">Reps dial leads from their phones and merge in the AI agent.</p>
+                            <MobileAnalyticsPanel
+                                campaignId={campaign.id}
+                                token={token}
+                                live={campaign.status === 'running'}
+                            />
+                        </div>
+                    )}
+
                     <div className="detail-section">
                         <h3>Campaign Metrics</h3>
                         <div className="detail-grid">
                             <div className="detail-item">
                                 <span className="label">Outreach Engine</span>
-                                <strong>{campaign.provider === 'tata_tele' ? 'Tata Tele' : 'Twilio'}</strong>
+                                <strong>
+                                    {campaign.execution_mode === 'mobile_conference' ? 'Mobile app · ' : ''}
+                                    {campaign.provider === 'tata_tele' ? 'Tata Tele' : 'Twilio'}
+                                </strong>
                             </div>
                             <div className="detail-item">
                                 <span className="label">Total Contacts</span>

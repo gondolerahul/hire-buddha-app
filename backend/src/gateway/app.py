@@ -133,6 +133,10 @@ app.include_router(audio_router)
 # Interface 5: Unified Video Streaming (WebRTC)
 app.include_router(video_router)
 
+# Mobile dialer app push socket (WS /mobile/ws) — must precede the catch-all proxy
+from src.mobile.push_gateway import router as mobile_push_router
+app.include_router(mobile_push_router)
+
 # NOTE: The standalone streaming service (port 8002) has been retired.
 # All audio/video streaming is served natively by this gateway via:
 #   /stream/audio   — unified audio WebSocket (twilio, tata_tele, exotel, web)

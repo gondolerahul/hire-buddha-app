@@ -3,6 +3,66 @@
     width: 90%;
 }
 
+/* ── Execution mode + rep assignment (mobile dialer) ── */
+.mode-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.mode-option {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    text-align: left;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
+    cursor: pointer;
+}
+
+.mode-option span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.mode-option small {
+    opacity: 0.7;
+}
+
+.mode-option.selected {
+    border-color: var(--color-rose-gold, #c9a27e);
+    background: rgba(201, 162, 126, 0.12);
+}
+
+.assignee-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.assignee-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.assignee-item small {
+    opacity: 0.6;
+    margin-left: auto;
+}
+
+.form-hint {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    margin: 4px 0 0;
+}
+
 .modal-header {
     display: flex;
     justify-content: space-between;

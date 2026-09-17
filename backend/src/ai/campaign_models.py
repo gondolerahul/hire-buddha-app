@@ -76,6 +76,11 @@ class Campaign(Base):
     max_concurrent_calls = Column(Integer, nullable=False, default=5)
     max_calls_per_hour = Column(Integer, nullable=True)
     
+    # Execution mode: 'server_dialer' (Arq executor dials via provider API) or
+    # 'mobile_conference' (reps dial from the Android app; never run by Arq).
+    execution_mode = Column(String(30), nullable=False, default="server_dialer", server_default="server_dialer")
+    contact_upload_id = Column(UUID(as_uuid=True), nullable=True)
+
     # Status
     status = Column(String(20), nullable=False, default="draft")  # draft | scheduled | running | paused | completed | failed
     
@@ -112,7 +117,12 @@ class CampaignCall(Base):
     contact_data = Column(JSONB, nullable=False)  # Phone, name, custom fields
     
     # Call status
-    status = Column(String(20), nullable=False, default="pending")  # pending | calling | completed | completed-voicemail | failed | skipped
+    status = Column(String(20), nullable=False, default="pending")  # pending | leased | calling | completed | completed-voicemail | failed | skipped
+
+    # Mobile dialer lease: a rep's device holds the lead while dialing it.
+    leased_by_user_id = Column(UUID(as_uuid=True), nullable=True)
+    leased_by_device_id = Column(UUID(as_uuid=True), nullable=True)
+    lease_expires_at = Column(DateTime, nullable=True)
     call_sid = Column(String(100), nullable=True)
 
     # Outcome

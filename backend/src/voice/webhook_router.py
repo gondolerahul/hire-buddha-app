@@ -55,6 +55,22 @@ async def twilio_incoming_call(
     call_status = form_data.get("CallStatus")
     
     logger.info(f"Twilio incoming call: {call_sid} from {from_number} to {to_number}")
+
+    # 0. Mobile dialer AI leg (rep's phone calling the agent DID)
+    from src.mobile.identification import resolve_mobile_inbound
+    mobile_session = await resolve_mobile_inbound(
+        session_manager.db, from_number=from_number, to_number=to_number,
+        call_sid=call_sid, provider="twilio", raw_metadata=dict(form_data),
+    )
+    if mobile_session:
+        streaming_host = settings.STREAMING_HOST or "localhost:8002"
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="wss://{streaming_host}/stream/twilio/{mobile_session.id}" />
+    </Connect>
+</Response>"""
+        return Response(content=twiml, media_type="application/xml")
     
     # 1. Find customer by phone number
     customer_assignment = await number_router.find_customer_by_number(to_number)
@@ -71,7 +87,7 @@ async def twilio_incoming_call(
     # 2. Pre-call credit check — reject if balance below minimum threshold
     try:
         from src.billing.credit_service import CreditService
-        credit_svc = CreditService(db)
+        credit_svc = CreditService(session_manager.db)
         balance = await credit_svc.get_balance(customer_assignment.company_id)
         if balance["total_available"] < 0.10:
             logger.warning(
@@ -482,6 +498,17 @@ async def twilio_outbound_twiml(
         return Response(content=twiml, media_type="application/xml")
 
 
+def _tata_stream_response(ws_url: str) -> dict:
+    """Smartflo dynamic-endpoint reply.
+
+    Smartflo's current docs require exactly ``success`` and say extra keys can
+    decline the call; production has historically replied ``sucess``. The key
+    is a setting so it can be switched once verified on the live account
+    (docs/mobile-dialer-app 08, spike S6) without risking today's calls.
+    """
+    return {settings.TATA_STREAM_SUCCESS_KEY: True, "wss_url": ws_url}
+
+
 @router.get("/tata/incoming")
 async def tata_incoming_verification(request: Request):
     """
@@ -586,14 +613,23 @@ async def tata_incoming_call(
                 ws_protocol = settings.STREAMING_PROTOCOL or ("wss" if "https" in streaming_host or not streaming_host.startswith("localhost") else "ws")
                 ws_url = f"{ws_protocol}://{streaming_host}/stream/tata/{session.id}"
                 
-                return {
-                    "sucess": True,
-                    "wss_url": ws_url
-                }
+                return _tata_stream_response(ws_url)
         except ValueError:
             logger.warning(f"Invalid custom_identifier format: {custom_identifier}")
         except Exception as e:
             logger.error(f"Error resuming session: {e}")
+
+    # 1b. Mobile dialer AI leg: rep's phone calling the agent DID
+    from src.mobile.identification import resolve_mobile_inbound
+    mobile_session = await resolve_mobile_inbound(
+        session_manager.db, from_number=from_number, to_number=to_number,
+        call_sid=call_id or f"pending_{datetime.utcnow().timestamp()}",
+        provider="tata_tele", raw_metadata=data,
+    )
+    if mobile_session:
+        streaming_host = settings.STREAMING_HOST or "localhost:8002"
+        ws_protocol = settings.STREAMING_PROTOCOL or ("wss" if "https" in streaming_host or not streaming_host.startswith("localhost") else "ws")
+        return _tata_stream_response(f"{ws_protocol}://{streaming_host}/stream/tata/{mobile_session.id}")
 
     # 2. Find context by phone number (Inbound)
     # Check both numbers to see which one is our DID
@@ -612,7 +648,7 @@ async def tata_incoming_call(
     # 3. Pre-call credit check — reject if balance below minimum threshold
     try:
         from src.billing.credit_service import CreditService
-        credit_svc = CreditService(db)
+        credit_svc = CreditService(session_manager.db)
         balance = await credit_svc.get_balance(customer_assignment.company_id)
         if balance["total_available"] < 0.10:
             logger.warning(
@@ -645,10 +681,7 @@ async def tata_incoming_call(
     
     logger.info(f"Created new Tata session {session.id}, streaming to {ws_url}")
     
-    return {
-        "sucess": True,
-        "wss_url": ws_url
-    }
+    return _tata_stream_response(ws_url)
 
 
 @router.get("/tata/status")

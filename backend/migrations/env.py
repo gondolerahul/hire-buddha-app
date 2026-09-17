@@ -23,6 +23,7 @@ from src.ai import campaign_models
 from src.ai import social_models
 from src.voice import models as voice_models
 from src.ai import lead_queue_model  # CRM lead queue
+from src.mobile import models as mobile_models  # mobile dialer app
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -36,7 +36,13 @@ class CampaignCreate(BaseModel):
     agent_id: UUID
     name: str
     description: Optional[str] = None
-    contact_list: List[Dict[str, Any]]
+    # Either an inline contact list (legacy web flow) or a stored upload id
+    # from POST /campaigns/upload-contacts.
+    contact_list: Optional[List[Dict[str, Any]]] = None
+    contact_upload_id: Optional[UUID] = None
+    # 'server_dialer' (Arq executor) | 'mobile_conference' (reps dial via the app)
+    execution_mode: str = "server_dialer"
+    assignee_user_ids: Optional[List[UUID]] = None
     provider: str = "twilio"
     call_script_template: Optional[str] = None
     scheduled_start: Optional[datetime] = None
@@ -102,12 +108,29 @@ async def create_campaign(
             f"agent company={resolved_company_id} (resolved from agent {campaign_data.agent_id})"
         )
 
+        from src.mobile.campaign_setup import prepare_campaign_contacts, validate_mobile_campaign
+
+        contact_list, contact_upload = await prepare_campaign_contacts(
+            db, current_user, resolved_company_id,
+            campaign_data.contact_list, campaign_data.contact_upload_id,
+        )
+        assignee_ids: List[UUID] = []
+        if campaign_data.execution_mode == "mobile_conference":
+            provider, assignee_ids = await validate_mobile_campaign(
+                db, current_user, agent_entity, campaign_data.assignee_user_ids,
+            )
+            campaign_data.provider = provider
+        elif campaign_data.execution_mode != "server_dialer":
+            raise HTTPException(status_code=422, detail="execution_mode must be server_dialer or mobile_conference")
+
         campaign = await service.create_campaign(
             company_id=resolved_company_id,
             created_by=UUID(str(current_user.id)),
             agent_id=campaign_data.agent_id,
             name=campaign_data.name,
-            contact_list=campaign_data.contact_list,
+            contact_list=contact_list,
+            execution_mode=campaign_data.execution_mode,
+            contact_upload_id=contact_upload.id if contact_upload else None,
             description=campaign_data.description,
             provider=campaign_data.provider,
             call_script_template=campaign_data.call_script_template,
@@ -117,12 +140,17 @@ async def create_campaign(
             max_calls_per_hour=campaign_data.max_calls_per_hour,
             metadata=campaign_data.metadata
         )
-        
+
+        if campaign.execution_mode == "mobile_conference":
+            from src.mobile.campaign_setup import finalize_mobile_campaign
+            await finalize_mobile_campaign(db, campaign, assignee_ids, contact_upload)
+
         return {
             "id": str(campaign.id),
             "name": campaign.name,
             "description": campaign.description,
             "status": campaign.status,
+            "execution_mode": campaign.execution_mode,
             "total_contacts": campaign.total_contacts,
             "calls_initiated": campaign.calls_initiated,
             "calls_completed": campaign.calls_completed,
@@ -173,6 +201,28 @@ async def upload_csv(
     except Exception as e:
         logger.error(f"Error parsing CSV: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/upload-contacts")
+async def upload_contacts(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Parse and validate a .csv or .xlsx contact list and store it for 24 h.
+
+    Returns a row-level validation report plus an ``upload_id`` to pass to
+    ``POST /campaigns`` (the full list never round-trips through the client).
+    """
+    from src.mobile.campaign_setup import store_contact_upload
+    from src.mobile.contact_parser import ContactFileError
+
+    try:
+        return await store_contact_upload(db, current_user, file)
+    except ContactFileError as e:
+        raise HTTPException(status_code=415 if e.code in ("xls_not_supported", "unsupported_file_type") else 400,
+                            detail={"code": e.code, "message": str(e)})
 
 
 @router.get("")
@@ -245,6 +295,7 @@ async def list_campaigns(
                 "calls_calling": calling,
                 "calls_pending": pending,
                 "provider": c.provider,
+                "execution_mode": c.execution_mode,
                 "created_at": c.created_at.isoformat()
             })
 
@@ -347,7 +398,7 @@ async def retry_failed_calls(
 
     try:
         result = await db.execute(
-            select(CampaignCall.id, CampaignCall.campaign_id)
+            select(CampaignCall.id, CampaignCall.campaign_id, Campaign.execution_mode)
             .join(Campaign, Campaign.id == CampaignCall.campaign_id)
             .where(
                 Campaign.company_id == UUID(str(current_user.company_id)),
@@ -362,7 +413,9 @@ async def retry_failed_calls(
                     "message": "No failed calls to retry"}
 
         call_ids = [row.id for row in failed_rows]
-        campaign_ids = {row.campaign_id for row in failed_rows}
+        # Mobile campaigns get their failed calls reset to pending (reps pick
+        # them up again) but must never be enqueued on the server dialer.
+        campaign_ids = {row.campaign_id for row in failed_rows if row.execution_mode != "mobile_conference"}
 
         # Reset the failed calls so the executor picks them up again.
         # voice_session_id/call_sid are left in place — they are overwritten
@@ -485,6 +538,7 @@ async def get_campaign(
             "started_at": campaign.started_at.isoformat() if campaign.started_at else None,
             "completed_at": campaign.completed_at.isoformat() if campaign.completed_at else None,
             "provider": campaign.provider,
+            "execution_mode": campaign.execution_mode,
             "agent_id": str(campaign.agent_id) if campaign.agent_id else None,
             "created_at": campaign.created_at.isoformat(),
             "calls": [
@@ -597,6 +651,20 @@ async def update_campaign_status(
     service = CampaignService(db)
     
     try:
+        from src.ai.campaign_models import Campaign as _Campaign
+        target = await db.get(_Campaign, campaign_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        if (
+            target.execution_mode == "mobile_conference"
+            and status == "running"
+        ):
+            # Mobile campaigns are dialed by reps' phones, never by the Arq executor.
+            raise HTTPException(status_code=409, detail={
+                "code": "use_mobile_run",
+                "message": "This campaign is run from the HireBuddha mobile app.",
+            })
+
         await service.update_campaign_status(campaign_id, status)
         
         # Enqueue background task if starting campaign
@@ -624,6 +692,8 @@ async def update_campaign_status(
             "message": f"Campaign status updated to {status}"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating campaign status: {e}")
         raise HTTPException(status_code=500, detail=str(e))

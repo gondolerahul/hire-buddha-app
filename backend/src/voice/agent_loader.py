@@ -120,6 +120,9 @@ class AgentContextLoader:
             system_instruction = self._inject_contact_data(
                 system_instruction, contact_data
             )
+        if (session_metadata or {}).get("mode") == "mobile_conference":
+            from src.mobile.stream_controller import conference_prompt_addendum
+            system_instruction += conference_prompt_addendum(session_metadata)
 
         return AgentContext(
             agent_id=agent_id,

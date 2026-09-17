@@ -49,6 +49,8 @@ from src.ai.campaign_worker import (
     stop_campaign_task,
 )
 
+from src.mobile.reconciler import mobile_housekeeping_job
+
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
 
@@ -118,6 +120,8 @@ try:
         # /9: Nightly cost-estimator baseline refresh from
         # telemetry (02:30 UTC — quiet hour, follows the daily aggregate).
         cron(cost_estimator_refresh, hour=2, minute=30),
+        # Mobile dialer: expire stale call attempts + reconcile unidentified AI legs.
+        cron(mobile_housekeeping_job, minute={1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56}),
     ]
 except ImportError:
     pass  # arq.cron may not be available in all versions
