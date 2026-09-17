@@ -11,6 +11,11 @@
 -- ============================================================================
 BEGIN;
 
+-- Fail fast instead of queueing: a waiting ALTER TABLE blocks every later query
+-- on that table. If this times out, find idle-in-transaction sessions holding
+-- campaigns/campaign_calls (pg_stat_activity), release them, and re-run.
+SET LOCAL lock_timeout = '5s';
+
 -- ── Existing tables ──────────────────────────────────────────────────────────
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS execution_mode VARCHAR(30) NOT NULL DEFAULT 'server_dialer';
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS contact_upload_id UUID;
