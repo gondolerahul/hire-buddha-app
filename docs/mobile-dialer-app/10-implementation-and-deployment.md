@@ -120,9 +120,24 @@ cd mobile/android && ./gradlew :app:assembleRelease
 
 Host `app/build/outputs/apk/release/app-release.apk` at `MOBILE_APP_DOWNLOAD_URL`. For each new release, bump `versionCode`/`versionName` in `app/build.gradle.kts` and `MOBILE_APP_LATEST_VERSION_*` in `.env`.
 
-## 4. Pilot checklist
+## 4. Production state (2026-09-18)
 
-- [ ] Steps 1–6 done on production
+| Step | Status |
+|------|--------|
+| 1 Schema | ✅ applied 2026-09-17 after a `pg_dump` to `/home/rahul/workspace/backup/db-backups/hirebuddha-before-mobile-dialer-20260917.dump` |
+| 2 `.env` | ✅ calling hours 09:00–21:00, cap 150, `MOBILE_APP_DOWNLOAD_URL=https://app.hirebuddha.com/download/app/` |
+| 3 Apache | ✅ `/mobile/ws` rule live on the gateway vhost (backup `…-le-ssl.conf.bak-20260918`) |
+| 4 Code | ✅ `fresh-main` at `3e5fbef`; API, gateway and Arq worker restarted |
+| 5 Smartflo | ⏳ account reactivation + DID dynamic endpoint must be done in the Smartflo portal; `GET /webhooks/voice/tata/incoming` answers publicly |
+| 6 APK | ✅ signed 1.0.0 (v2 scheme) hosted at `https://app.hirebuddha.com/download/app/` — static files in `/var/www/hirebuddha-downloads/app/`, Apache `Alias` ahead of the Vite proxy on the app vhost |
+
+Release key: `~/.hirebuddha-secrets/hirebuddha-release.jks` (+ `keystore.properties.backup`). **Back both up off this server** — losing them means every rep must uninstall to update.
+
+Publishing a new version: bump `versionCode`/`versionName`, `./gradlew :app:assembleRelease`, copy the APK to `/var/www/hirebuddha-downloads/app/hirebuddha-dialer.apk` (and a versioned copy), update `SHA256SUMS`/`index.html`, then bump `MOBILE_APP_LATEST_VERSION_*` in `.env` and restart the API.
+
+## 5. Pilot checklist
+
+- [x] Steps 1–4 and 6 done on production
 - [ ] One tenant with an ACTIVE voice agent + assigned Tata DID + credits
 - [ ] 2 reps on different carriers install the APK, complete onboarding (verification call succeeds)
 - [ ] Spikes S1–S5 (docs 08 §3) run with the real app; results written to `spike-results.md`
