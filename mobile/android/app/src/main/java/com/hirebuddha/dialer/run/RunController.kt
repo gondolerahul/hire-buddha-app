@@ -142,6 +142,7 @@ class RunController @Inject constructor(
                 serverStatus?.let { apiCall { api.updateRun(runId, RunUpdateRequest(it)) } }
                 outbox.flush()
             } finally {
+                registry.hangUpExpected()  // never leave a campaign call ringing after the run
                 registry.clearExpectedNumbers()
                 logs.flush()  // ship this run's diagnostics without waiting for the periodic sweep
                 onFinished()

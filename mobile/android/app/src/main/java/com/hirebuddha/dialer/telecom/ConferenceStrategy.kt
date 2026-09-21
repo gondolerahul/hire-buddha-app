@@ -13,6 +13,26 @@ package com.hirebuddha.dialer.telecom
  *    conference call; others (common on VoLTE/IMS) remove them and leave only the
  *    conference. Both shapes mean "merged".
  */
+/**
+ * Which of the calls telecom is reporting is the one we just placed.
+ *
+ * Pure logic, because getting this wrong is silent and expensive: the snapshot list
+ * also carries calls that have already ended, so a lead we dialled a minute ago — or
+ * the verification call to the very same AI number — can look exactly like the call
+ * we are waiting for. Picking one of those makes a brand-new call report itself as
+ * "not answered" the instant it starts dialling.
+ */
+object PlacedCall {
+
+    fun pick(calls: List<CallSnapshot>, known: Set<String>, number: String): CallSnapshot? =
+        calls.firstOrNull {
+            it.id !in known &&
+                it.outgoing &&
+                it.state != CallState.DISCONNECTED &&
+                PhoneNumbers.sameNumber(it.number, number)
+        }
+}
+
 object ConferenceStrategy {
 
     enum class Action {

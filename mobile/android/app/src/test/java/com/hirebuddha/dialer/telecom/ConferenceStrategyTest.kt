@@ -118,3 +118,40 @@ class ConferenceStrategyTest {
         assertNull(ConferenceStrategy.mergedConferenceId(calls, "lead", "ai"))
     }
 }
+
+class PlacedCallTest {
+
+    private val did = "+917965264269"
+
+    @Test
+    fun `picks the new outgoing call to the number`() {
+        val list = listOf(snapshot("c1", state = CallState.DIALING).copy(number = did))
+        assertEquals("c1", PlacedCall.pick(list, known = emptySet(), number = did)?.id)
+    }
+
+    @Test
+    fun `ignores a call to the same number that has already ended`() {
+        // The verification call, or the previous lead: telecom still reports it.
+        val ended = snapshot("c1", state = CallState.DISCONNECTED).copy(number = did)
+        assertNull(PlacedCall.pick(listOf(ended), known = emptySet(), number = did))
+    }
+
+    @Test
+    fun `ignores calls we already knew about`() {
+        val live = snapshot("c1", state = CallState.ACTIVE).copy(number = did)
+        val fresh = snapshot("c2", state = CallState.DIALING).copy(number = did)
+        assertEquals("c2", PlacedCall.pick(listOf(live, fresh), known = setOf("c1"), number = did)?.id)
+    }
+
+    @Test
+    fun `ignores an incoming call from the same number`() {
+        val incoming = snapshot("c1", state = CallState.RINGING).copy(number = did, outgoing = false)
+        assertNull(PlacedCall.pick(listOf(incoming), known = emptySet(), number = did))
+    }
+
+    @Test
+    fun `matches numbers written in different shapes`() {
+        val list = listOf(snapshot("c1", state = CallState.DIALING).copy(number = "07965264269"))
+        assertEquals("c1", PlacedCall.pick(list, known = emptySet(), number = did)?.id)
+    }
+}

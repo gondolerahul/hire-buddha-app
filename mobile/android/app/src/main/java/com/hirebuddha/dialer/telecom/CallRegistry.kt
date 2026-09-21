@@ -161,7 +161,10 @@ class CallRegistry @Inject constructor(
             return null
         }
         val telecom = context.getSystemService(TelecomManager::class.java)
-        val known = ids.values.toSet()
+        // Every id we have already seen, including calls that have ended: the snapshot
+        // list keeps those around, and a recent call to this same number (a previous
+        // lead, or the verification call) must never be mistaken for the new one.
+        val known = calls.value.map { it.id }.toSet() + ids.values
         val extras = Bundle()
         SimAccounts.handle(context, settings.current().phoneAccountId)?.let {
             extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it)
@@ -170,13 +173,26 @@ class CallRegistry @Inject constructor(
         return try {
             telecom.placeCall(Uri.fromParts("tel", number, null), extras)
             withTimeoutOrNull(10_000) {
-                calls.map { list ->
-                    list.firstOrNull { it.id !in known && it.outgoing && PhoneNumbers.sameNumber(it.number, number) }
-                }.filterNotNull().first().id
-            }
+                calls.map { list -> PlacedCall.pick(list, known, number) }.filterNotNull().first().id
+            }.also { DialerLog.i(TAG, "Placed call", "call" to it, "number" to DialerLog.maskNumber(number)) }
         } catch (e: SecurityException) {
             Log.w(TAG, "placeCall refused: ${e.message}")
             null
+        }
+    }
+
+    /**
+     * Hangs up anything still live that this app dialled for a campaign. A run that
+     * fails during setup would otherwise leave a call ringing with nobody watching it.
+     */
+    fun hangUpExpected() {
+        val stray = ids.entries.filter { (_, id) ->
+            val s = calls.value.firstOrNull { it.id == id }
+            s != null && s.state != CallState.DISCONNECTED && isCampaignNumber(s.number)
+        }
+        stray.forEach { (call, id) ->
+            DialerLog.w(TAG, "Hanging up a call left over from the run", "call" to id)
+            runCatching { call.disconnect() }
         }
     }
 
