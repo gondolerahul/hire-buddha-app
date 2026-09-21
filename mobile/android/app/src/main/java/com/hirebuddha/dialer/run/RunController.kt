@@ -3,6 +3,7 @@ package com.hirebuddha.dialer.run
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.core.asText
 import com.hirebuddha.dialer.core.stringMap
 import com.hirebuddha.dialer.data.api.ApiResult
@@ -101,6 +102,7 @@ class RunController @Inject constructor(
         return when (val r = apiCall { api.startRun(campaignId, RunStartRequest(deviceId)) }) {
             is ApiResult.Ok -> {
                 orchestrator.reset(r.value.runId, campaignId, campaignName)
+                logDeviceSnapshot()
                 push.start()
                 ContextCompat.startForegroundService(context, Intent(context, RunService::class.java))
                 ApiResult.Ok(Unit)
@@ -165,6 +167,35 @@ class RunController @Inject constructor(
 
     fun command(command: UserCommand) = orchestrator.send(command)
     fun decideMerge(mergeAnyway: Boolean) = orchestrator.decideMerge(mergeAnyway)
+
+    /**
+     * Carrier and device facts recorded once per run: whether a phone can merge calls
+     * depends on the network (VoLTE / Wi-Fi calling) and the OEM's telecom stack, so this
+     * is the first thing to look at when merges fail for one rep but not another.
+     */
+    private fun logDeviceSnapshot() {
+        val fields = mutableListOf<Pair<String, Any?>>(
+            "manufacturer" to android.os.Build.MANUFACTURER,
+            "model" to android.os.Build.MODEL,
+            "android" to android.os.Build.VERSION.RELEASE,
+            "sdk" to android.os.Build.VERSION.SDK_INT,
+            "default_dialer" to com.hirebuddha.dialer.telecom.DialerRole.isHeld(context),
+        )
+        runCatching {
+            val telephony = context.getSystemService(android.telephony.TelephonyManager::class.java)
+            fields += "carrier" to telephony?.networkOperatorName
+            fields += "sim_carrier" to telephony?.simOperatorName
+            fields += "network_roaming" to telephony?.isNetworkRoaming
+            @Suppress("MissingPermission")
+            fields += "data_network" to runCatching { telephony?.dataNetworkType }.getOrNull()
+        }
+        runCatching {
+            val sims = com.hirebuddha.dialer.telecom.SimAccounts.list(context)
+            fields += "sim_count" to sims.size
+            fields += "sim_selected" to kotlinx.coroutines.runBlocking { settings.current().phoneAccountLabel }
+        }
+        DialerLog.i("Device", "Run environment", *fields.toTypedArray())
+    }
 
     /** A real incoming call during a run: finish the current lead, then pause. */
     fun onIncomingCallDuringRun() {

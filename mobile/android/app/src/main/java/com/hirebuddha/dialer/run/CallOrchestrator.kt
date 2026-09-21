@@ -1,8 +1,10 @@
 package com.hirebuddha.dialer.run
 
+import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.data.push.PushEvents
 import com.hirebuddha.dialer.data.push.PushMessage
 import com.hirebuddha.dialer.telecom.CallControl
+import com.hirebuddha.dialer.telecom.ConferenceStrategy
 import com.hirebuddha.dialer.telecom.CallSnapshot
 import com.hirebuddha.dialer.telecom.CallState
 import com.hirebuddha.dialer.telecom.LeadFailureCause
@@ -52,6 +54,8 @@ class CallOrchestrator(
     fun requestStop() { stopRequested = true }
 
     fun reset(runId: String, campaignId: String, campaignName: String) {
+        DialerLog.setRun(runId)
+        DialerLog.i(TAG, "Run started", "run" to runId, "campaign" to campaignId)
         pauseRequested = false
         stopRequested = false
         _state.value = RunUiState(status = RunStatus.RUNNING, runId = runId, campaignId = campaignId, campaignName = campaignName)
@@ -92,11 +96,15 @@ class CallOrchestrator(
     }
 
     private fun finish(status: RunStatus, message: String? = null): RunStatus {
+        DialerLog.i(TAG, "Run finished", "status" to status, "message" to message)
         _state.update { it.copy(status = status, step = Step.IDLE, message = message ?: it.message, nextLeadAt = null) }
         return status
     }
 
-    private fun setStep(step: Step) = _state.update { it.copy(step = step) }
+    private fun setStep(step: Step) {
+        DialerLog.i(TAG, "Step", "step" to step)
+        _state.update { it.copy(step = step) }
+    }
 
     internal suspend fun runLead(runId: String, deviceId: String, lead: Lead, config: OrchestratorConfig): LeadOutcome = coroutineScope {
         // Drain stale UI commands from the previous lead.
@@ -105,9 +113,17 @@ class CallOrchestrator(
 
         val attempt = when (val r = backend.createAttempt(runId, lead.campaignCallId, deviceId)) {
             is AttemptResult.Created -> r.attempt
-            is AttemptResult.Failed -> return@coroutineScope LeadOutcome.SetupFailed(r.code, r.message)
+            is AttemptResult.Failed -> {
+                DialerLog.e(TAG, "Could not start the call attempt", "code" to r.code, "message" to r.message)
+                return@coroutineScope LeadOutcome.SetupFailed(r.code, r.message)
+            }
         }
         val aid = attempt.attemptId
+        DialerLog.setAttempt(aid)
+        DialerLog.i(
+            TAG, "Calling lead", "attempt" to aid, "campaign_call" to lead.campaignCallId,
+            "lead" to DialerLog.maskNumber(lead.phone), "did" to DialerLog.maskNumber(attempt.did),
+        )
 
         // Subscribe to pushes for this attempt before anything can produce one.
         val pushes = Channel<PushMessage>(Channel.UNLIMITED)
@@ -119,6 +135,7 @@ class CallOrchestrator(
         } finally {
             pushJob.cancel()
             calls.setMuted(false)
+            DialerLog.setAttempt(null)
         }
     }
 
@@ -129,7 +146,10 @@ class CallOrchestrator(
         setStep(Step.CONNECTING_AI)
         backend.event(aid, "ai_dialing")
         val aiCall = calls.placeCall(attempt.did)
-            ?: return setupFailed(aid, "ai_failed", "call_not_placed", "Couldn't place the call to the AI agent. Is this app your default phone app?")
+        if (aiCall == null) {
+            DialerLog.e(TAG, "Could not place the AI call", "did" to DialerLog.maskNumber(attempt.did))
+            return setupFailed(aid, "ai_failed", "call_not_placed", "Couldn't place the call to the AI agent. Is this app your default phone app?")
+        }
         when (awaitState(aiCall, config.aiAnswerTimeoutMs) { it.state == CallState.ACTIVE }) {
             is Awaited.Reached -> Unit
             else -> {
@@ -183,6 +203,7 @@ class CallOrchestrator(
         backend.event(aid, "lead_dialing")
         val leadCall = calls.placeCall(lead.phone)
         if (leadCall == null) {
+            DialerLog.e(TAG, "Could not place the lead call", "lead" to DialerLog.maskNumber(lead.phone))
             calls.disconnect(aiCall)
             return leadFailed(aid, LeadFailureCause.FAILED)
         }
@@ -207,13 +228,18 @@ class CallOrchestrator(
 
         // 4. merge
         setStep(Step.MERGING)
-        val merged = calls.conference(leadCall, aiCall) && awaitMerged(leadCall, aiCall, config.mergeTimeoutMs)
-        if (!merged) {
-            backend.event(aid, "merge_failed", mapOf("reason" to "conference_not_active"))
+        val conferenceId = mergeWithRetries(aid, leadCall, aiCall, config)
+        if (conferenceId == null) {
+            val detail = calls.calls.value.joinToString(" | ") {
+                "${it.id}:${it.state}${if (it.isConference) ":conf" else ""}${it.parentId?.let { p -> ":parent=$p" } ?: ""}"
+            }
+            DialerLog.e(TAG, "Merge failed", "lead_call" to leadCall, "ai_call" to aiCall, "calls" to detail)
+            backend.event(aid, "merge_failed", mapOf("reason" to "conference_not_active", "calls" to detail.take(400)))
             calls.disconnect(leadCall)
             calls.disconnect(aiCall)
             return LeadOutcome.SetupFailed("merge_failed", "Your network didn't merge the calls. Turn off Wi-Fi calling and try again.")
         }
+        DialerLog.i(TAG, "Merged", "conference" to conferenceId, "lead_call" to leadCall, "ai_call" to aiCall)
         calls.setMuted(true)  // D4: rep is muted by default
         _state.update { it.copy(muted = true, conversationStartedAt = clock(), step = Step.IN_CONVERSATION) }
         val acked = backend.event(aid, "merged", urgent = true)
@@ -224,7 +250,32 @@ class CallOrchestrator(
         backend.event(aid, "rep_muted")
 
         // 5. conversation
-        return converse(aid, leadCall, aiCall, pushes)
+        return converse(aid, leadCall, aiCall, conferenceId, pushes)
+    }
+
+    /**
+     * Asks telecom to merge, then waits for any of the shapes a merged call can take.
+     * Retries because the conferenceable state can land a beat after the lead answers,
+     * and some stacks drop the first request while the call is still stabilising.
+     */
+    private suspend fun mergeWithRetries(aid: String, leadCall: String, aiCall: String, config: OrchestratorConfig): String? {
+        val deadline = clock() + config.mergeTimeoutMs
+        var attempt = 0
+        while (clock() < deadline) {
+            attempt++
+            val result = calls.conference(leadCall, aiCall)
+            if (attempt == 1 || result.error != null) {
+                backend.event(aid, "merge_requested", mapOf("action" to result.action.name, "attempt" to attempt.toString()))
+            }
+            if (result.action == ConferenceStrategy.Action.IMPOSSIBLE) {
+                DialerLog.w(TAG, "Merge impossible", "attempt" to attempt, "error" to result.error)
+                return null
+            }
+            val confirmed = awaitMerged(leadCall, aiCall, MERGE_CONFIRM_MS)
+            if (confirmed != null) return confirmed
+            DialerLog.w(TAG, "Merge not confirmed yet; retrying", "attempt" to attempt, "action" to result.action)
+        }
+        return null
     }
 
     private enum class AiReady { Identified, Unidentified, Ended, Dropped, TimedOut }
@@ -260,8 +311,18 @@ class CallOrchestrator(
         }
     }
 
-    private suspend fun converse(aid: String, leadCall: String, aiCall: String, pushes: Channel<PushMessage>): LeadOutcome {
+    private suspend fun converse(
+        aid: String, leadCall: String, aiCall: String, conferenceId: String, pushes: Channel<PushMessage>,
+    ): LeadOutcome {
         var aiPresent = true
+        fun legVisible(id: String): Boolean = calls.calls.value.any { it.id == id && it.state != CallState.DISCONNECTED }
+        fun conferenceLive(): Boolean = calls.calls.value.any { it.id == conferenceId && it.state != CallState.DISCONNECTED }
+
+        // Two stacks, two shapes: either both legs stay visible as children of the
+        // conference, or they are replaced by it. That decides what "the call ended" means.
+        val legsHidden = !legVisible(leadCall)
+        DialerLog.i(TAG, "Conversation started", "conference" to conferenceId, "legs_hidden" to legsHidden)
+        fun conversationLive(): Boolean = if (legsHidden) conferenceLive() else legVisible(leadCall)
         while (true) {
             val event: ConversationEvent = select<ConversationEvent> {
                 commands.onReceive { ConversationEvent.Command(it) }
@@ -284,28 +345,34 @@ class CallOrchestrator(
                         _state.update { it.copy(muted = false, aiInCall = false, message = "You're now talking to the lead.") }
                     }
                     UserCommand.HANG_UP, UserCommand.SKIP -> {
-                        hangUpAll(leadCall, aiCall)
+                        hangUpAll(conferenceId, leadCall, aiCall)
                         backend.event(aid, "rep_hangup")
                         return LeadOutcome.Completed("rep")
                     }
                 }
                 is ConversationEvent.AiEnded -> {
                     // The agent said goodbye (or detected voicemail): end the whole conference.
-                    hangUpAll(leadCall, aiCall)
+                    DialerLog.i(TAG, "AI ended the call", "reason" to event.reason)
+                    hangUpAll(conferenceId, leadCall, aiCall)
                     backend.event(aid, "completed", mapOf("reason" to (event.reason ?: "ai_ended")))
                     return LeadOutcome.Completed(event.reason ?: "ai")
                 }
                 ConversationEvent.Tick, ConversationEvent.Ignored -> Unit
             }
-            if (isGone(leadCall)) {
+            if (!conversationLive()) {
+                // Everything is down: the lead (or the network) ended the conference.
+                DialerLog.i(TAG, "Conversation ended", "conference" to conferenceId)
                 if (aiPresent) calls.disconnect(aiCall)
                 backend.event(aid, "lead_disconnected")
                 return LeadOutcome.Completed("lead")
             }
-            if (aiPresent && isGone(aiCall)) {
+            // Only meaningful while the legs are still separately visible; when the stack
+            // hides them inside the conference, the gateway's ai_ended push is the signal.
+            if (aiPresent && !legsHidden && !legVisible(aiCall) && legVisible(leadCall)) {
                 aiPresent = false
                 calls.setMuted(false)
                 backend.event(aid, "ai_disconnected")
+                DialerLog.i(TAG, "AI leg dropped; rep unmuted")
                 _state.update { it.copy(muted = false, aiInCall = false, message = "The AI left the call. You're unmuted.") }
             }
         }
@@ -320,6 +387,8 @@ class CallOrchestrator(
 
     private fun hangUpAll(vararg ids: String) {
         val snapshots = calls.calls.value
+        // Disconnect the conference first: on stacks that hide the legs it is the only
+        // handle that still works, and it takes the children down with it.
         ids.forEach { id -> snapshots.firstOrNull { it.id == id }?.parentId?.let(calls::disconnect) }
         ids.forEach(calls::disconnect)
     }
@@ -370,28 +439,29 @@ class CallOrchestrator(
             result
         }
 
-    private suspend fun awaitMerged(leadCall: String, aiCall: String, timeoutMs: Long): Boolean =
+    /** Returns the conference id once telecom reports the two legs merged, else null. */
+    private suspend fun awaitMerged(leadCall: String, aiCall: String, timeoutMs: Long): String? =
         withTimeoutOrNull(timeoutMs) {
-            calls.calls.first { list ->
-                val lead = list.firstOrNull { it.id == leadCall }
-                val ai = list.firstOrNull { it.id == aiCall }
-                val sameParent = lead?.parentId != null && lead.parentId == ai?.parentId
-                val conferenceActive = list.any {
-                    it.isConference && it.state == CallState.ACTIVE && it.childIds.containsAll(listOf(leadCall, aiCall))
-                }
-                sameParent || conferenceActive
-            }
-            true
-        } ?: false
+            calls.calls.first { list -> ConferenceStrategy.mergedConferenceId(list, leadCall, aiCall) != null }
+            ConferenceStrategy.mergedConferenceId(calls.calls.value, leadCall, aiCall)
+        }
 
     private suspend fun setupFailed(aid: String, eventType: String, reason: String, message: String): LeadOutcome {
+        DialerLog.e(TAG, "Setup failed", "event" to eventType, "reason" to reason, "message" to message)
         backend.event(aid, eventType, mapOf("reason" to reason))
         return LeadOutcome.SetupFailed(reason, message)
     }
 
     private suspend fun leadFailed(aid: String, cause: LeadFailureCause): LeadOutcome {
+        DialerLog.i(TAG, "Lead did not connect", "cause" to cause.wire)
         backend.event(aid, "lead_failed", mapOf("cause" to cause.wire))
         return LeadOutcome.LeadFailed(cause)
+    }
+
+    private companion object {
+        const val TAG = "Orchestrator"
+        /** How long to wait for telecom to confirm one merge request before retrying. */
+        const val MERGE_CONFIRM_MS = 2_000L
     }
 
     private fun describe(outcome: LeadOutcome): String = when (outcome) {

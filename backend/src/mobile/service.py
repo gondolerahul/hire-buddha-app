@@ -20,6 +20,7 @@ from src.common.config import settings
 from src.mobile import realtime
 from src.mobile.identification import hash_verification_code
 from src.mobile.models import (
+    MobileClientLog,
     ATTEMPT_ABANDONED, ATTEMPT_AI_FAILED, ATTEMPT_COMPLETED, ATTEMPT_LEAD_FAILED,
     ATTEMPT_MERGE_FAILED, ATTEMPT_MERGED, ATTEMPT_PENDING, ATTEMPT_SKIPPED,
     ATTEMPT_SUPERSEDED, DEVICE_REVOKED, DEVICE_UNVERIFIED, DEVICE_VERIFIED,
@@ -721,6 +722,84 @@ async def _apply_event(db: AsyncSession, attempt: MobileCallAttempt, etype: str,
             if session_id:
                 await realtime.publish_session_control(session_id, "abort", reason=etype)
     attempt.updated_at = now
+
+
+# ── Client logs ──────────────────────────────────────────────────────────
+
+MAX_LOG_ENTRIES = 500
+LOG_LEVELS = ("DEBUG", "INFO", "WARN", "ERROR")
+
+
+async def ingest_logs(db: AsyncSession, user: User, payload: Dict[str, Any]) -> int:
+    """Store a batch of app log entries. Never rejects a batch for one bad row —
+    losing diagnostics is worse than storing a slightly odd entry."""
+    entries = payload.get("entries") or []
+    if len(entries) > MAX_LOG_ENTRIES:
+        raise MobileError(413, "too_many_entries", f"Send at most {MAX_LOG_ENTRIES} entries per batch")
+
+    def _uuid(value):
+        try:
+            return UUID(str(value)) if value else None
+        except (ValueError, AttributeError, TypeError):
+            return None
+
+    device_id = _uuid(payload.get("device_id"))
+    app_version = (payload.get("app_version") or "")[:50] or None
+    rows = []
+    for entry in entries:
+        level = str(entry.get("level") or "INFO").upper()
+        rows.append(MobileClientLog(
+            company_id=user.company_id,
+            user_id=user.id,
+            device_id=device_id,
+            run_id=_uuid(entry.get("run_id")),
+            attempt_id=_uuid(entry.get("attempt_id")),
+            seq=int(entry.get("seq") or 0),
+            level=level if level in LOG_LEVELS else "INFO",
+            tag=str(entry.get("tag") or "")[:64],
+            message=str(entry.get("message") or "")[:4000],
+            fields=entry.get("fields") if isinstance(entry.get("fields"), dict) else {},
+            app_version=app_version,
+            device_ts=_parse_device_ts(entry.get("device_ts")),
+        ))
+    db.add_all(rows)
+    await db.commit()
+    return len(rows)
+
+
+async def list_logs(db: AsyncSession, user: User, *, device_id: Optional[UUID] = None,
+                    attempt_id: Optional[UUID] = None, run_id: Optional[UUID] = None,
+                    level: Optional[str] = None, search: Optional[str] = None,
+                    since: Optional[datetime] = None, limit: int = 200) -> List[Dict[str, Any]]:
+    """Newest-first log view. Tenant users only ever see their own device's logs."""
+    conds = [MobileClientLog.company_id == user.company_id]
+    if not is_admin(user):
+        conds.append(MobileClientLog.user_id == user.id)
+    if device_id:
+        conds.append(MobileClientLog.device_id == device_id)
+    if attempt_id:
+        conds.append(MobileClientLog.attempt_id == attempt_id)
+    if run_id:
+        conds.append(MobileClientLog.run_id == run_id)
+    if level:
+        wanted = LOG_LEVELS[LOG_LEVELS.index(level.upper()):] if level.upper() in LOG_LEVELS else None
+        if wanted:
+            conds.append(MobileClientLog.level.in_(wanted))
+    if search:
+        conds.append(MobileClientLog.message.ilike(f"%{search}%"))
+    if since:
+        conds.append(MobileClientLog.received_at >= since)
+
+    rows = (await db.execute(
+        select(MobileClientLog).where(and_(*conds))
+        .order_by(MobileClientLog.received_at.desc(), MobileClientLog.seq.desc())
+        .limit(min(limit, 1000))
+    )).scalars().all()
+    return [{
+        "id": r.id, "level": r.level, "tag": r.tag, "message": r.message, "fields": r.fields,
+        "device_ts": r.device_ts, "received_at": r.received_at, "attempt_id": r.attempt_id,
+        "run_id": r.run_id, "device_id": r.device_id, "seq": r.seq, "app_version": r.app_version,
+    } for r in rows]
 
 
 # ── App version (private distribution) ──────────────────────────────────

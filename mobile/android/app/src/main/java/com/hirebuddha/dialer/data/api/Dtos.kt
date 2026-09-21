@@ -149,6 +149,25 @@ import kotlinx.serialization.json.JsonObject
 )
 
 @Serializable data class EventBatch(val events: List<EventDto>)
+
+@Serializable data class LogEntryDto(
+    val seq: Long,
+    val level: String,
+    val tag: String,
+    val message: String,
+    val fields: JsonObject,
+    val device_ts: String,
+    val run_id: String? = null,
+    val attempt_id: String? = null,
+)
+
+@Serializable data class LogBatch(
+    val device_id: String? = null,
+    val app_version: String? = null,
+    val entries: List<LogEntryDto>,
+)
+
+@Serializable data class LogAck(val accepted: Int)
 @Serializable data class EventAck(val accepted: List<Int>, val duplicates: List<Int>)
 
 // ── Analytics ────────────────────────────────────────────────────────────
