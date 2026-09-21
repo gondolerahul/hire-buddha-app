@@ -30,6 +30,9 @@ Thumbs.db
 
 # Project specific
 logs/
+# ...but never app source directories that happen to be named 'logs'
+!mobile/android/app/src/**/logs/
+!mobile/android/app/src/**/logs/**
 *.log
 
 # Backend runtime / generated directories
