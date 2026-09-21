@@ -129,13 +129,55 @@ Host `app/build/outputs/apk/release/app-release.apk` at `MOBILE_APP_DOWNLOAD_URL
 | 3 Apache | ✅ `/mobile/ws` rule live on the gateway vhost (backup `…-le-ssl.conf.bak-20260918`) |
 | 4 Code | ✅ `fresh-main` at `3e5fbef`; API, gateway and Arq worker restarted |
 | 5 Smartflo | ⏳ account reactivation + DID dynamic endpoint must be done in the Smartflo portal; `GET /webhooks/voice/tata/incoming` answers publicly |
-| 6 APK | ✅ signed 1.0.0 (v2 scheme) hosted at `https://app.hirebuddha.com/download/app/` — static files in `/var/www/hirebuddha-downloads/app/`, Apache `Alias` ahead of the Vite proxy on the app vhost |
+| 6 APK | ✅ signed 1.0.1 (v2 scheme) hosted at `https://app.hirebuddha.com/download/app/` — static files in `/var/www/hirebuddha-downloads/app/`, Apache `Alias` ahead of the Vite proxy on the app vhost |
 
 Release key: `~/.hirebuddha-secrets/hirebuddha-release.jks` (+ `keystore.properties.backup`). **Back both up off this server** — losing them means every rep must uninstall to update.
 
 Publishing a new version: bump `versionCode`/`versionName`, `./gradlew :app:assembleRelease`, copy the APK to `/var/www/hirebuddha-downloads/app/hirebuddha-dialer.apk` (and a versioned copy), update `SHA256SUMS`/`index.html`, then bump `MOBILE_APP_LATEST_VERSION_*` in `.env` and restart the API.
 
-## 5. Pilot checklist
+## 5. Reading the app's logs
+
+The app has no adb access on a rep's phone, so it ships structured logs to the server
+(`mobile_client_logs`, kept indefinitely). Every step is recorded: call states and
+capabilities from Android Telecom, each merge attempt and what it chose, disconnect
+causes, push messages, API failures, crashes, and a carrier/device snapshot per run.
+Lead numbers are masked (`+91••••5678`).
+
+From the API (a rep sees their own logs, a tenant admin the whole company):
+
+```bash
+TOKEN=$(curl -s -X POST https://gateway.hirebuddha.com/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"rep@tenant.com","password":"..."}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+
+# last 60 minutes, warnings and errors only
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://gateway.hirebuddha.com/api/v1/mobile/logs?level=WARN&since_minutes=60&limit=100" | python3 -m json.tool
+
+# everything for one call attempt (id comes from the call list or the app)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://gateway.hirebuddha.com/api/v1/mobile/logs?attempt_id=<uuid>&limit=500" | python3 -m json.tool
+```
+
+Filters: `device_id`, `attempt_id`, `run_id`, `level` (floor: `WARN` also returns `ERROR`),
+`search` (text in the message), `since_minutes`, `limit` (max 1000). Newest first.
+
+Straight from the database on the server:
+
+```bash
+psql "$DATABASE_URL" -c "select received_at, level, tag, message, fields
+  from mobile_client_logs order by received_at desc limit 50;"
+```
+
+For a merge problem, look for `tag='CallRegistry'` (`Merge attempt` shows the chosen
+action and both calls' capabilities; `Call state` shows what telecom did next) and
+`tag='Device'` (`Run environment` — carrier, model, Android version).
+
+Delivery: entries are written to a local database first, then uploaded in batches —
+immediately on errors and at the end of each attempt, retried by WorkManager when the
+phone is offline, and swept every 30 minutes. Nothing is lost if the app is killed.
+
+## 6. Pilot checklist
 
 - [x] Steps 1–4 and 6 done on production
 - [ ] One tenant with an ACTIVE voice agent + assigned Tata DID + credits
