@@ -48,6 +48,11 @@ class DeviceRegister(BaseModel):
     phone_account_label: Optional[str] = Field(default=None, max_length=100)
 
 
+class VerificationDialing(BaseModel):
+    # Best effort: most Indian SIMs report nothing, and the server copes.
+    sim_number: Optional[str] = Field(default=None, max_length=30)
+
+
 class RunStart(BaseModel):
     device_id: UUID
     dial_order: str = "ai_first"
@@ -140,6 +145,18 @@ async def reissue_verification(device_id: UUID, db: AsyncSession = Depends(get_d
         device = await service.get_owned_device(db, user, device_id)
         device.status = service.DEVICE_UNVERIFIED
         return service.device_view(device, await service.issue_device_verification(db, device))
+    except MobileError as e:
+        _raise(e)
+
+
+@router.post("/devices/{device_id}/verification/dialing")
+async def verification_dialing(device_id: UUID, body: VerificationDialing,
+                               db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+    """The app is placing the verification call now (lets the server fall back to
+    caller ID if the provider drops the keypad tones)."""
+    try:
+        return await service.announce_verification_dial(
+            db, user, device_id, body.sim_number)
     except MobileError as e:
         _raise(e)
 

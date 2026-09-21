@@ -18,6 +18,7 @@ import com.hirebuddha.dialer.data.api.HireBuddhaApi
 import com.hirebuddha.dialer.data.api.RepDto
 import com.hirebuddha.dialer.data.api.TimelineDto
 import com.hirebuddha.dialer.data.api.UploadReportDto
+import com.hirebuddha.dialer.data.api.VerificationDialingRequest
 import com.hirebuddha.dialer.data.api.VoiceSessionDto
 import com.hirebuddha.dialer.data.api.apiCall
 import com.hirebuddha.dialer.data.api.map
@@ -55,6 +56,13 @@ class DeviceRepository @Inject constructor(
 
     suspend fun status(deviceId: String) = apiCall { api.device(deviceId) }
     suspend fun reissueVerification(deviceId: String) = apiCall { api.reissueVerification(deviceId) }
+
+    /**
+     * Announces that the verification call is being placed right now, so the server
+     * can still capture the caller ID if the carrier swallows the keypad tones.
+     */
+    suspend fun announceDialing(deviceId: String, simNumber: String?) =
+        apiCall { api.verificationDialing(deviceId, VerificationDialingRequest(simNumber)) }
 }
 
 @Singleton

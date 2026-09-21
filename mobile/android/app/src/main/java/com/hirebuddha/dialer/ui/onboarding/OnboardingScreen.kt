@@ -40,8 +40,10 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.data.api.ApiResult
 import com.hirebuddha.dialer.data.api.MeDto
+import com.hirebuddha.dialer.data.logs.LogRepository
 import com.hirebuddha.dialer.data.push.PushClient
 import com.hirebuddha.dialer.data.repo.DeviceRepository
 import com.hirebuddha.dialer.data.settings.AppSettings
@@ -77,6 +79,7 @@ class OnboardingViewModel @Inject constructor(
     private val settings: AppSettings,
     private val registry: CallRegistry,
     private val push: PushClient,
+    private val logs: LogRepository,
 ) : ViewModel() {
     var permissionsOk by mutableStateOf(hasPermissions(context)); private set
     var roleHeld by mutableStateOf(DialerRole.isHeld(context)); private set
@@ -109,56 +112,107 @@ class OnboardingViewModel @Inject constructor(
     fun verify(onDone: () -> Unit) = viewModelScope.launch {
         verifying = true
         status = "Registering this phone…"
-        val label = sims.firstOrNull { it.id == selectedSim }?.label
-        val device = when (val r = devices.register(label)) {
+        DialerLog.i(TAG, "Verification started", "role_held" to roleHeld, "sim" to (selectedSim != null))
+        val device = when (val r = devices.register(sims.firstOrNull { it.id == selectedSim }?.label)) {
             is ApiResult.Ok -> r.value
-            is ApiResult.Err -> { status = r.message; verifying = false; return@launch }
-            ApiResult.Empty -> { status = "Registration failed."; verifying = false; return@launch }
+            is ApiResult.Err -> return@launch fail("Register", r.message, r.code)
+            ApiResult.Empty -> return@launch fail("Register", "Registration failed.")
         }
         if (device.status == "verified") {
-            verified = true; verifying = false; onDone(); return@launch
+            DialerLog.i(TAG, "Phone already verified")
+            verified = true; verifying = false; logs.flushSoon(); onDone(); return@launch
         }
-        val v = device.verification ?: run { status = "No verification issued."; verifying = false; return@launch }
+        val v = device.verification ?: return@launch fail("Verification", "No verification issued.")
         push.start()
         status = "Calling HireBuddha to verify your number…"
+
+        // Tell the server we are dialling: if the carrier swallows the keypad
+        // tones it can still verify us from the caller ID of this very call.
+        val simNumber = SimAccounts.selfNumber(context, selectedSim)
+        val announced = devices.announceDialing(device.deviceId, simNumber) is ApiResult.Ok
+        DialerLog.i(TAG, "Placing verification call", "did" to DialerLog.maskNumber(v.did),
+                    "sim_number_known" to (simNumber != null), "announced" to announced)
+
         val callId = registry.placeCall(v.did)
         if (callId == null) {
-            status = "Couldn't place the call. Make sure this app is your default phone app."
-            verifying = false
-            return@launch
+            return@launch fail("Call", "Couldn't place the call. Make sure this app is your default phone app.")
         }
-        val active = withTimeoutOrNull(20_000) {
+        val connected = withTimeoutOrNull(20_000) {
             registry.calls.filter { list -> list.firstOrNull { it.id == callId }?.state in setOf(CallState.ACTIVE, CallState.DISCONNECTED) }.first()
         }?.firstOrNull { it.id == callId }?.state == CallState.ACTIVE
-        if (!active) {
+        DialerLog.i(TAG, "Verification call connected", "connected" to connected)
+        if (!connected) {
             registry.disconnect(callId)
-            status = "The verification call didn't connect. Try again."
-            verifying = false
-            return@launch
+            registry.clearExpectedNumbers()
+            return@launch fail("Call", "The verification call didn't connect. Try again.")
         }
-        delay(1_500)  // let the media stream start before keying the code
-        status = "Sending verification code…"
-        registry.playDtmf(callId, v.dtmfSequence)
-        val confirmed = withTimeoutOrNull(25_000) {
-            val viaPush = launch { push.messages.first { it.type == "device.verified" } }
-            while (true) {
-                if (viaPush.isCompleted) break
-                if ((devices.status(device.deviceId) as? ApiResult.Ok)?.value?.status == "verified") break
-                delay(2_000)
+
+        // One burst of tones is easy for a carrier to drop, so repeat the code
+        // while the call lasts, checking for confirmation between rounds.
+        var confirmed = false
+        for (round in 1..DTMF_ROUNDS) {
+            delay(if (round == 1) 1_500L else 800L)  // let the media stream settle
+            val state = registry.calls.value.firstOrNull { it.id == callId }?.state
+            if (state != CallState.ACTIVE) {
+                DialerLog.w(TAG, "Verification call ended before the code went through",
+                            "state" to state, "round" to round)
+                break
             }
-            viaPush.cancel()
-            true
-        } ?: false
+            status = if (round == 1) "Sending verification code…" else "Resending verification code…"
+            DialerLog.i(TAG, "Playing verification code", "round" to round)
+            registry.playDtmf(callId, v.dtmfSequence)
+            confirmed = awaitVerified(device.deviceId, ROUND_WAIT_MS)
+            if (confirmed) break
+        }
         registry.disconnect(callId)
         registry.clearExpectedNumbers()
+        if (!confirmed) {
+            // The server gives up on the tones after ~20 s and then verifies from
+            // the caller ID instead; that lands just after the call drops.
+            status = "Confirming with the server…"
+            confirmed = awaitVerified(device.deviceId, TAIL_WAIT_MS)
+        }
         verifying = false
+        DialerLog.i(TAG, "Verification finished", "verified" to confirmed)
+        logs.flush()
         if (confirmed) {
             verified = true
             status = "Phone verified."
             onDone()
         } else {
-            status = "We couldn't confirm the code. Check the agent's number and try again."
+            status = "We couldn't verify this phone. Check that the AI agent's number is reachable, then try again."
         }
+    }
+
+    /** Polls the device status while also listening for the server's push. */
+    private suspend fun awaitVerified(deviceId: String, timeoutMs: Long): Boolean =
+        withTimeoutOrNull(timeoutMs) {
+            val viaPush = launch { push.messages.first { it.type == "device.verified" } }
+            var ok = false
+            try {
+                while (!ok) {
+                    ok = viaPush.isCompleted ||
+                        (devices.status(deviceId) as? ApiResult.Ok)?.value?.status == "verified"
+                    if (!ok) delay(2_000)
+                }
+            } finally {
+                viaPush.cancel()
+            }
+            ok
+        } ?: false
+
+    private fun fail(step: String, message: String, code: String? = null) {
+        DialerLog.w(TAG, "Verification failed", "step" to step, "reason" to message, "code" to code)
+        status = message
+        verifying = false
+        logs.flushSoon()
+    }
+
+    private companion object {
+        const val TAG = "Verify"
+        const val DTMF_ROUNDS = 3
+        const val ROUND_WAIT_MS = 6_000L
+        const val TAIL_WAIT_MS = 20_000L
     }
 }
 

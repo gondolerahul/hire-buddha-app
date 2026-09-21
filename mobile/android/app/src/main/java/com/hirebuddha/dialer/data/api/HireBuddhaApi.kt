@@ -21,6 +21,8 @@ interface HireBuddhaApi {
     @POST("mobile/devices") suspend fun registerDevice(@Body body: DeviceRegisterRequest): Response<DeviceDto>
     @GET("mobile/devices/{id}") suspend fun device(@Path("id") id: String): Response<DeviceDto>
     @POST("mobile/devices/{id}/verification") suspend fun reissueVerification(@Path("id") id: String): Response<DeviceDto>
+    @POST("mobile/devices/{id}/verification/dialing")
+    suspend fun verificationDialing(@Path("id") id: String, @Body body: VerificationDialingRequest): Response<VerificationDialingDto>
 
     @GET("mobile/campaigns") suspend fun campaigns(): Response<CampaignsResponse>
     @GET("mobile/campaigns/{id}") suspend fun campaign(@Path("id") id: String): Response<CampaignDto>
