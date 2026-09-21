@@ -88,6 +88,7 @@ class RunController @Inject constructor(
     private val push: PushClient,
     private val outbox: EventOutbox,
     private val settings: AppSettings,
+    private val logs: com.hirebuddha.dialer.data.logs.LogRepository,
 ) {
     private val orchestrator = CallOrchestrator(registry, ApiDialerBackend(api, outbox), push)
     val state: StateFlow<RunUiState> = orchestrator.state
@@ -99,6 +100,14 @@ class RunController @Inject constructor(
         if (isRunActive()) return ApiResult.Err(-1, "already_running", "A campaign is already running on this phone.")
         val deviceId = settings.current().deviceId
             ?: return ApiResult.Err(-1, "no_device", "Verify this phone first.")
+        // Without ROLE_DIALER we cannot see call state, merge calls, or even run the
+        // phoneCall foreground service — Android kills the app for trying (SecurityException).
+        if (!com.hirebuddha.dialer.telecom.DialerRole.isHeld(context)) {
+            DialerLog.w(TAG, "Run refused: not the default phone app")
+            logs.flushSoon()
+            return ApiResult.Err(-1, "not_default_dialer",
+                "HireBuddha must be your phone app to place and merge calls. Open Settings in the app to fix this.")
+        }
         return when (val r = apiCall { api.startRun(campaignId, RunStartRequest(deviceId)) }) {
             is ApiResult.Ok -> {
                 orchestrator.reset(r.value.runId, campaignId, campaignName)
@@ -134,6 +143,7 @@ class RunController @Inject constructor(
                 outbox.flush()
             } finally {
                 registry.clearExpectedNumbers()
+                logs.flush()  // ship this run's diagnostics without waiting for the periodic sweep
                 onFinished()
             }
         }
@@ -165,6 +175,8 @@ class RunController @Inject constructor(
         }
     }
 
+    fun flushLogs() = logs.flushSoon()
+
     fun command(command: UserCommand) = orchestrator.send(command)
     fun decideMerge(mergeAnyway: Boolean) = orchestrator.decideMerge(mergeAnyway)
 
@@ -195,6 +207,10 @@ class RunController @Inject constructor(
             fields += "sim_selected" to kotlinx.coroutines.runBlocking { settings.current().phoneAccountLabel }
         }
         DialerLog.i("Device", "Run environment", *fields.toTypedArray())
+    }
+
+    private companion object {
+        const val TAG = "RunController"
     }
 
     /** A real incoming call during a run: finish the current lead, then pause. */
