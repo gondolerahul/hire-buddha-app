@@ -83,6 +83,22 @@ async def issue_device_verification(db: AsyncSession, device: UserDevice) -> Dic
     }
 
 
+async def announce_verification_dial(
+    db: AsyncSession, user, device_id, sim_number: Optional[str] = None
+) -> Dict[str, Any]:
+    """Claim the DID for this device's verification call for the next minute."""
+    device = await get_owned_device(db, user, device_id)
+    if not device.verification_did or not device.verification_code_hash:
+        raise MobileError(409, "no_open_verification",
+                          "This phone has no verification in progress. Start setup again.")
+    if device.verification_expires_at and device.verification_expires_at <= datetime.utcnow():
+        raise MobileError(409, "verification_expired",
+                          "The verification expired. Start setup again.")
+    recorded = await realtime.announce_verification_dial(
+        device.verification_did, device.id, sim_number)
+    return {"did": device.verification_did, "recorded": recorded}
+
+
 def device_view(device: UserDevice, verification: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {
         "device_id": device.id,

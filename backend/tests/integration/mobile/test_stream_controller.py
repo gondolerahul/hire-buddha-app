@@ -2,7 +2,7 @@
 import asyncio
 import json
 from collections import deque
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -139,6 +139,43 @@ async def test_pre_model_device_verification_ends_call(api, world, db, fast_time
     assert pushes[0]["type"] == "device.verified" and pushes[0]["verified_cli"] == REP_CLI
     ended = await db.get(VoiceSession, session.id, populate_existing=True)
     assert ended.status == "ended"
+
+
+async def test_pre_model_verifies_by_caller_id_when_the_tones_are_lost(api, world, db, fast_timeouts):
+    """Carriers do drop DTMF on the AI leg; the announced dial makes the caller
+    ID enough on its own."""
+    rep = api.as_user(world.rep)
+    device_id = (await rep.post("/api/v1/mobile/devices", json={"install_id": uuid4().hex})).json()["device_id"]
+    r = await rep.post(f"/api/v1/mobile/devices/{device_id}/verification/dialing",
+                       json={"sim_number": REP_CLI})
+    assert r.status_code == 200 and r.json()["recorded"], r.text
+    try:
+        session = await resolve_mobile_inbound(db, from_number=REP_CLI, to_number=world.did,
+                                               call_sid="CA-no-dtmf", provider="tata_tele")
+        pushes, task = await collect_push(world.rep.id)
+        ctl = MobileCallController(StubHandler(session, FakeProviderSocket([start_event()])))
+        assert await ctl.pre_model_phase() == PreModelOutcome.END  # no dtmf events at all
+        await asyncio.wait_for(task, 5)
+        assert pushes[0]["type"] == "device.verified" and pushes[0]["verified_cli"] == REP_CLI
+        device = await db.get(UserDevice, UUID(device_id), populate_existing=True)
+        assert device.status == "verified" and device.verified_cli == REP_CLI
+    finally:
+        await realtime.clear_verification_dial(world.did)
+
+
+async def test_pre_model_will_not_verify_a_different_caller(api, world, db, fast_timeouts):
+    rep = api.as_user(world.rep)
+    device_id = (await rep.post("/api/v1/mobile/devices", json={"install_id": uuid4().hex})).json()["device_id"]
+    await rep.post(f"/api/v1/mobile/devices/{device_id}/verification/dialing", json={"sim_number": REP_CLI})
+    try:
+        session = await resolve_mobile_inbound(db, from_number="+919000000123", to_number=world.did,
+                                               call_sid="CA-stranger", provider="tata_tele")
+        ctl = MobileCallController(StubHandler(session, FakeProviderSocket([start_event()])))
+        await ctl.pre_model_phase()
+        device = await db.get(UserDevice, UUID(device_id), populate_existing=True)
+        assert device.status == "unverified" and device.verified_cli is None
+    finally:
+        await realtime.clear_verification_dial(world.did)
 
 
 async def test_pre_model_unknown_caller_falls_back_to_inbound(api, world, db, fast_timeouts):

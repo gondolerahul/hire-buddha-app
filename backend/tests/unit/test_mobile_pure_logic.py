@@ -17,7 +17,7 @@ from src.mobile.dtmf import (
     KIND_VERIFICATION_CODE,
     DtmfCollector,
 )
-from src.mobile.phone import mask_phone, to_e164, validate_lead_phone
+from src.mobile.phone import mask_phone, same_subscriber, to_e164, validate_lead_phone
 
 
 # ── to_e164 ──────────────────────────────────────────────────────────────
@@ -62,6 +62,14 @@ def test_validate_lead_phone(raw, expected, reason):
 def test_mask_phone():
     assert mask_phone("+919812345678") == "+91******5678"
     assert mask_phone("") == ""
+
+
+def test_same_subscriber_tolerates_prefixes():
+    assert same_subscriber("+919812345678", "919812345678")
+    assert same_subscriber("09812345678", "+91 98123 45678")
+    assert not same_subscriber("+919812345678", "+919812345679")
+    assert not same_subscriber("", "+919812345678")
+    assert not same_subscriber("12345", "12345")  # too short to identify anyone
 
 
 # ── DtmfCollector ───────────────────────────────────────────────────────

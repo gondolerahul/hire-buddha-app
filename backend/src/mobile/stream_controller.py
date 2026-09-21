@@ -31,7 +31,9 @@ from src.mobile import realtime
 from src.mobile.dtmf import (
     KIND_ATTEMPT_TOKEN, KIND_MERGE_SIGNAL, KIND_VERIFICATION_CODE, DtmfCollector,
 )
-from src.mobile.identification import bind_session_by_token, complete_device_verification
+from src.mobile.identification import (
+    bind_session_by_token, complete_device_verification, verify_device_by_cli,
+)
 from src.mobile.models import (
     ATTEMPT_ABANDONED, ATTEMPT_AI_READY, ATTEMPT_COMPLETED, ATTEMPT_COMPLETED_VOICEMAIL,
     ATTEMPT_MERGED, ATTEMPT_UNIDENTIFIED_READY, IDENT_UNIDENTIFIED, OPEN_ATTEMPT_STATUSES,
@@ -203,15 +205,18 @@ class MobileCallController:
             async with AsyncSessionLocal() as db:
                 result = await complete_device_verification(db, self.h.session_id, seq.value)
             if result:
-                await realtime.publish_user_push(
-                    result.user_id, "device.verified", device_id=result.device_id,
-                    verified_cli=result.verified_cli, cli_available=result.cli_available,
-                )
+                await self._announce_verified(result)
                 await self._end_session("device_verified")
                 return PreModelOutcome.END
         else:
             logger.info(f"[Mobile] Ignoring pre-model DTMF {seq.kind} on session {self.h.session_id}")
         return None
+
+    async def _announce_verified(self, result):
+        await realtime.publish_user_push(
+            result.user_id, "device.verified", device_id=result.device_id,
+            verified_cli=result.verified_cli, cli_available=result.cli_available,
+        )
 
     async def _apply_token(self, token: str, model_connected: bool):
         async with AsyncSessionLocal() as db:
@@ -244,6 +249,15 @@ class MobileCallController:
     async def _finish_pre_model(self, decision: str) -> str:
         if decision == "bound":
             return PreModelOutcome.CONTINUE
+        # A verification call whose keypad tones never reached us: the caller ID
+        # is the thing the call was placed to capture anyway (ADR-001 §1).
+        if self.meta.get("expects_verification") and not self.meta.get("expects_attempt"):
+            async with AsyncSessionLocal() as db:
+                result = await verify_device_by_cli(db, self.h.session_id)
+            if result:
+                await self._announce_verified(result)
+                await self._end_session("device_verified_cli")
+                return PreModelOutcome.END
         # timeout without binding
         if self.meta.get("fallback_inbound"):
             logger.info(f"[Mobile] No mobile code on {self.h.session_id}; continuing as a normal inbound call")

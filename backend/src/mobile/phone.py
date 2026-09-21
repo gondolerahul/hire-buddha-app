@@ -113,6 +113,16 @@ def validate_lead_phone(raw: Optional[str]) -> Tuple[Optional[str], Optional[str
     return f"+{cc}{national}", None
 
 
+def same_subscriber(a: Optional[str], b: Optional[str]) -> bool:
+    """Do two numbers belong to the same subscriber? Compares the last 10 digits,
+    tolerating the +91 / 0 / no-prefix shapes different sources present."""
+    da = "".join(c for c in str(a or "") if c.isdigit())
+    db = "".join(c for c in str(b or "") if c.isdigit())
+    if len(da) < 10 or len(db) < 10:
+        return False
+    return da[-10:] == db[-10:]
+
+
 def mask_phone(e164: Optional[str]) -> str:
     """'+919812345678' -> '+91******5678' for lists shown to reps."""
     if not e164:

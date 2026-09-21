@@ -192,6 +192,41 @@ The DID is the one assigned to any ACTIVE voice agent of the company ([`get_comp
 
 Reissues the code (e.g. the SIM changed) → same `verification` object.
 
+#### `POST /mobile/devices/{device_id}/verification/dialing`
+
+```json
+// request  (sim_number is best effort: most Indian SIMs report nothing)
+{"sim_number": "+919810000000"}
+// 200
+{"did": "+918065251146", "recorded": true}
+```
+
+Called immediately before the app places the verification call. It claims the
+DID in Redis for 75 seconds
+([`announce_verification_dial`](../../backend/src/mobile/realtime.py)), which is
+what lets the gateway verify the device from the caller ID alone when the
+carrier drops the keypad tones — see §2.2.1. Returns `409
+{code: "no_open_verification"}` if the device has no verification in progress.
+
+##### 2.2.1 Verifying without DTMF
+
+DTMF on the AI leg is not reliable end to end: the tones cross the rep's
+carrier, the IMS network and the provider before Smartflo reports a `dtmf`
+event, and in production we have seen every tone of a verification call
+disappear. The verification call exists to capture the rep's caller ID
+(ADR-001 §1), so when no code arrives before
+`MOBILE_VERIFICATION_MAX_CALL_SECONDS`,
+[`verify_device_by_cli`](../../backend/src/mobile/identification.py) verifies
+the device the app announced, provided:
+
+- an announcement for this DID is live in Redis (so the call is one the app placed);
+- the announced `sim_number`, when the phone knows it, matches the presented caller ID;
+- that device still has an open, unexpired verification;
+- no *other* rep in the company is already verified on that caller ID.
+
+The app still sends the code, up to three times per call, and the DTMF path
+stays the primary one; this only removes the dead end.
+
 ### 2.2 Contact upload (shared with web)
 
 #### `POST /campaigns/upload-contacts` *(new, replaces `/upload-csv` for new clients; `/upload-csv` kept)*

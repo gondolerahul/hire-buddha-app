@@ -48,6 +48,15 @@ import kotlinx.serialization.json.JsonObject
     @SerialName("expires_at") val expiresAt: String,
 )
 
+@Serializable data class VerificationDialingRequest(
+    @SerialName("sim_number") val simNumber: String? = null,
+)
+
+@Serializable data class VerificationDialingDto(
+    val did: String,
+    val recorded: Boolean = false,
+)
+
 @Serializable data class DeviceDto(
     @SerialName("device_id") val deviceId: String,
     val status: String,

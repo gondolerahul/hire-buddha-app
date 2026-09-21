@@ -4,12 +4,14 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.telecom.Call
 import android.telecom.DisconnectCause
 import android.telecom.InCallService
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.telephony.SubscriptionManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.hirebuddha.dialer.core.DialerLog
@@ -249,8 +251,8 @@ class CallRegistry @Inject constructor(
 
     private companion object {
         const val TAG = "CallRegistry"
-        const val DTMF_TONE_MS = 150L
-        const val DTMF_GAP_MS = 100L
+        const val DTMF_TONE_MS = 300L
+        const val DTMF_GAP_MS = 200L
         const val MAX_ENDED = 10
     }
 }
@@ -282,4 +284,30 @@ object SimAccounts {
 
     fun handle(context: Context, id: String?): PhoneAccountHandle? =
         id?.let { wanted -> list(context).firstOrNull { it.id == wanted }?.handle }
+
+    /**
+     * The SIM's own number, when the platform happens to know it. Indian carriers
+     * usually leave this blank, so every caller must treat null as normal.
+     */
+    fun selfNumber(context: Context, id: String?): String? {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        val handle = handle(context, id) ?: return null
+        val telecom = context.getSystemService(TelecomManager::class.java)
+        runCatching { telecom.getPhoneAccount(handle)?.address?.schemeSpecificPart }
+            .getOrNull()?.takeIf { it.isNotBlank() }?.let { return it }
+        return runCatching {
+            val subs = context.getSystemService(SubscriptionManager::class.java)
+            val info = subs?.activeSubscriptionInfoList?.firstOrNull { it.iccId == handle.id }
+                ?: subs?.activeSubscriptionInfoList?.firstOrNull()
+                ?: return null
+            val number = if (Build.VERSION.SDK_INT >= 33) {
+                subs.getPhoneNumber(info.subscriptionId)
+            } else {
+                @Suppress("DEPRECATION") info.number
+            }
+            number?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
 }

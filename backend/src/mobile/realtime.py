@@ -31,6 +31,54 @@ def user_push_channel(user_id) -> str:
     return f"mobile:user:{user_id}:push"
 
 
+def verification_dial_key(did: str) -> str:
+    return f"mobile:verify-dial:{did}"
+
+
+# How long an announced verification call stays claimable. The app announces it
+# immediately before dialling, so this only has to cover ring + answer.
+VERIFICATION_DIAL_TTL_SECONDS = 75
+
+
+async def announce_verification_dial(did: str, device_id, sim_number: Optional[str] = None) -> bool:
+    """Record that a device is dialling ``did`` to verify itself, right now.
+
+    The gateway reads this when the keypad tones never arrive, so that only a
+    call the app actually placed can be verified by caller ID. Two devices
+    dialling the same DID at once cancel each other out (the value is
+    overwritten and the gateway sees a device it cannot match).
+    """
+    try:
+        r = await get_redis()
+        await r.setex(
+            verification_dial_key(did), VERIFICATION_DIAL_TTL_SECONDS,
+            json.dumps({"device_id": str(device_id), "sim_number": sim_number or "",
+                        "at": datetime.utcnow().isoformat() + "Z"}),
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"[Mobile] could not record verification dial on {did}: {e}")
+        return False
+
+
+async def pending_verification_dial(did: str) -> Optional[Dict[str, Any]]:
+    try:
+        r = await get_redis()
+        raw = await r.get(verification_dial_key(did))
+        return json.loads(raw) if raw else None
+    except Exception as e:
+        logger.warning(f"[Mobile] could not read verification dial on {did}: {e}")
+        return None
+
+
+async def clear_verification_dial(did: str) -> None:
+    try:
+        r = await get_redis()
+        await r.delete(verification_dial_key(did))
+    except Exception:
+        pass
+
+
 async def get_redis():
     """Shared redis.asyncio client (lazy, one per process)."""
     global _redis

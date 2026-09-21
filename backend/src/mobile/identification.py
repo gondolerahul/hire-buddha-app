@@ -20,12 +20,13 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.config import settings
+from src.mobile import realtime
 from src.mobile.models import (
     ATTEMPT_AI_CONNECTED, ATTEMPT_PENDING, BINDABLE_ATTEMPT_STATUSES,
     DEVICE_UNVERIFIED, DEVICE_VERIFIED, IDENT_CLI, IDENT_CLI_DTMF, IDENT_DTMF,
     SESSION_MODE_MOBILE, MobileCallAttempt, UserDevice,
 )
-from src.mobile.phone import to_e164
+from src.mobile.phone import same_subscriber, to_e164
 from src.voice.models import VoiceSession
 
 logger = logging.getLogger(__name__)
@@ -336,3 +337,69 @@ async def complete_device_verification(
             return VerificationResult(device.id, device.user_id, caller, bool(caller))
     logger.warning(f"[Mobile] Verification code on session {session_id} matched no device")
     return None
+
+
+async def verify_device_by_cli(db: AsyncSession, session_id: UUID) -> Optional[VerificationResult]:
+    """Fallback for complete_device_verification() when no DTMF arrived.
+
+    Some carrier/provider combinations silently drop the keypad tones on the AI
+    leg, which would leave a rep unable to finish setup at all. The caller ID is
+    what the verification call exists to capture (ADR-001 §1), so the code is
+    not the only way to trust the call — but it must be *this* call, so the app
+    announces the dial (``realtime.announce_verification_dial``) a moment before
+    placing it, and only the device named in that announcement can be verified.
+    An inbound caller who happens to ring the DID matches nothing.
+    """
+    session = await db.get(VoiceSession, session_id)
+    if session is None:
+        return None
+    meta = session.session_metadata or {}
+    did, caller = meta.get("did"), meta.get("caller")
+    if not caller:
+        logger.warning(f"[Mobile] No caller ID on session {session_id}; cannot verify without a code")
+        return None
+    dial = await realtime.pending_verification_dial(did)
+    if not dial:
+        logger.info(f"[Mobile] No app announced a verification call on {did}; not verifying by caller ID")
+        return None
+    sim_number = dial.get("sim_number")
+    if sim_number and not same_subscriber(sim_number, caller):
+        logger.warning(
+            f"[Mobile] Caller ID {caller} on {did} is not the SIM the app announced; not verifying"
+        )
+        return None
+    now = datetime.utcnow()
+    device = (await db.execute(
+        select(UserDevice).where(and_(
+            UserDevice.id == UUID(dial["device_id"]),
+            UserDevice.company_id == session.company_id,
+            UserDevice.verification_did == did,
+            UserDevice.verification_expires_at > now,
+            UserDevice.verification_code_hash.isnot(None),
+        )).with_for_update()
+    )).scalar_one_or_none()
+    if device is None:
+        logger.warning(f"[Mobile] Announced device for {did} has no open verification; not verifying")
+        return None
+    other_owner = (await db.execute(
+        select(func.count()).select_from(UserDevice).where(and_(
+            UserDevice.company_id == session.company_id,
+            UserDevice.verified_cli == caller,
+            UserDevice.status == DEVICE_VERIFIED,
+            UserDevice.user_id != device.user_id,
+        ))
+    )).scalar_one()
+    if other_owner:
+        logger.warning(f"[Mobile] Caller ID {caller} already belongs to another rep; not verifying {device.id}")
+        return None
+    await realtime.clear_verification_dial(did)
+    device.presented_cli = (meta.get("presented_from") or "")[:40] or None
+    device.verified_cli = caller
+    device.cli_available = True
+    device.status = DEVICE_VERIFIED
+    device.verified_at = now
+    device.verification_code_hash = None
+    device.verification_expires_at = None
+    await db.commit()
+    logger.warning(f"[Mobile] Device {device.id} verified by caller ID alone (no DTMF reached the server)")
+    return VerificationResult(device.id, device.user_id, caller, True)
