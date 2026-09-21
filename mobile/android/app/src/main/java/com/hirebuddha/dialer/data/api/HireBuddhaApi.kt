@@ -40,6 +40,7 @@ interface HireBuddhaApi {
     @POST("mobile/call-attempts") suspend fun createAttempt(@Body body: AttemptCreateRequest): Response<AttemptDto>
     @GET("mobile/call-attempts/{id}") suspend fun attempt(@Path("id") attemptId: String): Response<AttemptDto>
     @POST("mobile/call-attempts/{id}/events") suspend fun postEvents(@Path("id") attemptId: String, @Body body: EventBatch): Response<EventAck>
+    @POST("mobile/logs") suspend fun postLogs(@Body body: LogBatch): Response<LogAck>
     @GET("mobile/call-attempts/{id}/timeline") suspend fun timeline(@Path("id") attemptId: String): Response<TimelineDto>
 
     @GET("campaigns/{id}/mobile-analytics") suspend fun campaignAnalytics(@Path("id") campaignId: String): Response<AnalyticsDto>

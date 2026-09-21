@@ -28,9 +28,12 @@ if not DB_NAME.endswith("_test"):
         allow_module_level=True,
     )
 
-SQL_SCRIPT = Path(__file__).resolve().parents[3] / "db-scripts" / "mobile_dialer_001.sql"
+SQL_SCRIPTS = [
+    Path(__file__).resolve().parents[3] / "db-scripts" / "mobile_dialer_001.sql",
+    Path(__file__).resolve().parents[3] / "db-scripts" / "mobile_dialer_002_logs.sql",
+]
 MOBILE_TABLES = [
-    "mobile_call_events", "mobile_call_attempts", "mobile_campaign_runs",
+    "mobile_client_logs", "mobile_call_events", "mobile_call_attempts", "mobile_campaign_runs",
     "campaign_assignees", "contact_uploads", "user_devices",
 ]
 TRUNCATE_TABLES = MOBILE_TABLES + [
@@ -70,13 +73,14 @@ def _build_schema():
                 await conn.execute(text(f"ALTER TABLE campaigns DROP COLUMN {col}"))
             for col in ("leased_by_user_id", "leased_by_device_id", "lease_expires_at"):
                 await conn.execute(text(f"ALTER TABLE campaign_calls DROP COLUMN {col}"))
-        sql = SQL_SCRIPT.read_text()
-        import asyncpg  # multi-statement script: run it the way psql would
+        import asyncpg  # multi-statement scripts: run them the way psql would
         dsn = settings.DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
         conn = await asyncpg.connect(dsn)
         try:
-            await conn.execute(sql)
-            await conn.execute(sql)
+            for script in SQL_SCRIPTS:
+                sql = script.read_text()
+                await conn.execute(sql)
+                await conn.execute(sql)  # idempotency check
         finally:
             await conn.close()
         await eng.dispose()

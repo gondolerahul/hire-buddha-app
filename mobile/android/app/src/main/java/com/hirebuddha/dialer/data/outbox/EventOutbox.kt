@@ -80,9 +80,10 @@ interface OutboxDao {
     }
 }
 
-@Database(entities = [OutboxEvent::class], version = 1, exportSchema = true)
+@Database(entities = [OutboxEvent::class, com.hirebuddha.dialer.data.logs.LogRow::class], version = 2, exportSchema = true)
 abstract class DialerDatabase : RoomDatabase() {
     abstract fun outbox(): OutboxDao
+    abstract fun logs(): com.hirebuddha.dialer.data.logs.LogDao
 }
 
 @Module
@@ -90,9 +91,14 @@ abstract class DialerDatabase : RoomDatabase() {
 object DatabaseModule {
     @Provides @Singleton
     fun database(@ApplicationContext context: Context): DialerDatabase =
-        Room.databaseBuilder(context, DialerDatabase::class.java, "dialer.db").build()
+        Room.databaseBuilder(context, DialerDatabase::class.java, "dialer.db")
+            // Diagnostics only: a schema change may drop local logs, never call data.
+            .fallbackToDestructiveMigration(dropAllTables = true)
+            .build()
 
     @Provides fun outboxDao(db: DialerDatabase): OutboxDao = db.outbox()
+
+    @Provides fun logDao(db: DialerDatabase): com.hirebuddha.dialer.data.logs.LogDao = db.logs()
 }
 
 /**

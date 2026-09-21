@@ -5,7 +5,7 @@ Only tenant_admin and tenant_user may call these endpoints; everything is
 scoped to the caller's company.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -74,6 +74,23 @@ class CallEvent(BaseModel):
 
 class EventBatch(BaseModel):
     events: List[CallEvent] = Field(min_length=1, max_length=100)
+
+
+class LogEntry(BaseModel):
+    seq: int = 0
+    level: str = "INFO"
+    tag: str = ""
+    message: str = ""
+    fields: Dict[str, Any] = Field(default_factory=dict)
+    device_ts: Optional[str] = None
+    run_id: Optional[str] = None
+    attempt_id: Optional[str] = None
+
+
+class LogBatch(BaseModel):
+    device_id: Optional[str] = None
+    app_version: Optional[str] = None
+    entries: List[LogEntry] = Field(min_length=1, max_length=500)
 
 
 # ── App & me ─────────────────────────────────────────────────────────────
@@ -226,6 +243,38 @@ async def get_attempt(attempt_id: UUID, db: AsyncSession = Depends(get_db), user
         return await service.attempt_detail(db, user, attempt_id)
     except MobileError as e:
         _raise(e)
+
+
+@router.post("/logs")
+async def post_logs(body: LogBatch, db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+    """App diagnostics (docs 10 §6). Stored permanently so field-only failures —
+    carrier merge behaviour above all — can be debugged after the fact."""
+    try:
+        accepted = await service.ingest_logs(db, user, body.model_dump())
+    except MobileError as e:
+        _raise(e)
+    return {"accepted": accepted}
+
+
+@router.get("/logs")
+async def get_logs(
+    device_id: Optional[UUID] = None,
+    attempt_id: Optional[UUID] = None,
+    run_id: Optional[UUID] = None,
+    level: Optional[str] = None,
+    search: Optional[str] = None,
+    since_minutes: Optional[int] = Query(default=None, ge=1, le=20160),
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(mobile_user),
+):
+    """Read the logs back (newest first). Reps see their own; tenant admins see the company."""
+    since = datetime.utcnow() - timedelta(minutes=since_minutes) if since_minutes else None
+    entries = await service.list_logs(
+        db, user, device_id=device_id, attempt_id=attempt_id, run_id=run_id,
+        level=level, search=search, since=since, limit=limit,
+    )
+    return {"total": len(entries), "entries": entries}
 
 
 @router.post("/call-attempts/{attempt_id}/events")

@@ -12,6 +12,7 @@ import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.data.settings.AppSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
@@ -64,14 +65,26 @@ class CallRegistry @Inject constructor(
         val id = "c${counter.incrementAndGet()}"
         ids[call] = id
         byId[id] = call
+        lastLogged[id] = mapState(call.state)
         call.registerCallback(callback)
+        DialerLog.i(
+            TAG, "Call added", "call" to id,
+            "number" to DialerLog.maskNumber(call.details?.handle?.schemeSpecificPart),
+            "outgoing" to (call.details?.callDirection == Call.Details.DIRECTION_OUTGOING),
+            "detail" to describe(call),
+        )
         publish()
     }
 
     fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
+        DialerLog.i(
+            TAG, "Call removed", "call" to ids[call],
+            "cause" to call.details?.disconnectCause?.toString()?.take(200),
+        )
         ids.remove(call)?.let { id ->
             byId.remove(id)
+            lastLogged.remove(id)
             // Keep the final state visible: StateFlow conflation could otherwise hide the
             // DISCONNECTED transition (and its cause) from the orchestrator.
             ended.addLast(snapshot(call, id).copy(state = CallState.DISCONNECTED))
@@ -86,9 +99,20 @@ class CallRegistry @Inject constructor(
         number != null && expectedOutgoing.any { PhoneNumbers.sameNumber(it, number) }
 
     private val ended = java.util.concurrent.ConcurrentLinkedDeque<CallSnapshot>()
+    private val lastLogged = ConcurrentHashMap<String, CallState>()
 
     private fun publish() {
-        _calls.value = ids.entries.map { (call, id) -> snapshot(call, id) } + ended.toList()
+        val live = ids.entries.map { (call, id) -> snapshot(call, id) }
+        live.forEach { s ->
+            if (lastLogged.put(s.id, s.state) != s.state) {
+                DialerLog.i(
+                    TAG, "Call state", "call" to s.id, "state" to s.state, "conference" to s.isConference,
+                    "parent" to s.parentId, "children" to s.childIds.joinToString("|"),
+                    "can_merge" to s.canMerge, "cause" to s.disconnectCause,
+                )
+            }
+        }
+        _calls.value = live + ended.toList()
     }
 
     private fun snapshot(call: Call, id: String): CallSnapshot {
@@ -159,15 +183,54 @@ class CallRegistry @Inject constructor(
     override fun hold(callId: String) { byId[callId]?.hold() }
     override fun unhold(callId: String) { byId[callId]?.unhold() }
 
-    override fun conference(callId: String, otherCallId: String): Boolean {
-        val a = byId[callId] ?: return false
-        val b = byId[otherCallId] ?: return false
-        return when {
-            a.conferenceableCalls.contains(b) || b.conferenceableCalls.contains(a) -> { a.conference(b); true }
-            a.details.can(Call.Details.CAPABILITY_MERGE_CONFERENCE) -> { a.mergeConference(); true }
-            b.details.can(Call.Details.CAPABILITY_MERGE_CONFERENCE) -> { b.mergeConference(); true }
-            else -> { a.conference(b); true }  // some IMS stacks accept it without advertising
+    override fun conference(callId: String, otherCallId: String): ConferenceResult {
+        val a = byId[callId]
+        val b = byId[otherCallId]
+        val action = ConferenceStrategy.choose(facts(callId, a, b), facts(otherCallId, b, a))
+        DialerLog.i(
+            TAG, "Merge attempt", "action" to action, "lead_call" to callId, "ai_call" to otherCallId,
+            "lead" to describe(a), "ai" to describe(b),
+        )
+        return try {
+            when (action) {
+                // conference() is what merges two separate calls; mergeConference() only does
+                // something once a conference container already exists.
+                ConferenceStrategy.Action.CONFERENCE -> { a!!.conference(b!!); ConferenceResult(action) }
+                ConferenceStrategy.Action.MERGE_CONFERENCE -> { a!!.mergeConference(); ConferenceResult(action) }
+                ConferenceStrategy.Action.ALREADY_MERGED -> ConferenceResult(action)
+                ConferenceStrategy.Action.IMPOSSIBLE -> ConferenceResult(action, "a call is missing or disconnected")
+            }
+        } catch (e: Exception) {
+            DialerLog.e(TAG, "Merge threw", e, "action" to action)
+            ConferenceResult(action, e.javaClass.simpleName + ": " + e.message)
         }
+    }
+
+    private fun facts(id: String, call: Call?, other: Call?) = ConferenceStrategy.CallFacts(
+        id = id,
+        exists = call != null,
+        state = call?.let { mapState(it.state) } ?: CallState.DISCONNECTED,
+        parentId = call?.parent?.let { ids[it] },
+        isConferenceable = call?.conferenceableCalls?.contains(other) == true,
+        canMergeConference = call?.details?.can(Call.Details.CAPABILITY_MERGE_CONFERENCE) == true,
+    )
+
+    /** Capability snapshot — the first thing to check when a carrier refuses to merge. */
+    private fun describe(call: Call?): String {
+        val d = call?.details ?: return "absent"
+        fun cap(flag: Int, name: String) = if (d.can(flag)) name else null
+        val caps = listOfNotNull(
+            cap(Call.Details.CAPABILITY_MERGE_CONFERENCE, "merge"),
+            cap(Call.Details.CAPABILITY_MANAGE_CONFERENCE, "manage"),
+            cap(Call.Details.CAPABILITY_HOLD, "hold"),
+            cap(Call.Details.CAPABILITY_SUPPORT_HOLD, "supports_hold"),
+            cap(Call.Details.CAPABILITY_SEPARATE_FROM_CONFERENCE, "separate"),
+            cap(Call.Details.CAPABILITY_SWAP_CONFERENCE, "swap"),
+        )
+        return "state=" + mapState(call.state) + " caps=[" + caps.joinToString(",") + "]" +
+            " conferenceable=" + call.conferenceableCalls.size +
+            " children=" + call.children.size +
+            " parent=" + (call.parent?.let { ids[it] } ?: "-")
     }
 
     override suspend fun playDtmf(callId: String, sequence: String) {

@@ -23,6 +23,14 @@ enum class LeadFailureCause(val wire: String) {
     INVALID("invalid"), FAILED("failed");
 }
 
+/** Outcome of one merge attempt, logged and retried by the orchestrator. */
+data class ConferenceResult(
+    val action: ConferenceStrategy.Action,
+    val error: String? = null,
+) {
+    val attempted get() = action == ConferenceStrategy.Action.CONFERENCE || action == ConferenceStrategy.Action.MERGE_CONFERENCE
+}
+
 /** Everything the orchestrator needs from Android telecom — faked in unit tests. */
 interface CallControl {
     val calls: StateFlow<List<CallSnapshot>>
@@ -31,8 +39,8 @@ interface CallControl {
     suspend fun placeCall(number: String): String?
     fun hold(callId: String)
     fun unhold(callId: String)
-    /** Merges two calls into a conference; returns false if telecom refused. */
-    fun conference(callId: String, otherCallId: String): Boolean
+    /** Asks telecom to merge two calls; the orchestrator confirms the result from call state. */
+    fun conference(callId: String, otherCallId: String): ConferenceResult
     suspend fun playDtmf(callId: String, sequence: String)
     fun disconnect(callId: String)
     fun setMuted(muted: Boolean)

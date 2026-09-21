@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey, Index, Integer, PrimaryKeyConstraint,
-    String, text,
+    String, Text, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
@@ -202,6 +202,36 @@ class MobileCallAttempt(Base):
             "uq_attempt_token_open", "did", "dtmf_token", unique=True,
             postgresql_where=text(_open_status_sql(OPEN_ATTEMPT_STATUSES)),
         ),
+    )
+
+
+class MobileClientLog(Base):
+    """Structured logs shipped by the Android app (no adb access on a rep's phone).
+
+    Kept indefinitely on purpose: merge failures are carrier- and device-specific and
+    only show up in the field. Phone numbers are masked by the app before upload.
+    """
+    __tablename__ = "mobile_client_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    device_id = Column(UUID(as_uuid=True), nullable=True)
+    run_id = Column(UUID(as_uuid=True), nullable=True)
+    attempt_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+
+    seq = Column(Integer, nullable=False, default=0)
+    level = Column(String(10), nullable=False, default="INFO")
+    tag = Column(String(64), nullable=False, default="")
+    message = Column(Text, nullable=False, default="")
+    fields = Column(JSONB, nullable=False, default=dict)
+    app_version = Column(String(50), nullable=True)
+    device_ts = Column(DateTime, nullable=True)
+    received_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_mobile_logs_company_time", "company_id", "received_at"),
+        Index("ix_mobile_logs_device_time", "device_id", "received_at"),
     )
 
 
