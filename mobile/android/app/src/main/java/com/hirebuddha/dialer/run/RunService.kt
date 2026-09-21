@@ -10,6 +10,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.hirebuddha.dialer.HireBuddhaApp
 import com.hirebuddha.dialer.MainActivity
+import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.R
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -24,10 +25,20 @@ class RunService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        ServiceCompat.startForeground(
-            this, NOTIFICATION_ID, notification(controller.state.value),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
-        )
+        try {
+            ServiceCompat.startForeground(
+                this, NOTIFICATION_ID, notification(controller.state.value),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL,
+            )
+        } catch (e: Exception) {
+            // Android 14+ refuses a phoneCall foreground service unless the app holds
+            // ROLE_DIALER. Report it and stop cleanly instead of crashing the app.
+            DialerLog.e(TAG, "Foreground service refused; is the app still the default phone app?", e)
+            controller.stop()
+            controller.flushLogs()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         lifecycleScope.launch {
             controller.state.collectLatest { s ->
                 androidx.core.app.NotificationManagerCompat.from(this@RunService).let { nm ->
@@ -35,6 +46,13 @@ class RunService : LifecycleService() {
                         runCatching { nm.notify(NOTIFICATION_ID, notification(s)) }
                     }
                 }
+            }
+        }
+        // Ship diagnostics while the run is in progress, not only at the end.
+        lifecycleScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(LOG_FLUSH_INTERVAL_MS)
+                controller.flushLogs()
             }
         }
         controller.execute(lifecycleScope) {
@@ -71,5 +89,7 @@ class RunService : LifecycleService() {
 
     private companion object {
         const val NOTIFICATION_ID = 7
+        const val TAG = "RunService"
+        const val LOG_FLUSH_INTERVAL_MS = 30_000L
     }
 }
