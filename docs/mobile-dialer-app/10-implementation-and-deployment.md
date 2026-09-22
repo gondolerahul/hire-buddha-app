@@ -152,7 +152,26 @@ Host `app/build/outputs/apk/release/app-release.apk` at `MOBILE_APP_DOWNLOAD_URL
 
 Release key: `~/.hirebuddha-secrets/hirebuddha-release.jks` (+ `keystore.properties.backup`). **Back both up off this server** — losing them means every rep must uninstall to update.
 
-Publishing a new version: bump `versionCode`/`versionName`, `./gradlew :app:assembleRelease`, copy the APK to `/var/www/hirebuddha-downloads/app/hirebuddha-dialer.apk` (and a versioned copy), update `SHA256SUMS`/`index.html`, then bump `MOBILE_APP_LATEST_VERSION_*` in `.env` and restart the API.
+### Publishing a new version
+
+```bash
+cd mobile/android && ./gradlew :app:assembleRelease
+cd ../.. && ./deploy/dialer-downloads/publish.sh
+```
+
+[`publish.sh`](../../deploy/dialer-downloads/publish.sh) takes the version, size and
+checksum from the APK itself and renders
+[`index.template.html`](../../deploy/dialer-downloads/index.template.html), so the page
+can never disagree with the file it links to. It refuses to publish an APK signed with a
+different certificate, because Android will not install such an update over an existing
+one — every rep would have to uninstall first and redo device verification.
+
+It does **not** touch `.env`, and the in-app update prompt is driven by
+`MOBILE_APP_LATEST_VERSION_CODE`, not by the download directory. The script prints the
+two lines to change; after editing `.env`, `touch backend/src/main.py` to make the
+reloader pick it up (uvicorn watches `.py`, not `.env`).
+
+Doing this by hand is what left the site serving 1.0.4 for a day after 1.1.0 was built.
 
 ## 5. Reading the app's logs
 
