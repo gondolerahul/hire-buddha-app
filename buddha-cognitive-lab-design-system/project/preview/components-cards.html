@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Cards" subtitle="Flat fill · hairline · soft radius — no left-accent" viewport="700x220" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:24px 28px;}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;}
+  .row{display:flex;gap:16px;}
+  .card{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;}
+  .card.feat{box-shadow:var(--shadow-md);}
+  .mark{width:34px;height:34px;border-radius:var(--r-sm);background:var(--accent-quiet);border:1px solid var(--border-gold);display:flex;align-items:center;justify-content:center;}
+  .mark img{height:20px;}
+  .ttl{font-family:var(--font-display);font-weight:500;font-size:18px;margin:14px 0 6px;letter-spacing:-.01em;}
+  .desc{font-size:13px;line-height:1.6;color:var(--fg-muted);margin:0;}
+  .tag{font-family:var(--font-mono);font-size:11px;color:var(--accent);}
+</style></head>
+<body>
+  <div class="cap">Cards · flat fill · hairline · soft radius</div>
+  <div class="row">
+    <div class="card feat">
+      <div class="mark"><img src="../assets/logo-mark-gold.svg"></div>
+      <div class="ttl">Operations Buddha</div>
+      <p class="desc">Runs billing, invoicing, and reconciliation end-to-end. Reports weekly.</p>
+    </div>
+    <div class="card">
+      <div class="tag">// EMPLOYED</div>
+      <div class="ttl">Support Buddha</div>
+      <p class="desc">Answers tickets across email and chat, escalates only what needs you.</p>
+    </div>
+  </div>
+</body></html>

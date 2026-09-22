@@ -251,3 +251,84 @@ import kotlinx.serialization.json.JsonObject
 
 @Serializable data class TimelineEntryDto(val at: String, val source: String, val type: String)
 @Serializable data class TimelineDto(val timeline: List<TimelineEntryDto>)
+
+// ── Pre-flight, rep outcomes & callbacks (docs 11 §3.1) ──────────────────
+
+@Serializable data class CallingWindowDto(
+    val enforced: Boolean = true,
+    val open: Boolean = true,
+    val start: String = "",
+    val end: String = "",
+    val timezone: String = "Asia/Kolkata",
+)
+
+@Serializable data class DailyCapDto(
+    val limit: Int? = null,
+    val used: Int = 0,
+    val remaining: Int? = null,
+)
+
+@Serializable data class CreditsDto(val ok: Boolean = true, val message: String? = null)
+
+@Serializable data class PreflightDeviceDto(
+    val verified: Boolean = false,
+    @SerialName("phone_account_label") val phoneAccountLabel: String? = null,
+    @SerialName("verified_cli") val verifiedCli: String? = null,
+)
+
+@Serializable data class PreflightCampaignDto(
+    val id: String,
+    val name: String,
+    val pending: Int = 0,
+    @SerialName("agent_name") val agentName: String? = null,
+    val did: String? = null,
+    val ready: Boolean = false,
+)
+
+@Serializable data class PreflightDto(
+    @SerialName("calling_window") val callingWindow: CallingWindowDto = CallingWindowDto(),
+    @SerialName("daily_cap") val dailyCap: DailyCapDto = DailyCapDto(),
+    val credits: CreditsDto = CreditsDto(),
+    val device: PreflightDeviceDto = PreflightDeviceDto(),
+    val campaign: PreflightCampaignDto? = null,
+    val blockers: List<String> = emptyList(),
+    @SerialName("can_start") val canStart: Boolean = true,
+)
+
+@Serializable data class RepDispositionRequest(
+    val disposition: String,
+    val note: String? = null,
+    /** ISO-8601 UTC; required when [disposition] is `callback`. */
+    @SerialName("callback_at") val callbackAt: String? = null,
+)
+
+@Serializable data class RepDispositionResponse(
+    @SerialName("campaign_call_id") val campaignCallId: String,
+    val disposition: String,
+    @SerialName("callback_at") val callbackAt: String? = null,
+    val note: String? = null,
+)
+
+@Serializable data class CallbackDto(
+    @SerialName("campaign_call_id") val campaignCallId: String,
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("campaign_name") val campaignName: String? = null,
+    @SerialName("contact_name") val contactName: String? = null,
+    @SerialName("phone_masked") val phoneMasked: String = "",
+    @SerialName("callback_at") val callbackAt: String? = null,
+    val note: String? = null,
+)
+
+@Serializable data class CallbacksResponse(val total: Int = 0, val items: List<CallbackDto> = emptyList())
+
+/** An open run of this user's (`GET /mobile/runs/active`). */
+@Serializable data class ActiveRunDto(
+    @SerialName("run_id") val runId: String,
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("campaign_name") val campaignName: String? = null,
+    val status: String = "running",
+    @SerialName("device_id") val deviceId: String? = null,
+    @SerialName("started_at") val startedAt: String? = null,
+)
+
+@Serializable data class ActiveRunsResponse(val total: Int = 0, val items: List<ActiveRunDto> = emptyList())

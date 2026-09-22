@@ -46,3 +46,9 @@ backend/assets/
 # DB Backup artifacts (scripts are tracked, dumps/logs are not)
 deploy/backup/dumps/
 deploy/backup/logs/
+
+# Release signing material — the keystore and its passwords must never be committed.
+# Canonical copy lives at ~/.hirebuddha-secrets/ (docs/mobile-dialer-app/10 §4).
+hirebuddha-signing-backup-*.tar.gz
+*.jks
+keystore.properties*

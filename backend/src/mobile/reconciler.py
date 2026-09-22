@@ -13,13 +13,15 @@ Periodic mobile-dialer housekeeping (Arq cron, every 5 minutes).
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 
 from src.common.config import settings
 from src.common.database import AsyncSessionLocal
+from src.ai.campaign_models import Campaign, CampaignCall
 from src.mobile.models import (
     ATTEMPT_EXPIRED, ATTEMPT_PENDING, IDENT_RECONCILED, IDENT_UNIDENTIFIED,
-    SESSION_MODE_MOBILE, MobileCallAttempt, UserDevice,
+    RUN_COMPLETED, RUN_PAUSED, RUN_RUNNING, SESSION_MODE_MOBILE,
+    MobileCallAttempt, MobileCampaignRun, UserDevice,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,11 +113,106 @@ async def expire_stale_attempts(db) -> int:
     return len(expired)
 
 
+# A run only ever ends because the app told us so. An app that is killed, crashes,
+# is reinstalled (which mints a new device row) or simply loses the network leaves the
+# run RUNNING forever — which pins the campaign to "running" in every report and makes
+# start_run refuse the device with `device_busy` with nothing in the UI able to clear it.
+STALE_RUN_HOURS = 6
+
+
+async def close_stale_runs(db) -> int:
+    """Close runs that no app is driving any more.
+
+    Conservative on purpose: a run is only stale when it has had no call attempt for
+    STALE_RUN_HOURS *and* nothing is currently in flight on it. Paused runs are left
+    alone unless they are equally cold, because a pause is a deliberate act a rep
+    expects to come back to.
+    """
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=STALE_RUN_HOURS)
+
+    candidates = (await db.execute(
+        select(MobileCampaignRun).where(and_(
+            MobileCampaignRun.status.in_((RUN_RUNNING, RUN_PAUSED)),
+            MobileCampaignRun.started_at < cutoff,
+        ))
+    )).scalars().all()
+    if not candidates:
+        return 0
+
+    closed = 0
+    for run in candidates:
+        last_attempt = (await db.execute(
+            select(func.max(MobileCallAttempt.created_at))
+            .where(MobileCallAttempt.run_id == run.id)
+        )).scalar_one_or_none()
+        if last_attempt is not None and last_attempt >= cutoff:
+            continue  # still warm
+        run.status = RUN_COMPLETED
+        run.ended_at = now
+        closed += 1
+        logger.info("[Mobile] closing stale run %s (campaign %s, started %s)",
+                    run.id, run.campaign_id, run.started_at)
+        # Hand any lead it was still holding back to the queue.
+        await db.execute(
+            update(CampaignCall)
+            .where(and_(CampaignCall.campaign_id == run.campaign_id,
+                        CampaignCall.leased_by_device_id == run.device_id,
+                        CampaignCall.status == "leased"))
+            .values(status="pending", leased_by_user_id=None, leased_by_device_id=None,
+                    lease_expires_at=None)
+        )
+    await db.commit()
+    return closed
+
+
+async def close_finished_campaigns(db) -> int:
+    """Mark a mobile campaign completed once nothing is left to call.
+
+    `/mobile/runs/{id}/next` does this when it runs out of leads, but a campaign whose
+    run died before that point sits at "running" with zero pending leads indefinitely.
+    """
+    now = datetime.utcnow()
+    stuck = (await db.execute(
+        select(Campaign.id).where(and_(
+            Campaign.status == "running",
+            Campaign.execution_mode == "mobile_conference",
+            ~select(CampaignCall.id).where(and_(
+                CampaignCall.campaign_id == Campaign.id,
+                CampaignCall.status.in_(("pending", "leased", "calling")),
+            )).exists(),
+            ~select(MobileCampaignRun.id).where(and_(
+                MobileCampaignRun.campaign_id == Campaign.id,
+                MobileCampaignRun.status.in_((RUN_RUNNING, RUN_PAUSED)),
+            )).exists(),
+        ))
+    )).scalars().all()
+    if not stuck:
+        return 0
+    await db.execute(
+        update(Campaign).where(Campaign.id.in_(stuck))
+        .values(status="completed", completed_at=now, updated_at=now)
+    )
+    await db.commit()
+    logger.info("[Mobile] completed %d campaign(s) with nothing left to call", len(stuck))
+    return len(stuck)
+
+
 async def mobile_housekeeping_job(ctx=None) -> dict:
     async with AsyncSessionLocal() as db:
         expired = await expire_stale_attempts(db)
     async with AsyncSessionLocal() as db:
         reconciled = await reconcile_unidentified_sessions(db)
-    if expired or reconciled:
-        logger.info(f"[Mobile] housekeeping: expired={expired} reconciled={reconciled}")
-    return {"expired": expired, "reconciled": reconciled}
+    async with AsyncSessionLocal() as db:
+        runs_closed = await close_stale_runs(db)
+    async with AsyncSessionLocal() as db:
+        campaigns_closed = await close_finished_campaigns(db)
+    if expired or reconciled or runs_closed or campaigns_closed:
+        logger.info(
+            f"[Mobile] housekeeping: expired={expired} reconciled={reconciled} "
+            f"runs_closed={runs_closed} campaigns_closed={campaigns_closed}"
+        )
+    return {
+        "expired": expired, "reconciled": reconciled,
+        "runs_closed": runs_closed, "campaigns_closed": campaigns_closed,
+    }

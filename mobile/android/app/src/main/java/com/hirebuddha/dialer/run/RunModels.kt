@@ -41,6 +41,27 @@ sealed interface LeadOutcome {
 
 enum class UserCommand { TOGGLE_MUTE, TAKE_OVER, HANG_UP, SKIP }
 
+/**
+ * One finished transcript turn, pushed by the gateway during the conversation
+ * (docs 11 §3, screen 16). Held in memory only, and cleared when the lead changes —
+ * lead PII never outlives the lease (NFR-6).
+ */
+data class TranscriptTurn(val speaker: String, val text: String, val atMs: Long) {
+    val isAgent get() = speaker == "agent"
+}
+
+/**
+ * The wrap-up prompt shown in the gap between leads (screen 18). Present only for calls
+ * that actually connected — there is nothing for a rep to say about a busy signal.
+ */
+data class WrapUp(
+    val campaignCallId: String,
+    val leadName: String?,
+    val phone: String,
+    val talkSeconds: Int,
+    val endedBy: String,
+)
+
 data class RunUiState(
     val status: RunStatus = RunStatus.IDLE,
     val runId: String? = null,
@@ -57,6 +78,17 @@ data class RunUiState(
     val message: String? = null,
     val awaitingMergeDecision: Boolean = false,
     val callsMade: Int = 0,
+    /** Live turns for the current conversation, oldest first. */
+    val transcript: List<TranscriptTurn> = emptyList(),
+    /** Set once a connected call ends, until the rep answers or the gap elapses. */
+    val wrapUp: WrapUp? = null,
+    /** The rep tapped Hold in the wrap-up sheet: the countdown to the next lead is frozen. */
+    val gapHeld: Boolean = false,
+    // Session tallies, for the paused and completed screens.
+    val connected: Int = 0,
+    val interested: Int = 0,
+    val talkSeconds: Int = 0,
+    val startedAt: Long? = null,
 )
 
 data class OrchestratorConfig(
@@ -67,5 +99,7 @@ data class OrchestratorConfig(
     val mergeTimeoutMs: Long = 6_000,
     val mergeDecisionTimeoutMs: Long = 15_000,
     val gapBetweenLeadsMs: Long = 5_000,
+    /** Show the wrap-up sheet after a connected call (Settings → How you call). */
+    val askAfterEveryCall: Boolean = true,
     val eventAckWaitMs: Long = 2_000,
 )

@@ -5,17 +5,25 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import com.hirebuddha.dialer.BuildConfig
+import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.data.api.AgentDto
 import com.hirebuddha.dialer.data.api.AnalyticsDto
 import com.hirebuddha.dialer.data.api.ApiResult
 import com.hirebuddha.dialer.data.api.CallsPageDto
+import com.hirebuddha.dialer.data.api.ActiveRunDto
+import com.hirebuddha.dialer.data.api.CallbackDto
 import com.hirebuddha.dialer.data.api.CampaignDto
 import com.hirebuddha.dialer.data.api.CreateCampaignRequest
 import com.hirebuddha.dialer.data.api.CreateCampaignResponse
 import com.hirebuddha.dialer.data.api.DeviceDto
+import com.hirebuddha.dialer.data.api.PreflightDto
+import com.hirebuddha.dialer.data.api.RepDispositionRequest
+import com.hirebuddha.dialer.data.api.RepDispositionResponse
 import com.hirebuddha.dialer.data.api.DeviceRegisterRequest
 import com.hirebuddha.dialer.data.api.HireBuddhaApi
 import com.hirebuddha.dialer.data.api.RepDto
+import com.hirebuddha.dialer.data.api.RunDto
+import com.hirebuddha.dialer.data.api.RunUpdateRequest
 import com.hirebuddha.dialer.data.api.TimelineDto
 import com.hirebuddha.dialer.data.api.UploadReportDto
 import com.hirebuddha.dialer.data.api.VerificationDialingRequest
@@ -23,6 +31,9 @@ import com.hirebuddha.dialer.data.api.VoiceSessionDto
 import com.hirebuddha.dialer.data.api.apiCall
 import com.hirebuddha.dialer.data.api.map
 import com.hirebuddha.dialer.data.settings.AppSettings
+import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import okhttp3.MediaType
@@ -107,6 +118,63 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
 
     suspend fun voiceSession(id: String): ApiResult<VoiceSessionDto> = apiCall { api.voiceSession(id) }
     suspend fun timeline(attemptId: String): ApiResult<TimelineDto> = apiCall { api.timeline(attemptId) }
+
+    /**
+     * Everything that decides whether a run can start (docs 11 §3, screen 13).
+     *
+     * Returns null when the server predates the endpoint. The APK is sideloaded, so a
+     * rep can be several versions ahead of or behind the server; a missing feature has
+     * to degrade to "don't show it", never to an error.
+     */
+    suspend fun preflight(campaignId: String? = null, deviceId: String? = null): PreflightDto? =
+        when (val r = apiCall { api.preflight(campaignId, deviceId) }) {
+            is ApiResult.Ok -> r.value
+            is ApiResult.Err -> {
+                // 404/405 means this server predates the endpoint; anything else is a
+                // transient failure. Either way the pre-flight sheet falls back to the
+                // checks the phone can make on its own, which are the important ones.
+                DialerLog.i("Preflight", "unavailable", "status" to r.httpStatus, "code" to r.code)
+                null
+            }
+            ApiResult.Empty -> null
+        }
+
+    /** What the rep heard. Wins over the model's guess server-side. */
+    suspend fun setDisposition(
+        campaignCallId: String,
+        disposition: String,
+        note: String? = null,
+        callbackAt: Instant? = null,
+    ): ApiResult<RepDispositionResponse> = apiCall {
+        api.setDisposition(
+            campaignCallId,
+            RepDispositionRequest(
+                disposition = disposition,
+                note = note?.takeIf { it.isNotBlank() },
+                callbackAt = callbackAt?.let { DateTimeFormatter.ISO_INSTANT.format(it.truncatedTo(ChronoUnit.SECONDS)) },
+            ),
+        )
+    }
+
+    /**
+     * Runs the server still considers open. The app keeps the live run in memory only,
+     * so after a crash, a force-stop or a reinstall this is the only handle on it —
+     * and a run nothing can reach used to pin the device permanently.
+     */
+    suspend fun activeRuns(): List<ActiveRunDto> =
+        when (val r = apiCall { api.activeRuns() }) {
+            is ApiResult.Ok -> r.value.items
+            else -> emptyList()
+        }
+
+    suspend fun stopRun(runId: String): ApiResult<RunDto> =
+        apiCall { api.updateRun(runId, RunUpdateRequest("stopped")) }
+
+    suspend fun callbacks(withinHours: Int = 24): List<CallbackDto> =
+        when (val r = apiCall { api.callbacks(withinHours) }) {
+            is ApiResult.Ok -> r.value.items
+            else -> emptyList()
+        }
 
     private companion object {
         const val MAX_UPLOAD_BYTES = 10L * 1024 * 1024

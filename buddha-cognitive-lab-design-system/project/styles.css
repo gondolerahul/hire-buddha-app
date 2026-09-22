@@ -1,0 +1,211 @@
+/* ============================================================================
+   BUDDHA COGNITIVE LAB — GLOBAL STYLES (design-system entry)
+   Imports tokens, sets a calm dark base, and defines semantic typography +
+   brand utilities. UI kits load their own CSS on top of the tokens.
+   ============================================================================ */
+
+@import url('./colors_and_type.css');
+
+/* ----------------------------------------------------------------- RESET (lite) */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--lh-relaxed);
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+img, svg, video { display: block; max-width: 100%; }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+::selection { background: rgba(237,171,72,.30); color: var(--fg); }
+
+/* ============================================================== SEMANTIC TYPE
+   Logotype / brand & big hero words → Roblox (angular, echoes the wordmark).
+   Headings & display → Space Grotesk. Body & UI → Hanken Grotesk.            */
+
+.logotype {
+  font-family: var(--font-logo);
+  font-weight: 400;
+  line-height: var(--lh-tight);
+  letter-spacing: .005em;
+  color: var(--fg);
+}
+
+.display-1, .display-2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.03em;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.display-1 { font-size: var(--text-6xl); }
+.display-2 { font-size: var(--text-5xl); }
+
+h1, .h1, h2, .h2, h3, .h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-tight);
+  color: var(--fg);
+  text-wrap: balance;
+  margin: 0;
+}
+h1, .h1 { font-size: var(--text-4xl); }
+h2, .h2 { font-size: var(--text-3xl); }
+h3, .h3 { font-size: var(--text-2xl); }
+
+h4, .h4, h5, .h5, h6, .h6 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  letter-spacing: var(--track-tight);
+  color: var(--fg);
+  margin: 0;
+}
+h4, .h4 { font-size: var(--text-xl); }
+h5, .h5 { font-size: var(--text-lg); }
+h6, .h6 { font-size: var(--text-md); }
+
+.lead { font-size: var(--text-lg); line-height: var(--lh-relaxed); font-weight: 400; color: var(--fg); }
+p, .body { font-size: var(--text-base); line-height: var(--lh-relaxed); color: var(--fg-muted); }
+small, .text-sm { font-size: var(--text-sm); line-height: var(--lh-normal); color: var(--fg-subtle); }
+.text-xs { font-size: var(--text-xs); line-height: var(--lh-normal); }
+
+/* Eyebrow / kicker — uppercase mono, wide tracking, gold.                     */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--track-eyebrow);
+  color: var(--accent);
+  display: inline-flex; align-items: center; gap: var(--s-2);
+}
+
+code, kbd, samp, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+
+/* ====================================================== BRAND TEXT TREATMENTS */
+.text-gold {
+  background: var(--gradient-gold);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+}
+.text-metal {
+  background: var(--gradient-gold-metallic);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+}
+.gold { color: var(--accent); }
+.fg-muted { color: var(--fg-muted); }
+.fg-subtle { color: var(--fg-subtle); }
+
+/* ==================================================================== SURFACES */
+.surface { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); }
+.surface-2 { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); }
+.hairline { border: 0; height: 1px; background: var(--border-strong); }
+.hairline-gold { border: 0; height: 1px; background: var(--gradient-gold); opacity: .85; }
+
+/* ===================================================================== BUTTONS */
+.btn {
+  font-family: var(--font-body);
+  font-weight: 600; font-size: var(--text-sm);
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+  padding: 11px 22px; border-radius: var(--r-pill);
+  border: 1px solid transparent; cursor: pointer;
+  transition: transform var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out),
+              border-color var(--dur) var(--ease-out);
+  white-space: nowrap;
+}
+.btn:active { transform: translateY(1px) scale(.99); }
+.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.btn-primary { background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-gold); }
+.btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.btn-secondary { background: transparent; color: var(--fg); border-color: var(--border-strong); }
+.btn-secondary:hover { background: var(--surface-2); border-color: var(--border-gold); }
+.btn-ghost { background: transparent; color: var(--fg-muted); }
+.btn-ghost:hover { color: var(--fg); background: rgba(255,255,255,.05); }
+
+/* ====================================================================== CHIPS */
+.chip {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  font-size: var(--text-xs); font-weight: 500;
+  padding: 5px 11px; border-radius: var(--r-pill);
+  background: var(--surface-3); color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+.chip-gold { background: var(--accent-quiet); color: var(--gold-300); border-color: var(--border-gold); }
+
+/* ================================================================ LIQUID GLASS
+   "Apple liquid glass" material. Translucent surface + backdrop blur + a bright
+   top rim and specular sheen so it refracts the gold/content beneath it.
+   Put glass over something colorful (the mark, a glow, imagery) to see it work.
+   .glass            default frosted dark panel
+   .glass-gold       gold-tinted glass (brand / primary moments)
+   .glass-strong     more opaque — sticky bars, nav, toolbars
+   .glass-bar        pill/row chrome (sticky headers, floating toolbars)
+   Add .glass-sheen-off to drop the diagonal highlight.                         */
+.glass, .glass-gold, .glass-strong {
+  position: relative;
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--glass-edge);
+  isolation: isolate;
+}
+.glass-gold { background: var(--glass-tint); box-shadow: var(--glass-edge-gold); }
+.glass-gold::after {            /* faint gold wash layered under the sheen */
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: var(--glass-tint-gold); pointer-events: none; z-index: -1;
+}
+.glass-strong {
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur-strong);
+  backdrop-filter: var(--glass-blur-strong);
+}
+/* Specular sheen across the top-left — the "liquid" highlight */
+.glass::before, .glass-gold::before, .glass-strong::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: var(--glass-sheen); pointer-events: none; z-index: 1;
+}
+.glass-sheen-off::before { display: none; }
+/* Floating bar / pill chrome */
+.glass-bar {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  padding: 8px 10px; border-radius: var(--r-pill);
+  background: var(--glass-tint-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-edge);
+}
+/* Glass button — translucent control with the lens edge */
+.btn-glass {
+  background: var(--glass-tint-light);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  color: var(--fg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-edge);
+}
+.btn-glass:hover { background: var(--glass-tint); }
+.btn-glass.btn-glass-gold { color: var(--gold-200); box-shadow: var(--glass-edge-gold); }
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .glass-gold, .glass-strong, .glass-bar, .btn-glass {
+    -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface);
+  }
+}
+
+/* ============================================================ REDUCED MOTION */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}

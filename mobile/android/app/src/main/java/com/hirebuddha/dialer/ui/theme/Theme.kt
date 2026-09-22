@@ -1,59 +1,123 @@
 package com.hirebuddha.dialer.ui.theme
 
+import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 
-private val Indigo = Color(0xFF3D5AFE)
-private val IndigoDark = Color(0xFF1E2A78)
-
-object StatusColors {
-    val positive = Color(0xFF1B8A5A)
-    val warning = Color(0xFFB26A00)
-    val negative = Color(0xFFC62828)
-    val neutral = Color(0xFF5F6B7A)
+/**
+ * Shorthand for the brand tokens: `Brand.accent`, `Dims.gutter`.
+ * Material 3's scheme carries what it has slots for; [BrandColors] carries the rest.
+ */
+object HbTheme {
+    val colors: BrandColors
+        @Composable get() = LocalBrand.current
+    val dims: BrandDims
+        @Composable get() = LocalDims.current
 }
 
-private val Light = lightColorScheme(
-    primary = Indigo,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFDDE1FF),
-    onPrimaryContainer = IndigoDark,
-    secondary = Color(0xFF5A5D72),
-    background = Color(0xFFF7F8FA),
-    surface = Color.White,
-    surfaceVariant = Color(0xFFEEF0F4),
-    outline = Color(0xFFC5C9D2),
+private val brand = BrandColors()
+
+/**
+ * Every Material 3 role is mapped onto a brand token, so stock components
+ * (`Card`, `TextField`, `Slider`, `NavigationBar`) land on-brand without being rewritten.
+ */
+private val BrandScheme = darkColorScheme(
+    primary = brand.accent,
+    onPrimary = brand.onAccent,
+    primaryContainer = Color(0xFF2A2116),
+    onPrimaryContainer = brand.gold300,
+    inversePrimary = brand.gold300,
+
+    secondary = brand.fgMuted,
+    onSecondary = brand.bg,
+    secondaryContainer = brand.surface3,
+    onSecondaryContainer = brand.fg,
+
+    tertiary = brand.gold300,
+    onTertiary = brand.onAccent,
+    tertiaryContainer = Color(0xFF2A2116),
+    onTertiaryContainer = brand.gold300,
+
+    background = brand.bg,
+    onBackground = brand.fg,
+    surface = brand.surface,
+    onSurface = brand.fg,
+    surfaceVariant = brand.surface2,
+    onSurfaceVariant = brand.fgMuted,
+    surfaceTint = brand.accent,
+    inverseSurface = brand.fg,
+    inverseOnSurface = brand.bg,
+
+    // Card / sheet / menu containers all step through the warm charcoals.
+    surfaceContainerLowest = brand.bg,
+    surfaceContainerLow = Color(0xFF100E0C),
+    surfaceContainer = brand.surface,
+    surfaceContainerHigh = brand.surface2,
+    surfaceContainerHighest = brand.surface2,
+    surfaceBright = brand.surface3,
+    surfaceDim = brand.bg,
+
+    error = brand.negative,
+    onError = Color(0xFF20100B),
+    errorContainer = Color(0xFF3A1F18),
+    onErrorContainer = Color(0xFFF0B4A5),
+
+    outline = Color(0xFF4A443E),
+    outlineVariant = Color(0xFF2A2522),
+    scrim = Color(0xFF000000),
 )
 
-private val Dark = darkColorScheme(
-    primary = Color(0xFFB9C3FF),
-    onPrimary = IndigoDark,
-    primaryContainer = Color(0xFF2B3AA8),
-    onPrimaryContainer = Color(0xFFDDE1FF),
-    background = Color(0xFF121318),
-    surface = Color(0xFF1A1C22),
-    surfaceVariant = Color(0xFF2A2D35),
-)
-
-private val AppTypography = Typography(
-    headlineSmall = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
-    labelSmall = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp),
-)
+/** Retained so semantic colour call-sites keep reading the same way. */
+object StatusColors {
+    val positive = brand.positive
+    val warning = brand.accent
+    val negative = brand.negative
+    val neutral = brand.fgSubtle
+}
 
 @Composable
-fun HireBuddhaTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) Dark else Light,
-        typography = AppTypography,
-        content = content,
-    )
+fun HireBuddhaTheme(
+    @Suppress("UNUSED_PARAMETER") darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    // Deliberately not system-dependent: the canvas is the brand, and a sales rep in
+    // sunlight is better served by one tuned dark theme than two half-tuned ones.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            (LocalContextActivity(view))?.let { activity ->
+                WindowCompat.getInsetsController(activity.window, view).apply {
+                    isAppearanceLightStatusBars = false
+                    isAppearanceLightNavigationBars = false
+                }
+            }
+        }
+    }
+    CompositionLocalProvider(
+        LocalBrand provides brand,
+        LocalDims provides BrandDims(),
+    ) {
+        MaterialTheme(colorScheme = BrandScheme, typography = BrandTypography, content = content)
+    }
 }
+
+private fun LocalContextActivity(view: android.view.View): Activity? {
+    var ctx = view.context
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+/** Convenience for composables that only need the context's activity. */
+@Composable
+fun currentActivity(): Activity? = LocalContextActivity(LocalView.current) ?: (LocalContext.current as? Activity)

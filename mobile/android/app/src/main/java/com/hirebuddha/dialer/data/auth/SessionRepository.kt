@@ -33,6 +33,7 @@ class SessionRepository @Inject constructor(
         return when (val r = apiCall { api.login(LoginRequest(email.trim(), password)) }) {
             is ApiResult.Ok -> {
                 tokens.save(r.value.accessToken, r.value.refreshToken)
+                settings.setLastEmail(email.trim())
                 events.expired.value = false
                 loadMe().also { if (it !is ApiResult.Ok) logout() }
             }

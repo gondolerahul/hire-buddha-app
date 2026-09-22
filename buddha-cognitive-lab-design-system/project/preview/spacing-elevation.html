@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Spacing" name="Elevation" subtitle="Low, soft, warm shadows — used sparingly" viewport="700x185" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:30px 28px;}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:24px;}
+  .row{display:flex;gap:22px;}
+  .it{flex:1;display:flex;flex-direction:column;gap:12px;align-items:center;}
+  .box{width:100%;height:64px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);}
+  .n{font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);}
+</style></head>
+<body>
+  <div class="cap">Elevation · low, soft, warm</div>
+  <div class="row">
+    <div class="it"><div class="box" style="box-shadow:var(--shadow-sm)"></div><div class="n">sm</div></div>
+    <div class="it"><div class="box" style="box-shadow:var(--shadow-md)"></div><div class="n">md</div></div>
+    <div class="it"><div class="box" style="box-shadow:var(--shadow-lg)"></div><div class="n">lg</div></div>
+    <div class="it"><div class="box" style="box-shadow:var(--shadow-gold);border-color:var(--border-gold)"></div><div class="n">gold</div></div>
+  </div>
+</body></html>

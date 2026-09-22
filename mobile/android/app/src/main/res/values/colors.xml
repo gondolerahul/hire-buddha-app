@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Mirrors ui/theme/Tokens.kt. Only the values Android needs outside Compose live here. -->
 <resources>
-    <color name="background">#FFF7F8FA</color>
-    <color name="launcher_bg">#FF1E2A78</color>
+    <color name="brand_bg">#FF0A0908</color>
+    <color name="brand_gold">#FFEDAB48</color>
+    <color name="launcher_bg">#FF0A0908</color>
 </resources>

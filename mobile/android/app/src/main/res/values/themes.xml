@@ -1,8 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.HireBuddha" parent="android:Theme.Material.Light.NoActionBar">
+    <!--
+      Dark-only. Reps work outdoors and a light flash on cold start is both off-brand and
+      genuinely unpleasant at 9 a.m.; the window background matches the Compose canvas so
+      there is no flash at all.
+    -->
+    <style name="Theme.HireBuddha" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowBackground">@color/background</item>
+        <item name="android:windowBackground">@color/brand_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+    <!-- Applied to MainActivity only; installSplashScreen() swaps to the theme above. -->
+    <style name="Theme.HireBuddha.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/brand_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_mark</item>
+        <item name="postSplashScreenTheme">@style/Theme.HireBuddha</item>
     </style>
 </resources>

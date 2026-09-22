@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Brand" name="The mark" subtitle="Gold / white / black" viewport="700x215" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:26px 28px;}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:20px;}
+  .row{display:flex;gap:24px;align-items:flex-end;}
+  .it{display:flex;flex-direction:column;align-items:center;gap:12px;}
+  .stage{width:130px;height:130px;border-radius:var(--r-lg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;}
+  .stage img{height:88px;}
+  .n{font-family:var(--font-mono);font-size:11px;color:var(--fg-muted);}
+  .glow{position:relative;overflow:hidden;background:var(--ink-950);}
+  .glow::before{content:"";position:absolute;inset:-20%;background:var(--glow-gold);}
+  .glow img{position:relative;}
+</style></head>
+<body>
+  <div class="cap">The mark</div>
+  <div class="row">
+    <div class="it"><div class="stage glow"><img src="../assets/logo-mark-gold.svg"></div><div class="n">gold</div></div>
+    <div class="it"><div class="stage"><img src="../assets/logo-mark-white.svg"></div><div class="n">white</div></div>
+    <div class="it"><div class="stage" style="background:var(--ink-50);border-color:transparent"><img src="../assets/logo-mark-black.svg"></div><div class="n">black</div></div>
+  </div>
+</body></html>

@@ -34,7 +34,9 @@ async def mobile_user(user: User = Depends(get_current_user)) -> User:
 
 
 def _raise(e: MobileError):
-    raise HTTPException(status_code=e.status_code, detail={"code": e.code, "message": e.message})
+    detail = {"code": e.code, "message": e.message}
+    detail.update(getattr(e, "extra", None) or {})
+    raise HTTPException(status_code=e.status_code, detail=detail)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────
@@ -56,6 +58,14 @@ class VerificationDialing(BaseModel):
 class RunStart(BaseModel):
     device_id: UUID
     dial_order: str = "ai_first"
+
+
+class RepDisposition(BaseModel):
+    """The wrap-up sheet's answer (docs 11 §3.1, screen 18)."""
+    disposition: str
+    note: Optional[str] = Field(default=None, max_length=2000)
+    # Required when disposition == "callback". UTC; the app sends an absolute time.
+    callback_at: Optional[datetime] = None
 
 
 class RunUpdate(BaseModel):
@@ -299,5 +309,60 @@ async def post_events(attempt_id: UUID, body: EventBatch, db: AsyncSession = Dep
                       user: User = Depends(mobile_user)):
     try:
         return await service.ingest_events(db, user, attempt_id, [e.model_dump() for e in body.events])
+    except MobileError as e:
+        _raise(e)
+
+
+# ── Rep-captured outcomes, callbacks & pre-flight ────────────────────────
+
+@router.patch("/campaign-calls/{campaign_call_id}/disposition")
+async def set_disposition(campaign_call_id: UUID, body: RepDisposition,
+                          db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+    """What the rep heard. Wins over the model's guess; see service.set_rep_disposition."""
+    try:
+        return await service.set_rep_disposition(
+            db, user, campaign_call_id,
+            disposition=body.disposition, note=body.note, callback_at=body.callback_at,
+        )
+    except MobileError as e:
+        _raise(e)
+
+
+@router.get("/callbacks")
+async def get_callbacks(
+    within_hours: int = Query(default=24, ge=1, le=720),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(mobile_user),
+):
+    """Leads this rep promised to call back, soonest first."""
+    items = await service.callbacks_due(db, user, within_hours=within_hours, limit=limit)
+    return {"total": len(items), "items": items}
+
+
+@router.get("/runs/active")
+async def get_active_runs(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+    """Runs of this user's that are still open.
+
+    The app holds the live run in memory only; after a crash, a force-stop or a
+    reinstall this is the only way back to it. Without it a stale run pins the device
+    and `start_run` refuses every campaign with nothing able to clear it."""
+    runs = await service.active_runs(db, user)
+    return {"total": len(runs), "items": runs}
+
+
+@router.get("/preflight")
+async def get_preflight(
+    campaign_id: Optional[UUID] = None,
+    device_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(mobile_user),
+):
+    """Everything that decides whether a run can start, in one call (docs 11 §3, screen 13).
+
+    Each condition is already enforced elsewhere; the app previously met them all as
+    failed calls instead of as a check."""
+    try:
+        return await service.preflight(db, user, campaign_id=campaign_id, device_id=device_id)
     except MobileError as e:
         _raise(e)

@@ -136,7 +136,22 @@ class CampaignCall(Base):
     # disposition = not_interested); see NOT_INTERESTED_REASONS in call_guards.
     # budget_low | not_suitable | not_investing | already_bought | other
     disposition_reason = Column(String(30), nullable=True)
-    
+
+    # The rep's own read of the call, captured in the app's wrap-up sheet. The rep
+    # heard the conversation; the model only read a transcript of it. `disposition`
+    # above stays the effective value every report uses -- these record where that
+    # value came from, and keep the human answer if a later LLM pass disagrees.
+    # db-scripts/mobile_dialer_002.sql
+    rep_disposition = Column(String(30), nullable=True)
+    rep_note = Column(Text, nullable=True)
+    rep_dispositioned_at = Column(DateTime, nullable=True)
+    rep_dispositioned_by = Column(UUID(as_uuid=True), nullable=True)
+    disposition_source = Column(String(10), nullable=True)  # ai | rep
+
+    # A lead the rep agreed to call back later. Held out of the leasing query
+    # until its time comes; see src/mobile/service.py _LEASE_SQL.
+    callback_at = Column(DateTime, nullable=True)
+
     # Timing
     scheduled_at = Column(DateTime, nullable=True)
     called_at = Column(DateTime, nullable=True)

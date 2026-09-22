@@ -44,21 +44,54 @@ class CallOrchestrator(
 
     private val commands = Channel<UserCommand>(Channel.UNLIMITED)
     private val mergeDecisions = Channel<Boolean>(Channel.CONFLATED)
+    /** The rep is done with the gap between leads: go now. */
+    private val continueNow = Channel<Unit>(Channel.CONFLATED)
 
     @Volatile private var pauseRequested = false
     @Volatile private var stopRequested = false
+    /**
+     * Skip applies to every phase, not just the conversation. FR-E7 requires it and the
+     * rep needs it most while an unreachable lead is still ringing — which is exactly
+     * where the old UI offered no control at all.
+     */
+    @Volatile private var skipRequested = false
 
-    fun send(command: UserCommand) { commands.trySend(command) }
+    fun send(command: UserCommand) {
+        if (command == UserCommand.SKIP) skipRequested = true
+        commands.trySend(command)
+    }
     fun decideMerge(mergeAnyway: Boolean) { mergeDecisions.trySend(mergeAnyway) }
     fun requestPause() { pauseRequested = true }
     fun requestStop() { stopRequested = true }
+
+    /** Freeze the countdown to the next lead while the rep fills in the wrap-up. */
+    fun holdGap() { _state.update { it.copy(gapHeld = true) } }
+
+    /** Dismiss the wrap-up and move on immediately. */
+    fun continueRun() {
+        _state.update { it.copy(gapHeld = false, wrapUp = null) }
+        continueNow.trySend(Unit)
+    }
+
+    /** Forget the current run entirely — used after stopping one out of band. */
+    fun clear() {
+        pauseRequested = false
+        stopRequested = false
+        skipRequested = false
+        DialerLog.setRun(null)
+        _state.value = RunUiState()
+    }
 
     fun reset(runId: String, campaignId: String, campaignName: String) {
         DialerLog.setRun(runId)
         DialerLog.i(TAG, "Run started", "run" to runId, "campaign" to campaignId)
         pauseRequested = false
         stopRequested = false
-        _state.value = RunUiState(status = RunStatus.RUNNING, runId = runId, campaignId = campaignId, campaignName = campaignName)
+        skipRequested = false
+        _state.value = RunUiState(
+            status = RunStatus.RUNNING, runId = runId, campaignId = campaignId,
+            campaignName = campaignName, startedAt = clock(),
+        )
     }
 
     /** Runs until the leads are exhausted, a pause/stop is requested, or setup fails. */
@@ -73,26 +106,73 @@ class CallOrchestrator(
                 LeaseResult.NoMoreLeads -> return finish(RunStatus.COMPLETED, "All leads have been called.")
                 is LeaseResult.Failed -> return finish(if (lease.retryable) RunStatus.PAUSED else RunStatus.ERROR, lease.message)
             }
-            _state.update { it.copy(lead = lead, identification = null, message = null) }
+            // Lead PII never outlives its lease (NFR-6): the previous lead's transcript
+            // and wrap-up go before the next one is shown.
+            _state.update {
+                it.copy(lead = lead, identification = null, message = null,
+                        transcript = emptyList(), wrapUp = null, gapHeld = false)
+            }
+            val startedAt = clock()
 
             val outcome = runLead(runId, deviceId, lead, config)
+            val talked = ((clock() - startedAt) / 1000).toInt()
             _state.update {
+                val conversation = it.conversationStartedAt
+                val conversationSeconds =
+                    if (conversation != null) ((clock() - conversation) / 1000).toInt() else 0
                 it.copy(
                     lastOutcome = describe(outcome), callsMade = it.callsMade + 1, aiInCall = false,
                     conversationStartedAt = null, muted = false, awaitingMergeDecision = false,
+                    connected = it.connected + if (outcome is LeadOutcome.Completed) 1 else 0,
+                    talkSeconds = it.talkSeconds + conversationSeconds,
+                    // Only a call the lead actually joined is worth asking the rep about.
+                    wrapUp = (outcome as? LeadOutcome.Completed)
+                        ?.takeIf { config.askAfterEveryCall }
+                        ?.let { done ->
+                        WrapUp(
+                            campaignCallId = lead.campaignCallId,
+                            leadName = lead.name,
+                            phone = lead.phone,
+                            talkSeconds = conversationSeconds,
+                            endedBy = done.endedBy,
+                        )
+                    },
                 )
             }
             if (outcome is LeadOutcome.SetupFailed) return finish(RunStatus.PAUSED, outcome.message)
             if (stopRequested) return finish(RunStatus.STOPPED)
             if (pauseRequested) return finish(RunStatus.PAUSED)
 
-            if (config.gapBetweenLeadsMs > 0) {
-                setStep(Step.WAITING_NEXT)
-                _state.update { it.copy(nextLeadAt = clock() + config.gapBetweenLeadsMs) }
-                delay(config.gapBetweenLeadsMs)
-                _state.update { it.copy(nextLeadAt = null) }
-            }
+            awaitGap(config)
         }
+    }
+
+    /**
+     * The pause between leads. Normally [OrchestratorConfig.gapBetweenLeadsMs], but the
+     * wrap-up sheet can hold it open indefinitely — the rep is mid-thought about the call
+     * they just had, and hurrying that is how dispositions end up wrong.
+     */
+    private suspend fun awaitGap(config: OrchestratorConfig) {
+        val wrapUp = _state.value.wrapUp
+        if (config.gapBetweenLeadsMs <= 0 && wrapUp == null) return
+        setStep(Step.WAITING_NEXT)
+        // A rep who sets the gap to zero still gets a fair chance to answer the wrap-up:
+        // otherwise the sheet would appear and vanish in the same frame.
+        val window = if (wrapUp != null) maxOf(config.gapBetweenLeadsMs, WRAP_UP_MIN_MS) else config.gapBetweenLeadsMs
+        val deadline = clock() + window
+        _state.update { it.copy(nextLeadAt = deadline) }
+        while (true) {
+            if (stopRequested || pauseRequested) break
+            val held = _state.value.gapHeld
+            val remaining = deadline - clock()
+            if (!held && remaining <= 0) break
+            val goNow = select<Boolean> {
+                continueNow.onReceive { true }
+                onTimeout(if (held) 500 else remaining.coerceIn(50, 250)) { false }
+            }
+            if (goNow) break
+        }
+        _state.update { it.copy(nextLeadAt = null, gapHeld = false, wrapUp = null) }
     }
 
     private fun finish(status: RunStatus, message: String? = null): RunStatus {
@@ -110,6 +190,8 @@ class CallOrchestrator(
         // Drain stale UI commands from the previous lead.
         while (commands.tryReceive().isSuccess) Unit
         while (mergeDecisions.tryReceive().isSuccess) Unit
+        while (continueNow.tryReceive().isSuccess) Unit
+        skipRequested = false
 
         val attempt = when (val r = backend.createAttempt(runId, lead.campaignCallId, deviceId)) {
             is AttemptResult.Created -> r.attempt
@@ -150,8 +232,12 @@ class CallOrchestrator(
             DialerLog.e(TAG, "Could not place the AI call", "did" to DialerLog.maskNumber(attempt.did))
             return setupFailed(aid, "ai_failed", "call_not_placed", "Couldn't place the call to the AI agent. Is this app your default phone app?")
         }
-        when (awaitState(aiCall, config.aiAnswerTimeoutMs) { it.state == CallState.ACTIVE }) {
+        when (orSkip { awaitState(aiCall, config.aiAnswerTimeoutMs) { it.state == CallState.ACTIVE } }) {
             is Awaited.Reached -> Unit
+            null -> {
+                calls.disconnect(aiCall)
+                return skipped(aid, "connecting_ai")
+            }
             else -> {
                 calls.disconnect(aiCall)
                 return setupFailed(aid, "ai_failed", "ai_not_answered", "The AI agent's number didn't answer. Check the agent's phone number.")
@@ -169,12 +255,20 @@ class CallOrchestrator(
         val ready = waitForAiReady(aid, aiCall, config, pushes)
         when (ready) {
             AiReady.Identified -> Unit
+            AiReady.Skipped -> {
+                calls.disconnect(aiCall)
+                return skipped(aid, "waiting_for_ai")
+            }
             AiReady.Unidentified -> {
                 _state.update { it.copy(awaitingMergeDecision = true, message = "The AI couldn't confirm which lead this is.") }
+                // The countdown and its default are shown to the rep (screen 17); the old
+                // dialog ran this same 15 s timer invisibly.
+                _state.update { it.copy(nextLeadAt = clock() + config.mergeDecisionTimeoutMs) }
                 val mergeAnyway = select<Boolean> {
                     mergeDecisions.onReceive { it }
                     onTimeout(config.mergeDecisionTimeoutMs) { false }
                 }
+                _state.update { it.copy(nextLeadAt = null) }
                 _state.update { it.copy(awaitingMergeDecision = false, message = null) }
                 if (!mergeAnyway) {
                     // ai_failed returns the lead to pending, so it is retried later rather than lost.
@@ -210,6 +304,11 @@ class CallOrchestrator(
         val answered = awaitLeadAnswer(leadCall, aiCall, config.leadRingTimeoutMs, pushes)
         when (answered) {
             is Awaited.Reached -> Unit
+            Awaited.Skipped -> {
+                calls.disconnect(leadCall)
+                calls.disconnect(aiCall)
+                return skipped(aid, "ringing_lead")
+            }
             is Awaited.Failed -> {
                 calls.disconnect(aiCall)
                 return leadFailed(aid, answered.cause ?: LeadFailureCause.NO_ANSWER)
@@ -278,11 +377,12 @@ class CallOrchestrator(
         return null
     }
 
-    private enum class AiReady { Identified, Unidentified, Ended, Dropped, TimedOut }
+    private enum class AiReady { Identified, Unidentified, Ended, Dropped, TimedOut, Skipped }
 
     private suspend fun waitForAiReady(aid: String, aiCall: String, config: OrchestratorConfig, pushes: Channel<PushMessage>): AiReady {
         val deadline = clock() + config.aiReadyTimeoutMs
         while (true) {
+            if (skipRequested) return AiReady.Skipped
             val remaining = deadline - clock()
             if (remaining <= 0) break
             val result: AiReady? = select<AiReady?> {
@@ -326,7 +426,13 @@ class CallOrchestrator(
         while (true) {
             val event: ConversationEvent = select<ConversationEvent> {
                 commands.onReceive { ConversationEvent.Command(it) }
-                pushes.onReceive { msg -> if (msg.type == "attempt.ai_ended") ConversationEvent.AiEnded(msg.str("reason")) else ConversationEvent.Ignored }
+                pushes.onReceive { msg ->
+                    when (msg.type) {
+                        "attempt.ai_ended" -> ConversationEvent.AiEnded(msg.str("reason"))
+                        "attempt.transcript" -> { appendTranscript(msg); ConversationEvent.Ignored }
+                        else -> ConversationEvent.Ignored
+                    }
+                }
                 onTimeout(500) { ConversationEvent.Tick }
             }
             when (event) {
@@ -400,6 +506,7 @@ class CallOrchestrator(
         data class Failed(val cause: LeadFailureCause?) : Awaited
         data object TimedOut : Awaited
         data object OtherLegLost : Awaited
+        data object Skipped : Awaited
     }
 
     private fun find(id: String): CallSnapshot? = calls.calls.value.firstOrNull { it.id == id }
@@ -430,12 +537,15 @@ class CallOrchestrator(
                 }
                 @Suppress("UNREACHABLE_CODE") false
             }
+            val skip = async { while (!skipRequested) delay(120); Unit }
             val result = select<Awaited> {
                 answer.onAwait { it }
                 aiLost.onAwait { Awaited.OtherLegLost }
+                skip.onAwait { Awaited.Skipped }
             }
             answer.cancel()
             aiLost.cancel()
+            skip.cancel()
             result
         }
 
@@ -445,6 +555,43 @@ class CallOrchestrator(
             calls.calls.first { list -> ConferenceStrategy.mergedConferenceId(list, leadCall, aiCall) != null }
             ConferenceStrategy.mergedConferenceId(calls.calls.value, leadCall, aiCall)
         }
+
+    /**
+     * Keeps the last [MAX_TRANSCRIPT_TURNS] turns of the live conversation (screen 16).
+     * Memory only, dropped with the lease — nothing here is ever written to disk.
+     */
+    private fun appendTranscript(msg: PushMessage) {
+        val text = msg.str("text")?.takeIf { it.isNotBlank() } ?: return
+        val turn = TranscriptTurn(msg.str("speaker") ?: "agent", text, clock())
+        _state.update {
+            it.copy(transcript = (it.transcript + turn).takeLast(MAX_TRANSCRIPT_TURNS))
+        }
+    }
+
+    /** Races any wait against the rep pressing Skip; null means they did. */
+    private suspend fun <T : Any> orSkip(block: suspend () -> T): T? = coroutineScope {
+        if (skipRequested) return@coroutineScope null
+        val work = async { block() }
+        val skip = async { while (!skipRequested) delay(120); Unit }
+        val result = select<T?> {
+            work.onAwait { it }
+            skip.onAwait { null }
+        }
+        work.cancel()
+        skip.cancel()
+        result
+    }
+
+    /**
+     * The rep moved on. `skipped` returns the lead to pending server-side rather than
+     * burning it, so an unreachable number is retried later in the run.
+     */
+    private suspend fun skipped(aid: String, phase: String): LeadOutcome {
+        DialerLog.i(TAG, "Lead skipped by rep", "phase" to phase)
+        backend.event(aid, "skipped", mapOf("phase" to phase))
+        skipRequested = false
+        return LeadOutcome.Skipped
+    }
 
     private suspend fun setupFailed(aid: String, eventType: String, reason: String, message: String): LeadOutcome {
         DialerLog.e(TAG, "Setup failed", "event" to eventType, "reason" to reason, "message" to message)
@@ -462,6 +609,10 @@ class CallOrchestrator(
         const val TAG = "Orchestrator"
         /** How long to wait for telecom to confirm one merge request before retrying. */
         const val MERGE_CONFIRM_MS = 2_000L
+        /** Enough for the rep to follow the thread; the full transcript lives server-side. */
+        const val MAX_TRANSCRIPT_TURNS = 40
+        /** Minimum time the wrap-up sheet stays up, even when the gap is set to zero. */
+        const val WRAP_UP_MIN_MS = 5_000L
     }
 
     private fun describe(outcome: LeadOutcome): String = when (outcome) {

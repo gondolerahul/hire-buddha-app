@@ -13,8 +13,19 @@ sealed interface ApiResult<out T> {
     data class Ok<T>(val value: T) : ApiResult<T>
     /** HTTP 204 — e.g. "no more leads". */
     data object Empty : ApiResult<Nothing>
-    data class Err(val httpStatus: Int, val code: String, val message: String) : ApiResult<Nothing> {
+    data class Err(
+        val httpStatus: Int,
+        val code: String,
+        val message: String,
+        /**
+         * The whole `detail` object, when the server sent one. Errors that name the thing
+         * in the way — `device_busy` returns the run to stop — let the app offer the fix
+         * instead of a dead end.
+         */
+        val detail: JsonObject? = null,
+    ) : ApiResult<Nothing> {
         val isNetwork get() = httpStatus == 0
+        fun field(key: String): String? = (detail?.get(key) as? JsonPrimitive)?.contentOrNull
     }
 }
 
@@ -56,6 +67,7 @@ fun parseError(status: Int, body: String?): ApiResult.Err {
             status,
             (detail["code"] as? JsonPrimitive)?.contentOrNull ?: "http_$status",
             (detail["message"] as? JsonPrimitive)?.contentOrNull ?: fallback,
+            detail,
         )
         is JsonPrimitive -> ApiResult.Err(status, "http_$status", detail.contentOrNull ?: fallback)
         else -> ApiResult.Err(status, "http_$status", fallback)

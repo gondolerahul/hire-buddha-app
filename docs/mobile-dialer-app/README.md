@@ -45,6 +45,7 @@ When the rep's phone calls the tenant DID, the AI agent sees an **inbound call f
 | 08 | [Risks, compliance & validation spikes](08-risks-compliance-and-spikes.md) | product, legal, tech lead — **before build starts** |
 | 09 | [Delivery plan, epics & acceptance criteria](09-delivery-plan.md) | tech lead, PM |
 | 10 | [Implementation status & deployment runbook](10-implementation-and-deployment.md) | anyone deploying or picking up the code |
+| 11 | [UX review & visual design](11-ux-and-visual-design.md) | product, design, Android devs — includes the [high-fidelity mockups](wireframes/index.html) |
 
 ## Product decisions (2026-09-17)
 

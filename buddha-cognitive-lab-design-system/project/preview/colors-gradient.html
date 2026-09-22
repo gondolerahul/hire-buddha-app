@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Colors" name="Gold gradient & glow" subtitle="The only gradient — a focal halo, never a fill" viewport="700x195" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:26px 28px;}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;}
+  .row{display:flex;gap:16px;align-items:stretch;}
+  .box{flex:1;height:120px;border-radius:var(--r-lg);border:1px solid var(--border);display:flex;align-items:flex-end;padding:12px;}
+  .lab{font-family:var(--font-mono);font-size:11px;color:var(--fg);background:rgba(0,0,0,.35);padding:3px 7px;border-radius:var(--r-xs);}
+  .glow{position:relative;background:var(--ink-950);overflow:hidden;}
+  .glow::before{content:"";position:absolute;inset:-30%;background:var(--glow-gold);}
+</style></head>
+<body>
+  <div class="cap">Gold gradient &amp; focal glow</div>
+  <div class="row">
+    <div class="box" style="background:var(--gradient-gold)"><span class="lab" style="color:#3a2810">--gradient-gold</span></div>
+    <div class="box glow"><span class="lab" style="position:relative">--glow-gold</span></div>
+  </div>
+</body></html>

@@ -60,4 +60,23 @@ interface HireBuddhaApi {
     ): Response<AnalyticsDto>
 
     @GET("streaming/voice-sessions/{id}") suspend fun voiceSession(@Path("id") sessionId: String): Response<VoiceSessionDto>
+
+    // Added in app 1.1 / backend mobile_dialer_002. A server that predates them answers
+    // 404, which the repository treats as "feature unavailable" rather than an error —
+    // the APK is sideloaded, so app and server versions drift by design.
+    @GET("mobile/preflight") suspend fun preflight(
+        @Query("campaign_id") campaignId: String? = null,
+        @Query("device_id") deviceId: String? = null,
+    ): Response<PreflightDto>
+
+    @PATCH("mobile/campaign-calls/{id}/disposition")
+    suspend fun setDisposition(@Path("id") campaignCallId: String, @Body body: RepDispositionRequest): Response<RepDispositionResponse>
+
+    /** Runs still open for this user — the way back to a run the app has forgotten. */
+    @GET("mobile/runs/active") suspend fun activeRuns(): Response<ActiveRunsResponse>
+
+    @GET("mobile/callbacks") suspend fun callbacks(
+        @Query("within_hours") withinHours: Int = 24,
+        @Query("limit") limit: Int = 50,
+    ): Response<CallbacksResponse>
 }

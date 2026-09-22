@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 sealed interface AppState {
     data object Loading : AppState
     data object LoggedOut : AppState
-    data class Blocked(val message: String) : AppState
+    data class Blocked(val message: String, val email: String? = null, val role: String? = null) : AppState
     data class UpdateRequired(val info: AppVersionDto) : AppState
     data class NeedsOnboarding(val me: MeDto) : AppState
     data class Ready(val me: MeDto, val update: AppVersionDto?) : AppState
@@ -59,9 +59,10 @@ class AppViewModel @Inject constructor(
         when (val me = session.loadMe()) {
             is ApiResult.Ok -> _state.value = resolveReady(me.value, update)
             is ApiResult.Err -> _state.value = when {
-                me.code == "role_not_supported" -> AppState.Blocked(me.message)
                 me.httpStatus == 401 -> AppState.LoggedOut
-                else -> AppState.Blocked(me.message)
+                // The server tells us the role is unsupported but not which role it is;
+                // the last signed-in address is the useful half of that answer.
+                else -> AppState.Blocked(me.message, settings.current().lastEmail, null)
             }
             ApiResult.Empty -> _state.value = AppState.LoggedOut
         }
@@ -75,6 +76,19 @@ class AppViewModel @Inject constructor(
 
     fun onLoggedIn() = refresh()
     fun onOnboarded() = refresh()
+
+    /**
+     * Cheap re-check on every resume. A rep can hand the default-dialer role to another
+     * app from system settings at any moment, and docs 05 §3 requires us to notice —
+     * without it the next run fails at `placeCall` with no explanation.
+     */
+    fun recheckDeviceReadiness() {
+        val current = _state.value
+        if (current !is AppState.Ready) return
+        if (!DialerRole.isHeld(context)) {
+            _state.value = AppState.NeedsOnboarding(current.me)
+        }
+    }
 
     fun logout() = viewModelScope.launch {
         session.logout()

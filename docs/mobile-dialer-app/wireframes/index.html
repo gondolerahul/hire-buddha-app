@@ -1,0 +1,2049 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HireBuddha Dialer</title>
+<meta name="description" content="High-fidelity Android mockups for the HireBuddha mobile dialer, built on the Buddha Cognitive Lab design system.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKENS — mirrored from buddha-cognitive-lab-design-system/project/colors_and_type.css
+   Only additions are mobile-specific (touch sizes, device metrics).
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --gold-100:#fff3dc; --gold-200:#ffe6bd; --gold-300:#fdc871; --gold-400:#f4b65c;
+  --gold-500:#edab48; --gold-600:#d2923a; --gold-700:#a8722a; --gold-800:#7d551f; --gold-900:#4f3614;
+  --accent:#edab48; --accent-hover:#f4b65c; --accent-press:#d2923a;
+  --accent-quiet:rgba(237,171,72,.12); --on-accent:#2a1d08;
+
+  --ink-950:#0a0908; --ink-900:#100e0c; --ink-800:#1a1714; --ink-700:#262220;
+  --ink-500:#4a443e; --ink-400:#6b645c; --ink-200:#b4aaa0; --ink-50:#ece7e0; --white:#fffdf9;
+
+  --bg:var(--ink-950); --surface:#141210; --surface-2:#1c1916; --surface-3:#241f1b;
+
+  /* Neutrals are shifted one step lighter than the desktop system: at 11-12.5px on a phone
+     held outdoors, #7c746b (4.06:1) and #544d46 (2.25:1) fail WCAG AA. Same four-level
+     hierarchy, AA floor. --fg-disabled never carries information. See doc 11 section 5.4. */
+  --fg:#f6f1e9; --fg-muted:#b3aaa0; --fg-subtle:#968d82; --fg-faint:#8b8277;
+  --fg-disabled:#544d46;
+
+  --border:rgba(255,240,220,.08); --border-strong:rgba(255,240,220,.16); --border-gold:rgba(237,171,72,.40);
+
+  --positive:#7bb487; --negative:#d4664f; --warning:var(--gold-500);
+  --positive-quiet:rgba(123,180,135,.14); --negative-quiet:rgba(212,102,79,.14);
+
+  --gradient-gold:linear-gradient(105deg,#fdc871 0%,#edab48 32%,#ffefd8 58%,#fdc871 100%);
+  --gradient-gold-metallic:linear-gradient(90deg,#fff1cf 0%,#f6c96f 18%,#e3a23d 42%,#b9791f 56%,#f0bd5e 78%,#ffe7b0 100%);
+  --glow-gold:radial-gradient(circle at center,rgba(237,171,72,.30) 0%,rgba(237,171,72,.08) 42%,transparent 70%);
+
+  --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+  --shadow-md:0 12px 34px -14px rgba(0,0,0,.66);
+  --shadow-lg:0 30px 72px -22px rgba(0,0,0,.74);
+  --shadow-gold:0 8px 30px -8px rgba(237,171,72,.40);
+
+  --glass-tint:rgba(26,23,20,.55); --glass-tint-light:rgba(60,54,48,.42);
+  --glass-tint-gold:rgba(237,171,72,.14); --glass-tint-strong:rgba(20,17,15,.68);
+  --glass-blur:blur(20px) saturate(175%); --glass-blur-strong:blur(36px) saturate(200%);
+  --glass-border:rgba(255,248,238,.16);
+  --glass-edge:0 10px 34px -10px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,252,247,.40),inset 0 -1px 1px rgba(0,0,0,.35);
+  --glass-edge-gold:0 12px 40px -10px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,240,210,.55),inset 0 0 0 1px rgba(237,171,72,.22),inset 0 -2px 4px rgba(120,72,16,.40);
+  --glass-sheen:linear-gradient(135deg,rgba(255,255,255,.22) 0%,rgba(255,255,255,.05) 22%,transparent 46%);
+
+  --r-xs:4px; --r-sm:7px; --r-md:11px; --r-lg:16px; --r-xl:22px; --r-2xl:30px; --r-pill:999px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px; --s-7:48px; --s-8:64px;
+
+  --dur:.22s; --ease-out:cubic-bezier(.16,1,.3,1);
+
+  --font-display:'Space Grotesk',system-ui,sans-serif;
+  --font-body:'Hanken Grotesk',system-ui,-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,'SF Mono',monospace;
+
+  --track-tight:-0.02em; --track-eyebrow:0.16em;
+
+  /* mobile-specific */
+  --gutter:20px;            /* page side padding                            */
+  --tap:48px;               /* minimum touch target                        */
+  --device-w:412px;         /* Pixel-class logical width                   */
+  --device-h:892px;
+  --statusbar-h:34px;
+  --gesturebar-h:22px;
+}
+
+/* ═══════════════════════════════════════════════════════════════ GALLERY CHROME */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:#070605;color:var(--fg);
+  font-family:var(--font-body);font-size:16px;line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(900px 600px at 15% -5%,rgba(237,171,72,.07),transparent 60%),
+                   radial-gradient(700px 500px at 100% 10%,rgba(237,171,72,.04),transparent 60%);
+  background-attachment:fixed;
+}
+img,svg{display:block;max-width:100%}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1560px;margin:0 auto;padding:0 40px 120px}
+
+.eyebrow{font-family:var(--font-mono);font-size:11px;font-weight:500;text-transform:uppercase;
+  letter-spacing:var(--track-eyebrow);color:var(--accent)}
+
+.masthead{padding:88px 0 56px;border-bottom:1px solid var(--border);margin-bottom:56px;position:relative}
+.masthead .lock{width:260px;margin-bottom:28px}
+.masthead h1{font-family:var(--font-display);font-size:52px;font-weight:700;letter-spacing:-.03em;
+  line-height:1.05;margin:0 0 14px;max-width:16ch}
+.masthead p{font-size:18px;color:var(--fg-muted);max-width:66ch;margin:0}
+.masthead .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}
+.tag{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:6px 12px;border-radius:var(--r-pill);background:var(--surface-3);color:var(--fg-muted);
+  border:1px solid var(--border)}
+.tag.gold{background:var(--accent-quiet);color:var(--gold-300);border-color:var(--border-gold)}
+
+.act{margin:76px 0 30px;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+.act h2{font-family:var(--font-display);font-size:30px;font-weight:600;letter-spacing:var(--track-tight);margin:0}
+.act .rule{flex:1;height:1px;background:var(--border-strong);min-width:40px}
+.act p{margin:0;color:var(--fg-subtle);font-size:14px;max-width:52ch}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(412px,1fr));gap:64px 44px;justify-items:center}
+figure{margin:0;width:var(--device-w)}
+figcaption{margin-top:20px}
+figcaption .n{font-family:var(--font-mono);font-size:11px;color:var(--accent);letter-spacing:.14em}
+figcaption h3{font-family:var(--font-display);font-size:19px;font-weight:600;margin:6px 0 6px;letter-spacing:-.01em}
+figcaption p{font-size:13.5px;line-height:1.6;color:var(--fg-subtle);margin:0}
+figcaption .new{display:inline-block;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;padding:3px 8px;border-radius:var(--r-pill);background:var(--accent-quiet);
+  color:var(--gold-300);border:1px solid var(--border-gold);margin-left:8px;vertical-align:2px}
+
+/* ══════════════════════════════════════════════════════════════ DEVICE FRAME */
+.phone{
+  width:var(--device-w);height:var(--device-h);border-radius:46px;background:var(--bg);
+  position:relative;overflow:hidden;isolation:isolate;
+  box-shadow:0 0 0 1px rgba(255,240,220,.10),0 0 0 10px #100e0c,0 0 0 11px rgba(255,240,220,.07),
+             0 44px 90px -34px rgba(0,0,0,.95);
+  font-size:14px;line-height:1.5;color:var(--fg);
+}
+.phone::after{ /* fine grain — keeps large black fields from banding */
+  content:"";position:absolute;inset:0;pointer-events:none;z-index:99;opacity:.28;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden}
+
+/* status bar + gesture bar */
+.statusbar{height:var(--statusbar-h);flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px 0 26px;font-family:var(--font-mono);font-size:12px;font-weight:500;color:var(--fg);
+  letter-spacing:.02em;position:relative;z-index:30}
+.statusbar .icons{display:flex;align-items:center;gap:6px}
+.statusbar .i{width:14px;height:14px}
+.gesturebar{height:var(--gesturebar-h);flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  position:relative;z-index:30}
+.gesturebar span{width:118px;height:4px;border-radius:2px;background:rgba(246,241,233,.34)}
+
+/* scroll body */
+.body{flex:1 1 auto;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.pad{padding:0 var(--gutter)}
+.scroll{flex:1 1 auto;overflow:hidden;padding-bottom:12px}
+
+/* ════════════════════════════════════════════════════════════════ ATMOSPHERE */
+.glow{position:absolute;border-radius:50%;background:var(--glow-gold);pointer-events:none;z-index:0}
+.watermark{position:absolute;pointer-events:none;z-index:0;opacity:.055}
+.vignette{position:absolute;inset:0;pointer-events:none;z-index:1;
+  background:radial-gradient(120% 70% at 50% 0%,transparent 40%,rgba(0,0,0,.55) 100%)}
+
+/* ═════════════════════════════════════════════════════════════════════ TYPE */
+.t-eyebrow{font-family:var(--font-mono);font-size:10px;font-weight:500;text-transform:uppercase;
+  letter-spacing:var(--track-eyebrow);color:var(--accent)}
+.t-eyebrow.muted{color:var(--fg-subtle)}
+.t-h1{font-family:var(--font-display);font-size:27px;font-weight:600;letter-spacing:-.025em;line-height:1.14;margin:0}
+.t-h2{font-family:var(--font-display);font-size:21px;font-weight:600;letter-spacing:-.02em;line-height:1.2;margin:0}
+.t-h3{font-family:var(--font-body);font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0}
+.t-body{font-size:14px;line-height:1.55;color:var(--fg-muted);margin:0}
+.t-cap{font-size:12.5px;line-height:1.5;color:var(--fg-subtle);margin:0}
+.t-micro{font-size:11px;line-height:1.45;color:var(--fg-faint);margin:0}
+.t-num{font-family:var(--font-display);font-size:30px;font-weight:600;letter-spacing:-.03em;line-height:1;
+  font-variant-numeric:tabular-nums}
+.t-mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.gold{color:var(--accent)} .pos{color:var(--positive)} .neg{color:var(--negative)}
+.fg{color:var(--fg)} .muted{color:var(--fg-muted)} .subtle{color:var(--fg-subtle)}
+.text-gold{background:var(--gradient-gold);-webkit-background-clip:text;background-clip:text;
+  color:transparent;-webkit-text-fill-color:transparent}
+
+/* ══════════════════════════════════════════════════════════════════ APP BAR */
+.appbar{height:56px;flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:0 8px 0 6px;position:relative;z-index:20}
+.appbar .ttl{font-family:var(--font-display);font-size:17px;font-weight:600;letter-spacing:-.015em;
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.iconbtn{width:44px;height:44px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;
+  color:var(--fg-muted);flex:0 0 auto;background:transparent;border:0}
+.iconbtn.on{color:var(--accent)}
+.iconbtn .i{width:21px;height:21px}
+
+/* ═══════════════════════════════════════════════════════════════════ SURFACES */
+.card{background:linear-gradient(180deg,#16130f 0%,#121010 100%);border:1px solid var(--border);
+  border-radius:var(--r-lg);padding:16px;position:relative}
+.card.flat{background:var(--surface)}
+.card.gold{border-color:var(--border-gold);
+  background:linear-gradient(180deg,rgba(237,171,72,.09) 0%,rgba(20,18,16,1) 62%)}
+.card.tight{padding:13px 14px}
+.card.pad-lg{padding:20px}
+.hairline{height:1px;background:var(--border);border:0;margin:0}
+.hairline-gold{height:1px;background:var(--gradient-gold);opacity:.8;border:0;margin:0}
+.glass{position:relative;background:var(--glass-tint);-webkit-backdrop-filter:var(--glass-blur);
+  backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);border-radius:var(--r-xl);
+  box-shadow:var(--glass-edge);isolation:isolate}
+.glass::before{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--glass-sheen);
+  pointer-events:none;z-index:1}
+.glass-strong{background:var(--glass-tint-strong);-webkit-backdrop-filter:var(--glass-blur-strong);
+  backdrop-filter:var(--glass-blur-strong)}
+.glass-gold{box-shadow:var(--glass-edge-gold)}
+.glass-gold::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  background:var(--glass-tint-gold);pointer-events:none;z-index:-1}
+
+/* ════════════════════════════════════════════════════════════════════ BUTTONS */
+.btn{font-family:var(--font-body);font-weight:600;font-size:14.5px;display:inline-flex;align-items:center;
+  justify-content:center;gap:9px;height:var(--tap);padding:0 22px;border-radius:var(--r-pill);
+  border:1px solid transparent;white-space:nowrap;letter-spacing:.005em}
+.btn .i{width:19px;height:19px;flex:0 0 auto}
+.btn.block{display:flex;width:100%}
+.btn.lg{height:56px;font-size:16px}
+.btn.sm{height:38px;font-size:13px;padding:0 15px;gap:7px}
+.btn.sm .i{width:16px;height:16px}
+.btn-primary{background:var(--accent);color:var(--on-accent);box-shadow:var(--shadow-gold)}
+.btn-hero{background:var(--gradient-gold-metallic);color:var(--on-accent);box-shadow:var(--shadow-gold);
+  text-shadow:0 1px 0 rgba(255,255,255,.35)}
+.btn-secondary{background:transparent;color:var(--fg);border-color:var(--border-strong)}
+.btn-ghost{background:transparent;color:var(--fg-muted)}
+.btn-danger{background:var(--negative);color:#20100b;box-shadow:0 8px 26px -10px rgba(212,102,79,.55)}
+.btn-danger-quiet{background:var(--negative-quiet);color:var(--negative);border-color:rgba(212,102,79,.32)}
+.btn-glass{background:var(--glass-tint-light);-webkit-backdrop-filter:var(--glass-blur);
+  backdrop-filter:var(--glass-blur);color:var(--fg);border:1px solid var(--glass-border);box-shadow:var(--glass-edge)}
+.btn[disabled],.btn.off{background:var(--surface-2);color:var(--fg-disabled);box-shadow:none;border-color:var(--border)}
+
+/* ═══════════════════════════════════════════════════════════════ CHIPS / PILLS */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;height:32px;padding:0 13px;
+  border-radius:var(--r-pill);background:var(--surface-3);color:var(--fg-muted);border:1px solid var(--border);
+  white-space:nowrap}
+.chip .i{width:14px;height:14px}
+.chip.on{background:var(--accent-quiet);color:var(--gold-300);border-color:var(--border-gold)}
+.chiprow{display:flex;gap:8px;overflow:hidden;padding-right:var(--gutter)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;font-weight:500;
+  letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:var(--r-pill);
+  background:rgba(255,240,220,.06);color:var(--fg-muted);white-space:nowrap}
+.pill.pos{background:var(--positive-quiet);color:var(--positive)}
+.pill.neg{background:var(--negative-quiet);color:var(--negative)}
+.pill.gold{background:var(--accent-quiet);color:var(--gold-300)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 auto}
+
+/* ════════════════════════════════════════════════════════════════════ INPUTS */
+.field{position:relative}
+.field label{display:block;font-size:11.5px;font-weight:500;letter-spacing:.02em;color:var(--fg-subtle);margin-bottom:7px}
+.input{height:52px;border-radius:var(--r-md);background:var(--surface-2);border:1px solid var(--border);
+  display:flex;align-items:center;gap:11px;padding:0 15px;font-size:15px;color:var(--fg)}
+.input .i{width:18px;height:18px;color:var(--fg-subtle);flex:0 0 auto}
+.input.focus{border-color:var(--border-gold);box-shadow:0 0 0 3px rgba(237,171,72,.18)}
+.input .ph{color:var(--fg-faint)}
+.input .caret{width:1.5px;height:20px;background:var(--accent);margin-left:-8px}
+.switch{width:44px;height:26px;border-radius:var(--r-pill);background:var(--surface-3);border:1px solid var(--border);
+  position:relative;flex:0 0 auto}
+.switch i{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--fg-disabled)}
+.switch.on{background:var(--accent-quiet);border-color:var(--border-gold)}
+.switch.on i{left:auto;right:3px;background:var(--accent)}
+.radio{width:20px;height:20px;border-radius:50%;border:1.75px solid var(--border-strong);flex:0 0 auto;position:relative}
+.radio.on{border-color:var(--accent)}
+.radio.on::after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--accent)}
+.check{width:20px;height:20px;border-radius:6px;border:1.75px solid var(--border-strong);flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;color:transparent}
+.check.on{border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
+.check .i{width:13px;height:13px;stroke-width:2.6}
+
+/* ═══════════════════════════════════════════════════════════════════ LAYOUT */
+.row{display:flex;align-items:center;gap:12px}
+.row.top{align-items:flex-start}
+.col{display:flex;flex-direction:column}
+.grow{flex:1;min-width:0}
+.between{justify-content:space-between}
+.center{align-items:center;justify-content:center}
+.wrap-t{text-align:center}
+.g4{gap:4px}.g6{gap:6px}.g9{gap:9px}.g8{gap:8px}.g10{gap:10px}.g12{gap:12px}.g14{gap:14px}.g16{gap:16px}.g20{gap:20px}.g24{gap:24px}
+.mt4{margin-top:4px}.mt6{margin-top:6px}.mt8{margin-top:8px}.mt10{margin-top:10px}.mt12{margin-top:12px}
+.mt14{margin-top:14px}.mt16{margin-top:16px}.mt20{margin-top:20px}.mt24{margin-top:24px}.mt28{margin-top:28px}
+.mt32{margin-top:32px}.mt40{margin-top:40px}.mt2{margin-top:2px}.mt18{margin-top:18px}
+.mb4{margin-bottom:4px}.mb8{margin-bottom:8px}.mb10{margin-bottom:10px}.mb14{margin-bottom:14px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.mb20{margin-bottom:20px}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}
+.ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ══════════════════════════════════════════════════════════════════ TAB BAR */
+.tabbar{position:absolute;left:14px;right:14px;bottom:calc(var(--gesturebar-h) + 8px);height:64px;
+  border-radius:var(--r-2xl);display:flex;align-items:center;padding:0 6px;z-index:25}
+.tab{flex:1;height:52px;border-radius:var(--r-xl);display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;color:var(--fg-subtle);position:relative;z-index:2}
+.tab .i{width:21px;height:21px}
+.tab span{font-size:10px;font-weight:600;letter-spacing:.02em}
+.tab.on{color:var(--accent)}
+.tab.on::before{content:"";position:absolute;inset:0;border-radius:var(--r-xl);background:var(--accent-quiet);z-index:-1}
+.fab{position:absolute;right:20px;bottom:calc(var(--gesturebar-h) + 88px);height:52px;padding:0 20px;
+  border-radius:var(--r-pill);background:var(--accent);color:var(--on-accent);display:flex;align-items:center;
+  gap:9px;font-weight:600;font-size:14.5px;box-shadow:var(--shadow-gold);z-index:26}
+.fab .i{width:19px;height:19px;stroke-width:2.2}
+
+/* ═════════════════════════════════════════════════════════════════ PROGRESS */
+.bar{height:5px;border-radius:3px;background:rgba(255,240,220,.09);overflow:hidden;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--gradient-gold)}
+.bar.thin{height:3px}
+.bar.pos i{background:var(--positive)}
+.ring{position:relative;flex:0 0 auto}
+.ring svg{transform:rotate(-90deg)}
+.ring .val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+
+/* brand "thinking" motif — the dotted-B arc, animated in sequence */
+.dots{display:inline-flex;gap:5px;align-items:center}
+.dots i{width:5px;height:5px;border-radius:50%;background:var(--accent);opacity:.25}
+.dots i:nth-child(1){opacity:1}.dots i:nth-child(2){opacity:.62}.dots i:nth-child(3){opacity:.34}
+.dots.lg i{width:7px;height:7px;gap:7px}
+
+/* ══════════════════════════════════════════════════════════════════ STEPPER */
+.stepper{display:flex;flex-direction:column}
+.step{display:flex;gap:14px;position:relative;padding-bottom:16px}
+.step:last-child{padding-bottom:0}
+.step .rail{position:absolute;left:11px;top:24px;bottom:0;width:1.5px;background:var(--border)}
+.step:last-child .rail{display:none}
+.step.done .rail{background:rgba(123,180,135,.4)}
+.step .node{width:23px;height:23px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;border:1.75px solid var(--border-strong);color:var(--fg-faint);background:var(--bg);z-index:1}
+.step .node .i{width:13px;height:13px;stroke-width:2.6}
+.step.done .node{border-color:var(--positive);background:var(--positive);color:#0f2015}
+.step.now .node{border-color:var(--accent);background:var(--accent-quiet);color:var(--accent)}
+.step .lbl{font-size:14.5px;font-weight:500;color:var(--fg-faint);line-height:1.35;padding-top:1px}
+.step.done .lbl{color:var(--fg-muted);font-weight:400}
+.step.now .lbl{color:var(--fg);font-weight:600}
+.step .sub{font-size:11.5px;color:var(--fg-subtle);margin-top:3px;font-family:var(--font-mono);letter-spacing:.02em}
+.step.now .sub{color:var(--gold-300)}
+
+/* ════════════════════════════════════════════════════════════════════ SHEET */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.66);-webkit-backdrop-filter:blur(3px);
+  backdrop-filter:blur(3px);z-index:40}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:41;background:var(--surface);
+  border-top:1px solid var(--border-strong);border-radius:var(--r-2xl) var(--r-2xl) 0 0;
+  padding:10px var(--gutter) calc(var(--gesturebar-h) + 16px);box-shadow:0 -30px 72px -22px rgba(0,0,0,.9)}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border-strong);margin:0 auto 18px}
+
+/* ═════════════════════════════════════════════════════════════════ LIST ROWS */
+.lrow{display:flex;align-items:center;gap:13px;padding:13px 0}
+.lrow + .lrow{border-top:1px solid var(--border)}
+.avatar{width:38px;height:38px;border-radius:12px;background:var(--surface-3);border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-family:var(--font-display);
+  font-size:14px;font-weight:600;color:var(--fg-muted)}
+.avatar.gold{background:var(--accent-quiet);border-color:var(--border-gold);color:var(--gold-300)}
+
+/* ══════════════════════════════════════════════════════════════════ ICONS */
+.i{width:20px;height:20px;flex:0 0 auto}
+svg.i{stroke:currentColor;fill:none}
+
+/* ════════════════════════════════════════════════════════════════ TRANSCRIPT */
+.bub{max-width:80%;padding:9px 13px;border-radius:15px;font-size:13.5px;line-height:1.5}
+.bub.ai{background:var(--surface-2);border:1px solid var(--border);border-bottom-left-radius:5px;align-self:flex-start}
+.bub.lead{background:var(--accent-quiet);border:1px solid var(--border-gold);color:var(--gold-100);
+  border-bottom-right-radius:5px;align-self:flex-end}
+.bub .who{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--fg-subtle);margin-bottom:4px;display:block}
+.bub.lead .who{color:rgba(253,200,113,.7)}
+
+/* ══════════════════════════════════════════════════════════════ FUNNEL / BARS */
+.fun{display:flex;flex-direction:column;gap:9px}
+.fun .f{display:flex;align-items:center;gap:10px}
+.fun .f .nm{width:104px;font-size:12px;color:var(--fg-muted);flex:0 0 auto}
+.fun .f .tr{flex:1;height:20px;border-radius:5px;background:rgba(255,240,220,.05);overflow:hidden}
+.fun .f .tr i{display:block;height:100%;border-radius:5px;background:var(--accent)}
+.fun .f .vl{width:34px;text-align:right;font-family:var(--font-mono);font-size:12.5px;flex:0 0 auto}
+.spark{display:flex;align-items:flex-end;gap:3px;height:82px}
+.spark i{flex:1;border-radius:3px 3px 0 0;background:rgba(237,171,72,.32);min-height:3px}
+.spark i.hi{background:var(--accent)}
+
+/* ═════════════════════════════════════════════════════════════════ KEYPAD */
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.key{height:66px;border-radius:var(--r-lg);background:var(--surface-2);border:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.key b{font-family:var(--font-display);font-size:25px;font-weight:500;line-height:1}
+.key s{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.14em;color:var(--fg-subtle);text-decoration:none}
+
+/* ════════════════════════════════════════════════════════════ NOTIFICATION */
+.notif{border-radius:var(--r-xl);background:#1c1a17;border:1px solid var(--border);padding:13px 14px;
+  box-shadow:var(--shadow-md)}
+.notif .hd{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--fg-subtle);margin-bottom:7px}
+.notif .hd .mk{width:14px;height:14px}
+
+/* ═════════════════════════════════════════════════════════════════ FOOTER */
+.foot{margin-top:100px;padding-top:44px;border-top:1px solid var(--border);display:flex;
+  align-items:center;justify-content:space-between;gap:30px;flex-wrap:wrap}
+.foot .lock{width:168px;opacity:.78}
+.foot p{margin:0;color:var(--fg-subtle);font-size:13px}
+
+@media (max-width:520px){
+  .wrap{padding:0 16px 80px}
+  .masthead h1{font-size:34px}
+  .phone{transform:scale(.82);transform-origin:top left}
+  figure{width:calc(var(--device-w) * .82)}
+  .grid{grid-template-columns:1fr;gap:40px}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="logo-mark" viewBox="0 0 215.37 541.8"><defs><linearGradient id="mark-grad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#fdc871"/><stop offset=".26" stop-color="#edab48"/><stop offset=".54" stop-color="#ffefd8"/><stop offset="1" stop-color="#fdc871"/></linearGradient></defs><style>#logo-mark .cls-1{fill:url(#mark-grad)}</style><defs><linearGradient id="mark-linear-gradient" x1="13.72" y1="283.13" x2="227.29" y2="255.31" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fdc871"></stop><stop offset="0.26" stop-color="#edab48"></stop><stop offset="0.54" stop-color="#ffefd8"></stop><stop offset="1" stop-color="#fdc871"></stop></linearGradient></defs><g id="mark-Layer_2" data-name="Layer 2"><g id="mark-Layer_1-2" data-name="Layer 1"><path class="cls-1" d="M33.72,21.68a7.16,7.16,0,1,1,8.55-5.42A7.16,7.16,0,0,1,33.72,21.68ZM66.84,32.57a7.16,7.16,0,1,0-9.66,3A7.16,7.16,0,0,0,66.84,32.57ZM86.35,54.68a7.16,7.16,0,1,0-10.12.43A7.17,7.17,0,0,0,86.35,54.68ZM99.47,81.09a7.16,7.16,0,1,0-9.88-2.2A7.16,7.16,0,0,0,99.47,81.09ZM105.31,110a7.16,7.16,0,1,0-9-4.69A7.16,7.16,0,0,0,105.31,110Zm-1.84,29.43A7.16,7.16,0,1,0,96,132.58,7.15,7.15,0,0,0,103.47,139.43Zm-9.4,28a7.16,7.16,0,1,0-5.42-8.55A7.16,7.16,0,0,0,94.07,167.39ZM77.76,192a7.16,7.16,0,1,0-3-9.66A7.16,7.16,0,0,0,77.76,192ZM55.65,211.47a7.16,7.16,0,1,0-.43-10.12A7.16,7.16,0,0,0,55.65,211.47ZM29.23,224.59a7.16,7.16,0,1,0,2.21-9.88A7.17,7.17,0,0,0,29.23,224.59ZM.33,230.43a7.16,7.16,0,1,0,4.69-9A7.16,7.16,0,0,0,.33,230.43ZM205,415.45a7.16,7.16,0,1,0,9.13,4.37A7.16,7.16,0,0,0,205,415.45ZM199.54,390a7.16,7.16,0,1,0,9.65,3.06A7.17,7.17,0,0,0,199.54,390Zm-5.78-26.35a7.16,7.16,0,1,0,10,1.69A7.15,7.15,0,0,0,193.76,363.69Zm-15.43-21a7.16,7.16,0,1,0,10.12.28A7.16,7.16,0,0,0,178.33,342.73Zm-15.32-21a7.16,7.16,0,1,0,10.06-1.13A7.16,7.16,0,0,0,163,321.75Zm-18.1-18.65a7.16,7.16,0,1,0,9.8-2.52A7.14,7.14,0,0,0,144.91,303.1Zm-20.52-16a7.16,7.16,0,1,0,9.36-3.86A7.16,7.16,0,0,0,124.39,287.15Zm-22.54-12.94a7.16,7.16,0,1,0,8.73-5.12A7.15,7.15,0,0,0,101.85,274.21Zm-24.12-9.67a7.16,7.16,0,1,0,7.94-6.29A7.16,7.16,0,0,0,77.73,264.54ZM52.5,258.31a7.16,7.16,0,1,0,7-7.33A7.16,7.16,0,0,0,52.5,258.31Zm-25.85-2.65a7.16,7.16,0,1,0,5.89-8.23A7.15,7.15,0,0,0,26.65,255.66Zm-26,1a7.16,7.16,0,1,0,4.69-9A7.16,7.16,0,0,0,.68,256.63ZM206.8,469.52a7.16,7.16,0,1,0,8.43,5.6A7.16,7.16,0,0,0,206.8,469.52Zm-28.55-98a7.16,7.16,0,1,0,10.12.28A7.16,7.16,0,0,0,178.25,371.48Zm-15.33-21A7.16,7.16,0,1,0,173,349.37,7.16,7.16,0,0,0,162.92,350.5Zm-18.1-18.65a7.16,7.16,0,1,0,9.81-2.52A7.16,7.16,0,0,0,144.82,331.85Zm-20.52-16a7.16,7.16,0,1,0,9.36-3.86A7.16,7.16,0,0,0,124.3,315.9ZM101.76,303a7.16,7.16,0,1,0,8.74-5.12A7.16,7.16,0,0,0,101.76,303Zm-24.12-9.67A7.16,7.16,0,1,0,85.58,287,7.17,7.17,0,0,0,77.64,293.29Zm-25.23-6.23a7.16,7.16,0,1,0,7-7.33A7.16,7.16,0,0,0,52.41,287.06Zm-25.85-2.65a7.16,7.16,0,1,0,5.89-8.23A7.15,7.15,0,0,0,26.56,284.41Zm-26,1a7.16,7.16,0,1,0,4.69-9A7.16,7.16,0,0,0,.59,285.38ZM199.36,447.55a7.16,7.16,0,1,0,9.66,3.06A7.16,7.16,0,0,0,199.36,447.55Zm-18.69-49.19a7.16,7.16,0,1,0,10.12.28A7.15,7.15,0,0,0,180.67,398.36Zm-17.84-19.11a7.16,7.16,0,1,0,10.06-1.13A7.16,7.16,0,0,0,162.83,379.25Zm-18.1-18.65a7.16,7.16,0,1,0,9.81-2.52A7.17,7.17,0,0,0,144.73,360.6Zm-20.52-16a7.16,7.16,0,1,0,9.36-3.86A7.16,7.16,0,0,0,124.21,344.65Zm-22.53-12.94a7.16,7.16,0,1,0,8.73-5.12A7.16,7.16,0,0,0,101.68,331.71ZM77.56,322a7.16,7.16,0,1,0,7.93-6.29A7.15,7.15,0,0,0,77.56,322Zm-25.23-6.23a7.16,7.16,0,1,0,7-7.33A7.15,7.15,0,0,0,52.33,315.81Zm-25.86-2.65a7.16,7.16,0,1,0,5.9-8.23A7.16,7.16,0,0,0,26.47,313.16Zm-26,1a7.16,7.16,0,1,0,4.69-9A7.16,7.16,0,0,0,.5,314.13ZM206.62,527.62a7.16,7.16,0,1,0,8.44,5.61A7.17,7.17,0,0,0,206.62,527.62Zm-26-99.57a7.16,7.16,0,1,0,10.12.28A7.15,7.15,0,0,0,180.67,428.05ZM162.74,408a7.16,7.16,0,1,0,10.07-1.13A7.16,7.16,0,0,0,162.74,408Zm-18.1-18.65a7.16,7.16,0,1,0,9.81-2.52A7.17,7.17,0,0,0,144.64,389.35Zm-20.51-16a7.16,7.16,0,1,0,9.36-3.86A7.16,7.16,0,0,0,124.13,373.4Zm-22.54-12.94a7.16,7.16,0,1,0,8.73-5.12A7.17,7.17,0,0,0,101.59,360.46Zm-24.12-9.67a7.16,7.16,0,1,0,7.93-6.29A7.15,7.15,0,0,0,77.47,350.79Zm-25.23-6.23a7.16,7.16,0,1,0,7-7.33A7.17,7.17,0,0,0,52.24,344.56Zm-25.85-2.65a7.16,7.16,0,1,0,5.89-8.23A7.16,7.16,0,0,0,26.39,341.91Zm-26,1a7.16,7.16,0,1,0,4.69-9A7.14,7.14,0,0,0,.42,342.88ZM199.19,505.05a7.16,7.16,0,1,0,9.65,3.06A7.16,7.16,0,0,0,199.19,505.05Zm-8.95-24.4a7.16,7.16,0,1,0,10,1.69A7.16,7.16,0,0,0,190.24,480.65ZM178,457.74a7.16,7.16,0,1,0,10.13.28A7.17,7.17,0,0,0,178,457.74Zm-15.32-21a7.16,7.16,0,1,0,10.06-1.13A7.15,7.15,0,0,0,162.66,436.75Zm-18.1-18.65a7.16,7.16,0,1,0,9.8-2.52A7.16,7.16,0,0,0,144.56,418.1Zm-20.52-16a7.16,7.16,0,1,0,9.36-3.86A7.16,7.16,0,0,0,124,402.15ZM101.5,389.21a7.16,7.16,0,1,0,8.73-5.12A7.17,7.17,0,0,0,101.5,389.21Zm-24.12-9.67a7.16,7.16,0,1,0,7.94-6.29A7.15,7.15,0,0,0,77.38,379.54Zm-25.23-6.22a7.16,7.16,0,1,0,7-7.34A7.17,7.17,0,0,0,52.15,373.32ZM26.3,370.66a7.16,7.16,0,1,0,5.89-8.23A7.17,7.17,0,0,0,26.3,370.66Zm-26,1a7.16,7.16,0,1,0,4.69-9A7.15,7.15,0,0,0,.33,371.64ZM14,198.74a7.13,7.13,0,1,0-5,8.78A7.12,7.12,0,0,0,14,198.74Zm.08-54.83a7.1,7.1,0,1,0-5.5,8.41A7.1,7.1,0,0,0,14.11,143.91Zm0-27.41a7.1,7.1,0,1,0-5.77,8.22A7.1,7.1,0,0,0,14.15,116.5Zm25.48-1.92a7.1,7.1,0,1,0-5.77,8.22A7.1,7.1,0,0,0,39.63,114.58ZM12.55,85.46a7.1,7.1,0,1,0-.76,10A7.1,7.1,0,0,0,12.55,85.46Zm26.33-5.58a7.11,7.11,0,1,0-9.39,3.62A7.12,7.12,0,0,0,38.88,79.88ZM51.12,108a7.11,7.11,0,1,0-9.94-1.54A7.1,7.1,0,0,0,51.12,108Zm-3.43,30.44a7.11,7.11,0,1,0-7.84-6.31A7.11,7.11,0,0,0,47.69,138.39ZM29.49,163a7.11,7.11,0,1,0-3.62-9.38A7.12,7.12,0,0,0,29.49,163ZM1.42,177.2A7.11,7.11,0,1,0,3,167.26,7.1,7.1,0,0,0,1.42,177.2ZM14.23,61.68a7.11,7.11,0,1,0-6.31,7.83A7.1,7.1,0,0,0,14.23,61.68Zm27.15-15a7.13,7.13,0,1,0-8.8,4.93A7.13,7.13,0,0,0,41.38,46.69Zm21.23,21a7.13,7.13,0,1,0-10,1.62A7.14,7.14,0,0,0,62.61,67.64ZM75.39,94.58a7.13,7.13,0,1,0-9.91-1.88A7.14,7.14,0,0,0,75.39,94.58Zm2.8,29.69a7.14,7.14,0,1,0-8.67-5.16A7.15,7.15,0,0,0,78.19,124.27Zm-7.53,28.85a7.14,7.14,0,1,0-6.38-7.81A7.14,7.14,0,0,0,70.66,153.12ZM53.72,177.66a7.13,7.13,0,1,0-3.33-9.52A7.13,7.13,0,0,0,53.72,177.66ZM29.41,194.93a7.13,7.13,0,1,0,.13-10.09A7.13,7.13,0,0,0,29.41,194.93ZM14.27,34.27a7.13,7.13,0,1,0-6.58,7.64A7.12,7.12,0,0,0,14.27,34.27Zm0-27.41a7.16,7.16,0,1,0-6.85,7.45A7.15,7.15,0,0,0,14.31,6.86Z"></path></g></g></symbol><symbol id="logo-hb" viewBox="0 0 728.69 396.08"><defs><linearGradient id="hb-linear-gradient" x1="10.03" y1="206.98" x2="166.16" y2="186.64" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fdc871"></stop><stop offset="0.26" stop-color="#edab48"></stop><stop offset="0.54" stop-color="#ffefd8"></stop><stop offset="1" stop-color="#fdc871"></stop></linearGradient><linearGradient id="hb-linear-gradient-2" x1="127.67" y1="151.9" x2="728.69" y2="151.9" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fdc871"></stop><stop offset="0.34" stop-color="#edab48"></stop><stop offset="0.74" stop-color="#ffefd8"></stop><stop offset="1" stop-color="#fdc871"></stop></linearGradient></defs><g id="hb-Layer_2" data-name="Layer 2"><g id="hb-Layer_1-2" data-name="Layer 1"><path fill="url(#hb-linear-gradient)" d="M24.65,15.85a5.24,5.24,0,1,1,6.25-4A5.24,5.24,0,0,1,24.65,15.85Zm24.21,8A5.24,5.24,0,1,0,41.8,26,5.24,5.24,0,0,0,48.86,23.81ZM63.12,40a5.23,5.23,0,1,0-7.39.32A5.22,5.22,0,0,0,63.12,40Zm9.6,19.31a5.23,5.23,0,1,0-7.23-1.61A5.23,5.23,0,0,0,72.72,59.28ZM77,80.41A5.23,5.23,0,1,0,70.42,77,5.23,5.23,0,0,0,77,80.41Zm-1.34,21.52a5.23,5.23,0,1,0-5.45-5A5.23,5.23,0,0,0,75.64,101.93Zm-6.87,20.44a5.24,5.24,0,1,0-4-6.25A5.24,5.24,0,0,0,68.77,122.37Zm-11.92,18a5.23,5.23,0,1,0-2.22-7.07A5.23,5.23,0,0,0,56.85,140.33ZM40.68,154.59a5.23,5.23,0,1,0-.31-7.4A5.22,5.22,0,0,0,40.68,154.59Zm-19.31,9.59A5.23,5.23,0,1,0,23,157,5.24,5.24,0,0,0,21.37,164.18ZM.24,168.45a5.23,5.23,0,1,0,3.43-6.56A5.23,5.23,0,0,0,.24,168.45ZM149.87,303.71a5.23,5.23,0,1,0,6.67,3.2A5.23,5.23,0,0,0,149.87,303.71Zm-4-18.57a5.23,5.23,0,1,0,7.06,2.23A5.23,5.23,0,0,0,145.87,285.14Zm-4.23-19.27a5.23,5.23,0,1,0,7.3,1.23A5.23,5.23,0,0,0,141.64,265.87Zm-11.27-15.32a5.23,5.23,0,1,0,7.4.2A5.24,5.24,0,0,0,130.37,250.55Zm-11.21-15.34a5.23,5.23,0,1,0,7.36-.83A5.23,5.23,0,0,0,119.16,235.21Zm-13.23-13.64a5.23,5.23,0,1,0,7.17-1.84A5.24,5.24,0,0,0,105.93,221.57Zm-15-11.66a5.24,5.24,0,1,0,6.85-2.82A5.25,5.25,0,0,0,90.93,209.91Zm-16.47-9.45a5.23,5.23,0,1,0,6.38-3.75A5.23,5.23,0,0,0,74.46,200.46Zm-17.64-7.08a5.24,5.24,0,1,0,5.8-4.59A5.23,5.23,0,0,0,56.82,193.38Zm-18.44-4.55a5.23,5.23,0,1,0,5.1-5.36A5.24,5.24,0,0,0,38.38,188.83Zm-18.9-1.93a5.24,5.24,0,1,0,4.31-6A5.22,5.22,0,0,0,19.48,186.9Zm-19,.71a5.23,5.23,0,1,0,3.42-6.56A5.23,5.23,0,0,0,.5,187.61ZM151.17,343.23a5.23,5.23,0,1,0,6.17,4.1A5.23,5.23,0,0,0,151.17,343.23ZM130.3,271.57a5.23,5.23,0,1,0,7.4.2A5.23,5.23,0,0,0,130.3,271.57Zm-11.2-15.35a5.23,5.23,0,1,0,7.35-.82A5.25,5.25,0,0,0,119.1,256.22Zm-13.23-13.63a5.23,5.23,0,1,0,7.17-1.84A5.23,5.23,0,0,0,105.87,242.59Zm-15-11.66a5.23,5.23,0,1,0,6.84-2.82A5.24,5.24,0,0,0,90.87,230.93Zm-16.48-9.46a5.23,5.23,0,1,0,6.39-3.74A5.24,5.24,0,0,0,74.39,221.47ZM56.76,214.4a5.23,5.23,0,1,0,5.8-4.6A5.24,5.24,0,0,0,56.76,214.4Zm-18.44-4.55a5.23,5.23,0,1,0,5.1-5.36A5.24,5.24,0,0,0,38.32,209.85Zm-18.9-1.94a5.23,5.23,0,1,0,4.3-6A5.23,5.23,0,0,0,19.42,207.91Zm-19,.71a5.23,5.23,0,1,0,3.43-6.56A5.23,5.23,0,0,0,.43,208.62ZM145.74,327.17a5.23,5.23,0,1,0,7.06,2.24A5.23,5.23,0,0,0,145.74,327.17Zm-13.67-36a5.24,5.24,0,1,0,7.4.21A5.23,5.23,0,0,0,132.07,291.21Zm-13-14a5.24,5.24,0,1,0,7.36-.82A5.24,5.24,0,0,0,119,277.24ZM105.8,263.61a5.23,5.23,0,1,0,7.17-1.84A5.24,5.24,0,0,0,105.8,263.61ZM90.8,252a5.24,5.24,0,1,0,6.85-2.82A5.23,5.23,0,0,0,90.8,252Zm-16.47-9.46a5.23,5.23,0,1,0,6.38-3.74A5.24,5.24,0,0,0,74.33,242.49ZM56.7,235.42a5.23,5.23,0,1,0,5.8-4.6A5.22,5.22,0,0,0,56.7,235.42Zm-18.45-4.55a5.24,5.24,0,1,0,5.11-5.36A5.23,5.23,0,0,0,38.25,230.87Zm-18.9-1.94a5.24,5.24,0,1,0,4.31-6A5.24,5.24,0,0,0,19.35,228.93Zm-19,.71a5.23,5.23,0,1,0,3.43-6.56A5.23,5.23,0,0,0,.37,229.64ZM151.05,385.71a5.23,5.23,0,1,0,6.16,4.1A5.23,5.23,0,0,0,151.05,385.71Zm-19-72.79a5.23,5.23,0,1,0,7.4.2A5.23,5.23,0,0,0,132.07,312.92ZM119,298.26a5.23,5.23,0,1,0,7.36-.83A5.24,5.24,0,0,0,119,298.26Zm-13.23-13.63a5.23,5.23,0,1,0,7.17-1.84A5.23,5.23,0,0,0,105.74,284.63ZM90.74,273a5.24,5.24,0,1,0,6.84-2.82A5.23,5.23,0,0,0,90.74,273Zm-16.48-9.46a5.23,5.23,0,1,0,6.39-3.75A5.23,5.23,0,0,0,74.26,263.51Zm-17.63-7.07a5.23,5.23,0,1,0,5.8-4.6A5.24,5.24,0,0,0,56.63,256.44Zm-18.44-4.55a5.23,5.23,0,1,0,5.1-5.36A5.23,5.23,0,0,0,38.19,251.89ZM19.29,250a5.24,5.24,0,1,0,4.31-6A5.24,5.24,0,0,0,19.29,250Zm-19,.71a5.23,5.23,0,1,0,3.42-6.56A5.23,5.23,0,0,0,.31,250.66Zm145.3,118.55a5.23,5.23,0,1,0,7.06,2.23A5.23,5.23,0,0,0,145.61,369.21Zm-6.54-17.84a5.23,5.23,0,1,0,7.3,1.23A5.24,5.24,0,0,0,139.07,351.37Zm-9-16.75a5.23,5.23,0,1,0,7.4.21A5.23,5.23,0,0,0,130.11,334.62Zm-11.2-15.34a5.23,5.23,0,1,0,7.35-.83A5.22,5.22,0,0,0,118.91,319.28Zm-13.23-13.63a5.23,5.23,0,1,0,7.17-1.85A5.22,5.22,0,0,0,105.68,305.65ZM90.68,294a5.23,5.23,0,1,0,6.84-2.83A5.23,5.23,0,0,0,90.68,294ZM74.2,284.53a5.23,5.23,0,1,0,6.38-3.75A5.23,5.23,0,0,0,74.2,284.53Zm-17.63-7.07a5.23,5.23,0,1,0,5.8-4.6A5.24,5.24,0,0,0,56.57,277.46Zm-18.45-4.55a5.24,5.24,0,1,0,5.11-5.37A5.24,5.24,0,0,0,38.12,272.91ZM19.23,271a5.23,5.23,0,1,0,4.3-6A5.23,5.23,0,0,0,19.23,271Zm-19,.71a5.23,5.23,0,1,0,3.43-6.56A5.24,5.24,0,0,0,.24,271.68Zm10-126.4a5.22,5.22,0,1,0-3.63,6.42A5.21,5.21,0,0,0,10.26,145.28Zm.06-40.07a5.19,5.19,0,1,0-4,6.14A5.21,5.21,0,0,0,10.32,105.21Zm0-20a5.19,5.19,0,1,0-4.22,6A5.19,5.19,0,0,0,10.35,85.17ZM29,83.76a5.19,5.19,0,1,0-4.22,6A5.19,5.19,0,0,0,29,83.76ZM9.17,62.47a5.19,5.19,0,1,0-.55,7.32A5.19,5.19,0,0,0,9.17,62.47Zm19.25-4.08A5.2,5.2,0,1,0,21.56,61,5.21,5.21,0,0,0,28.42,58.39Zm8.95,20.53a5.2,5.2,0,1,0-7.26-1.13A5.2,5.2,0,0,0,37.37,78.92Zm-2.51,22.25a5.2,5.2,0,1,0-5.73-4.61A5.21,5.21,0,0,0,34.86,101.17Zm-13.3,18a5.2,5.2,0,1,0-2.65-6.86A5.2,5.2,0,0,0,21.56,119.19ZM1,129.54a5.2,5.2,0,1,0,1.13-7.27A5.19,5.19,0,0,0,1,129.54Zm9.37-84.45a5.2,5.2,0,1,0-4.62,5.73A5.2,5.2,0,0,0,10.41,45.09Zm19.84-11a5.21,5.21,0,1,0-6.43,3.61A5.21,5.21,0,0,0,30.25,34.13ZM45.77,49.44a5.22,5.22,0,1,0-7.28,1.19A5.21,5.21,0,0,0,45.77,49.44Zm9.34,19.7a5.21,5.21,0,1,0-7.24-1.37A5.22,5.22,0,0,0,55.11,69.14Zm2,21.7a5.22,5.22,0,1,0-6.34-3.77A5.23,5.23,0,0,0,57.16,90.84Zm-5.5,21.1A5.22,5.22,0,1,0,47,106.23,5.22,5.22,0,0,0,51.66,111.94ZM39.27,129.88a5.22,5.22,0,1,0-2.43-7A5.21,5.21,0,0,0,39.27,129.88ZM21.5,142.5a5.22,5.22,0,1,0,.09-7.38A5.21,5.21,0,0,0,21.5,142.5ZM10.44,25.05a5.21,5.21,0,1,0-4.82,5.59A5.22,5.22,0,0,0,10.44,25.05Zm0-20a5.23,5.23,0,1,0-5,5.45A5.24,5.24,0,0,0,10.46,5Z"></path><path fill="url(#hb-linear-gradient-2)" d="M132,131.8a4,4,0,0,1-4.36-4.36V34.23A4,4,0,0,1,132,29.88h8.27a4,4,0,0,1,4.36,4.35V68.79l39.49-17.57v-17a4,4,0,0,1,4.36-4.35h8.27a4,4,0,0,1,4.36,4.35v93.21a4,4,0,0,1-4.36,4.36h-8.27a4,4,0,0,1-4.36-4.36V96.67l-39.49,17.42v13.35a4,4,0,0,1-4.36,4.36Zm12.63-36.58,39.49-17.43V70.24L144.66,87.66Zm73.9-61a4,4,0,0,1,4.36-4.35h8.28a4,4,0,0,1,4.35,4.35v93.21a4,4,0,0,1-4.35,4.36h-8.28a4,4,0,0,1-4.36-4.36Zm38,2.18c-1.06-1.93-1.26-3.51-.58-4.72s2.13-1.81,4.35-1.81h35a32.83,32.83,0,0,1,12.92,2.53,33.64,33.64,0,0,1,10.46,7,31.75,31.75,0,0,1,7,10.52A33.54,33.54,0,0,1,328.33,63,30.92,30.92,0,0,1,323,81.13a33.92,33.92,0,0,1-14.8,11.76q5.07,9.45,10.31,18.58t10.73,18.3l.73,1c.29.67.1,1-.58,1H313.08a4.47,4.47,0,0,1-3.92-2.18l-19-34h-18.3v31.79a4.28,4.28,0,0,1-1.16,3.2,4.32,4.32,0,0,1-3.19,1.16h-8.27a4,4,0,0,1-4.36-4.36V82.58a4,4,0,0,1,4.36-4.36h21ZM282.44,47.3q4.21,7.85,8.57,15.25t8.71,15.24a14.59,14.59,0,0,0,8.57-5.3,15,15,0,0,0,3-9.36,15.81,15.81,0,0,0-4.29-11.25q-4.28-4.59-11.68-4.58ZM343.28,31a4.31,4.31,0,0,1,3.2-1.16H406.3a4.31,4.31,0,0,1,3.19,1.17,4.38,4.38,0,0,1,1.16,3.22v8.64a4.4,4.4,0,0,1-1.16,3.22,4.31,4.31,0,0,1-3.19,1.17H359.1V66H395a4,4,0,0,1,4.35,4.35V79.1A4,4,0,0,1,395,83.45H359.1v30.93h47.2a4,4,0,0,1,4.35,4.35v8.71a4,4,0,0,1-4.35,4.36H346.48a4,4,0,0,1-4.36-4.36V34.23A4.32,4.32,0,0,1,343.28,31ZM184.22,177.94q-1.16-2.76,0-4.35c.78-1.07,2.13-1.6,4.07-1.6h32.6a35.27,35.27,0,0,1,10.93,1.67,26.92,26.92,0,0,1,9.05,4.94,22.91,22.91,0,0,1,6.15,8.13,26.15,26.15,0,0,1,2.25,11.11,20.84,20.84,0,0,1-1.38,8,42.81,42.81,0,0,1-3.85,7.11,27.38,27.38,0,0,1,10.25,12.13,38.87,38.87,0,0,1,1.29,27.8,34.61,34.61,0,0,1-5.66,10.68,28,28,0,0,1-9.07,7.55,25.89,25.89,0,0,1-12.2,2.83H187.71a4,4,0,0,1-4.36-4.37V212.22a4,4,0,0,1,4.36-4.37l8.71.15Zm44.43,78.55a9.81,9.81,0,0,0,5.38-1.38,10.15,10.15,0,0,0,3.48-3.7,17.76,17.76,0,0,0,1.89-5.08,28,28,0,0,0,.58-5.67,16,16,0,0,0-.88-5,20.62,20.62,0,0,0-2.39-5,14.7,14.7,0,0,0-3.63-3.85,7.42,7.42,0,0,0-4.43-1.52H200.34v31.21Zm-21.34-67.08q1.89,4.58,3.77,9.22t3.93,9.22h6a12,12,0,0,0,8.2-2.71,9.19,9.19,0,0,0,3.12-7.29q0-4.72-3.12-6.58a15.88,15.88,0,0,0-8.2-1.86Zm98.8,84.51a33.79,33.79,0,0,1-14.62-3.2,37.44,37.44,0,0,1-11.71-8.57A40.17,40.17,0,0,1,272,249.74,39.06,39.06,0,0,1,269.16,235V176.35a4,4,0,0,1,4.36-4.36h8.27a4,4,0,0,1,4.36,4.36V235a23.45,23.45,0,0,0,8.42,17.72A18.38,18.38,0,0,0,306,256.49a17.27,17.27,0,0,0,7.84-1.81,19.67,19.67,0,0,0,6.24-4.87,24.13,24.13,0,0,0,4.14-6.89,21.24,21.24,0,0,0,1.52-7.92V176.35a4.32,4.32,0,0,1,1.18-3.2,4.38,4.38,0,0,1,3.22-1.16h8.2a4.38,4.38,0,0,1,3.22,1.16,4.31,4.31,0,0,1,1.17,3.2V235A39.68,39.68,0,0,1,340,249.6,40.23,40.23,0,0,1,332.37,262a37.59,37.59,0,0,1-11.64,8.64A33.14,33.14,0,0,1,306.11,273.92Zm56.41-100.25c.78-1.12,2.13-1.68,4.06-1.68h27.88a44.16,44.16,0,0,1,19.09,4.14,48.5,48.5,0,0,1,15.25,11.18,51.82,51.82,0,0,1,10.09,16.26A52.45,52.45,0,0,1,442.52,223,53.24,53.24,0,0,1,439,242.19a51.1,51.1,0,0,1-10,16.26A49.34,49.34,0,0,1,413.7,269.7a43.88,43.88,0,0,1-19.24,4.22H365.72a4,4,0,0,1-4.36-4.36V222.08q0-10.16,2.47-10.16,2.31,0,5.95,8.42l8.27,19.6a7.65,7.65,0,0,1,.29,1.74v14.81h16.12a28.44,28.44,0,0,0,12.42-2.75,30.75,30.75,0,0,0,9.87-7.46,35.43,35.43,0,0,0,6.46-10.72,34.88,34.88,0,0,0,0-25.07,35.67,35.67,0,0,0-6.46-10.72,32,32,0,0,0-9.8-7.53,27.62,27.62,0,0,0-12.49-2.83h-8.85l21.48,52.27a4.4,4.4,0,0,1,.08,3.41,4.32,4.32,0,0,1-2.69,2.26l-7.7,2.75a3.8,3.8,0,0,1-3.26,0,4.51,4.51,0,0,1-2.25-2.32L362.52,178Q361.37,175.37,362.52,173.67Zm94.08,0c.78-1.12,2.13-1.68,4.07-1.68h27.88a44.22,44.22,0,0,1,19.09,4.14,48.5,48.5,0,0,1,15.25,11.18A52.9,52.9,0,0,1,536.61,223a53,53,0,0,1-3.56,19.24,50.92,50.92,0,0,1-10,16.26,49.34,49.34,0,0,1-15.25,11.25,43.86,43.86,0,0,1-19.23,4.22H459.8a4,4,0,0,1-4.36-4.36V222.08q0-10.16,2.47-10.16t5.95,8.42l8.28,19.6a8.27,8.27,0,0,1,.29,1.74v14.81h16.12A28.39,28.39,0,0,0,501,253.74a30.75,30.75,0,0,0,9.87-7.46,35.23,35.23,0,0,0,6.46-10.72,34.88,34.88,0,0,0,0-25.07,35.47,35.47,0,0,0-6.46-10.72,31.87,31.87,0,0,0-9.8-7.53,27.61,27.61,0,0,0-12.48-2.83h-8.86l21.48,52.27a4.36,4.36,0,0,1,.08,3.41,4.29,4.29,0,0,1-2.68,2.26l-7.7,2.75a3.82,3.82,0,0,1-3.27,0,4.55,4.55,0,0,1-2.25-2.32L456.6,178Q455.44,175.37,456.6,173.67Zm96,100.25a4,4,0,0,1-4.36-4.36V176.35a4,4,0,0,1,4.36-4.36h8.27a4,4,0,0,1,4.36,4.36V210.9l39.49-17.57v-17a4,4,0,0,1,4.36-4.36h8.27a4,4,0,0,1,4.36,4.36v93.21a4,4,0,0,1-4.36,4.36h-8.27a4,4,0,0,1-4.36-4.36V238.78L565.21,256.2v13.36a4,4,0,0,1-4.36,4.36Zm12.63-36.59L604.7,219.9v-7.55l-39.49,17.42Zm69.11,34.92q-1.17-1.68,0-4.29l38.18-93.21a4.12,4.12,0,0,1,4.07-2.76h9.29a4.12,4.12,0,0,1,4.07,2.76L728.11,268q1.17,2.61,0,4.29c-.77,1.11-2.13,1.67-4.06,1.67h-9a4,4,0,0,1-2.4-.8,5.41,5.41,0,0,1-1.67-2l-29.76-72.74-23.67,58.07h38a4.1,4.1,0,0,1,4.06,2.76l3.49,8.71q1.15,2.61,0,4.29c-.77,1.11-2.13,1.67-4.07,1.67H638.38C636.44,273.92,635.09,273.36,634.32,272.25Z"></path></g></g></symbol><symbol id="logo-bcl" viewBox="0 0 614.09 365.14"><defs><linearGradient id="bcl-linear-gradient" x1="20.14" y1="10.38" x2="30.15" y2="9.07" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fdc871"></stop><stop offset="0.26" stop-color="#edab48"></stop><stop offset="0.54" stop-color="#ffefd8"></stop><stop offset="1" stop-color="#fdc871"></stop></linearGradient><linearGradient id="bcl-linear-gradient-2" x1="37.13" y1="20.19" x2="47.14" y2="18.88" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-3" x1="51.01" y1="34.06" x2="61.01" y2="32.76" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-4" x1="60.82" y1="51.05" x2="70.82" y2="49.75" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-5" x1="65.9" y1="70" x2="75.9" y2="68.7" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-6" x1="65.9" y1="89.62" x2="75.9" y2="88.32" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-7" x1="60.82" y1="108.57" x2="70.82" y2="107.27" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-8" x1="51.01" y1="125.56" x2="61.01" y2="124.26" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-9" x1="37.14" y1="139.44" x2="47.14" y2="138.14" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-10" x1="20.14" y1="149.25" x2="30.15" y2="147.94" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-11" x1="1.19" y1="154.33" x2="11.2" y2="153.02" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-12" x1="136.13" y1="285.01" x2="146.14" y2="283.71" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-13" x1="133.07" y1="267.62" x2="143.07" y2="266.32" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-14" x1="129.74" y1="249.51" x2="139.75" y2="248.21" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-15" x1="119.87" y1="234.96" x2="129.87" y2="233.66" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-16" x1="110" y1="220.32" x2="120" y2="219.02" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-17" x1="98.18" y1="207.2" x2="108.18" y2="205.9" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-18" x1="84.65" y1="195.85" x2="94.66" y2="194.54" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-19" x1="69.68" y1="186.49" x2="79.68" y2="185.19" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-20" x1="53.55" y1="179.31" x2="63.55" y2="178.01" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-21" x1="36.57" y1="174.44" x2="46.58" y2="173.14" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-22" x1="19.09" y1="171.98" x2="29.09" y2="170.68" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-23" x1="1.43" y1="171.98" x2="11.43" y2="170.68" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-24" x1="136.69" y1="321.63" x2="146.69" y2="320.33" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-25" x1="119.81" y1="254.34" x2="129.81" y2="253.03" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-26" x1="109.94" y1="239.7" x2="119.94" y2="238.39" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-27" x1="98.12" y1="226.57" x2="108.12" y2="225.27" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-28" x1="84.59" y1="215.22" x2="94.6" y2="213.92" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-29" x1="69.62" y1="205.87" x2="79.62" y2="204.56" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-30" x1="53.49" y1="198.68" x2="63.49" y2="197.38" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-31" x1="36.51" y1="193.82" x2="46.52" y2="192.51" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-32" x1="19.03" y1="191.36" x2="29.03" y2="190.06" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-33" x1="1.37" y1="191.36" x2="11.37" y2="190.06" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-34" x1="132.95" y1="306.38" x2="142.95" y2="305.07" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-35" x1="121.44" y1="272.45" x2="131.44" y2="271.15" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-36" x1="109.88" y1="259.07" x2="119.88" y2="257.77" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-37" x1="98.06" y1="245.95" x2="108.06" y2="244.65" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-38" x1="84.53" y1="234.6" x2="94.54" y2="233.3" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-39" x1="69.56" y1="225.24" x2="79.56" y2="223.94" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-40" x1="53.43" y1="218.06" x2="63.43" y2="216.76" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-41" x1="36.46" y1="213.19" x2="46.46" y2="211.89" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-42" x1="18.97" y1="210.74" x2="28.97" y2="209.43" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-43" x1="1.31" y1="210.74" x2="11.32" y2="209.43" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-44" x1="136.57" y1="360.79" x2="146.58" y2="359.49" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-45" x1="121.44" y1="292.46" x2="131.44" y2="291.15" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-46" x1="109.82" y1="278.45" x2="119.82" y2="277.15" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-47" x1="98" y1="265.33" x2="108.01" y2="264.02" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-48" x1="84.48" y1="253.98" x2="94.48" y2="252.67" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-49" x1="69.5" y1="244.62" x2="79.51" y2="243.32" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-50" x1="53.37" y1="237.44" x2="63.37" y2="236.13" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-51" x1="36.4" y1="232.57" x2="46.4" y2="231.27" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-52" x1="18.91" y1="230.11" x2="28.91" y2="228.81" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-53" x1="1.25" y1="230.11" x2="11.26" y2="228.81" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-54" x1="132.83" y1="345.13" x2="142.84" y2="343.83" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-55" x1="127.37" y1="328.34" x2="137.38" y2="327.03" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-56" x1="119.63" y1="312.47" x2="129.64" y2="311.16" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-57" x1="109.76" y1="297.83" x2="119.76" y2="296.52" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-58" x1="97.94" y1="284.7" x2="107.95" y2="283.4" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-59" x1="84.42" y1="273.35" x2="94.42" y2="272.05" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-60" x1="69.44" y1="264" x2="79.45" y2="262.69" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-61" x1="53.31" y1="256.81" x2="63.32" y2="255.51" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-62" x1="36.34" y1="251.95" x2="46.34" y2="250.64" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-63" x1="18.85" y1="249.49" x2="28.85" y2="248.19" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-64" x1="1.19" y1="249.49" x2="11.2" y2="248.19" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-65" x1="1.21" y1="135.7" x2="11.17" y2="134.4" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-66" x1="1.22" y1="98.44" x2="11.15" y2="97.14" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-67" x1="1.23" y1="79.81" x2="11.14" y2="78.52" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-68" x1="18.39" y1="78.51" x2="28.31" y2="77.22" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-69" x1="1.22" y1="61.18" x2="11.15" y2="59.89" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-70" x1="18.21" y1="52.36" x2="28.15" y2="51.07" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-71" x1="28.02" y1="69.35" x2="37.96" y2="68.06" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-72" x1="28.02" y1="88.97" x2="37.96" y2="87.68" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-73" x1="18.21" y1="105.96" x2="28.15" y2="104.67" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-74" x1="1.22" y1="117.07" x2="11.16" y2="115.77" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-75" x1="1.22" y1="42.55" x2="11.16" y2="41.26" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-76" x1="19.64" y1="30.64" x2="29.61" y2="29.34" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-77" x1="34.67" y1="43.25" x2="44.64" y2="41.95" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-78" x1="44.48" y1="60.24" x2="54.45" y2="58.94" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-79" x1="47.89" y1="79.56" x2="57.85" y2="78.26" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-80" x1="44.48" y1="98.88" x2="54.45" y2="97.58" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-81" x1="34.67" y1="115.87" x2="44.64" y2="114.57" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-82" x1="19.64" y1="128.48" x2="29.61" y2="127.19" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-83" x1="1.21" y1="23.93" x2="11.17" y2="22.63" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-84" x1="1.19" y1="5.3" x2="11.2" y2="4" xlink:href="#bcl-linear-gradient"></linearGradient><linearGradient id="bcl-linear-gradient-85" x1="111.34" y1="110.59" x2="614.09" y2="110.59" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fdc871"></stop><stop offset="0.34" stop-color="#edab48"></stop><stop offset="0.74" stop-color="#ffefd8"></stop><stop offset="1" stop-color="#fdc871"></stop></linearGradient><linearGradient id="bcl-linear-gradient-86" x1="154.02" y1="208.5" x2="614.09" y2="208.5" xlink:href="#bcl-linear-gradient-85"></linearGradient></defs><g id="bcl-Layer_2" data-name="Layer 2"><g id="bcl-Layer_1-2" data-name="Layer 1"><circle fill="url(#bcl-linear-gradient)" cx="23.78" cy="9.9" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-2)" cx="40.77" cy="19.71" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-3)" cx="54.64" cy="33.59" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-4)" cx="64.45" cy="50.58" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-5)" cx="69.53" cy="69.53" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-6)" cx="69.53" cy="89.15" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-7)" cx="64.45" cy="108.1" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-8)" cx="54.64" cy="125.09" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-9)" cx="40.77" cy="138.96" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-10)" cx="23.78" cy="148.77" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-11)" cx="4.83" cy="153.85" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-12)" cx="139.77" cy="284.54" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-13)" cx="136.7" cy="267.15" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-14)" cx="133.38" cy="249.04" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-15)" cx="123.5" cy="234.49" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-16)" cx="113.63" cy="219.85" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-17)" cx="101.81" cy="206.72" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-18)" cx="88.29" cy="195.37" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-19)" cx="73.31" cy="186.02" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-20)" cx="57.18" cy="178.84" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-21)" cx="40.21" cy="173.97" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-22)" cx="22.72" cy="171.51" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-23)" cx="5.06" cy="171.51" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-24)" cx="140.32" cy="321.16" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-25)" cx="123.44" cy="253.86" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-26)" cx="113.57" cy="239.22" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-27)" cx="101.75" cy="226.1" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-28)" cx="88.23" cy="214.75" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-29)" cx="73.25" cy="205.39" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-30)" cx="57.12" cy="198.21" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-31)" cx="40.15" cy="193.34" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-32)" cx="22.66" cy="190.89" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-33)" cx="5" cy="190.89" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-34)" cx="136.58" cy="305.9" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-35)" cx="125.07" cy="271.98" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-36)" cx="113.51" cy="258.6" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-37)" cx="101.69" cy="245.48" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-38)" cx="88.17" cy="234.13" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-39)" cx="73.19" cy="224.77" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-40)" cx="57.06" cy="217.59" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-41)" cx="40.09" cy="212.72" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-42)" cx="22.6" cy="210.26" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-43)" cx="4.94" cy="210.26" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-44)" cx="140.21" cy="360.32" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-45)" cx="125.07" cy="291.98" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-46)" cx="113.45" cy="277.98" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-47)" cx="101.64" cy="264.85" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-48)" cx="88.11" cy="253.5" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-49)" cx="73.13" cy="244.15" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-50)" cx="57" cy="236.96" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-51)" cx="40.03" cy="232.1" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-52)" cx="22.54" cy="229.64" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-53)" cx="4.89" cy="229.64" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-54)" cx="136.46" cy="344.66" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-55)" cx="131.01" cy="327.86" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-56)" cx="123.27" cy="311.99" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-57)" cx="113.39" cy="297.35" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-58)" cx="101.58" cy="284.23" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-59)" cx="88.05" cy="272.88" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-60)" cx="73.08" cy="263.52" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-61)" cx="56.94" cy="256.34" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-62)" cx="39.97" cy="251.47" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-63)" cx="22.48" cy="249.02" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-64)" cx="4.83" cy="249.02" r="4.83"></circle><circle fill="url(#bcl-linear-gradient-65)" cx="4.83" cy="135.22" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-66)" cx="4.83" cy="97.97" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-67)" cx="4.83" cy="79.34" r="4.78"></circle><circle fill="url(#bcl-linear-gradient-68)" cx="22" cy="78.04" r="4.78"></circle><circle fill="url(#bcl-linear-gradient-69)" cx="4.83" cy="60.72" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-70)" cx="21.82" cy="51.89" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-71)" cx="31.63" cy="68.88" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-72)" cx="31.63" cy="88.5" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-73)" cx="21.82" cy="105.49" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-74)" cx="4.83" cy="116.6" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-75)" cx="4.83" cy="42.08" r="4.79"></circle><circle fill="url(#bcl-linear-gradient-76)" cx="23.26" cy="30.16" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-77)" cx="38.29" cy="42.78" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-78)" cx="48.1" cy="59.77" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-79)" cx="51.51" cy="79.09" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-80)" cx="48.1" cy="98.41" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-81)" cx="38.29" cy="115.4" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-82)" cx="23.26" cy="128.01" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-83)" cx="4.83" cy="23.45" r="4.81"></circle><circle fill="url(#bcl-linear-gradient-84)" cx="4.83" cy="4.83" r="4.83"></circle><path fill="url(#bcl-linear-gradient-85)" d="M112.14,69.1c-.72-1.7-.72-3,0-4s2-1.47,3.74-1.47h30.06A32.62,32.62,0,0,1,156,65.15a24.8,24.8,0,0,1,8.34,4.55A21.12,21.12,0,0,1,170,77.2a24.17,24.17,0,0,1,2.07,10.24,19.17,19.17,0,0,1-1.27,7.36,40.1,40.1,0,0,1-3.54,6.56,25.32,25.32,0,0,1,9.45,11.17,35.95,35.95,0,0,1,1.19,25.64,32,32,0,0,1-5.22,9.84,25.87,25.87,0,0,1-8.37,7,23.74,23.74,0,0,1-11.24,2.61H115.35a3.7,3.7,0,0,1-4-4V100.7a3.72,3.72,0,0,1,4-4l8,.14Zm41,72.42a9.06,9.06,0,0,0,5-1.28,9.42,9.42,0,0,0,3.22-3.41,16.91,16.91,0,0,0,1.73-4.68,25.15,25.15,0,0,0,.54-5.23,15,15,0,0,0-.81-4.62,19.17,19.17,0,0,0-2.2-4.61,13.55,13.55,0,0,0-3.35-3.55,6.85,6.85,0,0,0-4.08-1.4H127v28.78ZM133.42,79.67c1.16,2.81,2.32,5.65,3.48,8.5s2.37,5.69,3.62,8.5H146a11.11,11.11,0,0,0,7.57-2.5,8.45,8.45,0,0,0,2.87-6.72c0-2.9-.95-4.92-2.87-6.06A14.7,14.7,0,0,0,146,79.67Zm91.09,77.91a31.22,31.22,0,0,1-13.48-3,34.42,34.42,0,0,1-10.8-7.9,37,37,0,0,1-7.17-11.44,35.85,35.85,0,0,1-2.62-13.59V67.63a3.7,3.7,0,0,1,4-4h7.63A4,4,0,0,1,205,64.68a4,4,0,0,1,1.07,2.95V121.7a18.67,18.67,0,0,0,1.34,7.23,18.48,18.48,0,0,0,6.43,9.1,16.92,16.92,0,0,0,10.57,3.49,15.88,15.88,0,0,0,7.23-1.68,18,18,0,0,0,5.75-4.49,22.3,22.3,0,0,0,3.82-6.35,19.61,19.61,0,0,0,1.4-7.3V67.63a4,4,0,0,1,1.08-2.95,4.07,4.07,0,0,1,3-1.07h7.55a4.07,4.07,0,0,1,3,1.07,4,4,0,0,1,1.08,2.95V121.7a37.43,37.43,0,0,1-9.59,24.9,34.8,34.8,0,0,1-10.73,8A30.73,30.73,0,0,1,224.51,157.58Zm52-92.42a4.25,4.25,0,0,1,3.75-1.55H306a40.84,40.84,0,0,1,17.6,3.81,45.12,45.12,0,0,1,14.06,10.31,48.74,48.74,0,0,1,12.65,32.86A49,49,0,0,1,347,128.33a46.9,46.9,0,0,1-9.24,15,45.38,45.38,0,0,1-14.06,10.37A40.43,40.43,0,0,1,306,157.58h-26.5a3.7,3.7,0,0,1-4-4V109.79q0-9.37,2.28-9.37,2.13,0,5.48,7.76l7.63,18.07a7.41,7.41,0,0,1,.27,1.61v13.66H306A26.11,26.11,0,0,0,317.4,139a28.49,28.49,0,0,0,9.11-6.88,32.89,32.89,0,0,0,5.95-9.88,32.13,32.13,0,0,0,0-23.11,32.82,32.82,0,0,0-5.95-9.89,29.56,29.56,0,0,0-9-6.94A25.38,25.38,0,0,0,306,79.67H297.8l19.8,48.19a4,4,0,0,1,.07,3.14,3.92,3.92,0,0,1-2.47,2.08l-7.1,2.54a3.52,3.52,0,0,1-3,0,4.18,4.18,0,0,1-2.08-2.14l-26.5-64.33Q275.45,66.72,276.51,65.16Zm86.74,0A4.23,4.23,0,0,1,367,63.61H392.7a40.76,40.76,0,0,1,17.59,3.81,44.89,44.89,0,0,1,14.06,10.31A48.74,48.74,0,0,1,437,110.59a49,49,0,0,1-3.28,17.74,47,47,0,0,1-9.23,15,45.61,45.61,0,0,1-14.06,10.37,40.46,40.46,0,0,1-17.73,3.89H366.19a3.72,3.72,0,0,1-4-4V109.79q0-9.37,2.28-9.37t5.49,7.76l7.63,18.07a7.25,7.25,0,0,1,.26,1.61v13.66H392.7A26.14,26.14,0,0,0,404.14,139a28.45,28.45,0,0,0,9.1-6.88,32.72,32.72,0,0,0,6-9.88,32.27,32.27,0,0,0,0-23.11,32.65,32.65,0,0,0-6-9.89,29.32,29.32,0,0,0-9-6.94,25.31,25.31,0,0,0-11.5-2.61h-8.17l19.81,48.19a4.08,4.08,0,0,1,.07,3.14,3.94,3.94,0,0,1-2.48,2.08l-7.1,2.54a3.52,3.52,0,0,1-3,0,4.16,4.16,0,0,1-2.07-2.14l-26.5-64.33Q362.17,66.72,363.25,65.16Zm88.48,92.42a3.7,3.7,0,0,1-4-4V67.63a3.7,3.7,0,0,1,4-4h7.63a3.7,3.7,0,0,1,4,4V99.48l36.41-16.19V67.63a3.7,3.7,0,0,1,4-4h7.63a3.7,3.7,0,0,1,4,4v85.93a3.7,3.7,0,0,1-4,4h-7.63a3.7,3.7,0,0,1-4-4V125.19l-36.41,16.06v12.31a3.7,3.7,0,0,1-4,4Zm11.64-33.73,36.41-16.07v-7l-36.41,16.06ZM527.08,156q-1.08-1.54,0-3.95l35.21-85.94A3.78,3.78,0,0,1,566,63.61h8.57a3.8,3.8,0,0,1,3.75,2.54l35.2,85.94q1.07,2.4,0,3.95c-.71,1-2,1.54-3.75,1.54h-8.29a3.68,3.68,0,0,1-2.22-.74,4.84,4.84,0,0,1-1.53-1.81L570.32,88,548.5,141.52h35.07a3.79,3.79,0,0,1,3.75,2.54l3.21,8q1.07,2.4,0,3.95c-.71,1-2,1.54-3.75,1.54H530.83C529,157.58,527.79,157.07,527.08,156Z"></path><path fill="url(#bcl-linear-gradient-86)" d="M176.58,184.55h.66a.53.53,0,0,1,.6.6v6.76c0,.47-.2.67-.6.67h-.66c-8.56,0-14.79,7.63-14.79,15.92s6.1,15.92,14.79,15.92,14.79-7.63,14.79-15.92v-.6a.53.53,0,0,1,.6-.6h6.57a.53.53,0,0,1,.6.6v.6c0,12.6-9.49,23.95-22.56,23.95C163.84,232.45,154,221,154,208.5S163.58,184.55,176.58,184.55Zm49.43,0a24,24,0,1,1,0,47.9c-13,0-24.21-10.68-24.21-23.95A24.16,24.16,0,0,1,226,184.55Zm0,39.87a15.92,15.92,0,1,0-16-15.92A16.16,16.16,0,0,0,226,224.42Zm.26-19.77a3.82,3.82,0,1,1,0,7.63,4,4,0,0,1-4-3.78A3.88,3.88,0,0,1,226.27,204.65Zm26.61,3.85c0-12.41,9.56-23.95,22.56-23.95h.66a.53.53,0,0,1,.6.6v6.76c0,.47-.2.67-.6.67h-.66c-8.56,0-14.79,7.63-14.79,15.92s6.1,15.92,14.79,15.92c7.76,0,14.59-7,14.59-14.73h-8.22a1.82,1.82,0,0,1-2-2v-4a1.82,1.82,0,0,1,2-2H297a.37.37,0,0,1,.27.2v.27a22,22,0,0,1,.59,3.11c.07,1.13.14,2.19.14,3.25,0,12.54-9.49,23.89-22.56,23.89-9.55,0-17.45-6.5-20.83-14.93A24.44,24.44,0,0,1,252.88,208.5Zm51.89-23.29h4.64a2,2,0,0,1,1.73,1l17.51,30.65V193.11h-9.88a1.82,1.82,0,0,1-2-2V187.2a1.82,1.82,0,0,1,2-2h15.59a1.82,1.82,0,0,1,2,2v42.59a1.82,1.82,0,0,1-2,2h-4.58a2.1,2.1,0,0,1-1.79-1l-17.45-31v30a1.82,1.82,0,0,1-2,2h-3.78a1.82,1.82,0,0,1-2-2V187.2A1.82,1.82,0,0,1,304.77,185.21Zm41.54,0h3.78a1.82,1.82,0,0,1,2,2v42.59a1.82,1.82,0,0,1-2,2h-3.78a1.81,1.81,0,0,1-2-2V187.2A1.81,1.81,0,0,1,346.31,185.21Zm12.41,0H388.3a1.82,1.82,0,0,1,2,2v3.92a1.82,1.82,0,0,1-2,2H377.42v36.68a1.82,1.82,0,0,1-2,2h-3.78a1.82,1.82,0,0,1-2-2V193.11H358.72a1.81,1.81,0,0,1-2-2V187.2A1.81,1.81,0,0,1,358.72,185.21Zm38.21,0h3.78a1.82,1.82,0,0,1,2,2v42.59a1.82,1.82,0,0,1-2,2h-3.78a1.82,1.82,0,0,1-2-2V187.2A1.82,1.82,0,0,1,396.93,185.21Zm11.28,1.66c0-.66.33-1.66,2.12-1.66h4.11a1.85,1.85,0,0,1,1.86,1.26L430,219.71l10.75-26.54H423.4a2.11,2.11,0,0,1-1.86-1.26l-1.59-4a2.45,2.45,0,0,1-.26-1.12c0-.67.33-1.6,2.12-1.6h27.66c1.79,0,2.13.93,2.13,1.6a2.48,2.48,0,0,1-.27,1.12L434,230.52a2.1,2.1,0,0,1-1.86,1.26h-4.31a1.84,1.84,0,0,1-1.86-1.26l-17.44-42.59A2.14,2.14,0,0,1,408.21,186.87Zm50.89-1.66h27.33a1.82,1.82,0,0,1,2,2v3.92a1.82,1.82,0,0,1-2,2H464.87v8.62h16.39a1.82,1.82,0,0,1,2,2v4a1.82,1.82,0,0,1-2,2H464.87v14.13h21.56a1.82,1.82,0,0,1,2,2v4a1.82,1.82,0,0,1-2,2H459.1a1.82,1.82,0,0,1-2-2V187.2A1.82,1.82,0,0,1,459.1,185.21Zm56.53,44.58V187.2a1.82,1.82,0,0,1,2-2h3.78a1.82,1.82,0,0,1,2,2v36.62H545a1.82,1.82,0,0,1,2,2v4a1.82,1.82,0,0,1-2,2H517.62a2,2,0,0,1-1.46-.53A2.07,2.07,0,0,1,515.63,229.79Zm33.51.34a2.27,2.27,0,0,1,.26-1.07l17.38-42.59a1.86,1.86,0,0,1,1.86-1.26H573a1.85,1.85,0,0,1,1.86,1.26l15.33,37.42h10.21c3.65,0,5.18-3.91,5.18-7a10.14,10.14,0,0,0-.6-3.72,6,6,0,0,0-1.86-2.25c-2.06-1.33-4.71-1.4-7-1.4l-6,.14h-.2a.31.31,0,0,1-.33-.2l-3.12-7.3a.43.43,0,0,1-.06-.26c0-.14.13-.2.39-.2h.47c2.25,0,4.24.26,6.5.26,3.65,0,8.42-.4,8.42-5.17,0-2.72-2.91-3.59-5.17-3.59H584a1.87,1.87,0,0,1-1.86-1.19l-1.66-4a2.76,2.76,0,0,1-.26-1.19c0-.6.26-1.6,2-1.6H597c6.43,0,13.2,3.92,13.2,11a11.87,11.87,0,0,1-2.65,7.62,15.39,15.39,0,0,1,6.57,13c0,8-5.05,14.92-13.74,14.92H586.29a1.84,1.84,0,0,1-1.86-1.26l-13.6-33.17L560,223.82H576.2a1.87,1.87,0,0,1,1.86,1.2l1.73,4a2.73,2.73,0,0,1,.26,1.19c0,.6-.26,1.59-2.12,1.59H551.26a2.07,2.07,0,0,1-1.86-.79A1.33,1.33,0,0,1,549.14,230.13Z"></path></g></g></symbol></svg>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<g id="_s" stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></g>
+</defs>
+<symbol id="i-back" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></g></symbol>
+<symbol id="i-fwd" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></g></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></g></symbol>
+<symbol id="i-chev-d" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></g></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></g></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round"><path d="M5 12h14"/></g></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></g></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></g></symbol>
+<symbol id="i-check-c" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.2l2.8 2.8 5.4-5.4"/></g></symbol>
+<symbol id="i-x-c" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></g></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/></g></symbol>
+<symbol id="i-phone-end" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 14.2c5.2-4.3 13.8-4.3 19 0l-2 2.4a1.6 1.6 0 0 1-2 .3l-2.6-1.5a1.6 1.6 0 0 1-.8-1.4v-1.6a12.6 12.6 0 0 0-6.2 0V14a1.6 1.6 0 0 1-.8 1.4L4.5 16.9a1.6 1.6 0 0 1-2-.3z"/></g></symbol>
+<symbol id="i-phone-in" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/><path d="M21 2l-5 5M16 2.6V7h4.4"/></g></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11.5" rx="3"/><path d="M5 10.5v1.5a7 7 0 0 0 14 0v-1.5M12 19v3M8.5 22h7"/></g></symbol>
+<symbol id="i-mic-off" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v-1a3 3 0 0 0-6 0v6M9 13.5a3 3 0 0 0 4.8 1.2"/><path d="M5 10.5v1.5a7 7 0 0 0 10.4 6.1M18.8 14.4c.13-.77.2-1.58.2-2.4v-1.5M12 19v3M8.5 22h7"/><path d="M3 3l18 18"/></g></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.6l12 7.4-12 7.4z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><g fill="currentColor"><rect x="6.5" y="4.5" width="4" height="15" rx="1.4"/><rect x="13.5" y="4.5" width="4" height="15" rx="1.4"/></g></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.4" fill="currentColor"/></symbol>
+<symbol id="i-skip" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 5l9 7-9 7z" fill="currentColor"/><path d="M19 5v14" fill="none"/></g></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></g></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></g></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M6.5 21v-6M12 21V5M17.5 21v-9"/></g></symbol>
+<symbol id="i-trend" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7.5-7.5"/><path d="M15 7.5h5.5V13"/></g></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="16" cy="7" r="2.4"/><circle cx="10" cy="17" r="2.4"/></g></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.6L12 3.5l8.5 7.1"/><path d="M5.5 9.6V20a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V9.6"/></g></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5V3M7.5 7.5L12 3l4.5 4.5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></g></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12.5M7.5 11L12 15.5 16.5 11"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></g></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13.5h6M9 17h4"/></g></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20.5 20.5L16 16"/></g></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round"><path d="M3.5 6h17M6.5 12h11M10 18h4"/></g></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6l9.3 16.2a.6.6 0 0 1-.5.9H3.2a.6.6 0 0 1-.5-.9z"/><path d="M12 10v4.2M12 17.6v.1"/></g></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11.2v5M12 8.1v.1"/></g></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l7.5 3v6c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5v-6z"/><path d="M8.8 11.8l2.4 2.4 4.2-4.6"/></g></symbol>
+<symbol id="i-device" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.6"/><path d="M10.5 18.5h3"/></g></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6.8V12l3.4 2.1"/></g></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2.4"/><path d="M3.5 10h17M8 3v4M16 3v4"/></g></symbol>
+<symbol id="i-message" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 15a2 2 0 0 1-2 2H8.5L4 21V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></g></symbol>
+<symbol id="i-ai" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5l1.75 4.75L16.5 9l-4.75 1.75L10 15.5 8.25 10.75 3.5 9l4.75-1.75z"/><path d="M17.8 14.2l.85 2.15 2.15.85-2.15.85-.85 2.15-.85-2.15-2.15-.85 2.15-.85z"/></g></symbol>
+<symbol id="i-merge" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v2.5A5.5 5.5 0 0 0 10.5 12H18"/><path d="M5 20v-2.5A5.5 5.5 0 0 1 10.5 12"/><path d="M14.8 8.6L18.2 12l-3.4 3.4"/></g></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18.5 16.5v-5.2a6.5 6.5 0 0 0-13 0v5.2L3.8 19h16.4z"/><path d="M9.9 21.4a2.3 2.3 0 0 0 4.2 0"/></g></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 12a8.5 8.5 0 1 1-2.8-6.3"/><path d="M20.8 4v5.2h-5.2"/></g></symbol>
+<symbol id="i-rotate-l" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.8-6.3"/><path d="M3.2 4v5.2h5.2"/></g></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></g></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></g></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16.5 16.5L21 12l-4.5-4.5M21 12H10"/></g></symbol>
+<symbol id="i-keypad" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="6" cy="5.5" r="1.7"/><circle cx="12" cy="5.5" r="1.7"/><circle cx="18" cy="5.5" r="1.7"/><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/><circle cx="6" cy="18.5" r="1.7"/><circle cx="12" cy="18.5" r="1.7"/><circle cx="18" cy="18.5" r="1.7"/></g></symbol>
+<symbol id="i-volume" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9.5h3.2L12.5 6v12L8.2 14.5H5z"/><path d="M16.2 9.2a4 4 0 0 1 0 5.6M18.9 6.6a7.8 7.8 0 0 1 0 10.8"/></g></symbol>
+<symbol id="i-speaker" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9.5h3.2L12.5 6v12L8.2 14.5H5z"/><path d="M16.2 9.2a4 4 0 0 1 0 5.6"/></g></symbol>
+<symbol id="i-headphones" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15.5V12a8 8 0 0 1 16 0v3.5"/><rect x="2.5" y="14" width="4.5" height="6.5" rx="2"/><rect x="17" y="14" width="4.5" height="6.5" rx="2"/></g></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10.5" rx="2.4"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></g></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.4"/><path d="M3.2 7l8.8 5.8L20.8 7"/></g></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.7-6.5 10-6.5S22 12 22 12s-3.7 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></g></symbol>
+<symbol id="i-target" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.6"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></g></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.6 13.4H11L10.4 22l8.6-11.6H12.4z"/></g></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4.2L19.7 8.5a2.2 2.2 0 0 0-3.1-3.1L5 16.9z"/><path d="M14.8 6.8l3.1 3.1"/></g></symbol>
+<symbol id="i-flag" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22V3.5"/><path d="M5 4.5h11.5l-2.2 3.6 2.2 3.6H5z"/></g></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round"><path d="M8.5 6h12M8.5 12h12M8.5 18h12"/></g><g fill="currentColor"><circle cx="4" cy="6" r="1.3"/><circle cx="4" cy="12" r="1.3"/><circle cx="4" cy="18" r="1.3"/></g></symbol>
+<symbol id="i-external" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14.5V18a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 18V8.5A2.5 2.5 0 0 1 6 6h3.5"/></g></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12.5" height="12.5" rx="2.4"/><path d="M5.5 15.5H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8.5a2 2 0 0 1 2 2v.5"/></g></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l2.75 5.6 6.15.9-4.45 4.35 1.05 6.15L12 17.6l-5.5 2.9 1.05-6.15L3.1 10l6.15-.9z"/></g></symbol>
+<symbol id="i-wifi" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.9" stroke-linecap="round"><path d="M2.5 8.8a15 15 0 0 1 19 0"/><path d="M6 12.4a10 10 0 0 1 12 0"/><path d="M9.4 15.9a5 5 0 0 1 5.2 0"/></g><circle cx="12" cy="19.2" r="1.3" fill="currentColor"/></symbol>
+<symbol id="i-cell" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="2.1" stroke-linecap="round"><path d="M4 20v-3.2M9.3 20v-7.4M14.6 20v-11M19.9 20V5"/></g></symbol>
+<symbol id="i-battery" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="17" height="10" rx="2.6"/><path d="M21.6 10.6v2.8"/></g><rect x="4" y="9" width="11" height="6" rx="1.4" fill="currentColor"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></g></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21.5s7-6.4 7-11.5a7 7 0 1 0-14 0c0 5.1 7 11.5 7 11.5z"/><circle cx="12" cy="10" r="2.6"/></g></symbol>
+<symbol id="i-swap" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14M14.5 4.5L18 8l-3.5 3.5"/><path d="M20 16H6M9.5 12.5L6 16l3.5 3.5"/></g></symbol>
+<symbol id="i-coin" viewBox="0 0 24 24"><g stroke="currentColor" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M14.6 9.2A3 3 0 0 0 12 7.8c-1.6 0-2.8 1-2.8 2.2s1.2 2 2.8 2.2 2.8 1 2.8 2.2-1.2 2.2-2.8 2.2a3 3 0 0 1-2.6-1.4M12 6.2v11.6"/></g></symbol>
+</svg>
+
+<div class="wrap">
+<header class="masthead">
+  <div class="glow" style="width:620px;height:620px;top:-280px;left:-180px;opacity:.7"></div>
+  <svg class="lock" style="width:260px;height:141px;position:relative"><use href="#logo-hb"/></svg>
+  <span class="eyebrow">Mobile dialer &middot; Android &middot; v2 design</span>
+  <h1 style="margin-top:14px">The rep's phone, made calm.</h1>
+  <p>Twenty-six high-fidelity screens for the HireBuddha conference dialer, rebuilt on the Buddha Cognitive Lab
+     design system. Every screen is real product state &mdash; drawn from the shipped Kotlin, the backend contract
+     and the ADR &mdash; not lorem. Gold marks nine screens that do not exist in the app today.</p>
+  <div class="meta">
+    <span class="tag gold">412 &times; 892 dp &middot; Pixel class</span>
+    <span class="tag">Dark canvas #0a0908</span>
+    <span class="tag">Gold #edab48</span>
+    <span class="tag">Space Grotesk / Hanken Grotesk / JetBrains Mono</span>
+    <span class="tag">Lucide-style 1.75px icons</span>
+  </div>
+</header>
+
+<div class="act">
+  <h2>I &middot; Arrival</h2><span class="rule"></span>
+  <p>Brand first. A rep installs a sideloaded APK from a link &mdash; the first three seconds have to say who this is from.</p>
+</div>
+<div class="grid">
+
+<!-- 01 SPLASH -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:520px;height:520px;top:120px;left:-54px"></div>
+  <div class="watermark" style="right:-70px;top:60px;width:230px;height:580px;opacity:.05">
+    <svg style="width:230px;height:580px"><use href="#logo-mark"/></svg></div>
+  <div class="statusbar"><span>9:41</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body center" style="position:relative;z-index:2;justify-content:center;align-items:center">
+    <svg style="width:244px;height:133px"><use href="#logo-hb"/></svg>
+    <div class="t-eyebrow mt20" style="color:var(--fg-subtle)">Conference dialer</div>
+    <div class="dots lg mt32"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+  <div class="col center g10" style="padding-bottom:30px;position:relative;z-index:2">
+    <div class="t-micro" style="letter-spacing:.06em">A product of</div>
+    <svg style="width:138px;height:82px;opacity:.9"><use href="#logo-bcl"/></svg>
+    <div class="t-eyebrow" style="font-size:9px;color:var(--fg-faint)">Towards digital enlightenment</div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">01</div><h3>Splash<span class="new">new</span></h3>
+<p>Both brands, in the right hierarchy: Hire&nbsp;Buddha owns the centre, Buddha Cognitive Lab signs the bottom.
+   The five-dot row is the dotted-B motif reused as the loading state &mdash; it runs while the refresh token is checked.
+   Today this moment is a blank white Compose surface.</p></figcaption>
+</figure>
+
+<!-- 02 LOGIN -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:460px;height:460px;top:-190px;left:-40px;opacity:.85"></div>
+  <div class="statusbar"><span>9:41</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body pad" style="position:relative;z-index:2">
+    <div style="padding-top:54px">
+      <svg style="width:48px;height:121px"><use href="#logo-mark"/></svg>
+      <h1 class="t-h1 mt24">Sign in</h1>
+      <p class="t-body mt8">Use the same HireBuddha account you use on the web.</p>
+    </div>
+    <div class="col g14 mt32">
+      <div class="field"><label>Work email</label>
+        <div class="input"><svg class="i"><use href="#i-mail"/></svg><span>priya@zenith-realty.in</span></div></div>
+      <div class="field"><label>Password</label>
+        <div class="input focus"><svg class="i"><use href="#i-lock"/></svg>
+          <span class="t-mono" style="letter-spacing:.22em">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+          <span class="caret"></span><span class="grow"></span>
+          <svg class="i" style="color:var(--fg-subtle)"><use href="#i-eye"/></svg></div></div>
+      <button class="btn btn-primary block lg mt8">Sign in</button>
+      <button class="btn btn-ghost block sm" style="height:44px">Server settings</button>
+    </div>
+    <div class="grow"></div>
+    <div class="col center g8" style="padding-bottom:22px">
+      <div class="row g8"><span class="t-micro">Buddha Cognitive Lab</span>
+        <span class="t-micro" style="color:var(--fg-faint)">&middot;</span>
+        <span class="t-micro">v1.0.1 (3)</span></div>
+    </div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">02</div><h3>Sign in</h3>
+<p>Same three fields as today, given air and a brand anchor. <em>Server settings</em> stays &mdash; it is a real need for a
+   sideloaded build &mdash; but demoted to a ghost link instead of a toggle that expands the form mid-flow.</p></figcaption>
+</figure>
+
+<!-- 03 ROLE BLOCKED -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>9:41</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body pad center" style="justify-content:center;text-align:center">
+    <div class="watermark" style="left:50%;margin-left:-115px;top:150px;width:230px;height:580px"></div>
+    <div style="width:64px;height:64px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border);
+         display:flex;align-items:center;justify-content:center;color:var(--fg-subtle)">
+      <svg class="i" style="width:28px;height:28px"><use href="#i-device"/></svg></div>
+    <h2 class="t-h2 mt24">This app is for reps</h2>
+    <p class="t-body mt10" style="max-width:30ch">Your account is a partner admin. Campaign calling from a
+       personal SIM is limited to tenant admins and reps &mdash; everything else lives in the web console.</p>
+    <div class="card tight mt24" style="width:100%">
+      <div class="row g10"><div class="avatar gold">RG</div>
+        <div class="col grow"><div class="t-h3">Rahul Gondole</div>
+          <div class="t-cap">rahul@buddhalab.in &middot; Partner admin</div></div></div>
+    </div>
+    <button class="btn btn-secondary block mt20">Open the web console
+      <svg class="i"><use href="#i-external"/></svg></button>
+    <button class="btn btn-ghost block sm mt4" style="height:44px">Sign in as someone else</button>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">03</div><h3>Role gate</h3>
+<p>FR-A2 currently renders as a bare sentence. Naming the role, showing whose account it is, and giving one
+   real exit turns a dead end into a decision.</p></figcaption>
+</figure>
+
+<!-- 04 SETUP -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:420px;height:420px;top:-200px;right:-120px;opacity:.55"></div>
+  <div class="statusbar"><span>9:41</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar pad" style="padding-left:20px"><span class="t-eyebrow grow">Step 3 of 3</span>
+    <span class="t-mono" style="font-size:11px;color:var(--fg-subtle)">~2 min</span></div>
+  <div class="body pad scroll" style="position:relative;z-index:2">
+    <h1 class="t-h1">Set up this phone</h1>
+    <p class="t-body mt8">Priya &mdash; HireBuddha needs to place two calls from your SIM and join them, so Android
+       asks for a little more than usual.</p>
+
+    <div class="col g10 mt20">
+      <div class="card tight">
+        <div class="row g12">
+          <div class="step done" style="padding:0"><div class="node"><svg class="i"><use href="#i-check"/></svg></div></div>
+          <div class="col grow g4"><div class="t-h3">Calling permissions</div>
+            <div class="t-cap">Phone, SIM list, notifications</div></div>
+          <span class="pill pos"><span class="dot"></span>Granted</span>
+        </div>
+      </div>
+      <div class="card tight">
+        <div class="row g12">
+          <div class="step done" style="padding:0"><div class="node"><svg class="i"><use href="#i-check"/></svg></div></div>
+          <div class="col grow g4"><div class="t-h3">Default phone app</div>
+            <div class="t-cap">So we can hear the lead pick up and merge</div></div>
+          <span class="pill pos"><span class="dot"></span>Active</span>
+        </div>
+      </div>
+
+      <div class="card gold pad-lg">
+        <div class="row g12 mb16">
+          <div class="step now" style="padding:0"><div class="node"><span class="t-mono" style="font-size:10px">3</span></div></div>
+          <div class="col grow g4"><div class="t-h3">Verify your number</div>
+            <div class="t-cap">One 15-second call to your AI agent, so the system can recognise your caller ID</div></div>
+        </div>
+        <div class="t-eyebrow mb8">Calling SIM</div>
+        <div class="col g8">
+          <div class="row g10" style="padding:10px 12px;border-radius:var(--r-md);background:var(--surface-2);
+               border:1px solid var(--border-gold)">
+            <span class="radio on"></span>
+            <div class="col grow"><div style="font-size:14px;font-weight:600">Jio &middot; SIM 1</div>
+              <div class="t-micro t-mono">+91 98••• ••210</div></div>
+            <span class="pill gold">Recommended</span></div>
+          <div class="row g10" style="padding:10px 12px;border-radius:var(--r-md);background:var(--surface-2);
+               border:1px solid var(--border)">
+            <span class="radio"></span>
+            <div class="col grow"><div style="font-size:14px;font-weight:600;color:var(--fg-muted)">Airtel &middot; SIM 2</div>
+              <div class="t-micro t-mono">+91 70••• ••884</div></div></div>
+        </div>
+        <button class="btn btn-hero block mt16"><svg class="i"><use href="#i-phone"/></svg>Place the verification call</button>
+        <p class="t-micro mt10" style="text-align:center">Free on your plan. We never read your call log.</p>
+      </div>
+    </div>
+    <button class="btn btn-ghost block sm mt12" style="height:44px">Having trouble? Read the setup guide</button>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">04</div><h3>Device setup</h3>
+<p>Three steps collapse as they complete so only the live one carries weight. Two things the current screen never
+   says: <em>why</em> the dialer role is needed in the rep's own terms, and which SIM number each choice maps to &mdash;
+   reps with two SIMs guess today.</p></figcaption>
+</figure>
+
+<!-- 05 VERIFYING -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:520px;height:520px;top:110px;left:-54px;opacity:.9"></div>
+  <div class="statusbar"><span>9:41</span><span class="icons">
+    <svg class="i" style="color:var(--accent)"><use href="#i-phone"/></svg>
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body pad center" style="position:relative;z-index:2;justify-content:center;text-align:center">
+    <div class="ring" style="width:132px;height:132px">
+      <svg width="132" height="132"><circle cx="66" cy="66" r="60" stroke="rgba(255,240,220,.08)" stroke-width="3" fill="none"/>
+        <circle cx="66" cy="66" r="60" stroke="#edab48" stroke-width="3" fill="none" stroke-linecap="round"
+                stroke-dasharray="377" stroke-dashoffset="139"/></svg>
+      <div class="val"><svg class="i" style="width:30px;height:30px;color:var(--accent)"><use href="#i-phone"/></svg>
+        <div class="t-mono mt6" style="font-size:12px;color:var(--gold-300)">00:11</div></div>
+    </div>
+    <h2 class="t-h2 mt28">Listening for your tones</h2>
+    <p class="t-body mt8" style="max-width:31ch">Stay on the call. We are playing a short keypad code so the
+       agent can match this phone to you.</p>
+    <div class="card tight mt24" style="width:100%;text-align:left">
+      <div class="stepper">
+        <div class="step done"><div class="rail"></div><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col"><div class="lbl">Phone registered</div></div></div>
+        <div class="step done"><div class="rail"></div><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col"><div class="lbl">Connected to +91 80 4718 2200</div></div></div>
+        <div class="step now"><div class="rail"></div><div class="node"><span class="dots"><i></i></span></div>
+          <div class="col"><div class="lbl">Sending code &lowast;4821#</div><div class="sub">Round 2 of 3</div></div></div>
+        <div class="step"><div class="node"></div>
+          <div class="col"><div class="lbl">Caller ID confirmed</div></div></div>
+      </div>
+    </div>
+    <button class="btn btn-secondary block mt16">Cancel and try later</button>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">05</div><h3>Verification, live<span class="new">new</span></h3>
+<p>The riskiest 40 seconds in the product &mdash; three DTMF rounds, then a 20&nbsp;s caller-ID fallback &mdash; is today a
+   single line of changing text. Showing the rounds turns an unexplained wait into a process the rep can trust,
+   and tells support exactly where it failed.</p></figcaption>
+</figure>
+
+<!-- 06 READY -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:560px;height:560px;top:40px;left:-74px;opacity:.75"></div>
+  <div class="watermark" style="left:50%;margin-left:-140px;top:90px;width:280px;height:700px;opacity:.06">
+    <svg style="width:280px;height:700px"><use href="#logo-mark"/></svg></div>
+  <div class="statusbar"><span>9:42</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body pad center" style="position:relative;z-index:2;justify-content:center;text-align:center">
+    <div style="width:72px;height:72px;border-radius:50%;background:var(--positive-quiet);
+         border:1px solid rgba(123,180,135,.42);display:flex;align-items:center;justify-content:center;color:var(--positive)">
+      <svg class="i" style="width:34px;height:34px;stroke-width:2"><use href="#i-check"/></svg></div>
+    <h2 class="t-h2 mt24">This phone is ready</h2>
+    <p class="t-body mt8" style="max-width:30ch">Your agent will recognise calls from this number from now on.</p>
+    <div class="card mt24" style="width:100%;text-align:left">
+      <div class="row between"><span class="t-cap">Verified number</span>
+        <span class="t-mono" style="font-size:13px">+91 98••• ••210</span></div>
+      <hr class="hairline" style="margin:12px 0">
+      <div class="row between"><span class="t-cap">Calling SIM</span><span style="font-size:13px">Jio &middot; SIM 1</span></div>
+      <hr class="hairline" style="margin:12px 0">
+      <div class="row between"><span class="t-cap">Calling window</span>
+        <span class="t-mono" style="font-size:13px">09:00 &ndash; 21:00 IST</span></div>
+      <hr class="hairline" style="margin:12px 0">
+      <div class="row between"><span class="t-cap">Daily cap</span><span class="t-mono" style="font-size:13px">150 calls</span></div>
+    </div>
+    <button class="btn btn-primary block lg mt20">Start working</button>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">06</div><h3>Ready<span class="new">new</span></h3>
+<p>The two server-side rules that will silently stop a rep mid-afternoon &mdash; the calling-hours window and the
+   150-call daily cap &mdash; are introduced here, once, before they can surprise anyone.</p></figcaption>
+</figure>
+
+</div>
+
+<div class="act">
+  <h2>II &middot; The day</h2><span class="rule"></span>
+  <p>A rep opens this app twenty times a day. The first screen should answer &ldquo;what now?&rdquo;, not &ldquo;which campaign?&rdquo;</p>
+</div>
+<div class="grid">
+
+<!-- 07 TODAY -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:420px;height:420px;top:-215px;right:-130px;opacity:.6"></div>
+  <div class="statusbar"><span>9:41</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 14px 0 20px">
+    <div class="col grow"><span class="t-eyebrow">Tuesday, 21 Sep</span>
+      <span class="t-h3 mt4" style="font-size:16px">Good morning, Priya</span></div>
+    <div class="avatar">PS</div></div>
+  <div class="body pad scroll" style="position:relative;z-index:2">
+
+    <div class="card gold pad-lg">
+      <div class="row g16">
+        <div class="ring" style="width:84px;height:84px">
+          <svg width="84" height="84"><circle cx="42" cy="42" r="36" stroke="rgba(255,240,220,.09)" stroke-width="6" fill="none"/>
+            <circle cx="42" cy="42" r="36" stroke="#edab48" stroke-width="6" fill="none" stroke-linecap="round"
+                    stroke-dasharray="226" stroke-dashoffset="163"/></svg>
+          <div class="val"><span class="t-num" style="font-size:22px">42</span>
+            <span class="t-micro t-mono" style="margin-top:1px">of 150</span></div></div>
+        <div class="col grow g6">
+          <div class="t-eyebrow">Today's calls</div>
+          <div class="t-body" style="color:var(--fg);font-size:14.5px;line-height:1.4">108 left on your daily cap</div>
+          <div class="row g6 mt4"><span class="pill pos"><span class="dot"></span>Window open</span>
+            <span class="t-micro t-mono">closes 21:00</span></div>
+        </div>
+      </div>
+      <hr class="hairline" style="margin:16px 0 14px">
+      <div class="cols3">
+        <div class="col g4"><span class="t-num" style="font-size:22px">61<span style="font-size:13px">%</span></span>
+          <span class="t-micro">answered</span></div>
+        <div class="col g4"><span class="t-num pos" style="font-size:22px">9</span><span class="t-micro">interested</span></div>
+        <div class="col g4"><span class="t-num" style="font-size:22px">34<span style="font-size:13px">m</span></span>
+          <span class="t-micro">talk time</span></div>
+      </div>
+    </div>
+
+    <div class="t-eyebrow muted mt24 mb8">Pick up where you left off</div>
+    <div class="card" style="border-color:var(--border-gold)">
+      <div class="row g12">
+        <div style="width:40px;height:40px;border-radius:13px;background:var(--accent-quiet);display:flex;
+             align-items:center;justify-content:center;color:var(--accent)">
+          <svg class="i"><use href="#i-pause"/></svg></div>
+        <div class="col grow g4"><div class="t-h3 ell">Pune &mdash; Q3 site visits</div>
+          <div class="t-cap">Paused after lead 43 &middot; 8 min ago</div></div>
+      </div>
+      <div class="bar mt14"><i style="width:29%"></i></div>
+      <div class="row between mt8"><span class="t-micro t-mono">43 / 148 called</span>
+        <span class="t-micro t-mono">105 left</span></div>
+      <button class="btn btn-primary block mt14"><svg class="i"><use href="#i-play"/></svg>Resume calling</button>
+    </div>
+
+    <div class="row between mt24 mb8"><span class="t-eyebrow muted">Assigned to you</span>
+      <span class="t-micro gold">See all</span></div>
+    <div class="col g10">
+      <div class="card tight"><div class="row g12">
+        <div class="ring" style="width:38px;height:38px"><svg width="38" height="38">
+          <circle cx="19" cy="19" r="15.5" stroke="rgba(255,240,220,.09)" stroke-width="3" fill="none"/>
+          <circle cx="19" cy="19" r="15.5" stroke="#7bb487" stroke-width="3" fill="none" stroke-linecap="round"
+                  stroke-dasharray="97" stroke-dashoffset="11"/></svg></div>
+        <div class="col grow g4"><div class="t-h3 ell">Kharadi resale &mdash; warm list</div>
+          <div class="t-cap">184 / 200 &middot; 23 interested</div></div>
+        <svg class="i" style="color:var(--fg-faint)"><use href="#i-chev-r"/></svg></div></div>
+      <div class="card tight"><div class="row g12">
+        <div class="ring" style="width:38px;height:38px"><svg width="38" height="38">
+          <circle cx="19" cy="19" r="15.5" stroke="rgba(255,240,220,.09)" stroke-width="3" fill="none"/></svg>
+          <div class="val"><svg class="i" style="width:14px;height:14px;color:var(--fg-faint)"><use href="#i-clock"/></svg></div></div>
+        <div class="col grow g4"><div class="t-h3 ell">Baner developer leads</div>
+          <div class="t-cap">Not started &middot; 320 leads</div></div>
+        <svg class="i" style="color:var(--fg-faint)"><use href="#i-chev-r"/></svg></div></div>
+    </div>
+
+    <div class="card tight mt16" style="background:none;border-style:dashed">
+      <div class="row g10"><svg class="i" style="color:var(--gold-300);width:17px;height:17px"><use href="#i-rotate-l"/></svg>
+        <div class="col grow"><div class="t-cap" style="color:var(--fg-muted)">2 callbacks due today</div></div>
+        <span class="pill gold">11:30, 16:00</span></div></div>
+    <div style="height:96px"></div>
+  </div>
+  <div class="tabbar glass glass-strong">
+    <div class="tab on"><svg class="i"><use href="#i-home"/></svg><span>Today</span></div>
+    <div class="tab"><svg class="i"><use href="#i-list"/></svg><span>Campaigns</span></div>
+    <div class="tab"><svg class="i"><use href="#i-chart"/></svg><span>Insights</span></div>
+    <div class="tab"><svg class="i"><use href="#i-sliders"/></svg><span>Settings</span></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">07</div><h3>Today<span class="new">new</span></h3>
+<p>A home tab that did not exist: the app opens straight onto a campaign list. Cap, calling window, today's
+   numbers and the one paused run are the four things a rep actually needs at 9:41. The cap ring is deliberately
+   the biggest object on screen &mdash; it is the constraint that ends their day.</p></figcaption>
+</figure>
+
+<!-- 08 CAMPAIGNS -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:06</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 20px"><span class="ttl">Campaigns</span>
+    <button class="iconbtn"><svg class="i"><use href="#i-search"/></svg></button>
+    <button class="iconbtn"><svg class="i"><use href="#i-filter"/></svg></button></div>
+  <div class="body pad scroll">
+    <div class="chiprow mb14" style="margin-left:-2px">
+      <span class="chip on">All 6</span><span class="chip">Running 1</span>
+      <span class="chip">Not started 2</span><span class="chip">Done 3</span></div>
+
+    <div class="col g10">
+      <div class="card" style="border-color:var(--border-gold);
+           background:linear-gradient(180deg,rgba(237,171,72,.10) 0%,rgba(20,18,16,1) 62%)">
+        <div class="row g10 mb12"><span class="pill gold"><span class="dot"></span>Live now</span>
+          <span class="grow"></span><span class="t-micro t-mono">lead 44 of 148</span></div>
+        <div class="t-h3 ell" style="font-size:16px">Pune &mdash; Q3 site visits</div>
+        <div class="t-cap mt4">Ananya &middot; Site-visit qualifier &middot; +91 80 4718 2200</div>
+        <div class="bar mt14"><i style="width:30%"></i></div>
+        <div class="row between mt8"><span class="t-micro t-mono">44 called &middot; 12 interested</span>
+          <span class="t-micro t-mono gold">In conversation 01:07</span></div>
+        <button class="btn btn-primary block sm mt14" style="height:42px">
+          <svg class="i"><use href="#i-phone"/></svg>Open live run</button>
+      </div>
+
+      <div class="card">
+        <div class="row"><div class="t-h3 grow ell">Kharadi resale &mdash; warm list</div>
+          <span class="pill pos"><span class="dot"></span>Done</span></div>
+        <div class="t-cap mt4">Ananya &middot; 200 leads &middot; Created 14 Sep</div>
+        <div class="bar pos mt14"><i style="width:92%"></i></div>
+        <div class="row between mt8"><span class="t-micro t-mono">184 called &middot; 23 interested</span>
+          <span class="t-micro t-mono">68% answered</span></div>
+      </div>
+
+      <div class="card">
+        <div class="row"><div class="t-h3 grow ell">Baner developer leads</div>
+          <span class="pill">Not started</span></div>
+        <div class="t-cap mt4">Vikram &middot; 320 leads &middot; Assigned to you + 2</div>
+        <div class="bar mt14"><i style="width:0%"></i></div>
+        <div class="row between mt8"><span class="t-micro t-mono">0 called</span>
+          <span class="t-micro t-mono">320 waiting</span></div>
+      </div>
+
+      <div class="card">
+        <div class="row"><div class="t-h3 grow ell">Hinjewadi cold outreach</div>
+          <span class="pill neg"><span class="dot"></span>Needs attention</span></div>
+        <div class="t-cap mt4">Agent has no phone number assigned</div>
+        <div class="bar mt14"><i style="width:8%"></i></div>
+        <div class="row between mt8"><span class="t-micro t-mono">24 called &middot; 0 interested</span>
+          <span class="t-micro t-mono neg">Paused by server</span></div>
+      </div>
+    </div>
+    <div style="height:150px"></div>
+  </div>
+  <div class="fab"><svg class="i"><use href="#i-plus"/></svg>New campaign</div>
+  <div class="tabbar glass glass-strong">
+    <div class="tab"><svg class="i"><use href="#i-home"/></svg><span>Today</span></div>
+    <div class="tab on"><svg class="i"><use href="#i-list"/></svg><span>Campaigns</span></div>
+    <div class="tab"><svg class="i"><use href="#i-chart"/></svg><span>Insights</span></div>
+    <div class="tab"><svg class="i"><use href="#i-sliders"/></svg><span>Settings</span></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">08</div><h3>Campaigns</h3>
+<p>Cards carry the agent and its DID, because &ldquo;which Buddha is calling?&rdquo; is the first thing a rep checks. The
+   fourth card is a state the app has no design for today: a campaign the server refused to run. Status counts
+   live in the filter chips so the list itself stays quiet.</p></figcaption>
+</figure>
+
+<!-- 09 CAMPAIGN DETAIL -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:08</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-back"/></svg></button>
+    <span class="ttl">Baner developer leads</span>
+    <button class="iconbtn"><svg class="i"><use href="#i-more"/></svg></button></div>
+  <div class="body pad scroll">
+    <div class="card gold pad-lg">
+      <div class="row g12 mb14">
+        <div class="avatar gold" style="width:42px;height:42px;border-radius:14px">
+          <svg class="i" style="width:20px;height:20px"><use href="#i-ai"/></svg></div>
+        <div class="col grow g4"><div class="t-h3">Ananya</div>
+          <div class="t-cap t-mono" style="font-size:11px">+91 80 4718 2200 &middot; site-visit qualifier</div></div>
+        <span class="pill pos"><span class="dot"></span>Ready</span></div>
+      <button class="btn btn-hero block lg"><svg class="i"><use href="#i-phone"/></svg>Start calling &mdash; 320 leads</button>
+      <div class="row center g6 mt10"><svg class="i" style="width:13px;height:13px;color:var(--fg-subtle)"><use href="#i-clock"/></svg>
+        <span class="t-micro">About 4 h at your usual pace &middot; cap allows 108 more today</span></div>
+    </div>
+
+    <div class="cols2 mt14">
+      <div class="card tight"><div class="t-eyebrow muted">Called</div>
+        <div class="t-num mt6">0<span style="font-size:15px;color:var(--fg-subtle)"> / 320</span></div></div>
+      <div class="card tight"><div class="t-eyebrow muted">Interested</div>
+        <div class="t-num mt6">&mdash;</div></div>
+    </div>
+
+    <div class="card mt14"><div class="row between mb12"><span class="t-h3">Funnel</span>
+      <span class="t-micro">all time</span></div>
+      <div class="fun">
+        <div class="f"><span class="nm">Leads</span><span class="tr"><i style="width:100%"></i></span><span class="vl">320</span></div>
+        <div class="f"><span class="nm">Attempted</span><span class="tr"><i style="width:0%"></i></span><span class="vl subtle">0</span></div>
+        <div class="f"><span class="nm">Answered</span><span class="tr"><i style="width:0%"></i></span><span class="vl subtle">0</span></div>
+        <div class="f"><span class="nm">Merged</span><span class="tr"><i style="width:0%"></i></span><span class="vl subtle">0</span></div>
+        <div class="f"><span class="nm">Talked 30&thinsp;s+</span><span class="tr"><i style="width:0%"></i></span><span class="vl subtle">0</span></div>
+      </div></div>
+
+    <div class="card mt14"><div class="row between mb12"><span class="t-h3">Reps</span>
+      <span class="t-micro gold">Manage</span></div>
+      <div class="lrow" style="padding-top:0"><div class="avatar">PS</div>
+        <div class="col grow"><div style="font-size:14px;font-weight:600">Priya Sharma</div>
+          <div class="t-micro">you &middot; 0 calls</div></div><span class="pill gold">Assigned</span></div>
+      <div class="lrow"><div class="avatar">RK</div>
+        <div class="col grow"><div style="font-size:14px;font-weight:600">Rohit Kale</div>
+          <div class="t-micro">0 calls</div></div><span class="pill">Assigned</span></div>
+      <div class="lrow" style="padding-bottom:0"><div class="avatar">SN</div>
+        <div class="col grow"><div style="font-size:14px;font-weight:600">Sneha Nair</div>
+          <div class="t-micro">0 calls</div></div><span class="pill">Assigned</span></div>
+    </div>
+
+    <div class="row between mt20 mb10"><span class="t-h3">Leads</span>
+      <span class="t-micro t-mono">320 pending</span></div>
+    <div class="chiprow mb4" style="margin-left:-2px">
+      <span class="chip on">All</span><span class="chip">Interested</span>
+      <span class="chip">Callback</span><span class="chip">Failed</span></div>
+    <div class="lrow"><div class="col grow"><div style="font-size:14.5px">Meenal Deshpande</div>
+        <div class="t-micro t-mono">+91 99••• ••441 &middot; Baner &middot; 3 BHK</div></div><span class="pill">Pending</span></div>
+    <div class="lrow"><div class="col grow"><div style="font-size:14.5px">Arjun Rao</div>
+        <div class="t-micro t-mono">+91 88••• ••037 &middot; Balewadi &middot; 2 BHK</div></div><span class="pill">Pending</span></div>
+    <div style="height:40px"></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">09</div><h3>Campaign detail</h3>
+<p>The start button gets the agent, its DID and a readiness check above it &mdash; the three preconditions that decide
+   whether the run will work at all. The time estimate and remaining cap turn &ldquo;Start calling (320 left)&rdquo; into an
+   informed commitment.</p></figcaption>
+</figure>
+
+<!-- 10 CREATE / UPLOAD -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:12</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-x"/></svg></button>
+    <span class="ttl">New campaign</span></div>
+  <div class="pad"><div class="row g6 mb4">
+    <span class="bar grow" style="height:3px"><i style="width:100%"></i></span>
+    <span class="bar grow" style="height:3px"><i style="width:0"></i></span>
+    <span class="bar grow" style="height:3px"><i style="width:0"></i></span></div>
+    <div class="t-eyebrow mt8">Step 1 of 3 &mdash; the list</div></div>
+  <div class="body pad scroll mt16">
+    <h1 class="t-h1">Bring your leads</h1>
+    <p class="t-body mt8">A spreadsheet with one row per person. We check it before anything is created.</p>
+
+    <div class="card mt20" style="border-style:dashed;border-color:var(--border-strong);padding:28px 20px;text-align:center">
+      <div style="width:52px;height:52px;border-radius:17px;background:var(--accent-quiet);margin:0 auto;
+           display:flex;align-items:center;justify-content:center;color:var(--accent)">
+        <svg class="i" style="width:24px;height:24px"><use href="#i-upload"/></svg></div>
+      <div class="t-h3 mt14">Choose a .xlsx or .csv</div>
+      <p class="t-cap mt6">From your phone, Drive or WhatsApp</p>
+      <button class="btn btn-primary mt16" style="padding:0 26px">Browse files</button>
+    </div>
+
+    <div class="card tight mt14">
+      <div class="row g10"><svg class="i" style="width:17px;height:17px;color:var(--gold-300)"><use href="#i-info"/></svg>
+        <span class="t-h3 grow" style="font-size:13.5px">What the file needs</span></div>
+      <hr class="hairline" style="margin:12px 0">
+      <div class="col g10">
+        <div class="row top g10"><span class="pill gold" style="margin-top:1px">Required</span>
+          <span class="t-cap grow">A phone column &mdash; named <span class="t-mono gold">phone</span>,
+            <span class="t-mono gold">mobile</span>, <span class="t-mono gold">contact</span> or
+            <span class="t-mono gold">number</span></span></div>
+        <div class="row top g10"><span class="pill" style="margin-top:1px">Optional</span>
+          <span class="t-cap grow">Any other column becomes something your Buddha can say &mdash;
+            name, city, budget, the flat they enquired about</span></div>
+      </div>
+      <button class="btn btn-secondary block sm mt14"><svg class="i"><use href="#i-download"/></svg>Download a sample sheet</button>
+    </div>
+
+    <div class="t-eyebrow muted mt24 mb8">Recent</div>
+    <div class="card tight"><div class="row g12">
+      <div class="avatar"><svg class="i" style="width:17px;height:17px"><use href="#i-file"/></svg></div>
+      <div class="col grow g4"><div class="t-h3 ell" style="font-size:13.5px">baner-enquiries-sep.xlsx</div>
+        <div class="t-micro">Uploaded 14 Sep &middot; 320 valid rows</div></div>
+      <span class="t-micro gold">Reuse</span></div></div>
+    <div style="height:40px"></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">10</div><h3>Create &middot; the list</h3>
+<p>Three explicit steps replace one long scroll that silently grows as you go. The column rules move above the
+   picker instead of sitting under it in grey 12&nbsp;px, and a sample sheet removes the most common support
+   question. <em>Reuse</em> matches the backend's 24-hour upload retention.</p></figcaption>
+</figure>
+
+<!-- 11 CREATE / REPORT -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:13</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-back"/></svg></button>
+    <span class="ttl">New campaign</span></div>
+  <div class="pad"><div class="row g6 mb4">
+    <span class="bar grow" style="height:3px"><i style="width:100%"></i></span>
+    <span class="bar grow" style="height:3px"><i style="width:100%"></i></span>
+    <span class="bar grow" style="height:3px"><i style="width:0"></i></span></div>
+    <div class="t-eyebrow mt8">Step 2 of 3 &mdash; what we found</div></div>
+  <div class="body pad scroll mt16">
+    <div class="row g10"><h1 class="t-h1 grow">324 rows read</h1>
+      <span class="pill pos" style="margin-top:6px"><span class="dot"></span>Ready</span></div>
+    <p class="t-cap mt6 t-mono">baner-enquiries-sep.xlsx &middot; 41 KB</p>
+
+    <div class="cols3 mt16">
+      <div class="card tight" style="text-align:center"><div class="t-num pos" style="font-size:24px">320</div>
+        <div class="t-micro mt4">will be called</div></div>
+      <div class="card tight" style="text-align:center"><div class="t-num" style="font-size:24px;color:var(--negative)">3</div>
+        <div class="t-micro mt4">bad numbers</div></div>
+      <div class="card tight" style="text-align:center"><div class="t-num" style="font-size:24px;color:var(--fg-subtle)">1</div>
+        <div class="t-micro mt4">duplicate</div></div>
+    </div>
+
+    <div class="card mt14"><div class="t-eyebrow muted mb10">Columns your Buddha will know</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px">
+        <span class="chip on" style="height:28px;font-size:11px"><svg class="i"><use href="#i-phone"/></svg>phone</span>
+        <span class="chip" style="height:28px;font-size:11px">name</span>
+        <span class="chip" style="height:28px;font-size:11px">locality</span>
+        <span class="chip" style="height:28px;font-size:11px">config</span>
+        <span class="chip" style="height:28px;font-size:11px">budget</span>
+        <span class="chip" style="height:28px;font-size:11px">enquiry_date</span></div>
+      <hr class="hairline" style="margin:14px 0">
+      <div class="t-eyebrow muted mb10">First rows</div>
+      <div class="col g8">
+        <div class="col g4" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)">
+          <div style="font-size:13px;font-weight:600">Meenal Deshpande</div>
+          <div class="t-micro t-mono">+919900000441 &middot; Baner &middot; 3 BHK &middot; 1.4 Cr</div></div>
+        <div class="col g4" style="padding:9px 11px;background:var(--surface-2);border-radius:var(--r-sm)">
+          <div style="font-size:13px;font-weight:600">Arjun Rao</div>
+          <div class="t-micro t-mono">+918800000037 &middot; Balewadi &middot; 2 BHK &middot; 95 L</div></div>
+      </div>
+      <button class="btn btn-ghost block sm mt10" style="height:38px">See all 320
+        <svg class="i"><use href="#i-chev-r"/></svg></button></div>
+
+    <div class="card mt14" style="border-color:rgba(212,102,79,.28)">
+      <div class="row g10 mb10"><svg class="i" style="width:17px;height:17px;color:var(--negative)"><use href="#i-alert"/></svg>
+        <span class="t-h3 grow" style="font-size:13.5px">4 rows will be skipped</span>
+        <svg class="i" style="width:17px;height:17px;color:var(--fg-faint)"><use href="#i-chev-d"/></svg></div>
+      <div class="col g8">
+        <div class="row g10"><span class="t-mono t-micro" style="width:46px;color:var(--fg-subtle)">Row 18</span>
+          <span class="t-cap grow t-mono">9900-0044</span><span class="t-micro neg">too short</span></div>
+        <div class="row g10"><span class="t-mono t-micro" style="width:46px;color:var(--fg-subtle)">Row 57</span>
+          <span class="t-cap grow t-mono">(empty)</span><span class="t-micro neg">no number</span></div>
+        <div class="row g10"><span class="t-mono t-micro" style="width:46px;color:var(--fg-subtle)">Row 91</span>
+          <span class="t-cap grow t-mono">+91 12345 67890</span><span class="t-micro neg">not a mobile</span></div>
+        <div class="row g10"><span class="t-mono t-micro" style="width:46px;color:var(--fg-subtle)">Row 204</span>
+          <span class="t-cap grow t-mono">+919900000441</span><span class="t-micro subtle">same as row 6</span></div>
+      </div>
+      <button class="btn btn-secondary block sm mt14">Fix the sheet and re-upload</button></div>
+    <div style="height:110px"></div>
+  </div>
+  <div class="glass glass-strong" style="position:absolute;left:14px;right:14px;bottom:calc(var(--gesturebar-h) + 10px);
+       padding:12px;border-radius:var(--r-2xl);z-index:25">
+    <button class="btn btn-primary block" style="position:relative;z-index:2">Continue with 320 leads
+      <svg class="i"><use href="#i-fwd"/></svg></button></div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">11</div><h3>Create &middot; validation report</h3>
+<p>FR-C3 in full, but ordered by what a rep decides with: how many <em>will be called</em> first, the rejects folded
+   away second. The detected columns are framed as &ldquo;what your Buddha will know&rdquo; &mdash; the clearest way to explain
+   contact-data injection to a non-technical user.</p></figcaption>
+</figure>
+
+<!-- 12 CREATE / CONFIGURE -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:14</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-back"/></svg></button>
+    <span class="ttl">New campaign</span></div>
+  <div class="pad"><div class="row g6 mb4">
+    <span class="bar grow" style="height:3px"><i style="width:100%"></i></span>
+    <span class="bar grow" style="height:3px"><i style="width:100%"></i></span>
+    <span class="bar grow" style="height:3px"><i style="width:100%"></i></span></div>
+    <div class="t-eyebrow mt8">Step 3 of 3 &mdash; who calls</div></div>
+  <div class="body pad scroll mt16">
+    <h1 class="t-h1">Choose the Buddha</h1>
+    <p class="t-body mt8">Only voice agents with a number assigned can take a conference call.</p>
+
+    <div class="col g10 mt18">
+      <div class="card" style="border-color:var(--border-gold);
+           background:linear-gradient(180deg,rgba(237,171,72,.08),rgba(20,18,16,1) 70%)">
+        <div class="row g12"><span class="radio on" style="margin-top:2px"></span>
+          <div class="avatar gold" style="width:38px;height:38px">
+            <svg class="i" style="width:18px;height:18px"><use href="#i-ai"/></svg></div>
+          <div class="col grow g4"><div class="t-h3">Ananya</div>
+            <div class="t-micro t-mono">+91 80 4718 2200</div></div>
+          <span class="pill pos"><span class="dot"></span>Active</span></div>
+        <p class="t-cap mt10" style="padding-left:52px">Qualifies site-visit intent, books slots, hands warm leads back to you.</p>
+      </div>
+      <div class="card tight"><div class="row g12"><span class="radio"></span>
+        <div class="avatar" style="width:38px;height:38px">
+          <svg class="i" style="width:18px;height:18px"><use href="#i-ai"/></svg></div>
+        <div class="col grow g4"><div class="t-h3" style="color:var(--fg-muted)">Kabir</div>
+          <div class="t-micro t-mono">+91 80 4718 2214</div></div></div></div>
+      <div class="card tight" style="opacity:.55"><div class="row g12"><span class="radio"></span>
+        <div class="avatar" style="width:38px;height:38px">
+          <svg class="i" style="width:18px;height:18px"><use href="#i-ai"/></svg></div>
+        <div class="col grow g4"><div class="t-h3" style="color:var(--fg-subtle)">Meera</div>
+          <div class="t-micro">No number assigned</div></div>
+        <span class="pill">Unavailable</span></div></div>
+    </div>
+
+    <div class="field mt20"><label>Campaign name</label>
+      <div class="input focus"><span>Baner developer leads</span><span class="caret"></span></div></div>
+
+    <div class="mt20"><div class="row between mb10"><span class="t-h3">Assign reps</span>
+      <span class="t-micro">3 of 5 selected</span></div>
+      <div class="card tight">
+        <div class="row g12" style="padding:6px 0"><span class="check on"><svg class="i"><use href="#i-check"/></svg></span>
+          <div class="avatar" style="width:32px;height:32px;font-size:12px">PS</div>
+          <div class="col grow"><div style="font-size:14px">Priya Sharma</div>
+            <div class="t-micro">you &middot; rep</div></div></div>
+        <hr class="hairline">
+        <div class="row g12" style="padding:6px 0"><span class="check on"><svg class="i"><use href="#i-check"/></svg></span>
+          <div class="avatar" style="width:32px;height:32px;font-size:12px">RK</div>
+          <div class="col grow"><div style="font-size:14px">Rohit Kale</div>
+            <div class="t-micro">rep &middot; verified phone</div></div></div>
+        <hr class="hairline">
+        <div class="row g12" style="padding:6px 0"><span class="check on"><svg class="i"><use href="#i-check"/></svg></span>
+          <div class="avatar" style="width:32px;height:32px;font-size:12px">SN</div>
+          <div class="col grow"><div style="font-size:14px">Sneha Nair</div>
+            <div class="t-micro">rep &middot; verified phone</div></div></div>
+        <hr class="hairline">
+        <div class="row g12" style="padding:6px 0;opacity:.5"><span class="check"></span>
+          <div class="avatar" style="width:32px;height:32px;font-size:12px">AD</div>
+          <div class="col grow"><div style="font-size:14px">Amit Desai</div>
+            <div class="t-micro neg">phone not verified yet</div></div></div>
+      </div>
+      <p class="t-micro mt8">Leads are handed out one at a time, so two reps never call the same person.</p></div>
+    <div style="height:110px"></div>
+  </div>
+  <div class="glass glass-strong" style="position:absolute;left:14px;right:14px;bottom:calc(var(--gesturebar-h) + 10px);
+       padding:12px;border-radius:var(--r-2xl);z-index:25">
+    <button class="btn btn-primary block" style="position:relative;z-index:2">Create campaign</button></div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">12</div><h3>Create &middot; who calls</h3>
+<p>The agent dropdown becomes a choice you can actually make: what each Buddha does, which DID it answers on,
+   and why one is greyed out. Reps without a verified phone are shown and disabled rather than silently listed,
+   which prevents assigning work that cannot run.</p></figcaption>
+</figure>
+
+</div>
+
+<div class="act">
+  <h2>III &middot; The run</h2><span class="rule"></span>
+  <p>Where the product earns its money. The rep is holding the phone, often standing, often outdoors, and has
+     about two seconds to read each state. These eight screens carry the whole orchestrator.</p>
+</div>
+<div class="grid">
+
+<!-- 13 PREFLIGHT -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:15</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-back"/></svg></button>
+    <span class="ttl">Baner developer leads</span></div>
+  <div class="body pad" style="opacity:.32;filter:blur(1px)">
+    <div class="card gold pad-lg"><div class="row g12 mb14"><div class="avatar gold" style="width:42px;height:42px"></div>
+      <div class="col grow g4"><div class="t-h3">Ananya</div><div class="t-cap">site-visit qualifier</div></div></div>
+      <div class="btn btn-hero block lg">Start calling &mdash; 320 leads</div></div>
+    <div class="cols2 mt14"><div class="card tight" style="height:66px"></div><div class="card tight" style="height:66px"></div></div>
+  </div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="t-eyebrow">Before we start</div>
+    <h2 class="t-h2 mt8">Your phone is ready</h2>
+    <p class="t-cap mt6">Six checks, so a run never stops halfway for a reason we could have caught.</p>
+    <div class="card mt16">
+      <div class="lrow" style="padding-top:0"><span class="step done" style="padding:0"><span class="node">
+        <svg class="i"><use href="#i-check"/></svg></span></span>
+        <div class="col grow"><div style="font-size:14px;font-weight:500">Default phone app</div></div>
+        <span class="t-micro">Active</span></div>
+      <div class="lrow"><span class="step done" style="padding:0"><span class="node">
+        <svg class="i"><use href="#i-check"/></svg></span></span>
+        <div class="col grow"><div style="font-size:14px;font-weight:500">Jio SIM 1 in the phone</div></div>
+        <span class="t-micro t-mono">••210</span></div>
+      <div class="lrow"><span class="step done" style="padding:0"><span class="node">
+        <svg class="i"><use href="#i-check"/></svg></span></span>
+        <div class="col grow"><div style="font-size:14px;font-weight:500">Calling window open</div></div>
+        <span class="t-micro t-mono">until 21:00</span></div>
+      <div class="lrow"><span class="step done" style="padding:0"><span class="node">
+        <svg class="i"><use href="#i-check"/></svg></span></span>
+        <div class="col grow"><div style="font-size:14px;font-weight:500">Agent has credits</div></div>
+        <span class="t-micro">~6 h left</span></div>
+      <div class="lrow"><span class="node" style="width:23px;height:23px;border:1.75px solid rgba(237,171,72,.5);
+        border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--accent)">
+        <svg class="i" style="width:13px;height:13px"><use href="#i-alert"/></svg></span>
+        <div class="col grow"><div style="font-size:14px;font-weight:500">Battery saver is on</div>
+          <div class="t-micro">Android may kill the run in the background</div></div>
+        <span class="t-micro gold">Fix</span></div>
+      <div class="lrow" style="padding-bottom:0"><span class="node" style="width:23px;height:23px;
+        border:1.75px solid rgba(237,171,72,.5);border-radius:50%;display:flex;align-items:center;
+        justify-content:center;color:var(--accent)"><svg class="i" style="width:13px;height:13px"><use href="#i-alert"/></svg></span>
+        <div class="col grow"><div style="font-size:14px;font-weight:500">Headset not connected</div>
+          <div class="t-micro">Recommended &mdash; you will be on mute for most of the call</div></div>
+        <span class="t-micro subtle">Skip</span></div>
+    </div>
+    <button class="btn btn-hero block lg mt16"><svg class="i"><use href="#i-phone"/></svg>Start the run</button>
+    <button class="btn btn-ghost block sm mt4" style="height:42px">Not now</button>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">13</div><h3>Pre-flight check<span class="new">new</span></h3>
+<p>The single highest-value addition. Every condition here already exists server-side or in Android &mdash; calling
+   hours, credits, the dialer role, battery optimisation &mdash; but today the rep discovers each one as a failed
+   call. Warnings do not block: the rep can start anyway.</p></figcaption>
+</figure>
+
+<!-- 14 CONNECTING AI -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:480px;height:480px;top:80px;left:-34px;opacity:.8"></div>
+  <div class="statusbar"><span>11:16</span><span class="icons">
+    <svg class="i" style="color:var(--accent)"><use href="#i-phone"/></svg>
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 14px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-chev-d"/></svg></button>
+    <div class="col grow"><span class="t-h3 ell" style="font-size:14.5px">Baner developer leads</span>
+      <span class="t-micro t-mono">lead 1 of 320</span></div>
+    <button class="iconbtn"><svg class="i"><use href="#i-pause"/></svg></button></div>
+  <div class="body pad" style="position:relative;z-index:2;align-items:center;text-align:center">
+    <div class="mt24" style="position:relative">
+      <div style="position:absolute;inset:-16px;border-radius:50%;border:1px solid rgba(237,171,72,.22)"></div>
+      <div style="position:absolute;inset:-32px;border-radius:50%;border:1px solid rgba(237,171,72,.10)"></div>
+      <div style="width:96px;height:96px;border-radius:50%;background:var(--accent-quiet);
+           border:1px solid var(--border-gold);display:flex;align-items:center;justify-content:center;color:var(--accent)">
+        <svg class="i" style="width:40px;height:40px"><use href="#i-ai"/></svg></div>
+    </div>
+    <div class="t-eyebrow mt32">Connecting your Buddha</div>
+    <h2 class="t-h2 mt8">Ananya is joining</h2>
+    <p class="t-body mt8" style="max-width:30ch">The lead's phone will not ring until she is ready and briefed.</p>
+    <div class="dots mt16"><i></i><i></i><i></i><i></i><i></i></div>
+
+    <div class="card mt24" style="width:100%;text-align:left">
+      <div class="stepper">
+        <div class="step done"><div class="rail"></div><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col"><div class="lbl">Lead reserved for you</div></div></div>
+        <div class="step now"><div class="rail"></div><div class="node"><span class="dots"><i></i></span></div>
+          <div class="col"><div class="lbl">Calling Ananya</div><div class="sub">00:06 &middot; usually 5&ndash;25 s</div></div></div>
+        <div class="step"><div class="rail"></div><div class="node"></div>
+          <div class="col"><div class="lbl">Telling her who she is calling</div></div></div>
+        <div class="step"><div class="rail"></div><div class="node"></div>
+          <div class="col"><div class="lbl">Ringing Meenal</div></div></div>
+        <div class="step"><div class="node"></div>
+          <div class="col"><div class="lbl">Bringing you all together</div></div></div>
+      </div>
+    </div>
+    <div class="grow"></div>
+    <div class="card tight" style="width:100%;text-align:left;background:none;border-style:dashed">
+      <div class="row g10"><svg class="i" style="width:16px;height:16px;color:var(--fg-subtle)"><use href="#i-user"/></svg>
+        <div class="col grow"><div class="t-cap" style="color:var(--fg-muted)">Up next &middot; Meenal Deshpande</div>
+          <div class="t-micro t-mono">+91 99••• ••441</div></div></div></div>
+    <div class="row g10 mt12" style="width:100%;padding-bottom:16px">
+      <button class="btn btn-secondary grow"><svg class="i"><use href="#i-skip"/></svg>Skip lead</button>
+      <button class="btn btn-danger-quiet grow">Stop run</button></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">14</div><h3>Run &middot; connecting the agent</h3>
+<p>The AI-first dial order (decision D2) is invisible to a rep unless you explain it: <em>the lead's phone will not
+   ring yet</em>. Steps are written as human sentences, not machine states. <em>Skip lead</em> is surfaced here &mdash; the
+   orchestrator supports it and FR-E7 requires it, but no screen exposes it today.</p></figcaption>
+</figure>
+
+<!-- 15 CALLING LEAD -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:440px;height:440px;top:-150px;right:-120px;opacity:.5"></div>
+  <div class="statusbar"><span>11:16</span><span class="icons">
+    <svg class="i" style="color:var(--accent)"><use href="#i-phone"/></svg>
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 14px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-chev-d"/></svg></button>
+    <div class="col grow"><span class="t-h3 ell" style="font-size:14.5px">Baner developer leads</span>
+      <span class="t-micro t-mono">lead 1 of 320</span></div>
+    <button class="iconbtn"><svg class="i"><use href="#i-pause"/></svg></button></div>
+  <div class="body pad" style="position:relative;z-index:2">
+    <div class="card tight" style="border-color:rgba(123,180,135,.3);background:rgba(123,180,135,.05)">
+      <div class="row g10"><svg class="i" style="width:17px;height:17px;color:var(--positive)"><use href="#i-check-c"/></svg>
+        <div class="col grow"><div style="font-size:13.5px;font-weight:600">Ananya is ready, holding</div>
+          <div class="t-micro">Recognised you by caller ID, confirmed by keypad code</div></div></div></div>
+
+    <div class="col center mt28" style="text-align:center">
+      <div style="position:relative">
+        <div style="position:absolute;inset:-14px;border-radius:50%;border:1px solid rgba(255,240,220,.10)"></div>
+        <div style="position:absolute;inset:-28px;border-radius:50%;border:1px solid rgba(255,240,220,.05)"></div>
+        <div class="avatar" style="width:84px;height:84px;border-radius:50%;font-size:26px;font-weight:600">MD</div></div>
+      <h2 class="t-h2 mt20">Meenal Deshpande</h2>
+      <div class="t-mono mt6" style="font-size:14px;color:var(--fg-muted)">+91 99••• ••441</div>
+      <div class="row center g8 mt14"><span class="dots"><i></i><i></i><i></i></span>
+        <span class="t-mono gold" style="font-size:13px">Ringing 00:07</span></div>
+    </div>
+
+    <div class="card mt24"><div class="t-eyebrow muted mb10">What Ananya knows about her</div>
+      <div class="col g9">
+        <div class="row between"><span class="t-cap">Locality</span><span style="font-size:13.5px">Baner</span></div>
+        <div class="row between"><span class="t-cap">Looking for</span><span style="font-size:13.5px">3 BHK</span></div>
+        <div class="row between"><span class="t-cap">Budget</span><span style="font-size:13.5px">&#8377;1.4 Cr</span></div>
+        <div class="row between"><span class="t-cap">Enquired</span><span style="font-size:13.5px">2 Sep 2026</span></div>
+      </div></div>
+    <div class="grow"></div>
+    <div class="row g10" style="padding-bottom:16px">
+      <button class="btn btn-secondary grow"><svg class="i"><use href="#i-skip"/></svg>Skip</button>
+      <button class="btn btn-danger grow"><svg class="i"><use href="#i-phone-end"/></svg>Cancel call</button></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">15</div><h3>Run &middot; ringing the lead</h3>
+<p>Identification &mdash; the whole point of ADR-001 &mdash; finally gets a visible receipt: <em>recognised by caller ID,
+   confirmed by keypad code</em>. The CSV fields are reframed as &ldquo;what Ananya knows about her&rdquo;, which is both the
+   truth and the rep's cue for how to help.</p></figcaption>
+</figure>
+
+<!-- 16 IN CONVERSATION -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:520px;height:340px;top:-130px;left:-50px;opacity:.55"></div>
+  <div class="statusbar"><span>11:18</span><span class="icons">
+    <svg class="i" style="color:var(--positive)"><use href="#i-phone"/></svg>
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 14px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-chev-d"/></svg></button>
+    <div class="col grow"><span class="t-h3 ell" style="font-size:14.5px">Meenal Deshpande</span>
+      <span class="t-micro t-mono">+91 99••• ••441 &middot; Baner &middot; 3 BHK</span></div>
+    <span class="pill pos" style="margin-right:4px"><span class="dot"></span>Merged</span></div>
+
+  <div class="pad" style="position:relative;z-index:2">
+    <div class="card gold" style="padding:14px 16px">
+      <div class="row g12">
+        <div style="display:flex;align-items:center">
+          <div style="width:38px;height:38px;border-radius:50%;background:var(--accent-quiet);
+               border:1px solid var(--border-gold);display:flex;align-items:center;justify-content:center;
+               color:var(--accent);z-index:2">
+            <svg class="i" style="width:18px;height:18px"><use href="#i-ai"/></svg></div>
+          <div class="avatar" style="width:38px;height:38px;border-radius:50%;font-size:12px;margin-left:-11px;
+               border-color:var(--border-strong)">MD</div></div>
+        <div class="col grow g4"><div style="font-size:13.5px;font-weight:600">Ananya is talking</div>
+          <div class="t-micro">You are muted &mdash; she cannot hear you</div></div>
+        <div class="col" style="align-items:flex-end">
+          <span class="t-mono gold" style="font-size:19px;font-weight:600">02:14</span>
+          <span class="t-micro">talk time</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pad mt14" style="position:relative;z-index:2;flex:1;min-height:0;display:flex;flex-direction:column">
+    <div class="row between mb10"><span class="t-eyebrow muted">Live transcript</span>
+      <span class="row g6"><span class="dot" style="background:var(--positive)"></span>
+        <span class="t-micro">following</span></span></div>
+    <div class="col g8" style="flex:1;overflow:hidden;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 26px);
+         mask-image:linear-gradient(180deg,transparent 0,#000 26px)">
+      <div class="bub ai"><span class="who">Ananya</span>…so you had enquired about a 3 BHK in Baner around 1.4 crore.</div>
+      <div class="bub lead"><span class="who">Meenal</span>Yes, but that was a while back.</div>
+      <div class="bub ai"><span class="who">Ananya</span>Completely understand. Are you still looking, or has something already worked out?</div>
+      <div class="bub lead"><span class="who">Meenal</span>Still looking actually. Nothing in that budget near the metro line.</div>
+      <div class="bub ai"><span class="who">Ananya</span>We have two ready-possession units off Baner Road that fit.
+        Would Saturday morning work for a visit?</div>
+    </div>
+  </div>
+
+  <div class="glass glass-strong glass-gold" style="position:absolute;left:12px;right:12px;
+       bottom:calc(var(--gesturebar-h) + 10px);padding:14px 14px 16px;border-radius:var(--r-2xl);z-index:30">
+    <div style="position:relative;z-index:2">
+      <div class="row g10">
+        <button class="btn btn-hero grow" style="height:54px"><svg class="i"><use href="#i-mic"/></svg>Unmute to speak</button>
+        <button class="btn btn-glass" style="width:54px;height:54px;padding:0"><svg class="i"><use href="#i-speaker"/></svg></button>
+      </div>
+      <div class="row g10 mt10">
+        <button class="btn btn-glass grow sm" style="height:44px"><svg class="i"><use href="#i-swap"/></svg>Take over</button>
+        <button class="btn btn-danger grow sm" style="height:44px"><svg class="i"><use href="#i-phone-end"/></svg>End call</button>
+      </div>
+    </div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">16</div><h3>Run &middot; in conversation<span class="new">new</span></h3>
+<p>The live transcript is new, and it is the reason to keep the phone in your hand: the rep can read the room and
+   decide when to unmute. The backend already streams these turns. Controls sit in a thumb-reachable glass dock,
+   ranked by how often they are used &mdash; unmute is the hero, <em>End call</em> is sized to be deliberate.</p></figcaption>
+</figure>
+
+<!-- 17 UNIDENTIFIED -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:22</span><span class="icons">
+    <svg class="i" style="color:var(--accent)"><use href="#i-phone"/></svg>
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 14px 0 6px;opacity:.3"><button class="iconbtn"><svg class="i"><use href="#i-chev-d"/></svg></button>
+    <div class="col grow"><span class="t-h3 ell" style="font-size:14.5px">Baner developer leads</span>
+      <span class="t-micro t-mono">lead 9 of 320</span></div></div>
+  <div class="body pad" style="opacity:.3;filter:blur(1.5px)">
+    <div class="col center mt28" style="text-align:center">
+      <div class="avatar" style="width:84px;height:84px;border-radius:50%;font-size:26px">AR</div>
+      <h2 class="t-h2 mt20">Arjun Rao</h2></div>
+  </div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="row g12 mb14">
+      <div style="width:40px;height:40px;border-radius:14px;background:var(--accent-quiet);
+           display:flex;align-items:center;justify-content:center;color:var(--accent);flex:0 0 auto">
+        <svg class="i" style="width:20px;height:20px"><use href="#i-alert"/></svg></div>
+      <div class="col grow g4"><h2 class="t-h2" style="font-size:19px">Ananya can't place this lead</h2></div>
+    </div>
+    <p class="t-body">Your carrier didn't pass the keypad code through. If you connect them now, Ananya will
+       introduce herself but won't know Arjun's name, locality or budget.</p>
+    <div class="card tight mt14" style="background:var(--surface-2)">
+      <div class="row between"><span class="t-cap">Caller ID match</span>
+        <span class="t-micro neg">not received</span></div>
+      <hr class="hairline" style="margin:9px 0">
+      <div class="row between"><span class="t-cap">Keypad code &lowast;4821#</span>
+        <span class="t-micro neg">not received</span></div>
+    </div>
+    <button class="btn btn-primary block lg mt16">Connect them anyway</button>
+    <button class="btn btn-secondary block mt10">Put Arjun back in the queue</button>
+    <div class="row center g6 mt14"><svg class="i" style="width:13px;height:13px;color:var(--fg-subtle)"><use href="#i-clock"/></svg>
+      <span class="t-micro">Deciding for you in 11 s &mdash; we'll put him back</span></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">17</div><h3>Run &middot; identification failed</h3>
+<p>Today this is a stock alert dialog with a 15&nbsp;s invisible timer. As a sheet it can show <em>why</em> both
+   identification paths failed, state the consequence in the rep's language, and make the countdown &mdash; and its
+   default &mdash; visible instead of a surprise.</p></figcaption>
+</figure>
+
+<!-- 18 WRAP-UP -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>11:20</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 14px 0 6px;opacity:.3"><button class="iconbtn"><svg class="i"><use href="#i-chev-d"/></svg></button>
+    <div class="col grow"><span class="t-h3 ell" style="font-size:14.5px">Baner developer leads</span></div></div>
+  <div class="body pad" style="opacity:.3;filter:blur(1.5px)"><div class="card gold" style="height:74px"></div></div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="row g10 mb4"><span class="pill pos"><span class="dot"></span>Ended well</span>
+      <span class="grow"></span><span class="t-micro t-mono">3:41 talk time</span></div>
+    <h2 class="t-h2 mt10">How did Meenal sound?</h2>
+    <p class="t-cap mt6">Ananya heard <span class="gold">interested</span>. You were on the call &mdash; you decide.</p>
+
+    <div class="cols2 mt16" style="gap:9px">
+      <button class="btn" style="height:58px;background:var(--positive-quiet);color:var(--positive);
+        border-color:rgba(123,180,135,.4);flex-direction:column;gap:3px;font-size:13.5px">
+        <svg class="i" style="width:18px;height:18px"><use href="#i-star"/></svg>Interested</button>
+      <button class="btn btn-secondary" style="height:58px;flex-direction:column;gap:3px;font-size:13.5px">
+        <svg class="i" style="width:18px;height:18px"><use href="#i-rotate-l"/></svg>Call back</button>
+      <button class="btn btn-secondary" style="height:58px;flex-direction:column;gap:3px;font-size:13.5px">
+        <svg class="i" style="width:18px;height:18px"><use href="#i-minus"/></svg>Not interested</button>
+      <button class="btn btn-secondary" style="height:58px;flex-direction:column;gap:3px;font-size:13.5px;
+        color:var(--negative);border-color:rgba(212,102,79,.3)">
+        <svg class="i" style="width:18px;height:18px"><use href="#i-ban"/></svg>Do not call</button>
+    </div>
+
+    <div class="input mt12" style="height:46px"><svg class="i"><use href="#i-edit"/></svg>
+      <span class="ph">Add a note for the CRM &mdash; optional</span></div>
+
+    <div class="row g12 mt16" style="align-items:center">
+      <div class="ring" style="width:44px;height:44px"><svg width="44" height="44">
+        <circle cx="22" cy="22" r="19" stroke="rgba(255,240,220,.09)" stroke-width="3" fill="none"/>
+        <circle cx="22" cy="22" r="19" stroke="#edab48" stroke-width="3" fill="none" stroke-linecap="round"
+                stroke-dasharray="119" stroke-dashoffset="48"/></svg>
+        <div class="val"><span class="t-mono gold" style="font-size:14px;font-weight:600">3</span></div></div>
+      <div class="col grow g4"><div style="font-size:13.5px;font-weight:600">Arjun Rao is next</div>
+        <div class="t-micro t-mono">+91 88••• ••037 &middot; Balewadi</div></div>
+      <button class="btn btn-glass sm" style="height:40px">Hold</button>
+    </div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">18</div><h3>Wrap-up<span class="new">new</span></h3>
+<p>Entirely missing today: the disposition is whatever the model inferred, and the rep &mdash; the one human who heard
+   the call &mdash; is never asked. It fits neatly inside the five-second gap that already exists between leads, so it
+   costs no time. <em>Hold</em> stops the countdown instead of forcing a pause.</p></figcaption>
+</figure>
+
+<!-- 19 PAUSED -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>13:04</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 14px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-chev-d"/></svg></button>
+    <div class="col grow"><span class="t-h3 ell" style="font-size:14.5px">Baner developer leads</span>
+      <span class="t-micro t-mono">paused after lead 27</span></div>
+    <button class="iconbtn"><svg class="i"><use href="#i-more"/></svg></button></div>
+  <div class="body pad scroll">
+    <div class="card pad-lg" style="text-align:center;border-color:var(--border-gold)">
+      <div style="width:56px;height:56px;border-radius:50%;background:var(--accent-quiet);margin:0 auto;
+           display:flex;align-items:center;justify-content:center;color:var(--accent)">
+        <svg class="i" style="width:24px;height:24px"><use href="#i-pause"/></svg></div>
+      <h2 class="t-h2 mt16">Run paused</h2>
+      <p class="t-cap mt6">Nobody is being called. Your place in the list is held.</p>
+      <button class="btn btn-hero block lg mt18"><svg class="i"><use href="#i-play"/></svg>Resume &mdash; 293 leads left</button>
+      <button class="btn btn-ghost block sm mt6" style="height:42px">End this run</button>
+    </div>
+
+    <div class="t-eyebrow muted mt24 mb10">This session</div>
+    <div class="cols2">
+      <div class="card tight"><div class="t-num" style="font-size:25px">27</div><div class="t-micro mt4">calls placed</div></div>
+      <div class="card tight"><div class="t-num pos" style="font-size:25px">5</div><div class="t-micro mt4">interested</div></div>
+      <div class="card tight"><div class="t-num" style="font-size:25px">63<span style="font-size:14px">%</span></div>
+        <div class="t-micro mt4">answered</div></div>
+      <div class="card tight"><div class="t-num" style="font-size:25px">21<span style="font-size:14px">m</span></div>
+        <div class="t-micro mt4">talk time</div></div>
+    </div>
+
+    <div class="t-eyebrow muted mt24 mb10">Last five calls</div>
+    <div class="card">
+      <div class="lrow" style="padding-top:0"><div class="col grow"><div style="font-size:14px">Meenal Deshpande</div>
+        <div class="t-micro t-mono">3:41 &middot; 11:20</div></div><span class="pill pos">Interested</span></div>
+      <div class="lrow"><div class="col grow"><div style="font-size:14px">Arjun Rao</div>
+        <div class="t-micro t-mono">0:52 &middot; 11:24</div></div><span class="pill">Not interested</span></div>
+      <div class="lrow"><div class="col grow"><div style="font-size:14px">+91 77••• ••019</div>
+        <div class="t-micro t-mono">no answer &middot; 11:27</div></div><span class="pill">Retry later</span></div>
+      <div class="lrow"><div class="col grow"><div style="font-size:14px">Kavita Joshi</div>
+        <div class="t-micro t-mono">2:08 &middot; 11:31</div></div><span class="pill gold">Call back 16:00</span></div>
+      <div class="lrow" style="padding-bottom:0"><div class="col grow"><div style="font-size:14px">+91 90••• ••556</div>
+        <div class="t-micro t-mono">busy &middot; 11:33</div></div><span class="pill">Retry later</span></div>
+    </div>
+
+    <div class="card tight mt14" style="background:none;border-style:dashed">
+      <div class="row g10"><svg class="i" style="width:16px;height:16px;color:var(--fg-subtle)"><use href="#i-refresh"/></svg>
+        <span class="t-micro grow" style="color:var(--fg-muted)">4 call records waiting to upload</span>
+        <span class="t-micro subtle">on Wi-Fi</span></div></div>
+    <div style="height:30px"></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">19</div><h3>Run &middot; paused</h3>
+<p>Pause is a real destination, not a greyed-out run screen. It answers the two questions a paused rep has &mdash;
+   how am I doing, and what just happened &mdash; and quietly surfaces the Room outbox, so &ldquo;my numbers look wrong&rdquo;
+   has a visible explanation.</p></figcaption>
+</figure>
+
+<!-- 20 RUN COMPLETE -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:540px;height:540px;top:-60px;left:-64px;opacity:.7"></div>
+  <div class="watermark" style="right:-90px;bottom:40px;width:250px;height:630px;opacity:.05">
+    <svg style="width:250px;height:630px"><use href="#logo-mark"/></svg></div>
+  <div class="statusbar"><span>17:48</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body pad scroll" style="position:relative;z-index:2">
+    <div style="padding-top:22px;text-align:center">
+      <span class="t-eyebrow">Run complete</span>
+      <h1 class="t-h1 mt10">108 calls, 5 hours<br>of your voice saved.</h1>
+      <p class="t-body mt10">Baner developer leads &middot; 11:16 to 17:48</p>
+    </div>
+
+    <div class="card gold pad-lg mt24">
+      <div class="cols2" style="gap:18px 10px">
+        <div class="col g4"><span class="t-num text-gold" style="font-size:34px">14</span>
+          <span class="t-cap">interested</span></div>
+        <div class="col g4"><span class="t-num" style="font-size:34px">3</span>
+          <span class="t-cap">callbacks booked</span></div>
+        <div class="col g4"><span class="t-num" style="font-size:34px">66<span style="font-size:17px">%</span></span>
+          <span class="t-cap">answered</span></div>
+        <div class="col g4"><span class="t-num" style="font-size:34px">2:51</span>
+          <span class="t-cap">average conversation</span></div>
+      </div>
+    </div>
+
+    <div class="card mt14">
+      <div class="row between mb12"><span class="t-h3">Where they went</span></div>
+      <div class="fun">
+        <div class="f"><span class="nm">Dialled</span><span class="tr"><i style="width:100%"></i></span><span class="vl">108</span></div>
+        <div class="f"><span class="nm">Answered</span><span class="tr"><i style="width:66%"></i></span><span class="vl">71</span></div>
+        <div class="f"><span class="nm">Met Ananya</span><span class="tr"><i style="width:63%"></i></span><span class="vl">68</span></div>
+        <div class="f"><span class="nm">Talked 30&thinsp;s+</span><span class="tr"><i style="width:39%"></i></span><span class="vl">42</span></div>
+        <div class="f"><span class="nm">Interested</span><span class="tr"><i style="width:13%;background:var(--positive)"></i></span><span class="vl pos">14</span></div>
+      </div>
+    </div>
+
+    <div class="card tight mt14"><div class="row g10">
+      <svg class="i" style="width:17px;height:17px;color:var(--gold-300)"><use href="#i-clock"/></svg>
+      <span class="t-cap grow" style="color:var(--fg-muted)">212 leads still waiting &mdash; the window closes at 21:00</span></div></div>
+
+    <button class="btn btn-hero block lg mt16">Keep calling</button>
+    <button class="btn btn-secondary block mt10">Review the 14 interested</button>
+    <button class="btn btn-ghost block sm mt4" style="height:42px">Back to campaigns</button>
+    <div style="height:30px"></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">20</div><h3>Run complete<span class="new">new</span></h3>
+<p>The run currently ends by returning you to a list. This is the one moment the brand voice earns a line of
+   lift &mdash; and the one moment a rep will screenshot. Three exits, ordered by what a good day should lead to.</p></figcaption>
+</figure>
+
+</div>
+
+<div class="act">
+  <h2>IV &middot; Afterwards</h2><span class="rule"></span>
+  <p>What the rep and their manager look at once the calling stops.</p>
+</div>
+<div class="grid">
+
+<!-- 21 CALL DETAIL -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>18:02</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 6px"><button class="iconbtn"><svg class="i"><use href="#i-back"/></svg></button>
+    <div class="col grow"><span class="t-h3 ell" style="font-size:15px">Meenal Deshpande</span>
+      <span class="t-micro t-mono">21 Sep &middot; 11:20 &middot; 3:41</span></div>
+    <button class="iconbtn"><svg class="i"><use href="#i-more"/></svg></button></div>
+  <div class="body pad scroll">
+    <div class="card gold">
+      <div class="row between mb10"><span class="t-eyebrow">Ananya's summary</span>
+        <span class="pill pos"><span class="dot"></span>Interested</span></div>
+      <p style="font-size:14px;line-height:1.6;color:var(--fg)">Still actively looking for a 3 BHK in Baner within
+        &#8377;1.4 Cr. Nothing suitable found near the metro line. Agreed to a site visit on Saturday morning at
+        the Baner Road ready-possession units.</p>
+      <hr class="hairline" style="margin:14px 0">
+      <div class="row g10"><svg class="i" style="width:16px;height:16px;color:var(--accent)"><use href="#i-calendar"/></svg>
+        <span class="t-cap grow" style="color:var(--fg)">Site visit &mdash; Sat 26 Sep, 10:30</span>
+        <span class="t-micro gold">Add</span></div>
+    </div>
+
+    <div class="card tight mt12">
+      <div class="row g12"><button class="iconbtn on" style="width:40px;height:40px;background:var(--accent-quiet)">
+        <svg class="i"><use href="#i-play"/></svg></button>
+        <div class="col grow g6"><div class="bar" style="height:4px"><i style="width:34%"></i></div>
+          <div class="row between"><span class="t-micro t-mono">1:14</span><span class="t-micro t-mono">3:41</span></div></div>
+        <span class="chip" style="height:28px;font-size:11px">1.5&times;</span></div></div>
+
+    <div class="row between mt20 mb10"><span class="t-h3">Transcript</span>
+      <span class="row g8"><span class="t-micro gold">Copy</span><span class="t-micro subtle">&middot;</span>
+        <span class="t-micro gold">Share</span></span></div>
+    <div class="col g8">
+      <div class="bub ai"><span class="who">Ananya &middot; 00:04</span>Hello, am I speaking with Meenal? This is Ananya
+        from Zenith Realty &mdash; and just so you know, I'm an AI assistant and this call is recorded.</div>
+      <div class="bub lead"><span class="who">Meenal &middot; 00:11</span>Yes, speaking.</div>
+      <div class="bub ai"><span class="who">Ananya &middot; 00:14</span>You had enquired about a 3 BHK in Baner around
+        1.4 crore. Are you still looking?</div>
+      <div class="bub lead"><span class="who">Meenal &middot; 00:23</span>Still looking actually. Nothing in that budget
+        near the metro line.</div>
+    </div>
+
+    <div class="row between mt20 mb10"><span class="t-h3">What happened</span>
+      <span class="t-micro subtle">device time</span></div>
+    <div class="card">
+      <div class="stepper">
+        <div class="step done"><div class="rail"></div><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col grow"><div class="row between"><span class="lbl">Ananya answered</span>
+            <span class="sub">11:20:06</span></div></div></div>
+        <div class="step done"><div class="rail"></div><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col grow"><div class="row between"><span class="lbl">Identified by caller ID</span>
+            <span class="sub">11:20:07</span></div></div></div>
+        <div class="step done"><div class="rail"></div><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col grow"><div class="row between"><span class="lbl">Meenal answered</span>
+            <span class="sub">11:20:19</span></div></div></div>
+        <div class="step done"><div class="rail"></div><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col grow"><div class="row between"><span class="lbl">Calls merged</span>
+            <span class="sub">11:20:21</span></div></div></div>
+        <div class="step done"><div class="node"><svg class="i"><use href="#i-check"/></svg></div>
+          <div class="col grow"><div class="row between"><span class="lbl">Meenal hung up</span>
+            <span class="sub">11:24:02</span></div></div></div>
+      </div>
+    </div>
+    <div style="height:30px"></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">21</div><h3>Call detail</h3>
+<p>Summary first, because it is the only thing anyone reads. The AI-and-recording disclosure stays visible in the
+   transcript &mdash; it is a compliance artefact, not chrome. The event timeline keeps its raw timestamps but gets
+   plain-English labels, so a rep and a support engineer can read the same screen.</p></figcaption>
+</figure>
+
+<!-- 22 ANALYTICS -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>18:05</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 20px"><span class="ttl">Insights</span>
+    <button class="iconbtn"><svg class="i"><use href="#i-users"/></svg></button></div>
+  <div class="body pad scroll">
+    <div class="chiprow mb14" style="margin-left:-2px"><span class="chip">Today</span>
+      <span class="chip on">7 days</span><span class="chip">30 days</span><span class="chip">Custom</span></div>
+
+    <div class="cols2">
+      <div class="card tight"><div class="t-eyebrow muted">Calls</div>
+        <div class="t-num mt6">412</div>
+        <div class="row g4 mt4"><svg class="i" style="width:12px;height:12px;color:var(--positive)"><use href="#i-trend"/></svg>
+          <span class="t-micro pos">+18% vs last week</span></div></div>
+      <div class="card tight"><div class="t-eyebrow muted">Answered</div>
+        <div class="t-num mt6">64<span style="font-size:16px">%</span></div>
+        <div class="t-micro mt4">264 picked up</div></div>
+    </div>
+    <div class="cols2 mt10">
+      <div class="card tight"><div class="t-eyebrow muted">Conversations</div>
+        <div class="t-num mt6">151</div><div class="t-micro mt4">30 s or longer</div></div>
+      <div class="card tight"><div class="t-eyebrow muted">Interested</div>
+        <div class="t-num pos mt6">47</div><div class="t-micro mt4">11% conversion</div></div>
+    </div>
+
+    <div class="card mt14"><div class="row between mb14"><span class="t-h3">Calls per day</span>
+      <span class="t-micro t-mono">15&ndash;21 Sep</span></div>
+      <div class="spark"><i style="height:44%"></i><i style="height:61%"></i><i style="height:38%"></i>
+        <i style="height:72%"></i><i style="height:55%"></i><i style="height:81%"></i><i class="hi" style="height:100%"></i></div>
+      <div class="row between mt8"><span class="t-micro t-mono">Mon</span><span class="t-micro t-mono">Sun</span></div>
+    </div>
+
+    <div class="card mt14"><div class="row between mb12"><span class="t-h3">Funnel</span>
+      <span class="t-micro">where leads drop</span></div>
+      <div class="fun">
+        <div class="f"><span class="nm">Attempted</span><span class="tr"><i style="width:100%"></i></span><span class="vl">412</span></div>
+        <div class="f"><span class="nm">Answered</span><span class="tr"><i style="width:64%"></i></span><span class="vl">264</span></div>
+        <div class="f"><span class="nm">Merged</span><span class="tr"><i style="width:61%"></i></span><span class="vl">251</span></div>
+        <div class="f"><span class="nm">Talked 30&thinsp;s+</span><span class="tr"><i style="width:37%"></i></span><span class="vl">151</span></div>
+        <div class="f"><span class="nm">Interested</span><span class="tr"><i style="width:11%;background:var(--positive)"></i></span><span class="vl pos">47</span></div>
+      </div>
+      <div class="card tight mt14" style="background:var(--surface-2);border:0">
+        <div class="row g10"><svg class="i" style="width:16px;height:16px;color:var(--gold-300)"><use href="#i-info"/></svg>
+          <span class="t-cap grow">Biggest drop: 113 people answered but hung up inside 30 seconds.</span></div></div>
+    </div>
+
+    <div class="card mt14"><div class="row between mb12"><span class="t-h3">Outcomes</span></div>
+      <div class="col g10">
+        <div class="row g10"><span class="t-cap" style="width:96px">Interested</span>
+          <span class="bar grow"><i style="width:31%;background:var(--positive)"></i></span><span class="t-mono t-micro" style="width:26px;text-align:right">47</span></div>
+        <div class="row g10"><span class="t-cap" style="width:96px">Not interested</span>
+          <span class="bar grow"><i style="width:100%;background:var(--fg-faint)"></i></span><span class="t-mono t-micro" style="width:26px;text-align:right">152</span></div>
+        <div class="row g10"><span class="t-cap" style="width:96px">Voicemail</span>
+          <span class="bar grow"><i style="width:24%;background:var(--fg-faint)"></i></span><span class="t-mono t-micro" style="width:26px;text-align:right">36</span></div>
+        <div class="row g10"><span class="t-cap" style="width:96px">Callback</span>
+          <span class="bar grow"><i style="width:12%"></i></span><span class="t-mono t-micro" style="width:26px;text-align:right">18</span></div>
+      </div></div>
+
+    <div class="card mt14"><div class="row between mb12"><span class="t-h3">By rep</span>
+      <span class="t-micro subtle">tenant admin only</span></div>
+      <div class="lrow" style="padding-top:0"><div class="avatar">PS</div>
+        <div class="col grow"><div style="font-size:14px;font-weight:600">Priya Sharma</div>
+          <div class="t-micro t-mono">168 calls &middot; 66% answered &middot; 94 min</div></div>
+        <span class="pill pos">21</span></div>
+      <div class="lrow"><div class="avatar">RK</div>
+        <div class="col grow"><div style="font-size:14px;font-weight:600">Rohit Kale</div>
+          <div class="t-micro t-mono">141 calls &middot; 61% answered &middot; 77 min</div></div>
+        <span class="pill pos">16</span></div>
+      <div class="lrow" style="padding-bottom:0"><div class="avatar">SN</div>
+        <div class="col grow"><div style="font-size:14px;font-weight:600">Sneha Nair</div>
+          <div class="t-micro t-mono">103 calls &middot; 68% answered &middot; 59 min</div></div>
+        <span class="pill pos">10</span></div>
+    </div>
+    <div style="height:110px"></div>
+  </div>
+  <div class="tabbar glass glass-strong">
+    <div class="tab"><svg class="i"><use href="#i-home"/></svg><span>Today</span></div>
+    <div class="tab"><svg class="i"><use href="#i-list"/></svg><span>Campaigns</span></div>
+    <div class="tab on"><svg class="i"><use href="#i-chart"/></svg><span>Insights</span></div>
+    <div class="tab"><svg class="i"><use href="#i-sliders"/></svg><span>Settings</span></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">22</div><h3>Insights</h3>
+<p>Same API, one addition that changes its use: a plain sentence naming the biggest drop-off. A funnel tells a
+   rep what happened; a sentence tells them what to do. Sparkline and funnel both stay single-hue &mdash; gold means
+   volume, sage means a good outcome, and nothing else is coloured.</p></figcaption>
+</figure>
+
+<!-- 23 SETTINGS -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>18:06</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 20px"><span class="ttl">Settings</span></div>
+  <div class="body pad scroll">
+    <div class="card">
+      <div class="row g12"><div class="avatar gold" style="width:46px;height:46px;border-radius:15px;font-size:16px">PS</div>
+        <div class="col grow g4"><div class="t-h3" style="font-size:16px">Priya Sharma</div>
+          <div class="t-cap">priya@zenith-realty.in</div>
+          <div class="row g6 mt4"><span class="pill">Rep</span><span class="pill">Zenith Realty</span></div></div></div>
+    </div>
+
+    <div class="t-eyebrow muted mt24 mb10">This phone</div>
+    <div class="card">
+      <div class="lrow" style="padding-top:0"><svg class="i" style="color:var(--fg-subtle)"><use href="#i-device"/></svg>
+        <div class="col grow"><div style="font-size:14.5px">Calling SIM</div>
+          <div class="t-micro t-mono">Jio SIM 1 &middot; +91 98••• ••210</div></div>
+        <span class="pill pos"><span class="dot"></span>Verified</span></div>
+      <div class="lrow"><svg class="i" style="color:var(--fg-subtle)"><use href="#i-shield"/></svg>
+        <div class="col grow"><div style="font-size:14.5px">Default phone app</div>
+          <div class="t-micro">Required to merge calls</div></div>
+        <span class="pill pos"><span class="dot"></span>Active</span></div>
+      <div class="lrow" style="padding-bottom:0"><svg class="i" style="color:var(--fg-subtle)"><use href="#i-zap"/></svg>
+        <div class="col grow"><div style="font-size:14.5px">Battery optimisation</div>
+          <div class="t-micro gold">On &mdash; may interrupt long runs</div></div>
+        <svg class="i" style="width:17px;height:17px;color:var(--fg-faint)"><use href="#i-chev-r"/></svg></div>
+    </div>
+
+    <div class="t-eyebrow muted mt24 mb10">How you call</div>
+    <div class="card">
+      <div class="col g6" style="padding-bottom:14px">
+        <div class="row between"><span style="font-size:14.5px">Pause between leads</span>
+          <span class="t-mono gold" style="font-size:13px">5 s</span></div>
+        <div class="bar mt6"><i style="width:17%"></i></div>
+        <div class="row between"><span class="t-micro t-mono">0</span><span class="t-micro t-mono">30 s</span></div></div>
+      <hr class="hairline">
+      <div class="col g6" style="padding:14px 0">
+        <div class="row between"><span style="font-size:14.5px">Ring the lead for</span>
+          <span class="t-mono gold" style="font-size:13px">35 s</span></div>
+        <div class="bar mt6"><i style="width:44%"></i></div>
+        <div class="row between"><span class="t-micro t-mono">15</span><span class="t-micro t-mono">60 s</span></div></div>
+      <hr class="hairline">
+      <div class="row g12" style="padding-top:14px"><div class="col grow">
+        <div style="font-size:14.5px">Ask me after every call</div>
+        <div class="t-micro">The wrap-up sheet, so your own read beats the AI's guess</div></div>
+        <span class="switch on"><i></i></span></div>
+      <hr class="hairline">
+      <div class="row g12" style="padding-top:14px"><div class="col grow">
+        <div style="font-size:14.5px">Show live transcript</div>
+        <div class="t-micro">Uses a little more data</div></div>
+        <span class="switch on"><i></i></span></div>
+    </div>
+
+    <div class="t-eyebrow muted mt24 mb10">App</div>
+    <div class="card">
+      <div class="lrow" style="padding-top:0"><svg class="i" style="color:var(--fg-subtle)"><use href="#i-download"/></svg>
+        <div class="col grow"><div style="font-size:14.5px">Version 1.0.1 (3)</div>
+          <div class="t-micro gold">1.1.0 available</div></div>
+        <button class="btn btn-primary sm" style="height:34px">Update</button></div>
+      <div class="lrow"><svg class="i" style="color:var(--fg-subtle)"><use href="#i-external"/></svg>
+        <div class="col grow"><div style="font-size:14.5px">Server</div>
+          <div class="t-micro t-mono">gateway.hirebuddha.com</div></div>
+        <svg class="i" style="width:17px;height:17px;color:var(--fg-faint)"><use href="#i-chev-r"/></svg></div>
+      <div class="lrow" style="padding-bottom:0"><svg class="i" style="color:var(--fg-subtle)"><use href="#i-file"/></svg>
+        <div class="col grow"><div style="font-size:14.5px">Send diagnostics</div>
+          <div class="t-micro">Masked numbers only &mdash; helps support</div></div>
+        <svg class="i" style="width:17px;height:17px;color:var(--fg-faint)"><use href="#i-chev-r"/></svg></div>
+    </div>
+
+    <button class="btn btn-secondary block mt20" style="color:var(--negative);border-color:rgba(212,102,79,.3)">
+      <svg class="i"><use href="#i-logout"/></svg>Log out</button>
+
+    <div class="col center g10 mt28" style="padding-bottom:30px">
+      <svg style="width:116px;height:69px;opacity:.55"><use href="#logo-bcl"/></svg>
+      <div class="t-eyebrow" style="font-size:9px;color:var(--fg-faint)">Towards digital enlightenment</div></div>
+    <div style="height:90px"></div>
+  </div>
+  <div class="tabbar glass glass-strong">
+    <div class="tab"><svg class="i"><use href="#i-home"/></svg><span>Today</span></div>
+    <div class="tab"><svg class="i"><use href="#i-list"/></svg><span>Campaigns</span></div>
+    <div class="tab"><svg class="i"><use href="#i-chart"/></svg><span>Insights</span></div>
+    <div class="tab on"><svg class="i"><use href="#i-sliders"/></svg><span>Settings</span></div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">23</div><h3>Settings</h3>
+<p>Grouped by what a rep would go looking for. Three things move here that are currently invisible: battery
+   optimisation state, the update path for a sideloaded APK, and a one-tap way to send the masked diagnostic logs
+   that already ship to <span class="t-mono">mobile_client_logs</span>.</p></figcaption>
+</figure>
+
+</div>
+
+<div class="act">
+  <h2>V &middot; Dialer duties</h2><span class="rule"></span>
+  <p>Holding <span class="t-mono" style="font-size:12px">ROLE_DIALER</span> means Android expects a real phone app.
+     These three surfaces are obligations &mdash; but they are also where the brand meets a rep's everyday calls.</p>
+</div>
+<div class="grid">
+
+<!-- 24 DIAL PAD -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="statusbar"><span>18:31</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="appbar" style="padding:0 10px 0 20px"><span class="ttl">Phone</span>
+    <button class="iconbtn"><svg class="i"><use href="#i-clock"/></svg></button></div>
+  <div class="body pad" style="justify-content:flex-end">
+    <div class="col center" style="padding-bottom:22px">
+      <div class="t-mono" style="font-size:31px;letter-spacing:.04em;font-weight:500">+91 98765 43210</div>
+      <div class="t-cap mt6">Jio &middot; Maharashtra</div>
+    </div>
+    <div class="keypad">
+      <div class="key"><b>1</b><s>&nbsp;</s></div>
+      <div class="key"><b>2</b><s>ABC</s></div>
+      <div class="key"><b>3</b><s>DEF</s></div>
+      <div class="key"><b>4</b><s>GHI</s></div>
+      <div class="key"><b>5</b><s>JKL</s></div>
+      <div class="key"><b>6</b><s>MNO</s></div>
+      <div class="key"><b>7</b><s>PQRS</s></div>
+      <div class="key"><b>8</b><s>TUV</s></div>
+      <div class="key"><b>9</b><s>WXYZ</s></div>
+      <div class="key"><b>&lowast;</b><s>&nbsp;</s></div>
+      <div class="key"><b>0</b><s>+</s></div>
+      <div class="key"><b>#</b><s>&nbsp;</s></div>
+    </div>
+    <div class="row center g16 mt20" style="padding-bottom:18px">
+      <div style="width:56px"></div>
+      <button class="btn btn-primary" style="width:72px;height:72px;border-radius:50%;padding:0">
+        <svg class="i" style="width:26px;height:26px"><use href="#i-phone"/></svg></button>
+      <button class="iconbtn" style="width:56px;height:56px"><svg class="i" style="width:22px;height:22px">
+        <use href="#i-x"/></svg></button>
+    </div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">24</div><h3>Dial pad</h3>
+<p>Required to handle <span class="t-mono" style="font-size:12px">ACTION_DIAL</span>. Deliberately plain, but not
+   unfinished: tabular mono digits, a carrier hint, and the same gold call button as everywhere else. This is the
+   screen a rep sees when they tap a phone number in any other app.</p></figcaption>
+</figure>
+
+<!-- 25 INCOMING -->
+<figure>
+<div class="phone"><div class="screen">
+  <div class="glow" style="width:560px;height:560px;top:-160px;left:-74px;opacity:.55"></div>
+  <div class="watermark" style="right:-80px;bottom:-40px;width:240px;height:604px;opacity:.05">
+    <svg style="width:240px;height:604px"><use href="#logo-mark"/></svg></div>
+  <div class="statusbar"><span>18:44</span><span class="icons">
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body pad center" style="position:relative;z-index:2;text-align:center;justify-content:flex-start">
+    <div style="padding-top:56px">
+      <div class="t-eyebrow">Incoming call</div>
+      <div class="avatar mt24" style="width:96px;height:96px;border-radius:50%;font-size:30px;margin:24px auto 0">AR</div>
+      <h2 class="t-h2 mt20" style="font-size:25px">Arjun Rao</h2>
+      <div class="t-mono mt8" style="font-size:15px;color:var(--fg-muted)">+91 88765 43037</div>
+      <span class="pill gold mt14" style="margin-top:14px">Lead &middot; Baner developer leads</span>
+    </div>
+
+    <div class="grow"></div>
+
+    <div class="card tight" style="width:100%;text-align:left;background:none;border-style:dashed">
+      <div class="row g10"><svg class="i" style="width:16px;height:16px;color:var(--gold-300)"><use href="#i-info"/></svg>
+        <span class="t-cap grow" style="color:var(--fg-muted)">Your run will pause after this call</span></div></div>
+
+    <div class="row between g16 mt24" style="width:100%;padding:0 18px 34px">
+      <div class="col center g10">
+        <button class="btn btn-danger" style="width:68px;height:68px;border-radius:50%;padding:0">
+          <svg class="i" style="width:25px;height:25px"><use href="#i-phone-end"/></svg></button>
+        <span class="t-micro">Decline</span></div>
+      <div class="col center g10">
+        <button class="btn btn-glass" style="width:56px;height:56px;border-radius:50%;padding:0;margin-top:6px">
+          <svg class="i" style="width:21px;height:21px"><use href="#i-message"/></svg></button>
+        <span class="t-micro">Message</span></div>
+      <div class="col center g10">
+        <button class="btn" style="width:68px;height:68px;border-radius:50%;padding:0;background:var(--positive);
+          color:#0f2015;box-shadow:0 8px 30px -8px rgba(123,180,135,.5)">
+          <svg class="i" style="width:25px;height:25px"><use href="#i-phone"/></svg></button>
+        <span class="t-micro">Answer</span></div>
+    </div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">25</div><h3>Incoming call</h3>
+<p>A full-screen intent the app is obliged to ship. It earns its keep by doing something the stock dialer cannot:
+   recognising the number as a lead in a live campaign, and warning that answering will pause the run &mdash; behaviour
+   the orchestrator already implements but never announces.</p></figcaption>
+</figure>
+
+<!-- 26 NOTIFICATION -->
+<figure>
+<div class="phone"><div class="screen" style="background:linear-gradient(170deg,#141210 0%,#0a0908 60%)">
+  <div class="glow" style="width:600px;height:600px;top:-240px;left:-94px;opacity:.35"></div>
+  <div class="statusbar"><span>14:52</span><span class="icons">
+    <svg class="i" style="color:var(--accent)"><use href="#i-phone"/></svg>
+    <svg class="i"><use href="#i-cell"/></svg><svg class="i"><use href="#i-wifi"/></svg><svg class="i"><use href="#i-battery"/></svg></span></div>
+  <div class="body pad" style="position:relative;z-index:2">
+    <div class="col center" style="padding:34px 0 30px">
+      <div class="t-mono" style="font-size:15px;color:var(--fg-muted);letter-spacing:.04em">Tuesday, 21 September</div>
+      <div style="font-family:var(--font-display);font-size:66px;font-weight:600;letter-spacing:-.04em;line-height:1">14:52</div>
+    </div>
+
+    <div class="col g10">
+      <div class="notif" style="border-color:var(--border-gold)">
+        <div class="hd"><svg class="mk" style="width:11px;height:28px"><use href="#logo-mark"/></svg>
+          <span>HireBuddha</span><span class="dot" style="width:3px;height:3px;background:var(--fg-faint)"></span>
+          <span>now</span><span class="grow"></span><span class="pill gold">Ongoing</span></div>
+        <div class="row g10"><div class="col grow g4">
+          <div style="font-size:14.5px;font-weight:600">In conversation &middot; 01:42</div>
+          <div class="t-cap">Ananya and Meenal Deshpande &middot; lead 44 of 148</div></div></div>
+        <div class="bar mt12"><i style="width:30%"></i></div>
+        <div class="row g8 mt12">
+          <button class="btn btn-glass sm grow" style="height:38px"><svg class="i"><use href="#i-mic"/></svg>Unmute</button>
+          <button class="btn btn-glass sm grow" style="height:38px"><svg class="i"><use href="#i-pause"/></svg>Pause run</button>
+          <button class="btn btn-danger-quiet sm" style="height:38px;width:44px;padding:0">
+            <svg class="i"><use href="#i-phone-end"/></svg></button></div>
+      </div>
+
+      <div class="notif">
+        <div class="hd"><svg class="mk" style="width:11px;height:28px"><use href="#logo-mark"/></svg>
+          <span>HireBuddha</span><span class="dot" style="width:3px;height:3px;background:var(--fg-faint)"></span>
+          <span>12 min ago</span></div>
+        <div style="font-size:14px;font-weight:600">Callback due at 16:00</div>
+        <div class="t-cap mt2">Kavita Joshi &mdash; asked to be called after work</div>
+      </div>
+
+      <div class="notif" style="opacity:.62">
+        <div class="hd"><svg class="mk" style="width:11px;height:28px"><use href="#logo-mark"/></svg>
+          <span>HireBuddha</span><span class="dot" style="width:3px;height:3px;background:var(--fg-faint)"></span>
+          <span>1 h ago</span></div>
+        <div style="font-size:14px;font-weight:600">Version 1.1.0 is ready to install</div>
+        <div class="t-cap mt2">Tap to download &middot; 14 MB</div>
+      </div>
+    </div>
+  </div>
+  <div class="gesturebar"><span></span></div>
+</div></div>
+<figcaption><div class="n">26</div><h3>Lock screen &amp; notifications<span class="new">new</span></h3>
+<p>Reps put the phone down. The foreground service notification (FR-E8) is the app for minutes at a time, so it
+   carries the three controls that matter and a live timer. Callback reminders and the sideload update prompt
+   also live here rather than as an in-app snackbar nobody sees.</p></figcaption>
+</figure>
+
+</div>
+
+<footer class="foot">
+  <svg class="lock" style="width:168px;height:100px"><use href="#logo-bcl"/></svg>
+  <p>Buddha Cognitive Lab &middot; Hire Buddha<br>
+     Mockups for <span class="t-mono" style="font-size:12px">docs/mobile-dialer-app</span> &mdash; 21 September 2026</p>
+</footer>
+
+</div>
+</body>
+</html>

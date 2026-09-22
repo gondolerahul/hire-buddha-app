@@ -367,3 +367,144 @@ class CallOrchestratorTest {
         assertEquals(1, h.orchestrator.state.value.callsMade)
     }
 }
+
+/**
+ * Behaviour added in the v2 redesign (docs/mobile-dialer-app/11-ux-and-visual-design.md).
+ *
+ * `UserCommand.SKIP` existed from the first build but nothing ever sent it, and the
+ * orchestrator only honoured it once a conversation was live — precisely the phase where
+ * a rep least needs it. These cover the three waits a rep actually sits through.
+ *
+ * Every test drives the orchestrator from a state observer rather than `advanceTimeBy`,
+ * which is the idiom the rest of this file uses: the virtual clock then only advances
+ * while the run itself is waiting, so there is no window for a stray coroutine to leak.
+ */
+class CallOrchestratorV2Test {
+
+    private val config = OrchestratorConfig(gapBetweenLeadsMs = 0)
+
+    /** Presses Skip the first time the run reaches [at]. */
+    private fun TestScope.skipAt(h: Harness, at: Step) = backgroundScope.launch {
+        h.orchestrator.state.collect { if (it.step == at) h.orchestrator.send(UserCommand.SKIP) }
+    }
+
+    @Test
+    fun `skip while the agent is connecting never rings the lead`() = runTest {
+        val h = Harness(this)
+        skipAt(h, Step.CONNECTING_AI)
+        val outcome = h.orchestrator.runLead("run1", "dev1", lead(), config)
+
+        assertEquals(LeadOutcome.Skipped, outcome)
+        assertEquals("skipped" to mapOf("phase" to "connecting_ai"), h.backend.events.last())
+        // The whole point of AI-first: the lead's phone must never have rung.
+        assertFalse(h.backend.types().contains("lead_dialing"))
+    }
+
+    @Test
+    fun `skip while waiting for the agent to be briefed aborts before the lead is dialled`() = runTest {
+        val h = Harness(this)
+        h.calls.readyPush = null          // the gateway never says ai_ready
+        skipAt(h, Step.WAITING_AI)
+        val outcome = h.orchestrator.runLead("run1", "dev1", lead(), config)
+
+        assertEquals(LeadOutcome.Skipped, outcome)
+        assertEquals("skipped" to mapOf("phase" to "waiting_for_ai"), h.backend.events.last())
+        assertFalse(h.backend.types().contains("lead_dialing"))
+    }
+
+    @Test
+    fun `skip while the lead is ringing drops both legs`() = runTest {
+        val h = Harness(this)
+        h.calls.lead = LeadBehavior.RingForever
+        skipAt(h, Step.CALLING_LEAD)
+        val outcome = h.orchestrator.runLead("run1", "dev1", lead(), config)
+
+        assertEquals(LeadOutcome.Skipped, outcome)
+        assertEquals("skipped" to mapOf("phase" to "ringing_lead"), h.backend.events.last())
+        assertTrue(h.calls.disconnected.containsAll(listOf("c1", "c2")))
+    }
+
+    @Test
+    fun `a connected call is counted and offered for wrap-up`() = runTest {
+        val h = Harness(this)
+        h.backend.leads += lead("Meenal")
+        h.orchestrator.reset("run1", "camp1", "Baner leads")
+        // Grab the sheet as it appears: the gap clears it once the run moves on.
+        var seen: WrapUp? = null
+        backgroundScope.launch { h.orchestrator.state.collect { s -> s.wrapUp?.let { if (seen == null) seen = it } } }
+        h.orchestrator.run("run1", "dev1", config)
+
+        assertEquals("cc1", seen?.campaignCallId)
+        assertEquals("Meenal", seen?.leadName)
+        assertEquals(1, h.orchestrator.state.value.connected)
+    }
+
+    @Test
+    fun `a lead that never connects is not worth asking the rep about`() = runTest {
+        val h = Harness(this)
+        h.calls.lead = LeadBehavior.Reject(2_000, LeadFailureCause.BUSY)
+        h.backend.leads += lead()
+        h.orchestrator.reset("run1", "camp1", "Baner leads")
+        var seen: WrapUp? = null
+        backgroundScope.launch { h.orchestrator.state.collect { s -> s.wrapUp?.let { if (seen == null) seen = it } } }
+        h.orchestrator.run("run1", "dev1", config)
+
+        assertEquals(null, seen)
+        assertEquals(0, h.orchestrator.state.value.connected)
+    }
+
+    @Test
+    fun `askAfterEveryCall off means no wrap-up is ever offered`() = runTest {
+        val h = Harness(this)
+        h.backend.leads += lead()
+        h.orchestrator.reset("run1", "camp1", "Baner leads")
+        var seen: WrapUp? = null
+        backgroundScope.launch { h.orchestrator.state.collect { s -> s.wrapUp?.let { if (seen == null) seen = it } } }
+        h.orchestrator.run("run1", "dev1", config.copy(askAfterEveryCall = false))
+
+        assertEquals(null, seen)
+    }
+
+    @Test
+    fun `transcript turns pushed during the conversation land on the run state`() = runTest {
+        val h = Harness(this)
+        h.calls.aiEndsAfterMergeMs = null
+        h.calls.leadHangsUpAfterMergeMs = 10_000
+        // Emit the turns the moment the conference goes live, the way the gateway does.
+        backgroundScope.launch {
+            h.orchestrator.state.collect {
+                if (it.step == Step.IN_CONVERSATION && it.transcript.isEmpty()) {
+                    h.push.emit("attempt.transcript", "speaker" to "agent", "text" to "Am I speaking with Asha?")
+                    h.push.emit("attempt.transcript", "speaker" to "lead", "text" to "Yes, speaking.")
+                }
+            }
+        }
+        h.orchestrator.runLead("run1", "dev1", lead(), config)
+
+        val turns = h.orchestrator.state.value.transcript
+        assertEquals(2, turns.size)
+        assertTrue(turns[0].isAgent)
+        assertFalse(turns[1].isAgent)
+        assertEquals("Yes, speaking.", turns[1].text)
+    }
+
+    @Test
+    fun `a blank transcript push is ignored rather than drawn as an empty bubble`() = runTest {
+        val h = Harness(this)
+        h.calls.aiEndsAfterMergeMs = null
+        h.calls.leadHangsUpAfterMergeMs = 10_000
+        var emitted = false
+        backgroundScope.launch {
+            h.orchestrator.state.collect {
+                if (it.step == Step.IN_CONVERSATION && !emitted) {
+                    emitted = true
+                    h.push.emit("attempt.transcript", "speaker" to "agent", "text" to "   ")
+                }
+            }
+        }
+        h.orchestrator.runLead("run1", "dev1", lead(), config)
+
+        assertTrue(emitted)
+        assertTrue(h.orchestrator.state.value.transcript.isEmpty())
+    }
+}

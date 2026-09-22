@@ -2,19 +2,23 @@ package com.hirebuddha.dialer.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Campaign
-import androidx.compose.material.icons.outlined.Insights
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,7 +26,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
@@ -30,6 +37,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.hirebuddha.dialer.R
 import com.hirebuddha.dialer.data.api.AppVersionDto
 import com.hirebuddha.dialer.data.api.MeDto
 import com.hirebuddha.dialer.ui.analytics.AnalyticsScreen
@@ -37,8 +45,12 @@ import com.hirebuddha.dialer.ui.calls.CallDetailScreen
 import com.hirebuddha.dialer.ui.campaigns.CampaignDetailScreen
 import com.hirebuddha.dialer.ui.campaigns.CampaignListScreen
 import com.hirebuddha.dialer.ui.campaigns.CreateCampaignScreen
+import com.hirebuddha.dialer.ui.common.GlassSurface
+import com.hirebuddha.dialer.ui.common.HbIcon
+import com.hirebuddha.dialer.ui.home.TodayScreen
 import com.hirebuddha.dialer.ui.run.RunScreen
 import com.hirebuddha.dialer.ui.settings.SettingsScreen
+import com.hirebuddha.dialer.ui.theme.HbTheme
 
 object Routes {
     const val HOME = "home"
@@ -95,6 +107,8 @@ fun MainNavigation(
                 onOpenCall = { session, attempt, title -> nav.navigate(Routes.call(session, attempt, title)) },
             )
         }
+        // The run is a destination, not a tab: it is reachable from Today, the campaign
+        // list, campaign detail and the notification, and always opens the same live run.
         composable(Routes.RUN) { RunScreen(onBack = { nav.popBackStack() }) }
         composable(
             Routes.CALL,
@@ -114,6 +128,13 @@ fun MainNavigation(
     }
 }
 
+private enum class Tab(val label: String, val icon: Int) {
+    Today("Today", R.drawable.ic_home),
+    Campaigns("Campaigns", R.drawable.ic_list),
+    Insights("Insights", R.drawable.ic_chart),
+    Settings("Settings", R.drawable.ic_sliders),
+}
+
 @Composable
 private fun HomeTabs(
     me: MeDto,
@@ -124,32 +145,92 @@ private fun HomeTabs(
     onLogout: () -> Unit,
     onDeviceNeedsSetup: () -> Unit,
 ) {
-    var tab by rememberSaveable { mutableStateOf(0) }
-    val context = LocalContext.current
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(tab == 0, { tab = 0 }, { Icon(Icons.Outlined.Campaign, null) }, label = { Text("Campaigns") })
-                NavigationBarItem(tab == 1, { tab = 1 }, { Icon(Icons.Outlined.Insights, null) }, label = { Text("Analytics") })
-                NavigationBarItem(tab == 2, { tab = 2 }, { Icon(Icons.Outlined.Settings, null) }, label = { Text("Settings") })
+    var tab by rememberSaveable { mutableStateOf(Tab.Today.ordinal) }
+    val current = Tab.entries[tab]
+
+    Box(Modifier.fillMaxSize().statusBarsPadding()) {
+        when (current) {
+            Tab.Today -> TodayScreen(
+                me = me,
+                onOpenCampaign = onOpenCampaign,
+                onOpenRun = onOpenRun,
+                onSeeAll = { tab = Tab.Campaigns.ordinal },
+            )
+            Tab.Campaigns -> CampaignListScreen(me = me, onOpen = onOpenCampaign, onOpenRun = onOpenRun)
+            Tab.Insights -> AnalyticsScreen(isAdmin = me.isAdmin)
+            Tab.Settings -> SettingsScreen(
+                me = me, update = update, onLogout = onLogout, onReverify = onDeviceNeedsSetup,
+            )
+        }
+
+        if (current == Tab.Campaigns) {
+            NewCampaignFab(onCreate, Modifier.align(Alignment.BottomEnd))
+        }
+        TabBar(current, { tab = it.ordinal }, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+/**
+ * Floating glass tab bar. One of only four places the liquid-glass material is used —
+ * it needs content moving underneath it for the refraction to read at all.
+ */
+@Composable
+private fun TabBar(current: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
+    val c = HbTheme.colors
+    GlassSurface(
+        modifier.fillMaxWidth().padding(horizontal = 14.dp).navigationBarsPadding().padding(bottom = 8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Tab.entries.forEach { entry ->
+                val selected = entry == current
+                val alpha by animateFloatAsState(if (selected) 1f else 0f, label = "tab")
+                Column(
+                    Modifier.weight(1f).height(52.dp)
+                        .clip(RoundedCornerShape(HbTheme.dims.rXl))
+                        .background(c.accentQuiet.copy(alpha = c.accentQuiet.alpha * alpha))
+                        .clickable { onSelect(entry) },
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    HbIcon(entry.icon, size = 21.dp, tint = if (selected) c.accent else c.fgSubtle)
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        entry.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) c.accent else c.fgSubtle,
+                    )
+                }
             }
-        },
-        floatingActionButton = {
-            if (tab == 0) ExtendedFloatingActionButton(onClick = onCreate, icon = { Icon(Icons.Filled.Add, null) }, text = { Text("New campaign") })
-        },
-        snackbarHost = {
-            if (update?.updateAvailable == true && update.downloadUrl != null) {
-                Snackbar(Modifier.padding(12.dp), action = {
-                    Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.downloadUrl))) }) { Text("Update") }
-                }) { Text("Version ${update.latestVersionName} is available") }
-            }
-        },
-    ) { padding ->
-        val modifier = Modifier.padding(padding)
-        when (tab) {
-            0 -> CampaignListScreen(me = me, onOpen = onOpenCampaign, onOpenRun = onOpenRun, modifier = modifier)
-            1 -> AnalyticsScreen(isAdmin = me.isAdmin, modifier = modifier)
-            else -> SettingsScreen(me = me, onLogout = onLogout, onReverify = onDeviceNeedsSetup, modifier = modifier)
         }
     }
+}
+
+@Composable
+private fun NewCampaignFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val c = HbTheme.colors
+    Row(
+        modifier
+            .navigationBarsPadding()
+            .padding(end = 20.dp, bottom = 88.dp)
+            .height(52.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(c.accent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        HbIcon(R.drawable.ic_plus, size = 19.dp, tint = c.onAccent)
+        Text("New campaign", style = MaterialTheme.typography.labelLarge, color = c.onAccent)
+    }
+}
+
+/** Opens the APK download for a sideloaded update. */
+@Composable
+fun rememberUpdateLauncher(): (String) -> Unit {
+    val context = LocalContext.current
+    return { url -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }

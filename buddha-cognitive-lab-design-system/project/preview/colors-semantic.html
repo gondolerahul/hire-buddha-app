@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Colors" name="Semantic tokens (dark)" subtitle="bg / surface / fg / accent — the default dark surface" viewport="700x185" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:26px 28px;}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 26px;}
+  .item{display:flex;align-items:center;gap:12px;}
+  .sw{width:40px;height:40px;border-radius:var(--r-sm);border:1px solid var(--border);flex:none;}
+  .meta{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .tok{font-family:var(--font-mono);font-size:12px;color:var(--fg);}
+  .desc{font-size:11px;color:var(--fg-subtle);}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:18px;}
+</style></head>
+<body>
+  <div class="cap">Semantic tokens · dark (default)</div>
+  <div class="grid">
+    <div class="item"><div class="sw" style="background:var(--bg)"></div><div class="meta"><div class="tok">--bg</div><div class="desc">page canvas</div></div></div>
+    <div class="item"><div class="sw" style="background:var(--surface)"></div><div class="meta"><div class="tok">--surface</div><div class="desc">cards, panels</div></div></div>
+    <div class="item"><div class="sw" style="background:var(--surface-3)"></div><div class="meta"><div class="tok">--surface-3</div><div class="desc">inputs, chips</div></div></div>
+    <div class="item"><div class="sw" style="background:transparent;box-shadow:inset 0 0 0 1px var(--border-strong)"></div><div class="meta"><div class="tok">--border</div><div class="desc">hairline</div></div></div>
+    <div class="item"><div class="sw" style="background:var(--fg)"></div><div class="meta"><div class="tok">--fg</div><div class="desc">primary text</div></div></div>
+    <div class="item"><div class="sw" style="background:var(--fg-muted)"></div><div class="meta"><div class="tok">--fg-muted</div><div class="desc">secondary text</div></div></div>
+    <div class="item"><div class="sw" style="background:var(--accent)"></div><div class="meta"><div class="tok">--accent</div><div class="desc">gold · actions, links</div></div></div>
+    <div class="item"><div class="sw" style="background:var(--accent-quiet)"></div><div class="meta"><div class="tok">--accent-quiet</div><div class="desc">tinted fills, selected</div></div></div>
+  </div>
+</body></html>

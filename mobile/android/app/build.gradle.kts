@@ -24,8 +24,8 @@ android {
         applicationId = "com.hirebuddha.dialer"
         minSdk = 29
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.1.0"
 
         buildConfigField("String", "DEFAULT_API_BASE_URL", "\"https://gateway.hirebuddha.com/\"")
         buildConfigField("String", "DEFAULT_PUSH_WS_URL", "\"wss://gateway.hirebuddha.com/mobile/ws\"")
@@ -83,6 +83,7 @@ ksp {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -98,7 +99,8 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
-    implementation(libs.compose.material.icons)
+    // material-icons-extended dropped in the v2 UI: every icon is now a generated
+    // Lucide-style drawable in res/drawable, so the bundle was pure weight.
     debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.hilt.android)

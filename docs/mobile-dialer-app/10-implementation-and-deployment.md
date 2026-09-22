@@ -24,6 +24,13 @@
 | Smartflo reply key made configurable (`TATA_STREAM_SUCCESS_KEY`, default unchanged `sucess`) | ✅ | `webhook_router.py`, `config.py` |
 | Web: xlsx upload, execution mode, rep assignment, mobile analytics panel, "Run from mobile app" on list | ✅ | [`CampaignCreateModal.tsx`](../../frontend/src/pages/streaming/CampaignCreateModal.tsx), [`MobileAnalyticsPanel.tsx`](../../frontend/src/pages/streaming/MobileAnalyticsPanel.tsx), `CampaignDetailPage.tsx`, `CampaignsPage.tsx` |
 | Android app (Kotlin/Compose): login, onboarding (permissions, default dialer, SIM, verification call), campaigns, create + upload report, AI-first run orchestrator with auto-mute/unmute/take-over, event outbox, push socket, analytics, call detail, settings, minimal dial pad + incoming-call UI | ✅ | [`mobile/android`](../../mobile/android) |
+| **v2 UI on the Buddha Cognitive Lab design system** (brand theme, fonts, logos, icon set, splash, all 26 screens) | ✅ | [`ui/theme`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/ui/theme), [`ui/common`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/ui/common), [11](11-ux-and-visual-design.md) |
+| **Skip from any run phase** (FR-E7 — the command existed but nothing sent it) | ✅ | [`CallOrchestrator.kt`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/run/CallOrchestrator.kt) |
+| **Pre-flight check** before a run (dialer role, battery, SIM, window, cap, credits, DID) | ✅ | [`PreflightSheet.kt`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/ui/campaigns/PreflightSheet.kt), `GET /mobile/preflight` |
+| **Rep wrap-up** — disposition, note, callback, do-not-call | ✅ | [`RunSheets.kt`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/ui/run/RunSheets.kt), `PATCH /mobile/campaign-calls/{id}/disposition` |
+| **Callbacks** — held out of leasing until due, surfaced on Today | ✅ | `service.callbacks_due`, `GET /mobile/callbacks`, `_LEASE_SQL` |
+| **Live transcript** on the run screen during the conversation | ✅ | `stream_controller.on_transcript` → `attempt.transcript` push |
+| **Today tab**, run summary, paused screen, notification with controls | ✅ | [`TodayScreen.kt`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/ui/home/TodayScreen.kt), [`RunSummary.kt`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/ui/run/RunSummary.kt), [`RunService.kt`](../../mobile/android/app/src/main/java/com/hirebuddha/dialer/run/RunService.kt) |
 | Assisted mode (no default-dialer role) | ⏳ not built | docs 05 §3 |
 | FCM on the device (needs a Firebase project + `google-services.json`) | ⏳ not built | backend side is ready and no-ops without config |
 | Stand-alone web page `/streaming/mobile-analytics` | ⏳ not built | the API exists (`GET /mobile/analytics/summary`) |
@@ -59,6 +66,18 @@ cd backend && .venv/bin/python -m pytest tests/unit/test_mobile_pure_logic.py te
 
 ```bash
 psql "$DATABASE_URL_SYNC" -v ON_ERROR_STOP=1 -f backend/db-scripts/mobile_dialer_001.sql
+psql "$DATABASE_URL_SYNC" -v ON_ERROR_STOP=1 -f backend/db-scripts/mobile_dialer_002.sql
+```
+
+`mobile_dialer_002.sql` adds the rep-captured outcome columns and `callback_at` to
+`campaign_calls`. Every column is nullable with no default, so on PostgreSQL 11+ each
+`ALTER` is catalogue-only — but it still needs `ACCESS EXCLUSIVE` for an instant, and an
+ALTER that *queues* blocks every later query on the table behind it. The script sets
+`lock_timeout = '5s'` so it fails fast instead. If it times out, clear the idle-in-transaction
+sessions holding `campaign_calls` first:
+
+```bash
+psql "$DATABASE_URL" -c "select pid, state, age(clock_timestamp(), xact_start), left(query,60) from pg_stat_activity where state like 'idle in transaction%';"
 ```
 
 The script is idempotent and additive: new tables, plus defaulted/nullable columns on `campaigns` and `campaign_calls`. It is safe for the currently running code. Take a backup first, as usual.
@@ -129,7 +148,7 @@ Host `app/build/outputs/apk/release/app-release.apk` at `MOBILE_APP_DOWNLOAD_URL
 | 3 Apache | ✅ `/mobile/ws` rule live on the gateway vhost (backup `…-le-ssl.conf.bak-20260918`) |
 | 4 Code | ✅ `fresh-main` at `3e5fbef`; API, gateway and Arq worker restarted |
 | 5 Smartflo | ⏳ account reactivation + DID dynamic endpoint must be done in the Smartflo portal; `GET /webhooks/voice/tata/incoming` answers publicly |
-| 6 APK | ✅ signed 1.0.1 (v2 scheme) hosted at `https://app.hirebuddha.com/download/app/` — static files in `/var/www/hirebuddha-downloads/app/`, Apache `Alias` ahead of the Vite proxy on the app vhost |
+| 6 APK | ✅ signed **1.1.0 (6)**, v2 scheme, 4.0 MB; earlier 1.0.1 hosted at `https://app.hirebuddha.com/download/app/` — static files in `/var/www/hirebuddha-downloads/app/`, Apache `Alias` ahead of the Vite proxy on the app vhost |
 
 Release key: `~/.hirebuddha-secrets/hirebuddha-release.jks` (+ `keystore.properties.backup`). **Back both up off this server** — losing them means every rep must uninstall to update.
 

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Material" name="Liquid glass" subtitle="Frosted translucent panels that refract the gold beneath — blur · rim · sheen" viewport="700x300" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:0;overflow:hidden;}
+  .cap{position:absolute;top:18px;left:24px;z-index:5;font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);}
+  .stage{position:relative;height:300px;overflow:hidden;}
+  /* colorful backdrop so the blur is visible */
+  .bd{position:absolute;inset:0;}
+  .bd .glow{position:absolute;width:520px;height:520px;left:-60px;top:-160px;background:var(--glow-gold);}
+  .bd .glow2{position:absolute;width:360px;height:360px;right:-40px;bottom:-140px;background:radial-gradient(circle,rgba(237,171,72,.5),transparent 65%);}
+  .bd .mark{position:absolute;right:6%;top:50%;transform:translateY(-50%);height:330px;opacity:.5;}
+  .bd .big{position:absolute;left:5%;bottom:-6px;font-family:var(--font-logo);font-size:90px;color:rgba(255,239,216,.12);letter-spacing:.04em;}
+
+  .layer{position:relative;z-index:2;height:100%;display:flex;align-items:center;gap:18px;padding:0 28px;}
+
+  /* ---- glass recipe (from tokens) ---- */
+  .glass{position:relative;background:var(--glass-tint);
+    -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+    border:1px solid var(--glass-border);border-radius:var(--r-xl);box-shadow:var(--glass-edge);isolation:isolate;}
+  .glass::before{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--glass-sheen);pointer-events:none;z-index:1;}
+  .glass-gold{box-shadow:var(--glass-edge-gold);}
+  .glass-gold::after{content:"";position:absolute;inset:0;border-radius:inherit;background:var(--glass-tint-gold);z-index:-1;}
+
+  .panel{width:208px;padding:18px;}
+  .panel .ic{width:38px;height:38px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;
+    background:var(--glass-tint-gold);border:1px solid var(--border-gold);position:relative;z-index:2;}
+  .panel .ic img{height:20px;}
+  .panel h4{position:relative;z-index:2;font-family:var(--font-display);font-weight:600;font-size:16px;margin:14px 0 5px;letter-spacing:-.01em;}
+  .panel p{position:relative;z-index:2;font-size:12.5px;line-height:1.55;color:var(--fg-muted);margin:0;}
+
+  .bar{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:var(--r-pill);
+    background:var(--glass-tint-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+    border:1px solid var(--glass-border);box-shadow:var(--glass-edge);position:relative;z-index:2;}
+  .bar .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);}
+  .bar .t{font-family:var(--font-mono);font-size:11px;color:var(--fg);letter-spacing:.06em;}
+  .bar .pill{margin-left:4px;font-family:var(--font-mono);font-size:10px;color:var(--gold-300);background:var(--accent-quiet);border:1px solid var(--border-gold);border-radius:99px;padding:2px 8px;}
+
+  .stack{display:flex;flex-direction:column;gap:12px;}
+  .lab{position:absolute;bottom:14px;left:24px;z-index:5;font-family:var(--font-mono);font-size:10px;color:var(--fg-subtle);}
+</style></head>
+<body>
+  <div class="stage">
+    <div class="bd">
+      <div class="glow"></div><div class="glow2"></div>
+      <img class="mark" src="../assets/logo-mark-gold.svg">
+      <div class="big">BUDDHA</div>
+    </div>
+    <div class="cap">Liquid glass · material</div>
+    <div class="layer">
+      <div class="glass panel">
+        <div class="ic"><img src="../assets/logo-mark-gold.svg"></div>
+        <h4>Frosted panel</h4>
+        <p>Translucent surface, 20px blur + saturation. The gold reads through.</p>
+      </div>
+      <div class="glass glass-gold panel">
+        <div class="ic"><img src="../assets/logo-mark-gold.svg"></div>
+        <h4>Gold glass</h4>
+        <p>Brand variant — a warm tint and a luminous gold rim on the edge.</p>
+      </div>
+      <div class="stack">
+        <div class="bar"><span class="dot"></span><span class="t">live</span><span class="pill">4 running</span></div>
+        <div class="bar" style="background:var(--glass-tint)"><span class="t" style="color:var(--gold-300)">⌘K</span><span class="t">search</span></div>
+      </div>
+    </div>
+    <div class="lab">--glass-tint · --glass-blur · --glass-edge · --glass-sheen</div>
+  </div>
+</body></html>

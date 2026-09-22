@@ -89,6 +89,7 @@ class RunController @Inject constructor(
     private val outbox: EventOutbox,
     private val settings: AppSettings,
     private val logs: com.hirebuddha.dialer.data.logs.LogRepository,
+    private val campaigns: com.hirebuddha.dialer.data.repo.CampaignRepository,
 ) {
     private val orchestrator = CallOrchestrator(registry, ApiDialerBackend(api, outbox), push)
     val state: StateFlow<RunUiState> = orchestrator.state
@@ -132,6 +133,7 @@ class RunController @Inject constructor(
                 val config = OrchestratorConfig(
                     gapBetweenLeadsMs = prefs.gapSeconds * 1_000L,
                     leadRingTimeoutMs = prefs.leadRingTimeoutSeconds * 1_000L,
+                    askAfterEveryCall = prefs.askAfterEveryCall,
                 )
                 val final = orchestrator.run(runId, deviceId, config)
                 val serverStatus = when (final) {
@@ -176,10 +178,70 @@ class RunController @Inject constructor(
         }
     }
 
+    /**
+     * Stops a run by id, whether or not this process is the one driving it.
+     *
+     * The live run lives in memory, so a crash, a force-stop or a reinstall leaves the
+     * server holding a run the app can no longer reach — and `start_run` then refuses
+     * every campaign on that device with `device_busy`. `GET /mobile/runs/active` finds
+     * it again; this is how the rep clears it.
+     */
+    suspend fun stopRun(runId: String): ApiResult<Unit> {
+        if (state.value.runId == runId) orchestrator.requestStop()
+        return when (val r = apiCall { api.updateRun(runId, RunUpdateRequest("stopped")) }) {
+            is ApiResult.Ok -> {
+                if (state.value.runId == runId) orchestrator.clear()
+                ApiResult.Ok(Unit)
+            }
+            // Already stopped server-side is the outcome we wanted.
+            is ApiResult.Err -> if (r.httpStatus == 409 || r.httpStatus == 404) ApiResult.Ok(Unit) else r
+            ApiResult.Empty -> ApiResult.Ok(Unit)
+        }
+    }
+
+    /** Stop whatever is holding this device, then start the campaign the rep asked for. */
+    suspend fun stopAndStart(blockingRunId: String, campaignId: String, campaignName: String): ApiResult<Unit> {
+        val stopped = stopRun(blockingRunId)
+        if (stopped is ApiResult.Err) return stopped
+        return start(campaignId, campaignName)
+    }
+
     fun flushLogs() = logs.flushSoon()
 
     fun command(command: UserCommand) = orchestrator.send(command)
     fun decideMerge(mergeAnyway: Boolean) = orchestrator.decideMerge(mergeAnyway)
+
+    /** The rep is still filling in the wrap-up: stop the countdown to the next lead. */
+    fun holdGap() = orchestrator.holdGap()
+
+    /** Dismiss the wrap-up and take the next lead now. */
+    fun continueRun() = orchestrator.continueRun()
+
+    /**
+     * Records what the rep heard and moves on (docs 11 §3.1, screen 18).
+     *
+     * The run never waits on the network for this: the call is already over, and a rep
+     * standing in a basement should not be held up by it. A failure surfaces as a
+     * message and the run continues — the model's own disposition still applies.
+     */
+    suspend fun submitDisposition(
+        campaignCallId: String,
+        disposition: String,
+        note: String? = null,
+        callbackAt: java.time.Instant? = null,
+    ): ApiResult<Unit> {
+        val result = campaigns.setDisposition(campaignCallId, disposition, note, callbackAt)
+        when (result) {
+            is ApiResult.Ok -> DialerLog.i(TAG, "Rep disposition recorded", "disposition" to disposition)
+            is ApiResult.Err -> DialerLog.w(TAG, "Rep disposition failed", "code" to result.code, "message" to result.message)
+            ApiResult.Empty -> Unit
+        }
+        continueRun()
+        return when (result) {
+            is ApiResult.Err -> result
+            else -> ApiResult.Ok(Unit)
+        }
+    }
 
     /**
      * Carrier and device facts recorded once per run: whether a phone can merge calls

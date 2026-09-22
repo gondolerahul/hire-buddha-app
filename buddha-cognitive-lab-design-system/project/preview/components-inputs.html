@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Text inputs" subtitle="Rest → focus (gold ring)" viewport="700x150" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:28px;}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:18px;}
+  .row{display:flex;gap:18px;}
+  .f{flex:1;display:flex;flex-direction:column;gap:7px;}
+  label{font-size:12px;color:var(--fg-muted);}
+  input{font-family:var(--font-body);font-size:15px;color:var(--fg);background:var(--surface-3);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;outline:none;}
+  input::placeholder{color:var(--fg-faint);}
+  .focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--focus-ring);}
+  .lbl{font-family:var(--font-mono);font-size:10px;color:var(--fg-faint);}
+</style></head>
+<body>
+  <div class="cap">Text inputs · rest → focus</div>
+  <div class="row">
+    <div class="f"><label>Role name</label><input value="Operations Buddha"><span class="lbl">filled</span></div>
+    <div class="f"><label>Goal</label><input class="focus" value="Close the books monthly"><span class="lbl">focused</span></div>
+    <div class="f"><label>Tools</label><input placeholder="Connect an integration…"><span class="lbl">placeholder</span></div>
+  </div>
+</body></html>

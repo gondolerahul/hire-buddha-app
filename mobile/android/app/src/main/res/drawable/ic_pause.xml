@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from docs/mobile-dialer-app/wireframes/index.html. Do not hand-edit. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M7.9,4.5h1.2000000000000002a1.4,1.4 0 0 1 1.4,1.4v12.2a1.4,1.4 0 0 1 -1.4,1.4h-1.2000000000000002a1.4,1.4 0 0 1 -1.4,-1.4v-12.2a1.4,1.4 0 0 1 1.4,-1.4z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M14.9,4.5h1.2000000000000002a1.4,1.4 0 0 1 1.4,1.4v12.2a1.4,1.4 0 0 1 -1.4,1.4h-1.2000000000000002a1.4,1.4 0 0 1 -1.4,-1.4v-12.2a1.4,1.4 0 0 1 1.4,-1.4z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

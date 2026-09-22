@@ -1182,12 +1182,18 @@ class BaseStreamHandler:
                         asyncio.create_task(
                             self._log_conversation_turn("agent", t, "transcription")
                         )
+                        # Mirror the turn to the rep's run screen. Fire-and-forget,
+                        # guarded inside on_transcript so it can never touch the call.
+                        if self.mobile:
+                            asyncio.create_task(self.mobile.on_transcript("agent", t))
                     if self._customer_transcript_buffer:
                         t = self._customer_transcript_buffer.strip()
                         self._customer_transcript_buffer = ""
                         asyncio.create_task(
                             self._log_conversation_turn("customer", t, "transcription")
                         )
+                        if self.mobile:
+                            asyncio.create_task(self.mobile.on_transcript("customer", t))
         except asyncio.CancelledError:
             pass
         except Exception as e:

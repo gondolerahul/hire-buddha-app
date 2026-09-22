@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Brand" name="Dot motif" subtitle="Watermark & focal glow — the signature texture" viewport="700x300" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:0;}
+  .cap{position:absolute;top:22px;left:28px;z-index:2;font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);}
+  .stage{position:relative;height:300px;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+  .watermark{position:absolute;right:-40px;top:50%;transform:translateY(-50%);height:380px;opacity:.07;}
+  .glow{position:absolute;width:420px;height:420px;left:8%;top:50%;transform:translateY(-50%);background:var(--glow-gold);}
+  .copy{position:relative;text-align:center;z-index:1;}
+  .copy h2{font-family:var(--font-display);font-weight:500;font-size:34px;letter-spacing:-.02em;margin:0;}
+  .copy p{font-family:var(--font-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:14px 0 0;}
+</style></head>
+<body>
+  <div class="cap">Dot motif · watermark &amp; glow</div>
+  <div class="stage">
+    <div class="glow"></div>
+    <img class="watermark" src="../assets/logo-mark-gold.svg">
+    <div class="copy">
+      <h2>Towards digital<br>enlightenment</h2>
+      <p>// the signature texture</p>
+    </div>
+  </div>
+</body></html>

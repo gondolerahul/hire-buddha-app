@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -27,6 +28,11 @@ data class DialerPrefs(
     val phoneAccountLabel: String?,
     val gapSeconds: Int,
     val leadRingTimeoutSeconds: Int,
+    val lastEmail: String?,
+    /** Show the wrap-up sheet after every connected call (docs 11 §3.1). */
+    val askAfterEveryCall: Boolean,
+    /** Stream transcript turns onto the run screen during the conversation. */
+    val showTranscript: Boolean,
 )
 
 /** Non-secret app settings (tokens live in [com.hirebuddha.dialer.data.auth.TokenStore]). */
@@ -42,6 +48,9 @@ class AppSettings @Inject constructor(@ApplicationContext private val context: C
         val phoneAccountLabel = stringPreferencesKey("phone_account_label")
         val gapSeconds = intPreferencesKey("gap_seconds")
         val leadRingTimeout = intPreferencesKey("lead_ring_timeout_seconds")
+        val lastEmail = stringPreferencesKey("last_email")
+        val askAfterEveryCall = booleanPreferencesKey("ask_after_every_call")
+        val showTranscript = booleanPreferencesKey("show_transcript")
     }
 
     val prefs: Flow<DialerPrefs> = context.settingsStore.data.map { p ->
@@ -54,6 +63,9 @@ class AppSettings @Inject constructor(@ApplicationContext private val context: C
             phoneAccountLabel = p[Keys.phoneAccountLabel],
             gapSeconds = p[Keys.gapSeconds] ?: 5,
             leadRingTimeoutSeconds = p[Keys.leadRingTimeout] ?: 35,
+            lastEmail = p[Keys.lastEmail],
+            askAfterEveryCall = p[Keys.askAfterEveryCall] ?: true,
+            showTranscript = p[Keys.showTranscript] ?: true,
         )
     }
 
@@ -74,6 +86,19 @@ class AppSettings @Inject constructor(@ApplicationContext private val context: C
 
     suspend fun setDeviceId(deviceId: String?) = context.settingsStore.edit {
         if (deviceId == null) it.remove(Keys.deviceId) else it[Keys.deviceId] = deviceId
+    }
+
+    /** Remembered so the login field can be prefilled and the role gate can name the account. */
+    suspend fun setAskAfterEveryCall(enabled: Boolean) =
+        context.settingsStore.edit { it[Keys.askAfterEveryCall] = enabled }
+
+    suspend fun setShowTranscript(enabled: Boolean) =
+        context.settingsStore.edit { it[Keys.showTranscript] = enabled }
+
+    suspend fun setLastEmail(email: String?) {
+        context.settingsStore.edit { p ->
+            if (email.isNullOrBlank()) p.remove(Keys.lastEmail) else p[Keys.lastEmail] = email
+        }
     }
 
     suspend fun setPhoneAccount(id: String, label: String) = context.settingsStore.edit {

@@ -12,10 +12,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,20 +28,36 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hirebuddha.dialer.R
 import com.hirebuddha.dialer.data.api.AnalyticsDto
 import com.hirebuddha.dialer.data.api.ApiResult
 import com.hirebuddha.dialer.data.api.DailyDto
 import com.hirebuddha.dialer.data.repo.CampaignRepository
+import com.hirebuddha.dialer.ui.common.Avatar
+import com.hirebuddha.dialer.ui.common.CardCaption
+import com.hirebuddha.dialer.ui.common.ChipRow
 import com.hirebuddha.dialer.ui.common.ErrorState
 import com.hirebuddha.dialer.ui.common.FunnelBars
+import com.hirebuddha.dialer.ui.common.HbCard
+import com.hirebuddha.dialer.ui.common.HbChip
+import com.hirebuddha.dialer.ui.common.HbIcon
+import com.hirebuddha.dialer.ui.common.HbProgress
+import com.hirebuddha.dialer.ui.common.HbTopBar
 import com.hirebuddha.dialer.ui.common.Loading
+import com.hirebuddha.dialer.ui.common.MicroText
+import com.hirebuddha.dialer.ui.common.MonoText
+import com.hirebuddha.dialer.ui.common.PositivePill
 import com.hirebuddha.dialer.ui.common.StatTile
+import com.hirebuddha.dialer.ui.common.biggestDropMessage
 import com.hirebuddha.dialer.ui.common.humanize
+import com.hirebuddha.dialer.ui.common.initialsOf
 import com.hirebuddha.dialer.ui.common.pct
+import com.hirebuddha.dialer.ui.theme.HbTheme
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -65,97 +80,175 @@ class AnalyticsViewModel @Inject constructor(private val repo: CampaignRepositor
     }
 }
 
+/**
+ * Screen 22. Same API as before with one addition that changes how it is used: a plain
+ * sentence naming the biggest drop-off. A funnel tells a rep what happened; a sentence
+ * tells them what to do about it.
+ */
 @Composable
 fun AnalyticsScreen(isAdmin: Boolean, modifier: Modifier = Modifier, vm: AnalyticsViewModel = hiltViewModel()) {
+    val c = HbTheme.colors
+    val a = vm.data
+
     Column(modifier.fillMaxSize()) {
-        Text(if (isAdmin) "Team analytics" else "My analytics", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = 16.dp, top = 20.dp))
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        HbTopBar(if (isAdmin) "Insights" else "My insights")
+        ChipRow(Modifier.padding(horizontal = HbTheme.dims.gutter)) {
             listOf(1 to "Today", 7 to "7 days", 30 to "30 days").forEach { (d, label) ->
-                FilterChip(selected = vm.days == d, onClick = { vm.load(d) }, label = { Text(label) })
+                HbChip(label, vm.days == d, onClick = { vm.load(d) })
             }
         }
-        val a = vm.data
+        Spacer(Modifier.height(14.dp))
+
         when {
-            vm.error != null && a == null -> ErrorState(vm.error!!, { vm.load(vm.days) })
+            vm.error != null && a == null -> ErrorState(vm.error!!, onRetry = { vm.load(vm.days) })
             a == null -> Loading()
-            else -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item {
+            else -> LazyColumn(
+                contentPadding = PaddingValues(HbTheme.dims.gutter, 0.dp, HbTheme.dims.gutter, 150.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item(key = "t1") {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         StatTile("Calls", "${a.funnel.attempts}", Modifier.weight(1f))
-                        StatTile("Answered", pct(a.rates.answer), Modifier.weight(1f))
+                        StatTile(
+                            "Answered", pct(a.rates.answer), Modifier.weight(1f),
+                            caption = "${a.funnel.leadAnswered} picked up",
+                        )
                     }
                 }
-                item {
+                item(key = "t2") {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatTile("Conversations", "${a.funnel.conversation}", Modifier.weight(1f), caption = a.timing.talkMinutes?.let { "$it talk min" })
-                        StatTile("Interested", "${a.funnel.interested}", Modifier.weight(1f), caption = "conversion ${pct(a.rates.conversion)}")
+                        StatTile(
+                            "Conversations", "${a.funnel.conversation}", Modifier.weight(1f),
+                            caption = a.timing.talkMinutes?.let { "${it.roundToInt()} talk min" },
+                        )
+                        StatTile(
+                            "Interested", "${a.funnel.interested}", Modifier.weight(1f),
+                            caption = "conversion ${pct(a.rates.conversion)}",
+                            valueColor = if (a.funnel.interested > 0) c.positive else c.fg,
+                        )
                     }
                 }
-                item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("Funnel", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(10.dp))
-                            FunnelBars(a.funnel)
+                if (a.daily.size > 1) item(key = "daily") { DailyBars(a.daily) }
+                item(key = "funnel") {
+                    HbCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Funnel", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.fg)
+                            MicroText("where leads drop")
                         }
-                    }
-                }
-                if (a.daily.size > 1) item { DailyBars(a.daily) }
-                if (a.outcomes.isNotEmpty()) {
-                    item {
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Outcomes", style = MaterialTheme.typography.titleMedium)
-                                a.outcomes.entries.sortedByDescending { it.value }.forEach { (k, v) ->
-                                    Row { Text(humanize(k), Modifier.weight(1f)); Text("$v") }
-                                }
+                        Spacer(Modifier.height(14.dp))
+                        FunnelBars(a.funnel)
+                        biggestDropMessage(a.funnel)?.let {
+                            Spacer(Modifier.height(14.dp))
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(HbTheme.dims.rSm))
+                                    .background(c.surface2).padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                HbIcon(R.drawable.ic_info, size = 16.dp, tint = c.gold300)
+                                CardCaption(it, Modifier.weight(1f))
                             }
                         }
                     }
                 }
-                if (isAdmin && a.byRep.isNotEmpty()) {
-                    item {
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("By rep", style = MaterialTheme.typography.titleMedium)
-                                a.byRep.forEach { r ->
-                                    Column {
-                                        Text(r.name, style = MaterialTheme.typography.bodyLarge)
-                                        Text("${r.attempts} calls · ${pct(r.answerRate)} answered · ${r.interested} interested · ${r.talkMinutes} min",
-                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                if (a.outcomes.isNotEmpty()) item(key = "outcomes") { Outcomes(a.outcomes) }
+                if (isAdmin && a.byRep.isNotEmpty()) item(key = "reps") { ByRep(a) }
             }
         }
     }
 }
 
-/** Calls per day (one series, one hue); interested count shown as the label. */
+/** Calls per day. One hue: the height is the data, colour would only add noise. */
 @Composable
 private fun DailyBars(daily: List<DailyDto>) {
-    val max = daily.maxOf { it.attempted }.coerceAtLeast(1)
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text("Calls per day", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
-                daily.takeLast(30).forEach { d ->
-                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
-                        Box(
-                            Modifier.fillMaxWidth().fillMaxHeight(d.attempted.toFloat() / max)
-                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
+    val c = HbTheme.colors
+    val shown = daily.takeLast(30)
+    val max = shown.maxOf { it.attempted }.coerceAtLeast(1)
+    HbCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Calls per day", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.fg)
+            MonoText("${shown.first().date.takeLast(5)} – ${shown.last().date.takeLast(5)}")
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(
+            Modifier.fillMaxWidth().height(86.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            shown.forEachIndexed { i, day ->
+                val isLast = i == shown.lastIndex
+                Box(
+                    Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .fillMaxHeight((day.attempted.toFloat() / max).coerceAtLeast(0.03f))
+                            .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                            .background(if (isLast) c.accent else c.accent.copy(alpha = 0.32f))
+                    )
                 }
             }
-            Row(Modifier.fillMaxWidth()) {
-                Text(daily.first().date.takeLast(5), style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                Text(daily.last().date.takeLast(5), style = MaterialTheme.typography.labelSmall)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth()) {
+            MonoText(shown.first().date.takeLast(5), Modifier.weight(1f))
+            MonoText(shown.last().date.takeLast(5))
+        }
+    }
+}
+
+@Composable
+private fun Outcomes(outcomes: Map<String, Int>) {
+    val c = HbTheme.colors
+    val sorted = outcomes.entries.sortedByDescending { it.value }
+    val max = sorted.firstOrNull()?.value?.coerceAtLeast(1) ?: 1
+    HbCard(Modifier.fillMaxWidth()) {
+        Text("Outcomes", style = MaterialTheme.typography.titleMedium, color = c.fg)
+        Spacer(Modifier.height(14.dp))
+        sorted.forEachIndexed { i, (key, value) ->
+            if (i > 0) Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                CardCaption(humanize(key), Modifier.width(96.dp))
+                Box(Modifier.weight(1f)) {
+                    HbProgress(
+                        value.toFloat() / max,
+                        height = 5.dp,
+                        brush = androidx.compose.ui.graphics.SolidColor(
+                            when (key) {
+                                "interested" -> c.positive
+                                "callback" -> c.accent
+                                else -> c.fgDisabled
+                            }
+                        ),
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                MonoText("$value", Modifier.width(30.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ByRep(a: AnalyticsDto) {
+    val c = HbTheme.colors
+    HbCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("By rep", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.fg)
+            MicroText("tenant admin only")
+        }
+        a.byRep.forEach { rep ->
+            Row(
+                Modifier.fillMaxWidth().padding(top = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Avatar(initialsOf(rep.name), size = 36.dp)
+                Column(Modifier.weight(1f)) {
+                    Text(rep.name, style = MaterialTheme.typography.titleSmall, color = c.fg, maxLines = 1)
+                    MonoText("${rep.attempts} calls · ${pct(rep.answerRate)} answered · ${rep.talkMinutes.roundToInt()} min")
+                }
+                PositivePill("${rep.interested}", dot = false)
             }
         }
     }

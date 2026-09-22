@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Buttons" subtitle="Primary / secondary / ghost · default → hover" viewport="700x150" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:28px;}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:20px;}
+  .row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;}
+  .btn{font-family:var(--font-body);font-weight:600;font-size:15px;border-radius:var(--r-pill);padding:12px 22px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;gap:8px;letter-spacing:.005em;white-space:nowrap;}
+  .row{gap:10px;}
+  .primary{background:var(--accent);color:var(--on-accent);box-shadow:var(--shadow-gold);}
+  .primary.hov{background:var(--accent-hover);}
+  .secondary{background:transparent;color:var(--fg);border-color:var(--border-strong);}
+  .secondary.hov{background:var(--surface-2);border-color:var(--border-gold);}
+  .ghost{background:transparent;color:var(--fg-muted);}
+  .ghost.hov{color:var(--fg);background:var(--surface-2);}
+  .arrow{color:inherit;}
+  .lbl{font-family:var(--font-mono);font-size:10px;color:var(--fg-faint);margin-top:8px;}
+  .grp{display:flex;flex-direction:column;align-items:flex-start;}
+</style></head>
+<body>
+  <div class="cap">Buttons · default → hover</div>
+  <div class="row">
+    <div class="grp"><button class="btn primary">Design your Buddha <span class="arrow">→</span></button><span class="lbl">primary</span></div>
+    <div class="grp"><button class="btn primary hov">Design your Buddha <span class="arrow">→</span></button><span class="lbl">primary · hover</span></div>
+    <div class="grp"><button class="btn secondary">View run history</button><span class="lbl">secondary</span></div>
+    <div class="grp"><button class="btn ghost">Cancel</button><span class="lbl">ghost</span></div>
+  </div>
+</body></html>

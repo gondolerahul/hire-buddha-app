@@ -40,11 +40,15 @@ LEAD_FAILURE_CAUSES = {"busy", "no_answer", "rejected", "unreachable", "invalid"
 
 
 class MobileError(Exception):
-    def __init__(self, status_code: int, code: str, message: str):
+    def __init__(self, status_code: int, code: str, message: str, **extra: Any):
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        # Merged into the error detail. Lets an error name the thing that is in the
+        # way — e.g. device_busy returns the run the rep has to stop — so the app can
+        # offer the fix instead of a dead end.
+        self.extra = extra
 
 
 def is_admin(user: User) -> bool:
@@ -327,7 +331,15 @@ async def start_run(db: AsyncSession, user: User, campaign_id: UUID, device_id: 
             existing.status = RUN_RUNNING
             await db.commit()
             return existing
-        raise MobileError(409, "device_busy", "This phone is already running another campaign. Stop it first.")
+        blocking = await db.get(Campaign, existing.campaign_id)
+        raise MobileError(
+            409, "device_busy",
+            f"This phone is still on \u201c{blocking.name if blocking else 'another campaign'}\u201d.",
+            blocking_run_id=str(existing.id),
+            blocking_campaign_id=str(existing.campaign_id),
+            blocking_campaign_name=blocking.name if blocking else None,
+            blocking_run_status=existing.status,
+        )
 
     await _check_credits(db, user.company_id)
     run = MobileCampaignRun(company_id=user.company_id, campaign_id=campaign.id, user_id=user.id,
@@ -343,6 +355,36 @@ async def start_run(db: AsyncSession, user: User, campaign_id: UUID, device_id: 
         raise MobileError(409, "device_busy", "This phone is already running a campaign")
     await db.refresh(run)
     return run
+
+
+async def active_runs(db: AsyncSession, user: User) -> List[Dict[str, Any]]:
+    """Every run of this user's that is still open, newest first.
+
+    The app keeps the live run in memory only, so a process death, a crash or a
+    reinstall used to leave a run that nothing could reach — and `start_run` would
+    then refuse the device with no way to clear it. This is how the app finds one
+    again and offers to stop it.
+    """
+    rows = (await db.execute(
+        select(MobileCampaignRun, Campaign.name)
+        .join(Campaign, Campaign.id == MobileCampaignRun.campaign_id)
+        .where(and_(
+            MobileCampaignRun.user_id == user.id,
+            MobileCampaignRun.status.in_((RUN_RUNNING, RUN_PAUSED)),
+        ))
+        .order_by(MobileCampaignRun.started_at.desc())
+    )).all()
+    return [
+        {
+            "run_id": str(run.id),
+            "campaign_id": str(run.campaign_id),
+            "campaign_name": name,
+            "status": run.status,
+            "device_id": str(run.device_id),
+            "started_at": run.started_at,
+        }
+        for run, name in rows
+    ]
 
 
 async def _release_device_leases(db: AsyncSession, device_id: UUID, campaign_id: Optional[UUID] = None) -> None:
@@ -395,6 +437,7 @@ WHERE id = (
     SELECT cc.id FROM campaign_calls cc
     WHERE cc.campaign_id = :campaign_id
       AND (cc.status = 'pending' OR (cc.status = 'leased' AND cc.lease_expires_at < :now))
+      AND (cc.callback_at IS NULL OR cc.callback_at <= :now)
       AND NOT EXISTS (
           SELECT 1 FROM campaign_calls dnc
           JOIN campaigns dc ON dc.id = dnc.campaign_id
@@ -402,7 +445,8 @@ WHERE id = (
             AND dnc.disposition = 'do_not_call'
             AND dnc.contact_data->>'phone' = cc.contact_data->>'phone'
       )
-    ORDER BY cc.retry_count ASC, cc.created_at ASC, cc.id ASC
+    ORDER BY (cc.callback_at IS NOT NULL) DESC, cc.callback_at ASC,
+             cc.retry_count ASC, cc.created_at ASC, cc.id ASC
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
@@ -830,3 +874,218 @@ def app_version_info(version_code: Optional[int]) -> Dict[str, Any]:
         "update_available": version_code is not None and version_code < latest,
         "update_required": version_code is not None and version_code < settings.MOBILE_APP_MIN_SUPPORTED_VERSION_CODE,
     }
+
+
+# ── Rep-captured outcomes (docs 11 §3.1) ─────────────────────────────────
+#
+# The model only ever reads a transcript; the rep heard the call. Both answers are
+# kept: ``rep_disposition`` is the rep's and nothing else ever writes it, while
+# ``disposition`` stays the effective value every existing report reads. The LLM
+# pass in voice/websocket_handler.py only fills ``disposition`` when it is NULL,
+# so a rep who answers first wins there too.
+
+REP_DISPOSITIONS = {
+    "interested", "not_interested", "callback", "wrong_number", "do_not_call", "voicemail",
+}
+MAX_REP_NOTE = 2000
+# How far ahead a callback may be booked. Longer than this is a CRM task, not a dialer one.
+MAX_CALLBACK_DAYS = 30
+
+
+async def _get_owned_call(db: AsyncSession, user: User, campaign_call_id: UUID) -> CampaignCall:
+    """A rep may only disposition a lead they called; a tenant admin, any in the company."""
+    call = await db.get(CampaignCall, campaign_call_id)
+    if call is None:
+        raise MobileError(404, "call_not_found", "That lead is not on this device's list")
+    campaign = await db.get(Campaign, call.campaign_id)
+    if campaign is None or campaign.company_id != user.company_id:
+        raise MobileError(404, "call_not_found", "That lead is not on this device's list")
+    if not is_admin(user) and call.leased_by_user_id not in (None, user.id):
+        raise MobileError(403, "not_your_lead", "Another rep called this lead")
+    return call
+
+
+async def set_rep_disposition(
+    db: AsyncSession,
+    user: User,
+    campaign_call_id: UUID,
+    *,
+    disposition: str,
+    note: Optional[str] = None,
+    callback_at: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    if disposition not in REP_DISPOSITIONS:
+        raise MobileError(422, "bad_disposition",
+                          f"Choose one of: {', '.join(sorted(REP_DISPOSITIONS))}")
+    call = await _get_owned_call(db, user, campaign_call_id)
+    now = datetime.utcnow()
+
+    if disposition == "callback":
+        if callback_at is None:
+            raise MobileError(422, "callback_time_required", "Say when to call back")
+        if callback_at.tzinfo is not None:
+            callback_at = callback_at.astimezone(timezone.utc).replace(tzinfo=None)
+        if callback_at <= now:
+            raise MobileError(422, "callback_in_past", "Pick a time in the future")
+        if callback_at > now + timedelta(days=MAX_CALLBACK_DAYS):
+            raise MobileError(422, "callback_too_far",
+                              f"Callbacks can be booked up to {MAX_CALLBACK_DAYS} days ahead")
+        # Back into the queue, held by callback_at until it is due (see _LEASE_SQL).
+        call.callback_at = callback_at
+        call.status = "pending"
+        call.leased_by_user_id = None
+        call.leased_by_device_id = None
+        call.lease_expires_at = None
+    else:
+        call.callback_at = None
+
+    call.rep_disposition = disposition
+    call.rep_note = (note or "").strip()[:MAX_REP_NOTE] or None
+    call.rep_dispositioned_at = now
+    call.rep_dispositioned_by = user.id
+    call.disposition = disposition
+    call.disposition_source = "rep"
+    call.updated_at = now
+    await db.commit()
+
+    logger.info("[Mobile] rep disposition %s for call %s by %s", disposition, call.id, user.id)
+    return {
+        "campaign_call_id": str(call.id),
+        "disposition": disposition,
+        "callback_at": call.callback_at,
+        "note": call.rep_note,
+    }
+
+
+async def callbacks_due(db: AsyncSession, user: User, *, within_hours: int = 24,
+                        limit: int = 50) -> List[Dict[str, Any]]:
+    """Leads this rep promised to call back, soonest first. Overdue ones come first."""
+    horizon = datetime.utcnow() + timedelta(hours=within_hours)
+    scope = [CampaignCall.callback_at.isnot(None), CampaignCall.callback_at <= horizon]
+    if is_admin(user):
+        company_campaigns = select(Campaign.id).where(Campaign.company_id == user.company_id)
+        scope.append(CampaignCall.campaign_id.in_(company_campaigns))
+    else:
+        scope.append(CampaignCall.rep_dispositioned_by == user.id)
+    rows = (await db.execute(
+        select(CampaignCall, Campaign.name)
+        .join(Campaign, Campaign.id == CampaignCall.campaign_id)
+        .where(and_(*scope))
+        .order_by(CampaignCall.callback_at.asc())
+        .limit(limit)
+    )).all()
+    out = []
+    for call, campaign_name in rows:
+        contact = call.contact_data or {}
+        out.append({
+            "campaign_call_id": str(call.id),
+            "campaign_id": str(call.campaign_id),
+            "campaign_name": campaign_name,
+            "contact_name": contact.get("name") or contact.get("Name"),
+            "phone_masked": mask_phone(contact.get("phone")),
+            "callback_at": call.callback_at,
+            "note": call.rep_note,
+        })
+    return out
+
+
+def mask_phone(phone: Optional[str]) -> str:
+    """Matches the masking used everywhere else: keep the country code and last four."""
+    if not phone:
+        return ""
+    digits = str(phone)
+    if len(digits) <= 7:
+        return digits
+    return f"{digits[:3]}{'•' * (len(digits) - 7)}{digits[-4:]}"
+
+
+# ── Pre-flight (docs 11 §3, screen 13) ───────────────────────────────────
+#
+# Every condition here is already enforced somewhere; the app just had no way to
+# read them before a run, so a rep met each one as a failed call instead.
+
+async def preflight(db: AsyncSession, user: User, *, campaign_id: Optional[UUID] = None,
+                    device_id: Optional[UUID] = None) -> Dict[str, Any]:
+    now = datetime.utcnow()
+
+    used_today = (await db.execute(
+        select(func.count()).select_from(MobileCallAttempt).where(and_(
+            MobileCallAttempt.user_id == user.id,
+            MobileCallAttempt.created_at >= _ist_day_start_utc(now),
+            MobileCallAttempt.status.notin_((ATTEMPT_SUPERSEDED,)),
+        ))
+    )).scalar_one()
+    cap = settings.MOBILE_REP_DAILY_ATTEMPT_CAP or 0
+
+    credits_ok, credits_message = True, None
+    try:
+        await _check_credits(db, user.company_id)
+    except MobileError as e:
+        credits_ok, credits_message = False, e.message
+
+    device: Optional[UserDevice] = None
+    if device_id is not None:
+        device = await db.get(UserDevice, device_id)
+        if device is not None and device.user_id != user.id:
+            device = None
+
+    result: Dict[str, Any] = {
+        "checked_at": now,
+        "calling_window": {
+            "enforced": settings.MOBILE_CALLING_HOURS_ENFORCED,
+            "open": calling_hours_open(now),
+            "start": settings.MOBILE_CALLING_HOURS_START,
+            "end": settings.MOBILE_CALLING_HOURS_END,
+            "timezone": "Asia/Kolkata",
+        },
+        "daily_cap": {
+            "limit": cap or None,
+            "used": used_today,
+            "remaining": max(cap - used_today, 0) if cap else None,
+        },
+        "credits": {"ok": credits_ok, "message": credits_message},
+        "device": {
+            "verified": bool(device and device.status == DEVICE_VERIFIED),
+            "phone_account_label": device.phone_account_label if device else None,
+            "verified_cli": device.verified_cli if device else None,
+        },
+        "campaign": None,
+    }
+
+    if campaign_id is not None:
+        from src.ai.models import HierarchicalEntity
+
+        campaign = await get_accessible_campaign(db, user, campaign_id)
+        pending = await _remaining_calls(db, campaign.id)
+        did, agent_name = None, None
+        # Returns a PhoneNumber row, not a string.
+        number = await _resolve_company_did(db, user.company_id, campaign.agent_id,
+                                            provider=campaign.provider)
+        if number is not None:
+            did = to_e164(number.phone_number)
+        agent = await db.get(HierarchicalEntity, campaign.agent_id) if campaign.agent_id else None
+        if agent is not None:
+            agent_name = agent.display_name or agent.name
+        result["campaign"] = {
+            "id": str(campaign.id),
+            "name": campaign.name,
+            "pending": pending,
+            "agent_name": agent_name,
+            "did": did,
+            "ready": bool(did) and pending > 0,
+        }
+
+    blockers = []
+    if not result["calling_window"]["open"]:
+        blockers.append("outside_calling_hours")
+    if cap and used_today >= cap:
+        blockers.append("daily_cap_reached")
+    if not credits_ok:
+        blockers.append("insufficient_credits")
+    if device_id is not None and not result["device"]["verified"]:
+        blockers.append("device_not_verified")
+    if result["campaign"] is not None and not result["campaign"]["ready"]:
+        blockers.append("no_did" if not result["campaign"]["did"] else "no_leads")
+    result["blockers"] = blockers
+    result["can_start"] = not blockers
+    return result

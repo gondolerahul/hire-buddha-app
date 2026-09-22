@@ -121,6 +121,29 @@ class MobileCallController:
         await realtime.publish_user_push(uid, msg_type, fcm_token=await self._fcm_token(),
                                          session_id=self.h.session_id, **fields)
 
+    async def on_transcript(self, speaker: str, text: str):
+        """Stream a finished transcript turn to the rep's run screen (docs 11 §3, screen 16).
+
+        Best effort and deliberately silent on failure: the rep reading along must
+        never be able to affect the call. No FCM — this is only useful to someone
+        with the screen open, and waking the phone per turn would be noisy."""
+        if not self.bound or not self.merged:
+            return
+        try:
+            uid = self.user_id
+            if not uid:
+                return
+            await realtime.publish_user_push(
+                uid, "attempt.transcript",
+                session_id=self.h.session_id,
+                attempt_id=str(self.attempt_id) if self.attempt_id else None,
+                speaker="agent" if speaker == "agent" else "lead",
+                text=text[:1000],
+                at=datetime.utcnow(),
+            )
+        except Exception:  # noqa: BLE001 - never let a UI nicety touch the call
+            logger.debug("[Mobile] transcript push failed", exc_info=True)
+
     # ── pre-model phase ─────────────────────────────────────────────────
 
     async def pre_model_phase(self) -> str:

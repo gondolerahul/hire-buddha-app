@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Badges & status pills" subtitle="Solid / quiet / neutral + status" viewport="700x170" -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);padding:26px 28px;}
+  .cap{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:18px;}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+  .badge{font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;padding:4px 11px;border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:6px;}
+  .solid{background:var(--accent);color:var(--on-accent);font-weight:600;}
+  .quiet{background:var(--accent-quiet);color:var(--gold-300);border:1px solid var(--border-gold);}
+  .neutral{background:var(--surface-3);color:var(--fg-muted);border:1px solid var(--border);}
+  .dot{width:6px;height:6px;border-radius:50%;}
+  .ok .dot{background:var(--positive);}
+  .ok{background:var(--surface-3);color:var(--positive);border:1px solid var(--border);}
+  .run{background:var(--surface-3);color:var(--gold-300);border:1px solid var(--border);}
+  .run .dot{background:var(--gold-400);}
+</style></head>
+<body>
+  <div class="cap">Badges &amp; status pills</div>
+  <div class="row">
+    <span class="badge solid">Frontier</span>
+    <span class="badge quiet">v2 · beta</span>
+    <span class="badge neutral">Draft</span>
+  </div>
+  <div class="row">
+    <span class="badge ok"><span class="dot"></span>Employed</span>
+    <span class="badge run"><span class="dot"></span>Running</span>
+    <span class="badge neutral"><span class="dot" style="background:var(--fg-faint)"></span>Paused</span>
+  </div>
+</body></html>
