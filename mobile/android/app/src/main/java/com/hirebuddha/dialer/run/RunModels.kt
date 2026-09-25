@@ -84,11 +84,22 @@ data class RunUiState(
     val wrapUp: WrapUp? = null,
     /** The rep tapped Hold in the wrap-up sheet: the countdown to the next lead is frozen. */
     val gapHeld: Boolean = false,
-    // Session tallies, for the paused and completed screens.
+    // Session tallies, for the paused and completed screens. They survive a pause and
+    // resume: the summary is for the whole run, not the stretch since the last break.
+    /** The lead picked up, whether or not the merge then worked. */
+    val leadAnswered: Int = 0,
+    /** Merged and talked to the agent: a call that reached the conversation. */
     val connected: Int = 0,
+    /** Conversations of 30 s or more — the same bar the analytics funnel uses. */
+    val talked30: Int = 0,
+    /** Marked by the rep in the wrap-up. The model's own dispositions are server-side only. */
     val interested: Int = 0,
+    val callbacks: Int = 0,
+    /** Whether the wrap-up was offered, i.e. whether [interested] and [callbacks] mean anything. */
+    val askedAfterCalls: Boolean = true,
     val talkSeconds: Int = 0,
     val startedAt: Long? = null,
+    val endedAt: Long? = null,
 )
 
 data class OrchestratorConfig(

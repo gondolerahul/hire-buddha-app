@@ -15,6 +15,8 @@ data class CallSnapshot(
     val childIds: List<String> = emptyList(),
     val canMerge: Boolean = false,
     val disconnectCause: LeadFailureCause? = null,
+    /** The carrier can decline this call with a text (the "Message" button). */
+    val canRespondViaText: Boolean = false,
 )
 
 /** Maps Android DisconnectCause to the backend's lead_failed causes (docs 06 §2.5). */

@@ -9,6 +9,9 @@ import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.data.api.AgentDto
 import com.hirebuddha.dialer.data.api.AnalyticsDto
 import com.hirebuddha.dialer.data.api.ApiResult
+import com.hirebuddha.dialer.data.api.LeadLookupDto
+import com.hirebuddha.dialer.data.api.AssigneeDto
+import com.hirebuddha.dialer.data.api.AssigneesUpdateRequest
 import com.hirebuddha.dialer.data.api.CallsPageDto
 import com.hirebuddha.dialer.data.api.ActiveRunDto
 import com.hirebuddha.dialer.data.api.CallbackDto
@@ -42,6 +45,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okio.BufferedSink
 import okio.source
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Singleton
 class DeviceRepository @Inject constructor(
@@ -83,6 +87,8 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
     suspend fun campaign(id: String) = apiCall { api.campaign(id) }
     suspend fun agents(): ApiResult<List<AgentDto>> = apiCall { api.agents() }.map { it.agents }
     suspend fun reps(): ApiResult<List<RepDto>> = apiCall { api.reps() }.map { it.reps }
+    suspend fun setAssignees(campaignId: String, userIds: List<String>): ApiResult<List<AssigneeDto>> =
+        apiCall { api.setAssignees(campaignId, AssigneesUpdateRequest(userIds)) }.map { it.assignees }
 
     suspend fun upload(resolver: ContentResolver, uri: Uri): ApiResult<UploadReportDto> {
         val (name, size) = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
@@ -113,8 +119,14 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
     suspend fun summary(from: String?, to: String?, userId: String?): ApiResult<AnalyticsDto> =
         apiCall { api.analyticsSummary(from, to, userId) }
 
-    suspend fun calls(campaignId: String, disposition: String?, status: String?, offset: Int): ApiResult<CallsPageDto> =
-        apiCall { api.campaignCalls(campaignId, disposition, status, 50, offset) }
+    suspend fun calls(
+        campaignId: String,
+        disposition: String?,
+        status: String?,
+        offset: Int,
+        includePending: Boolean = false,
+    ): ApiResult<CallsPageDto> =
+        apiCall { api.campaignCalls(campaignId, disposition, status, includePending.takeIf { it }, CALLS_PAGE, offset) }
 
     suspend fun voiceSession(id: String): ApiResult<VoiceSessionDto> = apiCall { api.voiceSession(id) }
     suspend fun timeline(attemptId: String): ApiResult<TimelineDto> = apiCall { api.timeline(attemptId) }
@@ -170,6 +182,14 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
     suspend fun stopRun(runId: String): ApiResult<RunDto> =
         apiCall { api.updateRun(runId, RunUpdateRequest("stopped")) }
 
+    /**
+     * The lead behind an incoming caller ID, or null. Bounded, because it runs while the
+     * phone is ringing: a slow network must never hold up the call screen.
+     */
+    suspend fun lookupLead(phone: String): LeadLookupDto? = withTimeoutOrNull(LOOKUP_TIMEOUT_MS) {
+        (apiCall { api.lookupLead(phone) } as? ApiResult.Ok)?.value?.lead
+    }
+
     suspend fun callbacks(withinHours: Int = 24): List<CallbackDto> =
         when (val r = apiCall { api.callbacks(withinHours) }) {
             is ApiResult.Ok -> r.value.items
@@ -178,5 +198,7 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
 
     private companion object {
         const val MAX_UPLOAD_BYTES = 10L * 1024 * 1024
+        const val CALLS_PAGE = 50
+        const val LOOKUP_TIMEOUT_MS = 4_000L
     }
 }

@@ -56,9 +56,9 @@ object Routes {
     const val HOME = "home"
     const val CREATE = "create"
     const val RUN = "run"
-    const val CAMPAIGN = "campaign/{id}"
+    const val CAMPAIGN = "campaign/{id}?filter={filter}"
     const val CALL = "call?session={session}&attempt={attempt}&title={title}"
-    fun campaign(id: String) = "campaign/$id"
+    fun campaign(id: String, filter: String? = null) = "campaign/$id" + (filter?.let { "?filter=$it" } ?: "")
     fun call(sessionId: String?, attemptId: String?, title: String?) =
         "call?session=${sessionId.orEmpty()}&attempt=${attemptId.orEmpty()}&title=${Uri.encode(title.orEmpty())}"
 }
@@ -98,10 +98,18 @@ fun MainNavigation(
                 onCreated = { id -> nav.popBackStack(); nav.navigate(Routes.campaign(id)) },
             )
         }
-        composable(Routes.CAMPAIGN, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+        composable(
+            Routes.CAMPAIGN,
+            arguments = listOf(
+                navArgument("id") { type = NavType.StringType },
+                navArgument("filter") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
             CampaignDetailScreen(
                 campaignId = entry.arguments?.getString("id").orEmpty(),
+                initialFilter = entry.arguments?.getString("filter"),
                 isAdmin = me.isAdmin,
+                meId = me.userId,
                 onBack = { nav.popBackStack() },
                 onOpenRun = { nav.navigate(Routes.RUN) { launchSingleTop = true } },
                 onOpenCall = { session, attempt, title -> nav.navigate(Routes.call(session, attempt, title)) },
@@ -109,7 +117,15 @@ fun MainNavigation(
         }
         // The run is a destination, not a tab: it is reachable from Today, the campaign
         // list, campaign detail and the notification, and always opens the same live run.
-        composable(Routes.RUN) { RunScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.RUN) {
+            RunScreen(
+                onBack = { nav.popBackStack() },
+                // The finished run is not somewhere to come back to, so it leaves the stack.
+                onOpenCampaign = { id, filter ->
+                    nav.navigate(Routes.campaign(id, filter)) { popUpTo(Routes.RUN) { inclusive = true } }
+                },
+            )
+        }
         composable(
             Routes.CALL,
             arguments = listOf(

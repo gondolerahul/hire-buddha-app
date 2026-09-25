@@ -361,10 +361,12 @@ class CallOrchestratorTest {
         assertEquals(1, h.backend.leads.size)
         pauser.cancel()
 
-        h.orchestrator.reset("run1", "camp1", "Sept")  // resume
+        h.orchestrator.resume("run1")
         assertEquals(RunStatus.COMPLETED, h.orchestrator.run("run1", "dev1", config))
         assertEquals(0, h.backend.leads.size)
-        assertEquals(1, h.orchestrator.state.value.callsMade)
+        // The summary covers the whole run, not just the stretch since the pause.
+        assertEquals(2, h.orchestrator.state.value.callsMade)
+        assertEquals(2, h.orchestrator.state.value.connected)
     }
 }
 
@@ -454,6 +456,48 @@ class CallOrchestratorV2Test {
     }
 
     @Test
+    fun `run summary funnel counts answered, merged and 30-second conversations`() = runTest {
+        val h = Harness(this)
+        h.calls.aiEndsAfterMergeMs = 45_000
+        h.backend.leads += lead("Long")
+        h.orchestrator.reset("run1", "camp1", "Baner leads")
+        h.orchestrator.run("run1", "dev1", config)
+
+        h.calls.aiEndsAfterMergeMs = 10_000
+        h.backend.leads += lead("Short")
+        h.orchestrator.resume("run1")
+        h.orchestrator.run("run1", "dev1", config)
+
+        h.calls.lead = LeadBehavior.Reject(2_000, LeadFailureCause.BUSY)
+        h.backend.leads += lead("Busy")
+        h.orchestrator.resume("run1")
+        assertEquals(RunStatus.COMPLETED, h.orchestrator.run("run1", "dev1", config))
+
+        val s = h.orchestrator.state.value
+        assertEquals(3, s.callsMade)
+        assertEquals(2, s.leadAnswered)
+        assertEquals(2, s.connected)
+        assertEquals(1, s.talked30)
+        assertTrue(s.endedAt != null)
+    }
+
+    @Test
+    fun `rep dispositions are tallied and a paused run can be marked stopped`() = runTest {
+        val h = Harness(this)
+        h.orchestrator.reset("run1", "camp1", "Baner leads")
+        h.orchestrator.recordDisposition("interested")
+        h.orchestrator.recordDisposition("interested")
+        h.orchestrator.recordDisposition("callback")
+        h.orchestrator.recordDisposition("not_interested")
+        h.orchestrator.markStopped()
+
+        val s = h.orchestrator.state.value
+        assertEquals(2, s.interested)
+        assertEquals(1, s.callbacks)
+        assertEquals(RunStatus.STOPPED, s.status)
+    }
+
+    @Test
     fun `askAfterEveryCall off means no wrap-up is ever offered`() = runTest {
         val h = Harness(this)
         h.backend.leads += lead()
@@ -463,6 +507,8 @@ class CallOrchestratorV2Test {
         h.orchestrator.run("run1", "dev1", config.copy(askAfterEveryCall = false))
 
         assertEquals(null, seen)
+        // …so the summary knows it has no interested count to show.
+        assertFalse(h.orchestrator.state.value.askedAfterCalls)
     }
 
     @Test

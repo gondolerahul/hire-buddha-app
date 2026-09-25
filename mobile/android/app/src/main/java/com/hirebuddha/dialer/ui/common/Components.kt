@@ -166,16 +166,22 @@ fun pct(rate: Double?): String = rate?.let { "${(it * 100).roundToInt()}%" } ?: 
  * things — matters more on a small screen, not less.
  */
 @Composable
-fun FunnelBars(funnel: FunnelDto, modifier: Modifier = Modifier) {
-    val c = HbTheme.colors
-    val stages = listOfNotNull(
+fun FunnelBars(funnel: FunnelDto, modifier: Modifier = Modifier) = FunnelStages(
+    listOfNotNull(
         funnel.leads?.let { "Leads" to it },
         "Attempted" to maxOf(funnel.attempted, funnel.attempts),
         "Answered" to funnel.leadAnswered,
         "Merged" to funnel.merged,
         "Talked 30s+" to funnel.conversation,
         "Interested" to funnel.interested,
-    )
+    ),
+    modifier,
+)
+
+/** The funnel bars for any list of stages, widest first; the last stage is the success. */
+@Composable
+fun FunnelStages(stages: List<Pair<String, Int>>, modifier: Modifier = Modifier) {
+    val c = HbTheme.colors
     val max = stages.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
     Column(modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
         stages.forEachIndexed { i, (label, value) ->

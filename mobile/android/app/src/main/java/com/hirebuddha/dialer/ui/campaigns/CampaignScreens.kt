@@ -25,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +54,17 @@ import com.hirebuddha.dialer.run.RunStatus
 import com.hirebuddha.dialer.ui.common.CardCaption
 import com.hirebuddha.dialer.ui.common.ChipRow
 import com.hirebuddha.dialer.ui.common.DispositionPill
+import com.hirebuddha.dialer.data.api.AssigneeDto
+import com.hirebuddha.dialer.ui.common.Hairline
+import com.hirebuddha.dialer.ui.common.BrandDots
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
+import com.hirebuddha.dialer.data.api.RepDto
+import com.hirebuddha.dialer.data.api.DailyCapDto
+import com.hirebuddha.dialer.data.api.RepStatDto
+import com.hirebuddha.dialer.ui.common.Avatar
+import com.hirebuddha.dialer.ui.common.initialsOf
 import com.hirebuddha.dialer.ui.common.EmptyState
 import com.hirebuddha.dialer.ui.common.ErrorState
 import com.hirebuddha.dialer.ui.common.Eyebrow
@@ -299,6 +311,9 @@ class CampaignDetailViewModel @Inject constructor(
     var campaign by mutableStateOf<CampaignDto?>(null); private set
     var analytics by mutableStateOf<AnalyticsDto?>(null); private set
     var calls by mutableStateOf<List<CallItemDto>>(emptyList()); private set
+    /** Rows matching the current filter server-side; more than [calls] means another page. */
+    var callsTotal by mutableIntStateOf(0); private set
+    var loadingMore by mutableStateOf(false); private set
     var filter by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
     var starting by mutableStateOf(false); private set
@@ -312,7 +327,45 @@ class CampaignDetailViewModel @Inject constructor(
     var blockedBy by mutableStateOf<ActiveRunDto?>(null)
     var stopping by mutableStateOf(false); private set
 
-    fun load(id: String) = viewModelScope.launch {
+    /** Admin only: everyone who could be put on this list, loaded when Manage opens. */
+    var companyReps by mutableStateOf<List<RepDto>?>(null); private set
+    var showManage by mutableStateOf(false)
+    var savingAssignees by mutableStateOf(false); private set
+    var assigneesError by mutableStateOf<String?>(null); private set
+
+    fun openManage() = viewModelScope.launch {
+        showManage = true
+        assigneesError = null
+        if (companyReps == null) {
+            when (val r = repo.reps()) {
+                is ApiResult.Ok -> companyReps = r.value
+                is ApiResult.Err -> assigneesError = r.message
+                ApiResult.Empty -> companyReps = emptyList()
+            }
+        }
+    }
+
+    fun saveAssignees(userIds: Set<String>) = viewModelScope.launch {
+        val current = campaign ?: return@launch
+        savingAssignees = true
+        assigneesError = null
+        when (val r = repo.setAssignees(current.id, userIds.toList())) {
+            is ApiResult.Ok -> { campaign = current.copy(assignees = r.value); showManage = false }
+            is ApiResult.Err -> assigneesError = r.message
+            ApiResult.Empty -> showManage = false
+        }
+        savingAssignees = false
+    }
+
+    private var initialFilterApplied = false
+
+    fun load(id: String, initialFilter: String? = null) = viewModelScope.launch {
+        // Arriving from "Review the interested" on the run summary: open on that filter once,
+        // then leave the chips to the rep.
+        if (!initialFilterApplied) {
+            initialFilterApplied = true
+            initialFilter?.let { filter = it }
+        }
         when (val r = repo.campaign(id)) {
             is ApiResult.Ok -> campaign = r.value
             is ApiResult.Err -> { error = r.message; return@launch }
@@ -321,6 +374,9 @@ class CampaignDetailViewModel @Inject constructor(
         (repo.analytics(id) as? ApiResult.Ok)?.let { analytics = it.value }
         refreshOpenRun()
         loadCalls(id)
+        // Read up front, not only when Start is tapped: the remaining cap belongs next to
+        // the button, where the rep decides whether today is the day for this list.
+        preflight = repo.preflight(campaignId = id, deviceId = settings.current().deviceId)
     }
 
     /**
@@ -359,12 +415,29 @@ class CampaignDetailViewModel @Inject constructor(
     fun setFilter(id: String, value: String?) { filter = value; loadCalls(id) }
 
     private fun loadCalls(id: String) = viewModelScope.launch {
-        val (disposition, status) = when (filter) {
-            "interested", "not_interested", "callback" -> filter to null
-            "failed" -> null to "failed"
-            else -> null to null
+        (fetchCalls(id, offset = 0) as? ApiResult.Ok)?.let {
+            calls = it.value.items
+            callsTotal = it.value.total
         }
-        (repo.calls(id, disposition, status, 0) as? ApiResult.Ok)?.let { calls = it.value.items }
+    }
+
+    fun loadMore(id: String) = viewModelScope.launch {
+        if (loadingMore) return@launch
+        loadingMore = true
+        (fetchCalls(id, offset = calls.size) as? ApiResult.Ok)?.let { page ->
+            val seen = calls.mapTo(HashSet()) { it.campaignCallId }
+            calls = calls + page.value.items.filter { it.campaignCallId !in seen }
+            callsTotal = page.value.total
+        }
+        loadingMore = false
+    }
+
+    private suspend fun fetchCalls(id: String, offset: Int) = when (filter) {
+        "interested", "not_interested", "callback" -> repo.calls(id, filter, null, offset)
+        "failed" -> repo.calls(id, null, "failed", offset)
+        // The leads nobody has reached yet are most of a fresh list; a rep sees them too.
+        "pending" -> repo.calls(id, null, "pending", offset, includePending = true)
+        else -> repo.calls(id, null, null, offset, includePending = true)
     }
 
     /** Pre-flight first (screen 13): every blocker here used to surface as a failed call. */
@@ -407,13 +480,15 @@ class CampaignDetailViewModel @Inject constructor(
 fun CampaignDetailScreen(
     campaignId: String,
     isAdmin: Boolean,
+    meId: String,
+    initialFilter: String? = null,
     onBack: () -> Unit,
     onOpenRun: () -> Unit,
     onOpenCall: (sessionId: String?, attemptId: String?, title: String?) -> Unit,
     vm: CampaignDetailViewModel = hiltViewModel(),
 ) {
     val c = HbTheme.colors
-    LaunchedEffect(campaignId) { vm.load(campaignId) }
+    LaunchedEffect(campaignId) { vm.load(campaignId, initialFilter) }
     val runState by vm.run.state.collectAsStateWithLifecycle()
     val campaign = vm.campaign
 
@@ -440,7 +515,7 @@ fun CampaignDetailScreen(
                     item(key = "hero") {
                         val thisRunLive = runState.campaignId == campaign.id &&
                             runState.status in setOf(RunStatus.RUNNING, RunStatus.PAUSED)
-                        StartCard(campaign, thisRunLive, vm, onOpenRun)
+                        StartCard(campaign, thisRunLive, vm.preflight?.dailyCap, vm, onOpenRun)
                     }
                     item(key = "tiles") {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -460,7 +535,10 @@ fun CampaignDetailScreen(
                         }
                         item(key = "funnel") {
                             HbCard(Modifier.fillMaxWidth()) {
-                                Text("Funnel", style = MaterialTheme.typography.titleMedium, color = c.fg)
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Funnel", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.fg)
+                                    MicroText("all time")
+                                }
                                 Spacer(Modifier.height(12.dp))
                                 FunnelBars(a.funnel)
                                 biggestDropMessage(a.funnel)?.let {
@@ -469,22 +547,15 @@ fun CampaignDetailScreen(
                                 }
                             }
                         }
-                        if (isAdmin && a.byRep.isNotEmpty()) {
-                            item(key = "reps") {
-                                HbCard(Modifier.fillMaxWidth()) {
-                                    Text("Reps", style = MaterialTheme.typography.titleMedium, color = c.fg)
-                                    Spacer(Modifier.height(4.dp))
-                                    a.byRep.forEach { rep ->
-                                        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Column(Modifier.weight(1f)) {
-                                                Text(rep.name, style = MaterialTheme.typography.titleSmall, color = c.fg)
-                                                MonoText("${rep.attempts} calls · ${pct(rep.answerRate)} answered")
-                                            }
-                                            PositivePill("${rep.interested}", dot = false)
-                                        }
-                                    }
-                                }
-                            }
+                    }
+                    // Who is working this list. Everyone sees the names; call counts come
+                    // from analytics, which only tells a rep about their own calls.
+                    if (campaign.assignees.isNotEmpty() || !vm.analytics?.byRep.isNullOrEmpty()) {
+                        item(key = "reps") {
+                            RepsCard(
+                                campaign.assignees, vm.analytics?.byRep.orEmpty(), meId,
+                                onManage = if (isAdmin) ({ vm.openManage() }) else null,
+                            )
                         }
                     }
                     item(key = "leads-header") {
@@ -496,7 +567,7 @@ fun CampaignDetailScreen(
                     item(key = "leads-filter") {
                         ChipRow {
                             listOf(
-                                null to "All", "interested" to "Interested",
+                                null to "All", "pending" to "Pending", "interested" to "Interested",
                                 "callback" to "Callback", "failed" to "Failed",
                             ).forEach { (value, label) ->
                                 HbChip(label, vm.filter == value, onClick = { vm.setFilter(campaignId, value) })
@@ -506,10 +577,22 @@ fun CampaignDetailScreen(
                     items(vm.calls, key = { it.campaignCallId }) { call ->
                         CallRow(call) { onOpenCall(call.voiceSessionId, call.attemptId, call.contactName ?: call.phoneMasked) }
                     }
+                    if (vm.calls.size < vm.callsTotal) {
+                        item(key = "more") {
+                            HbButton(
+                                text = if (vm.loadingMore) "Loading" else "Show more — ${vm.callsTotal - vm.calls.size} left",
+                                onClick = { vm.loadMore(campaignId) },
+                                modifier = Modifier.fillMaxWidth(),
+                                style = HbButtonStyle.Ghost,
+                                size = HbButtonSize.Small,
+                                enabled = !vm.loadingMore,
+                            )
+                        }
+                    }
                     if (vm.calls.isEmpty()) {
                         item(key = "no-calls") {
                             Column(Modifier.fillMaxWidth().padding(vertical = 26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                CardCaption("No calls match that filter yet.")
+                                CardCaption(if (vm.filter == "pending") "Nobody is waiting to be called." else "No leads match that filter yet.")
                             }
                         }
                     }
@@ -523,6 +606,16 @@ fun CampaignDetailScreen(
                 busy = vm.stopping,
                 onSwitch = { vm.stopAndStart(blocking.runId, onOpenRun) },
                 onDismiss = { vm.blockedBy = null },
+            )
+        }
+        if (vm.showManage && campaign != null) {
+            ManageRepsSheet(
+                reps = vm.companyReps,
+                assigned = campaign.assignees.mapTo(HashSet()) { it.userId },
+                saving = vm.savingAssignees,
+                error = vm.assigneesError,
+                onSave = vm::saveAssignees,
+                onDismiss = { vm.showManage = false },
             )
         }
         if (vm.showPreflight && vm.blockedBy == null) {
@@ -541,6 +634,7 @@ fun CampaignDetailScreen(
 private fun StartCard(
     campaign: CampaignDto,
     thisRunLive: Boolean,
+    cap: DailyCapDto?,
     vm: CampaignDetailViewModel,
     onOpenRun: () -> Unit,
 ) {
@@ -592,7 +686,12 @@ private fun StartCard(
                     HbIcon(R.drawable.ic_clock, size = 13.dp, tint = c.fgSubtle)
                     Spacer(Modifier.size(6.dp))
                     // ~2 min per lead including ring time, gap and wrap-up.
-                    MicroText("About ${estimateHours(campaign.pending)} at your usual pace")
+                    MicroText(
+                        listOfNotNull(
+                            "About ${estimateHours(campaign.pending)} at your usual pace",
+                            capNote(cap),
+                        ).joinToString(" · "),
+                    )
                 }
             }
         }
@@ -601,6 +700,13 @@ private fun StartCard(
             MicroText(it, color = c.negative)
         }
     }
+}
+
+/** The daily cap is what actually ends a rep's day, so it sits next to the estimate. */
+private fun capNote(cap: DailyCapDto?): String? {
+    val limit = cap?.limit ?: return null
+    val remaining = cap.remaining ?: (limit - cap.used)
+    return if (remaining <= 0) "today's cap is used up" else "cap allows $remaining more today"
 }
 
 private fun estimateHours(pending: Int): String {
@@ -653,7 +759,11 @@ private fun CallRow(call: CallItemDto, onClick: () -> Unit) {
             )
         }
         Spacer(Modifier.size(8.dp))
-        DispositionPill(call.disposition ?: call.leadFailureCause ?: call.callStatus)
+        when {
+            call.disposition == null && call.callStatus == "pending" -> Pill("Pending", color = c.fgSubtle)
+            call.disposition == null && call.callStatus == "leased" -> GoldPill("Being called", dot = true)
+            else -> DispositionPill(call.disposition ?: call.leadFailureCause ?: call.callStatus)
+        }
     }
 }
 
@@ -749,6 +859,160 @@ private fun SwitchCampaignSheet(
                 enabled = !busy,
             )
             HbButton("Keep the current one", onDismiss, Modifier.fillMaxWidth(), HbButtonStyle.Ghost, HbButtonSize.Small)
+        }
+    }
+}
+
+/**
+ * The reps on this list (screen 09). Assignment is the list everyone can see; the call
+ * counts come from analytics, which is scoped to the viewer for a rep — so a rep sees
+ * their own numbers and their colleagues' names, and an admin sees everyone's numbers.
+ */
+@Composable
+private fun RepsCard(
+    assignees: List<AssigneeDto>,
+    stats: List<RepStatDto>,
+    meId: String,
+    onManage: (() -> Unit)?,
+) {
+    val c = HbTheme.colors
+    val statsById = stats.associateBy { it.userId }
+    // Someone who called this list but has since been unassigned still belongs in its history.
+    val people = assignees.map { it.userId to it.name } +
+        stats.filter { s -> assignees.none { it.userId == s.userId } }.map { it.userId to it.name }
+    HbCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Reps", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = c.fg)
+            onManage?.let {
+                Text(
+                    "Manage",
+                    Modifier.clickable(onClick = it).padding(vertical = 6.dp, horizontal = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.accent,
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        people.forEach { (userId, name) ->
+            val stat = statsById[userId]
+            val you = userId == meId
+            val assigned = assignees.any { it.userId == userId }
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Avatar(initialsOf(name), size = 34.dp, gold = you)
+                Column(Modifier.weight(1f)) {
+                    Text(name, style = MaterialTheme.typography.titleSmall, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    MonoText(
+                        listOfNotNull(
+                            "you".takeIf { you },
+                            stat?.let { "${it.attempts} calls · ${pct(it.answerRate)} answered" }
+                                ?: "0 calls".takeIf { you },
+                        ).joinToString(" · ").ifBlank { "rep" },
+                    )
+                }
+                when {
+                    stat != null && stat.interested > 0 -> PositivePill("${stat.interested}", dot = false)
+                    assigned -> Pill("Assigned", color = c.fgSubtle)
+                    else -> Pill("Unassigned", color = c.fgFaint)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Who works this list (admins). Leads are handed out one at a time, so adding a rep
+ * mid-campaign just adds another pair of hands; taking one off stops them starting a
+ * new run on it, but a run already going finishes on its own.
+ */
+@Composable
+private fun ManageRepsSheet(
+    reps: List<RepDto>?,
+    assigned: Set<String>,
+    saving: Boolean,
+    error: String?,
+    onSave: (Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val c = HbTheme.colors
+    var selected by remember(assigned) { mutableStateOf(assigned) }
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(Color(0xA8000000)).clickable(onClick = onDismiss))
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = HbTheme.dims.r2Xl, topEnd = HbTheme.dims.r2Xl))
+                .background(c.surface)
+                .border(1.dp, c.borderStrong, RoundedCornerShape(topStart = HbTheme.dims.r2Xl, topEnd = HbTheme.dims.r2Xl))
+                .padding(horizontal = HbTheme.dims.gutter)
+                .navigationBarsPadding()
+                .padding(top = 10.dp, bottom = 16.dp),
+        ) {
+            Box(
+                Modifier.align(Alignment.CenterHorizontally).size(width = 38.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp)).background(c.borderStrong)
+            )
+            Spacer(Modifier.height(18.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Assign reps", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, color = c.fg)
+                reps?.let { MicroText("${selected.size} of ${it.size} selected") }
+            }
+            Spacer(Modifier.height(6.dp))
+            CardCaption("Leads are handed out one at a time, so two reps never call the same person.")
+            Spacer(Modifier.height(14.dp))
+            if (reps == null) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalArrangement = Arrangement.Center) {
+                    if (error == null) BrandDots()
+                }
+            } else {
+                HbCard(Modifier.fillMaxWidth().heightIn(max = 360.dp), padding = 4.dp) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        reps.forEachIndexed { i, rep ->
+                            if (i > 0) Hairline()
+                            val checked = rep.userId in selected
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable { selected = if (checked) selected - rep.userId else selected + rep.userId }
+                                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Box(
+                                    Modifier.size(20.dp).clip(RoundedCornerShape(6.dp))
+                                        .background(if (checked) c.accent else Color.Transparent)
+                                        .border(1.75.dp, if (checked) c.accent else c.borderStrong, RoundedCornerShape(6.dp)),
+                                    contentAlignment = Alignment.Center,
+                                ) { if (checked) HbIcon(R.drawable.ic_check, size = 13.dp, tint = c.onAccent) }
+                                Avatar(initialsOf(rep.name), size = 32.dp)
+                                Column(Modifier.weight(1f)) {
+                                    Text(rep.name, style = MaterialTheme.typography.bodyLarge, color = c.fg, maxLines = 1)
+                                    MicroText(humanize(rep.role))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            error?.let {
+                Spacer(Modifier.height(10.dp))
+                MicroText(it, color = c.negative)
+            }
+            Spacer(Modifier.height(16.dp))
+            HbButton(
+                text = when {
+                    saving -> "Saving"
+                    selected.isEmpty() -> "Pick at least one rep"
+                    else -> "Save"
+                },
+                onClick = { onSave(selected) },
+                modifier = Modifier.fillMaxWidth(),
+                style = HbButtonStyle.Primary,
+                size = HbButtonSize.Large,
+                enabled = !saving && reps != null && selected.isNotEmpty() && selected != assigned,
+            )
+            HbButton("Cancel", onDismiss, Modifier.fillMaxWidth(), HbButtonStyle.Ghost, HbButtonSize.Small)
         }
     }
 }

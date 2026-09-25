@@ -88,7 +88,11 @@ class RunViewModel @Inject constructor(val controller: RunController) : ViewMode
  * that apply to it are in the bottom third and nothing else is.
  */
 @Composable
-fun RunScreen(onBack: () -> Unit, vm: RunViewModel = hiltViewModel()) {
+fun RunScreen(
+    onBack: () -> Unit,
+    onOpenCampaign: (campaignId: String, filter: String?) -> Unit,
+    vm: RunViewModel = hiltViewModel(),
+) {
     val s by vm.controller.state.collectAsStateWithLifecycle()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -100,8 +104,9 @@ fun RunScreen(onBack: () -> Unit, vm: RunViewModel = hiltViewModel()) {
 
     Box(Modifier.fillMaxSize()) {
         when (s.status) {
-            RunStatus.COMPLETED -> RunCompleteScreen(s, now, onBack, vm.controller)
-            RunStatus.PAUSED, RunStatus.STOPPED, RunStatus.ERROR -> RunPausedScreen(s, onBack, vm.controller)
+            // A run the rep ended is finished too: it gets the summary, not a "Resume" it can't honour.
+            RunStatus.COMPLETED, RunStatus.STOPPED -> RunCompleteScreen(s, onBack, onOpenCampaign, vm.controller)
+            RunStatus.PAUSED, RunStatus.ERROR -> RunPausedScreen(s, onBack, vm.controller)
             else -> RunCockpit(s, now, onBack, vm.controller)
         }
 

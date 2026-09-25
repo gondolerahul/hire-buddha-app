@@ -157,7 +157,7 @@ class RunController @Inject constructor(
         val runId = s.runId ?: return ApiResult.Err(-1, "no_run", "Nothing to resume.")
         return when (val r = apiCall { api.updateRun(runId, RunUpdateRequest("running")) }) {
             is ApiResult.Ok -> {
-                orchestrator.reset(runId, s.campaignId.orEmpty(), s.campaignName.orEmpty())
+                orchestrator.resume(runId)
                 push.start()
                 ContextCompat.startForegroundService(context, Intent(context, RunService::class.java))
                 ApiResult.Ok(Unit)
@@ -177,6 +177,30 @@ class RunController @Inject constructor(
             }
         }
     }
+
+    /**
+     * Ends the current run and leaves it on the summary screen.
+     *
+     * A live run finishes its current lead and closes itself (see [execute]). A paused one
+     * has no loop to do that, so the server is told here and the local state follows —
+     * otherwise Today goes on offering to resume a run the server has already stopped.
+     */
+    suspend fun end(): ApiResult<Unit> {
+        if (isRunActive()) {
+            orchestrator.requestStop()
+            return ApiResult.Ok(Unit)
+        }
+        val runId = state.value.runId ?: return ApiResult.Ok(Unit)
+        return when (val r = apiCall { api.updateRun(runId, RunUpdateRequest("stopped")) }) {
+            is ApiResult.Err -> if (r.httpStatus == 409 || r.httpStatus == 404) {
+                orchestrator.markStopped(); ApiResult.Ok(Unit)
+            } else r
+            else -> { orchestrator.markStopped(); ApiResult.Ok(Unit) }
+        }
+    }
+
+    /** Waits for the run loop to close the run server-side, so a new one isn't refused as `device_busy`. */
+    suspend fun awaitIdle() { job?.join() }
 
     /**
      * Stops a run by id, whether or not this process is the one driving it.
@@ -236,6 +260,8 @@ class RunController @Inject constructor(
             is ApiResult.Err -> DialerLog.w(TAG, "Rep disposition failed", "code" to result.code, "message" to result.message)
             ApiResult.Empty -> Unit
         }
+        // Only what the server accepted is counted; a failed write leaves the model's call standing.
+        if (result !is ApiResult.Err) orchestrator.recordDisposition(disposition)
         continueRun()
         return when (result) {
             is ApiResult.Err -> result

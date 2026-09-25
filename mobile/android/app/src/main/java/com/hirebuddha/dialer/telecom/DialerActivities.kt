@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -44,6 +45,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hirebuddha.dialer.R
+import com.hirebuddha.dialer.data.api.LeadLookupDto
+import com.hirebuddha.dialer.data.repo.CampaignRepository
+import com.hirebuddha.dialer.run.RunController
+import com.hirebuddha.dialer.run.RunStatus
 import com.hirebuddha.dialer.ui.common.Avatar
 import com.hirebuddha.dialer.ui.common.CardCaption
 import com.hirebuddha.dialer.ui.common.Eyebrow
@@ -171,12 +176,13 @@ private fun Double.em() = androidx.compose.ui.unit.TextUnit(this.toFloat(), andr
  * Screen 25 — the full-screen incoming-call UI a default dialer is obliged to ship.
  *
  * It earns its keep by doing what the stock dialer cannot: recognising the caller as a
- * lead in a live campaign, and saying that answering will pause the run — behaviour the
- * orchestrator already implements but never announced.
+ * lead from the rep's campaigns, and saying up front that answering pauses a live run.
  */
 @AndroidEntryPoint
 class InCallActivity : ComponentActivity() {
     @Inject lateinit var registry: CallRegistry
+    @Inject lateinit var campaigns: CampaignRepository
+    @Inject lateinit var runController: RunController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -185,10 +191,17 @@ class InCallActivity : ComponentActivity() {
             HireBuddhaTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val calls by registry.calls.collectAsStateWithLifecycle()
+                    val run by runController.state.collectAsStateWithLifecycle()
                     val call = calls.firstOrNull { it.state == CallState.RINGING }
                         ?: calls.firstOrNull { it.state != CallState.DISCONNECTED }
                     LaunchedEffect(call == null) { if (call == null) finish() }
-                    if (call != null) CallPanel(call, registry)
+                    // Looked up once per number; the screen shows the number until it lands.
+                    val lead by produceState<LeadLookupDto?>(null, call?.number) {
+                        value = call?.number?.let { campaigns.lookupLead(it) }
+                    }
+                    if (call != null) {
+                        CallPanel(call, lead, runLive = run.status == RunStatus.RUNNING, registry = registry)
+                    }
                 }
             }
         }
@@ -196,12 +209,13 @@ class InCallActivity : ComponentActivity() {
 }
 
 @Composable
-private fun CallPanel(call: CallSnapshot, registry: CallRegistry) {
+private fun CallPanel(call: CallSnapshot, lead: LeadLookupDto?, runLive: Boolean, registry: CallRegistry) {
     val c = HbTheme.colors
     var muted by remember { mutableStateOf(false) }
+    var replying by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val ringing = call.state == CallState.RINGING
-    val isLead = registry.isCampaignNumber(call.number)
+    val name = lead?.contactName?.takeIf { it.isNotBlank() }
 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().goldGlow(radiusDp = 260.dp, center = Offset(170f, -80f), alpha = 0.55f))
@@ -222,31 +236,39 @@ private fun CallPanel(call: CallSnapshot, registry: CallRegistry) {
             )
             Spacer(Modifier.height(24.dp))
             Avatar(
-                initialsOf(call.number, "?"),
+                initialsOf(name ?: call.number, "?"),
                 size = 96.dp,
                 shape = CircleShape,
+                gold = lead != null,
             )
             Spacer(Modifier.height(20.dp))
             Text(
-                call.number ?: "Unknown number",
-                style = MaterialTheme.typography.headlineSmall,
+                name ?: call.number ?: "Unknown number",
+                style = MaterialTheme.typography.headlineSmall.copy(fontSize = 25.sp),
                 color = c.fg,
                 textAlign = TextAlign.Center,
             )
-            if (isLead) {
+            if (name != null && call.number != null) {
+                Spacer(Modifier.height(6.dp))
+                MonoText(call.number, color = c.fgMuted, style = BrandType.monoBody)
+            }
+            if (lead != null) {
                 Spacer(Modifier.height(14.dp))
-                GoldPill("Lead in a live campaign", dot = true)
+                GoldPill("Lead · ${lead.campaignName ?: "one of your campaigns"}", dot = lead.campaignStatus == "running")
             }
 
             Spacer(Modifier.weight(1f))
 
-            if (ringing && isLead) {
-                // The orchestrator pauses after the current attempt when a real call
-                // arrives; saying so beforehand removes the surprise.
+            if (ringing && runLive) {
+                // The run pauses only if the rep picks up — say so while there is still a
+                // choice to make, rather than after the calling has stopped.
                 HbCard(Modifier.fillMaxWidth(), padding = 13.dp, border = Color.Transparent) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         HbIcon(R.drawable.ic_info, size = 16.dp, tint = c.gold300)
-                        MicroText("Your run will pause after this call", Modifier.weight(1f), c.fgMuted)
+                        MicroText(
+                            "Answering pauses your run once the current lead is done. Declining keeps it going.",
+                            Modifier.weight(1f), c.fgMuted,
+                        )
                     }
                 }
                 Spacer(Modifier.height(20.dp))
@@ -263,6 +285,10 @@ private fun CallPanel(call: CallSnapshot, registry: CallRegistry) {
                         if (Build.VERSION.SDK_INT >= 30) target?.reject(Call.REJECT_REASON_DECLINED)
                         else @Suppress("DEPRECATION") target?.reject(false, null)
                     }
+                    // Only when the carrier can send it; otherwise the button would lie.
+                    if (call.canRespondViaText) {
+                        CallAction("Message", R.drawable.ic_message, c.surface3, c.fg) { replying = true }
+                    }
                     CallAction("Answer", R.drawable.ic_phone, c.positive, Color(0xFF0F2015)) {
                         registry.call(call.id)?.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
                     }
@@ -277,6 +303,55 @@ private fun CallPanel(call: CallSnapshot, registry: CallRegistry) {
                     }
                 }
             }
+        }
+
+        if (replying && ringing) {
+            QuickReplySheet(
+                firstName = name?.substringBefore(' '),
+                onSend = { text -> replying = false; registry.rejectWithMessage(call.id, text) },
+                onDismiss = { replying = false },
+            )
+        }
+    }
+}
+
+/** Decline-with-a-text. Short, and polite enough to send to a lead as well as a friend. */
+@Composable
+private fun QuickReplySheet(firstName: String?, onSend: (String) -> Unit, onDismiss: () -> Unit) {
+    val c = HbTheme.colors
+    val replies = listOfNotNull(
+        firstName?.let { "Hi $it, I can't talk right now. I'll call you back shortly." },
+        "Can't talk right now. I'll call you back shortly.",
+        "I'm on another call. I'll call you back in a few minutes.",
+        "Please text me and I'll get back to you.",
+    )
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(Color(0xA8000000)).clickable(onClick = onDismiss))
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = HbTheme.dims.r2Xl, topEnd = HbTheme.dims.r2Xl))
+                .background(c.surface)
+                .border(1.dp, c.borderStrong, RoundedCornerShape(topStart = HbTheme.dims.r2Xl, topEnd = HbTheme.dims.r2Xl))
+                .padding(horizontal = HbTheme.dims.gutter)
+                .navigationBarsPadding()
+                .padding(top = 18.dp, bottom = 16.dp),
+        ) {
+            Eyebrow("Decline with a message")
+            Spacer(Modifier.height(12.dp))
+            replies.forEach { reply ->
+                Text(
+                    reply,
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(HbTheme.dims.rMd))
+                        .clickable { onSend(reply) }
+                        .background(c.surface2)
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = c.fg,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            CardCaption("Sent as a text from your SIM; the call is declined.")
         }
     }
 }

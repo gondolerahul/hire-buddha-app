@@ -94,8 +94,38 @@ class CallOrchestrator(
         )
     }
 
+    /** Pick a paused run back up. Unlike [reset], the session tallies carry on. */
+    fun resume(runId: String) {
+        DialerLog.setRun(runId)
+        DialerLog.i(TAG, "Run resumed", "run" to runId)
+        pauseRequested = false
+        stopRequested = false
+        skipRequested = false
+        _state.update {
+            it.copy(
+                status = RunStatus.RUNNING, runId = runId, step = Step.IDLE, message = null,
+                nextLeadAt = null, wrapUp = null, gapHeld = false, endedAt = null,
+            )
+        }
+    }
+
+    /** The rep's own read of a finished call, once the server has accepted it. */
+    fun recordDisposition(disposition: String) = _state.update {
+        when (disposition) {
+            "interested" -> it.copy(interested = it.interested + 1)
+            "callback" -> it.copy(callbacks = it.callbacks + 1)
+            else -> it
+        }
+    }
+
+    /** A run that was not executing (paused) has been ended server-side. */
+    fun markStopped() = _state.update {
+        it.copy(status = RunStatus.STOPPED, step = Step.IDLE, nextLeadAt = null, endedAt = it.endedAt ?: clock())
+    }
+
     /** Runs until the leads are exhausted, a pause/stop is requested, or setup fails. */
     suspend fun run(runId: String, deviceId: String, config: OrchestratorConfig): RunStatus {
+        _state.update { it.copy(askedAfterCalls = config.askAfterEveryCall) }
         while (true) {
             if (stopRequested) return finish(RunStatus.STOPPED)
             if (pauseRequested) return finish(RunStatus.PAUSED)
@@ -124,6 +154,7 @@ class CallOrchestrator(
                     lastOutcome = describe(outcome), callsMade = it.callsMade + 1, aiInCall = false,
                     conversationStartedAt = null, muted = false, awaitingMergeDecision = false,
                     connected = it.connected + if (outcome is LeadOutcome.Completed) 1 else 0,
+                    talked30 = it.talked30 + if (conversationSeconds >= 30) 1 else 0,
                     talkSeconds = it.talkSeconds + conversationSeconds,
                     // Only a call the lead actually joined is worth asking the rep about.
                     wrapUp = (outcome as? LeadOutcome.Completed)
@@ -177,7 +208,9 @@ class CallOrchestrator(
 
     private fun finish(status: RunStatus, message: String? = null): RunStatus {
         DialerLog.i(TAG, "Run finished", "status" to status, "message" to message)
-        _state.update { it.copy(status = status, step = Step.IDLE, message = message ?: it.message, nextLeadAt = null) }
+        _state.update {
+            it.copy(status = status, step = Step.IDLE, message = message ?: it.message, nextLeadAt = null, endedAt = clock())
+        }
         return status
     }
 
@@ -324,6 +357,7 @@ class CallOrchestrator(
             }
         }
         backend.event(aid, "lead_answered")
+        _state.update { it.copy(leadAnswered = it.leadAnswered + 1) }
 
         // 4. merge
         setStep(Step.MERGING)

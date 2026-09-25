@@ -7,6 +7,7 @@ import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -28,6 +29,9 @@ interface HireBuddhaApi {
     @GET("mobile/campaigns/{id}") suspend fun campaign(@Path("id") id: String): Response<CampaignDto>
     @GET("mobile/agents") suspend fun agents(): Response<AgentsResponse>
     @GET("mobile/reps") suspend fun reps(): Response<RepsResponse>
+    @GET("mobile/leads/lookup") suspend fun lookupLead(@Query("phone") phone: String): Response<LeadLookupResponse>
+    @PUT("mobile/campaigns/{id}/assignees")
+    suspend fun setAssignees(@Path("id") campaignId: String, @Body body: AssigneesUpdateRequest): Response<AssigneesResponse>
 
     @Multipart
     @POST("campaigns/upload-contacts")
@@ -50,6 +54,8 @@ interface HireBuddhaApi {
         @Path("id") campaignId: String,
         @Query("disposition") disposition: String? = null,
         @Query("status") status: String? = null,
+        /** Also list leads nobody has called yet. Older servers ignore it (and show a rep only their own calls). */
+        @Query("include_pending") includePending: Boolean? = null,
         @Query("limit") limit: Int = 50,
         @Query("offset") offset: Int = 0,
     ): Response<CallsPageDto>

@@ -129,6 +129,7 @@ class CallRegistry @Inject constructor(
             childIds = call.children.mapNotNull { ids[it] },
             canMerge = details.can(Call.Details.CAPABILITY_MERGE_CONFERENCE) || call.conferenceableCalls.isNotEmpty(),
             disconnectCause = if (call.state == Call.STATE_DISCONNECTED) mapCause(details.disconnectCause) else null,
+            canRespondViaText = details.can(Call.Details.CAPABILITY_RESPOND_VIA_TEXT),
         )
     }
 
@@ -262,6 +263,12 @@ class CallRegistry @Inject constructor(
     }
 
     override fun disconnect(callId: String) { byId[callId]?.disconnect() }
+
+    /** Declines a ringing call and has telephony text the caller [message]. */
+    fun rejectWithMessage(callId: String, message: String) {
+        DialerLog.i(TAG, "Declining with a text", "call" to callId)
+        byId[callId]?.reject(true, message)
+    }
 
     override fun setMuted(muted: Boolean) { service?.setMuted(muted) }
 

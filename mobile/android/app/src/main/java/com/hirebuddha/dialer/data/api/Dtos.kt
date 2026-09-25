@@ -68,6 +68,8 @@ import kotlinx.serialization.json.JsonObject
 // ── Campaigns ────────────────────────────────────────────────────────────
 
 @Serializable data class AssigneeDto(@SerialName("user_id") val userId: String, val name: String)
+@Serializable data class AssigneesUpdateRequest(@SerialName("user_ids") val userIds: List<String>)
+@Serializable data class AssigneesResponse(val assignees: List<AssigneeDto>)
 
 @Serializable data class CampaignDto(
     val id: String,
@@ -318,6 +320,20 @@ import kotlinx.serialization.json.JsonObject
     @SerialName("callback_at") val callbackAt: String? = null,
     val note: String? = null,
 )
+
+/** The lead behind an incoming caller ID (`GET mobile/leads/lookup`). */
+@Serializable data class LeadLookupDto(
+    @SerialName("campaign_call_id") val campaignCallId: String,
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("campaign_name") val campaignName: String? = null,
+    @SerialName("campaign_status") val campaignStatus: String? = null,
+    @SerialName("contact_name") val contactName: String? = null,
+    val status: String? = null,
+    val disposition: String? = null,
+    @SerialName("callback_at") val callbackAt: String? = null,
+)
+
+@Serializable data class LeadLookupResponse(val lead: LeadLookupDto? = null)
 
 @Serializable data class CallbacksResponse(val total: Int = 0, val items: List<CallbackDto> = emptyList())
 
