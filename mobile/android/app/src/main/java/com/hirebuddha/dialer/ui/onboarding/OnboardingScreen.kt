@@ -47,6 +47,8 @@ import com.hirebuddha.dialer.R
 import com.hirebuddha.dialer.core.DialerLog
 import com.hirebuddha.dialer.data.api.ApiResult
 import com.hirebuddha.dialer.data.api.MeDto
+import com.hirebuddha.dialer.data.api.PreflightDto
+import com.hirebuddha.dialer.data.repo.CampaignRepository
 import com.hirebuddha.dialer.data.logs.LogRepository
 import com.hirebuddha.dialer.data.push.PushClient
 import com.hirebuddha.dialer.data.repo.DeviceRepository
@@ -120,6 +122,7 @@ class OnboardingViewModel @Inject constructor(
     private val registry: CallRegistry,
     private val push: PushClient,
     private val logs: LogRepository,
+    private val campaigns: CampaignRepository,
 ) : ViewModel() {
     var permissionsOk by mutableStateOf(hasPermissions(context)); private set
     var roleHeld by mutableStateOf(DialerRole.isHeld(context)); private set
@@ -129,6 +132,16 @@ class OnboardingViewModel @Inject constructor(
     var verifiedCli by mutableStateOf<String?>(null); private set
     var did by mutableStateOf<String?>(null); private set
     var startedAt by mutableStateOf(0L); private set
+
+    /** The company's calling window and daily cap, as the server enforces them. */
+    var limits by mutableStateOf<PreflightDto?>(null); private set
+    var limitsLoaded by mutableStateOf(false); private set
+
+    fun loadLimits() = viewModelScope.launch {
+        if (limitsLoaded) return@launch
+        limits = campaigns.preflight(deviceId = settings.current().deviceId)
+        limitsLoaded = true
+    }
 
     val verifying get() = phase !is VerifyPhase.Idle && phase !is VerifyPhase.Verified && phase !is VerifyPhase.Failed
 
@@ -567,10 +580,18 @@ private fun VerifyStep(label: String, rank: Int, reached: Int, isLast: Boolean, 
         isLast = isLast,
     )
 
-/** Screen 06 — the one place to introduce the two limits that will otherwise surprise. */
+/**
+ * Screen 06 — the one place to introduce the two limits that will otherwise surprise.
+ *
+ * The calling window and the daily cap are enforced on every lease, server-side and
+ * silently: a rep meets them as a run that stops mid-afternoon for no visible reason.
+ * Saying them once, here, before the first run, turns that into a known rule. Both come
+ * from the server rather than the app, because the company's settings are what apply.
+ */
 @Composable
 private fun ReadyScreen(vm: OnboardingViewModel, onDone: () -> Unit) {
     val c = HbTheme.colors
+    LaunchedEffect(Unit) { vm.loadLimits() }
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().goldGlow(radiusDp = 280.dp, center = androidx.compose.ui.geometry.Offset(170f, 500f), alpha = 0.75f))
         com.hirebuddha.dialer.ui.common.MarkWatermark(
@@ -600,6 +621,11 @@ private fun ReadyScreen(vm: OnboardingViewModel, onDone: () -> Unit) {
                 Hairline()
                 Fact("Calling SIM", vm.sims.firstOrNull { it.id == vm.selectedSim }?.label ?: "chosen")
             }
+            // An older server has no pre-flight endpoint; then there is nothing true to say.
+            if (!vm.limitsLoaded || vm.limits != null) {
+                Spacer(Modifier.height(12.dp))
+                CallingRules(vm.limits)
+            }
             Spacer(Modifier.height(20.dp))
             HbButton(
                 "Start working", onDone, Modifier.fillMaxWidth(),
@@ -616,4 +642,62 @@ private fun Fact(label: String, value: String) = Row(
 ) {
     CardCaption(label, Modifier.weight(1f))
     MonoText(value, color = HbTheme.colors.fg, style = BrandType.monoBody)
+}
+
+@Composable
+private fun CallingRules(limits: PreflightDto?) {
+    val c = HbTheme.colors
+    HbCard(Modifier.fillMaxWidth(), border = c.borderGold) {
+        Eyebrow("Two rules for every call", color = c.gold300)
+        Spacer(Modifier.height(4.dp))
+        if (limits == null) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center) {
+                BrandDots(count = 3, dotSize = 5.dp)
+            }
+            return@HbCard
+        }
+        val window = limits.callingWindow
+        Rule(
+            icon = R.drawable.ic_clock,
+            label = "Calling window",
+            value = if (window.enforced) "${window.start} – ${window.end}${zoneSuffix(window.timezone)}" else "Any time",
+            detail = if (window.enforced) "Outside these hours a run pauses; resume it once the window opens." else null,
+        )
+        Hairline()
+        val limit = limits.dailyCap.limit
+        Rule(
+            icon = R.drawable.ic_phone,
+            label = "Daily cap",
+            value = if (limit != null) "$limit calls" else "No limit",
+            detail = if (limit != null) "Counted per rep. It resets at midnight IST." else null,
+        )
+    }
+}
+
+@Composable
+private fun Rule(icon: Int, label: String, value: String, detail: String?) {
+    val c = HbTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        HbIcon(icon, size = 17.dp, tint = c.gold300)
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CardCaption(label, Modifier.weight(1f))
+                MonoText(value, color = c.fg, style = BrandType.monoBody)
+            }
+            detail?.let {
+                Spacer(Modifier.height(3.dp))
+                MicroText(it)
+            }
+        }
+    }
+}
+
+private fun zoneSuffix(timezone: String): String = when (timezone) {
+    "Asia/Kolkata", "Asia/Calcutta" -> " IST"
+    "" -> ""
+    else -> " ($timezone)"
 }
