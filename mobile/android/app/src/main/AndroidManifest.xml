@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <!-- Personal calls from the Phone screen: dial someone saved on the phone -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
@@ -58,6 +60,20 @@
                 <data android:scheme="tel" />
             </intent-filter>
         </activity>
+
+        <!-- A second launcher icon, "Phone", straight to the dial pad: as the default dialer
+             this app is how the rep makes personal calls too. -->
+        <activity-alias
+            android:name=".PhoneLauncher"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/dialer_label"
+            android:targetActivity=".telecom.DialerActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Incoming / ongoing call UI for calls that are not part of a campaign run -->
         <activity

@@ -75,6 +75,11 @@ data class RunUiState(
     val muted: Boolean = false,
     val aiInCall: Boolean = false,
     val conversationStartedAt: Long? = null,
+    /** Take over pressed; the agent is saying its hand-over line and has not left yet. */
+    val handingOver: Boolean = false,
+    /** The gateway heard nothing from the lead after the merge: the conference isn't
+     *  carrying the agent's audio. The rep is still bridged to the lead. */
+    val noLeadAudio: Boolean = false,
     /** When the lead's phone started ringing, for the ring timer. */
     val leadRingingSince: Long? = null,
     val nextLeadAt: Long? = null,

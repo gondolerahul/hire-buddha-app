@@ -216,6 +216,18 @@ private fun Greeting(me: MeDto) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        // Personal calls: this is the phone's dialer, so the keypad is one tap from home.
+        val context = androidx.compose.ui.platform.LocalContext.current
+        com.hirebuddha.dialer.ui.common.HbIconButton(
+            R.drawable.ic_keypad,
+            {
+                context.startActivity(
+                    android.content.Intent(context, com.hirebuddha.dialer.telecom.DialerActivity::class.java)
+                )
+            },
+            contentDescription = "Phone",
+            tint = c.fgMuted,
+        )
         Avatar(initialsOf(me.fullName), size = 38.dp)
     }
     Spacer(Modifier.height(4.dp))

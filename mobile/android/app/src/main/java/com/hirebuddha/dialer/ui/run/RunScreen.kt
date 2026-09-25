@@ -366,7 +366,7 @@ private fun TranscriptPane(
                 state = listState,
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 190.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 250.dp),
             ) {
                 items(turns) { turn -> TranscriptBubble(turn, agent, lead) }
             }
@@ -407,32 +407,73 @@ private fun TranscriptBubble(turn: TranscriptTurn, agent: String, lead: String?)
     }
 }
 
+/**
+ * The in-call controls, ranked by what a rep reaches for. While the agent is on the call,
+ * Take over is the one clear action at the top: it asks the agent to tell the lead it is
+ * transferring them, then hands the rep the call. Mute and End sit below it.
+ */
 @Composable
 private fun InCallDock(s: RunUiState, controller: RunController, modifier: Modifier = Modifier) {
     val c = HbTheme.colors
+    val agent = agentName(s)
     GlassSurface(
         modifier.fillMaxWidth().padding(horizontal = 12.dp).navigationBarsPadding().padding(bottom = 10.dp),
         gold = true,
     ) {
         Column(Modifier.padding(14.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HbButton(
-                    text = if (s.muted) "Unmute to speak" else "Mute me",
-                    onClick = { controller.command(UserCommand.TOGGLE_MUTE) },
-                    modifier = Modifier.weight(1f).height(54.dp),
-                    style = if (s.muted) HbButtonStyle.Hero else HbButtonStyle.Glass,
-                    icon = if (s.muted) R.drawable.ic_mic else R.drawable.ic_mic_off,
-                )
+            if (s.aiInCall && s.noLeadAudio && !s.handingOver) {
+                // The network conference isn't carrying the agent's audio (seen on some
+                // IMS merges). The rep can still hear the lead, so the call is saveable.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(HbTheme.dims.rSm))
+                        .background(c.negativeQuiet).padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    HbIcon(R.drawable.ic_alert, size = 17.dp, tint = c.negative)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "$agent can't hear the lead",
+                            style = MaterialTheme.typography.titleSmall, color = c.fg,
+                        )
+                        MicroText(
+                            "The network isn't carrying $agent's audio on this call. Take over to talk to them yourself.",
+                            color = c.fgMuted,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
             }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (s.aiInCall) {
-                    HbButton(
-                        "Take over", { controller.command(UserCommand.TAKE_OVER) },
-                        Modifier.weight(1f), HbButtonStyle.Glass, HbButtonSize.Small,
-                        icon = R.drawable.ic_swap,
+            if (s.aiInCall) {
+                HbButton(
+                    text = if (s.handingOver) "$agent is handing over…" else "Take over from $agent",
+                    onClick = { controller.command(UserCommand.TAKE_OVER) },
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    style = HbButtonStyle.Hero,
+                    icon = if (s.handingOver) null else R.drawable.ic_swap,
+                    enabled = !s.handingOver,
+                    content = if (!s.handingOver) null else {
+                        { BrandDots(count = 4, dotSize = 6.dp, color = c.onAccent) }
+                    },
+                )
+                if (s.handingOver) {
+                    Spacer(Modifier.height(6.dp))
+                    MicroText(
+                        "$agent is telling the lead you're joining. You'll be unmuted when $agent leaves.",
+                        Modifier.fillMaxWidth(),
                     )
                 }
+                Spacer(Modifier.height(10.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HbButton(
+                    text = if (s.muted) "Unmute" else "Mute me",
+                    onClick = { controller.command(UserCommand.TOGGLE_MUTE) },
+                    modifier = Modifier.weight(1f),
+                    style = if (s.aiInCall) HbButtonStyle.Glass else if (s.muted) HbButtonStyle.Hero else HbButtonStyle.Glass,
+                    size = HbButtonSize.Small,
+                    icon = if (s.muted) R.drawable.ic_mic else R.drawable.ic_mic_off,
+                    enabled = !s.handingOver,
+                )
                 HbButton(
                     "End call", { controller.command(UserCommand.HANG_UP) },
                     Modifier.weight(1f), HbButtonStyle.Danger, HbButtonSize.Small,

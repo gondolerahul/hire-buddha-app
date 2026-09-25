@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hirebuddha.dialer.R
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.platform.LocalContext
 import com.hirebuddha.dialer.data.settings.AppSettings
 import com.hirebuddha.dialer.data.api.LeadLookupDto
@@ -69,6 +70,9 @@ import com.hirebuddha.dialer.ui.theme.HireBuddhaTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.launch
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Screen 24 — the dial pad every default phone app must ship (`ACTION_DIAL`, `tel:` links).
@@ -80,6 +84,7 @@ import kotlinx.coroutines.launch
 class DialerActivity : ComponentActivity() {
     @Inject lateinit var registry: CallRegistry
     @Inject lateinit var settings: AppSettings
+    @Inject lateinit var runController: RunController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -89,10 +94,18 @@ class DialerActivity : ComponentActivity() {
             HireBuddhaTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val simLabel by produceState<String?>(null) { value = settings.current().phoneAccountLabel }
-                    DialPad(initial, callingFrom(simLabel)) { number ->
-                        val scope = kotlinx.coroutines.MainScope()
-                        scope.launch { registry.placeCall(number) }
-                        finish()
+                    val run by runController.state.collectAsStateWithLifecycle()
+                    PhoneScreen(
+                        initial = initial,
+                        callingFrom = callingFrom(simLabel),
+                        // A personal call during a run would collide with the lead legs.
+                        runLive = run.status == RunStatus.RUNNING,
+                        onClose = ::finish,
+                    ) { number ->
+                        lifecycleScope.launch {
+                            registry.placePersonalCall(number)
+                            finish()
+                        }
                     }
                 }
             }
@@ -124,17 +137,18 @@ private fun callingFrom(simLabel: String?): String? {
 }
 
 @Composable
-private fun DialPad(initial: String, callingFrom: String?, onCall: (String) -> Unit) {
+internal fun DialPad(
+    number: String,
+    onNumber: (String) -> Unit,
+    callingFrom: String?,
+    enabled: Boolean,
+    onCall: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    suggestions: @Composable () -> Unit = {},
+) {
     val c = HbTheme.colors
-    var number by remember { mutableStateOf(initial) }
-    Column(
-        Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = HbTheme.dims.gutter)
-            .navigationBarsPadding(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Phone", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, color = c.fg)
-        }
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        suggestions()
         Spacer(Modifier.weight(1f))
         Text(
             number.ifEmpty { " " },
@@ -159,7 +173,7 @@ private fun DialPad(initial: String, callingFrom: String?, onCall: (String) -> U
                             .clip(RoundedCornerShape(HbTheme.dims.rLg))
                             .background(c.surface2)
                             .border(1.dp, c.border, RoundedCornerShape(HbTheme.dims.rLg))
-                            .clickable { number += digit },
+                            .clickable { onNumber(number + digit) },
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -181,13 +195,14 @@ private fun DialPad(initial: String, callingFrom: String?, onCall: (String) -> U
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    Modifier.size(72.dp).clip(CircleShape).background(c.accent)
-                        .clickable(enabled = number.isNotBlank()) { onCall(number) },
+                    Modifier.size(72.dp).clip(CircleShape)
+                        .background(if (enabled) c.accent else c.surface3)
+                        .clickable(enabled = enabled && number.isNotBlank()) { onCall(number) },
                     contentAlignment = Alignment.Center,
                 ) { HbIcon(R.drawable.ic_phone, size = 26.dp, tint = c.onAccent) }
             }
             HbIconButton(
-                R.drawable.ic_x, { number = number.dropLast(1) },
+                R.drawable.ic_x, { onNumber(number.dropLast(1)) },
                 Modifier.size(56.dp), size = 56.dp, iconSize = 22.dp,
                 contentDescription = "Delete",
             )
@@ -225,8 +240,14 @@ class InCallActivity : ComponentActivity() {
                     val lead by produceState<LeadLookupDto?>(null, call?.number) {
                         value = call?.number?.let { campaigns.lookupLead(it) }
                     }
+                    // A personal call to or from someone saved on the phone shows their name.
+                    val saved by produceState<String?>(null, call?.number) {
+                        value = call?.number?.let { n ->
+                            withContext(Dispatchers.IO) { contactNameFor(this@InCallActivity, n) }
+                        }
+                    }
                     if (call != null) {
-                        CallPanel(call, lead, runLive = run.status == RunStatus.RUNNING, registry = registry)
+                        CallPanel(call, lead, saved, runLive = run.status == RunStatus.RUNNING, registry = registry)
                     }
                 }
             }
@@ -235,13 +256,21 @@ class InCallActivity : ComponentActivity() {
 }
 
 @Composable
-private fun CallPanel(call: CallSnapshot, lead: LeadLookupDto?, runLive: Boolean, registry: CallRegistry) {
+private fun CallPanel(
+    call: CallSnapshot,
+    lead: LeadLookupDto?,
+    savedName: String?,
+    runLive: Boolean,
+    registry: CallRegistry,
+) {
     val c = HbTheme.colors
     var muted by remember { mutableStateOf(false) }
+    var speaker by remember { mutableStateOf(false) }
+    var keypad by remember { mutableStateOf(false) }
     var replying by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val ringing = call.state == CallState.RINGING
-    val name = lead?.contactName?.takeIf { it.isNotBlank() }
+    val name = lead?.contactName?.takeIf { it.isNotBlank() } ?: savedName
 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().goldGlow(radiusDp = 260.dp, center = Offset(170f, -80f), alpha = 0.55f))
@@ -322,13 +351,27 @@ private fun CallPanel(call: CallSnapshot, lead: LeadLookupDto?, runLive: Boolean
                     CallAction(
                         if (muted) "Unmute" else "Mute",
                         if (muted) R.drawable.ic_mic_off else R.drawable.ic_mic,
-                        c.surface3, c.fg,
+                        if (muted) c.accentQuiet else c.surface3, c.fg,
                     ) { muted = !muted; registry.setMuted(muted) }
+                    CallAction("Keypad", R.drawable.ic_keypad, if (keypad) c.accentQuiet else c.surface3, c.fg) {
+                        keypad = !keypad
+                    }
+                    CallAction("Speaker", R.drawable.ic_speaker, if (speaker) c.accentQuiet else c.surface3, c.fg) {
+                        speaker = !speaker; registry.setSpeaker(speaker)
+                    }
                     CallAction("End", R.drawable.ic_phone_end, c.negative, Color(0xFF20100B)) {
                         scope.launch { registry.disconnect(call.id) }
                     }
                 }
             }
+        }
+
+        if (keypad && !ringing) {
+            InCallKeypad(
+                onKey = { registry.pressKey(call.id, it) },
+                onClose = { keypad = false },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
 
         if (replying && ringing) {
@@ -397,3 +440,49 @@ private fun CallAction(
     Spacer(Modifier.height(10.dp))
     MicroText(label)
 }
+
+/** Keys for phone menus in a live call. Each press is sent as a tone at once. */
+@Composable
+private fun InCallKeypad(onKey: (Char) -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    val c = HbTheme.colors
+    var typed by remember { mutableStateOf("") }
+    Column(
+        modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(topStart = HbTheme.dims.r2Xl, topEnd = HbTheme.dims.r2Xl))
+            .background(c.surface)
+            .navigationBarsPadding()
+            .padding(horizontal = HbTheme.dims.gutter, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            MonoText(typed.ifEmpty { " " }, Modifier.weight(1f), color = c.fg, style = BrandType.monoBody)
+            HbIconButton(R.drawable.ic_x, onClose, contentDescription = "Hide keypad")
+        }
+        Spacer(Modifier.height(8.dp))
+        KEYS.chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (digit, _) ->
+                    Box(
+                        Modifier.weight(1f).height(54.dp)
+                            .clip(RoundedCornerShape(HbTheme.dims.rMd))
+                            .background(c.surface2)
+                            .clickable { typed += digit; onKey(digit.first()) },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(digit, style = MaterialTheme.typography.headlineSmall, color = c.fg) }
+                }
+            }
+        }
+    }
+}
+
+/** The saved name for [number], or null. Needs READ_CONTACTS; without it, just the number. */
+internal fun contactNameFor(context: android.content.Context, number: String): String? = runCatching {
+    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) !=
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    ) return@runCatching null
+    val uri = android.net.Uri.withAppendedPath(
+        android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI, android.net.Uri.encode(number),
+    )
+    context.contentResolver.query(uri, arrayOf(android.provider.ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)
+        ?.use { if (it.moveToFirst()) it.getString(0) else null }
+}.getOrNull()

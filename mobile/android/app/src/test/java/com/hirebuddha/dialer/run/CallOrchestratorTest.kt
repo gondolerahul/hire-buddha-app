@@ -572,6 +572,71 @@ class CallOrchestratorV2Test {
     }
 
     @Test
+    fun `take over keeps the lead on the call after the agent hands over`() = runTest {
+        val h = Harness(this)
+        h.calls.aiEndsAfterMergeMs = null
+        h.calls.leadHangsUpAfterMergeMs = 30_000
+        var asked = false
+        var pushed = false
+        var sawHandingOver = false
+        backgroundScope.launch {
+            h.orchestrator.state.collect {
+                if (it.step == Step.IN_CONVERSATION && !asked) { asked = true; h.orchestrator.send(UserCommand.TAKE_OVER) }
+                if (it.handingOver) {
+                    sawHandingOver = true
+                    // The rep stays muted while the agent says its hand-over line.
+                    assertTrue(it.muted)
+                    if (!pushed) { pushed = true; h.push.emit("attempt.ai_ended", "reason" to "rep_takeover") }
+                }
+            }
+        }
+        val outcome = h.orchestrator.runLead("run1", "dev1", lead(), config)
+
+        // The call went on until the lead hung up: the hand-over did not end it.
+        assertEquals(LeadOutcome.Completed("lead"), outcome)
+        assertTrue(sawHandingOver)
+        assertTrue(h.backend.types().contains("rep_takeover"))
+        assertTrue("the agent's leg is dropped", h.calls.disconnected.contains("c1"))
+        assertFalse(h.orchestrator.state.value.aiInCall)
+        assertEquals(false, h.calls.mutes.last())
+    }
+
+    @Test
+    fun `take over completes on its own if the agent never confirms`() = runTest {
+        val h = Harness(this)
+        h.calls.aiEndsAfterMergeMs = null
+        h.calls.leadHangsUpAfterMergeMs = 40_000
+        var asked = false
+        backgroundScope.launch {
+            h.orchestrator.state.collect {
+                if (it.step == Step.IN_CONVERSATION && !asked) { asked = true; h.orchestrator.send(UserCommand.TAKE_OVER) }
+            }
+        }
+        val outcome = h.orchestrator.runLead("run1", "dev1", lead(), config)
+
+        assertEquals(LeadOutcome.Completed("lead"), outcome)
+        assertTrue(h.calls.disconnected.contains("c1"))
+        assertFalse(h.orchestrator.state.value.handingOver)
+    }
+
+    @Test
+    fun `no lead audio from the gateway is surfaced to the rep`() = runTest {
+        val h = Harness(this)
+        h.calls.aiEndsAfterMergeMs = null
+        h.calls.leadHangsUpAfterMergeMs = 12_000
+        var emitted = false
+        var flagged = false
+        backgroundScope.launch {
+            h.orchestrator.state.collect {
+                if (it.step == Step.IN_CONVERSATION && !emitted) { emitted = true; h.push.emit("attempt.no_lead_audio") }
+                if (it.noLeadAudio) flagged = true
+            }
+        }
+        h.orchestrator.runLead("run1", "dev1", lead(), config)
+        assertTrue(flagged)
+    }
+
+    @Test
     fun `a blank transcript push is ignored rather than drawn as an empty bubble`() = runTest {
         val h = Harness(this)
         h.calls.aiEndsAfterMergeMs = null

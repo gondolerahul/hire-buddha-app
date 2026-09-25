@@ -156,7 +156,16 @@ class CallRegistry @Inject constructor(
 
     // ── CallControl ──────────────────────────────────────────────────────
 
-    override suspend fun placeCall(number: String): String? {
+    override suspend fun placeCall(number: String): String? = place(number, campaign = true)
+
+    /**
+     * A call the rep dials for themselves (the Phone screen, a tel: link). Not recorded
+     * as a campaign number, so the run never treats it as a lead leg and never hangs it
+     * up when a run finishes.
+     */
+    suspend fun placePersonalCall(number: String): String? = place(number, campaign = false)
+
+    private suspend fun place(number: String, campaign: Boolean): String? {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "CALL_PHONE not granted")
             return null
@@ -170,7 +179,7 @@ class CallRegistry @Inject constructor(
         SimAccounts.handle(context, settings.current().phoneAccountId)?.let {
             extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it)
         }
-        expectedOutgoing += number
+        if (campaign) expectedOutgoing += number
         return try {
             telecom.placeCall(Uri.fromParts("tel", number, null), extras)
             withTimeoutOrNull(10_000) {
@@ -271,6 +280,18 @@ class CallRegistry @Inject constructor(
     }
 
     override fun setMuted(muted: Boolean) { service?.setMuted(muted) }
+
+    /** Loudspeaker on or off for the current call (personal calls; the run never uses it). */
+    fun setSpeaker(on: Boolean) {
+        service?.setAudioRoute(if (on) android.telecom.CallAudioState.ROUTE_SPEAKER else android.telecom.CallAudioState.ROUTE_WIRED_OR_EARPIECE)
+    }
+
+    /** One keypad press in a live call, for phone menus ("press 1 for…"). */
+    fun pressKey(callId: String, key: Char) {
+        val call = byId[callId] ?: return
+        call.playDtmfTone(key)
+        call.stopDtmfTone()
+    }
 
     private companion object {
         const val TAG = "CallRegistry"

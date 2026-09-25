@@ -7,6 +7,7 @@ import com.hirebuddha.dialer.telecom.CallControl
 import com.hirebuddha.dialer.telecom.ConferenceStrategy
 import com.hirebuddha.dialer.telecom.CallSnapshot
 import com.hirebuddha.dialer.telecom.CallState
+import com.hirebuddha.dialer.telecom.PhoneNumbers
 import com.hirebuddha.dialer.telecom.LeadFailureCause
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -386,7 +387,7 @@ class CallOrchestrator(
         backend.event(aid, "rep_muted")
 
         // 5. conversation
-        return converse(aid, leadCall, aiCall, conferenceId, pushes)
+        return converse(aid, leadCall, aiCall, conferenceId, pushes, attempt.did)
     }
 
     /**
@@ -450,8 +451,36 @@ class CallOrchestrator(
 
     private suspend fun converse(
         aid: String, leadCall: String, aiCall: String, conferenceId: String, pushes: Channel<PushMessage>,
+        did: String,
     ): LeadOutcome {
         var aiPresent = true
+        /** Set while the agent says its hand-over line; the fallback deadline if the push never comes. */
+        var handoverDeadline: Long? = null
+
+        /**
+         * The agent has handed over: take it out of the call and give the rep the lead.
+         * The gateway ends its side, but the provider's hang-up API cannot be relied on,
+         * so the phone drops the agent's leg too — the leg itself where it is visible,
+         * or the matching participant where the stack hides legs inside the conference.
+         */
+        fun completeHandover(reason: String) {
+            if (!aiPresent) return
+            aiPresent = false
+            handoverDeadline = null
+            val aiLegs = calls.calls.value.filter {
+                it.state != CallState.DISCONNECTED && !it.isConference &&
+                    (it.id == aiCall || (it.number != null && PhoneNumbers.sameNumber(it.number, did)))
+            }
+            aiLegs.forEach { calls.disconnect(it.id) }
+            calls.setMuted(false)
+            DialerLog.i(TAG, "Rep took over", "reason" to reason, "ai_legs_dropped" to aiLegs.size)
+            _state.update {
+                it.copy(
+                    muted = false, aiInCall = false, handingOver = false, noLeadAudio = false,
+                    message = "You're talking to the lead now.",
+                )
+            }
+        }
         fun legVisible(id: String): Boolean = calls.calls.value.any { it.id == id && it.state != CallState.DISCONNECTED }
         fun conferenceLive(): Boolean = calls.calls.value.any { it.id == conferenceId && it.state != CallState.DISCONNECTED }
 
@@ -466,6 +495,7 @@ class CallOrchestrator(
                 pushes.onReceive { msg ->
                     when (msg.type) {
                         "attempt.ai_ended" -> ConversationEvent.AiEnded(msg.str("reason"))
+                        "attempt.no_lead_audio" -> ConversationEvent.NoLeadAudio
                         "attempt.transcript" -> { appendTranscript(msg); ConversationEvent.Ignored }
                         else -> ConversationEvent.Ignored
                     }
@@ -480,12 +510,15 @@ class CallOrchestrator(
                         _state.update { it.copy(muted = muted) }
                         backend.event(aid, if (muted) "rep_muted" else "rep_unmuted")
                     }
-                    UserCommand.TAKE_OVER -> if (aiPresent) {
-                        backend.event(aid, "rep_takeover")
-                        calls.disconnect(aiCall)
-                        calls.setMuted(false)
-                        aiPresent = false
-                        _state.update { it.copy(muted = false, aiInCall = false, message = "You're now talking to the lead.") }
+                    UserCommand.TAKE_OVER -> if (aiPresent && handoverDeadline == null) {
+                        // The agent tells the lead it is transferring them, then leaves. The
+                        // rep stays muted until then so the two never talk over each other.
+                        handoverDeadline = clock() + HANDOVER_TIMEOUT_MS
+                        _state.update { it.copy(handingOver = true, message = null) }
+                        val sent = backend.event(aid, "rep_takeover", urgent = true)
+                        DialerLog.i(TAG, "Take over requested", "acked" to sent)
+                        // Offline, the agent never hears about it: take the call at once.
+                        if (!sent) completeHandover("offline")
                     }
                     UserCommand.HANG_UP, UserCommand.SKIP -> {
                         hangUpAll(conferenceId, leadCall, aiCall)
@@ -493,14 +526,25 @@ class CallOrchestrator(
                         return LeadOutcome.Completed("rep")
                     }
                 }
-                is ConversationEvent.AiEnded -> {
+                is ConversationEvent.AiEnded -> if (event.reason == "rep_takeover" || handoverDeadline != null) {
+                    // The hand-over, not a goodbye: the lead stays on with the rep. Hanging up
+                    // the conference here is what used to drop the lead on Take over.
+                    completeHandover("ai_left")
+                } else if (!aiPresent) {
+                    Unit  // already handed over; a late push must not end the rep's call
+                } else {
                     // The agent said goodbye (or detected voicemail): end the whole conference.
                     DialerLog.i(TAG, "AI ended the call", "reason" to event.reason)
                     hangUpAll(conferenceId, leadCall, aiCall)
                     backend.event(aid, "completed", mapOf("reason" to (event.reason ?: "ai_ended")))
                     return LeadOutcome.Completed(event.reason ?: "ai")
                 }
-                ConversationEvent.Tick, ConversationEvent.Ignored -> Unit
+                ConversationEvent.NoLeadAudio -> if (aiPresent) {
+                    DialerLog.w(TAG, "Gateway hears no lead audio after the merge")
+                    _state.update { it.copy(noLeadAudio = true) }
+                }
+                ConversationEvent.Tick -> handoverDeadline?.let { if (clock() > it) completeHandover("timeout") }
+                ConversationEvent.Ignored -> Unit
             }
             if (!conversationLive()) {
                 // Everything is down: the lead (or the network) ended the conference.
@@ -524,6 +568,7 @@ class CallOrchestrator(
     private sealed interface ConversationEvent {
         data class Command(val command: UserCommand) : ConversationEvent
         data class AiEnded(val reason: String?) : ConversationEvent
+        data object NoLeadAudio : ConversationEvent
         data object Tick : ConversationEvent
         data object Ignored : ConversationEvent
     }
@@ -651,6 +696,8 @@ class CallOrchestrator(
         const val MAX_TRANSCRIPT_TURNS = 40
         /** Minimum time the wrap-up sheet stays up, even when the gap is set to zero. */
         const val WRAP_UP_MIN_MS = 5_000L
+        /** Longest the rep waits on the agent's hand-over line before taking the call anyway. */
+        const val HANDOVER_TIMEOUT_MS = 15_000L
     }
 
     private fun describe(outcome: LeadOutcome): String = when (outcome) {
