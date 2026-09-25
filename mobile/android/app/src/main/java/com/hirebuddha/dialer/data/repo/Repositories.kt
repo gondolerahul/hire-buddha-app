@@ -127,8 +127,10 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
         status: String?,
         offset: Int,
         includePending: Boolean = false,
+        userId: String? = null,
+        limit: Int = CALLS_PAGE,
     ): ApiResult<CallsPageDto> =
-        apiCall { api.campaignCalls(campaignId, disposition, status, includePending.takeIf { it }, CALLS_PAGE, offset) }
+        apiCall { api.campaignCalls(campaignId, disposition, status, includePending.takeIf { it }, userId, limit, offset) }
 
     suspend fun voiceSession(id: String): ApiResult<VoiceSessionDto> = apiCall { api.voiceSession(id) }
 

@@ -56,6 +56,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hirebuddha.dialer.data.api.ApiResult
+import androidx.compose.runtime.mutableIntStateOf
+import com.hirebuddha.dialer.ui.common.humanize
+import com.hirebuddha.dialer.ui.common.Hairline
+import com.hirebuddha.dialer.ui.common.DispositionPill
+import com.hirebuddha.dialer.data.outbox.EventOutbox
+import com.hirebuddha.dialer.data.auth.SessionRepository
+import com.hirebuddha.dialer.data.api.CallItemDto
 import com.hirebuddha.dialer.data.api.CampaignDto
 import com.hirebuddha.dialer.data.api.PreflightDto
 import com.hirebuddha.dialer.data.repo.CampaignRepository
@@ -74,9 +81,15 @@ import kotlinx.coroutines.launch
  * questions a paused rep actually has — how am I doing, and what just happened.
  */
 @Composable
-fun RunPausedScreen(s: RunUiState, onBack: () -> Unit, controller: RunController) {
+fun RunPausedScreen(
+    s: RunUiState,
+    onBack: () -> Unit,
+    controller: RunController,
+    vm: RunPausedViewModel = hiltViewModel(),
+) {
     val c = HbTheme.colors
     val scope = rememberCoroutineScope()
+    LaunchedEffect(s.campaignId, s.callsMade) { s.campaignId?.let { vm.load(it) } }
     val errored = s.status == RunStatus.ERROR
     Column(
         Modifier.fillMaxSize().statusBarsPadding()
@@ -134,9 +147,13 @@ fun RunPausedScreen(s: RunUiState, onBack: () -> Unit, controller: RunController
                 HbButton(
                     // Ends on the summary rather than leaving: "what did I get done" is the
                     // question a rep ending a run has, and it used to go unanswered.
-                    "End this run", { scope.launch { controller.end() } },
+                    "End this run", { vm.end(controller) },
                     Modifier.fillMaxWidth(), HbButtonStyle.Ghost, HbButtonSize.Small,
                 )
+                vm.endError?.let {
+                    Spacer(Modifier.height(4.dp))
+                    MicroText(it, color = c.negative)
+                }
             }
         }
 
@@ -144,7 +161,93 @@ fun RunPausedScreen(s: RunUiState, onBack: () -> Unit, controller: RunController
         Eyebrow("This session", color = c.fgSubtle)
         Spacer(Modifier.height(10.dp))
         SessionTiles(s)
+
+        if (vm.recent.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            Eyebrow("Last ${vm.recent.size} calls", color = c.fgSubtle)
+            Spacer(Modifier.height(10.dp))
+            HbCard(Modifier.fillMaxWidth(), padding = 4.dp) {
+                vm.recent.forEachIndexed { i, call ->
+                    if (i > 0) Hairline()
+                    RecentCallRow(call)
+                }
+            }
+        }
+
+        // The outbox, made visible: "my numbers look wrong" usually means events that
+        // are still on the phone, and this is the one place a rep would look.
+        if (vm.pendingUploads > 0) {
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HbIcon(R.drawable.ic_upload, size = 15.dp, tint = c.fgSubtle)
+                MicroText(
+                    "${vm.pendingUploads} call ${if (vm.pendingUploads == 1) "record" else "records"} waiting to upload",
+                    Modifier.weight(1f),
+                )
+            }
+        }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun RecentCallRow(call: CallItemDto) {
+    val c = HbTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                call.contactName ?: call.phoneMasked,
+                style = MaterialTheme.typography.bodyLarge, color = c.fg, maxLines = 1,
+            )
+            MonoText(
+                listOfNotNull(
+                    call.conversationSeconds?.takeIf { it > 0 }?.let { formatAvg(it) }
+                        ?: call.leadFailureCause?.let { humanize(it).lowercase() },
+                    call.calledAt?.let { clockTime(it) },
+                ).joinToString(" · "),
+            )
+        }
+        Spacer(Modifier.size(8.dp))
+        DispositionPill(call.disposition ?: call.leadFailureCause ?: call.callStatus)
+    }
+}
+
+/** `2026-09-21T11:20:06` (UTC-naive) → `11:20` on the phone's clock. */
+private fun clockTime(iso: String): String = runCatching {
+    java.time.LocalDateTime.parse(iso.removeSuffix("Z").substringBefore('+'))
+        .atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("HH:mm"))
+}.getOrDefault("")
+
+/**
+ * What a paused rep wants to check: the calls that just happened, from the server rather
+ * than memory (lead details never outlive their lease on the phone), and what is still
+ * queued on the phone.
+ */
+@HiltViewModel
+class RunPausedViewModel @Inject constructor(
+    private val repo: CampaignRepository,
+    private val outbox: EventOutbox,
+    private val session: SessionRepository,
+) : ViewModel() {
+    var recent by mutableStateOf<List<CallItemDto>>(emptyList()); private set
+    var pendingUploads by mutableIntStateOf(0); private set
+    var endError by mutableStateOf<String?>(null); private set
+
+    fun load(campaignId: String) = viewModelScope.launch {
+        pendingUploads = outbox.pendingCount()
+        // Calls already made only, newest first, and only this rep's: an admin's
+        // unscoped list would be everyone's.
+        val me = session.me.value?.userId
+        (repo.calls(campaignId, null, null, 0, userId = me, limit = 5) as? ApiResult.Ok)
+            ?.let { page -> recent = page.value.items.filter { it.attemptId != null }.take(5) }
+    }
+
+    fun end(controller: RunController) = viewModelScope.launch {
+        endError = (controller.end() as? ApiResult.Err)?.let { "Couldn't end the run: ${it.message}" }
     }
 }
 
@@ -154,7 +257,8 @@ private fun SessionTiles(s: RunUiState) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatTile("Calls placed", "${s.callsMade}", Modifier.weight(1f))
             StatTile(
-                "Connected", "${s.connected}", Modifier.weight(1f),
+                if (s.askedAfterCalls) "Interested" else "Connected",
+                if (s.askedAfterCalls) "${s.interested}" else "${s.connected}", Modifier.weight(1f),
                 valueColor = HbTheme.colors.positive,
             )
         }
@@ -196,7 +300,7 @@ class RunSummaryViewModel @Inject constructor(
         starting = true
         error = null
         controller.awaitIdle()
-        (controller.start(c.id, c.name) as? ApiResult.Err)?.let { error = it.message }
+        (controller.start(c.id, c.name, c.agentName) as? ApiResult.Err)?.let { error = it.message }
         starting = false
     }
 }

@@ -97,7 +97,7 @@ class RunController @Inject constructor(
 
     fun isRunActive(): Boolean = job?.isActive == true
 
-    suspend fun start(campaignId: String, campaignName: String): ApiResult<Unit> {
+    suspend fun start(campaignId: String, campaignName: String, agentName: String? = null): ApiResult<Unit> {
         if (isRunActive()) return ApiResult.Err(-1, "already_running", "A campaign is already running on this phone.")
         val deviceId = settings.current().deviceId
             ?: return ApiResult.Err(-1, "no_device", "Verify this phone first.")
@@ -111,7 +111,7 @@ class RunController @Inject constructor(
         }
         return when (val r = apiCall { api.startRun(campaignId, RunStartRequest(deviceId)) }) {
             is ApiResult.Ok -> {
-                orchestrator.reset(r.value.runId, campaignId, campaignName)
+                orchestrator.reset(r.value.runId, campaignId, campaignName, agentName)
                 logDeviceSnapshot()
                 push.start()
                 ContextCompat.startForegroundService(context, Intent(context, RunService::class.java))
@@ -134,6 +134,7 @@ class RunController @Inject constructor(
                     gapBetweenLeadsMs = prefs.gapSeconds * 1_000L,
                     leadRingTimeoutMs = prefs.leadRingTimeoutSeconds * 1_000L,
                     askAfterEveryCall = prefs.askAfterEveryCall,
+                    showTranscript = prefs.showTranscript,
                 )
                 val final = orchestrator.run(runId, deviceId, config)
                 val serverStatus = when (final) {
@@ -224,10 +225,15 @@ class RunController @Inject constructor(
     }
 
     /** Stop whatever is holding this device, then start the campaign the rep asked for. */
-    suspend fun stopAndStart(blockingRunId: String, campaignId: String, campaignName: String): ApiResult<Unit> {
+    suspend fun stopAndStart(
+        blockingRunId: String,
+        campaignId: String,
+        campaignName: String,
+        agentName: String? = null,
+    ): ApiResult<Unit> {
         val stopped = stopRun(blockingRunId)
         if (stopped is ApiResult.Err) return stopped
-        return start(campaignId, campaignName)
+        return start(campaignId, campaignName, agentName)
     }
 
     fun flushLogs() = logs.flushSoon()

@@ -55,6 +55,7 @@ class CallOrchestrator(
      * where the old UI offered no control at all.
      */
     @Volatile private var skipRequested = false
+    @Volatile private var transcriptOn = true
 
     fun send(command: UserCommand) {
         if (command == UserCommand.SKIP) skipRequested = true
@@ -82,7 +83,7 @@ class CallOrchestrator(
         _state.value = RunUiState()
     }
 
-    fun reset(runId: String, campaignId: String, campaignName: String) {
+    fun reset(runId: String, campaignId: String, campaignName: String, agentName: String? = null) {
         DialerLog.setRun(runId)
         DialerLog.i(TAG, "Run started", "run" to runId, "campaign" to campaignId)
         pauseRequested = false
@@ -90,7 +91,7 @@ class CallOrchestrator(
         skipRequested = false
         _state.value = RunUiState(
             status = RunStatus.RUNNING, runId = runId, campaignId = campaignId,
-            campaignName = campaignName, startedAt = clock(),
+            campaignName = campaignName, agentName = agentName, startedAt = clock(),
         )
     }
 
@@ -125,7 +126,8 @@ class CallOrchestrator(
 
     /** Runs until the leads are exhausted, a pause/stop is requested, or setup fails. */
     suspend fun run(runId: String, deviceId: String, config: OrchestratorConfig): RunStatus {
-        _state.update { it.copy(askedAfterCalls = config.askAfterEveryCall) }
+        transcriptOn = config.showTranscript
+        _state.update { it.copy(askedAfterCalls = config.askAfterEveryCall, showTranscript = config.showTranscript) }
         while (true) {
             if (stopRequested) return finish(RunStatus.STOPPED)
             if (pauseRequested) return finish(RunStatus.PAUSED)
@@ -139,7 +141,7 @@ class CallOrchestrator(
             // Lead PII never outlives its lease (NFR-6): the previous lead's transcript
             // and wrap-up go before the next one is shown.
             _state.update {
-                it.copy(lead = lead, identification = null, message = null,
+                it.copy(lead = lead, identification = null, message = null, leadRingingSince = null,
                         transcript = emptyList(), wrapUp = null, gapHeld = false)
             }
             val startedAt = clock()
@@ -334,6 +336,7 @@ class CallOrchestrator(
             calls.disconnect(aiCall)
             return leadFailed(aid, LeadFailureCause.FAILED)
         }
+        _state.update { it.copy(leadRingingSince = clock()) }
         val answered = awaitLeadAnswer(leadCall, aiCall, config.leadRingTimeoutMs, pushes)
         when (answered) {
             is Awaited.Reached -> Unit
@@ -595,6 +598,7 @@ class CallOrchestrator(
      * Memory only, dropped with the lease — nothing here is ever written to disk.
      */
     private fun appendTranscript(msg: PushMessage) {
+        if (!transcriptOn) return
         val text = msg.str("text")?.takeIf { it.isNotBlank() } ?: return
         val turn = TranscriptTurn(msg.str("speaker") ?: "agent", text, clock())
         _state.update {

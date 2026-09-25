@@ -113,7 +113,7 @@ fun UnidentifiedSheet(s: RunUiState, now: Long, controller: RunController) {
                 contentAlignment = Alignment.Center,
             ) { HbIcon(R.drawable.ic_alert, size = 20.dp, tint = c.accent) }
             Text(
-                "The agent can't place this lead",
+                "${agentName(s)} can't place this lead",
                 style = MaterialTheme.typography.headlineSmall.copy(
                     fontSize = androidx.compose.ui.unit.TextUnit(19f, androidx.compose.ui.unit.TextUnitType.Sp)
                 ),
@@ -123,8 +123,8 @@ fun UnidentifiedSheet(s: RunUiState, now: Long, controller: RunController) {
         }
         Spacer(Modifier.height(14.dp))
         CardBody(
-            "Your carrier didn't pass the keypad code through. If you connect them now, the agent " +
-                "will introduce itself but won't know $leadName's name or details.",
+            "Your carrier didn't pass the keypad code through. If you connect them now, " +
+                "${agentName(s, capital = false)} will still take the call but won't know $leadName's name or details.",
         )
         Spacer(Modifier.height(14.dp))
         Column(

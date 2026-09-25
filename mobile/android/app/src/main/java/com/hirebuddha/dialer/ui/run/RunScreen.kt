@@ -143,7 +143,8 @@ private fun RunTopBar(s: RunUiState, onBack: () -> Unit, onMenu: () -> Unit) {
         HbIconButton(R.drawable.ic_chev_d, onBack, contentDescription = "Minimise the run")
         Column(Modifier.weight(1f)) {
             Text(
-                s.lead?.name ?: s.campaignName ?: "Campaign run",
+                // Mid-conversation the person matters; before that, which list this is.
+                (if (s.step == Step.IN_CONVERSATION) s.lead?.name else null) ?: s.campaignName ?: "Campaign run",
                 style = MaterialTheme.typography.titleMedium,
                 color = c.fg,
                 maxLines = 1,
@@ -182,14 +183,14 @@ private fun ConnectingPane(s: RunUiState, now: Long, controller: RunController) 
         Eyebrow("Connecting your Buddha")
         Spacer(Modifier.height(8.dp))
         Text(
-            "The agent is joining",
+            "${agentName(s)} is joining",
             style = MaterialTheme.typography.headlineSmall,
             color = c.fg,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(8.dp))
         CardBody(
-            "The lead's phone will not ring until the agent is ready and briefed.",
+            "The lead's phone will not ring until ${agentName(s, capital = false)} is ready and briefed.",
             Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(16.dp))
@@ -225,7 +226,7 @@ private fun RingingPane(s: RunUiState, now: Long, controller: RunController) {
         Modifier.fillMaxSize().padding(horizontal = HbTheme.dims.gutter)
             .verticalScroll(rememberScrollState()).navigationBarsPadding(),
     ) {
-        IdentificationReceipt(s.identification)
+        IdentificationReceipt(s.identification, agentName(s))
         Spacer(Modifier.height(28.dp))
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(contentAlignment = Alignment.Center) {
@@ -249,7 +250,8 @@ private fun RingingPane(s: RunUiState, now: Long, controller: RunController) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BrandDots(count = 3, dotSize = 5.dp)
                 MonoText(
-                    if (s.step == Step.MERGING) "Bringing everyone together" else "Ringing",
+                    if (s.step == Step.MERGING) "Bringing everyone together"
+                    else "Ringing" + (s.leadRingingSince?.let { "  " + formatDuration(now - it) } ?: ""),
                     color = c.gold300,
                     style = BrandType.monoBody,
                 )
@@ -258,7 +260,7 @@ private fun RingingPane(s: RunUiState, now: Long, controller: RunController) {
 
         if (!lead?.fields.isNullOrEmpty()) {
             Spacer(Modifier.height(24.dp))
-            LeadContextCard(lead.fields)
+            LeadContextCard(lead.fields, agentName(s))
         }
         Spacer(Modifier.height(20.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -291,7 +293,7 @@ private fun ConversationPane(s: RunUiState, now: Long, controller: RunController
                         MergedAvatars(s)
                         Column(Modifier.weight(1f)) {
                             Text(
-                                if (s.aiInCall) "The agent is talking" else "You're on the call",
+                                if (s.aiInCall) "${agentName(s)} is talking" else "You're on the call",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = c.fg,
                             )
@@ -313,14 +315,23 @@ private fun ConversationPane(s: RunUiState, now: Long, controller: RunController
                 }
             }
             Spacer(Modifier.height(14.dp))
-            TranscriptPane(s.transcript, Modifier.weight(1f))
+            TranscriptPane(
+                s.transcript, agentName(s), leadFirstName(s), Modifier.weight(1f),
+                off = !s.showTranscript,
+            )
         }
         InCallDock(s, controller, Modifier.align(Alignment.BottomCenter))
     }
 }
 
 @Composable
-private fun TranscriptPane(turns: List<TranscriptTurn>, modifier: Modifier = Modifier) {
+private fun TranscriptPane(
+    turns: List<TranscriptTurn>,
+    agent: String,
+    lead: String?,
+    modifier: Modifier = Modifier,
+    off: Boolean = false,
+) {
     val c = HbTheme.colors
     val listState = rememberLazyListState()
     LaunchedEffect(turns.size) {
@@ -342,9 +353,13 @@ private fun TranscriptPane(turns: List<TranscriptTurn>, modifier: Modifier = Mod
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                BrandDots(count = 3, dotSize = 5.dp, color = c.fgDisabled)
-                Spacer(Modifier.height(10.dp))
-                MicroText("Waiting for the first words")
+                if (off) {
+                    MicroText("Live transcript is off. Turn it on in Settings → How you call.")
+                } else {
+                    BrandDots(count = 3, dotSize = 5.dp, color = c.fgDisabled)
+                    Spacer(Modifier.height(10.dp))
+                    MicroText("Waiting for the first words")
+                }
             }
         } else {
             LazyColumn(
@@ -353,14 +368,14 @@ private fun TranscriptPane(turns: List<TranscriptTurn>, modifier: Modifier = Mod
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 190.dp),
             ) {
-                items(turns) { turn -> TranscriptBubble(turn) }
+                items(turns) { turn -> TranscriptBubble(turn, agent, lead) }
             }
         }
     }
 }
 
 @Composable
-private fun TranscriptBubble(turn: TranscriptTurn) {
+private fun TranscriptBubble(turn: TranscriptTurn, agent: String, lead: String?) {
     val c = HbTheme.colors
     Row(
         Modifier.fillMaxWidth(),
@@ -379,7 +394,7 @@ private fun TranscriptBubble(turn: TranscriptTurn) {
                 .padding(horizontal = 13.dp, vertical = 9.dp),
         ) {
             Eyebrow(
-                if (turn.isAgent) "Agent" else "Lead",
+                if (turn.isAgent) agent else lead ?: "Lead",
                 color = if (turn.isAgent) c.fgSubtle else c.gold300.copy(alpha = 0.75f),
             )
             Spacer(Modifier.height(4.dp))
@@ -459,7 +474,7 @@ private fun BetweenPane(s: RunUiState, controller: RunController) {
 private fun RunSteps(s: RunUiState, now: Long) {
     val steps = listOf(
         Step.FETCHING_LEAD to "Lead reserved for you",
-        Step.CONNECTING_AI to "Calling the agent",
+        Step.CONNECTING_AI to "Calling ${agentName(s, capital = false)}",
         Step.WAITING_AI to "Telling it who it is calling",
         Step.CALLING_LEAD to "Ringing the lead",
         Step.IN_CONVERSATION to "Bringing you all together",
@@ -501,7 +516,7 @@ private fun identificationLabel(method: String?): String = when (method) {
 
 /** The whole point of ADR-001, finally visible at the moment it matters. */
 @Composable
-private fun IdentificationReceipt(identification: String?) {
+private fun IdentificationReceipt(identification: String?, agent: String) {
     val c = HbTheme.colors
     val ok = identification != null && identification != "unidentified"
     HbCard(
@@ -517,7 +532,7 @@ private fun IdentificationReceipt(identification: String?) {
             )
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (ok) "The agent is ready, holding" else "The agent is ready but unsure who this is",
+                    if (ok) "$agent is ready, holding" else "$agent is ready but unsure who this is",
                     style = MaterialTheme.typography.titleSmall,
                     color = c.fg,
                 )
@@ -532,11 +547,11 @@ private fun IdentificationReceipt(identification: String?) {
 
 /** The CSV columns, framed as what the agent knows — which is both true and the rep's cue. */
 @Composable
-private fun LeadContextCard(fields: Map<String, String>) {
+private fun LeadContextCard(fields: Map<String, String>, agent: String) {
     val shown = fields.filterKeys { it.lowercase() != "name" }
     if (shown.isEmpty()) return
     HbCard(Modifier.fillMaxWidth()) {
-        Eyebrow("What the agent knows", color = HbTheme.colors.fgSubtle)
+        Eyebrow("What $agent knows", color = HbTheme.colors.fgSubtle)
         Spacer(Modifier.height(10.dp))
         shown.entries.forEachIndexed { i, (k, v) ->
             if (i > 0) Spacer(Modifier.height(9.dp))
@@ -597,3 +612,10 @@ private fun PulseRings(color: Color = Color(0x38EDAB48)) {
     Box(Modifier.size(128.dp).border(1.dp, color, circle))
     Box(Modifier.size(160.dp).border(1.dp, color.copy(alpha = color.alpha * 0.45f), circle))
 }
+
+/** The agent's first name ("Ananya"), or a generic subject when the campaign has none. */
+internal fun agentName(s: RunUiState, capital: Boolean = true): String =
+    s.agentName?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: if (capital) "The agent" else "the agent"
+
+internal fun leadFirstName(s: RunUiState): String? =
+    s.lead?.name?.substringBefore(' ')?.takeIf { it.isNotBlank() }

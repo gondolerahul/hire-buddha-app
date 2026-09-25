@@ -67,12 +67,16 @@ data class RunUiState(
     val runId: String? = null,
     val campaignId: String? = null,
     val campaignName: String? = null,
+    /** The voice agent on this campaign, so the screens can say "Ananya is joining". */
+    val agentName: String? = null,
     val step: Step = Step.IDLE,
     val lead: Lead? = null,
     val identification: String? = null,
     val muted: Boolean = false,
     val aiInCall: Boolean = false,
     val conversationStartedAt: Long? = null,
+    /** When the lead's phone started ringing, for the ring timer. */
+    val leadRingingSince: Long? = null,
     val nextLeadAt: Long? = null,
     val lastOutcome: String? = null,
     val message: String? = null,
@@ -97,6 +101,8 @@ data class RunUiState(
     val callbacks: Int = 0,
     /** Whether the wrap-up was offered, i.e. whether [interested] and [callbacks] mean anything. */
     val askedAfterCalls: Boolean = true,
+    /** Settings → Show live transcript. Off means turns are dropped, not merely hidden. */
+    val showTranscript: Boolean = true,
     val talkSeconds: Int = 0,
     val startedAt: Long? = null,
     val endedAt: Long? = null,
@@ -112,5 +118,6 @@ data class OrchestratorConfig(
     val gapBetweenLeadsMs: Long = 5_000,
     /** Show the wrap-up sheet after a connected call (Settings → How you call). */
     val askAfterEveryCall: Boolean = true,
+    val showTranscript: Boolean = true,
     val eventAckWaitMs: Long = 2_000,
 )

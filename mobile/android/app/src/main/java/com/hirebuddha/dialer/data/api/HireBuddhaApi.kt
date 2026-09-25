@@ -59,6 +59,8 @@ interface HireBuddhaApi {
         @Query("status") status: String? = null,
         /** Also list leads nobody has called yet. Older servers ignore it (and show a rep only their own calls). */
         @Query("include_pending") includePending: Boolean? = null,
+        /** Admins only; the server always scopes a rep to their own calls. */
+        @Query("user_id") userId: String? = null,
         @Query("limit") limit: Int = 50,
         @Query("offset") offset: Int = 0,
     ): Response<CallsPageDto>

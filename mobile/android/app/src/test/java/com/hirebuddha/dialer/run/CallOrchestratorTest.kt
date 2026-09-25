@@ -535,6 +535,43 @@ class CallOrchestratorV2Test {
     }
 
     @Test
+    fun `with the live transcript off in Settings no turns are kept`() = runTest {
+        val h = Harness(this)
+        h.calls.aiEndsAfterMergeMs = null
+        h.calls.leadHangsUpAfterMergeMs = 10_000
+        var emitted = false
+        var mostSeen = 0
+        backgroundScope.launch {
+            h.orchestrator.state.collect {
+                mostSeen = maxOf(mostSeen, it.transcript.size)
+                if (it.step == Step.IN_CONVERSATION && !emitted) {
+                    emitted = true
+                    h.push.emit("attempt.transcript", "speaker" to "agent", "text" to "Am I speaking with Asha?")
+                }
+            }
+        }
+        h.backend.leads += lead()
+        h.orchestrator.reset("run1", "camp1", "Baner leads", agentName = "Ananya Rao")
+        h.orchestrator.run("run1", "dev1", config.copy(showTranscript = false))
+
+        assertTrue(emitted)
+        assertEquals(0, mostSeen)
+        assertFalse(h.orchestrator.state.value.showTranscript)
+        assertEquals("Ananya Rao", h.orchestrator.state.value.agentName)
+    }
+
+    @Test
+    fun `the ring timer starts when the lead is dialled`() = runTest {
+        val h = Harness(this)
+        var ringingSince: Long? = null
+        backgroundScope.launch {
+            h.orchestrator.state.collect { if (it.step == Step.CALLING_LEAD && it.leadRingingSince != null) ringingSince = it.leadRingingSince }
+        }
+        h.orchestrator.runLead("run1", "dev1", lead(), config)
+        assertTrue(ringingSince != null && ringingSince!! > 0)
+    }
+
+    @Test
     fun `a blank transcript push is ignored rather than drawn as an empty bubble`() = runTest {
         val h = Harness(this)
         h.calls.aiEndsAfterMergeMs = null

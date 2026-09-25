@@ -118,6 +118,9 @@ class EventOutbox @Inject constructor(
         return dao.append(attemptId, type, Instant.now().toString(), SystemClock.elapsedRealtime(), json)
     }
 
+    /** Call events recorded on the phone but not yet accepted by the server. */
+    suspend fun pendingCount(): Int = dao.unsentCount()
+
     /** Returns true when nothing is left unsent. */
     suspend fun flush(): Boolean = flushLock.withLock {
         val pending = dao.unsent()

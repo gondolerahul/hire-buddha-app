@@ -136,7 +136,7 @@ class RunService : LifecycleService() {
             Step.WAITING_NEXT -> "Next lead shortly"
             Step.FETCHING_LEAD -> "Finding the next lead"
             Step.IDLE -> s.campaignName ?: "Campaign run"
-            else -> "Connecting the agent"
+            else -> "Connecting ${s.agentName?.substringBefore(' ') ?: "the agent"}"
         }
         val text = when (s.step) {
             Step.IN_CONVERSATION -> "$lead · ${s.campaignName ?: "campaign"}"

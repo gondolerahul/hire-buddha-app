@@ -403,7 +403,7 @@ class CampaignDetailViewModel @Inject constructor(
         val campaign = campaign ?: return@launch
         stopping = true
         startError = null
-        when (val r = run.stopAndStart(blockingRunId, campaign.id, campaign.name)) {
+        when (val r = run.stopAndStart(blockingRunId, campaign.id, campaign.name, campaign.agentName)) {
             is ApiResult.Ok -> { blockedBy = null; showPreflight = false; onStarted() }
             is ApiResult.Err -> startError = r.message
             ApiResult.Empty -> Unit
@@ -451,7 +451,7 @@ class CampaignDetailViewModel @Inject constructor(
         val campaign = campaign ?: return@launch
         starting = true
         startError = null
-        when (val r = run.start(campaign.id, campaign.name)) {
+        when (val r = run.start(campaign.id, campaign.name, campaign.agentName)) {
             is ApiResult.Ok -> { showPreflight = false; onStarted() }
             is ApiResult.Err -> {
                 startError = r.message
