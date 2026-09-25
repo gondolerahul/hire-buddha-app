@@ -176,7 +176,15 @@ async def verification_dialing(device_id: UUID, body: VerificationDialing,
 @router.get("/campaigns")
 async def list_campaigns(status: Optional[str] = None, db: AsyncSession = Depends(get_db),
                          user: User = Depends(mobile_user)):
-    return {"campaigns": await service.list_mobile_campaigns(db, user, status)}
+    campaigns = await service.list_mobile_campaigns(db, user, status)
+    # The same DID lookup as GET /campaigns/{id}. Without it the app cannot tell a
+    # campaign whose agent has no number from one that simply was not told the number,
+    # and flagged every unfinished campaign as needing attention.
+    agents = {a["agent_id"]: a for a in await service.list_voice_agents(db, user)}
+    for view in campaigns:
+        agent = agents.get(view.get("agent_id"))
+        view["did"] = agent["did"] if agent else None
+    return {"campaigns": campaigns}
 
 
 @router.get("/campaigns/{campaign_id}")
