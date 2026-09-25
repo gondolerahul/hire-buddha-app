@@ -132,7 +132,6 @@ class CallDetailViewModel @Inject constructor(
     /** A recording is a real person's voice: it lives on the phone only while it is on screen. */
     override fun onCleared() {
         recordingFile?.delete()
-        super.onCleared()
     }
 }
 

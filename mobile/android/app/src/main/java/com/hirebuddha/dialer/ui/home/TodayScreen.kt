@@ -311,7 +311,8 @@ private fun ResumeCard(runState: RunUiState, onOpen: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 CardCaption(
-                    if (paused) "Paused after lead ${runState.callsMade}" else "Running — tap to open",
+                    if (paused) "Paused after lead ${runState.callsMade}" + (runState.endedAt?.let { " · ${ago(it)}" } ?: "")
+                    else "Running — tap to open",
                 )
             }
         }
@@ -347,8 +348,9 @@ private fun CallbacksCard(callbacks: List<CallbackDto>, onOpenCampaign: (String)
     HbCard(Modifier.fillMaxWidth(), border = c.borderGold) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             HbIcon(R.drawable.ic_rotate_l, size = 17.dp, tint = c.gold300)
+            val allToday = callbacks.all { it.callbackAt?.let(::isToday) ?: false }
             Text(
-                "${callbacks.size} callback${if (callbacks.size == 1) "" else "s"} due",
+                "${callbacks.size} callback${if (callbacks.size == 1) "" else "s"} due" + if (allToday) " today" else "",
                 Modifier.weight(1f),
                 style = MaterialTheme.typography.titleMedium,
                 color = c.fg,
@@ -369,9 +371,25 @@ private fun CallbacksCard(callbacks: List<CallbackDto>, onOpenCampaign: (String)
                     )
                     MonoText(callback.campaignName ?: callback.phoneMasked)
                 }
-                callback.callbackAt?.let { GoldPill(shortTime(it)) }
+                callback.callbackAt?.let { GoldPill((if (isToday(it)) "" else "tomorrow ") + shortTime(it)) }
             }
         }
+    }
+}
+
+private fun isToday(iso: String): Boolean = runCatching {
+    java.time.LocalDateTime.parse(iso.removeSuffix("Z"))
+        .atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.systemDefault())
+        .toLocalDate() == LocalDate.now()
+}.getOrDefault(true)
+
+/** "just now", "8 min ago", "2 h ago". */
+private fun ago(epochMs: Long): String {
+    val minutes = (System.currentTimeMillis() - epochMs) / 60_000
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "$minutes min ago"
+        else -> "${minutes / 60} h ago"
     }
 }
 

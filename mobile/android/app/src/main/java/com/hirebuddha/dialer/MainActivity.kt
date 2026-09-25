@@ -79,8 +79,10 @@ class MainActivity : ComponentActivity() {
                         is AppState.UpdateRequired -> UpdateRequiredScreen(s.info.latestVersionName, s.info.downloadUrl)
                         is AppState.NeedsOnboarding -> OnboardingScreen(
                             me = s.me,
+                            reverify = s.reverify,
                             onDone = appViewModel::onOnboarded,
                             onLogout = appViewModel::logout,
+                            onKeepCurrent = appViewModel::refresh,
                         )
                         is AppState.Ready -> MainNavigation(
                             me = s.me,
@@ -88,7 +90,7 @@ class MainActivity : ComponentActivity() {
                             openRun = openRun.value,
                             onRunOpened = { openRun.value = false },
                             onLogout = appViewModel::logout,
-                            onDeviceNeedsSetup = appViewModel::refresh,
+                            onDeviceNeedsSetup = appViewModel::reverify,
                         )
                     }
                 }

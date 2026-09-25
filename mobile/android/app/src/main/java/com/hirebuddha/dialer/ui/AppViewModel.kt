@@ -23,7 +23,8 @@ sealed interface AppState {
     data object LoggedOut : AppState
     data class Blocked(val message: String, val email: String? = null, val role: String? = null) : AppState
     data class UpdateRequired(val info: AppVersionDto) : AppState
-    data class NeedsOnboarding(val me: MeDto) : AppState
+    /** [reverify]: the rep asked from Settings to change SIM or verify again. */
+    data class NeedsOnboarding(val me: MeDto, val reverify: Boolean = false) : AppState
     data class Ready(val me: MeDto, val update: AppVersionDto?) : AppState
 }
 
@@ -72,6 +73,15 @@ class AppViewModel @Inject constructor(
         val deviceId = settings.current().deviceId
         val verified = deviceId != null && (devices.status(deviceId) as? ApiResult.Ok)?.value?.status == "verified"
         return if (verified && DialerRole.isHeld(context)) AppState.Ready(me, update) else AppState.NeedsOnboarding(me)
+    }
+
+    /**
+     * Settings → Calling SIM. Straight to setup with a fresh verification, even though
+     * this phone is verified: the rep is here because the SIM or the number changed.
+     */
+    fun reverify() {
+        val current = _state.value as? AppState.Ready ?: return
+        _state.value = AppState.NeedsOnboarding(current.me, reverify = true)
     }
 
     fun onLoggedIn() = refresh()

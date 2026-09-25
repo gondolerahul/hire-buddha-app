@@ -82,6 +82,7 @@ import com.hirebuddha.dialer.ui.theme.HbTheme
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -132,6 +133,12 @@ class OnboardingViewModel @Inject constructor(
     var verifiedCli by mutableStateOf<String?>(null); private set
     var did by mutableStateOf<String?>(null); private set
     var startedAt by mutableStateOf(0L); private set
+    /** The keypad code being played, shown on the live screen so support can match it. */
+    var code by mutableStateOf<String?>(null); private set
+    /** Set from Settings: verify again even though this phone already is. */
+    var reverify = false
+    private var verifyJob: kotlinx.coroutines.Job? = null
+    private var verifyCallId: String? = null
 
     /** The company's calling window and daily cap, as the server enforces them. */
     var limits by mutableStateOf<PreflightDto?>(null); private set
@@ -168,23 +175,51 @@ class OnboardingViewModel @Inject constructor(
      * caller ID exactly as the provider presents it. Unchanged behaviour — every step
      * now reports itself so the rep (and support) can see where it got to.
      */
-    fun verify(onDone: () -> Unit) = viewModelScope.launch {
+    /**
+     * Screen 05's "Cancel and try later". Drops the call and forgets the attempt; the
+     * server's challenge simply expires, and the next attempt issues a fresh one.
+     */
+    fun cancelVerification() {
+        verifyJob?.cancel()
+        verifyCallId?.let { registry.disconnect(it) }
+        registry.clearExpectedNumbers()
+        verifyCallId = null
+        DialerLog.i(TAG, "Verification cancelled by the rep")
+        logs.flushSoon()
+        phase = VerifyPhase.Idle
+    }
+
+    fun verify(onDone: () -> Unit) {
+        verifyJob?.cancel()
+        verifyJob = viewModelScope.launch { runVerification() }
+    }
+
+    private suspend fun runVerification() = coroutineScope {
         startedAt = System.currentTimeMillis()
         phase = VerifyPhase.Registering
         DialerLog.i(TAG, "Verification started", "role_held" to roleHeld, "sim" to (selectedSim != null))
         val device = when (val r = devices.register(sims.firstOrNull { it.id == selectedSim }?.label)) {
             is ApiResult.Ok -> r.value
-            is ApiResult.Err -> return@launch fail("Register", r.message, r.code)
-            ApiResult.Empty -> return@launch fail("Register", "Registration failed.")
+            is ApiResult.Err -> return@coroutineScope fail("Register", r.message, r.code)
+            ApiResult.Empty -> return@coroutineScope fail("Register", "Registration failed.")
         }
-        if (device.status == "verified") {
+        // From Settings the rep wants a new binding even though this one still stands.
+        val current = if (device.status == "verified" && reverify) {
+            when (val r = devices.reissueVerification(device.deviceId)) {
+                is ApiResult.Ok -> r.value
+                is ApiResult.Err -> return@coroutineScope fail("Reissue", r.message, r.code)
+                ApiResult.Empty -> return@coroutineScope fail("Reissue", "Couldn't start a new verification.")
+            }
+        } else device
+        if (current.status == "verified") {
             DialerLog.i(TAG, "Phone already verified")
-            verifiedCli = device.verifiedCli
+            verifiedCli = current.verifiedCli
             phase = VerifyPhase.Verified
             logs.flushSoon()
-            return@launch
+            return@coroutineScope
         }
-        val v = device.verification ?: return@launch fail("Verification", "No verification issued.")
+        val v = current.verification ?: return@coroutineScope fail("Verification", "No verification issued.")
+        code = v.dtmfSequence
         did = v.did
         push.start()
         phase = VerifyPhase.Calling
@@ -199,8 +234,9 @@ class OnboardingViewModel @Inject constructor(
         )
 
         val callId = registry.placeCall(v.did)
+        verifyCallId = callId
         if (callId == null) {
-            return@launch fail("Call", "Couldn't place the call. Make sure this app is your default phone app.")
+            return@coroutineScope fail("Call", "Couldn't place the call. Make sure this app is your default phone app.")
         }
         val connected = withTimeoutOrNull(20_000) {
             registry.calls.filter { list ->
@@ -211,7 +247,7 @@ class OnboardingViewModel @Inject constructor(
         if (!connected) {
             registry.disconnect(callId)
             registry.clearExpectedNumbers()
-            return@launch fail("Call", "The verification call didn't connect. Try again.")
+            return@coroutineScope fail("Call", "The verification call didn't connect. Try again.")
         }
 
         // One burst of tones is easy for a carrier to drop, so repeat the code while the
@@ -287,8 +323,11 @@ fun OnboardingScreen(
     me: MeDto,
     onDone: () -> Unit,
     onLogout: () -> Unit,
+    reverify: Boolean = false,
+    onKeepCurrent: () -> Unit = {},
     vm: OnboardingViewModel = hiltViewModel(),
 ) {
+    vm.reverify = reverify
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -302,7 +341,7 @@ fun OnboardingScreen(
         vm.verifying -> VerifyingScreen(vm)
         vm.phase is VerifyPhase.Verified -> ReadyScreen(vm, onDone)
         else -> SetupScreen(
-            me, vm, onLogout,
+            me, vm, onLogout, onKeepCurrent.takeIf { reverify },
             onPermissions = { permissionLauncher.launch(REQUIRED_PERMISSIONS.toTypedArray()) },
             onRole = { roleLauncher.launch(DialerRole.requestIntent(context)) },
         )
@@ -315,6 +354,8 @@ private fun SetupScreen(
     me: MeDto,
     vm: OnboardingViewModel,
     onLogout: () -> Unit,
+    /** Present when the rep came from Settings: a way back without changing anything. */
+    onKeepCurrent: (() -> Unit)?,
     onPermissions: () -> Unit,
     onRole: () -> Unit,
 ) {
@@ -403,6 +444,10 @@ private fun SetupScreen(
             }
 
             Spacer(Modifier.height(20.dp))
+            onKeepCurrent?.let {
+                HbButton("Keep the current setup", it, Modifier.fillMaxWidth(), HbButtonStyle.Secondary, HbButtonSize.Small)
+                Spacer(Modifier.height(6.dp))
+            }
             HbButton("Log out", onLogout, Modifier.fillMaxWidth(), HbButtonStyle.Ghost, HbButtonSize.Small)
             Spacer(Modifier.height(24.dp))
         }
@@ -549,11 +594,17 @@ private fun VerifyingScreen(vm: OnboardingViewModel) {
                     1, reached, isLast = false,
                 )
                 VerifyStep(
-                    "Sending the keypad code", 2, reached, isLast = false,
+                    vm.code?.let { "Sending code ${it.replace('*', '∗')}" } ?: "Sending the keypad code", 2, reached, isLast = false,
                     detail = (phase as? VerifyPhase.SendingCode)?.let { "Round ${it.round} of ${it.of}" },
                 )
                 VerifyStep("Caller ID confirmed", 3, reached, isLast = true)
             }
+            Spacer(Modifier.height(16.dp))
+            // The riskiest wait in the product had no way out but killing the app.
+            HbButton(
+                "Cancel and try later", vm::cancelVerification, Modifier.fillMaxWidth(),
+                HbButtonStyle.Ghost, HbButtonSize.Small,
+            )
         }
     }
 }

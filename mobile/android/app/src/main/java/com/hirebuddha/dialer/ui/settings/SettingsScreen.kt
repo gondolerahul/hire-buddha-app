@@ -45,6 +45,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hirebuddha.dialer.BuildConfig
 import com.hirebuddha.dialer.R
+import com.hirebuddha.dialer.ui.common.maskPhone
+import com.hirebuddha.dialer.data.api.ApiResult
+import com.hirebuddha.dialer.data.repo.DeviceRepository
 import com.hirebuddha.dialer.data.api.AppVersionDto
 import com.hirebuddha.dialer.data.api.MeDto
 import com.hirebuddha.dialer.data.logs.LogRepository
@@ -78,7 +81,22 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     val settings: AppSettings,
     private val logs: LogRepository,
+    private val devices: DeviceRepository,
 ) : ViewModel() {
+    /** The number the server bound to this phone, as it recognises the rep's calls. */
+    var verifiedCli by mutableStateOf<String?>(null); private set
+    var verified by mutableStateOf(true); private set
+
+    init {
+        viewModelScope.launch {
+            val id = settings.current().deviceId ?: return@launch
+            (devices.status(id) as? ApiResult.Ok)?.value?.let {
+                verifiedCli = it.verifiedCli
+                verified = it.status == "verified"
+            }
+        }
+    }
+
     /** Ships whatever the outbox is holding right now; the periodic sweep is every 30 min. */
     fun sendDiagnostics() = viewModelScope.launch { logs.flush() }
 }
@@ -131,9 +149,16 @@ fun SettingsScreen(
                 SettingRow(
                     icon = R.drawable.ic_device,
                     title = "Calling SIM",
-                    detail = prefs?.phoneAccountLabel ?: "Not chosen",
+                    // Both halves matter to a rep with two SIMs: which slot, and which number.
+                    detail = listOfNotNull(
+                        prefs?.phoneAccountLabel ?: "Not chosen",
+                        vm.verifiedCli?.let { maskPhone(it) },
+                    ).joinToString(" · ") + "\nTap to change SIM or verify again",
                     onClick = onReverify,
-                ) { PositivePill("Verified") }
+                ) {
+                    if (vm.verified) PositivePill("Verified")
+                    else Pill("Not verified", color = c.negative, background = c.negativeQuiet)
+                }
                 Hairline()
                 SettingRow(
                     icon = R.drawable.ic_shield,

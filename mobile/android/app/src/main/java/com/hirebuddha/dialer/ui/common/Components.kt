@@ -375,3 +375,20 @@ fun ScreenColumn(
     spacing: Dp = 12.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) = Column(modifier, verticalArrangement = Arrangement.spacedBy(spacing), content = content)
+
+/**
+ * Agents are named "Seema - Sales Representative" in the console: a name, then what
+ * they do. Cards show both ("Seema · Sales Representative"), the run screens only the name.
+ */
+fun agentNameAndRole(display: String?): Pair<String?, String?> {
+    if (display.isNullOrBlank()) return null to null
+    val parts = display.split(" - ", " – ", " — ", limit = 2)
+    return parts[0].trim().ifBlank { null } to parts.getOrNull(1)?.trim()?.ifBlank { null }
+}
+
+/** `2026-09-14T10:02:11` → `14 Sep`. */
+fun shortDate(iso: String?): String? = iso?.let {
+    runCatching {
+        java.time.LocalDate.parse(it.take(10)).format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
+    }.getOrNull()
+}

@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hirebuddha.dialer.R
+import androidx.compose.ui.platform.LocalContext
+import com.hirebuddha.dialer.data.settings.AppSettings
 import com.hirebuddha.dialer.data.api.LeadLookupDto
 import com.hirebuddha.dialer.data.repo.CampaignRepository
 import com.hirebuddha.dialer.run.RunController
@@ -77,6 +79,7 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class DialerActivity : ComponentActivity() {
     @Inject lateinit var registry: CallRegistry
+    @Inject lateinit var settings: AppSettings
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -85,7 +88,8 @@ class DialerActivity : ComponentActivity() {
         setContent {
             HireBuddhaTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    DialPad(initial) { number ->
+                    val simLabel by produceState<String?>(null) { value = settings.current().phoneAccountLabel }
+                    DialPad(initial, callingFrom(simLabel)) { number ->
                         val scope = kotlinx.coroutines.MainScope()
                         scope.launch { registry.placeCall(number) }
                         finish()
@@ -103,8 +107,24 @@ private val KEYS = listOf(
     "*" to "", "0" to "+", "#" to "",
 )
 
+/**
+ * "Jio · SIM 1", the carrier and slot the call will go out on — the question a rep with
+ * two SIMs has before dialling. The network name is what the phone is registered on now.
+ */
 @Composable
-private fun DialPad(initial: String, onCall: (String) -> Unit) {
+private fun callingFrom(simLabel: String?): String? {
+    val context = LocalContext.current
+    val network = remember {
+        runCatching {
+            context.getSystemService(android.telephony.TelephonyManager::class.java)
+                ?.networkOperatorName?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+    return listOfNotNull(network, simLabel?.takeIf { it != network }).joinToString(" · ").ifBlank { null }
+}
+
+@Composable
+private fun DialPad(initial: String, callingFrom: String?, onCall: (String) -> Unit) {
     val c = HbTheme.colors
     var number by remember { mutableStateOf(initial) }
     Column(
@@ -123,7 +143,13 @@ private fun DialPad(initial: String, onCall: (String) -> Unit) {
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(6.dp))
-        CardCaption(if (number.isEmpty()) "Enter a number" else "Calling from your verified SIM")
+        CardCaption(
+            when {
+                number.isEmpty() -> "Enter a number"
+                callingFrom != null -> "Calling from $callingFrom"
+                else -> "Calling from your verified SIM"
+            }
+        )
         Spacer(Modifier.height(22.dp))
         KEYS.chunked(3).forEach { row ->
             Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

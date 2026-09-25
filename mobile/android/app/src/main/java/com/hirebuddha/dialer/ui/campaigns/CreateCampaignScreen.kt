@@ -513,13 +513,16 @@ private fun AgentCard(agent: AgentDto, selected: Boolean, onSelect: () -> Unit) 
                 contentAlignment = Alignment.Center,
             ) { HbIcon(R.drawable.ic_ai, size = 18.dp, tint = if (selected) c.accent else c.fgSubtle) }
             Column(Modifier.weight(1f)) {
+                // What each agent does is what makes this a choice rather than a list of names.
+                val (agentName, role) = com.hirebuddha.dialer.ui.common.agentNameAndRole(agent.name)
                 Text(
-                    agent.name,
+                    agentName ?: agent.name,
                     style = MaterialTheme.typography.titleMedium,
                     color = if (available) c.fg else c.fgSubtle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                role?.let { CardCaption(it) }
                 MonoText(agent.did ?: "No number assigned")
             }
             if (available) PositivePill("Active") else Pill("Unavailable")

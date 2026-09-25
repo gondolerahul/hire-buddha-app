@@ -55,6 +55,11 @@ import com.hirebuddha.dialer.ui.common.CardCaption
 import com.hirebuddha.dialer.ui.common.ChipRow
 import com.hirebuddha.dialer.ui.common.DispositionPill
 import com.hirebuddha.dialer.data.api.AssigneeDto
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableLongStateOf
+import com.hirebuddha.dialer.ui.common.formatDuration
+import com.hirebuddha.dialer.ui.common.shortDate
+import com.hirebuddha.dialer.ui.common.agentNameAndRole
 import com.hirebuddha.dialer.ui.common.Hairline
 import com.hirebuddha.dialer.ui.common.BrandDots
 import androidx.compose.foundation.verticalScroll
@@ -127,7 +132,7 @@ class CampaignListViewModel @Inject constructor(
 
     /** Filtering is client-side: a rep has tens of campaigns, not thousands. */
     fun visible(): List<CampaignDto> = campaigns.orEmpty()
-        .filter { filter == null || it.status == filter }
+        .filter { filter == null || statusBucket(it.status) == filter }
         .filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
 }
 
@@ -169,11 +174,13 @@ fun CampaignListScreen(
 
         if (all != null && all.isNotEmpty()) {
             ChipRow(Modifier.padding(horizontal = HbTheme.dims.gutter)) {
-                val counts = all.groupingBy { it.status }.eachCount()
+                // Buckets, not raw statuses: the server says "draft" or "pending" for a list
+                // nobody has started, and the old chips only knew "pending", so drafts had none.
+                val counts = all.groupingBy { statusBucket(it.status) }.eachCount()
                 HbChip("All ${all.size}", vm.filter == null, onClick = { vm.filter = null })
-                listOf("running", "pending", "completed").forEach { status ->
-                    counts[status]?.let { n ->
-                        HbChip("${humanize(status)} $n", vm.filter == status, onClick = { vm.filter = status })
+                listOf("running" to "Running", "not_started" to "Not started", "completed" to "Done").forEach { (bucket, label) ->
+                    counts[bucket]?.let { n ->
+                        HbChip("$label $n", vm.filter == bucket, onClick = { vm.filter = bucket })
                     }
                 }
             }
@@ -199,7 +206,9 @@ fun CampaignListScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     val live = runState.status == RunStatus.RUNNING || runState.status == RunStatus.PAUSED
-                    if (live) item(key = "live") { LiveRunCard(runState, onOpenRun) }
+                    if (live) item(key = "live") {
+                        LiveRunCard(runState, all.firstOrNull { it.id == runState.campaignId }, onOpenRun)
+                    }
                     val visible = vm.visible()
                     if (visible.isEmpty()) {
                         item(key = "none") {
@@ -209,7 +218,7 @@ fun CampaignListScreen(
                         }
                     }
                     items(visible, key = { it.id }) { campaign ->
-                        CampaignCard(campaign) { onOpen(campaign.id) }
+                        CampaignCard(campaign, me.userId) { onOpen(campaign.id) }
                     }
                 }
             }
@@ -219,9 +228,13 @@ fun CampaignListScreen(
 
 /** The one live thing on the screen, and the only gold surface on it. */
 @Composable
-private fun LiveRunCard(runState: com.hirebuddha.dialer.run.RunUiState, onOpen: () -> Unit) {
+private fun LiveRunCard(runState: com.hirebuddha.dialer.run.RunUiState, campaign: CampaignDto?, onOpen: () -> Unit) {
     val c = HbTheme.colors
     val paused = runState.status == RunStatus.PAUSED
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(runState.conversationStartedAt) {
+        while (runState.conversationStartedAt != null) { now = System.currentTimeMillis(); delay(1_000) }
+    }
     GoldCard(Modifier.fillMaxWidth(), padding = 16.dp, onClick = onOpen) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             GoldPill(if (paused) "Paused" else "Live now", dot = true)
@@ -237,9 +250,20 @@ private fun LiveRunCard(runState: com.hirebuddha.dialer.run.RunUiState, onOpen: 
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(4.dp))
-        CardCaption(
-            if (paused) "Paused — your place is held" else runState.lastOutcome ?: "Working through the list",
-        )
+        agentLine(campaign?.agentName ?: runState.agentName, campaign?.did)?.let { CardCaption(it) }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            MonoText(
+                "${runState.callsMade} called" + if (runState.askedAfterCalls) " · ${runState.interested} interested" else "",
+                Modifier.weight(1f),
+            )
+            val talking = runState.conversationStartedAt
+            when {
+                paused -> MicroText("Paused — your place is held")
+                talking != null -> PositivePill("In conversation ${formatDuration(now - talking)}")
+                else -> MicroText(runState.lastOutcome ?: "Working through the list")
+            }
+        }
         Spacer(Modifier.height(14.dp))
         HbButton(
             if (paused) "Resume run" else "Open live run",
@@ -253,7 +277,7 @@ private fun LiveRunCard(runState: com.hirebuddha.dialer.run.RunUiState, onOpen: 
 }
 
 @Composable
-private fun CampaignCard(campaign: CampaignDto, onClick: () -> Unit) {
+private fun CampaignCard(campaign: CampaignDto, meId: String, onClick: () -> Unit) {
     val c = HbTheme.colors
     val blocked = campaign.did == null && campaign.status != "completed"
     HbCard(Modifier.fillMaxWidth(), onClick = onClick) {
@@ -271,15 +295,18 @@ private fun CampaignCard(campaign: CampaignDto, onClick: () -> Unit) {
                 blocked -> NegativePill("Needs attention")
                 campaign.status == "completed" -> PositivePill("Done")
                 campaign.status == "running" -> GoldPill("Running", dot = true)
+                statusBucket(campaign.status) == "not_started" -> Pill("Not started")
                 else -> Pill(humanize(campaign.status))
             }
         }
         Spacer(Modifier.height(4.dp))
         // Which Buddha is calling, and on what number: the first thing a rep checks.
-        CardCaption(
+        agentLine(campaign.agentName, campaign.did)?.let { CardCaption(it) }
+        MicroText(
             listOfNotNull(
-                campaign.agentName ?: "AI agent",
-                campaign.did,
+                "${campaign.totalContacts} leads",
+                shortDate(campaign.createdAt)?.let { "Created $it" },
+                assigneeLine(campaign.assignees, meId),
             ).joinToString(" · "),
         )
         if (blocked) {
@@ -294,8 +321,12 @@ private fun CampaignCard(campaign: CampaignDto, onClick: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth()) {
-            MonoText("${campaign.done} of ${campaign.totalContacts} called", Modifier.weight(1f))
-            MonoText("${campaign.interested} interested", color = if (campaign.interested > 0) c.positive else c.fgSubtle)
+            MonoText(
+                "${campaign.done} called · ${campaign.interested} interested",
+                Modifier.weight(1f),
+                color = if (campaign.interested > 0) c.positive else c.fgSubtle,
+            )
+            if (campaign.pending > 0 && campaign.status != "completed") MonoText("${campaign.pending} waiting")
         }
     }
 }
@@ -653,12 +684,13 @@ private fun StartCard(
                 contentAlignment = Alignment.Center,
             ) { HbIcon(R.drawable.ic_ai, size = 20.dp, tint = c.accent) }
             Column(Modifier.weight(1f)) {
+                val (agentName, agentRole) = agentNameAndRole(campaign.agentName)
                 Text(
-                    campaign.agentName ?: "AI agent",
+                    agentName ?: "AI agent",
                     style = MaterialTheme.typography.titleMedium,
                     color = c.fg,
                 )
-                MonoText(listOfNotNull(campaign.did).joinToString(" · ").ifBlank { "no number assigned" })
+                MonoText(listOfNotNull(campaign.did ?: "no number assigned", agentRole?.lowercase()).joinToString(" · "))
             }
             if (campaign.did != null) PositivePill("Ready") else NegativePill("No number")
         }
@@ -1019,5 +1051,29 @@ private fun ManageRepsSheet(
             )
             HbButton("Cancel", onDismiss, Modifier.fillMaxWidth(), HbButtonStyle.Ghost, HbButtonSize.Small)
         }
+    }
+}
+
+/** "draft" and "pending" both mean nobody has started this list. */
+internal fun statusBucket(status: String): String = when (status) {
+    "draft", "pending", "scheduled" -> "not_started"
+    else -> status
+}
+
+/** "Seema · Sales Representative · +91 79…", the first thing a rep checks on a card. */
+private fun agentLine(agentName: String?, did: String?): String? {
+    val (name, role) = agentNameAndRole(agentName)
+    return listOfNotNull(name, role, did).joinToString(" · ").ifBlank { null }
+}
+
+/** "Assigned to you + 2", "3 reps", or nothing for a list without assignees. */
+private fun assigneeLine(assignees: List<AssigneeDto>, meId: String): String? {
+    if (assignees.isEmpty()) return null
+    val mine = assignees.any { it.userId == meId }
+    val others = assignees.size - if (mine) 1 else 0
+    return when {
+        mine && others == 0 -> "Assigned to you"
+        mine -> "Assigned to you + $others"
+        else -> "${assignees.size} ${if (assignees.size == 1) "rep" else "reps"}"
     }
 }
