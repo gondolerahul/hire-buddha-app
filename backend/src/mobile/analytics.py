@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, literal, select
+from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.campaign_models import Campaign, CampaignCall
@@ -212,8 +212,13 @@ async def daily(db: AsyncSession, *, company_id: UUID, user_id: Optional[UUID],
 
 
 async def call_list(db: AsyncSession, *, company_id: UUID, campaign_id: UUID, user_id: Optional[UUID],
-                    status: Optional[str], disposition: Optional[str], limit: int, offset: int) -> Dict[str, Any]:
-    """Paged campaign calls with their latest attempt (for web + app lists)."""
+                    status: Optional[str], disposition: Optional[str], limit: int, offset: int,
+                    include_unattempted: bool = False) -> Dict[str, Any]:
+    """Paged campaign calls with their latest attempt (for web + app lists).
+
+    Scoped to ``user_id``, only that user's attempts are listed. ``include_unattempted``
+    adds the leads nobody has attempted yet, so a rep can see the queue they work from.
+    """
     A = MobileCallAttempt
     latest = (
         select(A.campaign_call_id, func.max(A.created_at).label("latest_at"))
@@ -230,7 +235,7 @@ async def call_list(db: AsyncSession, *, company_id: UUID, campaign_id: UUID, us
         .where(Campaign.id == campaign_id, Campaign.company_id == company_id)
     )
     if user_id:
-        q = q.where(A.user_id == user_id)
+        q = q.where(or_(A.user_id == user_id, A.id.is_(None)) if include_unattempted else A.user_id == user_id)
     if status:
         q = q.where(CampaignCall.status == status)
     if disposition:

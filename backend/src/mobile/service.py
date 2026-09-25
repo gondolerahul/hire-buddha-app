@@ -10,7 +10,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -301,6 +301,52 @@ async def list_company_reps(db: AsyncSession, user: User) -> List[Dict[str, Any]
         .order_by(User.full_name)
     )).all()
     return [{"user_id": r.id, "name": r.full_name, "email": r.email, "role": r.role} for r in rows]
+
+
+async def set_campaign_assignees(db: AsyncSession, user: User, campaign_id: UUID,
+                                 user_ids: List[UUID]) -> List[Dict[str, Any]]:
+    """Replace who works a mobile campaign (admins only).
+
+    The same rule as at creation: every assignee is an active tenant user of the
+    campaign's company. Leasing does not re-check assignment, so a rep taken off
+    mid-run keeps calling until that run ends; they cannot start another.
+    """
+    if not is_admin(user):
+        raise MobileError(403, "admin_only", "Only tenant admins can assign reps")
+    campaign = await get_accessible_campaign(db, user, campaign_id)
+    requested = list(dict.fromkeys(user_ids))
+    if not requested:
+        raise MobileError(422, "assignees_required", "Assign at least one rep")
+    valid = set((await db.execute(
+        select(User.id).where(
+            User.id.in_(requested),
+            User.company_id == campaign.company_id,
+            User.is_active == True,  # noqa: E712
+            User.role.in_(MOBILE_ROLES),
+        )
+    )).scalars().all())
+    missing = [uid for uid in requested if uid not in valid]
+    if missing:
+        raise MobileError(422, "invalid_assignees",
+                          f"{len(missing)} assignee(s) are not active tenant users of this company")
+
+    current = set((await db.execute(
+        select(CampaignAssignee.user_id).where(CampaignAssignee.campaign_id == campaign.id)
+    )).scalars().all())
+    removed = current - set(requested)
+    if removed:
+        await db.execute(delete(CampaignAssignee).where(
+            CampaignAssignee.campaign_id == campaign.id, CampaignAssignee.user_id.in_(removed),
+        ))
+    for uid in requested:
+        if uid not in current:
+            db.add(CampaignAssignee(campaign_id=campaign.id, user_id=uid))
+    await db.commit()
+    logger.info("Campaign assignees updated", extra={
+        "campaign_id": str(campaign.id), "by": str(user.id),
+        "added": len(set(requested) - current), "removed": len(removed),
+    })
+    return (await _assignees(db, [campaign.id])).get(campaign.id, [])
 
 
 # ── Runs & leases ────────────────────────────────────────────────────────

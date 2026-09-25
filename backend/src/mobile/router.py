@@ -195,6 +195,20 @@ async def get_campaign(campaign_id: UUID, db: AsyncSession = Depends(get_db), us
     return view
 
 
+class AssigneesUpdate(BaseModel):
+    user_ids: List[UUID] = Field(..., min_length=1, max_length=200)
+
+
+@router.put("/campaigns/{campaign_id}/assignees")
+async def set_assignees(campaign_id: UUID, body: AssigneesUpdate, db: AsyncSession = Depends(get_db),
+                        user: User = Depends(mobile_user)):
+    """Replace the reps working a campaign (admins only). Returns the new assignee list."""
+    try:
+        return {"assignees": await service.set_campaign_assignees(db, user, campaign_id, body.user_ids)}
+    except MobileError as e:
+        _raise(e)
+
+
 @router.get("/agents")
 async def list_agents(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
     """Voice agents that can run a mobile campaign (ACTIVE + assigned DID)."""

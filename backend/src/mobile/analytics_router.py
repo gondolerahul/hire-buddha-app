@@ -7,6 +7,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.campaign_models import Campaign
@@ -14,7 +15,7 @@ from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db
 from src.mobile import analytics
-from src.mobile.models import EXECUTION_MODE_MOBILE, MobileCallAttempt
+from src.mobile.models import EXECUTION_MODE_MOBILE, CampaignAssignee, MobileCallAttempt
 
 router = APIRouter(tags=["Mobile Analytics"])
 
@@ -61,16 +62,27 @@ async def campaign_calls(
     status: Optional[str] = None,
     disposition: Optional[str] = None,
     user_id: Optional[UUID] = None,
+    include_pending: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     campaign = await _campaign_for(db, user, campaign_id)
-    scope_user = user_id if _is_admin(user) else user.id
+    admin = _is_admin(user)
+    scope_user = user_id if admin else user.id
+    # A rep may see the uncalled leads of a list they are assigned to work, and no other.
+    include_unattempted = include_pending and (admin or await _is_assigned(db, campaign.id, user.id))
     return await analytics.call_list(db, company_id=campaign.company_id, campaign_id=campaign.id,
                                      user_id=scope_user, status=status, disposition=disposition,
-                                     limit=limit, offset=offset)
+                                     limit=limit, offset=offset, include_unattempted=include_unattempted)
+
+
+async def _is_assigned(db: AsyncSession, campaign_id: UUID, user_id: UUID) -> bool:
+    row = await db.execute(select(CampaignAssignee.user_id).where(
+        CampaignAssignee.campaign_id == campaign_id, CampaignAssignee.user_id == user_id,
+    ))
+    return row.first() is not None
 
 
 @router.get("/mobile/analytics/summary")
