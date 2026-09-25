@@ -761,6 +761,29 @@ async def _finish_campaign_call(db: AsyncSession, attempt: MobileCallAttempt, **
     )
 
 
+async def finish_merged_campaign_call(db, campaign_call_id, session_id, ended_at, seconds,
+                                      voicemail: bool = False) -> None:
+    """Close the campaign call of a merged mobile attempt.
+
+    Once merged the row sits at "calling" with no lease, and nothing else finished it:
+    the gateway's generic cleanup looks campaign calls up by voice_session_id, which
+    mobile calls never set. The lead stayed "calling" and the campaign "running" for
+    good. Conditional on "calling", so whichever of the app's end event and the
+    gateway's cleanup lands first wins and the other is a no-op.
+    """
+    await db.execute(
+        update(CampaignCall)
+        .where(and_(CampaignCall.id == campaign_call_id, CampaignCall.status == "calling"))
+        .values(
+            status="completed-voicemail" if voicemail else "completed",
+            outcome="voicemail" if voicemail else "answered",
+            completed_at=ended_at,
+            duration_seconds=seconds or None,
+            voice_session_id=session_id,
+        )
+    )
+
+
 async def _return_to_pending(db: AsyncSession, attempt: MobileCallAttempt) -> None:
     await _finish_campaign_call(db, attempt, status="pending", retry_count=CampaignCall.retry_count + 1)
 
@@ -784,7 +807,10 @@ async def _apply_event(db: AsyncSession, attempt: MobileCallAttempt, etype: str,
         if is_open and attempt.status != ATTEMPT_MERGED:
             attempt.status = ATTEMPT_MERGED
             attempt.merged_at = now
-            await _finish_campaign_call(db, attempt, status="calling")
+            # voice_session_id lets the gateway's cleanup find this row and record the
+            # model's disposition on it; without it mobile leads never got one.
+            await _finish_campaign_call(db, attempt, status="calling", called_at=now,
+                                        **({"voice_session_id": session_id} if session_id else {}))
             await db.flush()
             if session_id:
                 await realtime.publish_session_control(session_id, "merged", attempt_id=attempt.id)
@@ -827,6 +853,8 @@ async def _apply_event(db: AsyncSession, attempt: MobileCallAttempt, etype: str,
             attempt.end_reason = attempt.end_reason or etype
             if attempt.merged_at:
                 attempt.conversation_seconds = int((attempt.ended_at - attempt.merged_at).total_seconds())
+            await finish_merged_campaign_call(db, attempt.campaign_call_id, session_id, attempt.ended_at,
+                                              attempt.conversation_seconds)
         elif is_open:
             # Ended before the lead was merged: the lead was never talked to.
             attempt.status = ATTEMPT_ABANDONED

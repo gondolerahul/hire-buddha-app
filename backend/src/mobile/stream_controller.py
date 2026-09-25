@@ -66,6 +66,14 @@ class PreModelOutcome:
     END = "end"                    # verification done / caller hung up
 
 
+# Take over: time for the model to start the hand-over line, and the most we wait for
+# it to finish playing before the agent leaves anyway.
+HANDOVER_START_SECONDS = 1.5
+HANDOVER_MAX_SECONDS = 10
+# A lead who can hear the agent answers its greeting within a few seconds.
+LEAD_AUDIO_GRACE_SECONDS = 8
+
+
 class MobileCallController:
     def __init__(self, handler):
         self.h = handler
@@ -77,6 +85,8 @@ class MobileCallController:
         self.dtmf_confirmed = False
         self._merged_event = asyncio.Event()
         self._last_error_push = 0.0
+        self._handover_task: Optional[asyncio.Task] = None
+        self._lead_audio_task: Optional[asyncio.Task] = None
 
     # ── metadata helpers ────────────────────────────────────────────────
 
@@ -407,7 +417,50 @@ class MobileCallController:
         elif mtype == "abort":
             self.h._terminate_call(f"abort:{msg.get('reason') or 'app'}")
         elif mtype == "rep_takeover":
-            self.h._terminate_call("rep_takeover")
+            if self._handover_task is None:
+                self._handover_task = asyncio.create_task(self._hand_over_to_rep())
+
+    async def _hand_over_to_rep(self):
+        """The rep pressed Take over (wireframe 16).
+
+        The lead must not hear the agent simply vanish mid-sentence: the model says one
+        short hand-over line in the language of the call, the provider plays it out,
+        and only then does the agent leave. The app keeps the rep muted until the
+        ai_ended push (reason rep_takeover) arrives, so the two never talk over each other.
+        """
+        h = self.h
+        if not self.merged or not h.is_running:
+            h._terminate_call("rep_takeover")
+            return
+        try:
+            await h.gemini_session.send_realtime_input(text=(
+                "[The rep, your senior colleague, is taking over this call now. Stop what you "
+                "were saying. In one short, polite sentence, in the language you have been "
+                "speaking with the lead, tell them you are transferring the call to your senior "
+                "colleague who will take it from here. Say nothing after that.]"
+            ))
+            logger.info(f"[Mobile] Hand-over line requested for session {h.session_id}")
+            # Give the model a moment to start, then let the provider's buffer drain.
+            await asyncio.sleep(HANDOVER_START_SECONDS)
+            await h._wait_for_playback_drain(max_wait_seconds=HANDOVER_MAX_SECONDS)
+        except Exception as e:
+            logger.warning(f"[Mobile] Hand-over line failed for {h.session_id}: {e}")
+        h._terminate_call("rep_takeover")
+
+    async def _watch_lead_audio(self):
+        """No sound from the lead after the merge means the network conference is not
+        carrying audio to or from the agent's line (seen on Jio IMS merges): the agent
+        talks into silence and the lead hears nothing. The rep's phone is still bridged to
+        the lead, so tell the app at once rather than let the agent call it voicemail."""
+        h = self.h
+        await asyncio.sleep(LEAD_AUDIO_GRACE_SECONDS)
+        if not h.is_running or not self.merged:
+            return
+        if h._last_lead_speech_at is None and h._last_lead_transcript_at is None:
+            logger.warning(f"[Mobile] No lead audio {LEAD_AUDIO_GRACE_SECONDS}s after merge "
+                           f"for session {h.session_id}")
+            await self._push("attempt.no_lead_audio", attempt_id=self.attempt_id,
+                             seconds=str(LEAD_AUDIO_GRACE_SECONDS))
 
     # ── in-call hooks ───────────────────────────────────────────────────
 
@@ -443,7 +496,7 @@ class MobileCallController:
                     .where(and_(CampaignCall.id == attempt.campaign_call_id, CampaignCall.status == "leased",
                                 CampaignCall.leased_by_device_id == attempt.device_id))
                     .values(status="calling", leased_by_user_id=None, leased_by_device_id=None,
-                            lease_expires_at=None)
+                            lease_expires_at=None, voice_session_id=self.h.session_id, called_at=now)
                 )
             await db.commit()
 
@@ -475,6 +528,7 @@ class MobileCallController:
         except Exception as e:
             logger.warning(f"[Mobile] Greeting trigger failed for {h.session_id}: {e}")
         logger.info(f"[Mobile] Merged ({source}) — greeting sent for session {h.session_id}")
+        self._lead_audio_task = asyncio.create_task(self._watch_lead_audio())
 
     async def wait_merged(self):
         await self._merged_event.wait()
@@ -502,6 +556,11 @@ class MobileCallController:
                         start = attempt.merged_at or now
                         attempt.conversation_seconds = max(int((attempt.ended_at - start).total_seconds()), 0)
                         attempt.end_reason = attempt.end_reason or reason[:50]
+                        from src.mobile.service import finish_merged_campaign_call
+                        await finish_merged_campaign_call(
+                            db, attempt.campaign_call_id, h.session_id, attempt.ended_at,
+                            attempt.conversation_seconds, voicemail=h._voicemail_detected,
+                        )
                     elif attempt.status in OPEN_ATTEMPT_STATUSES:
                         # AI leg ended before the lead joined: give the lead back.
                         attempt.status = ATTEMPT_ABANDONED
