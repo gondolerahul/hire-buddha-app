@@ -8,12 +8,13 @@ require a Smartflo login JWT — sending the api_key there yields
 (observed on all 42 hangup attempts in the Kanakia-Leads-01 run).
 
 Resolution order:
-  1. ``integration_registry.service_metadata["auth_token"]`` — a portal-issued
-     long-lived token, if the tenant stored one.
-  2. Login via ``service_metadata["login_email"]`` / ``["login_password"]``
-     against ``POST /v1/auth/login`` (JWT cached in-process).
+  1. The integration's ``auth_token`` — a portal-issued long-lived token.
+  2. Login with ``login_email`` / ``login_password`` against
+     ``POST /v1/auth/login`` (JWT cached in-process).
   3. Fall back to the click-to-call api_key (legacy behavior; known to fail
      on hangup but preserves the pre-existing request shape).
+
+All three come from :mod:`src.voice.tata_credentials`, the single resolver.
 """
 
 import logging
@@ -82,39 +83,26 @@ async def get_smartflo_auth_token(
     elif cache_key in _TOKEN_CACHE:
         return _TOKEN_CACHE[cache_key]
 
-    from src.config.service import ConfigService
+    from src.voice.tata_credentials import resolve_tata_credentials
 
-    config_service = ConfigService(db)
-    entry = await config_service.get_integration_by_provider(
-        company_id, "tata_tele"
-    )
-    if not entry:
-        logger.warning(f"No tata_tele integration for company {company_id}")
+    creds = await resolve_tata_credentials(db, company_id)
+    if creds is None:
         return None
 
-    metadata = entry.service_metadata or {}
+    if creds.auth_token:
+        _TOKEN_CACHE[cache_key] = creds.auth_token
+        return creds.auth_token
 
-    token = metadata.get("auth_token")
-    if token:
-        _TOKEN_CACHE[cache_key] = token
-        return token
-
-    email = metadata.get("login_email")
-    password = metadata.get("login_password")
-    if email and password:
-        token = await _login_for_token(email, password)
+    if creds.login_email and creds.login_password:
+        token = await _login_for_token(creds.login_email, creds.login_password)
         if token:
             _TOKEN_CACHE[cache_key] = token
             return token
 
     logger.warning(
-        "tata_tele integration has no auth_token or login credentials in "
-        "service_metadata; falling back to api_key for the Authorization "
-        "header — Smartflo account APIs (hangup) will likely reject it. "
-        "Add service_metadata.auth_token (portal API token) or "
-        "login_email/login_password to fix agent-initiated hangups."
+        "tata_tele integration has no auth_token or login credentials; falling back to "
+        "the click-to-call api_key for the Authorization header — Smartflo account APIs "
+        "(hangup) will likely reject it. Add auth_token (or login_email/login_password) "
+        "to the integration's metadata; it is stored encrypted."
     )
-    api_key = await config_service.get_api_key_by_provider(
-        company_id=company_id, provider_name="tata_tele"
-    )
-    return api_key
+    return creds.api_key

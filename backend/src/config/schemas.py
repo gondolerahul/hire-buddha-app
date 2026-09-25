@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Literal
 from datetime import datetime
 from uuid import UUID
@@ -57,6 +57,13 @@ class IntegrationRegistryResponse(IntegrationRegistryBase):
     company_id: UUID
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("service_metadata")
+    @classmethod
+    def _hide_secrets(cls, value):
+        # Encrypted secrets (Tata's auth_token, login_password…) are named, never sent.
+        from src.voice.tata_credentials import redact_secrets
+        return redact_secrets(value)
 
     class Config:
         from_attributes = True

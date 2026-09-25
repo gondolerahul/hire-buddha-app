@@ -230,8 +230,12 @@ async def sync_numbers(
                 auth_token = decrypt_api_key(row.encrypted_api_key) if row.encrypted_api_key else meta.get("auth_token", "")
                 results["twilio"] = await _sync_twilio(db, account_sid, auth_token, current_user.id)
             elif row.provider_name == "tata_tele":
-                api_key = decrypt_api_key(row.encrypted_api_key) if row.encrypted_api_key else meta.get("api_key", "")
-                results["tata_tele"] = await _sync_tata_tele(db, api_key, current_user.id, meta)
+                from src.voice.tata_credentials import credentials_from_entry
+
+                creds = credentials_from_entry(row)
+                results["tata_tele"] = await _sync_tata_tele(
+                    db, creds.api_key or "", current_user.id, {"api_url": creds.api_url},
+                )
         except Exception as e:
             logger.error(f"Sync error for {row.provider_name}: {e}", exc_info=True)
             results[row.provider_name] = {"error": str(e)}

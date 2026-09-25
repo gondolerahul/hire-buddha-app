@@ -215,22 +215,16 @@ async def sync_numbers_from_providers(
 
     # --- Tata Tele sync ---
     if "tata_tele" in providers:
-        entry = await _find_integration("tata_tele")
-        if entry:
-            # The Smartflo API token is stored in service_metadata.api_key
-            # (encrypted_api_key holds a different credential used for click-to-call)
-            api_key = None
-            metadata = entry.service_metadata or {}
-            if metadata.get("api_key"):
-                api_key = metadata["api_key"]
-            elif entry.encrypted_api_key:
-                api_key = decrypt_api_key(entry.encrypted_api_key)
+        from src.voice.tata_credentials import resolve_tata_credentials
 
+        creds = await resolve_tata_credentials(db, current_user.company_id)
+        if creds:
+            api_key = creds.api_key
             if api_key:
                 try:
                     results["tata_tele"] = await _sync_tata_tele(
                         db, api_key, current_user.id,
-                        service_metadata=metadata
+                        service_metadata={"api_url": creds.api_url}
                     )
                 except Exception as e:
                     logger.error(f"Tata Tele sync error: {e}", exc_info=True)

@@ -90,9 +90,15 @@ class ConfigService:
         return key
 
     async def create_registry_entry(self, entry_in: IntegrationRegistryCreate) -> IntegrationRegistry:
-        encrypted_key = encrypt_api_key(entry_in.api_key)
-        
         entry_data = entry_in.model_dump(exclude={"api_key"})
+        api_key = entry_in.api_key
+        if entry_data.get("provider_name") == "tata_tele":
+            # Secrets typed into the metadata JSON are encrypted, never stored plain.
+            from src.voice.tata_credentials import normalize_tata_metadata
+            entry_data["service_metadata"], meta_key = normalize_tata_metadata(entry_data.get("service_metadata"))
+            api_key = api_key or meta_key
+        encrypted_key = encrypt_api_key(api_key)
+
         entry = IntegrationRegistry(
             **entry_data,
             encrypted_api_key=encrypted_key
@@ -124,6 +130,15 @@ class ConfigService:
         entry = await self.get_registry_entry(entry_id)
         
         update_data = entry_in.model_dump(exclude_unset=True)
+        provider = update_data.get("provider_name") or entry.provider_name
+        if provider == "tata_tele" and "service_metadata" in update_data:
+            # Keep the stored secrets the console never sees; encrypt any it sends.
+            from src.voice.tata_credentials import normalize_tata_metadata
+            update_data["service_metadata"], meta_key = normalize_tata_metadata(
+                update_data["service_metadata"], entry.service_metadata,
+            )
+            if meta_key and not update_data.get("api_key"):
+                update_data["api_key"] = meta_key
         if "api_key" in update_data:
             update_data["encrypted_api_key"] = encrypt_api_key(update_data.pop("api_key"))
         

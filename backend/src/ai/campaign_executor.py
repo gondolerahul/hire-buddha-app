@@ -649,28 +649,17 @@ class CampaignExecutor:
         Returns:
             Call SID/reference from Tata Tele
         """
-        # 1. Retrieve Tata Tele API key from integration registry.
-        # Prefer service_metadata["api_key"] — it is the click-to-call
-        # credential specifically. encrypted_api_key is only a fallback: users
-        # editing the integration (e.g. to add the hangup auth_token) have
-        # overwritten it, which broke every placement with HTTP 422.
-        config_service = ConfigService(db)
-        entry = await config_service.get_integration_by_provider(
-            company_id=company_id,
-            provider_name="tata_tele",
-        )
-        api_key = (entry.service_metadata or {}).get("api_key") if entry else None
-        if not api_key:
-            api_key = await config_service.get_api_key_by_provider(
-                company_id=company_id,
-                provider_name="tata_tele"
-            )
+        # 1. The click-to-call api_key, from the single Tata resolver. It has one home
+        # now (encrypted_api_key) and the hang-up token another, so editing one can no
+        # longer overwrite the other — which is what used to break every placement.
+        from src.voice.tata_credentials import resolve_tata_credentials
 
+        creds = await resolve_tata_credentials(db, company_id)
+        api_key = creds.api_key if creds else None
         if not api_key:
             raise ValueError(
-                "Tata Tele API key not found. Please ensure you have a 'tata_tele' "
-                "integration configured in the Integration Registry with the "
-                "click-to-call api_key in service_metadata."
+                "Tata Tele API key not found. Configure a 'tata_tele' integration in the "
+                "Integration Registry with the click-to-call key as its API key."
             )
 
         # 2. Clean phone numbers
