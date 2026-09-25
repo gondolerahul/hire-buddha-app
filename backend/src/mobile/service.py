@@ -1035,6 +1035,53 @@ async def callbacks_due(db: AsyncSession, user: User, *, within_hours: int = 24,
     return out
 
 
+async def lookup_lead(db: AsyncSession, user: User, phone: str) -> Optional[Dict[str, Any]]:
+    """Which lead, if any, is calling this rep (the incoming-call screen, wireframe 25).
+
+    Only mobile campaigns the caller may see: a rep's assigned ones, a whole company for
+    an admin. A number on several lists resolves to a running campaign first, then to
+    the most recently touched lead. Stored numbers are E.164, as the caller ID is here.
+    """
+    number = to_e164(phone)
+    if not number:
+        return None
+    campaigns = select(Campaign.id).where(
+        Campaign.company_id == user.company_id,
+        Campaign.execution_mode == EXECUTION_MODE_MOBILE,
+    )
+    if not is_admin(user):
+        campaigns = campaigns.where(Campaign.id.in_(
+            select(CampaignAssignee.campaign_id).where(CampaignAssignee.user_id == user.id)
+        ))
+    row = (await db.execute(
+        select(CampaignCall, Campaign.name, Campaign.status)
+        .join(Campaign, Campaign.id == CampaignCall.campaign_id)
+        .where(
+            CampaignCall.campaign_id.in_(campaigns),
+            CampaignCall.contact_data["phone"].astext == number,
+        )
+        .order_by(
+            (Campaign.status == "running").desc(),
+            func.coalesce(CampaignCall.called_at, CampaignCall.created_at).desc(),
+        )
+        .limit(1)
+    )).first()
+    if row is None:
+        return None
+    call, campaign_name, campaign_status = row
+    contact = call.contact_data or {}
+    return {
+        "campaign_call_id": str(call.id),
+        "campaign_id": str(call.campaign_id),
+        "campaign_name": campaign_name,
+        "campaign_status": campaign_status,
+        "contact_name": contact.get("name") or contact.get("Name"),
+        "status": call.status,
+        "disposition": call.disposition,
+        "callback_at": call.callback_at,
+    }
+
+
 def mask_phone(phone: Optional[str]) -> str:
     """Matches the masking used everywhere else: keep the country code and last four."""
     if not phone:

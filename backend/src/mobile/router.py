@@ -354,6 +354,16 @@ async def get_callbacks(
     return {"total": len(items), "items": items}
 
 
+@router.get("/leads/lookup")
+async def lookup_lead(
+    phone: str = Query(..., min_length=4, max_length=32),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(mobile_user),
+):
+    """The lead behind an incoming caller ID, or null. Read-only."""
+    return {"lead": await service.lookup_lead(db, user, phone)}
+
+
 @router.get("/runs/active")
 async def get_active_runs(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
     """Runs of this user's that are still open.
