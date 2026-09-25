@@ -24,8 +24,8 @@ android {
         applicationId = "com.hirebuddha.dialer"
         minSdk = 29
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.0"
+        versionCode = 7
+        versionName = "1.2.0"
 
         buildConfigField("String", "DEFAULT_API_BASE_URL", "\"https://gateway.hirebuddha.com/\"")
         buildConfigField("String", "DEFAULT_PUSH_WS_URL", "\"wss://gateway.hirebuddha.com/mobile/ws\"")
