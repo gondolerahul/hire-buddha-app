@@ -1,6 +1,9 @@
 package com.hirebuddha.dialer.ui.campaigns
 
 import android.content.Context
+import android.os.Build
+import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
@@ -205,6 +208,14 @@ private fun buildChecks(context: Context, p: PreflightDto?): List<Check> {
         )
     }
 
+    // The rep is muted for most of every call and often standing in a corridor: a
+    // headset is advice, never a blocker.
+    checks += if (headsetConnected(context)) {
+        Check("Headset connected", null, Level.Ok)
+    } else {
+        Check("Headset not connected", "Recommended — you'll be listening on mute for most of each call", Level.Warn)
+    }
+
     if (p == null) return checks
 
     checks += if (p.device.verified) {
@@ -292,3 +303,16 @@ private fun CheckRow(check: Check, context: Context) {
         }
     }
 }
+
+private fun headsetConnected(context: Context): Boolean = runCatching {
+    val audio = context.getSystemService(AudioManager::class.java) ?: return@runCatching false
+    val headsets = buildSet {
+        add(AudioDeviceInfo.TYPE_WIRED_HEADSET)
+        add(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
+        add(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
+        add(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
+        add(AudioDeviceInfo.TYPE_USB_HEADSET)
+        if (Build.VERSION.SDK_INT >= 31) add(AudioDeviceInfo.TYPE_BLE_HEADSET)
+    }
+    audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in headsets }
+}.getOrDefault(false)

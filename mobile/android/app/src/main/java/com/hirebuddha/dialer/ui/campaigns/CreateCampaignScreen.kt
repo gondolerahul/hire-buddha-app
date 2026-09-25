@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -83,6 +84,8 @@ import kotlinx.coroutines.launch
 class CreateCampaignViewModel @Inject constructor(private val repo: CampaignRepository) : ViewModel() {
     var step by mutableStateOf(1); private set
     var report by mutableStateOf<UploadReportDto?>(null); private set
+    var fileName by mutableStateOf<String?>(null); private set
+    var fileSize by mutableStateOf<Long?>(null); private set
     var uploading by mutableStateOf(false); private set
     var agents by mutableStateOf<List<AgentDto>>(emptyList()); private set
     var reps by mutableStateOf<List<RepDto>>(emptyList()); private set
@@ -104,9 +107,11 @@ class CreateCampaignViewModel @Inject constructor(private val repo: CampaignRepo
     fun back() { if (step > 1) step-- }
     fun toConfigure() { step = 3 }
 
-    fun upload(context: Context, uri: Uri, fileName: String?) = viewModelScope.launch {
+    fun upload(context: Context, uri: Uri, fileName: String?, size: Long? = null) = viewModelScope.launch {
         uploading = true
         error = null
+        this@CreateCampaignViewModel.fileName = fileName
+        fileSize = size
         when (val r = repo.upload(context.contentResolver, uri)) {
             is ApiResult.Ok -> {
                 report = r.value
@@ -153,11 +158,26 @@ fun CreateCampaignScreen(
     remember { vm.init(me.isAdmin); true }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val name = context.contentResolver
-                .query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
-                ?.use { if (it.moveToFirst()) it.getString(0) else null }
-            vm.upload(context, uri, name)
+            val (name, size) = context.contentResolver
+                .query(
+                    uri,
+                    arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE),
+                    null, null, null,
+                )
+                ?.use { if (it.moveToFirst()) it.getString(0) to (if (it.isNull(1)) null else it.getLong(1)) else null }
+                ?: (null to null)
+            vm.upload(context, uri, name, size)
         }
+    }
+
+    val pick = {
+        picker.launch(
+            arrayOf(
+                "text/csv", "text/comma-separated-values", "text/plain",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/octet-stream",
+            )
+        )
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -169,21 +189,13 @@ fun CreateCampaignScreen(
             )
             StepHeader(vm.step)
             when (vm.step) {
-                1 -> UploadStep(vm, onPick = {
-                    picker.launch(
-                        arrayOf(
-                            "text/csv", "text/comma-separated-values", "text/plain",
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            "application/octet-stream",
-                        )
-                    )
-                })
+                1 -> UploadStep(vm, onPick = pick)
                 2 -> ReportStep(vm)
                 else -> ConfigureStep(vm, me)
             }
         }
         if (vm.step == 2 || vm.step == 3) {
-            StickyAction(vm, me, onCreated, Modifier.align(Alignment.BottomCenter))
+            StickyAction(vm, me, onCreated, onReupload = { vm.back(); pick() }, modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
 }
@@ -330,7 +342,13 @@ private fun ReportStep(vm: CreateCampaignViewModel) {
                 if (report.validRows > 0) PositivePill("Ready")
             }
             Spacer(Modifier.height(6.dp))
-            MonoText("${report.fileType.uppercase()} · ${report.phoneColumn ?: "no phone column"}")
+            MonoText(
+                listOfNotNull(
+                    vm.fileName ?: report.fileType.uppercase(),
+                    vm.fileSize?.let { humanSize(it) },
+                    report.phoneColumn?.let { "phone in \u201c$it\u201d" } ?: "no phone column",
+                ).joinToString(" · "),
+            )
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -345,14 +363,15 @@ private fun ReportStep(vm: CreateCampaignViewModel) {
                 // contact-data injection to someone who has never heard the term.
                 Eyebrow("Columns your agent will know", color = c.fgSubtle)
                 Spacer(Modifier.height(10.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    report.columns.take(4).forEach { column ->
+                // Every column, wrapped: which fields the agent can use is the point of this card.
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    report.columns.forEach { column ->
                         if (column == report.phoneColumn) GoldPill(column) else Pill(column)
                     }
-                }
-                if (report.columns.size > 4) {
-                    Spacer(Modifier.height(7.dp))
-                    MicroText("and ${report.columns.size - 4} more")
                 }
                 if (report.preview.isNotEmpty()) {
                     Spacer(Modifier.height(14.dp))
@@ -402,9 +421,9 @@ private fun ReportStep(vm: CreateCampaignViewModel) {
                             size = 17.dp, tint = c.fgDisabled,
                         )
                     }
-                    if (showErrors) {
-                        Spacer(Modifier.height(12.dp))
-                        report.errors.take(25).forEach { e ->
+                    Spacer(Modifier.height(12.dp))
+                    run {
+                        report.errors.take(if (showErrors) 25 else 4).forEach { e ->
                             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 MonoText("Row ${e.row}", Modifier.size(width = 52.dp, height = 16.dp))
                                 MonoText(e.value.ifBlank { "(empty)" }, Modifier.weight(1f), color = c.fgMuted)
@@ -414,7 +433,14 @@ private fun ReportStep(vm: CreateCampaignViewModel) {
                                 )
                             }
                         }
-                        if (report.errors.size > 25) MicroText("…and ${report.errors.size - 25} more")
+                        if (!showErrors && report.errors.size > 4) {
+                            Text(
+                                "Show all ${report.errors.size}",
+                                Modifier.clickable { showErrors = true }.padding(vertical = 4.dp),
+                                style = MaterialTheme.typography.labelMedium, color = c.accent,
+                            )
+                        }
+                        if (showErrors && report.errors.size > 25) MicroText("…and ${report.errors.size - 25} more")
                     }
                 }
             }
@@ -480,7 +506,7 @@ private fun ConfigureStep(vm: CreateCampaignViewModel, me: MeDto) {
                 HbCard(Modifier.fillMaxWidth(), padding = 4.dp) {
                     vm.reps.forEachIndexed { i, rep ->
                         if (i > 0) Hairline()
-                        RepRow(rep, rep.userId in vm.assignees) {
+                        RepRow(rep, rep.userId in vm.assignees, isMe = rep.userId == me.userId) {
                             vm.assignees =
                                 if (rep.userId in vm.assignees) vm.assignees - rep.userId
                                 else vm.assignees + rep.userId
@@ -531,7 +557,7 @@ private fun AgentCard(agent: AgentDto, selected: Boolean, onSelect: () -> Unit) 
 }
 
 @Composable
-private fun RepRow(rep: RepDto, checked: Boolean, onToggle: () -> Unit) {
+private fun RepRow(rep: RepDto, checked: Boolean, isMe: Boolean, onToggle: () -> Unit) {
     val c = HbTheme.colors
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 10.dp, vertical = 10.dp),
@@ -547,7 +573,7 @@ private fun RepRow(rep: RepDto, checked: Boolean, onToggle: () -> Unit) {
         Avatar(com.hirebuddha.dialer.ui.common.initialsOf(rep.name), size = 32.dp)
         Column(Modifier.weight(1f)) {
             Text(rep.name, style = MaterialTheme.typography.bodyLarge, color = c.fg, maxLines = 1)
-            MicroText(com.hirebuddha.dialer.ui.common.humanize(rep.role))
+            MicroText(listOfNotNull("you".takeIf { isMe }, com.hirebuddha.dialer.ui.common.humanize(rep.role)).joinToString(" · "))
         }
     }
 }
@@ -576,12 +602,22 @@ private fun StickyAction(
     vm: CreateCampaignViewModel,
     me: MeDto,
     onCreated: (String) -> Unit,
+    onReupload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = HbTheme.colors
     GlassSurface(modifier.fillMaxWidth().padding(14.dp).navigationBarsPadding()) {
         Box(Modifier.padding(12.dp)) {
-            if (vm.step == 2) {
+            if (vm.step == 2) Column {
+                // Rejected rows are usually fixable in a minute; make that the easy path
+                // rather than "back, back, pick the file again".
+                if (vm.report?.errors?.isNotEmpty() == true) {
+                    HbButton(
+                        "Fix the sheet and re-upload", onReupload, Modifier.fillMaxWidth(),
+                        HbButtonStyle.Ghost, HbButtonSize.Small, icon = R.drawable.ic_upload,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
                 HbButton(
                     "Continue with ${vm.report?.validRows ?: 0} leads",
                     { vm.toConfigure() },
@@ -604,4 +640,10 @@ private fun StickyAction(
             }
         }
     }
+}
+
+private fun humanSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+    else -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
 }

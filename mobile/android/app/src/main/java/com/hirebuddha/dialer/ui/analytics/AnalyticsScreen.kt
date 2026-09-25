@@ -54,6 +54,17 @@ import com.hirebuddha.dialer.ui.common.initialsOf
 import com.hirebuddha.dialer.ui.common.pct
 import com.hirebuddha.dialer.ui.theme.HbTheme
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDateRangePickerState
+import androidx.compose.runtime.remember
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
@@ -62,22 +73,49 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class AnalyticsViewModel @Inject constructor(private val repo: CampaignRepository) : ViewModel() {
-    var days by mutableStateOf(7); private set
+    /** 1, 7 or 30 for the preset chips; null for a custom range. */
+    var days by mutableStateOf<Int?>(7); private set
+    var from by mutableStateOf(today().minusDays(6)); private set
+    var to by mutableStateOf(today()); private set
     var data by mutableStateOf<AnalyticsDto?>(null); private set
+    /** The same number of days immediately before, for "+18% vs the previous 7 days". */
+    var previous by mutableStateOf<AnalyticsDto?>(null); private set
     var error by mutableStateOf<String?>(null); private set
 
     init { load(7) }
 
-    fun load(range: Int) = viewModelScope.launch {
-        days = range
+    fun load(range: Int) = loadRange(today().minusDays((range - 1).toLong()), today(), range)
+
+    fun loadRange(start: LocalDate, end: LocalDate, preset: Int? = null) = viewModelScope.launch {
+        days = preset
+        from = start
+        to = end
         error = null
-        val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
-        when (val r = repo.summary(today.minusDays((range - 1).toLong()).toString(), today.toString(), null)) {
+        val length = ChronoUnit.DAYS.between(start, end) + 1
+        when (val r = repo.summary(start.toString(), end.toString(), null)) {
             is ApiResult.Ok -> data = r.value
             is ApiResult.Err -> error = r.message
             ApiResult.Empty -> Unit
         }
+        previous = (repo.summary(start.minusDays(length).toString(), start.minusDays(1).toString(), null) as? ApiResult.Ok)?.value
     }
+
+    fun retry() = loadRange(from, to, days)
+
+    private fun today() = LocalDate.now(ZoneId.of("Asia/Kolkata"))
+}
+
+/** "+18% vs the previous 7 days"; nothing when there is no earlier period to beat. */
+internal fun changeCaption(now: Int, before: Int?, days: Long): String? {
+    if (before == null || before <= 0) return null
+    val change = ((now - before) * 100.0 / before).roundToInt()
+    val sign = if (change > 0) "+" else ""
+    val period = when (days) {
+        1L -> "yesterday"
+        7L -> "last week"
+        else -> "the previous $days days"
+    }
+    return "$sign$change% vs $period"
 }
 
 /**
@@ -92,15 +130,28 @@ fun AnalyticsScreen(isAdmin: Boolean, modifier: Modifier = Modifier, vm: Analyti
 
     Column(modifier.fillMaxSize()) {
         HbTopBar(if (isAdmin) "Insights" else "My insights")
+        var picking by remember { mutableStateOf(false) }
         ChipRow(Modifier.padding(horizontal = HbTheme.dims.gutter)) {
             listOf(1 to "Today", 7 to "7 days", 30 to "30 days").forEach { (d, label) ->
                 HbChip(label, vm.days == d, onClick = { vm.load(d) })
             }
+            HbChip(
+                if (vm.days == null) rangeLabel(vm.from, vm.to) else "Custom",
+                vm.days == null,
+                onClick = { picking = true },
+            )
+        }
+        if (picking) {
+            RangePickerDialog(
+                initialFrom = vm.from, initialTo = vm.to,
+                onPick = { start, end -> picking = false; vm.loadRange(start, end) },
+                onDismiss = { picking = false },
+            )
         }
         Spacer(Modifier.height(14.dp))
 
         when {
-            vm.error != null && a == null -> ErrorState(vm.error!!, onRetry = { vm.load(vm.days) })
+            vm.error != null && a == null -> ErrorState(vm.error!!, onRetry = { vm.retry() })
             a == null -> Loading()
             else -> LazyColumn(
                 contentPadding = PaddingValues(HbTheme.dims.gutter, 0.dp, HbTheme.dims.gutter, 150.dp),
@@ -108,7 +159,13 @@ fun AnalyticsScreen(isAdmin: Boolean, modifier: Modifier = Modifier, vm: Analyti
             ) {
                 item(key = "t1") {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        StatTile("Calls", "${a.funnel.attempts}", Modifier.weight(1f))
+                        StatTile(
+                            "Calls", "${a.funnel.attempts}", Modifier.weight(1f),
+                            caption = changeCaption(
+                                a.funnel.attempts, vm.previous?.funnel?.attempts,
+                                ChronoUnit.DAYS.between(vm.from, vm.to) + 1,
+                            ),
+                        )
                         StatTile(
                             "Answered", pct(a.rates.answer), Modifier.weight(1f),
                             caption = "${a.funnel.leadAnswered} picked up",
@@ -251,5 +308,46 @@ private fun ByRep(a: AnalyticsDto) {
                 PositivePill("${rep.interested}", dot = false)
             }
         }
+    }
+}
+
+private fun rangeLabel(from: LocalDate, to: LocalDate): String {
+    val day = DateTimeFormatter.ofPattern("d MMM")
+    return if (from.month == to.month) "${from.dayOfMonth}–${to.format(day)}" else "${from.format(day)} – ${to.format(day)}"
+}
+
+/** Material's range picker, limited to days that have happened. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RangePickerDialog(
+    initialFrom: LocalDate,
+    initialTo: LocalDate,
+    onPick: (LocalDate, LocalDate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val utc = ZoneOffset.UTC
+    val todayMs = LocalDate.now().atStartOfDay(utc).toInstant().toEpochMilli()
+    val state = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = initialFrom.atStartOfDay(utc).toInstant().toEpochMilli(),
+        initialSelectedEndDateMillis = initialTo.atStartOfDay(utc).toInstant().toEpochMilli(),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= todayMs
+        },
+    )
+    fun day(ms: Long) = Instant.ofEpochMilli(ms).atZone(utc).toLocalDate()
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val start = state.selectedStartDateMillis ?: return@TextButton
+                    onPick(day(start), day(state.selectedEndDateMillis ?: start))
+                },
+                enabled = state.selectedStartDateMillis != null,
+            ) { Text("Show") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    ) {
+        DateRangePicker(state = state, modifier = Modifier.weight(1f), showModeToggle = false)
     }
 }
