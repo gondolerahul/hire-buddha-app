@@ -32,6 +32,7 @@ interface HireBuddhaApi {
     @GET("mobile/campaigns/{id}") suspend fun campaign(@Path("id") id: String): Response<CampaignDto>
     @GET("mobile/agents") suspend fun agents(): Response<AgentsResponse>
     @GET("mobile/reps") suspend fun reps(): Response<RepsResponse>
+    @GET("mobile/uploads/recent") suspend fun recentUploads(): Response<RecentUploadsResponse>
     @GET("mobile/leads/lookup") suspend fun lookupLead(@Query("phone") phone: String): Response<LeadLookupResponse>
     @PUT("mobile/campaigns/{id}/assignees")
     suspend fun setAssignees(@Path("id") campaignId: String, @Body body: AssigneesUpdateRequest): Response<AssigneesResponse>

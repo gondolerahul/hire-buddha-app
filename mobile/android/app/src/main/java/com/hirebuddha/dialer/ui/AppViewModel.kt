@@ -21,7 +21,12 @@ import kotlinx.coroutines.launch
 sealed interface AppState {
     data object Loading : AppState
     data object LoggedOut : AppState
-    data class Blocked(val message: String, val email: String? = null, val role: String? = null) : AppState
+    data class Blocked(
+        val message: String,
+        val email: String? = null,
+        val role: String? = null,
+        val name: String? = null,
+    ) : AppState
     data class UpdateRequired(val info: AppVersionDto) : AppState
     /** [reverify]: the rep asked from Settings to change SIM or verify again. */
     data class NeedsOnboarding(val me: MeDto, val reverify: Boolean = false) : AppState
@@ -62,9 +67,14 @@ class AppViewModel @Inject constructor(
             is ApiResult.Ok -> _state.value = resolveReady(me.value, update)
             is ApiResult.Err -> _state.value = when {
                 me.httpStatus == 401 -> AppState.LoggedOut
-                // The server tells us the role is unsupported but not which role it is;
-                // the last signed-in address is the useful half of that answer.
-                else -> AppState.Blocked(me.message, settings.current().lastEmail, null)
+                // Newer servers say whose account this is and what role it has; older ones
+                // only that it is refused, so fall back to the last address typed.
+                else -> AppState.Blocked(
+                    me.message,
+                    email = me.field("email") ?: settings.current().lastEmail,
+                    role = me.field("role"),
+                    name = me.field("full_name"),
+                )
             }
             ApiResult.Empty -> _state.value = AppState.LoggedOut
         }

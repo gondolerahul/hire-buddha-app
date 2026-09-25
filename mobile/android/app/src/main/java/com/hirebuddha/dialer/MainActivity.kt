@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
                     when (val s = state) {
                         AppState.Loading -> SplashScreen()
                         AppState.LoggedOut -> LoginScreen(onLoggedIn = appViewModel::onLoggedIn)
-                        is AppState.Blocked -> BlockedScreen(s.message, s.email, s.role, appViewModel::logout, appViewModel::refresh)
+                        is AppState.Blocked -> BlockedScreen(s.message, s.email, s.role, s.name, appViewModel::logout, appViewModel::refresh)
                         is AppState.UpdateRequired -> UpdateRequiredScreen(s.info.latestVersionName, s.info.downloadUrl)
                         is AppState.NeedsOnboarding -> OnboardingScreen(
                             me = s.me,
@@ -124,6 +124,7 @@ private fun BlockedScreen(
     message: String,
     email: String?,
     role: String?,
+    name: String?,
     onLogout: () -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -155,10 +156,10 @@ private fun BlockedScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Avatar(initialsOf(email.substringBefore('@')), gold = true)
+                    Avatar(initialsOf(name ?: email.substringBefore('@')), gold = true)
                     Column(Modifier.weight(1f)) {
-                        Text(email, style = MaterialTheme.typography.titleMedium, color = c.fg)
-                        role?.let { CardCaption(humanize(it)) }
+                        Text(name ?: email, style = MaterialTheme.typography.titleMedium, color = c.fg)
+                        CardCaption(listOfNotNull(email.takeIf { name != null }, role?.let(::humanize)).joinToString(" · "))
                     }
                 }
             }

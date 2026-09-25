@@ -89,6 +89,10 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
     suspend fun campaign(id: String) = apiCall { api.campaign(id) }
     suspend fun agents(): ApiResult<List<AgentDto>> = apiCall { api.agents() }.map { it.agents }
     suspend fun reps(): ApiResult<List<RepDto>> = apiCall { api.reps() }.map { it.reps }
+
+    /** Uploads that can still become a campaign; empty on a server without the endpoint. */
+    suspend fun recentUploads(): List<UploadReportDto> =
+        (apiCall { api.recentUploads() } as? ApiResult.Ok)?.value?.uploads.orEmpty()
     suspend fun setAssignees(campaignId: String, userIds: List<String>): ApiResult<List<AssigneeDto>> =
         apiCall { api.setAssignees(campaignId, AssigneesUpdateRequest(userIds)) }.map { it.assignees }
 

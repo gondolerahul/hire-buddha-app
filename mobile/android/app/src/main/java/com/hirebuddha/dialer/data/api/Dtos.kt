@@ -92,7 +92,16 @@ import kotlinx.serialization.json.JsonObject
 @Serializable data class CampaignsResponse(val campaigns: List<CampaignDto>)
 @Serializable data class AgentDto(@SerialName("agent_id") val agentId: String, val name: String, val did: String?, val provider: String?)
 @Serializable data class AgentsResponse(val agents: List<AgentDto>)
-@Serializable data class RepDto(@SerialName("user_id") val userId: String, val name: String, val email: String, val role: String)
+@Serializable data class RepDto(
+    @SerialName("user_id") val userId: String,
+    val name: String,
+    val email: String,
+    val role: String,
+    /** Null from a server that predates the field: then nobody is held back. */
+    @SerialName("phone_verified") val phoneVerified: Boolean? = null,
+) {
+    val canBeAssigned: Boolean get() = phoneVerified != false
+}
 @Serializable data class RepsResponse(val reps: List<RepDto>)
 
 @Serializable data class RowErrorDto(val row: Int, val field: String, val value: String, val reason: String)
@@ -108,7 +117,12 @@ import kotlinx.serialization.json.JsonObject
     @SerialName("phone_column") val phoneColumn: String? = null,
     val errors: List<RowErrorDto> = emptyList(),
     val preview: List<JsonObject> = emptyList(),
+    /** Set on GET mobile/uploads/recent, which returns this same report per upload. */
+    val filename: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
 )
+
+@Serializable data class RecentUploadsResponse(val uploads: List<UploadReportDto> = emptyList())
 
 @Serializable data class CreateCampaignRequest(
     @SerialName("agent_id") val agentId: String,

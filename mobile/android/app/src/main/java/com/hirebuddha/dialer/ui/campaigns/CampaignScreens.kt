@@ -55,6 +55,7 @@ import com.hirebuddha.dialer.ui.common.CardCaption
 import com.hirebuddha.dialer.ui.common.ChipRow
 import com.hirebuddha.dialer.ui.common.DispositionPill
 import com.hirebuddha.dialer.data.api.AssigneeDto
+import androidx.compose.ui.draw.alpha
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableLongStateOf
 import com.hirebuddha.dialer.ui.common.formatDuration
@@ -1009,9 +1010,12 @@ private fun ManageRepsSheet(
                         reps.forEachIndexed { i, rep ->
                             if (i > 0) Hairline()
                             val checked = rep.userId in selected
+                            // Someone already on the list stays removable even if unverified.
+                            val enabled = rep.canBeAssigned || checked
                             Row(
                                 Modifier.fillMaxWidth()
-                                    .clickable { selected = if (checked) selected - rep.userId else selected + rep.userId }
+                                    .clickable(enabled = enabled) { selected = if (checked) selected - rep.userId else selected + rep.userId }
+                                    .alpha(if (enabled) 1f else 0.5f)
                                     .padding(horizontal = 10.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1025,7 +1029,12 @@ private fun ManageRepsSheet(
                                 Avatar(initialsOf(rep.name), size = 32.dp)
                                 Column(Modifier.weight(1f)) {
                                     Text(rep.name, style = MaterialTheme.typography.bodyLarge, color = c.fg, maxLines = 1)
-                                    MicroText(humanize(rep.role))
+                                    MicroText(
+                                        listOfNotNull(
+                                            humanize(rep.role),
+                                            "phone not verified yet".takeIf { rep.phoneVerified == false },
+                                        ).joinToString(" · "),
+                                    )
                                 }
                             }
                         }

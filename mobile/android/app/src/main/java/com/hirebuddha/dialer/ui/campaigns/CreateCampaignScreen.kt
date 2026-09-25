@@ -45,6 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hirebuddha.dialer.R
+import androidx.compose.ui.draw.alpha
 import com.hirebuddha.dialer.core.stringMap
 import com.hirebuddha.dialer.data.api.AgentDto
 import com.hirebuddha.dialer.data.api.ApiResult
@@ -88,6 +89,8 @@ class CreateCampaignViewModel @Inject constructor(private val repo: CampaignRepo
     var fileSize by mutableStateOf<Long?>(null); private set
     var uploading by mutableStateOf(false); private set
     var agents by mutableStateOf<List<AgentDto>>(emptyList()); private set
+    /** Uploads checked earlier and not yet used — a rep who backed out can pick up again. */
+    var recent by mutableStateOf<List<UploadReportDto>>(emptyList()); private set
     var reps by mutableStateOf<List<RepDto>>(emptyList()); private set
     var name by mutableStateOf("")
     var agentId by mutableStateOf<String?>(null)
@@ -102,6 +105,17 @@ class CreateCampaignViewModel @Inject constructor(private val repo: CampaignRepo
             ApiResult.Empty -> Unit
         }
         if (isAdmin) (repo.reps() as? ApiResult.Ok)?.let { reps = it.value }
+        recent = repo.recentUploads()
+    }
+
+    /** Skips the upload: the server still holds this report and its contacts for a day. */
+    fun reuse(upload: UploadReportDto) {
+        report = upload
+        fileName = upload.filename
+        fileSize = null
+        if (name.isBlank()) name = upload.filename?.substringBeforeLast('.').orEmpty()
+        error = null
+        step = 2
     }
 
     fun back() { if (step > 1) step-- }
@@ -282,6 +296,39 @@ private fun UploadStep(vm: CreateCampaignViewModel, onPick: () -> Unit) {
                     HbButtonSize.Small,
                     icon = R.drawable.ic_download,
                 )
+            }
+        }
+        if (vm.recent.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(4.dp))
+                Eyebrow("Recent", color = c.fgSubtle)
+                Spacer(Modifier.height(8.dp))
+                HbCard(Modifier.fillMaxWidth(), padding = 4.dp) {
+                    vm.recent.forEachIndexed { i, upload ->
+                        if (i > 0) Hairline()
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            HbIcon(R.drawable.ic_file, size = 18.dp, tint = c.fgSubtle)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    upload.filename ?: "Contacts",
+                                    style = MaterialTheme.typography.titleSmall, color = c.fg,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                                MicroText(
+                                    listOfNotNull(
+                                        com.hirebuddha.dialer.ui.common.shortDate(upload.createdAt)?.let { "Uploaded $it" },
+                                        "${upload.validRows} valid rows",
+                                    ).joinToString(" · "),
+                                )
+                            }
+                            HbButton("Reuse", { vm.reuse(upload) }, style = HbButtonStyle.Secondary, size = HbButtonSize.Small)
+                        }
+                    }
+                }
             }
         }
         vm.error?.let { item { MicroText(it, color = c.negative) } }
@@ -506,7 +553,7 @@ private fun ConfigureStep(vm: CreateCampaignViewModel, me: MeDto) {
                 HbCard(Modifier.fillMaxWidth(), padding = 4.dp) {
                     vm.reps.forEachIndexed { i, rep ->
                         if (i > 0) Hairline()
-                        RepRow(rep, rep.userId in vm.assignees, isMe = rep.userId == me.userId) {
+                        RepRow(rep, rep.userId in vm.assignees, isMe = rep.userId == me.userId, enabled = rep.canBeAssigned) {
                             vm.assignees =
                                 if (rep.userId in vm.assignees) vm.assignees - rep.userId
                                 else vm.assignees + rep.userId
@@ -557,10 +604,14 @@ private fun AgentCard(agent: AgentDto, selected: Boolean, onSelect: () -> Unit) 
 }
 
 @Composable
-private fun RepRow(rep: RepDto, checked: Boolean, isMe: Boolean, onToggle: () -> Unit) {
+private fun RepRow(rep: RepDto, checked: Boolean, isMe: Boolean, enabled: Boolean, onToggle: () -> Unit) {
     val c = HbTheme.colors
+    // Shown but not pickable: assigning work to a phone that cannot run it only moves the
+    // failure to the rep, later.
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 10.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onToggle)
+            .alpha(if (enabled) 1f else 0.5f)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -573,7 +624,13 @@ private fun RepRow(rep: RepDto, checked: Boolean, isMe: Boolean, onToggle: () ->
         Avatar(com.hirebuddha.dialer.ui.common.initialsOf(rep.name), size = 32.dp)
         Column(Modifier.weight(1f)) {
             Text(rep.name, style = MaterialTheme.typography.bodyLarge, color = c.fg, maxLines = 1)
-            MicroText(listOfNotNull("you".takeIf { isMe }, com.hirebuddha.dialer.ui.common.humanize(rep.role)).joinToString(" · "))
+            MicroText(
+                listOfNotNull(
+                    "you".takeIf { isMe },
+                    com.hirebuddha.dialer.ui.common.humanize(rep.role),
+                    when (rep.phoneVerified) { true -> "verified phone"; false -> "phone not verified yet"; null -> null },
+                ).joinToString(" · "),
+            )
         }
     }
 }
