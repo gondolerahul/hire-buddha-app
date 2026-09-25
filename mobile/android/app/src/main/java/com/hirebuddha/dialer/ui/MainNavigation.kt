@@ -57,10 +57,11 @@ object Routes {
     const val CREATE = "create"
     const val RUN = "run"
     const val CAMPAIGN = "campaign/{id}?filter={filter}"
-    const val CALL = "call?session={session}&attempt={attempt}&title={title}"
+    const val CALL = "call?session={session}&attempt={attempt}&title={title}&disposition={disposition}&agent={agent}"
     fun campaign(id: String, filter: String? = null) = "campaign/$id" + (filter?.let { "?filter=$it" } ?: "")
-    fun call(sessionId: String?, attemptId: String?, title: String?) =
-        "call?session=${sessionId.orEmpty()}&attempt=${attemptId.orEmpty()}&title=${Uri.encode(title.orEmpty())}"
+    fun call(sessionId: String?, attemptId: String?, title: String?, disposition: String? = null, agent: String? = null) =
+        "call?session=${sessionId.orEmpty()}&attempt=${attemptId.orEmpty()}&title=${Uri.encode(title.orEmpty())}" +
+            "&disposition=${Uri.encode(disposition.orEmpty())}&agent=${Uri.encode(agent.orEmpty())}"
 }
 
 @Composable
@@ -112,7 +113,9 @@ fun MainNavigation(
                 meId = me.userId,
                 onBack = { nav.popBackStack() },
                 onOpenRun = { nav.navigate(Routes.RUN) { launchSingleTop = true } },
-                onOpenCall = { session, attempt, title -> nav.navigate(Routes.call(session, attempt, title)) },
+                onOpenCall = { session, attempt, title, disposition, agent ->
+                    nav.navigate(Routes.call(session, attempt, title, disposition, agent))
+                },
             )
         }
         // The run is a destination, not a tab: it is reachable from Today, the campaign
@@ -132,12 +135,16 @@ fun MainNavigation(
                 navArgument("session") { type = NavType.StringType; defaultValue = "" },
                 navArgument("attempt") { type = NavType.StringType; defaultValue = "" },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("disposition") { type = NavType.StringType; defaultValue = "" },
+                navArgument("agent") { type = NavType.StringType; defaultValue = "" },
             ),
         ) { entry ->
             CallDetailScreen(
                 sessionId = entry.arguments?.getString("session")?.ifBlank { null },
                 attemptId = entry.arguments?.getString("attempt")?.ifBlank { null },
                 title = entry.arguments?.getString("title")?.ifBlank { null } ?: "Call",
+                disposition = entry.arguments?.getString("disposition")?.ifBlank { null },
+                agentName = entry.arguments?.getString("agent")?.ifBlank { null },
                 onBack = { nav.popBackStack() },
             )
         }

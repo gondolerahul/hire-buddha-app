@@ -238,7 +238,7 @@ import kotlinx.serialization.json.JsonObject
 
 @Serializable data class CallsPageDto(val total: Int, val items: List<CallItemDto>)
 
-@Serializable data class TranscriptTurnDto(val speaker: String, val content: String)
+@Serializable data class TranscriptTurnDto(val speaker: String, val content: String, val timestamp: String? = null)
 
 @Serializable data class VoiceSessionDto(
     val id: String,
@@ -248,6 +248,7 @@ import kotlinx.serialization.json.JsonObject
     val transcript: List<TranscriptTurnDto> = emptyList(),
     @SerialName("call_summary") val callSummary: String? = null,
     @SerialName("recording_url") val recordingUrl: String? = null,
+    @SerialName("recording_file_name") val recordingFileName: String? = null,
     @SerialName("next_action") val nextAction: String? = null,
 )
 

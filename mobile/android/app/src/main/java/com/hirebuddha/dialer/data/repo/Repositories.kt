@@ -46,6 +46,8 @@ import okhttp3.RequestBody
 import okio.BufferedSink
 import okio.source
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 @Singleton
 class DeviceRepository @Inject constructor(
@@ -129,6 +131,21 @@ class CampaignRepository @Inject constructor(private val api: HireBuddhaApi) {
         apiCall { api.campaignCalls(campaignId, disposition, status, includePending.takeIf { it }, CALLS_PAGE, offset) }
 
     suspend fun voiceSession(id: String): ApiResult<VoiceSessionDto> = apiCall { api.voiceSession(id) }
+
+    /**
+     * Fetches a call recording to [dest]. Through the API client rather than a player's
+     * own HTTP stack, so an expired token is refreshed instead of failing silently.
+     */
+    suspend fun downloadRecording(path: String, dest: java.io.File): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val response = api.download(path)
+            val body = response.body()
+            if (!response.isSuccessful || body == null) return@runCatching false
+            dest.parentFile?.mkdirs()
+            body.byteStream().use { input -> dest.outputStream().use { input.copyTo(it) } }
+            true
+        }.getOrDefault(false)
+    }
     suspend fun timeline(attemptId: String): ApiResult<TimelineDto> = apiCall { api.timeline(attemptId) }
 
     /**

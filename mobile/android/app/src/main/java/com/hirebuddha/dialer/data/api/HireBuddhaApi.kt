@@ -1,6 +1,7 @@
 package com.hirebuddha.dialer.data.api
 
 import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -11,6 +12,8 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
+import retrofit2.http.Url
 
 /** Paths are relative to `<server>/api/v1/`. */
 interface HireBuddhaApi {
@@ -64,6 +67,9 @@ interface HireBuddhaApi {
         @Query("to") to: String? = null,
         @Query("user_id") userId: String? = null,
     ): Response<AnalyticsDto>
+
+    /** A server-relative file such as a call recording, streamed rather than buffered. */
+    @Streaming @GET suspend fun download(@Url path: String): Response<ResponseBody>
 
     @GET("streaming/voice-sessions/{id}") suspend fun voiceSession(@Path("id") sessionId: String): Response<VoiceSessionDto>
 

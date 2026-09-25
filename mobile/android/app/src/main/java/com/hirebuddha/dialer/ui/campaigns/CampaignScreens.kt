@@ -484,7 +484,7 @@ fun CampaignDetailScreen(
     initialFilter: String? = null,
     onBack: () -> Unit,
     onOpenRun: () -> Unit,
-    onOpenCall: (sessionId: String?, attemptId: String?, title: String?) -> Unit,
+    onOpenCall: (sessionId: String?, attemptId: String?, title: String?, disposition: String?, agent: String?) -> Unit,
     vm: CampaignDetailViewModel = hiltViewModel(),
 ) {
     val c = HbTheme.colors
@@ -575,7 +575,12 @@ fun CampaignDetailScreen(
                         }
                     }
                     items(vm.calls, key = { it.campaignCallId }) { call ->
-                        CallRow(call) { onOpenCall(call.voiceSessionId, call.attemptId, call.contactName ?: call.phoneMasked) }
+                        CallRow(call) {
+                            onOpenCall(
+                                call.voiceSessionId, call.attemptId, call.contactName ?: call.phoneMasked,
+                                call.disposition ?: call.leadFailureCause ?: call.callStatus, campaign.agentName,
+                            )
+                        }
                     }
                     if (vm.calls.size < vm.callsTotal) {
                         item(key = "more") {
