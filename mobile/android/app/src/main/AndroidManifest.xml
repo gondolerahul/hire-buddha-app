@@ -79,6 +79,11 @@
             </intent-filter>
         </service>
 
+        <!-- Answer / Decline on the incoming-call notification -->
+        <receiver
+            android:name=".telecom.IncomingCallActionReceiver"
+            android:exported="false" />
+
         <service
             android:name=".run.RunService"
             android:exported="false"

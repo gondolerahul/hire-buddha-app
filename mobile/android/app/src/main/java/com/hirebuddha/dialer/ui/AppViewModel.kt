@@ -49,6 +49,7 @@ class AppViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         _state.value = AppState.Loading
         val update = session.checkForUpdate()
+        update?.let { com.hirebuddha.dialer.data.notify.AppNotifications.notifyUpdateOnce(context, it) }
         if (update?.updateRequired == true) {
             _state.value = AppState.UpdateRequired(update)
             return@launch

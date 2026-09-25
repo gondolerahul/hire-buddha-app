@@ -35,6 +35,7 @@ class HireBuddhaApp : Application(), Configuration.Provider {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_CALLS, getString(R.string.channel_calls), NotificationManager.IMPORTANCE_HIGH)
         )
+        com.hirebuddha.dialer.data.notify.AppNotifications.createChannels(this)
     }
 
     companion object {

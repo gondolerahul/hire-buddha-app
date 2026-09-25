@@ -6,6 +6,7 @@ import android.content.Intent
 import android.telecom.Call
 import android.telecom.InCallService
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import com.hirebuddha.dialer.HireBuddhaApp
 import com.hirebuddha.dialer.R
 import com.hirebuddha.dialer.data.api.LeadLookupDto
@@ -92,8 +93,20 @@ class HbInCallService : InCallService() {
     private fun showIncomingCall(number: String?, lead: LeadLookupDto?) {
         val intent = Intent(this, InCallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val pending = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        // CallStyle gives the heads-up real Answer and Decline buttons, so a rep in another
+        // app can take or refuse the call without opening anything.
+        val caller = Person.Builder()
+            .setName(lead?.contactName ?: number ?: "Unknown number")
+            .setImportant(lead != null)
+            .build()
         val notification = NotificationCompat.Builder(this, HireBuddhaApp.CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_notification)
+            .setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(
+                    caller, callAction(IncomingCallActionReceiver.ACTION_DECLINE, 11),
+                    callAction(IncomingCallActionReceiver.ACTION_ANSWER, 12),
+                )
+            )
             .setContentTitle(lead?.contactName ?: number ?: "Incoming call")
             .setContentText(
                 when {
@@ -111,6 +124,12 @@ class HbInCallService : InCallService() {
             .build()
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_INCOMING, notification)
     }
+
+    private fun callAction(action: String, requestCode: Int): PendingIntent = PendingIntent.getBroadcast(
+        this, requestCode,
+        Intent(this, IncomingCallActionReceiver::class.java).setAction(action),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private companion object {
         const val NOTIFICATION_INCOMING = 42

@@ -81,6 +81,7 @@ private val IST: ZoneId = ZoneId.of("Asia/Kolkata")
 
 @HiltViewModel
 class TodayViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     private val repo: CampaignRepository,
     private val settings: AppSettings,
     val run: RunController,
@@ -102,6 +103,7 @@ class TodayViewModel @Inject constructor(
         preflight = repo.preflight(deviceId = settings.current().deviceId)
         (repo.campaigns() as? ApiResult.Ok)?.let { campaigns = it.value }
         callbacks = repo.callbacks(withinHours = 24)
+        com.hirebuddha.dialer.data.notify.AppNotifications.scheduleCallbackReminders(context, callbacks)
         refreshOrphan()
         loading = false
     }
