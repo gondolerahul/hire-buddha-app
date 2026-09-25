@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.models import User
-from src.mobile.contact_parser import ContactFileError, parse_contact_file, validate_contacts
+from src.mobile.contact_parser import PREVIEW_ROWS, ContactFileError, parse_contact_file, validate_contacts
 from src.mobile.models import CampaignAssignee, ContactUpload
 from src.mobile.service import MOBILE_ROLES
 
@@ -60,6 +60,41 @@ async def store_contact_upload(db: AsyncSession, user: User, file: UploadFile) -
         "preview": report.preview,
         "expires_at": upload.expires_at.isoformat() + "Z",
     }
+
+
+async def recent_uploads(db: AsyncSession, user: User, limit: int = 5) -> List[Dict[str, Any]]:
+    """This user's uploads that can still become a campaign: not used, not expired.
+
+    Backs "Recent · Reuse" on the app's first create step. An upload is single-use and
+    kept for a day, so this is the file a rep checked and backed out of, not history.
+    """
+    rows = (await db.execute(
+        select(ContactUpload)
+        .where(
+            ContactUpload.uploaded_by == user.id,
+            ContactUpload.company_id == user.company_id,
+            ContactUpload.consumed_at.is_(None),
+            ContactUpload.expires_at > datetime.utcnow(),
+            ContactUpload.valid_rows > 0,
+        )
+        .order_by(ContactUpload.created_at.desc())
+        .limit(limit)
+    )).scalars().all()
+    return [{
+        "upload_id": str(u.id),
+        "filename": u.filename,
+        "created_at": u.created_at.isoformat() + "Z",
+        "file_type": u.file_type,
+        "total_rows": u.total_rows,
+        "valid_rows": u.valid_rows,
+        "invalid_rows": u.invalid_rows,
+        "duplicate_rows": u.duplicate_rows,
+        "columns": u.columns or [],
+        "phone_column": u.phone_column,
+        "errors": u.errors or [],
+        "preview": (u.valid_contacts or [])[:PREVIEW_ROWS],
+        "expires_at": u.expires_at.isoformat() + "Z",
+    } for u in rows]
 
 
 async def prepare_campaign_contacts(

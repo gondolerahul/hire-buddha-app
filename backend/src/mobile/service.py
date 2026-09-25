@@ -294,13 +294,21 @@ async def list_voice_agents(db: AsyncSession, user: User) -> List[Dict[str, Any]
 
 
 async def list_company_reps(db: AsyncSession, user: User) -> List[Dict[str, Any]]:
+    # A rep without a verified phone cannot run a campaign; the app shows them but
+    # will not let an admin hand them work (wireframe 12).
+    verified = (
+        select(UserDevice.id)
+        .where(UserDevice.user_id == User.id, UserDevice.status == DEVICE_VERIFIED)
+        .exists()
+    )
     rows = (await db.execute(
-        select(User.id, User.full_name, User.email, User.role)
+        select(User.id, User.full_name, User.email, User.role, verified.label("phone_verified"))
         .where(User.company_id == user.company_id, User.is_active == True,  # noqa: E712
                User.role.in_(MOBILE_ROLES))
         .order_by(User.full_name)
     )).all()
-    return [{"user_id": r.id, "name": r.full_name, "email": r.email, "role": r.role} for r in rows]
+    return [{"user_id": r.id, "name": r.full_name, "email": r.email, "role": r.role,
+             "phone_verified": bool(r.phone_verified)} for r in rows]
 
 
 async def set_campaign_assignees(db: AsyncSession, user: User, campaign_id: UUID,

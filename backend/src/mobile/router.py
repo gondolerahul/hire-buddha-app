@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.common.database import get_db
-from src.mobile import service
+from src.mobile import campaign_setup, service
 from src.mobile.service import MobileError
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,11 @@ async def mobile_user(user: User = Depends(get_current_user)) -> User:
         raise HTTPException(status_code=403, detail={
             "code": "role_not_supported",
             "message": "The mobile app is for tenant admins and tenant users. Please use the web app.",
+            # Lets the app's role gate say whose account this is and what it is, rather
+            # than a bare sentence (wireframe 03). Only the caller's own details.
+            "role": user.role,
+            "full_name": user.full_name,
+            "email": user.email,
         })
     return user
 
@@ -360,6 +365,12 @@ async def get_callbacks(
     """Leads this rep promised to call back, soonest first."""
     items = await service.callbacks_due(db, user, within_hours=within_hours, limit=limit)
     return {"total": len(items), "items": items}
+
+
+@router.get("/uploads/recent")
+async def recent_uploads(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+    """Contact uploads this user can still turn into a campaign (unused, unexpired)."""
+    return {"uploads": await campaign_setup.recent_uploads(db, user)}
 
 
 @router.get("/leads/lookup")
