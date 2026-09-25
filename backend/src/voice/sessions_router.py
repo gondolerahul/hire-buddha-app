@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc
+from sqlalchemy import select, and_, desc, or_
 from uuid import UUID
 from typing import Optional
 from datetime import datetime, timedelta
@@ -277,10 +277,13 @@ async def get_voice_session(
                 logger.warning(f"Summary generation failed for session {session_id}: {_se}")
 
         
-        # Fetch associated recording artifacts — try three strategies:
+        # Fetch the session's recording artifact:
         # 1) session_id in artifact_metadata (preferred)
-        # 2) call_sid in artifact_metadata (Twilio saves by call_sid)
-        # 3) Nearest 'recordings' artifact for this company around session time (fallback)
+        # 2) call_sid in artifact_metadata, unless the artifact is tagged with another session
+        # There is deliberately no time-proximity fallback: every call-recording writer
+        # (websocket_handler, Twilio and Tata webhooks) tags session_id, so an untagged
+        # nearby artifact is always another call's recording or a manual upload, and
+        # returning it would play one lead's conversation on another lead's call.
         recording_artifact = None
         try:
             # Strategy 1: session_id match
@@ -299,23 +302,14 @@ async def get_voice_session(
                     select(Artifact).where(
                         Artifact.company_id == current_user.company_id,
                         Artifact.file_category.in_(["recordings", "recording", "audio"]),
-                        Artifact.artifact_metadata["call_sid"].as_string() == str(session.call_sid)
+                        Artifact.artifact_metadata["call_sid"].as_string() == str(session.call_sid),
+                        or_(
+                            Artifact.artifact_metadata["session_id"].as_string().is_(None),
+                            Artifact.artifact_metadata["session_id"].as_string() == str(session_id),
+                        ),
                     ).order_by(Artifact.created_at.desc()).limit(1)
                 )
                 recording_artifact = r2.scalar_one_or_none()
-
-            # Strategy 3: proximity — any recording artifact near the session start time
-            if not recording_artifact and session.started_at:
-                from datetime import timedelta as _td
-                r3 = await db.execute(
-                    select(Artifact).where(
-                        Artifact.company_id == current_user.company_id,
-                        Artifact.file_category.in_(["recordings", "recording", "audio"]),
-                        Artifact.created_at >= session.started_at - _td(minutes=1),
-                        Artifact.created_at <= (session.ended_at or session.started_at) + _td(minutes=5)
-                    ).order_by(Artifact.created_at.desc()).limit(1)
-                )
-                recording_artifact = r3.scalar_one_or_none()
         except Exception as _re:
             logger.warning(f"Recording lookup failed: {_re}")
             recording_artifact = None
