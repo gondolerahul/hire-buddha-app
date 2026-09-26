@@ -142,6 +142,8 @@ class BaseStreamHandler:
         self.mobile = None
         # Frames left before the mobile noise gate closes (_process_incoming_audio).
         self._noise_gate_open_frames = 0
+        # Gemini's VAD says the lead is mid-utterance since then (None = not).
+        self._lead_turn_started_at = None
 
     # ------------------------------------------------------------------
     # Recording helpers (P0.4)
@@ -676,6 +678,16 @@ class BaseStreamHandler:
                     if audio_data:
                         await self._play_model_audio(audio_data)
 
+                    # ── 1b. The model's VAD: is the lead mid-utterance? ──────
+                    voice_activity = getattr(response, "voice_activity", None)
+                    activity = getattr(voice_activity, "voice_activity_type", None)
+                    if activity is not None:
+                        kind = getattr(activity, "value", str(activity))
+                        if kind == "ACTIVITY_START":
+                            self._lead_turn_started_at = time.time()
+                        elif kind == "ACTIVITY_END":
+                            self._lead_turn_started_at = None
+
                     # ── 2. Transcription & Interruption ───────────────────────
                     if response.server_content:
                         sc = response.server_content
@@ -885,6 +897,7 @@ class BaseStreamHandler:
                     user_speech_end_time=self._user_speech_end_time,
                     silence_winddown_at=self._silence_winddown_at,
                     agent_stall_nudge_at=self._agent_stall_nudge_at,
+                    lead_turn_started_at=self._lead_turn_started_at,
                     voicemail_detection_enabled=settings.VOICEMAIL_DETECTION_ENABLED,
                 )
                 action = evaluate_activity(state, settings)

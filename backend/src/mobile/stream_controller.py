@@ -567,6 +567,7 @@ class MobileCallController:
         h._last_strong_speech_at = None
         h._last_lead_transcript_at = None
         h._user_speech_end_time = None
+        h._lead_turn_started_at = None
         h._pipeline_started_at = self.merged_at
 
         if prerolled:

@@ -27,6 +27,7 @@ CFG = SimpleNamespace(
     VOICE_SILENCE_GRACE_SECONDS=20,
     VOICE_AGENT_STALL_SECONDS=10,
     VOICE_AGENT_STALL_DISCONNECT=False,
+    VOICE_LEAD_TURN_MAX_SECONDS=25,
 )
 
 
@@ -339,6 +340,29 @@ class TestAgentStall:
             last_lead_transcript_at=None,
             last_agent_audio_at=80.0,
             last_lead_speech_at=85.0,
+        )
+        assert evaluate_activity(state, CFG) == "agent_stall_nudge"
+
+    def test_no_nudge_while_the_model_hears_a_long_answer(self):
+        # Regression (26 Sep): the lead described their family and budget for
+        # ~15 s; the agent was listening, but 4b told it to "reply now".
+        state = self._stall_state(
+            user_speech_end_time=None,
+            last_lead_transcript_at=None,
+            last_lead_speech_at=99.5,
+            last_agent_audio_at=85.0,
+            lead_turn_started_at=86.0,   # Gemini: utterance in progress
+        )
+        assert evaluate_activity(state, CFG) is None
+
+    def test_nudge_when_the_utterance_never_closes(self):
+        # "hello ... hello" the model keeps open past the cap: still rescued.
+        state = self._stall_state(
+            user_speech_end_time=None,
+            last_lead_transcript_at=None,
+            last_lead_speech_at=99.5,
+            last_agent_audio_at=70.0,
+            lead_turn_started_at=72.0,   # 28 s open
         )
         assert evaluate_activity(state, CFG) == "agent_stall_nudge"
 

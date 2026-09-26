@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # (tool calls legitimately exceed this window).
     VOICE_AGENT_STALL_SECONDS: int = 10
     VOICE_AGENT_STALL_DISCONNECT: bool = False
+    # While Gemini reports the lead mid-utterance (voice_activity START with no
+    # END yet) the agent is listening, not stalled: the "lead keeps talking,
+    # agent silent" nudge holds off for up to this long. A lead answering at
+    # length got told-off nudges ("reply now") mid-sentence; past the cap the
+    # nudge fires anyway, for an utterance the model never closes.
+    VOICE_LEAD_TURN_MAX_SECONDS: int = 25
     # RMS threshold on 16-bit PCM inbound audio above which the lead counts
     # as speaking (μ-law frames flow continuously even in silence).
     VOICE_VAD_RMS_THRESHOLD: int = 300

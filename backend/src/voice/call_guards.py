@@ -167,6 +167,8 @@ class ActivityState:
     silence_winddown_at: Optional[float] = None
     agent_stall_nudge_at: Optional[float] = None
     voicemail_detection_enabled: bool = True
+    # Gemini's own VAD: set on ACTIVITY_START, cleared on ACTIVITY_END.
+    lead_turn_started_at: Optional[float] = None
 
 
 def evaluate_activity(state: ActivityState, cfg) -> Optional[str]:
@@ -262,8 +264,15 @@ def evaluate_activity(state: ActivityState, cfg) -> Optional[str]:
     # "hello? hello?" never goes quiet, so the stall clock above never
     # starts — yet the agent has been dead air the whole time (observed
     # 26s of it). A brief "I'm still here" nudge is the right recovery.
+    # Not while the model itself hears one utterance in progress: that is a
+    # lead answering at length, and "reply now" made the agent cut in.
+    lead_mid_utterance = (
+        state.lead_turn_started_at is not None
+        and now - state.lead_turn_started_at < getattr(cfg, "VOICE_LEAD_TURN_MAX_SECONDS", 0)
+    )
     if (
-        state.first_audio_received
+        not lead_mid_utterance
+        and state.first_audio_received
         and state.agent_stall_nudge_at is None
         and state.last_agent_audio_at
         and state.last_lead_speech_at
