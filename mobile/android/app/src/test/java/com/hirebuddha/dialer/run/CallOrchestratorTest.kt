@@ -44,6 +44,11 @@ class FakeCalls(private val scope: CoroutineScope, private val push: FakePush) :
     /** Merge requests that telecom silently ignores before it finally works. */
     var mergeAttemptsBeforeSuccess = 0
     var conferenceCalls = 0
+    /** IMS builds the conference over this long, adding its legs first (as Jio does). */
+    var mergeBuildMs = 0L
+    private var building = false
+    /** Merge requests made while a conference was already being built. */
+    var requestsWhileBuilding = 0
     /** Which push the "gateway" sends after the DTMF token arrives. */
     var readyPush: String? = "attempt.ai_ready"
     var aiEndsAfterMergeMs: Long? = 20_000
@@ -84,6 +89,18 @@ class FakeCalls(private val scope: CoroutineScope, private val push: FakePush) :
         if (action == ConferenceStrategy.Action.IMPOSSIBLE) return ConferenceResult(action, "gone")
         // telecom accepts the request but nothing happens
         if (!mergeWorks || conferenceCalls <= mergeAttemptsBeforeSuccess) return ConferenceResult(action)
+        if (building) { requestsWhileBuilding++; return ConferenceResult(action) }
+        if (mergeBuildMs > 0) {
+            building = true
+            state.update { it + CallSnapshot("leg${++n}", DID, CallState.NEW, outgoing = true) }
+            scope.launch { delay(mergeBuildMs); building = false; completeConference(callId, otherCallId) }
+            return ConferenceResult(action)
+        }
+        completeConference(callId, otherCallId)
+        return ConferenceResult(action)
+    }
+
+    private fun completeConference(callId: String, otherCallId: String) {
         val conf = "conf${++n}"
         state.update { list ->
             val legs = list.map {
@@ -109,7 +126,6 @@ class FakeCalls(private val scope: CoroutineScope, private val push: FakePush) :
                 set(conf) { s -> s.copy(state = CallState.DISCONNECTED) }
             }
         }
-        return ConferenceResult(action)
     }
 
     private fun factsFor(id: String, otherId: String): ConferenceStrategy.CallFacts {
@@ -156,6 +172,10 @@ class FakePush : PushEvents {
 
 class FakeBackend : DialerBackend {
     val events = mutableListOf<Pair<String, Map<String, String>>>()
+    /** Everything sent, in order: "signal:x" for push-socket signals, the type for events. */
+    val sent = mutableListOf<String>()
+    val sentAt = mutableMapOf<String, Long>()
+    var now: () -> Long = { 0L }
     val leads = ArrayDeque<Lead>()
     var ackUrgent = true
     var status: String? = null
@@ -168,7 +188,14 @@ class FakeBackend : DialerBackend {
 
     override suspend fun event(attemptId: String, type: String, payload: Map<String, String>, urgent: Boolean): Boolean {
         events += type to payload
+        sent += type
+        sentAt.putIfAbsent(type, now())
         return if (urgent) ackUrgent else true
+    }
+
+    override suspend fun signal(attemptId: String, type: String): Boolean {
+        sent += "signal:$type"
+        return true
     }
 
     override suspend fun attemptStatus(attemptId: String) = status
@@ -182,6 +209,10 @@ private class Harness(scope: TestScope) {
     val calls = FakeCalls(scope.backgroundScope, push)
     val backend = FakeBackend()
     val orchestrator = CallOrchestrator(calls, backend, push, clock = { scope.testScheduler.currentTime })
+
+    init {
+        backend.now = { scope.testScheduler.currentTime }
+    }
 }
 
 class CallOrchestratorTest {
@@ -333,6 +364,35 @@ class CallOrchestratorTest {
         assertEquals(LeadOutcome.Completed("conversation_complete"), outcome)
         assertTrue("expected more than one merge request", h.calls.conferenceCalls >= 3)
         assertTrue(h.backend.types().contains("merged"))
+    }
+
+    @Test
+    fun `the AI leg hears lead answered and merged over the socket before the events`() = runTest {
+        val h = Harness(this)
+        h.orchestrator.runLead("run1", "dev1", lead(), config)
+        val sent = h.backend.sent
+        assertTrue(sent.indexOf("signal:lead_answered") in 0 until sent.indexOf("lead_answered"))
+        assertTrue(sent.indexOf("signal:merged") in 0 until sent.indexOf("merged"))
+    }
+
+    @Test
+    fun `an ignored first merge request is retried within a second`() = runTest {
+        val h = Harness(this)
+        h.calls.mergeAttemptsBeforeSuccess = 1  // what Samsung + Jio does on every call
+        h.orchestrator.runLead("run1", "dev1", lead(), config)
+        val waited = h.backend.sentAt.getValue("merged") - h.backend.sentAt.getValue("lead_answered")
+        assertTrue("merge took ${waited} ms", waited <= 1_100)
+        assertEquals(2, h.calls.conferenceCalls)
+    }
+
+    @Test
+    fun `a conference being built is waited for, not requested again`() = runTest {
+        val h = Harness(this)
+        h.calls.mergeBuildMs = 2_500
+        val outcome = h.orchestrator.runLead("run1", "dev1", lead(), config)
+        assertEquals(LeadOutcome.Completed("conversation_complete"), outcome)
+        assertEquals(0, h.calls.requestsWhileBuilding)
+        assertEquals(1, h.calls.conferenceCalls)
     }
 
     @Test

@@ -31,7 +31,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 class ApiDialerBackend(
     private val api: HireBuddhaApi,
     private val outbox: EventOutbox,
+    private val push: PushClient,
 ) : DialerBackend {
+
+    override suspend fun signal(attemptId: String, type: String): Boolean = push.signal(attemptId, type)
 
     override suspend fun nextLead(runId: String): LeaseResult = when (val r = apiCall { api.nextLead(runId) }) {
         is ApiResult.Ok -> {
@@ -91,7 +94,7 @@ class RunController @Inject constructor(
     private val logs: com.hirebuddha.dialer.data.logs.LogRepository,
     private val campaigns: com.hirebuddha.dialer.data.repo.CampaignRepository,
 ) {
-    private val orchestrator = CallOrchestrator(registry, ApiDialerBackend(api, outbox), push)
+    private val orchestrator = CallOrchestrator(registry, ApiDialerBackend(api, outbox, push), push)
     val state: StateFlow<RunUiState> = orchestrator.state
     private var job: Job? = null
 

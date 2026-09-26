@@ -81,6 +81,21 @@ class PushClient @Inject constructor(
         _connected.value = false
     }
 
+    /**
+     * Sends a call signal to the gateway over the open socket (lead_answered, merged).
+     * False when the socket is not authenticated; the caller's HTTP event is the fallback.
+     */
+    fun signal(attemptId: String, signal: String): Boolean {
+        val ws = socket ?: return false
+        if (!_connected.value) return false
+        val msg = buildJsonObject {
+            put("type", "signal")
+            put("signal", signal)
+            put("attempt_id", attemptId)
+        }
+        return ws.send(msg.toString())
+    }
+
     private suspend fun connectOnce(): Boolean {
         val prefs = settings.current()
         return openSocket(prefs.pushWsUrl, prefs.deviceId)

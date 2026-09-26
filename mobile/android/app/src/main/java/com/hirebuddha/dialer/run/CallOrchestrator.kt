@@ -360,6 +360,8 @@ class CallOrchestrator(
                 return setupFailed(aid, "ai_failed", "ai_dropped_while_ringing", "The AI call dropped while the lead was ringing.")
             }
         }
+        // The gateway starts the greeting now, so it plays the instant the merge lands.
+        backend.signal(aid, "lead_answered")
         backend.event(aid, "lead_answered")
         _state.update { it.copy(leadAnswered = it.leadAnswered + 1) }
 
@@ -379,6 +381,9 @@ class CallOrchestrator(
         DialerLog.i(TAG, "Merged", "conference" to conferenceId, "lead_call" to leadCall, "ai_call" to aiCall)
         calls.setMuted(true)  // D4: rep is muted by default
         _state.update { it.copy(muted = true, conversationStartedAt = clock(), step = Step.IN_CONVERSATION) }
+        // Every second here is dead air for the lead. The socket is already open; an
+        // HTTP POST after a few idle seconds pays for a new connection (1-2 s on mobile).
+        backend.signal(aid, "merged")
         val acked = backend.event(aid, "merged", urgent = true)
         if (!acked) {
             // No data connection: tell the gateway over the call itself (the lead hears one short beep).
@@ -397,6 +402,7 @@ class CallOrchestrator(
      */
     private suspend fun mergeWithRetries(aid: String, leadCall: String, aiCall: String, config: OrchestratorConfig): String? {
         val deadline = clock() + config.mergeTimeoutMs
+        val before = calls.calls.value.map { it.id }.toSet()
         var attempt = 0
         while (clock() < deadline) {
             attempt++
@@ -408,8 +414,14 @@ class CallOrchestrator(
                 DialerLog.w(TAG, "Merge impossible", "attempt" to attempt, "error" to result.error)
                 return null
             }
-            val confirmed = awaitMerged(leadCall, aiCall, MERGE_CONFIRM_MS)
+            val confirmed = awaitMerged(leadCall, aiCall, MERGE_RETRY_MS)
             if (confirmed != null) return confirmed
+            if (calls.calls.value.any { it.id !in before }) {
+                // New legs appeared: the network is building the conference. Asking
+                // again now could knock it over, so wait it out instead.
+                DialerLog.i(TAG, "Merge underway; waiting for it", "attempt" to attempt)
+                return awaitMerged(leadCall, aiCall, (deadline - clock()).coerceAtLeast(0))
+            }
             DialerLog.w(TAG, "Merge not confirmed yet; retrying", "attempt" to attempt, "action" to result.action)
         }
         return null
@@ -690,8 +702,14 @@ class CallOrchestrator(
 
     private companion object {
         const val TAG = "Orchestrator"
-        /** How long to wait for telecom to confirm one merge request before retrying. */
-        const val MERGE_CONFIRM_MS = 2_000L
+        /**
+         * How long to wait for telecom to confirm one merge request before asking again.
+         * Samsung + Jio ignores a request made the instant the lead answers and takes the
+         * next one; this used to be 2 s, all of it silence for a lead who just said hello.
+         * Not shorter: the conference legs of a request that did take appear up to ~0.85 s
+         * later, and a retry inside that window would land on a merge in progress.
+         */
+        const val MERGE_RETRY_MS = 1_000L
         /** Enough for the rep to follow the thread; the full transcript lives server-side. */
         const val MAX_TRANSCRIPT_TURNS = 40
         /** Minimum time the wrap-up sheet stays up, even when the gap is set to zero. */

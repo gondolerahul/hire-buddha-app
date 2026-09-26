@@ -23,6 +23,11 @@ interface DialerBackend {
     suspend fun createAttempt(runId: String, campaignCallId: String, deviceId: String): AttemptResult
     /** Persists and sends an event; returns true once the server acknowledged it. */
     suspend fun event(attemptId: String, type: String, payload: Map<String, String> = emptyMap(), urgent: Boolean = false): Boolean
+    /**
+     * Tells the AI leg now, over the open push socket; the matching [event] still records
+     * it. False when the socket is down. Only for moments the lead is waiting on.
+     */
+    suspend fun signal(attemptId: String, type: String): Boolean = false
     suspend fun attemptStatus(attemptId: String): String?
 }
 
