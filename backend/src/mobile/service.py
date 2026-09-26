@@ -702,7 +702,7 @@ async def attempt_detail(db: AsyncSession, user: User, attempt_id: UUID) -> Dict
 
 INFO_EVENTS = {
     "lease_acquired", "attempt_created", "ai_dialing", "dtmf_sent", "ai_ready_received",
-    "ai_held", "lead_ringing", "rep_muted", "rep_unmuted",
+    "ai_held", "lead_ringing", "rep_muted", "rep_unmuted", "merge_requested",
 }
 TERMINAL_EVENTS = {"completed", "rep_hangup", "lead_disconnected", "ai_disconnected"}
 KNOWN_EVENTS = INFO_EVENTS | TERMINAL_EVENTS | {
@@ -803,6 +803,10 @@ async def _apply_event(db: AsyncSession, attempt: MobileCallAttempt, etype: str,
         attempt.lead_answered_at = attempt.lead_answered_at or now
         if attempt.lead_dialed_at:
             attempt.lead_ring_seconds = int((attempt.lead_answered_at - attempt.lead_dialed_at).total_seconds())
+        # The app also sends this over its push socket, which is faster; the gateway
+        # acts on whichever arrives first (it pre-rolls the greeting).
+        if is_open and session_id:
+            await realtime.publish_session_control(session_id, "lead_answered", attempt_id=attempt.id)
     elif etype == "merged":
         if is_open and attempt.status != ATTEMPT_MERGED:
             attempt.status = ATTEMPT_MERGED

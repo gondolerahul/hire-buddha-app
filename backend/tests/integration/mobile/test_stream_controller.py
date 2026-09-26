@@ -71,6 +71,11 @@ class StubHandler:
         self._last_lead_transcript_at = self._user_speech_end_time = None
         self._pipeline_started_at = self._greeting_sent_at = None
 
+        self.played = []
+
+    async def _play_model_audio(self, audio):
+        self.played.append(audio)
+
     def _terminate_call(self, reason, disposition=None):
         self._termination_reason = reason
         self.is_running = False
@@ -230,6 +235,40 @@ async def test_ready_merge_greeting_and_cleanup(api, world, db, fast_timeouts):
     await ctl.on_cleanup()
     row = await db.get(MobileCallAttempt, attempt["attempt_id"], populate_existing=True)
     assert row.status == "completed" and row.conversation_seconds is not None
+
+
+async def test_lead_answered_event_pre_rolls_the_greeting(api, world, db, fast_timeouts):
+    attempt, lease, session = await bound_call(api, world, db)
+    handler = StubHandler(session, FakeProviderSocket([start_event()]))
+    ctl = MobileCallController(handler)
+    await ctl.pre_model_phase()
+    await ctl.on_model_connected()
+    listener = asyncio.create_task(ctl.control_listener())
+    await asyncio.sleep(0.3)
+
+    url = f"/api/v1/mobile/call-attempts/{attempt['attempt_id']}/events"
+    r = await api.as_user(world.rep).post(url, json={"events": [
+        {"seq": 1, "type": "lead_answered"}, {"seq": 2, "type": "merge_requested", "payload": {"attempt": "1"}},
+    ]})
+    assert r.status_code == 200 and r.json()["accepted"] == [1, 2]
+    for _ in range(50):
+        if ctl.greeting_prerolled_at:
+            break
+        await asyncio.sleep(0.1)
+    assert ctl.greeting_prerolled_at and not ctl.merged
+    ctl.hold_model_audio(b"greeting")
+
+    r = await api.as_user(world.rep).post(url, json={"events": [{"seq": 3, "type": "merged"}]})
+    assert r.status_code == 200
+    for _ in range(50):
+        if ctl.merged:
+            break
+        await asyncio.sleep(0.1)
+    assert handler.played == [b"greeting"]
+    assert len(handler.gemini_session.texts) == 1  # greeted once, before the merge
+    handler.is_running = False
+    listener.cancel()
+    ctl._lead_audio_task.cancel()
 
 
 async def test_cleanup_before_merge_returns_lead(api, world, db, fast_timeouts):

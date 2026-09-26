@@ -5,6 +5,10 @@ Protocol:
   client -> {"type": "auth", "access_token": "...", "device_id": "uuid"}   (within 5 s)
   server -> {"type": "auth.ok"} then pushes; {"type": "ping"} every 20 s
   client -> {"type": "pong"}; silence for 60 s closes the socket
+  client -> {"type": "signal", "signal": "lead_answered" | "merged", "attempt_id": "uuid"}
+            relayed straight to the live AI leg. The same facts also arrive as call
+            events over HTTP, but a POST after a few idle seconds pays for a new
+            connection (1-2 s on mobile data) — dead air the lead hears.
 Tokens never travel in the URL (Apache logs query strings).
 """
 import asyncio
@@ -12,6 +16,7 @@ import json
 import logging
 import time
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -22,6 +27,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 AUTH_TIMEOUT_SECONDS = 5
+#: Client signals relayed to the call's control channel (stream_controller._on_control).
+RELAYED_SIGNALS = ("lead_answered", "merged")
 PING_INTERVAL_SECONDS = 20
 IDLE_TIMEOUT_SECONDS = 60
 
@@ -36,6 +43,33 @@ async def _authenticate(token: str):
     if user.role not in MOBILE_ROLES:
         raise PermissionError("role_not_supported")
     return user
+
+
+async def _relay_signal(user, msg: dict) -> None:
+    """Forward an app signal to the AI leg of one of this user's own attempts."""
+    from sqlalchemy import select
+
+    from src.common.database import AsyncSessionLocal
+    from src.mobile.models import MobileCallAttempt
+
+    signal = msg.get("signal")
+    if signal not in RELAYED_SIGNALS:
+        return
+    try:
+        attempt_id = UUID(str(msg.get("attempt_id")))
+    except ValueError:
+        return
+    async with AsyncSessionLocal() as db:
+        session_id = (await db.execute(
+            select(MobileCallAttempt.voice_session_id).where(
+                MobileCallAttempt.id == attempt_id,
+                MobileCallAttempt.user_id == user.id,
+                MobileCallAttempt.company_id == user.company_id,
+            )
+        )).scalar_one_or_none()
+    if session_id is None:
+        return
+    await realtime.publish_session_control(session_id, signal, attempt_id=attempt_id, via="ws")
 
 
 @router.websocket("/mobile/ws")
@@ -71,10 +105,16 @@ async def mobile_push_socket(websocket: WebSocket):
             raw = await websocket.receive_text()
             last_client_msg = time.time()
             try:
-                if json.loads(raw).get("type") == "ping":
-                    await websocket.send_text(json.dumps({"type": "pong"}))
+                msg = json.loads(raw)
             except ValueError:
-                pass
+                continue
+            if msg.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+            elif msg.get("type") == "signal":
+                try:
+                    await _relay_signal(user, msg)
+                except Exception as e:  # a bad signal must not drop the push socket
+                    logger.warning(f"[MobileWS] signal relay failed: {e}")
 
     async def heartbeat():
         while True:

@@ -76,6 +76,14 @@ class Settings(BaseSettings):
     # Gemini's barge-in and gibberish transcripts; real interjections are
     # much louder. 0 disables the gate.
     VOICE_ECHO_SUPPRESS_RMS: int = 600
+    # Noise gate for mobile-dialer calls: inbound frames quieter than this
+    # reach the model as true silence. The line's hiss between a lead's words
+    # (rms 5-80) kept Gemini's turn detection from seeing the pause, so
+    # "hello ... hello ... hello" merged into one turn nobody answered. The
+    # gate stays open for VOICE_NOISE_GATE_HANGOVER_FRAMES (20 ms each) after
+    # the last loud frame so the tails of words are not clipped. 0 disables.
+    VOICE_NOISE_GATE_RMS: int = 40
+    VOICE_NOISE_GATE_HANGOVER_FRAMES: int = 10
     # An interruption only flushes the provider's playback buffer when
     # inbound speech at least this loud was heard in the last ~1.5s —
     # otherwise the "interruption" was echo/noise and wiping the buffer cuts

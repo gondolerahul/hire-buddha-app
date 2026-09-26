@@ -8,12 +8,14 @@ controller at a handful of hooks:
   pre_model_phase()   read provider events before the model exists: collect
                       DTMF tokens / verification codes, wait for binding
   on_model_connected() push ai_ready / unidentified to the rep's app
-  control_listener()  Redis subscriber: merged / abort / rep_takeover
+  control_listener()  Redis subscriber: lead_answered / merged / abort / rep_takeover
   on_dtmf()           late DTMF after the model is connected
-  on_merged()         lift the audio gate and trigger the greeting
+  on_lead_answered()  pre-roll the greeting while the phone merges the calls
+  on_merged()         lift the audio gate and play (or trigger) the greeting
   on_cleanup()        attempt + campaign-call bookkeeping, push ai_ended
 
-The handler keeps the model muted (zeros in, audio out dropped) until merged.
+The handler keeps the model muted (zeros in, audio out dropped) until merged,
+except for a pre-rolled greeting, which is held and played the moment the lead joins.
 """
 import asyncio
 import json
@@ -72,6 +74,8 @@ HANDOVER_START_SECONDS = 1.5
 HANDOVER_MAX_SECONDS = 10
 # A lead who can hear the agent answers its greeting within a few seconds.
 LEAD_AUDIO_GRACE_SECONDS = 8
+# The most pre-rolled greeting kept for the merge: 24 kHz 16-bit PCM, 20 s.
+MAX_HELD_AUDIO_BYTES = 24_000 * 2 * 20
 
 
 class MobileCallController:
@@ -87,6 +91,11 @@ class MobileCallController:
         self._last_error_push = 0.0
         self._handover_task: Optional[asyncio.Task] = None
         self._lead_audio_task: Optional[asyncio.Task] = None
+        # Greeting started when the lead answered; its audio waits here for the merge.
+        self.greeting_prerolled_at: Optional[float] = None
+        self._held_audio: list = []
+        self._held_bytes = 0
+        self._merging = False
 
     # ── metadata helpers ────────────────────────────────────────────────
 
@@ -413,7 +422,9 @@ class MobileCallController:
         mtype = msg.get("type")
         logger.info(f"[Mobile] Control '{mtype}' for session {self.h.session_id}")
         if mtype == "merged":
-            await self.on_merged("api")
+            await self.on_merged(msg.get("via") or "api")
+        elif mtype == "lead_answered":
+            await self.on_lead_answered()
         elif mtype == "abort":
             self.h._terminate_call(f"abort:{msg.get('reason') or 'app'}")
         elif mtype == "rep_takeover":
@@ -500,10 +511,53 @@ class MobileCallController:
                 )
             await db.commit()
 
-    async def on_merged(self, source: str):
-        if self.merged:
-            return
+    def _greeting_prompt(self) -> str:
+        contact = self.meta.get("contact_data") or {}
+        name = contact.get("name") or contact.get("Name")
+        who = f"The lead{f' ({name})' if name else ''}"
+        return (
+            f"[{who} has now joined the call. Greet them"
+            f"{' by name' if name else ''}, introduce yourself, and begin the conversation.]"
+        )
+
+    async def on_lead_answered(self):
+        """The lead picked up and the phone is merging the calls (1-3 s on IMS).
+
+        Generating the greeting costs ~0.7 s on top of that, all of it dead air for
+        someone who just said "hello". Start it now: hold_model_audio() keeps its
+        audio and on_merged() plays it the moment the lead can hear it.
+        """
         h = self.h
+        if self.merged or self._merging or self.greeting_prerolled_at or not h.gemini_session:
+            return
+        try:
+            await h.gemini_session.send_realtime_input(text=self._greeting_prompt())
+        except Exception as e:
+            logger.warning(f"[Mobile] Greeting pre-roll failed for {h.session_id}: {e}")
+            return
+        self.greeting_prerolled_at = time.time()
+        logger.info(f"[Mobile] Lead answered — greeting pre-rolled for session {h.session_id}")
+
+    def hold_model_audio(self, audio: bytes):
+        """Model audio produced before the merge: keep the pre-rolled greeting, drop the rest."""
+        if self.greeting_prerolled_at is None or self._held_bytes + len(audio) > MAX_HELD_AUDIO_BYTES:
+            return
+        self._held_audio.append(audio)
+        self._held_bytes += len(audio)
+
+    async def on_merged(self, source: str):
+        if self.merged or self._merging:
+            return
+        self._merging = True
+        h = self.h
+        prerolled = self.greeting_prerolled_at is not None
+        if prerolled:
+            # Play what the model already said, oldest first. Audio arriving meanwhile
+            # is still pre-merge, so it lands at the end of the same list; nothing
+            # awaits between the last pop and opening the gate below.
+            while self._held_audio:
+                await h._play_model_audio(self._held_audio.pop(0))
+            self._held_bytes = 0
         self.merged = True
         self.merged_at = time.time()
         self._merged_event.set()
@@ -515,19 +569,21 @@ class MobileCallController:
         h._user_speech_end_time = None
         h._pipeline_started_at = self.merged_at
 
-        contact = self.meta.get("contact_data") or {}
-        name = contact.get("name") or contact.get("Name")
-        who = f"The lead{f' ({name})' if name else ''}"
-        greeting = (
-            f"[{who} has now joined the call. Greet them"
-            f"{' by name' if name else ''}, introduce yourself, and begin the conversation.]"
-        )
-        try:
-            await h.gemini_session.send_realtime_input(text=greeting)
-            h._greeting_sent_at = time.time()
-        except Exception as e:
-            logger.warning(f"[Mobile] Greeting trigger failed for {h.session_id}: {e}")
-        logger.info(f"[Mobile] Merged ({source}) — greeting sent for session {h.session_id}")
+        if prerolled:
+            # The activity guards time the greeting from when the lead could hear it.
+            h._greeting_sent_at = self.merged_at
+            logger.info(
+                f"[Mobile] Merged ({source}) — pre-rolled greeting playing "
+                f"(started {self.merged_at - self.greeting_prerolled_at:.1f}s earlier) "
+                f"for session {h.session_id}"
+            )
+        else:
+            try:
+                await h.gemini_session.send_realtime_input(text=self._greeting_prompt())
+                h._greeting_sent_at = time.time()
+            except Exception as e:
+                logger.warning(f"[Mobile] Greeting trigger failed for {h.session_id}: {e}")
+            logger.info(f"[Mobile] Merged ({source}) — greeting sent for session {h.session_id}")
         self._lead_audio_task = asyncio.create_task(self._watch_lead_audio())
 
     async def wait_merged(self):

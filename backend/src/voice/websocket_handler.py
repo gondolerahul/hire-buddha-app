@@ -140,6 +140,8 @@ class BaseStreamHandler:
         # Mobile dialer: set by _prepare_mobile_session for AI legs placed by
         # the rep's phone (src/mobile/stream_controller.py).
         self.mobile = None
+        # Frames left before the mobile noise gate closes (_process_incoming_audio).
+        self._noise_gate_open_frames = 0
 
     # ------------------------------------------------------------------
     # Recording helpers (P0.4)
@@ -564,6 +566,16 @@ class BaseStreamHandler:
                             self._last_lead_speech_at = time.time()
                         if _rms > settings.VOICE_BARGE_IN_RMS_THRESHOLD:
                             self._last_strong_speech_at = time.time()
+                        # Noise gate (mobile conference only): line hiss in
+                        # the lead's pauses reads as speech to the model's turn
+                        # detection, so it answered late or not at all.
+                        if self.mobile is not None and settings.VOICE_NOISE_GATE_RMS > 0:
+                            if _rms >= settings.VOICE_NOISE_GATE_RMS:
+                                self._noise_gate_open_frames = settings.VOICE_NOISE_GATE_HANGOVER_FRAMES
+                            elif self._noise_gate_open_frames > 0:
+                                self._noise_gate_open_frames -= 1
+                            else:
+                                forward_to_model = False
                         # Echo gate: while the agent is audibly playing, the
                         # PSTN feeds an attenuated echo of the agent's own
                         # voice back to us. Forwarding it made Gemini's VAD
@@ -657,43 +669,12 @@ class BaseStreamHandler:
                     # ── 1. Audio PCM from model ──────────────────────────────
                     audio_data = response.data
                     if audio_data and self.mobile and not self.mobile.merged:
-                        audio_data = None  # held leg: never play pre-merge model audio
+                        # Held leg: never play pre-merge model audio. A greeting
+                        # pre-rolled when the lead answered is kept for the merge.
+                        self.mobile.hold_model_audio(audio_data)
+                        audio_data = None
                     if audio_data:
-                        if not self._first_audio_received:
-                            self._first_audio_received = True
-                            self._stop_ringback()
-                            if self._greeting_sent_at:
-                                logger.info(
-                                    f"[GUARD] First model audio "
-                                    f"{time.time() - self._greeting_sent_at:.1f}s "
-                                    f"after greeting for session {self.session_id}"
-                                )
-                            # Drain leftover ringback from queue
-                            while not self.outgoing_audio_queue.empty():
-                                try:
-                                    self.outgoing_audio_queue.get_nowait()
-                                except asyncio.QueueEmpty:
-                                    break
-                            # Tell Twilio/Tata to stop playing buffered ringback
-                            if self.stream_sid:
-                                try:
-                                    await self.websocket.send_text(
-                                        json.dumps({"event": "clear", "streamSid": self.stream_sid})
-                                    )
-                                except Exception:
-                                    pass
-
-                        mulaw_audio = self.audio_processor.pcm24_to_mulaw(audio_data)
-                        if mulaw_audio:
-                            self.outgoing_audio_queue.put_nowait(mulaw_audio)
-                            # Track outbound audio for recording mix
-                            try:
-                                import audioop
-                                self._outbound_recording_buffer.extend(
-                                    audioop.ulaw2lin(mulaw_audio, 2)
-                                )
-                            except Exception:
-                                pass
+                        await self._play_model_audio(audio_data)
 
                     # ── 2. Transcription & Interruption ───────────────────────
                     if response.server_content:
@@ -1109,6 +1090,44 @@ class BaseStreamHandler:
                         f"(ids={[getattr(fc, 'id', None) for fc in original_fcs]})")
         except Exception as e:
             logger.error(f"Failed to send tool response to Gemini: {e}")
+
+    async def _play_model_audio(self, audio_data: bytes):
+        """Queue one chunk of model PCM for the provider and the recording."""
+        if not self._first_audio_received:
+            self._first_audio_received = True
+            self._stop_ringback()
+            if self._greeting_sent_at:
+                logger.info(
+                    f"[GUARD] First model audio "
+                    f"{time.time() - self._greeting_sent_at:.1f}s "
+                    f"after greeting for session {self.session_id}"
+                )
+            # Drain leftover ringback from queue
+            while not self.outgoing_audio_queue.empty():
+                try:
+                    self.outgoing_audio_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            # Tell Twilio/Tata to stop playing buffered ringback
+            if self.stream_sid:
+                try:
+                    await self.websocket.send_text(
+                        json.dumps({"event": "clear", "streamSid": self.stream_sid})
+                    )
+                except Exception:
+                    pass
+
+        mulaw_audio = self.audio_processor.pcm24_to_mulaw(audio_data)
+        if mulaw_audio:
+            self.outgoing_audio_queue.put_nowait(mulaw_audio)
+            # Track outbound audio for recording mix
+            try:
+                import audioop
+                self._outbound_recording_buffer.extend(
+                    audioop.ulaw2lin(mulaw_audio, 2)
+                )
+            except Exception:
+                pass
 
     async def _send_to_provider(self):
         """
