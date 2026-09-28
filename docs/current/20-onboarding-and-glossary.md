@@ -342,7 +342,7 @@ backend/src/
 ### 7.2 Useful greps
 
 ```bash
-grep -rn "__tablename__" backend/src backend/cortex_memory_moved_to_pypi_repo --include="*.py"
+grep -rn "__tablename__" backend/src backend/cortex_memory --include="*.py"
 ```
 
 ```bash
@@ -363,7 +363,7 @@ Three traps:
 
 | You would expect | It is actually |
 |---|---|
-| CORTEX logic in `src/ai/memory/` | Mostly re-export shims — real code in `backend/cortex_memory_moved_to_pypi_repo/` |
+| CORTEX logic in `src/ai/memory/` | Mostly re-export shims — real code in `backend/cortex_memory/` |
 | ORM models in `src/ai/models.py` | A deprecated shim — real models in `src/ai/orm/` |
 | Tests at repo root `tests/` | Empty scaffolding — real tests in `backend/tests/` |
 
@@ -462,7 +462,7 @@ in [15 §13](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue)
 
 5. **Half of `src/ai/memory/` is re-export shims.** The real CORTEX engine was
    extracted to a package; its source sits in
-   `backend/cortex_memory_moved_to_pypi_repo/`.
+   `backend/cortex_memory/`.
 
 6. **A HITL checkpoint blocks an Arq worker slot** for up to `timeout_ms`
    (5 minutes by default) while a human decides.

@@ -86,10 +86,12 @@ once per run from `AgentLoop._compose`. The only legal write path is
 > [pyproject.toml](../../backend/pyproject.toml:52)). Everything under
 > `backend/src/ai/memory/` that looks like an implementation is now mostly a
 > **re-export shim** that auto-injects host adapters. The real source lives in
-> [`backend/cortex_memory_moved_to_pypi_repo/`](../../backend/cortex_memory_moved_to_pypi_repo/)
-> — that directory is the package's own repo, kept in-tree for reference. When
-> you need the actual logic, read there. See [§19](#19-key-files-reference) for
-> the shim-to-source map.
+> [`backend/cortex_memory/`](../../backend/cortex_memory/)
+> — a development copy of the package, which is maintained in its own repo.
+> The backend imports `cortex_memory` from its own directory first, so this copy
+> (not the pinned wheel) is what runs; package fixes made here must be carried
+> back to the package repo. See [§19](#19-key-files-reference) for the
+> shim-to-source map.
 
 ---
 
@@ -123,11 +125,11 @@ graph LR
 ```
 
 The docstring in
-[models.py](../../backend/cortex_memory_moved_to_pypi_repo/models.py:47) states
+[models.py](../../backend/cortex_memory/models.py:47) states
 the design intent directly:
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/models.py
+# backend/cortex_memory/models.py
 class CortexTree(Base):
     """A persistent cognitive tree owned by an entity (agent) for a task.
 
@@ -213,11 +215,11 @@ erDiagram
 
 `company_id`, `entity_id`, `user_id`, `run_id` on `cortex_trees` are **plain
 nullable UUID columns with no `ForeignKey`**. The
-[module docstring](../../backend/cortex_memory_moved_to_pypi_repo/models.py:1)
+[module docstring](../../backend/cortex_memory/models.py:1)
 explains why:
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/models.py
+# backend/cortex_memory/models.py
 """
 Owned by the package on its own ``Base`` (``cortex_memory.db``). External
 references (company/user/entity/run) are **opaque nullable UUID columns** — no
@@ -239,7 +241,7 @@ package's tables are still migrated by the host — see
 ### 3.2 Node types
 
 Every piece of information is a `CortexNode` with a `node_type`. From
-[enums.py](../../backend/cortex_memory_moved_to_pypi_repo/enums.py:18):
+[enums.py](../../backend/cortex_memory/enums.py:18):
 
 | Generation | `node_type` | Meaning |
 |---|---|---|
@@ -315,10 +317,10 @@ run; an `app`-level tree is visible platform-wide. Retrieval queries filter on
 
 The agent manipulates its own memory through a small fixed vocabulary. This is
 the exact text injected into the agent's system prompt, from
-[prompts.py](../../backend/cortex_memory_moved_to_pypi_repo/prompts.py:11):
+[prompts.py](../../backend/cortex_memory/prompts.py:11):
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/prompts.py
+# backend/cortex_memory/prompts.py
 CORTEX_OPS_HELP = (
     "## Available CORTEX Operations\n"
     "You can perform the following operations on the cognitive tree:\n"
@@ -359,29 +361,29 @@ flowchart LR
 ### 4.1 The full service API
 
 From
-[`CortexService`](../../backend/cortex_memory_moved_to_pypi_repo/service.py:191):
+[`CortexService`](../../backend/cortex_memory/service.py:191):
 
 | Method | Line | What it does | Side effects |
 |---|---|---|---|
-| `create_tree(...)` | [242](../../backend/cortex_memory_moved_to_pypi_repo/service.py:242) | Creates a tree plus its root, knowledge and output roots | Inserts tree + seed nodes |
-| `resume_tree(tree_id)` | [338](../../backend/cortex_memory_moved_to_pypi_repo/service.py:338) | Returns `(tree, viewport, last_checkpoint)` at `resume_cursor_id` | Sets status `active` |
-| `suspend_tree(tree_id)` | [360](../../backend/cortex_memory_moved_to_pypi_repo/service.py:360) | Parks a tree | Sets status `suspended` |
-| `navigate(node_id)` | [384](../../backend/cortex_memory_moved_to_pypi_repo/service.py:384) | Moves the viewport | Updates `resume_cursor_id`, `access_count` |
-| `read(node_id, page=0)` | [435](../../backend/cortex_memory_moved_to_pypi_repo/service.py:435) | Full node content, paginated | Updates access tracking |
-| `write(parent_id, ...)` | [470](../../backend/cortex_memory_moved_to_pypi_repo/service.py:470) | Creates a child node | Inserts node; may trigger re-clustering |
-| `recurse(node_id, task, result_slot)` | [573](../../backend/cortex_memory_moved_to_pypi_repo/service.py:573) | Creates a task node + child `ExecutionRun` | Returns `(task_node_id, child_run_id)` |
-| `await_children()` | [633](../../backend/cortex_memory_moved_to_pypi_repo/service.py:633) | Collects child results | — |
-| `checkpoint(...)` | [663](../../backend/cortex_memory_moved_to_pypi_repo/service.py:663) | Writes a compacted snapshot | Inserts `checkpoint` node |
-| `check_and_compact(...)` | [711](../../backend/cortex_memory_moved_to_pypi_repo/service.py:711) | Auto-checkpoints when over budget | Conditional checkpoint |
-| `assemble_output(tree_id)` | [744](../../backend/cortex_memory_moved_to_pypi_repo/service.py:744) | DFS-collects the output subtree into a document | Optional LLM coherence pass |
-| `get_tree_status`, `list_trees`, `get_node_details`, `get_working_root`, `get_knowledge_root` | [781](../../backend/cortex_memory_moved_to_pypi_repo/service.py:781)+ | Read-only accessors | — |
+| `create_tree(...)` | [242](../../backend/cortex_memory/service.py:242) | Creates a tree plus its root, knowledge and output roots | Inserts tree + seed nodes |
+| `resume_tree(tree_id)` | [338](../../backend/cortex_memory/service.py:338) | Returns `(tree, viewport, last_checkpoint)` at `resume_cursor_id` | Sets status `active` |
+| `suspend_tree(tree_id)` | [360](../../backend/cortex_memory/service.py:360) | Parks a tree | Sets status `suspended` |
+| `navigate(node_id)` | [384](../../backend/cortex_memory/service.py:384) | Moves the viewport | Updates `resume_cursor_id`, `access_count` |
+| `read(node_id, page=0)` | [435](../../backend/cortex_memory/service.py:435) | Full node content, paginated | Updates access tracking |
+| `write(parent_id, ...)` | [470](../../backend/cortex_memory/service.py:470) | Creates a child node | Inserts node; may trigger re-clustering |
+| `recurse(node_id, task, result_slot)` | [573](../../backend/cortex_memory/service.py:573) | Creates a task node + child `ExecutionRun` | Returns `(task_node_id, child_run_id)` |
+| `await_children()` | [633](../../backend/cortex_memory/service.py:633) | Collects child results | — |
+| `checkpoint(...)` | [663](../../backend/cortex_memory/service.py:663) | Writes a compacted snapshot | Inserts `checkpoint` node |
+| `check_and_compact(...)` | [711](../../backend/cortex_memory/service.py:711) | Auto-checkpoints when over budget | Conditional checkpoint |
+| `assemble_output(tree_id)` | [744](../../backend/cortex_memory/service.py:744) | DFS-collects the output subtree into a document | Optional LLM coherence pass |
+| `get_tree_status`, `list_trees`, `get_node_details`, `get_working_root`, `get_knowledge_root` | [781](../../backend/cortex_memory/service.py:781)+ | Read-only accessors | — |
 
 ### 4.2 WRITE and its invariants
 
 `write` is the most rule-bound operation. It enforces tree invariants:
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/service.py
+# backend/cortex_memory/service.py
 # ── Invariant 1: Summary Always Exists ────────────────────────
 # Every node must have a summary before it can be a parent.
 if not parent.summary:
@@ -403,7 +405,7 @@ viewport bounded regardless of tree size.
 
 Invariant 2 keeps the fan-out low so a viewport's child list stays readable.
 When a parent exceeds 12 children,
-[`_schedule_reclustering`](../../backend/cortex_memory_moved_to_pypi_repo/service.py:1095)
+[`_schedule_reclustering`](../../backend/cortex_memory/service.py:1095)
 groups them under `group` nodes.
 
 > There is no "Invariant 3" in the code comments. The numbering is inherited
@@ -466,7 +468,7 @@ but does not start work.
 `check_and_compact` is the safety valve against context overflow:
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/service.py
+# backend/cortex_memory/service.py
 budget_tokens = int(model_context_window * tree.context_budget_pct / 100)
 
 if current_token_count >= budget_tokens:
@@ -528,7 +530,7 @@ classDiagram
 ```
 
 `to_prompt_text` renders it, and the rendering is **priority-ordered with a hard
-character budget** ([service.py:87](../../backend/cortex_memory_moved_to_pypi_repo/service.py:87)):
+character budget** ([service.py:87](../../backend/cortex_memory/service.py:87)):
 
 | Priority | Section | Behaviour when the budget is tight |
 |---|---|---|
@@ -538,7 +540,7 @@ character budget** ([service.py:87](../../backend/cortex_memory_moved_to_pypi_re
 | 4 | Ops-help block | Only if `include_ops_help=True` **and** it fits |
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/service.py
+# backend/cortex_memory/service.py
 budget = max(256, int(max_chars))
 parts: list[str] = []
 
@@ -583,7 +585,7 @@ When a parent run spawns a child via `RECURSE`, the child gets a
 then stay inside that root's descendant set.
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/scope_policy.py
+# backend/cortex_memory/scope_policy.py
 @dataclass
 class ScopePolicy:
     can_read_outside: bool = False
@@ -628,7 +630,7 @@ a sibling's work.
 Violations raise `ScopeViolation`, which carries `operation`, `target_id` and
 `scope_root_id` so the failure is diagnosable from the message alone. Write
 enforcement is in
-[`_enforce_scope_write`](../../backend/cortex_memory_moved_to_pypi_repo/service.py:973).
+[`_enforce_scope_write`](../../backend/cortex_memory/service.py:973).
 
 ---
 
@@ -657,10 +659,10 @@ flowchart TB
 
 | Domain | Service | Package source | Stores | Written by | Prompt key |
 |---|---|---|---|---|---|
-| Knowledge | `KnowledgeTreeService` | [knowledge_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/knowledge_tree.py) (483 lines) | Ingested documents as `document → section → chunk` | Document upload, tool-result ingestion | `__knowledge_refs__` |
-| Episodic | `EpisodicTreeService` | [episodic_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/episodic_tree.py) (466 lines) | One `episode` node per completed run | Run finalisation (`run_memory.record_episode`, memory-enabled entities) | `__episodic_memory__` |
-| Experience | `ExperienceTreeService` | [experience_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/experience_tree.py) (230 lines) | `observation` → `pattern` → `suggestion` | Dreaming engine | `__experience__` |
-| Intelligence | `IntelligenceTreeService` | [intelligence_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/intelligence_tree.py) (275 lines) | `instruction` / `strategy` / `preference` rules | Dreaming engine, Reflector | `__intelligence__` / `__intelligence_rules__` |
+| Knowledge | `KnowledgeTreeService` | [knowledge_tree.py](../../backend/cortex_memory/knowledge_tree.py) (483 lines) | Ingested documents as `document → section → chunk` | Document upload, tool-result ingestion | `__knowledge_refs__` |
+| Episodic | `EpisodicTreeService` | [episodic_tree.py](../../backend/cortex_memory/episodic_tree.py) (466 lines) | One `episode` node per completed run | Run finalisation (`run_memory.record_episode`, memory-enabled entities) | `__episodic_memory__` |
+| Experience | `ExperienceTreeService` | [experience_tree.py](../../backend/cortex_memory/experience_tree.py) (230 lines) | `observation` → `pattern` → `suggestion` | Dreaming engine | `__experience__` |
+| Intelligence | `IntelligenceTreeService` | [intelligence_tree.py](../../backend/cortex_memory/intelligence_tree.py) (275 lines) | `instruction` / `strategy` / `preference` rules | Dreaming engine, Reflector | `__intelligence__` / `__intelligence_rules__` |
 
 The host files
 ([knowledge_tree_service.py](../../backend/src/ai/memory/knowledge_tree_service.py),
@@ -710,10 +712,10 @@ context a child run inherits from its parent.
 
 Every domain ranks candidates against the same four signals, then applies its
 own weights. From
-[domains.py](../../backend/cortex_memory_moved_to_pypi_repo/domains.py:34):
+[domains.py](../../backend/cortex_memory/domains.py:34):
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/domains.py
+# backend/cortex_memory/domains.py
 KnowledgeWeights: dict[str, float] = {
     "semantic": 1.0, "recency": 0.4, "user_match": 0.0, "success": 0.0,
 }
@@ -750,7 +752,7 @@ The weights encode real editorial judgement:
 ### 8.2 The scoring function
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/domains.py
+# backend/cortex_memory/domains.py
 def score_signals(weights, signals) -> float:
     total_weight = sum(max(0.0, w) for w in weights.values())
     if total_weight <= 0:
@@ -772,7 +774,7 @@ signals were absent.
 ### 8.3 Hybrid search: semantic seed plus graph expansion
 
 The primary search interface is
-[`SemanticGraphService.semantic_graph_search`](../../backend/cortex_memory_moved_to_pypi_repo/graph.py:183).
+[`SemanticGraphService.semantic_graph_search`](../../backend/cortex_memory/graph.py:183).
 
 ```mermaid
 sequenceDiagram
@@ -800,7 +802,7 @@ sequenceDiagram
 The seed query, verbatim:
 
 ```sql
--- backend/cortex_memory_moved_to_pypi_repo/graph.py
+-- backend/cortex_memory/graph.py
 SELECT cn.id, cn.title, cn.summary, cn.node_type, cn.tree_id,
        ct.memory_domain,
        1 - (cn.embedding <=> CAST(:vec AS vector)) AS similarity
@@ -892,7 +894,7 @@ previously had `"text-embedding-004"` in `memory_service.py` and
 writing into the same vector column.
 
 > ⚠️ **Vector dimension is hard-coded to 768** in
-> [`CortexNode.embedding`](../../backend/cortex_memory_moved_to_pypi_repo/models.py:170)
+> [`CortexNode.embedding`](../../backend/cortex_memory/models.py:170)
 > (`pgvector.sqlalchemy.Vector(768)`) and `_CORTEX_EMBEDDING_DIM` in
 > `cortex_providers.py`. Configuring an embedding model with a
 > different output dimension will fail on insert. Changing the dimension
@@ -987,11 +989,11 @@ Two different chunkers exist, with **different sizes**:
 
 | Chunker | Size | Overlap | Source |
 |---|---|---|---|
-| `KnowledgeTreeService` | **500 chars** | **50 chars** | [knowledge_tree.py:52](../../backend/cortex_memory_moved_to_pypi_repo/knowledge_tree.py:52) |
-| `CortexIngestionPipeline` | **2000 chars** | none | [ingestion.py:214](../../backend/cortex_memory_moved_to_pypi_repo/ingestion.py:214) |
+| `KnowledgeTreeService` | **500 chars** | **50 chars** | [knowledge_tree.py:52](../../backend/cortex_memory/knowledge_tree.py:52) |
+| `CortexIngestionPipeline` | **2000 chars** | none | [ingestion.py:214](../../backend/cortex_memory/ingestion.py:214) |
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/knowledge_tree.py
+# backend/cortex_memory/knowledge_tree.py
 CHUNK_SIZE = 500          # Characters per chunk
 CHUNK_OVERLAP = 50        # Overlap between chunks for context continuity
 ```
@@ -1012,7 +1014,7 @@ flowchart TD
 Only **`chunk` nodes carry embeddings**. Search targets them specifically:
 
 ```sql
--- backend/cortex_memory_moved_to_pypi_repo/knowledge_tree.py
+-- backend/cortex_memory/knowledge_tree.py
 AND cn.node_type = 'chunk'
 ```
 
@@ -1130,7 +1132,7 @@ Every domain assembler is wrapped in `try/except` that logs at `debug` and
 returns `[]`:
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/assembly.py
+# backend/cortex_memory/assembly.py
 except Exception as e:
     logger.debug(f"Knowledge assembly failed: {e}")
     return []
@@ -1281,10 +1283,10 @@ flowchart LR
 ### 13.1 Thresholds
 
 From
-[`DreamingEngine`](../../backend/cortex_memory_moved_to_pypi_repo/dreaming.py:73):
+[`DreamingEngine`](../../backend/cortex_memory/dreaming.py:73):
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/dreaming.py
+# backend/cortex_memory/dreaming.py
 MIN_EPISODES_FOR_DREAMING = 5
 MIN_OBSERVATIONS_FOR_PATTERNS = 3
 MIN_PATTERNS_FOR_DISTILLATION = 2
@@ -1310,7 +1312,7 @@ five runs**, and thereafter at most once per 24 hours.
 ### 13.2 The gate
 
 ```python
-# backend/cortex_memory_moved_to_pypi_repo/dreaming.py
+# backend/cortex_memory/dreaming.py
 async def _should_run(self, entity_id: UUID) -> bool:
     """Check if enough time has passed since the last consolidation."""
     try:
@@ -1677,7 +1679,7 @@ retrieval paths except rules — no embedding call, no vector scan.
 `cortex_nodes.embedding` exists. The seed query does `ORDER BY embedding <=>
 vector` over every embedded node in the company; without an index that is a
 sequential scan. Note the declared indexes in
-[models.py](../../backend/cortex_memory_moved_to_pypi_repo/models.py:187) cover
+[models.py](../../backend/cortex_memory/models.py:187) cover
 `tree_id`, `parent_id`, `node_type` and `status` — **the vector index is not
 declared in the model** and must come from a migration. Verify it in your
 environment.
@@ -1690,18 +1692,18 @@ environment.
 
 | Host shim | Lines | Real implementation |
 |---|---|---|
-| [memory/cortex_service.py](../../backend/src/ai/memory/cortex_service.py) | 100 | [cortex_memory/service.py](../../backend/cortex_memory_moved_to_pypi_repo/service.py) (1196) |
-| [memory/cortex_models.py](../../backend/src/ai/memory/cortex_models.py) | 34 | [cortex_memory/models.py](../../backend/cortex_memory_moved_to_pypi_repo/models.py) (240) |
-| [memory/scope_policy.py](../../backend/src/ai/memory/scope_policy.py) | 13 | [cortex_memory/scope_policy.py](../../backend/cortex_memory_moved_to_pypi_repo/scope_policy.py) (53) |
-| [memory/memory_assembly_service.py](../../backend/src/ai/memory/memory_assembly_service.py) | 51 | [cortex_memory/assembly.py](../../backend/cortex_memory_moved_to_pypi_repo/assembly.py) (335) |
-| [memory/dreaming_engine.py](../../backend/src/ai/memory/dreaming_engine.py) | 40 | [cortex_memory/dreaming.py](../../backend/cortex_memory_moved_to_pypi_repo/dreaming.py) (568) |
-| [memory/domains/base.py](../../backend/src/ai/memory/domains/base.py) | 30 | [cortex_memory/domains.py](../../backend/cortex_memory_moved_to_pypi_repo/domains.py) (158) |
-| [memory/knowledge_tree_service.py](../../backend/src/ai/memory/knowledge_tree_service.py) | 26 | [cortex_memory/knowledge_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/knowledge_tree.py) (483) |
-| [memory/episodic_tree_service.py](../../backend/src/ai/memory/episodic_tree_service.py) | 26 | [cortex_memory/episodic_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/episodic_tree.py) (466) |
-| [memory/experience_tree_service.py](../../backend/src/ai/memory/experience_tree_service.py) | 11 | [cortex_memory/experience_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/experience_tree.py) (230) |
-| [memory/intelligence_tree_service.py](../../backend/src/ai/memory/intelligence_tree_service.py) | 38 | [cortex_memory/intelligence_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/intelligence_tree.py) (275) |
-| [memory/graph_service.py](../../backend/src/ai/memory/graph_service.py) | 27 | [cortex_memory/graph.py](../../backend/cortex_memory_moved_to_pypi_repo/graph.py) (409) |
-| [memory/cortex_ingestion.py](../../backend/src/ai/memory/cortex_ingestion.py) | 38 | [cortex_memory/ingestion.py](../../backend/cortex_memory_moved_to_pypi_repo/ingestion.py) (224) |
+| [memory/cortex_service.py](../../backend/src/ai/memory/cortex_service.py) | 100 | [cortex_memory/service.py](../../backend/cortex_memory/service.py) (1196) |
+| [memory/cortex_models.py](../../backend/src/ai/memory/cortex_models.py) | 34 | [cortex_memory/models.py](../../backend/cortex_memory/models.py) (240) |
+| [memory/scope_policy.py](../../backend/src/ai/memory/scope_policy.py) | 13 | [cortex_memory/scope_policy.py](../../backend/cortex_memory/scope_policy.py) (53) |
+| [memory/memory_assembly_service.py](../../backend/src/ai/memory/memory_assembly_service.py) | 51 | [cortex_memory/assembly.py](../../backend/cortex_memory/assembly.py) (335) |
+| [memory/dreaming_engine.py](../../backend/src/ai/memory/dreaming_engine.py) | 40 | [cortex_memory/dreaming.py](../../backend/cortex_memory/dreaming.py) (568) |
+| [memory/domains/base.py](../../backend/src/ai/memory/domains/base.py) | 30 | [cortex_memory/domains.py](../../backend/cortex_memory/domains.py) (158) |
+| [memory/knowledge_tree_service.py](../../backend/src/ai/memory/knowledge_tree_service.py) | 26 | [cortex_memory/knowledge_tree.py](../../backend/cortex_memory/knowledge_tree.py) (483) |
+| [memory/episodic_tree_service.py](../../backend/src/ai/memory/episodic_tree_service.py) | 26 | [cortex_memory/episodic_tree.py](../../backend/cortex_memory/episodic_tree.py) (466) |
+| [memory/experience_tree_service.py](../../backend/src/ai/memory/experience_tree_service.py) | 11 | [cortex_memory/experience_tree.py](../../backend/cortex_memory/experience_tree.py) (230) |
+| [memory/intelligence_tree_service.py](../../backend/src/ai/memory/intelligence_tree_service.py) | 38 | [cortex_memory/intelligence_tree.py](../../backend/cortex_memory/intelligence_tree.py) (275) |
+| [memory/graph_service.py](../../backend/src/ai/memory/graph_service.py) | 27 | [cortex_memory/graph.py](../../backend/cortex_memory/graph.py) (409) |
+| [memory/cortex_ingestion.py](../../backend/src/ai/memory/cortex_ingestion.py) | 38 | [cortex_memory/ingestion.py](../../backend/cortex_memory/ingestion.py) (224) |
 
 ### Real host-side logic
 
@@ -1728,7 +1730,7 @@ environment.
 
 1. **Most of `src/ai/memory/` is shims.** If a file is under ~100 lines and its
    docstring says "host re-export shim", the logic is in
-   `backend/cortex_memory_moved_to_pypi_repo/`. Read there.
+   `backend/cortex_memory/`. Read there.
 
 2. **Retrieval failures are silent.** Every domain assembler catches broad
    `Exception`, logs at `debug`, and returns `[]`. An agent with broken memory

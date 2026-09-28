@@ -989,9 +989,11 @@ Note the workflow header anticipates the package moving to its own repo:
 # repo-root workflow; only the working-directory / paths change.
 ```
 
-The in-repo copy is at `backend/cortex_memory_moved_to_pypi_repo/`, so the
-workflow's `paths` filter (`backend/cortex_memory/**`) **does not match the
-directory that currently exists**. As checked out, this workflow never fires.
+The in-repo copy is at `backend/cortex_memory/`, which the workflow's `paths`
+filter (`backend/cortex_memory/**`) matches, so the workflow runs on changes to
+the package. Because the backend imports `cortex_memory` from its own directory
+first, this in-repo copy — not the pinned `hb-cortex-memory` wheel — is what the
+API and worker run.
 
 ### 13.1 The intended CI matrix
 
@@ -1375,10 +1377,8 @@ a Redis-backed event bus, then moving artifacts to object storage.
 9. **The Dockerfile's `CMD` uses `--reload` and runs as root.** Not
    production-ready as-is.
 
-10. **Only the extracted `cortex_memory` package has CI**, and its `paths` filter
-    (`backend/cortex_memory/**`) does not even match the directory currently in
-    the tree (`backend/cortex_memory_moved_to_pypi_repo/`). Effectively there is
-    no CI. Run `scripts/run_ci_matrix.sh fast` manually.
+10. **Only the extracted `cortex_memory` package has CI** (`backend/cortex_memory/**`).
+    The host backend has none. Run `scripts/run_ci_matrix.sh fast` manually.
 
 11. **`core` is 20 lines from its 1500-line cap.** Adding to `agent_loop.py`
     breaks the layout lint.
