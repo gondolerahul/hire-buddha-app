@@ -903,18 +903,21 @@ flowchart LR
     F["File picker - multi-select"] -->|"POST /ai/documents/upload multipart"| API["Backend"]
     API --> SVC["AIService.upload_document"]
     SVC --> DOC["documents row - upload_status processing"]
-    SVC --> CH["chunking"]
+    SVC --> CH["process_document: section + chunk"]
     CH --> EMB["EmbeddingService - company scoped"]
-    EMB --> VEC["document_chunks with pgvector embeddings"]
+    EMB --> VEC["Knowledge Tree chunk nodes - entity or company tree"]
     Q["Search box"] -->|"POST /ai/documents/search query, top_k"| API
-    API --> SIM["cosine similarity over document_chunks"]
+    API --> SIM["cosine similarity over Knowledge Tree chunks"]
     SIM --> RES["chunk_id, document_id, filename, content, similarity"]
 ```
 
-Documents feed agents in two ways:
+Documents feed agents in three ways:
 
-1. **Ad-hoc search** — a tool or step calls the search path at runtime.
-2. **Design-time attachment** — the builder's *Capabilities* tab lets you pin
+1. **Memory** — for an entity with memory enabled, relevant chunks from its own
+   Knowledge Tree and the company tree are assembled into the prompt at the
+   start of every run.
+2. **Ad-hoc search** — a tool or step calls the search path at runtime.
+3. **Design-time attachment** — the builder's *Capabilities* tab lets you pin
    specific documents as `ContextSource`s. Four source types exist
    ([enums.py](../../backend/src/ai/schemas/enums.py)):
    `DOCUMENT`, `KNOWLEDGE_BASE`, `CORTEX_TREE`, `DB_RECORDS`. The first three

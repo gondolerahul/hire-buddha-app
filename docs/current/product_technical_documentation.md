@@ -274,11 +274,13 @@ When a process triggers a child run, the execution is handled asynchronously to 
 HireBuddha uses `pgvector` for similarity matching:
 
 ```sql
-SELECT content, 1 - (embedding <=> :query_embedding) AS similarity
-FROM document_chunks
-WHERE document_id IN (:doc_ids)
-  AND 1 - (embedding <=> :query_embedding) > 0.70
-ORDER BY similarity DESC
+SELECT cn.content, 1 - (cn.embedding <=> :query_embedding) AS similarity
+FROM cortex_nodes cn
+JOIN cortex_trees ct ON ct.id = cn.tree_id
+WHERE ct.company_id = :company_id
+  AND ct.memory_domain = 'knowledge'
+  AND cn.node_type = 'chunk'
+ORDER BY cn.embedding <=> :query_embedding
 LIMIT 5;
 ```
 

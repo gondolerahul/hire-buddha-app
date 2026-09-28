@@ -60,7 +60,13 @@ The three to read first:
 
 ### MC-01 — CORTEX is write-only on the live path
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-28, `f8db3b0`)** — the loop
+assembles memory once per run (`run_memory.assemble_run_memory`, gated by
+`capabilities.memory`); `__memory__` reaches the step prompt (sandwich layer 9),
+rules reach the planner and — through the Perceiver's `RunMemory` — the supervisor
+critic. Episodes are now recorded at run end (`a30bb85`). Child runs still drop the
+parent's memory keys by design: each child assembles its own entity's memory.
+Live end-to-end verification is pending.
 
 The write side is fully wired. `StepEngine` constructs a `CortexBridge` and uses it on
 every step:
@@ -177,7 +183,8 @@ agent-facing retrieval that justifies embedding *every node* does not happen.
 
 ### MC-05 — `memory_pipeline="v1"` is accepted and ignored
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-28, `a30bb85`)** — the argument,
+`MemoryRouter` and `LegacyEpisodicReader` were deleted.
 
 `assemble_memory(..., memory_pipeline: str = "v2")` documents the argument as "retained
 for call-site compatibility; ignored (always v2)". The memory README still describes
@@ -216,7 +223,9 @@ and `[]` from an empty tree must be distinguishable.
 
 ### MC-07 — `FULL` and `RUN_SCOPED` memory scopes are identical
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-09-28, `f8db3b0`)** —
+`RUN_SCOPED` now means what `MemoryConfig` documents: reference knowledge only,
+nothing learned from other runs.
 
 Both map to all four memory domains. The builder offers them as different choices and
 they produce the same behaviour.
@@ -296,7 +305,9 @@ loudly rather than at the first insert.
 
 ### MC-12 — `document_chunks.embedding` has no ANN index
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: resolved (2026-09-28, `a30bb85`)** — the v1 RAG
+path was retired: `document_chunks` is dropped and document search runs over
+Knowledge Tree chunks on the HNSW-indexed `cortex_nodes.embedding`.
 
 `cortex_nodes.embedding` gets an HNSW index. `document_chunks.embedding` gets none, so
 the legacy RAG search is a sequential scan computing cosine distance per row.
@@ -372,7 +383,9 @@ Given that `CriticCalibrator` computes false-fail rates, the data to un-retire e
 
 ### MC-18 — The legacy episodic table is still read
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-09-28, `a30bb85`)** —
+`episodic_memories`, its reader and the backfill script are gone; episodes live only
+in Episodic Trees.
 
 `episodic_memories` is v1 memory. `legacy_episodic_reader.py` still reads it, and the
 backfill script `episodic_to_trees.py` exists to migrate it into v2 Episodic Trees — but

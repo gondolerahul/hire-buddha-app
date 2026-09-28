@@ -48,8 +48,8 @@ Five things to internalise:
 4. **Memory lives in the CORTEX tables** (`cortex_trees` / `cortex_nodes` /
    `cortex_edges`), which are owned by a separate installed Python package
    (`cortex_memory`) with its own declarative `Base` but stored in the same
-   database. `documents` / `document_chunks` and `episodic_memories` are the older
-   v1 memory tables and are still read.
+   database. The v1 memory tables `document_chunks` and `episodic_memories` were
+   dropped; uploaded documents and episodes live only in CORTEX trees.
 5. **Cost lands in two places**: a running total on `execution_runs.total_cost_usd`
    and one attributed row per chargeable event in `usage_logs`. Credits are
    deducted from `credit_wallets`.
@@ -72,8 +72,7 @@ graph TB
     CT["cortex_trees"]
     CN["cortex_nodes"]
     CE["cortex_edges"]
-    EM["episodic_memories"]
-    DOC["documents - document_chunks"]
+    DOC["documents"]
     STS["source_trust_scores"]
   end
   subgraph Money["Config and billing"]
@@ -276,7 +275,7 @@ Indexes: `ix_hierarchical_entities_is_template` on `is_template`
 
 Relationships in: `execution_runs`, `documents`, `voice_sessions`, `whatsapp_sessions`,
 `conversation_history`, `phone_numbers`, `campaigns`, `lead_queue`, `artifacts`,
-`call_logs`, `episodic_memories`. Out: `companies`, `users` (creator), itself twice.
+`call_logs`. Out: `companies`, `users` (creator), itself twice.
 
 ### 4.2 `execution_runs`
 
@@ -538,8 +537,6 @@ erDiagram
   cortex_nodes ||--o{ cortex_nodes : "parent_id"
   cortex_nodes ||--o{ cortex_edges : "source"
   cortex_nodes ||--o{ cortex_edges : "target"
-  cortex_trees ||--o{ episodic_memories : "tree_id"
-  documents ||--o{ document_chunks : "chunks"
   hierarchical_entities ||--o{ documents : "attached to"
   companies ||--o{ source_trust_scores : "learns"
 ```
@@ -643,33 +640,19 @@ Purpose: the semantic graph layer — weighted, typed links between nodes.
 Unique constraint `uq_cortex_edges_src_tgt_type (source_node_id, target_node_id, edge_type)`.
 Indexes on source, target, and `(edge_type, weight DESC)`.
 
-### 6.4 `episodic_memories`
+### 6.4 `episodic_memories` (dropped)
 
-Purpose: **legacy v1** short-term memory — one row per completed top-level run.
-Defined at [orm/memory.py:22](../../backend/src/ai/orm/memory.py:22). New writes go to
-Episodic CORTEX trees instead; this table is still read by
-[legacy_episodic_reader.py](../../backend/src/ai/memory/legacy_episodic_reader.py).
-
-| Column | Type | Nullable | Default | Meaning |
-|---|---|---|---|---|
-| `id` | UUID | no | `uuid4` | PK |
-| `entity_id` | UUID FK→hierarchical_entities.id | no | — | |
-| `company_id` | UUID FK→companies.id | no | — | |
-| `user_id` | UUID FK→users.id | yes | — | |
-| `run_id` | UUID FK→execution_runs.id | yes | — | |
-| `input_summary` / `output_summary` | Text | yes | — | |
-| `status` | String(50) | yes | — | Mirror of the run status |
-| `total_cost_usd` | **String(20)** | yes | — | Stored as text, not numeric — a known wart |
-| `total_tokens` / `execution_time_ms` | Integer | yes | — | |
-| `metadata_info` | JSON | yes | — | Named to avoid the reserved `metadata` |
-| `channel` | String(50) | yes | — | `api`, `voice`, … |
-| `tree_id` | UUID FK→cortex_trees.id ON DELETE SET NULL | yes | — | Link to the replacement CORTEX tree |
-| `created_at` | DateTime | yes | utcnow | |
+The v1 flat episode table was dropped by migration `mem1a2b3c4d5`. Episodes are
+`episode` nodes in each entity's Episodic Tree (`cortex_trees.memory_domain =
+'episodic'`), written by `run_memory.record_episode` when a run finishes.
 
 ### 6.5 `documents`
 
-Purpose: an uploaded file that has been chunked for retrieval.
-Defined at [orm/document.py:23](../../backend/src/ai/orm/document.py:23).
+Purpose: the record of an uploaded file. Its text is ingested into a Knowledge
+Tree — the entity's, or the company-wide tenant-scoped tree when `entity_id` is
+null — as `document → section → chunk` nodes carrying
+`source_ref.document_id`.
+Defined at [orm/document.py](../../backend/src/ai/orm/document.py).
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
@@ -679,28 +662,14 @@ Defined at [orm/document.py:23](../../backend/src/ai/orm/document.py:23).
 | `filename` | String | no | — | |
 | `file_type` | String | no | — | `pdf`, `docx`, `txt` |
 | `file_size` | **String** | yes | — | Text, not integer |
-| `upload_status` | String | yes | `processing` | `processing` / `completed` / `failed` |
+| `upload_status` | String | yes | `processing` | `processing` / `completed` / `partial` / `failed` — from how many of the document's chunk nodes were embedded |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 
-Relationship out: `chunks` with `cascade="all, delete-orphan"` — deleting a document
-deletes its chunks.
+### 6.6 `document_chunks` (dropped)
 
-### 6.6 `document_chunks`
-
-Purpose: one embedded text chunk of a document.
-Defined at [orm/document.py:41](../../backend/src/ai/orm/document.py:41).
-
-| Column | Type | Nullable | Default | Meaning |
-|---|---|---|---|---|
-| `id` | UUID | no | `uuid4` | PK |
-| `document_id` | UUID FK→documents.id | no | — | |
-| `chunk_index` | **String** | no | — | Position in the document, stored as text |
-| `content` | Text | no | — | |
-| `embedding` | `vector(768)` | yes | — | Gemini/Vertex embedding |
-| `created_at` | DateTime | yes | utcnow | |
-
-**There is no vector index on this column.** Compare with `cortex_nodes`, which gets an
-HNSW index. Document similarity search is a sequential scan.
+The v1 RAG chunk table was dropped by migration `mem1a2b3c4d5`. Chunks are
+`chunk` nodes in Knowledge Trees, embedded into `cortex_nodes.embedding` (which
+has an HNSW index).
 
 ### 6.7 `source_trust_scores`
 
@@ -1666,10 +1635,10 @@ def _company_scope(user: User, requested_company: Optional[UUID]) -> Optional[UU
 
 | Scoping | Tables |
 |---|---|
-| **NOT NULL `company_id`** | `users`, `hierarchical_entities`, `execution_runs`, `episodic_memories`, `documents`, `source_trust_scores`, `integration_registry`, `model_task_defaults`, `usage_logs`, `credit_wallets` (also UNIQUE), `subscriptions`, `payment_transactions`, `billing_events`, `voice_sessions`, `whatsapp_sessions`, `conversation_history`, `campaigns`, `lead_queue`, `call_logs`, `artifacts`, `email_connections`, `social_connections`, `cortex_trees` |
+| **NOT NULL `company_id`** | `users`, `hierarchical_entities`, `execution_runs`, `documents`, `source_trust_scores`, `integration_registry`, `model_task_defaults`, `usage_logs`, `credit_wallets` (also UNIQUE), `subscriptions`, `payment_transactions`, `billing_events`, `voice_sessions`, `whatsapp_sessions`, `conversation_history`, `campaigns`, `lead_queue`, `call_logs`, `artifacts`, `email_connections`, `social_connections`, `cortex_trees` |
 | **Nullable `company_id`** (NULL = platform-wide) | `tool_registry_entries` (NULL = built-in system tool), `billing_config` (NULL = global default), `feature_flags` (NULL = global flag), `phone_numbers` (NULL = unclaimed inventory) |
 | **Denormalised, no FK** | `execution_trace_events.company_id` |
-| **Reached only via a parent** | `refresh_tokens` (via user), `llm_interaction_logs`, `tool_interaction_logs`, `human_approvals` (via run), `document_chunks` (via document), `campaign_calls` (via campaign), `call_content` (via call_log), `cortex_nodes`, `cortex_edges` (via tree) |
+| **Reached only via a parent** | `refresh_tokens` (via user), `llm_interaction_logs`, `tool_interaction_logs`, `human_approvals` (via run), `campaign_calls` (via campaign), `call_content` (via call_log), `cortex_nodes`, `cortex_edges` (via tree) |
 | **Global master data** | `subscription_tiers`, `alembic_version` |
 
 Consequence: any query on `llm_interaction_logs` or `cortex_nodes` that does not join
@@ -1685,8 +1654,7 @@ The `vector` extension is enabled by the second-ever migration
 
 | Table | Column | Dimension | ANN index | Notes |
 |---|---|---|---|---|
-| `document_chunks` | `embedding` | 768 | **none** | Legacy v1 RAG path. Sequential scan on every search |
-| `cortex_nodes` | `embedding` | 768 | `ix_cortex_nodes_embedding` — HNSW, `vector_cosine_ops`, `m=16, ef_construction=64` | The v2 memory path. `embedding_model` records which model produced the vector |
+| `cortex_nodes` | `embedding` | 768 | `ix_cortex_nodes_embedding` — HNSW, `vector_cosine_ops`, `m=16, ef_construction=64` | The only vector column (document chunks, episodes, rules…). `embedding_model` records which model produced the vector |
 
 768 is the Gemini/Vertex embedding width. The default model is
 `text-embedding-005` (`EMBEDDING_MODEL_FALLBACK` in
@@ -1710,20 +1678,7 @@ session so a billing failure can never abort the caller's transaction.
 ### How search is issued
 
 All similarity search is **raw SQL with the pgvector `<=>` cosine-distance operator**,
-never the ORM. Two representative call sites:
-
-```python
-# backend/src/ai/memory/memory_service.py  (v1 document search)
-stmt = text("""
-    SELECT dc.content,
-           1 - (dc.embedding <=> CAST(:vec AS vector)) AS score
-    FROM   document_chunks dc
-    JOIN   documents d ON d.id = dc.document_id
-    WHERE  d.entity_id = :entity_id
-    ORDER  BY dc.embedding <=> CAST(:vec AS vector)
-    LIMIT  :top_k
-""")
-```
+never the ORM. A representative call site:
 
 ```sql
 -- cortex_memory/knowledge_tree.py  (v2 CORTEX chunk search)
@@ -1905,7 +1860,10 @@ Full chronological list, in dependency order:
 | 49 | `p12_source_trust_scores` | `p12_retire_reasoning_modes` | `source_trust_scores` |
 | 50 | `p12_run_csat` | `p12_source_trust_scores` | `execution_runs.csat_score` + `csat_comment` |
 | 51 | `y7z8a9b0c1d2` | `p12_run_csat` | `campaign_calls.disposition` + index + backfill |
-| 52 | `z9b0c1d2e3f4` | `y7z8a9b0c1d2` | `campaign_calls.disposition_reason` — **current head** |
+| 52 | `z9b0c1d2e3f4` | `y7z8a9b0c1d2` | `campaign_calls.disposition_reason` |
+| 53 | `m0b1e0d1a100` | `z9b0c1d2e3f4` | Mobile dialer tables (runs `db-scripts/mobile_dialer_001.sql`) |
+| 54 | `m0b1e0d1a200` | `m0b1e0d1a100` | `mobile_client_logs` (runs `db-scripts/mobile_dialer_002_logs.sql`) |
+| 55 | `mem1a2b3c4d5` | `m0b1e0d1a200` | Drops the v1 memory tables `episodic_memories` and `document_chunks` — **current head** |
 
 Two filenames collide on the prefix `a1b2c3d4e5f6_`: the voice-tables migration
 (revision `a1b2c3d4e5f6`) and the onboarding/phone-pool migration (revision
@@ -1943,8 +1901,6 @@ Not Alembic. Each is idempotent and run manually
 
 | Script | What it does |
 |---|---|
-| [`documents_to_knowledge_trees.py`](../../backend/scripts/migrations/documents_to_knowledge_trees.py) | Backfills v2 Knowledge Trees (`DOCUMENT` → `SECTION` → `CHUNK` nodes) from legacy `document_chunks` rows. Skips entities that already have one |
-| [`episodic_to_trees.py`](../../backend/scripts/migrations/episodic_to_trees.py) | Backfills v2 Episodic Trees from legacy `episodic_memories` rows |
 | [`reseed_meta_agent.py`](../../backend/scripts/migrations/reseed_meta_agent.py) | Replaces the Meta-Agent's prompts/capabilities/planning/governance with the latest template while **preserving its `entity_id`**. Supports `--company` and `--dry-run` |
 
 ### `backend/scripts/seeds/` and other scripts
@@ -1998,10 +1954,10 @@ flowchart LR
 | A resumable run's saved state | `execution_runs.context_state["__agent_state_snapshot__"]` | Written when a run goes `WAITING_ON_CHILDREN` |
 | A pending human approval | `human_approvals` where `status='PENDING'` | |
 | A thumbs up/down on a run | `execution_runs.csat_score` (+1 / −1) and `csat_comment` | |
-| An uploaded document's text | `document_chunks.content`; its vector in `document_chunks.embedding` | |
+| An uploaded document's text | `chunk` nodes in a Knowledge Tree (`cortex_nodes.content`, vector in `cortex_nodes.embedding`) | |
 | An agent's long-term memory | `cortex_nodes` under a `cortex_trees` row with the right `memory_domain` | |
 | A learned rule the system distilled | `cortex_nodes` with `node_type='instruction'` in an `intelligence` tree | |
-| Past run summaries | Episodic CORTEX trees; legacy rows in `episodic_memories` | |
+| Past run summaries | `episode` nodes in Episodic CORTEX trees | |
 | How much a source is trusted | `source_trust_scores.learned_trust` for `(company_id, source_key)` | |
 | A call recording | `artifacts` row with `file_category='recordings'`, path in `file_path`; linked from `call_content.audio_artifact_id` | Bytes are on disk, not in the DB |
 | A call transcript | `call_content.transcript_text`, `voice_sessions.conversation_log`, and turn-by-turn in `conversation_history` | |
@@ -2026,8 +1982,7 @@ flowchart LR
 | [backend/src/ai/orm/entity.py](../../backend/src/ai/orm/entity.py) | 69 | `hierarchical_entities` |
 | [backend/src/ai/orm/execution.py](../../backend/src/ai/orm/execution.py) | 138 | `execution_runs`, `llm_interaction_logs`, `tool_interaction_logs`, `human_approvals` |
 | [backend/src/ai/orm/trace.py](../../backend/src/ai/orm/trace.py) | 102 | `execution_trace_events` + span kind constants |
-| [backend/src/ai/orm/document.py](../../backend/src/ai/orm/document.py) | 50 | `documents`, `document_chunks` |
-| [backend/src/ai/orm/memory.py](../../backend/src/ai/orm/memory.py) | 41 | `episodic_memories` (legacy) |
+| [backend/src/ai/orm/document.py](../../backend/src/ai/orm/document.py) | 34 | `documents` |
 | [backend/src/ai/orm/tools.py](../../backend/src/ai/orm/tools.py) | 43 | `tool_registry_entries` |
 | [backend/src/ai/orm/trust.py](../../backend/src/ai/orm/trust.py) | 52 | `source_trust_scores` |
 | [backend/src/ai/orm/usage.py](../../backend/src/ai/orm/usage.py) | 43 | `usage_logs` |
@@ -2065,12 +2020,9 @@ flowchart LR
 - **Three columns are literally named `metadata`** (`campaigns`, `campaign_calls`,
   `cortex_edges`) and are mapped to differently-named Python attributes. Writing
   `campaign.metadata` gets you SQLAlchemy's table metadata object, not your JSON.
-- **`document_chunks.embedding` has no ANN index** while `cortex_nodes.embedding` gets
-  HNSW. Legacy document search is a full scan.
 - **`execution_runs` has no index on `company_id` or `entity_id`** — only the partial
   idempotency index.
-- **Several numeric-looking values are stored as text**: `episodic_memories.total_cost_usd`
-  (`String(20)`), `documents.file_size` (`String`), `document_chunks.chunk_index`
+- **Several numeric-looking values are stored as text**: `documents.file_size`
   (`String`), `companies.default_daily_credits` (`String`).
 - **All `DateTime` columns are naive.** There is no `timezone=True` anywhere. UTC is a
   convention enforced only by `datetime.utcnow` defaults.

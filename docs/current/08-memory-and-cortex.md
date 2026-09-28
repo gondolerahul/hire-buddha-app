@@ -67,7 +67,7 @@ flowchart TB
     end
 
     subgraph Read["Next run - agent reads"]
-        TREE --> ASM["assemble_memory"]
+        TREE --> ASM["assemble_run_memory"]
         ASM --> BLOCK["__memory__ prompt block"]
         BLOCK --> PROMPT["Sandwich prompt"]
         PROMPT --> LLM["LLM call"]
@@ -76,9 +76,9 @@ flowchart TB
     LLM --> AG
 ```
 
-The single entry point from the worker is
-[`assemble_memory(...)`](../../backend/src/ai/memory/assembler.py:22). The only
-legal write path is
+The AgentLoop's entry point is
+[`assemble_run_memory(...)`](../../backend/src/ai/memory/run_memory.py), called
+once per run from `AgentLoop._compose`. The only legal write path is
 [`CortexService`](../../backend/src/ai/memory/cortex_service.py:63).
 
 > ⚠️ **Important structural fact.** The CORTEX engine has been **extracted into
@@ -658,7 +658,7 @@ flowchart TB
 | Domain | Service | Package source | Stores | Written by | Prompt key |
 |---|---|---|---|---|---|
 | Knowledge | `KnowledgeTreeService` | [knowledge_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/knowledge_tree.py) (483 lines) | Ingested documents as `document → section → chunk` | Document upload, tool-result ingestion | `__knowledge_refs__` |
-| Episodic | `EpisodicTreeService` | [episodic_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/episodic_tree.py) (466 lines) | One `episode` node per completed run | Run finalisation | `__episodic__` / `__episodic_memory__` |
+| Episodic | `EpisodicTreeService` | [episodic_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/episodic_tree.py) (466 lines) | One `episode` node per completed run | Run finalisation (`run_memory.record_episode`, memory-enabled entities) | `__episodic_memory__` |
 | Experience | `ExperienceTreeService` | [experience_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/experience_tree.py) (230 lines) | `observation` → `pattern` → `suggestion` | Dreaming engine | `__experience__` |
 | Intelligence | `IntelligenceTreeService` | [intelligence_tree.py](../../backend/cortex_memory_moved_to_pypi_repo/intelligence_tree.py) (275 lines) | `instruction` / `strategy` / `preference` rules | Dreaming engine, Reflector | `__intelligence__` / `__intelligence_rules__` |
 
@@ -689,35 +689,18 @@ flowchart LR
 Read that left to right: **raw history becomes rules**. Knowledge is the one
 domain fed from outside rather than from the platform's own experience.
 
-### 7.2 The legacy episodic table
+### 7.2 How episodes are written
 
-There are **two** episodic stores, and this trips people up.
+Episodes live only in the Episodic Tree (`cortex_trees` / `cortex_nodes` with
+`memory_domain='episodic'`). The v1 flat `episodic_memories` table was dropped
+(migration `mem1a2b3c4d5`).
 
-| Store | Table | Status |
-|---|---|---|
-| v2 Episodic Tree | `cortex_trees` / `cortex_nodes` with `memory_domain='episodic'` | Current |
-| v1 flat table | [`episodic_memories`](../../backend/src/ai/orm/memory.py:18) | Legacy, read-only |
-
-[`LegacyEpisodicReader`](../../backend/src/ai/memory/legacy_episodic_reader.py)
-is a read-only adapter over the flat table. `assemble_memory` uses it as a
-**first-run top-up** so a freshly-migrated entity is not amnesiac:
-
-```python
-# backend/src/ai/memory/assembler.py
-if memory_scope in ("FULL", "RUN_SCOPED") and not result.get("__episodic_memory__"):
-    try:
-        from src.ai.memory.legacy_episodic_reader import LegacyEpisodicReader
-        legacy = await LegacyEpisodicReader(db).read(
-            entity_id=entity_id, user_id=user_id, limit=5,
-        )
-        if legacy:
-            result["__episodic_memory__"] = legacy
-    except Exception as exc:
-        logger.debug(f"Legacy episodic top-up skipped: {exc}")
-```
-
-It is a pure read with no write-backs, capped at 5 rows, and only fires when the
-v2 pipeline returned nothing.
+When a run finishes, `AgentLoop._drive` persists its final status and then
+calls [`record_episode`](../../backend/src/ai/memory/run_memory.py) — **before**
+it enqueues the Dreaming trigger, so the dream can learn from that run. Only
+entities with `capabilities.memory.enabled` record episodes. The episode
+summarises `input_data["input"]` → `result_data["output"]`, not the whole
+context a child run inherits from its parent.
 
 ---
 
@@ -908,10 +891,10 @@ previously had `"text-embedding-004"` in `memory_service.py` and
 `"gemini-embedding-004"` in `worker.py`/`service.py` — two different models
 writing into the same vector column.
 
-> ⚠️ **Vector dimension is hard-coded to 768** in both
-> [`DocumentChunk.embedding`](../../backend/src/ai/orm/document.py:48) and
+> ⚠️ **Vector dimension is hard-coded to 768** in
 > [`CortexNode.embedding`](../../backend/cortex_memory_moved_to_pypi_repo/models.py:170)
-> (`pgvector.sqlalchemy.Vector(768)`). Configuring an embedding model with a
+> (`pgvector.sqlalchemy.Vector(768)`) and `_CORTEX_EMBEDDING_DIM` in
+> `cortex_providers.py`. Configuring an embedding model with a
 > different output dimension will fail on insert. Changing the dimension
 > requires a migration and a full re-embed.
 
@@ -965,19 +948,25 @@ so the cost dashboard can split them — see
 
 ## 10. Document ingestion and RAG
 
-Two ingestion paths exist, and they write to different places.
+Uploaded documents are stored in one place: a Knowledge Tree. The `documents`
+row tracks the upload; its text is ingested by the `process_document` worker job.
 
 ```mermaid
 flowchart TB
-    UP["User uploads a file"] --> EXT["extract_text_from_file"]
-    EXT --> FORK{"Which store?"}
-    FORK -->|classic RAG| DOCS["documents + document_chunks<br/>flat chunks, 768-dim vectors"]
-    FORK -->|CORTEX v2| KT["KnowledgeTreeService<br/>document to section to chunk nodes"]
-    DOCS --> VS["Vector similarity search"]
-    KT --> SGS["semantic_graph_search"]
-    VS --> PROMPT["__memory__ block"]
-    SGS --> PROMPT
+    UP["User uploads a file"] --> EXT["process_document: extract text"]
+    EXT --> FORK{"Attached to an entity?"}
+    FORK -->|yes| KTE["Entity Knowledge Tree<br/>scope = entity"]
+    FORK -->|no| KTC["Company Knowledge Tree<br/>scope = tenant"]
+    KTE --> SGS["semantic_graph_search / search_documents"]
+    KTC --> SGS
+    SGS --> PROMPT["__memory__ block"]
 ```
+
+A document uploaded without an entity (the Knowledge Base page) goes into the
+company-wide, tenant-scoped tree. Retrieval treats tenant-scoped trees as
+visible to every entity of the company, so those documents reach every agent.
+`upload_status` is `completed` when every chunk was embedded, `partial` when
+some were, and `failed` when none were (nothing searchable).
 
 ### 10.1 Text extraction
 
@@ -1030,21 +1019,27 @@ AND cn.node_type = 'chunk'
 Results are returned as chunks ranked by cosine similarity, with parent context
 attached — so the agent sees which document and section a hit came from.
 
-### 10.3 The classic RAG tables
+### 10.3 The `documents` table and document search
 
-[`Document`](../../backend/src/ai/orm/document.py:23) and
-[`DocumentChunk`](../../backend/src/ai/orm/document.py:41) are the simpler,
-older path — a flat list of chunks per document with a `Vector(768)` column and
-`cascade="all, delete-orphan"` so deleting a document removes its chunks.
+[`Document`](../../backend/src/ai/orm/document.py) records each upload; it has
+no content of its own. The v1 `document_chunks` table was dropped (migration
+`mem1a2b3c4d5`) — chunks and their vectors live on `chunk` nodes in the
+Knowledge Tree, each carrying `source_ref.document_id`.
 
-`Document.upload_status` moves `processing → completed | failed`.
+`POST /api/v1/ai/documents/search` runs
+[`KnowledgeTreeService.search_documents`](../../backend/src/ai/memory/knowledge_tree_service.py):
+with `entity_id`, that entity's tree plus the company tree; without, every
+Knowledge Tree in the company. It returns `500` when the query cannot be
+embedded, so a broken embedding setup is not mistaken for "no results".
 
 ```mermaid
 stateDiagram-v2
     [*] --> processing: file uploaded
-    processing --> completed: chunks embedded and stored
-    processing --> failed: extraction or embedding error
+    processing --> completed: every chunk embedded
+    processing --> partial: some chunks embedded
+    processing --> failed: nothing searchable, or extraction error
     completed --> [*]
+    partial --> [*]
     failed --> [*]
 ```
 
@@ -1052,23 +1047,38 @@ stateDiagram-v2
 
 ## 11. Memory assembly — building the `__memory__` block
 
-[`assemble_memory`](../../backend/src/ai/memory/assembler.py:22) is the **single
-entry point** from the worker and the loop.
+The AgentLoop assembles memory **once per run** in `_compose`, through
+[`assemble_run_memory`](../../backend/src/ai/memory/run_memory.py), and every
+LLM consumer reads that one result:
+
+| Consumer | Receives | How |
+|---|---|---|
+| Step LLM prompt | `__memory__` | [`prompt_context_block`](../../backend/src/ai/step_executor.py) → sandwich layer 9, read from the unfiltered context |
+| Planner | `__intelligence_rules__` | `PlanContext.intelligence_rules` → `## Intelligence rules` in the plan prompt |
+| Perceiver → supervisor critic | rules + past runs | the `RunMemory` reader (`intelligence_rules`, `similar_runs`) |
+
+Memory is opt-in per entity: `capabilities.memory.enabled` must be true, and
+`memory_scope` picks the domains. A resumed run reuses the memory stored in its
+AgentState snapshot instead of re-assembling. Child runs do **not** inherit the
+parent's memory keys — each child's own loop assembles its own entity's memory.
+Each assembly emits an `agent.memory.assembled` event (scope, rule and episode
+counts, block size).
 
 ```mermaid
 sequenceDiagram
-    participant W as Worker / AgentLoop
+    participant L as AgentLoop._compose
+    participant R as assemble_run_memory
     participant A as assemble_memory
     participant MAS as MemoryAssemblyService
     participant G as SemanticGraphService
     participant IT as IntelligenceTreeService
     participant ET as EpisodicTreeService
-    participant L as LegacyEpisodicReader
 
-    W->>A: assemble_memory(db, company, entity, user, task, memory_scope)
-    alt memory_scope == "NONE"
-        A-->>W: {} (empty)
+    L->>R: assemble_run_memory(state, entity, runtime_tree)
+    alt memory disabled or scope NONE
+        R-->>L: None
     end
+    R->>A: assemble_memory(company, entity, task, memory_scope)
     A->>MAS: assemble_runtime_memory(include_domains)
     MAS->>G: semantic_graph_search(domains=["knowledge"], top_k=10)
     G-->>MAS: knowledge_refs
@@ -1080,11 +1090,8 @@ sequenceDiagram
     ET-->>MAS: episodic_context
     MAS->>MAS: _format_assembled_memory()
     MAS-->>A: MemoryAssemblyResult
-    alt episodic empty and scope wants episodes
-        A->>L: read(entity, user, limit=5)
-        L-->>A: legacy episodes
-    end
-    A-->>W: {__memory__, __intelligence_rules__, __episodic_memory__}
+    A-->>R: {__memory__, __intelligence_rules__, __episodic_memory__}
+    R-->>L: RunMemory (keys also written into context_state)
 ```
 
 ### 11.1 Memory scopes
@@ -1094,34 +1101,21 @@ sequenceDiagram
 | `memory_scope` | Domains included |
 |---|---|
 | `FULL` | knowledge, experience, intelligence, episodic |
-| `RUN_SCOPED` | knowledge, experience, intelligence, episodic |
+| `RUN_SCOPED` | knowledge only — nothing learned from other runs |
 | `INTELLIGENCE_ONLY` | intelligence |
 | `KNOWLEDGE_ONLY` | knowledge, intelligence |
 | `NONE` | *(returns `{}` immediately — no DB work at all)* |
 
-> `FULL` and `RUN_SCOPED` currently map to **identical** domain sets in
-> [`_assemble_v2`](../../backend/src/ai/memory/assembler.py:78). The distinction
-> exists in the API but has no effect on domain selection today.
+`RUN_SCOPED` follows `MemoryConfig`'s definition ("only the current run's
+data"): the entity's reference knowledge, but no episodes, experience or rules
+from earlier runs. The entity builder does not save `memory_scope`, so entities
+configured in the UI use `FULL`.
 
-### 11.2 The v1 pipeline is gone
+### 11.2 There is one pipeline
 
-```python
-# backend/src/ai/memory/assembler.py
-async def assemble_memory(
-    ...
-    memory_pipeline: str = "v2",                            # retained for compat
-    ...
-):
-    """
-    Args:
-        memory_pipeline: retained for call-site compatibility; ignored (always
-            v2).
-    """
-```
-
-The `memory_pipeline` argument is **accepted and ignored**. Passing `"v1"` does
-nothing. [`memory_service.py`](../../backend/src/ai/memory/memory_service.py)
-(`MemoryRouter`) is deprecated; its `retrieve` path was removed.
+The v1 `MemoryRouter` (`memory_service.py`), the `LegacyEpisodicReader`
+first-run top-up and the `memory_pipeline` argument were removed. All memory is
+assembled from the four CORTEX domains.
 
 ### 11.3 Retrieval limits
 
@@ -1696,12 +1690,11 @@ environment.
 | [memory/task_classifier.py](../../backend/src/ai/memory/task_classifier.py) | 201 | Stable `task_class` strings |
 | [memory/cortex_providers.py](../../backend/src/ai/memory/cortex_providers.py) | 197 | `HostLLMProvider`, `HostEmbeddingProvider` — the injected adapters |
 | [memory/trust_learning.py](../../backend/src/ai/memory/trust_learning.py) | 125 | Trust-score learning |
-| [memory/assembler.py](../../backend/src/ai/memory/assembler.py) | 114 | `assemble_memory` — **the single entry point** |
+| [memory/run_memory.py](../../backend/src/ai/memory/run_memory.py) | — | The AgentLoop's per-run wiring: `open_run_tree`, `assemble_run_memory` (**the read path**), `record_episode` |
+| [memory/assembler.py](../../backend/src/ai/memory/assembler.py) | — | `assemble_memory` — scope → domains, renders `__memory__` |
+| [memory/knowledge_tree_service.py](../../backend/src/ai/memory/knowledge_tree_service.py) | — | Shim + the company-wide Knowledge Tree and `search_documents` |
 | [memory/rule_lifecycle.py](../../backend/src/ai/memory/rule_lifecycle.py) | 90 | candidate → confirmed → retired policy |
-| [memory/legacy_episodic_reader.py](../../backend/src/ai/memory/legacy_episodic_reader.py) | 81 | Read-only v1 top-up |
-| [memory/memory_service.py](../../backend/src/ai/memory/memory_service.py) | 274 | ⚠️ Deprecated v1 `MemoryRouter` |
-| [orm/document.py](../../backend/src/ai/orm/document.py) | 50 | `Document`, `DocumentChunk` |
-| [orm/memory.py](../../backend/src/ai/orm/memory.py) | 41 | ⚠️ Legacy `EpisodicMemory` flat table |
+| [orm/document.py](../../backend/src/ai/orm/document.py) | — | `Document` (upload record; content lives in Knowledge Trees) |
 | [core/prompt_utils.py](../../backend/src/ai/core/prompt_utils.py) | — | `build_sandwich_prompt`, internal-key scrubbing |
 | [ai/constants.py](../../backend/src/ai/constants.py) | — | `EMBEDDING_MODEL_FALLBACK`, `INTERNAL_CONTEXT_KEYS` |
 | [ai/text_extractor.py](../../backend/src/ai/text_extractor.py) | — | File → text |
@@ -1719,11 +1712,11 @@ environment.
    looks exactly like an agent with empty memory. Enable debug logging on
    `cortex_memory.assembly` before assuming "it just hasn't learned yet".
 
-3. **`memory_pipeline="v1"` does nothing.** The argument is accepted and
-   ignored; v2 is unconditional.
+3. **Memory is opt-in per entity.** Nothing is assembled (and no episodes are
+   recorded) unless `capabilities.memory.enabled` is true.
 
-4. **`FULL` and `RUN_SCOPED` are currently identical.** Both map to all four
-   domains.
+4. **`RUN_SCOPED` is knowledge only.** It gets the entity's reference knowledge
+   but nothing learned from other runs; use `FULL` for episodes and rules.
 
 5. **No foreign keys from CORTEX tables to host tables.** Deleting a company
    leaves orphaned trees. Referential integrity is application-level only.

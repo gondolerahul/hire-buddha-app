@@ -326,17 +326,15 @@ graph TB
     end
 
     subgraph Assembly["🔧 Memory Assembly Pipeline"]
-        ASSEMBLER["assemble_memory()"]
-        MAS["MemoryAssemblyService<br/>v2 4-domain retrieval"]
-        LEGACY["LegacyEpisodicReader<br/>Flat-table top-up for<br/>freshly migrated entities"]
+        ASSEMBLER["assemble_run_memory()<br/>once per run"]
+        MAS["MemoryAssemblyService<br/>4-domain retrieval"]
     end
 
-    ASSEMBLER -->|"v2 canonical path"| MAS
+    ASSEMBLER --> MAS
     MAS --> KNOWLEDGE
     MAS --> EPISODIC
     MAS --> EXPERIENCE
     MAS --> INTELLIGENCE
-    ASSEMBLER -->|"first-run fallback"| LEGACY
 
     subgraph Scopes["Memory Scopes"]
         FULL["FULL — All 4 domains"]
