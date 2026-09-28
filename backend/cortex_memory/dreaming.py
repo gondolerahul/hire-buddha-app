@@ -86,6 +86,12 @@ class DreamingEngine:
     CONSOLIDATION_INTERVAL_HOURS = 24
     OBSERVATION_CONFIDENCE_THRESHOLD = 0.5
     PATTERN_STRENGTH_THRESHOLD = 0.7
+    # Output-token budgets per phase. Thinking models (e.g. Gemini 2.5) spend
+    # part of max_tokens on reasoning, so tight limits truncate the JSON answer
+    # (observed: 2000 tokens left 79 visible tokens, finish=MAX_TOKENS).
+    OBSERVATION_MAX_TOKENS = 8192
+    PATTERN_MAX_TOKENS = 4096
+    DISTILLATION_MAX_TOKENS = 8192
 
     def __init__(
         self,
@@ -125,15 +131,23 @@ class DreamingEngine:
 
         Returns counts of created nodes per phase.
         """
+        nothing = {"observations_created": 0, "patterns_created": 0, "rules_created": 0}
         if not force:
             should_run = await self._should_run(entity_id)
             if not should_run:
-                return {"observations_created": 0, "patterns_created": 0, "rules_created": 0}
+                return nothing
 
         logger.info(f"Dreaming engine starting for entity {entity_id}")
 
         # Extract Observations
-        obs_ids = await self._extract_observations(entity_id)
+        obs_ids = await self._consolidate_episodes(entity_id)
+        if obs_ids is None and not force:
+            # Nothing was consolidated (too few pending episodes, or no usable
+            # LLM output). Leave the consolidation timestamp alone so the pending
+            # episodes are consolidated by a later pass instead of being skipped,
+            # and skip the pattern/rule phases — there is no new evidence.
+            return nothing
+        obs_ids = obs_ids or []
 
         # Pattern Recognition
         pat_ids = await self._recognize_patterns(entity_id)
@@ -158,7 +172,18 @@ class DreamingEngine:
 
     async def _extract_observations(self, entity_id: UUID) -> List[UUID]:
         """
-        Analyze recent episode nodes and extract observations via LLM.
+        Analyze pending episode nodes and extract observations via LLM.
+        """
+        return await self._consolidate_episodes(entity_id) or []
+
+    async def _consolidate_episodes(self, entity_id: UUID) -> Optional[List[UUID]]:
+        """Consolidate the oldest pending episodes into observations.
+
+        Returns the created observation ids, or ``None`` when nothing was
+        consolidated: fewer than MIN_EPISODES_FOR_DREAMING pending episodes, no
+        LLM, a failed call or unparseable output. Episodes are marked consumed
+        only when the LLM's answer was usable, so none is skipped; a backlog
+        larger than BATCH_SIZE is worked off oldest-first across passes.
         """
         from cortex_memory.episodic_tree import EpisodicTreeService
         from cortex_memory.experience_tree import ExperienceTreeService
@@ -167,22 +192,20 @@ class DreamingEngine:
         experience_svc = ExperienceTreeService(self.db, self.company_id)
 
         experience_tree = await experience_svc.get_or_create_experience_tree(entity_id)
-        last_consolidated = experience_tree.last_consolidated_at or datetime.min
 
-        # Get unprocessed episodes
-        episodes = await episodic_svc.query_by_time(
-            entity_id=entity_id,
-            start_date=last_consolidated,
-            end_date=datetime.utcnow(),
-            limit=self.BATCH_SIZE,
+        episodes = await episodic_svc.get_unconsolidated_episodes(
+            entity_id=entity_id, limit=self.BATCH_SIZE,
         )
 
         if len(episodes) < self.MIN_EPISODES_FOR_DREAMING:
             logger.debug(
-                f"Skipping observation extraction: {len(episodes)} episodes "
+                f"Skipping observation extraction: {len(episodes)} pending episodes "
                 f"(min {self.MIN_EPISODES_FOR_DREAMING})"
             )
-            return []
+            return None
+        if self._llm is None:
+            logger.debug("Skipping observation extraction: no LLM provider injected")
+            return None
 
         # Build episode summaries for LLM
         episode_summaries = []
@@ -204,15 +227,23 @@ class DreamingEngine:
                 system_prompt=OBSERVATION_EXTRACTION_PROMPT,
                 user_prompt=json.dumps(episode_summaries),
                 temperature=0.2,
-                max_tokens=2000,
+                max_tokens=self.OBSERVATION_MAX_TOKENS,
             )
             await self._log_dreaming_usage(response)
         except Exception as e:
             logger.warning(f"LLM call failed in observation extraction: {e}")
-            return []
+            return None
 
-        from cortex_memory._textutil import parse_json_array
+        from cortex_memory._textutil import parse_json_array, strip_markdown_fences
         observations = parse_json_array(response.output)
+        if not observations and strip_markdown_fences(response.output or "") != "[]":
+            # Unparseable output is a failed pass (retry later), unlike an
+            # explicit "[]" meaning "nothing worth observing".
+            return None
+
+        await episodic_svc.mark_consolidated(
+            [UUID(str(ep["node_id"])) for ep in episodes if ep.get("node_id")]
+        )
         if not observations:
             return []
 
@@ -296,7 +327,7 @@ class DreamingEngine:
                     system_prompt=PATTERN_RECOGNITION_PROMPT,
                     user_prompt=json.dumps(cluster_texts),
                     temperature=0.2,
-                    max_tokens=500,
+                    max_tokens=self.PATTERN_MAX_TOKENS,
                 )
                 await self._log_dreaming_usage(response)
             except Exception as e:
@@ -396,7 +427,7 @@ class DreamingEngine:
                     "existing_rules": existing_summaries,
                 }),
                 temperature=0.1,
-                max_tokens=2000,
+                max_tokens=self.DISTILLATION_MAX_TOKENS,
             )
             await self._log_dreaming_usage(response)
         except Exception as e:

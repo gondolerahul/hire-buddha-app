@@ -448,6 +448,44 @@ path that no longer exists — so this package has no test gate either. See
 - [`backend/pyproject.toml:53`](../../../backend/pyproject.toml:53)
 - [`backend/cortex_memory_moved_to_pypi_repo/`](../../../backend/cortex_memory_moved_to_pypi_repo/)
 
+**Status (2026-09-28):** the in-repo copy was renamed to `backend/cortex_memory/`
+(`e8d9f62`), so the CI filter matches again. The backend imports this copy ahead of
+the installed wheel; the "publish or move back" decision (MC-I10) is still open.
+
+---
+
+### MC-21 — Dreaming skips every episode it does not consolidate
+
+**✅ Verified · High** · **Status: fixed (2026-09-28)**
+
+`DreamingEngine.dream` stamped `last_consolidated_at` after **every** pass, and the next
+pass only read episodes created after that timestamp. A pass with fewer than
+`MIN_EPISODES_FOR_DREAMING` new episodes (or a failed LLM call) consolidated nothing but
+still moved the watermark — so those episodes were never read again, and a backlog above
+`BATCH_SIZE` lost its older half. With the cron and outcome triggers running, an entity
+only learned if five runs landed inside one gate window.
+
+**Fix:** episodes are marked individually when consumed
+(`metadata_extra.consolidated_at`); each pass takes the oldest pending batch; the
+timestamp (the 24-hour gate) only advances when a pass consolidated; passes that
+consolidate nothing skip the pattern and distillation phases.
+
+- `cortex_memory/dreaming.py`, `cortex_memory/episodic_tree.py` (package change — carry
+  it back to the package repo)
+
+### MC-22 — Dreaming's token budgets truncate thinking-model answers
+
+**✅ Verified · High** · **Status: fixed (2026-09-28)**
+
+Observation extraction and distillation used `max_tokens=2000`, pattern recognition 500.
+Gemini 2.5 Flash spends part of that on reasoning: at 2000 it returned 79 visible tokens
+with `finish=MAX_TOKENS` — a truncated JSON array that parsed as "no observations". So
+with the platform's default model Dreaming could never learn anything. Budgets are now
+8192 / 4096 / 8192; a live pass produced 6 observations, a pattern and a rule.
+
+- `cortex_memory/dreaming.py` (`OBSERVATION_MAX_TOKENS`, `PATTERN_MAX_TOKENS`,
+  `DISTILLATION_MAX_TOKENS`)
+
 ---
 
 ## 6. Improvements

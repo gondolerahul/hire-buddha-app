@@ -1306,8 +1306,19 @@ PATTERN_STRENGTH_THRESHOLD = 0.7
 | `OBSERVATION_CONFIDENCE_THRESHOLD` | 0.5 | Below this, an observation is discarded |
 | `PATTERN_STRENGTH_THRESHOLD` | 0.7 | Below this, a pattern is not distilled |
 
-The practical consequence: **a brand-new entity learns nothing for its first
-five runs**, and thereafter at most once per 24 hours.
+The practical consequence: **an entity learns once it has five pending
+(unconsolidated) episodes**, and thereafter at most once per 24 hours.
+
+Each episode is marked when Dreaming consumes it
+(`metadata_extra.consolidated_at`), and each pass takes the oldest
+`BATCH_SIZE` pending episodes — so no episode is ever skipped, and a backlog is
+worked off over successive passes. Episodes are only marked when the LLM's
+answer was usable; a failed call or unparseable output leaves them pending.
+
+Each phase has an output-token budget (`OBSERVATION_MAX_TOKENS` 8192,
+`PATTERN_MAX_TOKENS` 4096, `DISTILLATION_MAX_TOKENS` 8192). Thinking models
+spend part of `max_tokens` on reasoning: with the old 2000-token budget,
+Gemini 2.5 Flash returned a truncated JSON array and nothing was ever learned.
 
 ### 13.2 The gate
 
@@ -1328,9 +1339,12 @@ async def _should_run(self, entity_id: UUID) -> bool:
 `dream(entity_id, force=True)` bypasses the gate — that is what the admin
 trigger uses.
 
-After a successful pass, `last_consolidated_at` is stamped and
-`consolidation_generation` increments, giving you an audit trail of how many
-times an entity has consolidated.
+`last_consolidated_at` is stamped — and `consolidation_generation` increments —
+**only when a pass actually consolidated episodes**. A pass with fewer than five
+pending episodes, or whose LLM call failed, returns immediately without the
+pattern and distillation phases and leaves the gate open, so the next trigger
+tries again. (Previously every pass stamped the timestamp, and the episodes it
+had not consolidated fell behind it and were never read again.)
 
 ### 13.3 Triggers
 
@@ -1760,8 +1774,9 @@ environment.
    `CortexIngestionPipeline` uses 2000/none. Which one runs depends on the
    ingestion path.
 
-10. **A new entity learns nothing for 5 runs**, then at most once per 24 hours.
-    Use `dream(entity_id, force=True)` when testing learning behaviour.
+10. **An entity learns once it has 5 pending episodes**, then at most once per
+    24 hours. Use `dream(entity_id, force=True)` when testing learning
+    behaviour.
 
 11. **`retired` rules never come back.** The lifecycle transition is one-way.
 

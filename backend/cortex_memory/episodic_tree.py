@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cortex_memory.models import (
@@ -36,6 +36,9 @@ from cortex_memory.models import (
     CortexTreeStatus, CortexNodeType, CortexNodeStatus,
     MemoryDomain, ScopeLevel,
 )
+
+# Episode metadata key set once the Dreaming engine has consumed the episode.
+CONSOLIDATED_KEY = "consolidated_at"
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +254,47 @@ class EpisodicTreeService:
         )
         nodes = result.scalars().all()
         return [self._episode_node_to_dict(n) for n in nodes]
+
+    # ===================================================================
+    # Consolidation tracking (Dreaming)
+    # ===================================================================
+
+    async def get_unconsolidated_episodes(
+        self,
+        entity_id: UUID,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Episodes the Dreaming engine has not consumed yet, oldest first.
+
+        Tracked per episode (``metadata_extra[CONSOLIDATED_KEY]``) rather than
+        by a timestamp watermark, so an episode is never skipped: one that is
+        not consolidated in this pass stays pending for the next.
+        """
+        tree = await self._find_episodic_tree(entity_id)
+        if not tree:
+            return []
+
+        result = await self.db.execute(
+            select(CortexNode).where(
+                CortexNode.tree_id == tree.id,
+                CortexNode.node_type == CortexNodeType.EPISODE,
+                or_(
+                    CortexNode.metadata_extra.is_(None),
+                    ~CortexNode.metadata_extra.has_key(CONSOLIDATED_KEY),
+                ),
+            ).order_by(CortexNode.created_at.asc()).limit(limit)
+        )
+        return [self._episode_node_to_dict(n) for n in result.scalars().all()]
+
+    async def mark_consolidated(self, node_ids: List[UUID]) -> None:
+        """Record that the Dreaming engine has consumed these episodes."""
+        if not node_ids:
+            return
+        stamp = datetime.utcnow().isoformat()
+        result = await self.db.execute(select(CortexNode).where(CortexNode.id.in_(node_ids)))
+        for node in result.scalars().all():
+            node.metadata_extra = {**(node.metadata_extra or {}), CONSOLIDATED_KEY: stamp}
+        await self.db.flush()
 
     # ===================================================================
     # Semantic Query
