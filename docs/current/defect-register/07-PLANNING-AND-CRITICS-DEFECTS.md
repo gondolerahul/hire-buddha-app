@@ -122,7 +122,10 @@ platform's own accounting.
 
 ### PC-04 — The post critic never sees intelligence rules
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-28)** — the loop passes its
+`RunMemory` as `intelligence_reader`, and the post critic renders
+`RunMemory.top_rules`. See
+[MC-03](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-03--intelligence-rules-are-distilled-and-never-consumed).
 
 `_build_real_critic_pipeline` passes `intelligence_reader=None`, with the comment
 `# wired in Track 6`.

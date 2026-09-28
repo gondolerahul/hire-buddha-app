@@ -558,38 +558,36 @@ async def dreaming_worker(ctx: dict[str, Any], entity_id_str: str, company_id_st
 # ---------------------------------------------------------------------------
 async def dreaming_cron_trigger(ctx: dict[str, Any]) -> dict[str, Any]:
     """
-    Periodic cron job that auto-discovers entities with dreaming enabled
-    and enqueues a dreaming_worker job for each.
-
-    Entity selection: entities with `capabilities.dreaming.enabled == true`
-    that haven't been consolidated in the last CONSOLIDATION_INTERVAL_HOURS.
+    Periodic cron job that enqueues a dreaming_worker job for every entity
+    with memory enabled — the entities that record episodes and read the
+    rules Dreaming distils. ``DreamingEngine.dream`` applies the
+    CONSOLIDATION_INTERVAL_HOURS gate per entity.
     """
     from src.common.database import AsyncSessionLocal
     from sqlalchemy import text as _text
 
     enqueued = 0
+    redis = ctx.get('redis')  # the worker's ArqRedis pool
+    if redis is None:
+        logger.error("Dreaming cron: no redis in worker context; nothing enqueued")
+        return {"enqueued": 0}
     try:
         async with AsyncSessionLocal() as db:
-            # Find entities with dreaming enabled via JSONB query
             result = await db.execute(_text(
                 "SELECT id, company_id FROM hierarchical_entities "
-                "WHERE status != 'ARCHIVED' "
-                "AND capabilities->'dreaming'->>'enabled' = 'true'"
+                "WHERE status NOT IN ('ARCHIVED', 'DELETED') "
+                "AND capabilities->'memory'->>'enabled' = 'true'"
             ))
             entities = result.fetchall()
 
             for row in entities:
                 entity_id, company_id = str(row[0]), str(row[1])
                 try:
-                    redis = ctx.get('redis')
-                    if redis:
-                        from arq.connections import ArqRedis
-                        arq = ArqRedis(redis)
-                        await arq.enqueue_job(
-                            "dreaming_worker", entity_id, company_id, False
-                        )
-                        enqueued += 1
-                        logger.info(f"Dreaming cron: enqueued for entity {entity_id}")
+                    await redis.enqueue_job(
+                        "dreaming_worker", entity_id, company_id, False
+                    )
+                    enqueued += 1
+                    logger.info(f"Dreaming cron: enqueued for entity {entity_id}")
                 except Exception as e:
                     logger.warning(f"Dreaming cron: failed to enqueue entity {entity_id}: {e}")
 
@@ -605,33 +603,25 @@ async def dreaming_cron_trigger(ctx: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 async def graph_maintenance_worker(ctx: dict[str, Any]) -> dict[str, Any]:
     """
-    Periodic maintenance for the semantic graph.
-    Run daily via scheduler. Decays stale edge weights and prunes weak edges.
+    Daily maintenance for the semantic graph: decays the weight of edges not
+    traversed in 30 days, then prunes edges that reached the floor.
+
+    Runs as one pass over all edges — ``decay_weights`` / ``prune_weak_edges``
+    are not company-scoped, so looping per company would decay every edge once
+    per company.
     """
     from src.common.database import AsyncSessionLocal
-    from sqlalchemy import text as _text
+    from cortex_memory.graph import SemanticGraphService
 
     async with AsyncSessionLocal() as db:
         try:
-            result = await db.execute(_text(
-                "SELECT DISTINCT company_id FROM cortex_trees WHERE status = 'active'"
-            ))
-            companies = result.fetchall()
-
-            total_decayed = 0
-            total_pruned = 0
-
-            for row in companies:
-                from src.ai.memory.graph_service import SemanticGraphService
-                graph = SemanticGraphService(db, row[0])
-                decayed = await graph.decay_weights(days_inactive=30)
-                pruned = await graph.prune_weak_edges()
-                total_decayed += decayed
-                total_pruned += pruned
-
+            # decay/prune never read company_id — maintenance spans all tenants.
+            graph = SemanticGraphService(db, company_id=cast(UUID, None))
+            decayed = await graph.decay_weights(days_inactive=30)
+            pruned = await graph.prune_weak_edges()
             await db.commit()
-            logger.info(f"Graph maintenance: {total_decayed} edges decayed, {total_pruned} pruned")
-            return {"decayed": total_decayed, "pruned": total_pruned}
+            logger.info(f"Graph maintenance: {decayed} edges decayed, {pruned} pruned")
+            return {"decayed": decayed, "pruned": pruned}
         except Exception as e:
             logger.error(f"Graph maintenance worker failed: {e}")
             return {"error": str(e)}

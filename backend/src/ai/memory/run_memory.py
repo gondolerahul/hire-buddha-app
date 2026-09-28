@@ -93,6 +93,10 @@ class RunMemory:
     async def intelligence_rules(self, entity_id: Any = None, top_k: int = 5) -> List[Dict[str, Any]]:
         return self._rules[:top_k]
 
+    async def top_rules(self, limit: int = 3) -> List[Dict[str, Any]]:
+        """The critic pipeline's reader interface (post-critic prompt)."""
+        return self._rules[:limit]
+
     async def similar_runs(self, entity_id: Any = None, top_k: int = 3) -> List[Dict[str, Any]]:
         return [
             {

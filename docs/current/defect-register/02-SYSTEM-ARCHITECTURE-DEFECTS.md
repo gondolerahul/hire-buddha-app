@@ -157,7 +157,8 @@ exactly this.
 
 ### SA-06 — The 6-hourly dreaming cron enqueues a job the worker cannot run
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-28)** — see
+[MC-02](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-02--the-scheduled-dreaming-job-has-never-run).
 
 `worker.py` imports `dreaming_worker` and `graph_maintenance_worker` from `arq_jobs`,
 but **neither appears in `WorkerSettings.functions`**. `dreaming_cron_trigger` — which

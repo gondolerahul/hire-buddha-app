@@ -119,7 +119,16 @@ and [AK-06](05-AGENT-KERNEL-DEFECTS.md#ak-06--the-perceivers-richest-fields-are-
 
 ### MC-02 — The scheduled dreaming job has never run
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-28)** — `dreaming_worker` and
+`graph_maintenance_worker` are registered, and graph maintenance has a daily cron
+(03:45). Registering alone was not enough: the cron wrapped the worker's `ArqRedis`
+in `ArqRedis(...)`, which raises on every enqueue, and it selected entities by
+`capabilities.dreaming.enabled` — a key the `Capabilities` schema drops, so nothing
+ever matched. It now uses the worker pool directly and selects memory-enabled
+entities. Graph maintenance runs one global pass instead of re-decaying every edge
+once per company. Verified live: the sweep enqueued and completed 5 dreams, and
+maintenance ran. (`cortex_resume_scheduled` has the same `ArqRedis(...)` bug plus
+an enqueue-before-commit race — not fixed here.)
 
 `dreaming_cron_trigger` is registered as a cron and fires at 00:15, 06:15, 12:15 and
 18:15. It enqueues by string name:
@@ -146,7 +155,11 @@ the same position and has **no caller at all**, so the graph is never maintained
 
 ### MC-03 — Intelligence rules are distilled and never consumed
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-28)** — with MC-01 the rules reach
+the step prompt, planner and supervisor critic; the post critic now reads them too
+(`RunMemory.top_rules`, rendered from rule dicts). Still open: the rule lifecycle is
+not enforced (Dreaming stamps no `lifecycle`, retrieval returns none), and
+`CriticCalibrator` never writes its findings (PC-22).
 
 Rules earn their way into prompts through a lifecycle: `candidate` → `confirmed` at three
 net validations. `CriticCalibrator` writes calibration findings into the same tree weekly.

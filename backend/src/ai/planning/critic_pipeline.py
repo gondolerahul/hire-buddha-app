@@ -613,9 +613,16 @@ class RealCriticPipeline:
             rules = await self.intel.top_rules(limit=3)
             if not rules:
                 return "(none)"
-            return "\n".join(f"- {getattr(r, 'summary', str(r))[:160]}" for r in rules)
+            return "\n".join(f"- {self._rule_text(r)[:160]}" for r in rules)
         except Exception:                                                   # pragma: no cover
             return "(none)"
+
+    @staticmethod
+    def _rule_text(rule: Any) -> str:
+        """Rules arrive as retrieval dicts (``rule`` / ``title``) or node-like objects."""
+        if isinstance(rule, dict):
+            return str(rule.get("rule") or rule.get("title") or rule.get("summary") or rule)
+        return str(getattr(rule, "summary", None) or rule)
 
     def _completed_steps_for_review(self, state: AgentState) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

@@ -80,6 +80,9 @@ class WorkerSettings:
         resume_parent_run,
         # Outcome-triggered Dreaming.
         dreaming_outcome_trigger,
+        # Enqueued by dreaming_cron_trigger (must be registered to run).
+        dreaming_worker,
+        graph_maintenance_worker,
     ]
     # Register CORTEX scheduled wake-up cron
     cron_jobs = [
@@ -107,6 +110,8 @@ try:
         cron(cortex_resume_scheduled, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
         # C: Auto-schedule dreaming every 6 hours
         cron(dreaming_cron_trigger, hour={0, 6, 12, 18}, minute={15}),
+        # Daily semantic-graph maintenance: decay stale edges, prune the weakest.
+        cron(graph_maintenance_worker, hour={3}, minute={45}),
         # Weekly critic calibration (Sunday 03:15 UTC)
         cron(critic_calibration_job, weekday=6, hour=3, minute=15),
         # Weekly skill candidate scan (Sunday 04:30 UTC)

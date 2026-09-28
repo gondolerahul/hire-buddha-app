@@ -1313,7 +1313,8 @@ class AgentLoop:
             )
         except Exception:                                                   # pragma: no cover
             enabled = False
-        if not enabled or state.entity_id is None:
+        # Dreaming learns from episodes, which only memory-enabled entities record.
+        if not enabled or state.entity_id is None or self.memory is None:
             return
         reason = "success" if status == RunStatus.COMPLETED.value else "failure"
         try:

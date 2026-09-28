@@ -1341,6 +1341,8 @@ WorkerSettings.cron_jobs = [
     cron(cortex_resume_scheduled, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
     # C: Auto-schedule dreaming every 6 hours
     cron(dreaming_cron_trigger, hour={0, 6, 12, 18}, minute={15}),
+    # Daily semantic-graph maintenance: decay stale edges, prune the weakest.
+    cron(graph_maintenance_worker, hour={3}, minute={45}),
     cron(critic_calibration_job, weekday=6, hour=3, minute=15),
     cron(skill_promotion_scan, weekday=6, hour=4, minute=30),
     cron(meta_agent_prompt_evolution, weekday=0, hour=5, minute=0),
@@ -1351,9 +1353,17 @@ WorkerSettings.cron_jobs = [
 
 | Trigger | Job | Schedule |
 |---|---|---|
-| Cron | `dreaming_cron_trigger` | 00:15, 06:15, 12:15, 18:15 daily |
-| Outcome | `dreaming_outcome_trigger` | Fired from `AgentLoop._finalize` when a run completes |
-| Worker | `dreaming_worker` | The job that actually runs `dream()` |
+| Cron | `dreaming_cron_trigger` | 00:15, 06:15, 12:15, 18:15 daily — enqueues a `dreaming_worker` per entity with `capabilities.memory.enabled` |
+| Outcome | `dreaming_outcome_trigger` | Enqueued by `AgentLoop._drive` when a run of a memory-enabled entity finishes, after its episode is recorded |
+| Worker | `dreaming_worker` | The job that actually runs `dream()` (registered in `WorkerSettings.functions`) |
+
+Both paths are gated on memory being enabled because Dreaming learns only from
+episodes, and only memory-enabled entities record them. `dream()` then applies
+the 24-hour gate per entity.
+
+`graph_maintenance_worker` runs daily at 03:45 as **one** pass over all edges:
+`decay_weights` / `prune_weak_edges` are not company-scoped, so a per-company
+loop would decay every edge once per company.
 
 ```mermaid
 sequenceDiagram
@@ -1468,6 +1478,19 @@ out prompts the moment an operator enabled the gate.
 **Division of labour:** the `cortex_memory` package *stamps* the `lifecycle`
 field; the host *enforces* it. This keeps policy changes from destabilising the
 published package.
+
+### 14.2 Where rules are read
+
+Rules retrieved for a run (`get_applicable_rules`, via `assemble_run_memory`)
+reach four consumers: the step prompt (inside `__memory__`), the planner
+(`PlanContext.intelligence_rules`), the supervisor critic (through the
+Perceiver) and the post critic (`RunMemory.top_rules`, the "Top intelligence
+rules" block of its prompt).
+
+> ⚠️ **The lifecycle is not enforced today.** Dreaming does not stamp a
+> `lifecycle` field on the rules it writes, and `get_applicable_rules` does not
+> return one, so every retrieved rule looks like a legacy rule and is always
+> prompt-eligible — `memory.rule_lifecycle_confirmed_only` has no effect.
 
 ---
 
