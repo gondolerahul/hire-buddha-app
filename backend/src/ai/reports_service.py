@@ -13,9 +13,9 @@ from sqlalchemy.future import select
 
 from src.ai.models import (
     ExecutionRun, LLMInteractionLog, ToolInteractionLog,
-    HumanApproval, UsageLog, EpisodicMemory, HierarchicalEntity,
-    DocumentChunk, Document,
+    HumanApproval, UsageLog, HierarchicalEntity, Document,
 )
+from src.ai.memory.cortex_models import CortexNode
 from src.auth.models import Company, User
 from src.billing.billing_models import (
     BillingEvent, CreditWallet, Subscription, PaymentTransaction,
@@ -835,7 +835,7 @@ class ReportsService:
             "execution_runs": ExecutionRun,
             "llm_interaction_logs": LLMInteractionLog,
             "tool_interaction_logs": ToolInteractionLog,
-            "document_chunks": DocumentChunk,
+            "cortex_nodes": CortexNode,
             "usage_logs": UsageLog,
             "human_approvals": HumanApproval,
         }

@@ -52,9 +52,7 @@ async def test_scope_selects_domains(scope, domains) -> None:
         knowledge_refs=[], experience_suggestions=[],
     ))
     with patch("src.ai.memory.memory_assembly_service.MemoryAssemblyService",
-               return_value=assembler), \
-         patch("src.ai.memory.legacy_episodic_reader.LegacyEpisodicReader") as legacy:
-        legacy.return_value.read = AsyncMock(return_value=[])
+               return_value=assembler):
         await assemble_memory(MagicMock(), uuid4(), uuid4(), memory_scope=scope)
     assert assembler.assemble_runtime_memory.call_args.kwargs["include_domains"] == domains
 

@@ -12,13 +12,11 @@ intelligence, episodic) is a typed view over the CORTEX tree.
 | `cortex_models.py` | `CortexTree` / `CortexNode` ORM + enums (`CortexNodeType`, `MemoryDomain`, `ScopeLevel`). |
 | `cortex_bridge.py`, `cortex_ingestion.py`, `cortex_router.py` | HTTP / ingestion glue. |
 | `scope_policy.py` | Declarative `ScopePolicy` + `ScopeViolation`. Strict by default. |
-| `run_memory.py` | The AgentLoop's per-run wiring: `open_run_tree` (the run's CORTEX tree) and `assemble_run_memory` (the memory read path — assembles once per run and returns the `RunMemory` reader the Perceiver and critic use). |
-| `assembler.py` | `assemble_memory(...)` — v2 by default; v1 only as explicit opt-in. Tops up with `LegacyEpisodicReader` when EpisodicTree is empty. |
-| `memory_assembly_service.py` | v2 four-domain assembly. |
-| `memory_service.py` | **Deprecated** v1 `MemoryRouter`. Reachable only when `memory_pipeline="v1"`. |
-| `legacy_episodic_reader.py` | Read-only adapter against the flat `episodic_memories` table for first-run top-up. |
+| `run_memory.py` | The AgentLoop's per-run wiring: `open_run_tree` (the run's CORTEX tree), `assemble_run_memory` (the memory read path — assembles once per run and returns the `RunMemory` reader the Perceiver and critic use) and `record_episode` (writes the finished run into its entity's Episodic Tree). |
+| `assembler.py` | `assemble_memory(...)` — maps `memory_scope` to domains and renders the `__memory__` block. |
+| `memory_assembly_service.py` | Four-domain assembly. |
 | `domains/` | Track 6 `DomainTreeBase` + per-domain retrieval weights (semantic / recency / user_match / success). |
-| `knowledge_tree_service.py`, `episodic_tree_service.py`, `experience_tree_service.py`, `intelligence_tree_service.py` | One per memory domain. Each is a typed view over CORTEX. |
+| `knowledge_tree_service.py`, `episodic_tree_service.py`, `experience_tree_service.py`, `intelligence_tree_service.py` | One per memory domain. Each is a typed view over CORTEX. Uploaded documents live only in Knowledge Trees — the entity's, or the company-wide (tenant-scoped) tree for documents without an entity. |
 | `task_classifier.py` | v1 rule-based + v2 embedding NN; emits a stable `task_class` string consumed by bandit + calibration + supervisor. |
 | `dreaming_engine.py`, `dreaming_prompts.py` | Cron + outcome-triggered consolidator (writes confirmed Intelligence rules). |
 | `embedding_service.py` | Per-company embedding resolver with `EMBEDDING_MODEL_FALLBACK` fallback. `resolve_embedding_model(db, company_id)` is the standalone helper. |

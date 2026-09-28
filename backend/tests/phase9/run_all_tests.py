@@ -169,15 +169,12 @@ async def run_all():
         return f"{len(r)} results"
 
     async def c5(db):
-        r1 = await db.execute(text("SELECT COUNT(*) FROM episodic_memories WHERE entity_id = :eid"), {"eid": str(ENTITY_ID)})
-        v1 = r1.scalar()
         r2 = await db.execute(text("""
             SELECT COUNT(*) FROM cortex_nodes cn
             JOIN cortex_trees ct ON cn.tree_id = ct.id
             WHERE ct.entity_id = :eid AND ct.memory_domain = 'episodic' AND cn.node_type = 'episode'
         """), {"eid": str(ENTITY_ID)})
-        v2 = r2.scalar()
-        return f"v1={v1}, v2={v2}"
+        return f"episodes={r2.scalar()}"
 
     await test_phase("PHASE C: Episodic Trees", [
         ("C1", "EpisodicTree create", c1),
@@ -309,14 +306,13 @@ async def run_all():
         return f"knowledge={len(m.knowledge_refs)}, experience={len(m.experience_suggestions)}, intelligence={len(m.intelligence_rules)}, episodic={len(m.episodic_context)}, prompt={len(m.formatted_prompt)} chars"
 
     async def f2(db):
-        from src.ai.memory.memory_service import MemoryRouter
-        r = MemoryRouter(db)
-        s = await r.search_semantic(ENTITY_ID, 'data analysis', top_k=3)
+        from src.ai.memory.graph_service import SemanticGraphService
+        s = await SemanticGraphService(db, COMPANY_ID).semantic_graph_search('data analysis', ENTITY_ID, top_k=3)
         return f"{len(s)} results"
 
     await test_phase("PHASE F: Memory Assembly", [
         ("F1", "Memory assembly", f1),
-        ("F2", "MemoryRouter v2 search", f2),
+        ("F2", "Semantic graph search", f2),
     ])
 
     # Workers

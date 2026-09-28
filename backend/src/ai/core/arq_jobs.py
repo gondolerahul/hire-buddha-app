@@ -447,16 +447,23 @@ async def _handle_sheet_row_campaign(
 
 
 async def process_document(ctx: dict[str, Any], document_id_str: str, file_content: bytes, file_type: str, filename: str) -> Any:
-    from src.ai.models import Document, DocumentChunk
+    """Extract an uploaded document's text and ingest it into a Knowledge Tree.
+
+    Documents attached to an entity go into that entity's Knowledge Tree; the
+    rest go into the company-wide tree every entity of the company reads.
+    ``upload_status`` reflects how many chunks were embedded (searchable).
+    """
+    from src.ai.models import Document
+    from src.ai.memory.knowledge_tree_service import KnowledgeTreeService
     import io
-    
+
     document_id = UUID(document_id_str)
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Document).where(Document.id == document_id))
         document = result.scalar_one_or_none()
         if not document:
             return
-            
+
         try:
             if file_type == "txt":
                 text = file_content.decode("utf-8")
@@ -472,93 +479,43 @@ async def process_document(ctx: dict[str, Any], document_id_str: str, file_conte
                 text = "\n".join([p.text for p in doc.paragraphs])
             else:
                 text = file_content.decode("utf-8", errors="ignore")
-                
-            chunk_size = 500
-            chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-            
-            # Use centralized EmbeddingService (admin-configurable model)
-            from src.ai.memory.embedding_service import EmbeddingService
-            embedding_service = EmbeddingService(db, document.company_id)
-            
-            total_chunks = len(chunks)
-            success_count = 0
-            failed_count = 0
-            
-            for idx, chunk_text in enumerate(chunks):
-                embedding = await embedding_service.embed_text(
-                    chunk_text, task_type="RETRIEVAL_DOCUMENT"
-                )
-                
-                if embedding is None:
-                    failed_count += 1
-                    logger.warning(f"Embedding failed for chunk {idx}/{total_chunks} of doc {document_id}")
-                    # Still create the chunk without embedding
-                    chunk = DocumentChunk(
-                        document_id=document.id,
-                        chunk_index=str(idx),
-                        content=chunk_text,
-                        embedding=None,
-                    )
-                else:
-                    success_count += 1
-                    chunk = DocumentChunk(
-                        document_id=document.id,
-                        chunk_index=str(idx),
-                        content=chunk_text,
-                        embedding=embedding,
-                    )
-                db.add(chunk)
-            
-            # Set upload_status based on embedding results
-            if failed_count == total_chunks:
+
+            kt_service = KnowledgeTreeService(db, document.company_id)
+            if document.entity_id:
+                tree = await kt_service.get_or_create_knowledge_tree(entity_id=document.entity_id)
+            else:
+                tree = await kt_service.get_or_create_company_knowledge_tree()
+            node_count = await kt_service.ingest_document(
+                tree_id=tree.id,
+                document_id=document.id,
+                content=text,
+                filename=filename,
+                entity_id=document.entity_id,
+            )
+            total_chunks, embedded = await kt_service.chunk_embedding_counts(tree.id, document.id)
+
+            if total_chunks == 0 or embedded == 0:
                 document.upload_status = "failed"
                 logger.error(
-                    f"All {total_chunks} chunks failed embedding for document "
-                    f"{document.id} ({document.filename})"
+                    f"Document {document.id} ({document.filename}): no searchable chunks "
+                    f"({embedded}/{total_chunks} embedded)"
                 )
-            elif failed_count > 0:
+            elif embedded < total_chunks:
                 document.upload_status = "partial"
                 logger.warning(
-                    f"{failed_count}/{total_chunks} chunks failed embedding for document "
-                    f"{document.id} ({document.filename})"
+                    f"Document {document.id} ({document.filename}): "
+                    f"{embedded}/{total_chunks} chunks embedded"
                 )
             else:
                 document.upload_status = "completed"
                 logger.info(
-                    f"Document {document.id} ({document.filename}): "
-                    f"all {total_chunks} chunks embedded successfully"
+                    f"Document {document.id} ({document.filename}): ingested {node_count} "
+                    f"Knowledge Tree nodes, all {total_chunks} chunks embedded"
                 )
-            
             await db.commit()
-            
-            # --- v2: Dual-write into Knowledge Tree ---
-            # Ingest the document into the entity's persistent Knowledge Tree
-            # alongside the legacy document_chunks table (Phase B dual-write).
-            if document.entity_id:
-                try:
-                    from src.ai.memory.knowledge_tree_service import KnowledgeTreeService
-                    kt_service = KnowledgeTreeService(db, document.company_id)
-                    tree = await kt_service.get_or_create_knowledge_tree(
-                        entity_id=document.entity_id
-                    )
-                    kt_node_count = await kt_service.ingest_document(
-                        tree_id=tree.id,
-                        document_id=document.id,
-                        content=text,
-                        filename=filename,
-                        entity_id=document.entity_id,
-                    )
-                    await db.commit()
-                    logger.info(
-                        f"Knowledge Tree v2: ingested {kt_node_count} nodes for "
-                        f"document {document.id} ({document.filename})"
-                    )
-                except Exception as kt_err:
-                    logger.warning(
-                        f"Knowledge Tree v2 ingestion failed (non-fatal): {kt_err}"
-                    )
-            
+
         except Exception as e:
+            await db.rollback()
             document.upload_status = "failed"
             await db.commit()
             logger.error(f"Doc processing failed: {e}")

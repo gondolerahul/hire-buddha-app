@@ -18,8 +18,7 @@ from src.ai.orm.execution import (
     LLMInteractionLog,
     ToolInteractionLog,
 )
-from src.ai.orm.memory import EpisodicMemory
-from src.ai.orm.document import Document, DocumentChunk
+from src.ai.orm.document import Document
 from src.ai.orm.usage import UsageLog
 from src.ai.orm.tools import ToolRegistryEntry
 from src.ai.orm.trace import ExecutionTraceEvent
@@ -35,9 +34,7 @@ __all__ = [
     "LLMInteractionLog",
     "ToolInteractionLog",
     "HumanApproval",
-    "EpisodicMemory",
     "Document",
-    "DocumentChunk",
     "UsageLog",
     "ToolRegistryEntry",
     "ExecutionTraceEvent",

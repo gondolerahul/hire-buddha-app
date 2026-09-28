@@ -83,26 +83,16 @@ async def main():
         for row in r_all.fetchall():
             print(f"  {row[0]}: {row[1]} trees, {row[2]} total nodes", flush=True)
 
-        # 4. Episodic memory dual-write check
+        # 4. Episodic memory
         r5 = await db.execute(text("""
             SELECT COUNT(*) FROM cortex_nodes cn
             JOIN cortex_trees ct ON cn.tree_id = ct.id
             WHERE ct.entity_id = :eid AND ct.memory_domain = 'episodic' AND cn.node_type = 'episode'
         """), {"eid": str(ENTITY_ID)})
         v2_eps = r5.scalar()
-
-        r6 = await db.execute(text("""
-            SELECT COUNT(*) FROM episodic_memories WHERE entity_id = :eid
-        """), {"eid": str(ENTITY_ID)})
-        v1_eps = r6.scalar()
-        print(f"\n=== Episodic Memory (Dual-Write Check) ===", flush=True)
-        print(f"  v1 episodic_memories: {v1_eps}", flush=True)
-        print(f"  v2 cortex_nodes(episode): {v2_eps}", flush=True)
-        if v1_eps > 0 and v2_eps > 0:
-            print(f"  ✅ Dual-write WORKING", flush=True)
-        elif v1_eps > 0 and v2_eps == 0:
-            print(f"  ⚠️ v1 written but v2 not — check episodic_tree_service", flush=True)
-        elif v1_eps == 0:
+        print(f"\n=== Episodic Memory ===", flush=True)
+        print(f"  episode nodes: {v2_eps}", flush=True)
+        if v2_eps == 0:
             print(f"  ⚠️ No episodes written yet (run may still be in progress)", flush=True)
 
         # 5. Semantic graph
@@ -165,13 +155,14 @@ async def main():
         if not new_trees:
             print(f"  (no new trees created during this run)", flush=True)
 
-        # 9. Check if memory_service wrote episodic for this run
+        # 9. Check the run was recorded as an episode
         print(f"\n=== Run Episodic Check ===", flush=True)
         r11 = await db.execute(text("""
-            SELECT em.id, em.summary, em.created_at
-            FROM episodic_memories em
-            WHERE em.entity_id = :eid
-            ORDER BY em.created_at DESC LIMIT 3
+            SELECT cn.id, cn.summary, cn.created_at
+            FROM cortex_nodes cn
+            JOIN cortex_trees ct ON cn.tree_id = ct.id
+            WHERE ct.entity_id = :eid AND ct.memory_domain = 'episodic' AND cn.node_type = 'episode'
+            ORDER BY cn.created_at DESC LIMIT 3
         """), {"eid": str(ENTITY_ID)})
         recent_eps = r11.fetchall()
         for ep in recent_eps:

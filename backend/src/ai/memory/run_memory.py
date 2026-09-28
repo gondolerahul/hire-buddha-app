@@ -8,19 +8,25 @@ ai.memory.run_memory — the AgentLoop's CORTEX + memory wiring for one run.
     learned once per run, publish it into ``context_state`` for the step prompt
     and planner, and return a :class:`RunMemory` reader for the Perceiver and
     critic pipeline.
+  * :func:`record_episode` — the write side of episodic memory: the finished
+    run becomes an episode, which the next run retrieves and Dreaming distils.
 """
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["open_run_tree", "memory_scope_for", "RunMemory", "assemble_run_memory"]
+__all__ = [
+    "open_run_tree", "memory_scope_for", "RunMemory", "assemble_run_memory", "record_episode",
+]
 
 
 async def open_run_tree(
@@ -150,3 +156,41 @@ async def assemble_run_memory(
         block_chars=len(memory_ctx.get("__memory__") or ""),
     )
     return RunMemory(state.context_state)
+
+
+async def record_episode(db: AsyncSession, run_id: UUID, *, runtime_tree_id: Optional[UUID] = None) -> None:
+    """Write a finished run into its entity's Episodic Tree (best effort).
+
+    Only entities with memory enabled record episodes. The episode summarises
+    the task and its answer — ``input_data["input"]`` / ``result_data["output"]``
+    — rather than the whole context a child run inherits from its parent.
+    """
+    from src.ai.memory.episodic_tree_service import EpisodicTreeService
+    from src.ai.orm.execution import ExecutionRun
+
+    try:
+        run = (await db.execute(
+            select(ExecutionRun).options(selectinload(ExecutionRun.entity))
+            .where(ExecutionRun.id == run_id)
+        )).scalar_one_or_none()
+        if run is None or memory_scope_for(run.entity) is None:
+            return
+
+        def _main(data: Any, key: str) -> Any:
+            return data.get(key, data) if isinstance(data, dict) else data
+
+        episode = SimpleNamespace(
+            id=run.id, created_at=run.created_at, status=run.status, entity=run.entity,
+            input_data=_main(run.input_data, "input"),
+            result_data=_main(run.result_data, "output"),
+            context_state=run.context_state,
+            total_cost_usd=run.total_cost_usd, total_tokens=run.total_tokens,
+            execution_time_ms=run.execution_time_ms,
+        )
+        await EpisodicTreeService(db, run.company_id).write_episode(
+            entity_id=run.entity_id, run=episode, runtime_tree_id=runtime_tree_id,
+        )
+        await db.commit()
+    except Exception as exc:                                                # noqa: BLE001
+        logger.warning("Episode write failed for run %s: %s", run_id, exc)
+        await db.rollback()

@@ -12,9 +12,7 @@ from __future__ import annotations
 
 from src.ai.orm import (  # noqa: F401
     Document,
-    DocumentChunk,
     EntityType,
-    EpisodicMemory,
     ExecutionRun,
     HierarchicalEntity,
     HumanApproval,
@@ -31,9 +29,7 @@ __all__ = [
     "LLMInteractionLog",
     "ToolInteractionLog",
     "HumanApproval",
-    "EpisodicMemory",
     "Document",
-    "DocumentChunk",
     "UsageLog",
     "ToolRegistryEntry",
     "EntityType",

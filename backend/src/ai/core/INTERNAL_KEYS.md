@@ -21,13 +21,13 @@ Source of truth: `backend/src/ai/constants.py::INTERNAL_CONTEXT_KEYS`.
 | `input` | the caller that triggered the run (HTTP route, cron, gateway, parent run) | every step type | entire run | The user-facing prompt; promoted into the typed `AgentState.context_state["input"]` for compatibility. |
 | `cortex_tree_id` | `AgentLoop._bootstrap_state` / `ExecutionEngine.execute_run` | `step_executor`, `CortexService` | entire run | UUID of the run's CORTEX tree. |
 | `subtree_root_id` | parent run when spawning a child via `RECURSE` | `CortexService(scoped_subtree_root_id=...)` | child run | Pins the child's CORTEX writes to a subtree. |
-| `__memory__` | `MemoryAssemblyService` / legacy `MemoryRouter` | `prompt_utils.build_sandwich_prompt` | per iteration | Concatenated, ready-to-inject memory block. |
+| `__memory__` | `run_memory.assemble_run_memory` (via `MemoryAssemblyService`) | `step_executor.prompt_context_block` → sandwich layer 9 | run (assembled once) | Concatenated, ready-to-inject memory block. |
 | `__cortex_viewport__` | `CortexService.get_viewport(...)` | `prompt_utils` | per CORTEX op | Rendered viewport text (now bounded by `max_chars`). |
 | `__cortex_tree_id__` | `CortexService.create_tree` | CORTEX ops | run | Mirror of `cortex_tree_id` for older callers. |
 | `__cortex_cursor__` | `CortexService.navigate` | CORTEX ops | per iteration | Where the agent's viewport currently sits. |
 | `__cortex_knowledge__` | `cortex_bridge.ingest_tool_result` | CORTEX ops | run | Knowledge-subtree handle. |
 | `__context_sources__` | design-time context-source upload | `MemoryAssemblyService` | run | List of `{type, id, page_range}`. |
-| `__episodic_memory__` | `EpisodicTreeService.get_recent_episodes` / `LegacyEpisodicReader.read` | `prompt_utils` | per iteration | List of past-episode dicts. |
+| `__episodic_memory__` | `run_memory.assemble_run_memory` (`EpisodicTreeService` recent + topical) | `RunMemory.similar_runs` (Perceiver) | run (assembled once) | List of past-episode dicts. |
 | `__semantic_context__` | `KnowledgeTreeService` semantic search | `prompt_utils` | per iteration | Top-K knowledge refs. |
 | `__memory_context__` | unified memory rollup (v2 path) | `prompt_utils` | per iteration | Composite of the four domains. |
 | `__completed_steps__` | `step_executor.store_step_output` | `step_executor`, planner adapt | run | Ordered list of completed-step dicts; consumed by `PlannerService.adapt_plan`. |
@@ -39,7 +39,7 @@ Source of truth: `backend/src/ai/constants.py::INTERNAL_CONTEXT_KEYS`.
 | `__episodic__` | `EpisodicTreeService.get_recent_episodes` (v2 path) | `prompt_utils` | per iteration | Same shape as `__episodic_memory__`; v2 path uses this key. |
 | `__knowledge_refs__` | `KnowledgeTreeService.search` | `prompt_utils` | per iteration | Top-K knowledge ref dicts. |
 | `__execution_metadata__` | `AgentLoop._bootstrap_state` | meta-cognition prompts | run | `{iteration, budget_pressure, open_subgoals}` mirror so legacy prompts can introspect. |
-| `__intelligence_rules__` | `MemoryAssemblyService` | `prompt_utils` (LLM Intelligence-Only mode) | per iteration | Formatted rule lines. |
+| `__intelligence_rules__` | `run_memory.assemble_run_memory` (via `MemoryAssemblyService`) | `RunMemory` (Perceiver → supervisor critic), `PlannerService` (`PlanContext.intelligence_rules`) | run (assembled once) | Rule dicts (`title`, `rule`, `type`, `confidence`). |
 | `__alignment_correction__` | GoalGuard shim / `CriticPipeline.alignment` | retry step | iteration N+1 | Correction hint from a failed alignment check. |
 | `__goal_check_counter__` | GoalGuard shim | GoalGuard shim | run | Counts how many alignment checks have run; throttles cadence. |
 

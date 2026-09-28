@@ -673,22 +673,12 @@ async def search_documents(
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    results = await service.search_documents(
+    return await service.search_documents(
         query=query,
         company_id=current_user.company_id,
         entity_id=entity_id,
         top_k=top_k
     )
-    return [
-        {
-            "chunk_id": str(r.chunk_id),
-            "document_id": str(r.document_id),
-            "filename": r.filename,
-            "content": r.content,
-            "similarity": float(r.similarity)
-        }
-        for r in results
-    ]
 
 # --- Templates ---
 

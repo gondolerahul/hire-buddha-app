@@ -23,7 +23,7 @@ Both ingestion-time and retrieval-time embeddings are metered; the
 lets the cost dashboard split the two without dropping either.
 
 Used by: knowledge_tree_service, episodic_tree_service, dreaming_engine,
-         memory_service (semantic search), graph_service (auto-edges)
+         graph_service (auto-edges)
 """
 import json
 import logging

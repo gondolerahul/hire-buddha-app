@@ -24,12 +24,11 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
 
     Traversal order (leaf → root):
       1. cortex_nodes → cortex_trees (via tree_id)
-      2. episodic_memories (entity_id + tree_id)
-      3. cortex_trees (entity_id)
-      4. llm_interaction_logs, tool_interaction_logs, usage_logs, human_approvals (run_id)
-      5. execution_runs (child runs first, then parents)
-      6. documents / document_chunks (entity_id)
-      7. hierarchical_entities (children/clones first, then roots)
+      2. cortex_trees (entity_id)
+      3. llm_interaction_logs, tool_interaction_logs, usage_logs, human_approvals (run_id)
+      4. execution_runs (child runs first, then parents)
+      5. documents (entity_id)
+      6. hierarchical_entities (children/clones first, then roots)
     """
     from sqlalchemy import text
 
@@ -55,14 +54,7 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
         tree_id_list = ",".join(f"'{tid}'" for tid in tree_ids)
         print(f"  Deleting {len(tree_ids)} cortex trees + nodes …")
         await db.execute(text(f"DELETE FROM cortex_nodes WHERE tree_id IN ({tree_id_list})"))
-        # episodic_memories references tree_id too
-        await db.execute(text(f"DELETE FROM episodic_memories WHERE tree_id IN ({tree_id_list})"))
         await db.execute(text(f"DELETE FROM cortex_trees WHERE id IN ({tree_id_list})"))
-
-    # ── Episodic memories by entity (catch any not linked to a tree) ──
-    await db.execute(text(
-        f"DELETE FROM episodic_memories WHERE entity_id IN ({all_id_list})"
-    ))
 
     # ── Execution runs + their dependents ──
     # Collect ALL run IDs (including deeply-nested child runs) via recursive CTE
@@ -100,7 +92,6 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
     doc_ids = [str(row[0]) for row in r.fetchall()]
     if doc_ids:
         doc_id_list = ",".join(f"'{did}'" for did in doc_ids)
-        await db.execute(text(f"DELETE FROM document_chunks WHERE document_id IN ({doc_id_list})"))
         await db.execute(text(f"DELETE FROM documents WHERE id IN ({doc_id_list})"))
 
     # ── Finally, the entities themselves (children/clones first, then roots) ──

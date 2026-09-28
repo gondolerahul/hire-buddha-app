@@ -158,7 +158,7 @@ class AIService:
         entity = await self.get_entity(entity_id, company_id)
         
         from sqlalchemy import update
-        from src.ai.models import UsageLog, EpisodicMemory
+        from src.ai.models import UsageLog
         
         # ── Collect the full entity tree (this entity + all descendants) ──
         # A PROCESS entity may have child entities (agents, skills) that
@@ -267,7 +267,7 @@ class AIService:
 
         # ── Billing-critical data is INTENTIONALLY preserved ──
         # execution_runs, usage_logs, llm_interaction_logs, tool_interaction_logs,
-        # episodic_memories, cortex_trees, voice_sessions, whatsapp_sessions,
+        # cortex_trees, voice_sessions, whatsapp_sessions,
         # conversation_history, campaigns, and lead_queue all retain valid FK
         # references to the soft-deleted entity rows.
 
@@ -936,47 +936,18 @@ class AIService:
         return document
     
     async def search_documents(self, query: str, company_id: UUID, entity_id: UUID = None, top_k: int = 5):
-        from src.ai.models import DocumentChunk
-        from sqlalchemy import text
-        
-        # Get query embedding via centralized EmbeddingService
-        from src.ai.memory.embedding_service import EmbeddingService
-        embedding_service = EmbeddingService(self.db, company_id)
+        """Semantic search over the company's documents (their Knowledge Tree chunks)."""
+        from src.ai.memory.knowledge_tree_service import KnowledgeTreeService
 
-        query_embedding = await embedding_service.embed_query(query)
-        if not query_embedding:
+        results = await KnowledgeTreeService(self.db, company_id).search_documents(
+            query, entity_id=entity_id, top_k=top_k,
+        )
+        if results is None:
             raise HTTPException(
                 status_code=500,
                 detail="Embedding generation failed. Please check your AI integration configuration."
             )
-        
-        # Search using cosine similarity
-        sql = text("""
-            SELECT 
-                dc.id as chunk_id,
-                dc.document_id,
-                d.filename,
-                dc.content,
-                1 - (dc.embedding <=> :query_embedding::vector) as similarity
-            FROM document_chunks dc
-            JOIN documents d ON dc.document_id = d.id
-            WHERE d.company_id = :company_id
-            AND (:entity_id::uuid IS NULL OR d.entity_id = :entity_id)
-            ORDER BY dc.embedding <=> :query_embedding::vector
-            LIMIT :top_k
-        """)
-        
-        result = await self.db.execute(
-            sql,
-            {
-                "query_embedding": str(query_embedding),
-                "company_id": str(company_id),
-                "entity_id": str(entity_id) if entity_id else None,
-                "top_k": top_k
-            }
-        )
-        
-        return result.fetchall()
+        return results
     
     async def get_documents(self, company_id: UUID, entity_id: UUID = None):
         query = select(Document).where(Document.company_id == company_id)

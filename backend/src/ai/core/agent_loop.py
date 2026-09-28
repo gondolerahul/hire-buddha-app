@@ -237,8 +237,12 @@ class AgentLoop:
             ).to_dict()
 
         await self._finalize_bandit(state, outcome_status)
-        await self._enqueue_dreaming_trigger(state, outcome_status)
         await self._persist_final(run, state, outcome_status, last_error, last_output)
+        # The finished run becomes an episode before Dreaming is triggered, so
+        # the dream it triggers can learn from it.
+        from src.ai.memory.run_memory import record_episode
+        await record_episode(self.db, run_id, runtime_tree_id=state.cortex_tree_id)
+        await self._enqueue_dreaming_trigger(state, outcome_status)
         await self._maybe_resume_parent(run)
 
         return AgentLoopOutcome(
@@ -760,6 +764,7 @@ class AgentLoop:
         from src.ai.memory.run_memory import assemble_run_memory, open_run_tree
         self.cortex, tree = await open_run_tree(self.db, state, self._entity, self._run_id)
         if tree is not None:
+            state.cortex_tree_id = tree.id
             state.cortex_working_root_id = tree.root_node_id
 
         # The memory read path — what past runs learned reaches this one.
