@@ -40,9 +40,9 @@
 | [T0](#2-t0--paying-for-criticism-that-is-discarded) | Paying for criticism that is discarded | 5 | Now — this is money per run |
 | [T1](#3-t1--self-correction-that-does-not-correct) | Self-correction that does not correct | 5 | Before claiming the platform self-corrects |
 | [T2](#4-t2--built-and-never-wired) | Built and never wired | 5 | Each is a decision: wire it or delete it |
-| [T3](#5-t3--planning-correctness) | Planning correctness | 8 | When the area is next touched |
+| [T3](#5-t3--planning-correctness) | Planning correctness | 9 | When the area is next touched |
 
-**Total: 23 defects, 10 improvements.**
+**Total: 24 defects, 10 improvements.**
 
 The three to read first:
 
@@ -419,6 +419,38 @@ rows and raised the `commit()` state error; after it, all 6. A live deep-researc
 planned the director with no session error and every `planner` row written. It still did
 no research, for a separate reason: every answer was truncated by thinking tokens
 ([LP-25](10-LLM-PROVIDERS-DEFECTS.md#lp-25--thinking-tokens-consume-max_tokens-so-short-calls-return-truncated-answers)).
+
+---
+
+### PC-24 — The dynamic planner is never told which children exist
+
+**✅ Verified · High** · **Status: open** — found 2026-09-29 once LP-25 let the
+deep-research director's plans come back complete.
+
+`_PLAN_SYSTEM` tells the model that `target.entity_id` "must be the EXACT child UUID from
+the provided child roster". `PlanGenerator._build_prompt` never provides one: it sends
+the goal, rules, anti-patterns and static plan, but no children. So on a static-less
+router the model invents ids. Live, the research director's chosen plan targeted
+`child_1234`, `child_5678` and `child_9012`, and dispatch failed with `Child invocation
+missing entity_id for step Initial Data Collection`.
+
+The safety net does not catch it. `PlannerService._maybe_enforce_router` should replace
+a plan with no real child invocation, but it finds children through
+`load_entity_children`, which reads **only** `hierarchy.children`. The deep-research
+seed (`create_v2.py`) links its children through the `parent_id` column alone, so
+`hierarchy` is `null`, the child list is empty, and enforcement returns the invented plan
+unchanged. This is the same three-discovery-path split as
+[EP-19](06-EXECUTION-PIPELINE-DEFECTS.md#ep-19--convert_to_template-misses-plan-only-children)
+and [PO-I4](01-PRODUCT-OVERVIEW-DEFECTS.md#po-i4--make-the-template-clone-report-what-it-cloned).
+
+- [`ai/planning/plan_generator.py`](../../../backend/src/ai/planning/plan_generator.py) — `_build_prompt`, no roster section
+- [`ai/meta/platform_schema_compiler.py:718`](../../../backend/src/ai/meta/platform_schema_compiler.py:718) — `load_entity_children` reads only `hierarchy.children`
+
+**Fix:** give `PlanContext` the child roster (id, name, role) and render it in
+`_build_prompt`. Make `load_entity_children` the single source that unions `parent_id`
+children with `hierarchy.children`. Add a plan invariant that rejects a
+`CHILD_ENTITY_INVOCATION` whose `entity_id` is not a real child, so an invented id fails
+at planning, not at dispatch.
 
 ---
 

@@ -157,7 +157,7 @@ is the single most common cause of a broken integration.
 
 | Provider | Required keys | Optional keys | Read by |
 |---|---|---|---|
-| `google` / `gemini` (Vertex AI) | `project_id` | `region` (default `us-central1`) | [genai_factory.py:59](../../backend/src/common/genai_factory.py:59) |
+| `google` / `gemini` (Vertex AI) | `project_id` | `region` (default `us-central1`); `thinking_budget` (see [§8.3](#83-feature-support-matrix)) | [genai_factory.py:59](../../backend/src/common/genai_factory.py:59), [gemini_adapter.py](../../backend/src/ai/llm/gemini_adapter.py) |
 | `google` / `gemini` (AI Studio, Live models only) | — | `use_ai_studio: true` | [live_client_factory.py:120](../../backend/src/voice/live_client_factory.py:120) |
 | `anthropic` | `project_id` | `region` (default `us-east5`) | [anthropic_adapter.py:34](../../backend/src/ai/llm/anthropic_adapter.py:34) |
 | `azure_openai` | `azure_endpoint` | `api_version` (default `2025-01-01-preview`), `deployment_name` | [azure_adapter.py:54](../../backend/src/ai/llm/azure_adapter.py:54) |
@@ -904,11 +904,11 @@ if not output and response.text:
 | System instruction | ✅ | `GenerateContentConfig.system_instruction`; `role="system"` messages are dropped from `contents` |
 | `temperature` | ✅ | both paths |
 | `top_p` | ⚠️ | passed in `generate()`, **omitted** in the ReAct path |
-| `max_tokens` | ✅ | mapped to `max_output_tokens` |
+| `max_tokens` | ✅ | the **answer** budget. On a thinking model it becomes `max_output_tokens = max_tokens + thinking_budget` (see the next row). A `MAX_TOKENS` finish logs a warning with the answer and thinking token counts |
 | Function calling | ✅ | full JSON-Schema → `types.Schema` conversion, recursive |
 | Multi-turn ReAct | ✅ | native `Part.from_function_response` protocol |
 | Streaming | ❌ | no `generate_content_stream` anywhere in the text path |
-| Thinking / reasoning config | ❌ | no `ThinkingConfig`, no `thinking_budget`. The `thinking` *task type* just routes to a different model; the `CHAIN_OF_THOUGHT` mode is prompt scaffolding in [step_executor.py:1068](../../backend/src/ai/step_executor.py:1068) |
+| Thinking budget | ⚠️ | Gemini 2.5 and 3 count thinking tokens against `max_output_tokens`, so a capped call used to spend its whole budget thinking and return a cut-off answer (LP-25). Now a capped call on a `gemini-2.5*` / `gemini-3*` model sends `ThinkingConfig(thinking_budget=1024)` and adds those 1024 tokens to `max_output_tokens`. Uncapped calls keep the model's dynamic thinking. `service_metadata.thinking_budget` overrides the budget for every call on that integration; `0` turns thinking off where the model allows it (Flash and Flash-Lite, not Pro). No `thinking_level` yet. The `thinking` *task type* only routes to a different model; the `CHAIN_OF_THOUGHT` mode is prompt scaffolding in [step_executor.py:1068](../../backend/src/ai/step_executor.py:1068) |
 | Safety settings | ❌ | never set — Vertex defaults apply. A `SAFETY` finish reason surfaces as empty output |
 | Response MIME type / JSON mode | ❌ | JSON is requested in the prompt and parsed defensively |
 | Grounding / Google Search tool | ❌ | not wired |
@@ -944,7 +944,9 @@ half-applied patch is worse than none.
 | thinking tokens | **not captured** — `thoughts_token_count` is ignored |
 
 For reasoning-heavy Gemini models this under-reports output tokens and therefore
-under-bills. In the ReAct path the counts are summed across all turns, so a
+under-bills. Every capped call on a thinking model may now spend up to its thinking
+budget (default 1024 tokens) on top of the answer, and none of it is billed until LP-06
+is fixed. In the ReAct path the counts are summed across all turns, so a
 5-turn loop reports one aggregate number with a single `latency_ms` total.
 
 ---

@@ -18,6 +18,13 @@ from src.ai.llm.base import BaseLLMAdapter
 
 logger = logging.getLogger(__name__)
 
+# Gemini 2.5 and 3 think before answering, and thinking tokens count against
+# ``max_output_tokens``. Callers size ``max_tokens`` for the answer, so a capped
+# call gets this thinking allowance on top (LP-25). Override per integration
+# with ``service_metadata.thinking_budget``.
+DEFAULT_THINKING_BUDGET = 1024
+_THINKING_MODEL_PREFIXES = ("gemini-2.5", "gemini-3")
+
 
 class GeminiAdapter(BaseLLMAdapter):
     """Adapter for Google Gemini models via Vertex AI only."""
@@ -29,6 +36,45 @@ class GeminiAdapter(BaseLLMAdapter):
     def _build_client(self):
         from src.common.genai_factory import build_vertex_genai_client_sync
         return build_vertex_genai_client_sync(self.service_metadata)
+
+    def _configured_thinking_budget(self) -> Optional[int]:
+        raw = self.service_metadata.get("thinking_budget")
+        if raw is None:
+            return None
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            logger.warning(f"Ignoring invalid service_metadata.thinking_budget {raw!r}")
+            return None
+
+    def _apply_output_limits(self, config: Any, max_tokens: Optional[int]) -> None:
+        """Keep thinking from starving the answer.
+
+        Without this, ``max_tokens=400`` on gemini-2.5-flash spent nearly all
+        400 tokens thinking and returned a cut-off answer. For a thinking model
+        a capped call gets an explicit thinking budget, added to the answer
+        budget. Uncapped calls keep the model's dynamic thinking unless the
+        integration configures a budget.
+        """
+        from google.genai import types
+
+        budget = self._configured_thinking_budget()
+        if budget is None and max_tokens and self.model_name.startswith(_THINKING_MODEL_PREFIXES):
+            budget = DEFAULT_THINKING_BUDGET
+        if budget is not None:
+            config.thinking_config = types.ThinkingConfig(thinking_budget=budget)
+        if max_tokens:
+            config.max_output_tokens = max_tokens + (budget or 0)
+
+    def _warn_if_truncated(self, response: Any, max_tokens: Optional[int]) -> None:
+        if not response.candidates or "MAX_TOKENS" not in str(response.candidates[0].finish_reason):
+            return
+        usage = response.usage_metadata
+        logger.warning(
+            f"Gemini {self.model_name} answer truncated at max_tokens={max_tokens} "
+            f"(answer {getattr(usage, 'candidates_token_count', 0) or 0} tokens, "
+            f"thinking {getattr(usage, 'thoughts_token_count', 0) or 0} tokens)"
+        )
 
     _GEMINI_TYPE_MAP = {
         "string": "STRING",
@@ -171,8 +217,7 @@ class GeminiAdapter(BaseLLMAdapter):
             temperature=temperature,
             top_p=top_p,
         )
-        if max_tokens:
-            generate_config.max_output_tokens = max_tokens
+        self._apply_output_limits(generate_config, max_tokens)
 
         if tools:
             declarations = self.get_tool_declarations(tools)
@@ -195,6 +240,7 @@ class GeminiAdapter(BaseLLMAdapter):
                 ) from e
             raise
         latency_ms = int((time.monotonic() - start) * 1000)
+        self._warn_if_truncated(response, max_tokens)
 
         output = ""
         function_calls = []
@@ -243,8 +289,7 @@ class GeminiAdapter(BaseLLMAdapter):
             system_instruction=system_prompt,
             temperature=temperature,
         )
-        if max_tokens:
-            generate_config.max_output_tokens = max_tokens
+        self._apply_output_limits(generate_config, max_tokens)
 
         declarations = self.get_tool_declarations(tool_schemas)
         if declarations:
@@ -275,6 +320,7 @@ class GeminiAdapter(BaseLLMAdapter):
                 raise
             latency_ms = int((time.monotonic() - start) * 1000)
             total_latency_ms += latency_ms
+            self._warn_if_truncated(response, max_tokens)
 
             usage = response.usage_metadata
             total_prompt_tokens += getattr(usage, "prompt_token_count", 0) or 0

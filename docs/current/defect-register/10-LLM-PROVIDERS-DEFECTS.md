@@ -199,8 +199,9 @@ task type to.
 
 ### LP-25 — Thinking tokens consume `max_tokens`, so short calls return truncated answers
 
-**✅ Verified · High** · **Status: open** — found 2026-09-28 while testing the
-deep-research process end to end on `gemini-2.5-flash`.
+**✅ Verified · High** · **Status: fixed (2026-09-29)** — found 2026-09-28 while testing
+the deep-research process end to end on `gemini-2.5-flash`. See the fix at the end of
+this entry.
 
 `GeminiAdapter` passes the caller's `max_tokens` straight through as
 `max_output_tokens` and sets no thinking config. Gemini 2.5 thinks by default, and
@@ -227,11 +228,28 @@ the default model. Dreaming hit the same thing and raised its per-phase budgets
 - [`ai/llm/gemini_adapter.py:174`](../../../backend/src/ai/llm/gemini_adapter.py:174) — `max_output_tokens = max_tokens`
 - [`ai/llm/gemini_adapter.py:246`](../../../backend/src/ai/llm/gemini_adapter.py:246) — the ReAct path, same
 
-**Fix:** make `max_tokens` mean the answer budget at the adapter. Set an explicit
-thinking budget (for example `service_metadata.thinking_budget`, with a modest default,
-or `0` for short structured calls) and send `max_output_tokens = max_tokens +
-thinking_budget`. Log a warning whenever `finish_reason` is `MAX_TOKENS`, so a truncated
-answer is never silent. Bill the thinking tokens too ([LP-06](#lp-06--gemini-thinking-tokens-are-not-counted)).
+**Fix:** `max_tokens` now means the answer budget, set in one place: the adapter's
+`_apply_output_limits`, used by both `generate` and the ReAct loop.
+
+- A capped call on a `gemini-2.5*` or `gemini-3*` model sends
+  `ThinkingConfig(thinking_budget=1024)` and `max_output_tokens = max_tokens + 1024`.
+  Gemini 3 still accepts `thinking_budget` for backward compatibility.
+- An uncapped call keeps the model's own dynamic thinking, so the main step-execution
+  path is unchanged.
+- `service_metadata.thinking_budget` overrides the budget per integration, for capped
+  and uncapped calls. `0` turns thinking off where the model allows it.
+- Any `MAX_TOKENS` finish logs a warning with the answer and thinking token counts.
+
+Live on `gemini-2.5-flash`, the same three calls before and after the fix:
+
+| Call | `max_tokens` | Before | After |
+|---|---|---|---|
+| pre-critic verdict | 200 | 6 tokens, `MAX_TOKENS`, unparseable | 122 tokens, `STOP`, valid JSON |
+| plan judge | 400 | 16 tokens, `MAX_TOKENS`, unparseable | 78 tokens, `STOP`, valid JSON |
+| plan candidate | 2000 | 504 tokens, `STOP` | 621 tokens, `STOP` |
+
+Still open: the thinking tokens are not billed
+([LP-06](#lp-06--gemini-thinking-tokens-are-not-counted)).
 
 ---
 
