@@ -39,8 +39,8 @@ async def assemble_memory(
     Args:
         memory_pipeline: retained for call-site compatibility; ignored (always
             v2).
-        memory_scope: "FULL", "RUN_SCOPED", "INTELLIGENCE_ONLY",
-            "KNOWLEDGE_ONLY", "NONE".
+        memory_scope: "FULL", "RUN_SCOPED" (reference knowledge only),
+            "INTELLIGENCE_ONLY", "KNOWLEDGE_ONLY", "NONE".
 
     Returns:
         Dict with memory context ready for injection into context_state.
@@ -57,7 +57,7 @@ async def assemble_memory(
     # AND the requested scope cares about episodes, fall back to the
     # legacy flat-table reader so freshly-migrated entities don't
     # appear amnesiac. Pure read; no write-backs.
-    if memory_scope in ("FULL", "RUN_SCOPED") and not result.get("__episodic_memory__"):
+    if memory_scope == "FULL" and not result.get("__episodic_memory__"):
         try:
             from src.ai.memory.legacy_episodic_reader import LegacyEpisodicReader
             legacy = await LegacyEpisodicReader(db).read(
@@ -78,10 +78,12 @@ async def _assemble_v2(
     """New MemoryAssemblyService path — 4-domain retrieval."""
     from src.ai.memory.memory_assembly_service import MemoryAssemblyService
 
-    # Map memory_scope to include_domains
+    # Map memory_scope to include_domains. RUN_SCOPED carries nothing learned
+    # from other runs (MemoryConfig: "only the current run's data") — just the
+    # entity's own reference knowledge.
     domain_map = {
         "FULL": ["knowledge", "experience", "intelligence", "episodic"],
-        "RUN_SCOPED": ["knowledge", "experience", "intelligence", "episodic"],
+        "RUN_SCOPED": ["knowledge"],
         "INTELLIGENCE_ONLY": ["intelligence"],
         "KNOWLEDGE_ONLY": ["knowledge", "intelligence"],
     }

@@ -37,6 +37,16 @@ from src.ai.core.exceptions import UncertaintySignal
 from src.ai.schemas import DEFAULT_REVIEW_SYSTEM_PROMPT as DEFAULT_REVIEW_PROMPT
 
 
+def prompt_context_block(filtered_context: dict, context: dict) -> Optional[str]:
+    """Layer 9 of the sandwich prompt: context sources + the run's memory.
+
+    ``__memory__`` is read from the unfiltered context — a step's context
+    policy narrows its inputs, not what the entity has learned.
+    """
+    parts = (filtered_context.get("__context_sources__"), (context or {}).get("__memory__"))
+    return "\n\n".join(str(p) for p in parts if p) or None
+
+
 class StepExecutorService:
     """Handles individual step execution: THOUGHT, TOOL_CALL, CHILD_ENTITY_INVOCATION.
 
@@ -212,9 +222,11 @@ class StepExecutorService:
         # child entities from being confused by previous execution history.
         # The parent's CORTEX __memory__ contains past run summaries that
         # cause child agents to replicate past actions instead of analyzing
-        # the current instruction.
+        # the current instruction. The child's own AgentLoop assembles the
+        # memory of the child entity.
         _parent_only_keys = [
-            "__memory__", "__episodic_memory__", "__semantic_context__",
+            "__memory__", "__episodic_memory__", "__intelligence_rules__",
+            "__semantic_context__",
             "__memory_context__", "__context_sources__",
             "__completed_steps__", "__goal_check_counter__",
         ]
@@ -770,14 +782,12 @@ class StepExecutorService:
         # ───────────────────────────────────────────────────────────────
 
         # --- Build sandwich system prompt with all architecture fields ---
-        # Inject context_sources if available
-        ctx_sources_text = filtered_context.get("__context_sources__")
         full_system_prompt = build_sandwich_prompt(
             identity=system_prompt,
             goal=entity_goal,
             tools=tool_schemas,
             few_shot_examples=few_shot_examples,
-            context=ctx_sources_text,
+            context=prompt_context_block(filtered_context, context),
             current_task="",
             output_schema=output_schema,
             success_criteria=success_criteria,

@@ -122,6 +122,7 @@ class PlannerService:
             entity=entity,
             input_data=input_data or {},
             static_plan=static_plan or {},
+            intelligence_rules=list((input_data or {}).get("__intelligence_rules__") or []),
             company_id=self.company_id,
             goal=getattr(entity, "goal", "") or "",
         )
@@ -353,7 +354,7 @@ class PlannerService:
 
         user_input = (input_data or {}).get("input") or {
             k: v for k, v in (input_data or {}).items()
-            if k not in ("__memory__", "company_id", "user_id")
+            if k not in ("__memory__", "__intelligence_rules__", "company_id", "user_id")
         }
         if isinstance(user_input, dict):
             user_input = json.dumps(user_input, default=str)

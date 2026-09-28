@@ -12,6 +12,7 @@ intelligence, episodic) is a typed view over the CORTEX tree.
 | `cortex_models.py` | `CortexTree` / `CortexNode` ORM + enums (`CortexNodeType`, `MemoryDomain`, `ScopeLevel`). |
 | `cortex_bridge.py`, `cortex_ingestion.py`, `cortex_router.py` | HTTP / ingestion glue. |
 | `scope_policy.py` | Declarative `ScopePolicy` + `ScopeViolation`. Strict by default. |
+| `run_memory.py` | The AgentLoop's per-run wiring: `open_run_tree` (the run's CORTEX tree) and `assemble_run_memory` (the memory read path — assembles once per run and returns the `RunMemory` reader the Perceiver and critic use). |
 | `assembler.py` | `assemble_memory(...)` — v2 by default; v1 only as explicit opt-in. Tops up with `LegacyEpisodicReader` when EpisodicTree is empty. |
 | `memory_assembly_service.py` | v2 four-domain assembly. |
 | `memory_service.py` | **Deprecated** v1 `MemoryRouter`. Reachable only when `memory_pipeline="v1"`. |
@@ -33,7 +34,7 @@ intelligence, episodic) is a typed view over the CORTEX tree.
 
 ## Entry points
 
-- `assemble_memory(...)` is the single entry point from worker / loop.
+- `assemble_run_memory(...)` is the AgentLoop's entry point: once per run it puts `__memory__` into the step prompt (sandwich layer 9), `__intelligence_rules__` into the planner, and a `RunMemory` reader into the Perceiver / supervisor critic. It is gated per entity by `capabilities.memory` (`enabled`, `memory_scope`).
 - `CortexService(scoped_subtree_root_id=..., scope_policy=...)` is the only legal write path.
 - The Dreaming engine is triggered by `core/arq_jobs.dreaming_outcome_trigger` (from `AgentLoop._finalize`) and by the existing cron.
 

@@ -138,6 +138,7 @@ class AgentLoop:
         self.observer: Optional[Observer] = None
         self.reflector: Optional[Reflector] = None
         self.cortex: Any = None
+        self.memory: Any = None  # RunMemory; None when memory is off
         self._entity: Any = None
 
     # ------------------------------------------------------------------
@@ -282,7 +283,7 @@ class AgentLoop:
         state = AgentState.restore(snapshot)
         state.redis_client = self.redis
         self._entity = run.entity
-        await self._compose(state)
+        await self._compose(state, resumed=True)
 
         # Fold terminal children; bail back to WAITING if any are still running.
         all_terminal, any_failed = await self._fold_children(state)
@@ -747,23 +748,33 @@ class AgentLoop:
 
         return state
 
-    async def _compose(self, state: AgentState) -> None:
+    async def _compose(self, state: AgentState, *, resumed: bool = False) -> None:
         # Track 4: classify task once at bootstrap.
         await self._classify_task(state)
 
         # Track 6: wire a CORTEX tree so the loop persists AgentState
         # snapshots (feeding the /agent_state rail) and the critic pipeline
         # persists StepHealthRecords (feeding the /health_records timeline
-        # backfill for finished runs).
-        await self._setup_cortex(state)
+        # backfill for finished runs). ``_snapshot`` and the critic's
+        # ``_persist_record`` are gated on ``self.cortex`` + the working root.
+        from src.ai.memory.run_memory import assemble_run_memory, open_run_tree
+        self.cortex, tree = await open_run_tree(self.db, state, self._entity, self._run_id)
+        if tree is not None:
+            state.cortex_working_root_id = tree.root_node_id
+
+        # The memory read path — what past runs learned reaches this one.
+        self.memory = await assemble_run_memory(
+            self.db, state, entity=self._entity, runtime_tree=tree, resumed=resumed,
+        )
 
         # Track 4: optional bandit shared by Strategist + finalize().
         self.bandit = await self._build_bandit(state)
         self.strategist = Strategist(bandit=self.bandit)
         self.observer = Observer()
         self.reflector = Reflector(db=self.db)
-        # Perceiver gets the live CORTEX service (None-safe in tests).
-        self.perceiver = Perceiver(db=self.db, cortex=self.cortex, memory_assembler=None)
+        # Perceiver gets the live CORTEX service and the run's memory
+        # (both None-safe in tests).
+        self.perceiver = Perceiver(db=self.db, cortex=self.cortex, memory_assembler=self.memory)
 
         # ── CriticPipeline (Track 3) ──────────────────────────────────
         # If the constructor was given an explicit pipeline, keep it.
@@ -857,44 +868,6 @@ class AgentLoop:
         except Exception:                                                   # pragma: no cover
             return 0
 
-    async def _setup_cortex(self, state: AgentState) -> None:
-        """Track 6 completion: attach a CortexService + working root.
-
-        Both ``_snapshot`` and the critic pipeline's ``_persist_record`` are
-        gated on ``self.cortex`` and ``state.cortex_working_root_id``; without
-        them the AgentState rail and the health-record timeline backfill stay
-        empty. Best-effort — any failure simply leaves persistence disabled.
-        """
-        try:
-            from src.ai.memory.cortex_service import CortexService
-
-            cortex = CortexService(db=self.db, company_id=cast(UUID, state.company_id))
-            run = await self._reload_run(self._run_id) if self._run_id else None
-            input_data = (getattr(run, "input_data", None) or {}) if run else {}
-
-            existing = input_data.get("cortex_tree_id")
-            if existing:
-                tree, _vp, _ck = await cortex.resume_tree(UUID(str(existing)))
-            else:
-                task = (
-                    input_data.get("input")
-                    or getattr(self._entity, "goal", None)
-                    or "agent loop run"
-                )
-                tree = await cortex.create_tree(
-                    entity_id=state.entity_id,
-                    user_id=getattr(run, "user_id", None) if run else None,
-                    task_description=str(task)[:500],
-                )
-            await self.db.commit()
-            self.cortex = cortex
-            state.cortex_working_root_id = tree.root_node_id
-        except Exception as exc:                                            # noqa: BLE001
-            logger.warning(
-                "AgentLoop CORTEX setup failed; snapshots/health disabled: %s", exc
-            )
-            self.cortex = None
-
     async def _build_real_critic_pipeline(self, state: AgentState) -> CriticPipeline:
         from src.ai.llm.router import LLMRouter
         llm = LLMRouter(db=self.db, company_id=state.company_id) if state.company_id else None
@@ -927,7 +900,7 @@ class AgentLoop:
             db=self.db,
             llm_router=llm,
             cortex_service=self.cortex,
-            intelligence_reader=None,           # wired in Track 6
+            intelligence_reader=self.memory,
             config=config,
         )
 
@@ -985,6 +958,10 @@ class AgentLoop:
             if run is None:
                 return
             input_data = run.input_data if isinstance(run.input_data, dict) else {}
+            # Learned rules shape the plan (PlanContext.intelligence_rules).
+            rules = state.context_state.get("__intelligence_rules__")
+            if rules:
+                input_data = {**input_data, "__intelligence_rules__": rules}
             planner = PlannerService(self.db, company_id=cast(UUID, state.company_id))
             plan = await planner.reconcile(run, entity, input_data)
             steps = plan.get("steps") if isinstance(plan, dict) else None
