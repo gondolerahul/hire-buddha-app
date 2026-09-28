@@ -55,4 +55,5 @@ async def log_llm_response_usage(
                 attribution=attribution,
             )
     except Exception as exc:                                                  # pragma: no cover
-        logger.debug("attributed usage logging failed (%s): %s", attribution, exc)
+        # A lost usage row is a lost charge — surface it rather than hiding it.
+        logger.warning("attributed usage logging failed (%s): %s", attribution, exc)

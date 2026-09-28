@@ -256,33 +256,42 @@ class PlanGenerator:
     ) -> list[PlanCandidate]:
         temps = list(self.TEMPERATURES[:n])
 
-        async def one(temp: float) -> PlanCandidate:
-            prompt = self._build_prompt(ctx, temperature=temp)
+        async def ask(temp: float) -> Any:
             try:
-                resp = await self.llm.call_llm(
+                return await self.llm.call_llm(
                     task_type="thinking",
                     system_prompt=_PLAN_SYSTEM,
-                    user_prompt=prompt,
+                    user_prompt=self._build_prompt(ctx, temperature=temp),
                     temperature=temp,
                     max_tokens=2000,
                 )
-                steps = self._parse_plan(resp.output)
-                await self._log_attributed_usage(ctx, resp, "planner")
             except Exception as exc:                                        # noqa: BLE001
                 logger.warning(f"PlanGenerator candidate (t={temp}) failed: {exc}")
-                steps = list(ctx.static_plan.get("steps") or [])
+                return None
+
+        # Only the LLM calls run concurrently. Usage logging commits on the
+        # shared session, and an AsyncSession must never be used by two
+        # coroutines at once: concurrent commits flushed each other's rows
+        # (duplicate usage_logs PK) and left the run's session unusable.
+        responses = await asyncio.gather(*(ask(t) for t in temps))
+
+        candidates: list[PlanCandidate] = []
+        for temp, resp in zip(temps, responses):
+            steps = list(ctx.static_plan.get("steps") or [])
+            if resp is not None:
+                steps = self._parse_plan(resp.output)
+                await self._log_attributed_usage(ctx, resp, "planner")
             steps = self._tidy(steps)
             est_cost = self.cost_estimator.estimate_plan_cost(steps, ctx.entity)
             est_lat = self.cost_estimator.estimate_latency_s(steps)
-            return PlanCandidate(
+            candidates.append(PlanCandidate(
                 steps=steps,
                 style=classify_plan_style(steps),
                 estimated_cost_usd=Decimal(str(est_cost)),
                 estimated_latency_s=int(est_lat),
                 rationale=f"temp={temp}",
-            )
-
-        return await asyncio.gather(*(one(t) for t in temps))
+            ))
+        return candidates
 
     def _build_prompt(self, ctx: PlanContext, *, temperature: float) -> str:
         parts: list[str] = []

@@ -38,12 +38,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--money-and-availability) | Money and availability | 6 | Before the first paying tenant |
+| [T0](#2-t0--money-and-availability) | Money and availability | 7 | Before the first paying tenant |
 | [T1](#3-t1--configuration-that-cannot-work) | Configuration that cannot work | 6 | Before anyone follows the setup guide |
 | [T2](#4-t2--delete) | Delete | 4 | **Now** — free |
 | [T3](#5-t3--correctness-in-the-adapters) | Correctness in the adapters | 8 | When the provider is next touched |
 
-**Total: 24 defects, 10 improvements.**
+**Total: 25 defects, 10 improvements.**
 
 The three to read first:
 
@@ -194,6 +194,44 @@ So the platform under-reports and under-bills exactly the models it routes the `
 task type to.
 
 - [`ai/llm/gemini_adapter.py`](../../../backend/src/ai/llm/gemini_adapter.py) — token accounting
+
+---
+
+### LP-25 — Thinking tokens consume `max_tokens`, so short calls return truncated answers
+
+**✅ Verified · High** · **Status: open** — found 2026-09-28 while testing the
+deep-research process end to end on `gemini-2.5-flash`.
+
+`GeminiAdapter` passes the caller's `max_tokens` straight through as
+`max_output_tokens` and sets no thinking config. Gemini 2.5 thinks by default, and
+thinking tokens count against `max_output_tokens`. So every call site that sizes
+`max_tokens` for the *answer* gets the model's thinking plus a cut-off answer, with
+`finish_reason = MAX_TOKENS`.
+
+Live, on one research-director run, every LLM call was truncated:
+
+| Call | `max_tokens` | Visible tokens returned |
+|---|---|---|
+| `PlanGenerator` candidate × 3 | 2000 | 78, 78, 225 |
+| `PlanJudge.pick` | 400 | 13 |
+| pre-critic | 200 | 5 |
+| replan candidates × 3 | 2000 | ~80 each |
+
+Every answer failed to parse. The planner fell back to an empty plan, and the director
+completed with `{"output": "Success", "steps": []}` without doing any research. The
+critic calls (200–600) and `_route_children_llm` (500) share the same exposure. Their
+parse failures fall back to default verdicts, so critic output is silently discarded on
+the default model. Dreaming hit the same thing and raised its per-phase budgets
+([MC-22](08-MEMORY-AND-CORTEX-DEFECTS.md)). That fixes one call site, not the cause.
+
+- [`ai/llm/gemini_adapter.py:174`](../../../backend/src/ai/llm/gemini_adapter.py:174) — `max_output_tokens = max_tokens`
+- [`ai/llm/gemini_adapter.py:246`](../../../backend/src/ai/llm/gemini_adapter.py:246) — the ReAct path, same
+
+**Fix:** make `max_tokens` mean the answer budget at the adapter. Set an explicit
+thinking budget (for example `service_metadata.thinking_budget`, with a modest default,
+or `0` for short structured calls) and send `max_output_tokens = max_tokens +
+thinking_budget`. Log a warning whenever `finish_reason` is `MAX_TOKENS`, so a truncated
+answer is never silent. Bill the thinking tokens too ([LP-06](#lp-06--gemini-thinking-tokens-are-not-counted)).
 
 ---
 

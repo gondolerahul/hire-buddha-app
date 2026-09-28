@@ -1,6 +1,7 @@
 """Phase 11 Track 7 — PlanGenerator end-to-end (stubbed LLM)."""
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -281,3 +282,58 @@ async def test_strict_binding_authored_plan_wins() -> None:
     # plan is the one that survives.
     assert result.chosen.source == "authored"
     assert "audit" in {s.get("step_id") for s in result.chosen.steps}
+
+
+# ---------------------------------------------------------------------------
+# Shared-session safety — candidates must not use the run's session at once
+# ---------------------------------------------------------------------------
+
+
+def _concurrency_probe() -> tuple[SimpleNamespace, dict[str, int], list[str]]:
+    """Router + usage logger that record how many calls overlap."""
+    peak = {"llm": 0, "log": 0}
+    active = {"llm": 0, "log": 0}
+    logged: list[str] = []
+
+    async def enter(kind: str, delay: float) -> None:
+        active[kind] += 1
+        peak[kind] = max(peak[kind], active[kind])
+        await asyncio.sleep(delay)
+        active[kind] -= 1
+
+    async def call_llm(**kwargs):
+        # Later temperatures finish first, so completion order differs.
+        await enter("llm", 0.03 * (1 - kwargs["temperature"]))
+        if kwargs["temperature"] == 0.5:
+            raise RuntimeError("provider down")
+        return SimpleNamespace(output=_good_plan(), rationale=kwargs["temperature"])
+
+    async def log_usage(ctx, resp, attribution):
+        await enter("log", 0.01)
+        logged.append(f"{attribution}@{resp.rationale}")
+
+    return SimpleNamespace(call_llm=call_llm, log_usage=log_usage), peak, logged
+
+
+@pytest.mark.asyncio
+async def test_candidates_call_llm_concurrently_but_log_usage_one_at_a_time() -> None:
+    # Usage logging commits on the run's AsyncSession; overlapping commits
+    # flushed each other's rows (duplicate usage_logs PK) and broke the
+    # session, so the planner fell back to an empty plan.
+    probe, peak, logged = _concurrency_probe()
+    gen = PlanGenerator(llm_router=probe)
+    gen._log_attributed_usage = probe.log_usage  # type: ignore[method-assign]
+    ctx = PlanContext(
+        entity=_entity(tools=["web_search"]),
+        static_plan={"steps": [{"step_id": "fallback", "type": "THOUGHT"}]},
+        goal="research",
+    )
+
+    cands = await gen._generate_candidates(ctx, n=3)
+
+    assert peak["llm"] == 3                        # still parallel
+    assert peak["log"] == 1                        # never overlapping
+    assert logged == ["planner@0.2", "planner@0.8"]  # failed call not billed
+    assert [c.rationale for c in cands] == ["temp=0.2", "temp=0.5", "temp=0.8"]
+    assert [s["step_id"] for s in cands[1].steps] == ["fallback"]  # failed → static
+    assert [s["step_id"] for s in cands[0].steps] == ["s1"]

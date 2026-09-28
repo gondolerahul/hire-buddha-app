@@ -333,6 +333,13 @@ Key constants, all class attributes on
 `n` is clamped: `n = max(1, min(int(n or DEFAULT_N), len(TEMPERATURES)))`. Asking
 for 10 candidates gets you 3.
 
+Only the candidates' LLM calls run concurrently (`asyncio.gather`). Parsing and
+`planner` usage logging then run one candidate at a time, in temperature order,
+because usage logging commits on the run's shared `AsyncSession` — and a session
+must never be used by two coroutines at once. A candidate whose LLM call raises
+falls back to the static plan's steps and is not billed. See
+[PC-23](defect-register/07-PLANNING-AND-CRITICS-DEFECTS.md#pc-23--parallel-plan-candidates-broke-the-runs-database-session).
+
 ### 3.5 The planner LLM prompt
 
 The system prompt is a module constant:
@@ -1977,7 +1984,7 @@ Planning adds its own calls, all attributed `planner`:
 
 | Call | Count | `max_tokens` |
 |------|-------|--------------|
-| `PlanGenerator` candidates | `n` (default 3) in parallel | 2000 each |
+| `PlanGenerator` candidates | `n` (default 3) in parallel; usage logged one at a time | 2000 each |
 | `PlanJudge.pick` | 1, only when ≥2 candidates survive | 400 |
 | `_route_children_llm` | 0 or 1, only when router enforcement fires | 500 |
 | `adapt_plan` on REPLAN | 2 candidates + 1 judge call | as above |

@@ -40,9 +40,9 @@
 | [T0](#2-t0--paying-for-criticism-that-is-discarded) | Paying for criticism that is discarded | 5 | Now — this is money per run |
 | [T1](#3-t1--self-correction-that-does-not-correct) | Self-correction that does not correct | 5 | Before claiming the platform self-corrects |
 | [T2](#4-t2--built-and-never-wired) | Built and never wired | 5 | Each is a decision: wire it or delete it |
-| [T3](#5-t3--planning-correctness) | Planning correctness | 7 | When the area is next touched |
+| [T3](#5-t3--planning-correctness) | Planning correctness | 8 | When the area is next touched |
 
-**Total: 22 defects, 10 improvements.**
+**Total: 23 defects, 10 improvements.**
 
 The three to read first:
 
@@ -378,6 +378,47 @@ never be joined. The write is also duck-typed — it looks for `upsert_calibrati
 then `record_rule`, and logs-and-returns if neither exists.
 
 - [`ai/planning/critic_calibration.py:73`](../../../backend/src/ai/planning/critic_calibration.py:73)
+
+---
+
+### PC-23 — Parallel plan candidates broke the run's database session
+
+**✅ Verified · High** · **Status: fixed (2026-09-28)** — found while testing the
+deep-research process end to end.
+
+`PlanGenerator._generate_candidates` ran each candidate as a coroutine under
+`asyncio.gather`. Each candidate called the LLM, then logged `planner` usage.
+`UsageService.log_usage` does `db.add(row)` plus `await db.commit()` on the **run's
+shared `AsyncSession`**, and the three coroutines committed at the same time:
+
+- one candidate's commit flushed another candidate's pending row, and the second insert
+  failed with `duplicate key value violates unique constraint "usage_logs_pkey"`;
+- or SQLAlchemy refused the second commit (`Method 'commit()' can't be called here;
+  method '_prepare_impl()' is already in progress`).
+
+`log_llm_response_usage` swallowed the error at `DEBUG` level, so the only visible
+symptoms were downstream. Five of the six usage rows for a three-candidate plan were
+lost, and the session was left in a failed transaction. The next query in
+`PlannerService.reconcile` then raised, it logged `PlanGenerator reconcile failed;
+falling back to static`, and an entity with no static plan — the deep-research director
+— got an **empty plan and did nothing**. The run later died on the same
+`IntegrityError` when the loop next committed.
+
+- [`ai/planning/plan_generator.py`](../../../backend/src/ai/planning/plan_generator.py) — `_generate_candidates`
+- [`ai/services/attributed_usage.py`](../../../backend/src/ai/services/attributed_usage.py) — the swallowed error
+
+**Fix:** only the LLM calls run concurrently. Parsing and usage logging then run one
+candidate at a time, in temperature order. A candidate whose LLM call raises falls back
+to the static plan's steps and is not billed. A failed usage write now logs at
+`WARNING`, because a lost usage row is a lost charge. Plain reads on a shared session
+are safe — the asyncpg adapter serialises statements — so the router's concurrent
+adapter lookup in the same `gather` was not part of the bug.
+
+Verified against the local database. Before the fix, a three-candidate plan wrote 1 of its 6 usage
+rows and raised the `commit()` state error; after it, all 6. A live deep-research run then
+planned the director with no session error and every `planner` row written. It still did
+no research, for a separate reason: every answer was truncated by thinking tokens
+([LP-25](10-LLM-PROVIDERS-DEFECTS.md#lp-25--thinking-tokens-consume-max_tokens-so-short-calls-return-truncated-answers)).
 
 ---
 
