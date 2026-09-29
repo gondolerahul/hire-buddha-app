@@ -16,6 +16,7 @@ from src.billing.credit_service import CreditService, InsufficientCreditsError
 from src.billing.billing_service import BillingService, calculate_tb
 from src.ai.models import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
+from src.ai.governance.hitl_snapshot import build_hitl_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +252,7 @@ class GovernanceService:
         context_state: dict[str, Any],
         phase: str,  # "BEFORE" or "AFTER"
         governance_dict: Optional[dict[str, Any]] = None,
+        step_result: Any = None,  # AFTER only: what the step produced
     ) -> None:
         """
         Evaluate HITL checkpoints defined in entity.governance.hitl_checkpoints.
@@ -320,11 +322,11 @@ class GovernanceService:
                 run_id=run.id,
                 checkpoint_trigger=trigger_desc,
                 status="PENDING",
-                context_snapshot={
-                    "step_name": step_obj.name,
-                    # SEC-3 fix: removed step_id to avoid exposing internal topology
-                    "message": cp.message or f"Approval required: {trigger_desc}",
-                },
+                context_snapshot=build_hitl_snapshot(
+                    checkpoint=cp, trigger_desc=trigger_desc, phase=phase,
+                    entity=entity, step=step_obj, context_state=context_state,
+                    run_cost_usd=run.total_cost_usd, step_result=step_result,
+                ),
                 notification_channels=cp.notification_channels,
                 timeout_ms=cp.timeout_ms,
             )

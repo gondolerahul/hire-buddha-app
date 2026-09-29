@@ -499,18 +499,31 @@ approval = HumanApproval(
     run_id=run.id,
     checkpoint_trigger=trigger_desc,
     status="PENDING",
-    context_snapshot={
-        "step_name": step_obj.name,
-        # SEC-3 fix: removed step_id to avoid exposing internal topology
-        "message": cp.message or f"Approval required: {trigger_desc}",
-    },
+    context_snapshot=build_hitl_snapshot(
+        checkpoint=cp, trigger_desc=trigger_desc, phase=phase,
+        entity=entity, step=step_obj, context_state=context_state,
+        run_cost_usd=run.total_cost_usd, step_result=step_result,
+    ),
     notification_channels=cp.notification_channels,
     timeout_ms=cp.timeout_ms,
 )
 ```
 
-Note the `SEC-3` comment: `step_id` was deliberately removed from the snapshot
-so an approval UI cannot leak the entity's internal plan topology to a reviewer.
+`context_snapshot` is what the reviewer sees
+([`governance/hitl_snapshot.py`](../../backend/src/ai/governance/hitl_snapshot.py), PO-05):
+
+| Key | Content |
+|---|---|
+| `message`, `trigger_type`, `phase` | the checkpoint's message (or a default), its trigger, `BEFORE` or `AFTER` |
+| `entity_name`, `step_name`, `step_type`, `step_description`, `tool_id` | what is running |
+| `step_prompt` | the step's prompt template **resolved** against the run context |
+| `run_input` | the run's `input` |
+| `step_output` | `AFTER` only — what the step produced (the step engine passes its result in) |
+| `run_cost_usd` | the run's cost so far |
+
+Text fields are capped at 4000 characters and empty keys are dropped. `step_id` stays out
+so the approval UI cannot leak the entity's internal plan topology. `GET
+/ai/approvals/pending` returns the snapshot and `timeout_ms` with each row.
 
 The `HumanApproval` table is defined at
 [orm/execution.py:121](../../backend/src/ai/orm/execution.py:121) — see

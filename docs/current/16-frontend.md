@@ -1453,7 +1453,7 @@ is noted.
 | [`ai/ExecutionPage.tsx`](../../frontend/src/pages/ai/ExecutionPage.tsx) | `/ai/execute/:id` | Fill input variables and launch a run | `GET /ai/entities/:id`, `POST /ai/execute` | any authed |
 | [`ai/ExecutionHistory.tsx`](../../frontend/src/pages/ai/ExecutionHistory.tsx) | `/ai/executions` | Run list with status filter | `GET /ai/executions` | any authed |
 | [`ai/ExecutionDetail.tsx`](../../frontend/src/pages/ai/ExecutionDetail.tsx) | `/ai/executions/:id` | **1111 lines.** Trace view, retry, refine, artifact download | `GET /ai/executions/:id`, `POST .../retry`, `POST .../refine` | any authed |
-| [`ai/HITLPanel.tsx`](../../frontend/src/pages/ai/HITLPanel.tsx) | `/ai/approvals` | Approve/reject pending human checkpoints | `GET /ai/approvals/pending`, `POST /ai/approvals/:id/respond` | any authed |
+| [`ai/HITLPanel.tsx`](../../frontend/src/pages/ai/HITLPanel.tsx) | `/ai/approvals` | Approve/reject pending human checkpoints; each card shows the approval's `context_snapshot` (what is being approved) | `GET /ai/approvals/pending`, `POST /ai/approvals/:id/respond` | any authed |
 | [`ai/TemplateMarketplace.tsx`](../../frontend/src/pages/ai/TemplateMarketplace.tsx) | `/ai/templates` | Browse and clone entity templates | `templateService.listTemplates/cloneTemplate/deleteTemplate` | any authed |
 | [`ai/ToolManagement.tsx`](../../frontend/src/pages/ai/ToolManagement.tsx) | `/ai/tool-registry` | Tool registry CRUD, enable/disable, sync built-ins | `toolService.*` | `app_admin` |
 | [`ai/CortexExplorer.tsx`](../../frontend/src/pages/ai/CortexExplorer.tsx) | `/cortex` | List memory trees, suspend/resume | `cortexService.listTrees/resumeTree/suspendTree` | any authed |

@@ -555,7 +555,7 @@ sequenceDiagram
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/v1/ai/approvals/pending` | List `PENDING` approvals for the tenant |
+| GET | `/api/v1/ai/approvals/pending` | List `PENDING` approvals for the tenant: `id`, `run_id`, `checkpoint_trigger`, `status`, `requested_at`, `timeout_ms`, `context_snapshot` |
 | POST | `/api/v1/ai/approvals/{approval_id}/respond` | Approve or reject, with reviewer notes |
 
 ```bash

@@ -393,6 +393,22 @@ export interface ToolInteractionLog {
     created_at: string;
 }
 
+/** What the reviewer is approving — built by backend governance/hitl_snapshot.py. */
+export interface HITLContextSnapshot {
+    message?: string;
+    trigger_type?: string;
+    phase?: 'BEFORE' | 'AFTER';
+    entity_name?: string;
+    step_name?: string;
+    step_type?: string;
+    step_description?: string;
+    tool_id?: string;
+    step_prompt?: string;
+    run_input?: string;
+    step_output?: string;
+    run_cost_usd?: number;
+}
+
 export interface HumanApproval {
     id: string;
     run_id: string;
@@ -400,6 +416,8 @@ export interface HumanApproval {
     status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'TIMEOUT';
     requested_at: string;
     responded_at?: string;
+    timeout_ms?: number;
+    context_snapshot?: HITLContextSnapshot;
 }
 
 export interface ExecutionRun {

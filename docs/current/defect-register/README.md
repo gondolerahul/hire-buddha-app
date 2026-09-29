@@ -48,7 +48,7 @@ something that works but costs more than it should.
 | 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 | 10 |
 | 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 | 10 |
 | 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 26 | 10 |
-| 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 21 | 10 |
+| 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 24 | 10 |
 | 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 24 | 10 |
 | 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 | 10 |
 | 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 21 | 10 |
@@ -56,7 +56,7 @@ something that works but costs more than it should.
 | 20 | [Developer onboarding & glossary](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md) | [20](../20-onboarding-and-glossary.md) | 18 | 10 |
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 | — |
 
-**461 defects, 202 improvements.**
+**464 defects, 202 improvements.**
 
 Related: [`../DEFECT-REGISTER.md`](../DEFECT-REGISTER.md) is the earlier platform-wide list
 (45 items, `D-nn`). Every one of its entries reappears in the module register that owns it,

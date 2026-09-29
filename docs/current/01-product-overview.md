@@ -840,13 +840,18 @@ The approval row itself
 `context_snapshot`, the `checkpoint_trigger` description, `notification_channels`
 and the reviewer's notes, so the decision is auditable after the fact.
 
-[`HITLPanel.tsx`](../../frontend/src/pages/ai/HITLPanel.tsx) is deliberately
-minimal — a card per pending checkpoint with **Authorize** and **Block Cycle**,
-polling `GET /ai/approvals/pending` on a 10-second interval. It shows the
-trigger string, the run id prefix and the request time. **It does not render
-`context_snapshot`**, so a reviewer currently approves without seeing what the
-agent was about to do; the snapshot exists in the database but is not exposed on
-this page.
+[`HITLPanel.tsx`](../../frontend/src/pages/ai/HITLPanel.tsx) shows a card per
+pending checkpoint with **Authorize** and **Block Cycle**, polling
+`GET /ai/approvals/pending` on a 10-second interval. Each card shows the checkpoint's
+message, the agent, the step and its tool, and links the run; **Show what is being
+approved** expands the step's resolved prompt, its output (for `AFTER_STEP`), the run's
+input and its cost so far. That content is the approval's `context_snapshot`, built by
+[`governance/hitl_snapshot.py`](../../backend/src/ai/governance/hitl_snapshot.py)
+(PO-05, 2026-09-29).
+
+> **The approval flow does not work end to end today.** No checkpoint actually waits
+> (GH-22), the panel's buttons get 422 (GH-23), and the respond endpoint does not check the
+> company (GH-24). See [15 — Governance defects](defect-register/15-GOVERNANCE-AND-HITL-DEFECTS.md).
 
 ### 6.4 Template marketplace
 
@@ -1908,8 +1913,9 @@ Honest boundaries, all verifiable by grep.
 - **HITL blocks a worker.** The governance service subscribes to
   `hitl:{approval_id}` and polls with a timeout while holding the run. Long
   `timeout_ms` values tie up worker capacity.
-- **The approvals page never shows `context_snapshot`.** Reviewers approve
-  blind today, even though the data is stored.
+- **HITL does not block anything yet.** The wait's subscribe call raises on every
+  checkpoint and the step proceeds unapproved (GH-22); the panel's buttons get 422
+  (GH-23).
 - **Credits drain daily-first, always.** Then wallet (pay-as-you-go) or
   subscription+bonus. There is no way to make a run spend from a specific bucket.
 - **Only top-level runs settle billing.** `if run.parent_run_id: return

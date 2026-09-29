@@ -431,7 +431,10 @@ async def list_pending_approvals(
             "run_id": str(a.run_id),
             "checkpoint_trigger": a.checkpoint_trigger,
             "status": a.status,
-            "requested_at": a.requested_at
+            "requested_at": a.requested_at,
+            "timeout_ms": a.timeout_ms,
+            # What the reviewer is approving — see governance/hitl_snapshot.py.
+            "context_snapshot": a.context_snapshot or {},
         }
         for a in approvals
     ]

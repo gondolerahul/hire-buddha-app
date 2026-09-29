@@ -59,7 +59,7 @@ cross-referenced here.
 | PO-02 | A tenant admin can open the AI config page but cannot save | ✅ fixed `@PO-02` |
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
 | PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `@PO-04` |
-| PO-05 | A reviewer approves without seeing what they are approving | open |
+| PO-05 | A reviewer approves without seeing what they are approving | ✅ fixed `@PO-05` |
 | PO-06 | 64 of the 98 tools are unfinished integrations | open — audit |
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
@@ -217,7 +217,7 @@ and reloading any `/reports/*` page is proxied away from the SPA
 
 ### PO-05 — A reviewer approves without seeing what they are approving
 
-**✅ Verified · High** · **Status: open**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-05`)**
 
 > **Product owner, 2026-09-29:** needs to be fixed.
 
@@ -234,6 +234,37 @@ safety control; it is a delay.
 
 **Fix:** render `context_snapshot` on the card, collapsed by default. It is already in
 the row the endpoint returns.
+
+**Done (2026-09-29).** Rendering the snapshot alone would not have been enough, for two
+reasons found in the code:
+
+- The snapshot held only `step_name` and a message — nothing about what the agent was
+  doing. It is now built by `governance/hitl_snapshot.py`: the agent's name, the step's name,
+  type, description and tool, its **resolved** prompt, the run's input, the run's cost so far,
+  and for `AFTER_STEP` checkpoints the step's **output** (the step engine now passes the step
+  result to the AFTER evaluation, which previously ran before the output was stored). Text
+  fields are capped at 4000 characters; step ids stay out.
+- `GET /ai/approvals/pending` built its rows by hand and left the snapshot out. It now returns
+  `context_snapshot` and `timeout_ms`.
+
+The panel shows the message, agent, step and tool on every card, links the run, and puts the
+prompt, output, description, input and cost behind **Show what is being approved**
+(collapsed by default).
+
+**Evidence:** `tests/unit/test_hitl_context_snapshot.py` — BEFORE, AFTER and
+`COST_THRESHOLD` snapshots, clipping, and the list endpoint; all five fail on the old code.
+Live: a real `AFTER_STEP` checkpoint fired through `GovernanceService.evaluate_hitl` on the
+local database appeared on the panel with the resolved prompt and the step's output.
+
+**Found while fixing — the approval flow does not work end to end.** Recorded in
+[15](15-GOVERNANCE-AND-HITL-DEFECTS.md) and not fixed here:
+[GH-22](15-GOVERNANCE-AND-HITL-DEFECTS.md#gh-22--every-hitl-checkpoint-fails-to-subscribe-so-none-of-them-waits)
+(no checkpoint ever waits — the subscribe call raises on every checkpoint and the step
+proceeds),
+[GH-23](15-GOVERNANCE-AND-HITL-DEFECTS.md#gh-23--authorize-and-block-cycle-always-fail-with-422)
+(the panel's buttons always get 422) and
+[GH-24](15-GOVERNANCE-AND-HITL-DEFECTS.md#gh-24--any-user-can-answer-any-companys-approval)
+(the respond endpoint does not check the company).
 
 ---
 

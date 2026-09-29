@@ -341,7 +341,7 @@ class StepEngine:
         # ── HITL: Evaluate AFTER_STEP checkpoints ───────────────────────────
         await self._evaluate_hitl_checkpoints(
             run, entity, step_obj, context_state, phase="AFTER",
-            governance_dict=governance
+            governance_dict=governance, step_result=step_result,
         )
 
         # (C1: the legacy v1 self-critique `_review_step_output` is deleted.
@@ -406,12 +406,13 @@ class StepEngine:
         context_state: dict[str, Any],
         phase: str,
         governance_dict: Optional[dict[str, Any]] = None,
+        step_result: Any = None,
     ) -> None:
         """Delegate to GovernanceService (Phase 3 extraction)."""
         assert self._governance is not None
         await self._governance.evaluate_hitl(
             run, entity, step_obj, context_state, phase,
-            governance_dict=governance_dict
+            governance_dict=governance_dict, step_result=step_result,
         )
 
     # ===================================================================
