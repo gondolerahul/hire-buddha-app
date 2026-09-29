@@ -64,7 +64,7 @@ cross-referenced here.
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
 | PO-09 | A mistyped config key in the entity builder disappears silently | ✅ fixed `3fadd76` |
-| PO-10 | A broken import turns a whole feature area into 404s | ✅ fixed `@PO-10` |
+| PO-10 | A broken import turns a whole feature area into 404s | ✅ fixed `0fd3b29` |
 | PO-11 | Templates sit outside tenant scoping by design | won't fix |
 | PO-12 | `voice/phone_pool_router.py` | ✅ fixed `964c9ab` |
 | PO-13 | `pages/assets/AssetLibrary.tsx` | ✅ fixed `9719f1b` |
@@ -453,7 +453,7 @@ Found while verifying:
 
 ### PO-10 — A broken import turns a whole feature area into 404s
 
-**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-10`)** — also closes SA-I10,
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `0fd3b29`)** — also closes SA-I10,
 PO-I9 and API-09
 
 > **Product owner, 2026-09-29:** fix it.
@@ -695,7 +695,7 @@ and show that everywhere.
 
 ### PO-I9 — Surface failed router mounts on the health endpoint
 
-**Status: done (2026-09-29, `@PO-10`)** — by PO-10; the endpoint is `GET /api/v1/health`.
+**Status: done (2026-09-29, `0fd3b29`)** — by PO-10; the endpoint is `GET /api/v1/health`.
 
 **Effect: small, high value at 3am.** See
 [PO-10](#po-10--a-broken-import-turns-a-whole-feature-area-into-404s). Collect the

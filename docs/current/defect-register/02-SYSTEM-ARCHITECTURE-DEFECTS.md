@@ -465,7 +465,7 @@ Both are one-line fixes, and both will be discovered at exactly the wrong moment
 
 ### SA-I10 — Record why a router failed to mount
 
-**Status: done (2026-09-29, `@PO-10`)** — by PO-10: failed mounts are listed by
+**Status: done (2026-09-29, `0fd3b29`)** — by PO-10: failed mounts are listed by
 `GET /api/v1/health`.
 
 **Effect: small.** Same point as PO-10 in
