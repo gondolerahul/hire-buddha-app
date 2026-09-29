@@ -227,18 +227,24 @@ classDiagram
     HierarchicalEntity --> metadata_extensions
 ```
 
-> **The single most important schema fact.** `HierarchicalEntityCreate` /
-> `HierarchicalEntityUpdate` ([schemas/entity.py:73](../../backend/src/ai/schemas/entity.py:73))
-> are **closed** Pydantic models — no `extra = "allow"`. **Any key you invent is
-> silently dropped on create.** The seed authors learned this the hard way and
-> wrote it down in
-> [SeedDocFactoryLite/create_lite.py:21](../../backend/scripts/seeds/default_entities/SeedDocFactoryLite/create_lite.py:21)
-> and [phase11.py:8](../../backend/scripts/seeds/default_entities/SeedDocumentFactory/phase11.py:8).
-> Worse: several keys the *runtime* reads are not declared on the schema
-> (`governance.critic_cost_share_pct`, `governance.max_concurrent_children`,
-> `review_mechanism.critic_model_override`, `capabilities.tools[].usage`), so
-> they cannot be set through the API at all. They only exist if written
-> directly to the JSON column.
+> **The single most important schema fact.** The API's create and update payloads
+> (`HierarchicalEntityCreateRequest` / `HierarchicalEntityUpdateRequest`,
+> [schemas/entity.py](../../backend/src/ai/schemas/entity.py)) **reject any key the
+> schema does not declare** with a 422 that names its path — for example
+> `Unknown configuration key(s), which would be ignored: logic_gate.retry_polcy`
+> ([`schemas/strict_keys.py`](../../backend/src/ai/schemas/strict_keys.py), PO-09). Until
+> 2026-09-29 such keys were silently dropped, which the seed authors wrote down as a trap.
+> The check applies to requests only; the shared nested models stay lenient so a stored
+> entity with a retired key still reads back.
+>
+> The keys the runtime reads are declared, so they can be set:
+> `governance.critic_cost_share_pct` (0.20), `governance.goal_validation_interval` (2),
+> `governance.meta_review_interval` (3), `governance.max_concurrent_children` (unset) and
+> `logic_gate.review_mechanism.critic_model_override` (unset) — defaults equal to the
+> runtime's own fallbacks. Two keys the builder sends are accepted and **not stored**,
+> because nothing reads them: `capabilities.tools[].usage` and
+> `governance.checkpoint_every_n_steps`. A plan step's legacy `reasoning_mode` is accepted
+> and mapped onto `reasoning_hint`.
 
 ---
 
@@ -402,7 +408,7 @@ hinting one of these logs a warning and runs REACT,
 | `review_prompt` / `review_system_prompt` | `DEFAULT_REVIEW_SYSTEM_PROMPT` | Critic pipeline surface. |
 | `success_criteria` | `[]` | `{criterion, validation_type: REGEX|SCHEMA|LLM_JUDGE|FUNCTION, validator}` → prompt Layer 5. |
 | `on_failure` | `"RETRY"` | `RETRY` \| `ESCALATE` \| `ABORT`. |
-| `critic_model_override` | — | Read by [agent_loop.py:916](../../backend/src/ai/core/agent_loop.py:916) but **not a schema field** — unsettable via the API. |
+| `critic_model_override` | `None` | The critic model for this entity, read by the AgentLoop's critic pipeline and the supervisor. Declared since PO-09. |
 
 The legacy per-step self-critique was deleted (C1); the loop's
 `RealCriticPipeline` is the review path now — see
@@ -2145,11 +2151,11 @@ sequenceDiagram
 
 ## Gotchas and things that surprise newcomers
 
-- **The create/update schema is closed.** Unknown keys are dropped without an
-  error. If your config "does nothing", first check that the key is a declared
-  Pydantic field. Several keys the runtime *reads* are not declarable
-  (`governance.critic_cost_share_pct`, `max_concurrent_children`,
-  `review_mechanism.critic_model_override`, `capabilities.tools[].usage`).
+- **An unknown config key is a 422.** The create/update API names the key's path
+  (PO-09). The keys the runtime reads — including `governance.critic_cost_share_pct`,
+  `max_concurrent_children` and `review_mechanism.critic_model_override` — are declared.
+- **A builder save rewrites the whole config from the builder's own state** (FE-25): keys
+  set through the API that the builder does not show fall back to their defaults.
 - **`logic_gate.retry_policy` and `planning.loop_control` are dead config.** No
   runtime readers. Real retry bounds are `MAX_RETRIES_PER_STEP = 2` plus the
   tool healing ladder.

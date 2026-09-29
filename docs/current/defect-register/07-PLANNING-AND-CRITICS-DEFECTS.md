@@ -278,7 +278,8 @@ missing is a production call site.
 
 ### PC-16 — Every critic knob in `governance` is undeclared
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-09`)** — all four are declared
+with the runtime's defaults, and a typo is now a 422 (PO-09).
 
 `critic_cost_share_pct`, `goal_validation_interval`, `meta_review_interval` and
 `review_mechanism.critic_model_override` are all read by the runtime and have **no

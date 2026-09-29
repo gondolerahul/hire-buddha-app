@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from src.ai.schemas.capabilities import Capabilities
 from src.ai.schemas.enums import EntityStatus, EntityType
@@ -14,6 +14,7 @@ from src.ai.schemas.governance import Governance
 from src.ai.schemas.io_contract import IOContract, Observability
 from src.ai.schemas.planning import Planning
 from src.ai.schemas.reasoning import LogicGate
+from src.ai.schemas.strict_keys import unknown_keys
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ __all__ = [
     "HierarchicalEntityBase",
     "HierarchicalEntityCreate",
     "HierarchicalEntityUpdate",
+    "HierarchicalEntityCreateRequest",
+    "HierarchicalEntityUpdateRequest",
     "HierarchicalEntityResponse",
 ]
 
@@ -116,6 +119,38 @@ class HierarchicalEntityUpdate(BaseModel):
     parent_id: Optional[UUID] = None
     is_template: Optional[bool] = None
     template_source_id: Optional[UUID] = None
+
+
+def _reject_unknown_keys(model: type[BaseModel], data: Any) -> Any:
+    unknown = unknown_keys(model, data)
+    if unknown:
+        raise ValueError(
+            "Unknown configuration key(s), which would be ignored: " + ", ".join(unknown)
+            + ". Check the spelling and where the key belongs."
+        )
+    return data
+
+
+class HierarchicalEntityCreateRequest(HierarchicalEntityCreate):
+    """The API's create payload: an undeclared key anywhere in it is a 422.
+
+    ``HierarchicalEntityCreate`` itself stays lenient — the meta-agent tools and
+    template cloning validate stored or generated JSON with it.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_unknown_keys(cls, data: Any) -> Any:
+        return _reject_unknown_keys(HierarchicalEntityCreate, data)
+
+
+class HierarchicalEntityUpdateRequest(HierarchicalEntityUpdate):
+    """The API's update payload: an undeclared key anywhere in it is a 422."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_unknown_keys(cls, data: Any) -> Any:
+        return _reject_unknown_keys(HierarchicalEntityUpdate, data)
 
 
 class HierarchicalEntityResponse(HierarchicalEntityBase):

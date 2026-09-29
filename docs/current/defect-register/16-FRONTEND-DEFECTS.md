@@ -36,11 +36,11 @@
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
 | [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 4 | **Now** — all four are small |
-| [T1](#3-t1--broken-behaviour) | Broken behaviour | 8 | Before the next release |
+| [T1](#3-t1--broken-behaviour) | Broken behaviour | 9 | Before the next release |
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 5 | Free |
 | [T3](#5-t3--performance) | Performance | 7 | When the page in question is next touched |
 
-**Total: 24 defects, 10 improvements.**
+**Total: 25 defects, 10 improvements.**
 
 The three to read first:
 
@@ -295,6 +295,35 @@ so the same reload fails there.
 **Fix:** give the static mount a prefix the SPA does not use (for example
 `/static-reports`), or proxy only requests that do not accept `text/html` (a `bypass`
 function).
+
+---
+
+### FE-25 — Saving from the entity builder rewrites config it does not show
+
+**✅ Verified · High** · **Status: open** — found 2026-09-29 while fixing PO-09.
+
+`EntityConfigurationTabs.handleSave` rebuilds every config column from the builder's own
+form state and sends it whole; the update replaces each column. So opening an entity and
+pressing **Save** without touching anything changes it:
+
+1. **Keys the builder does not show are dropped.** An entity with
+   `governance.meta_review_interval: 5` (set through the API) had no `meta_review_interval`
+   after an unchanged builder save — it silently fell back to the default of 3. The same
+   applies to every declared knob the builder has no control for (`critic_cost_share_pct`,
+   `max_concurrent_children`, `review_mechanism.critic_model_override`, …).
+2. **Tool steps of a static plan lose their input.** For the deep-research `report-writer`,
+   the stored plan has steps 2 and 3 (`TOOL_CALL`) with `prompt_template: "{{step_1}}"` and
+   `input_dependencies: ["step_1"]`. The payload the builder sends (captured without sending
+   it) has no `prompt_template` on either tool step, and step 3's dependency rewired to
+   `step_2` — `convertNodesToSteps` derives dependencies from the graph's edges.
+
+Seeded entities are the ones most exposed: they carry settings the builder cannot display.
+
+- [`frontend/src/pages/ai/EntityConfigurationTabs.tsx`](../../../frontend/src/pages/ai/EntityConfigurationTabs.tsx) — `handleSave`, `convertNodesToSteps`
+
+**Fix:** start the payload from the loaded entity and overlay the builder's edits, rather
+than rebuilding it; keep each step's `prompt_template` and `input_dependencies` in the graph
+nodes so they round-trip.
 
 ---
 

@@ -1,7 +1,7 @@
 """schemas/governance.py — Governance, HITL checkpoints, execution limits."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 
 from pydantic import BaseModel
 
@@ -38,3 +38,15 @@ class Governance(BaseModel):
     max_recursion_depth: int = 5
     execution_limits: Optional[ExecutionLimits] = None
     hitl_checkpoints: List[HITLCheckpoint] = []
+
+    # Critic-pipeline knobs the AgentLoop reads (agent_loop._critic_pipeline_for).
+    # Defaults are the runtime's own fallbacks, so declaring them changes nothing
+    # for entities that do not set them.
+    critic_cost_share_pct: float = 0.20      # degrade critics above this share of run cost
+    goal_validation_interval: int = 2        # alignment critic every N iterations
+    meta_review_interval: int = 3            # supervisor meta-review every N iterations
+    # Async child-run ceiling per parent (executors/child_entity.py); None = default.
+    max_concurrent_children: Optional[int] = None
+
+    # Sent by the entity builder; nothing reads it, so it is accepted and not stored.
+    extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"checkpoint_every_n_steps"})

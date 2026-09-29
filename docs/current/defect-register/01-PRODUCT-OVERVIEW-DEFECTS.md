@@ -47,11 +47,11 @@ cross-referenced here.
 | Tier | Theme | Count | Open | Fixed | Deferred | Won't fix |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 0 | 4 | 1 | 0 |
-| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 4 | 0 | 1 | 1 |
+| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 3 | 1 | 1 | 1 |
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 22 defects (4 open, 11 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
+**Total: 22 defects (3 open, 12 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
 
 | ID | Defect | Status |
 |---|---|---|
@@ -63,7 +63,7 @@ cross-referenced here.
 | PO-06 | 64 of the 98 tools are unfinished integrations | open — audit |
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
-| PO-09 | A mistyped config key in the entity builder disappears silently | open |
+| PO-09 | A mistyped config key in the entity builder disappears silently | ✅ fixed `@PO-09` |
 | PO-10 | A broken import turns a whole feature area into 404s | open |
 | PO-11 | Templates sit outside tenant scoping by design | won't fix |
 | PO-12 | `voice/phone_pool_router.py` | ✅ fixed `964c9ab` |
@@ -389,7 +389,7 @@ that is silently ignored at run time.
 
 ### PO-09 — A mistyped config key in the entity builder disappears silently
 
-**📄 Doc-reported · Medium** · **Status: open**
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-09`)**
 
 > **Product owner, 2026-09-29:** needs to be fixed.
 
@@ -405,6 +405,49 @@ The seed authors hit this often enough to write it down as a known trap in
 
 **Fix:** set the model to forbid extra fields and return a `422` naming the unknown
 key. This is a small change with a large effect on how debuggable the builder is.
+
+**Done (2026-09-29).** `extra="forbid"` on the models themselves would have been unsafe:
+the nested models (`LogicGate`, `Planning`, …) also validate **stored** entities on every
+read, and one stray key would have made the Entity Library a 500. Instead:
+
+- `schemas/strict_keys.py` — `unknown_keys(model, payload)` walks a raw payload through
+  nested models, lists and dicts of models, and returns the dotted path of every key the
+  model would drop.
+- `HierarchicalEntityCreateRequest` / `HierarchicalEntityUpdateRequest` run it before
+  validation and raise a 422: *Unknown configuration key(s), which would be ignored:
+  `logic_gate.retry_polcy`*. The entity and template create/update routes use them. The base
+  models stay lenient for the internal callers that validate stored or generated JSON (the
+  meta-agent tools, template cloning).
+- **What the runtime reads is declared first**, so the 422 cannot block a real setting:
+  `governance.critic_cost_share_pct` (0.20), `goal_validation_interval` (2),
+  `meta_review_interval` (3), `max_concurrent_children` (unset) and
+  `review_mechanism.critic_model_override` (unset). The defaults are the runtime's own
+  fallbacks, so entities that do not set them behave as before. This closes EP-11 and PC-16.
+- What the builder sends but nothing reads — `capabilities.tools[].usage`,
+  `governance.checkpoint_every_n_steps` — and a plan step's legacy `reasoning_mode` are
+  accepted by name (`extra_accepted_keys`), so the builder keeps working.
+- The one undeclared key in any seed, `governance.meta_review_enabled` (deep-research v2
+  director; nothing reads it), is removed from the seed. Its sibling `meta_review_interval`,
+  which the kernel does read and which was being silently dropped, now reaches the entity.
+
+**How the key list was found:** every seed payload (Autonomous BI, Document Factory via
+`enrich_payload`, DocFactoryLite, deep-research v2), the test fixtures, and two real save
+payloads captured from the running builder (intercepted in the browser, not sent) were
+run through `unknown_keys`; the backend was grepped for every key it reads from
+`governance` and `review_mechanism`.
+
+**Evidence:** `tests/unit/test_entity_strict_keys.py` — 12 cases: the builder's payload is
+accepted; six typos, nested down to `planning.static_plan.steps[1].target.tool`, are
+rejected with their path; a typo inside a HITL checkpoint; the declared knobs survive
+`model_dump`; their defaults equal the runtime fallbacks; a stored entity with a retired key
+still reads back; and the routes return 422 naming the key while a valid payload reaches the
+service. Live: an entity created and then edit-saved through the builder UI returned 200; a
+`PUT` with `meta_review_intreval` returned 422 naming it; `meta_review_interval: 5` was
+stored.
+
+Found while verifying:
+[FE-25](16-FRONTEND-DEFECTS.md#fe-25--saving-from-the-entity-builder-rewrites-config-it-does-not-show)
+— saving from the builder rewrites config it does not show.
 
 ---
 

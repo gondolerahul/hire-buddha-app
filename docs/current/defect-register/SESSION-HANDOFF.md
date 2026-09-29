@@ -312,7 +312,8 @@ run that is looping.
 - **`import cortex_memory` resolves to `backend/cortex_memory/`,** not the installed
   wheel, when run from `backend/`.
 - **Arq context:** `ctx['redis']` is already an `ArqRedis`; wrapping it again raises.
-- **Pydantic drops unknown keys** on entity config, silently — a mistyped setting is a
+- **Unknown entity-config keys are a 422 since PO-09** (API create/update only); before,
+  Pydantic dropped them silently — a mistyped setting was a
   no-op that returns `200 OK`.
 - **Shell quoting on Windows:** Python heredocs in Git Bash mangle `\n` escapes. Use the
   editor for escape-sensitive edits.

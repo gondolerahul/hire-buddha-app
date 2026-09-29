@@ -9,7 +9,7 @@ from __future__ import annotations
 import json as _json
 import logging
 import re as _re
-from typing import Any, List, Optional
+from typing import Any, ClassVar, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -91,6 +91,9 @@ class PlanStep(BaseModel):
     # reasoning mode (REACT / CHAIN_OF_THOUGHT). It supersedes the deprecated
     # entity-level ``reasoning_config.reasoning_mode``.
     reasoning_hint: Optional[str] = None
+
+    # Legacy per-step spelling, mapped onto reasoning_hint by the validator below.
+    extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"reasoning_mode"})
 
     @model_validator(mode="before")
     @classmethod

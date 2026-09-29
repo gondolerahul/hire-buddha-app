@@ -58,6 +58,9 @@ class ReviewMechanism(BaseModel):
     review_system_prompt: str = DEFAULT_REVIEW_SYSTEM_PROMPT  # Base review prompt (overridable)
     success_criteria: List[SuccessCriterion] = []
     on_failure: str = "RETRY"  # RETRY | ESCALATE | ABORT
+    # Model the critics use for this entity (critic_pipeline / supervisor_critic);
+    # None = the company default.
+    critic_model_override: Optional[str] = None
 
 
 class ContextPolicy(BaseModel):

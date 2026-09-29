@@ -576,7 +576,6 @@ def build_entities():
             "max_cost_usd": 4.00,
             "timeout_ms": 540000,
             "max_recursion_depth": 3,
-            "meta_review_enabled": True,
             "meta_review_interval": 3,
         },
         "observability": {"log_level": "INFO", "log_thoughts": True, "track_cost": True},

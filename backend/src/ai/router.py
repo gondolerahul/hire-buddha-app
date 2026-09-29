@@ -7,7 +7,7 @@ from src.common.database import get_db
 from src.auth.dependencies import get_current_user, get_current_user_from_query, RoleChecker
 from src.auth.models import User
 from src.ai.schemas import (
-    HierarchicalEntityCreate, HierarchicalEntityUpdate, HierarchicalEntityResponse, 
+    HierarchicalEntityCreateRequest, HierarchicalEntityUpdateRequest, HierarchicalEntityResponse,
     ExecutionRunCreate, ExecutionRunResponse, ExecutionRunSummary, EntityType,
     DocumentResponse, DocumentSearchResult, ExecutionRefineRequest, CSATRequest,
     DocumentDetail, DocumentUpdate, ApprovalDecision,
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/ai", tags=["AI Hierarchical Agent Platform"])
 # --- Entities ---
 @router.post("/entities", response_model=HierarchicalEntityResponse)
 async def create_entity(
-    entity_in: HierarchicalEntityCreate,
+    entity_in: HierarchicalEntityCreateRequest,
     target_company_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -122,7 +122,7 @@ async def get_entity(
 @router.put("/entities/{entity_id}", response_model=HierarchicalEntityResponse)
 async def update_entity(
     entity_id: UUID,
-    entity_in: HierarchicalEntityUpdate,
+    entity_in: HierarchicalEntityUpdateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -750,7 +750,7 @@ async def get_template(
 
 @router.post("/templates", response_model=HierarchicalEntityResponse)
 async def create_template(
-    entity_in: HierarchicalEntityCreate,
+    entity_in: HierarchicalEntityCreateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(app_admin_only)
 ):
@@ -762,7 +762,7 @@ async def create_template(
 @router.put("/templates/{template_id}", response_model=HierarchicalEntityResponse)
 async def update_template(
     template_id: UUID,
-    entity_in: HierarchicalEntityUpdate,
+    entity_in: HierarchicalEntityUpdateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(app_admin_only)
 ):

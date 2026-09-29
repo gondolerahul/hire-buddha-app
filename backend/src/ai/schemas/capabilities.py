@@ -6,7 +6,7 @@ meta-cognition toggles.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -48,6 +48,10 @@ class ToolDefinition(BaseModel):
 class ToolReference(BaseModel):
     """Simple tool reference (just tool_id)."""
     tool_id: str
+
+    # The entity builder sends a per-tool "usage" choice; nothing reads it, so
+    # it is accepted and not stored.
+    extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"usage"})
 
 
 class CortexMemoryConfig(BaseModel):

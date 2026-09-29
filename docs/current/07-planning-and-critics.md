@@ -2082,11 +2082,11 @@ them.
 
 | Path | Default | Declared? | Effect |
 |------|---------|-----------|--------|
-| `governance.critic_cost_share_pct` | `0.20` | **undeclared** | Critic spend ratio above which the pipeline goes DEGRADED. |
-| `governance.goal_validation_interval` | `2` | **undeclared** | Alignment cadence in the AgentLoop. Floored to 1. |
-| `governance.meta_review_interval` | `3` | **undeclared** | Supervisor cadence. Floored to 1. |
+| `governance.critic_cost_share_pct` | `0.20` | yes (since PO-09) | Critic spend ratio above which the pipeline goes DEGRADED. |
+| `governance.goal_validation_interval` | `2` | yes (since PO-09) | Alignment cadence in the AgentLoop. Floored to 1. |
+| `governance.meta_review_interval` | `3` | yes (since PO-09) | Supervisor cadence. Floored to 1. |
 | `governance.max_cost_usd` | `None` | yes | Feeds `Budget.usd_max` and the `cost_estimate_within_budget` invariant cap. |
-| `logic_gate.review_mechanism.critic_model_override` | `None` | **undeclared** | Forces a specific critic model for post_action and supervisor. |
+| `logic_gate.review_mechanism.critic_model_override` | `None` | yes (since PO-09) | Forces a specific critic model for post_action and supervisor. |
 | `prompts.model_override` | `None` | — | The `actor_model_hint` used to walk the critic ladder. |
 | `logic_gate.reasoning_config.goal_validation_interval` | `2` | yes | **Legacy step-engine only.** Does not affect the AgentLoop. |
 | `logic_gate.reasoning_config.confidence_threshold` | `0.85` | yes | GoalGuard `EARLY_EXIT` threshold (legacy path, unreachable in practice). |
@@ -2189,10 +2189,11 @@ them.
   default 2) and in `logic_gate.reasoning_config` (legacy engine, default 2 in the
   schema but read as 0/off from the raw dict). Only the governance one affects
   the loop.
-* **Every critic knob in `governance` is undeclared** — `critic_cost_share_pct`,
+* **The critic knobs are declared since 2026-09-29** (PO-09) — `critic_cost_share_pct`,
   `goal_validation_interval`, `meta_review_interval` and
-  `review_mechanism.critic_model_override` have no Pydantic field. Typos fail
-  silently to the default.
+  `review_mechanism.critic_model_override` can be set through the API, and a typo is a
+  422. The entity builder does not show them, and saving from it drops them back to the
+  default (FE-25).
 * **DEGRADED mode still runs the post critic**, despite the module docstring
   saying "minimal post".
 * **Alignment cost never reaches `run.total_cost_usd`** — `AlignmentVerdict` has

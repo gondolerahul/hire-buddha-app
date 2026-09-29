@@ -423,13 +423,14 @@ gets its own perceive-strategize-act-critique cycle. Deep hierarchies pay for
 themselves only when the sub-parts are genuinely reusable or genuinely need
 independent budgets.
 
-The same file also documents four real schema traps that a seed author hit:
+The same file also documents four schema traps that a seed author hit. Two are now
+caught by the API (PO-09, 2026-09-29):
 
 | Trap | Reality |
 |------|---------|
-| Entity create is a **closed** Pydantic model | Unknown keys are silently dropped — a typo'd config key just vanishes |
-| System prompt goes under `identity` | Not under `prompts` |
-| `review_mechanism.critic_model_override` | Read by the kernel, **not** a declared schema field, so it cannot be set from a seed payload |
+| Unknown keys | A key the schema does not declare is a **422** naming its path. (It used to be silently dropped — a typo'd config key just vanished.) |
+| System prompt goes under `identity` | Not under `prompts` — a top-level `prompts` key is now a 422 |
+| `review_mechanism.critic_model_override` | Read by the kernel, and declared since PO-09, so it can be set from a seed payload |
 | `context_policy.type` | Must be one of `FULL`, `LAST_N`, `SLIDING_WINDOW`, `EXPLICIT` |
 
 ---
@@ -1851,8 +1852,10 @@ Honest boundaries, all verifiable by grep.
   `WHERE company_id = ...` itself. See
   [04 — Auth, RBAC and tenancy §15](04-auth-rbac-tenancy.md) for the places where
   the filter is currently missing.
-- **Entity create is a closed Pydantic model.** Unknown keys are silently
-  dropped, so a mistyped config key produces no error and no effect.
+- **The entity builder saves the whole config from its own state.** Keys it does not
+  show — set through the API or a seed — fall back to their defaults when an entity is
+  saved from the builder, and a static plan's tool steps lose their prompt templates
+  (FE-25).
 - **Templates have `company_id = NULL`.** That is what makes them global — which
   also means a template is outside the normal tenant scoping.
 - **`/onboarding` is not enforced.** Nothing redirects an un-onboarded user into

@@ -274,7 +274,11 @@ its next step. There is no way to pin a run to the definition it started with.
 
 ### EP-11 — Several settings the runtime reads cannot be authored through the API
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-09`)** — with PO-09:
+`critic_cost_share_pct`, `max_concurrent_children` and `critic_model_override` are declared
+(with `goal_validation_interval` and `meta_review_interval`). `capabilities.tools[].usage`
+turned out to have **no reader** in the backend — the builder sends it and nothing uses it —
+so it is accepted and not stored rather than declared.
 
 The entity create/update schema is a **closed** Pydantic model — unknown keys are dropped
 without an error. Four keys the runtime *does* read are not declared fields, so they can
