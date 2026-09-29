@@ -34,7 +34,7 @@ something that works but costs more than it should.
 
 | # | Register | Source document | Defects | Improvements |
 |---|---|---|---:|---:|
-| 01 | [Product & functional overview](01-PRODUCT-OVERVIEW-DEFECTS.md) | [01](../01-product-overview.md) | 22 (14 open, 7 deferred, 1 won't fix) | 12 (deferred) |
+| 01 | [Product & functional overview](01-PRODUCT-OVERVIEW-DEFECTS.md) | [01](../01-product-overview.md) | 22 (8 open, 7 fixed, 6 deferred, 1 won't fix) | 12 (deferred) |
 | 02 | [System architecture & topology](02-SYSTEM-ARCHITECTURE-DEFECTS.md) | [02](../02-system-architecture.md) | 21 | 10 |
 | 03 | [Database & data model](03-DATA-MODEL-DEFECTS.md) | [03](../03-data-model.md) | 20 | 10 |
 | 04 | [Auth, RBAC & multi-tenancy](04-AUTH-RBAC-TENANCY-DEFECTS.md) | [04](../04-auth-rbac-tenancy.md) | 22 | 10 |

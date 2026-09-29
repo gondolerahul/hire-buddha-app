@@ -44,14 +44,14 @@ cross-referenced here.
 
 ## 1. Summary
 
-| Tier | Theme | Count | Open | Deferred | Won't fix |
-|---|---|---|---|---|---|
-| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 4 | 1 | 0 |
-| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 4 | 1 | 1 |
-| [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 6 | 0 | 0 |
-| [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 5 | 0 |
+| Tier | Theme | Count | Open | Fixed | Deferred | Won't fix |
+|---|---|---|---|---|---|---|
+| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 4 | 0 | 1 | 0 |
+| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 4 | 0 | 1 | 1 |
+| [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
+| [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 22 defects (14 open, 7 deferred, 1 won't fix), 12 improvements (all deferred).**
+**Total: 22 defects (8 open, 7 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
 
 | ID | Defect | Status |
 |---|---|---|
@@ -66,13 +66,13 @@ cross-referenced here.
 | PO-09 | A mistyped config key in the entity builder disappears silently | open |
 | PO-10 | A broken import turns a whole feature area into 404s | open |
 | PO-11 | Templates sit outside tenant scoping by design | won't fix |
-| PO-12 | `voice/phone_pool_router.py` | ✅ fixed `@PO-12` |
-| PO-13 | `pages/assets/AssetLibrary.tsx` | ✅ fixed `@PO-13` |
-| PO-14 | Mock `send_whatsapp_message()` | ✅ fixed `@PO-14` |
-| PO-15 | Unconsumed `approval:{id}` publish | ✅ fixed `@PO-15` |
-| PO-16 | The phase11 redirect shims | ✅ fixed `@PO-16` |
-| PO-17 | The deprecated `video_generation` tool | ✅ fixed `@PO-17` |
-| PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `@PO-15` (by PO-15) |
+| PO-12 | `voice/phone_pool_router.py` | ✅ fixed `964c9ab` |
+| PO-13 | `pages/assets/AssetLibrary.tsx` | ✅ fixed `9719f1b` |
+| PO-14 | Mock `send_whatsapp_message()` | ✅ fixed `2e8410b` |
+| PO-15 | Unconsumed `approval:{id}` publish | ✅ fixed `ba5e6ec` |
+| PO-16 | The phase11 redirect shims | ✅ fixed `6d90428` |
+| PO-17 | The deprecated `video_generation` tool | ✅ fixed `a8fb38e` |
+| PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `ba5e6ec` (by PO-15) |
 | PO-19 – PO-22 | Rough edges | ⏸ deferred |
 | PO-I1 – PO-I12 | Improvements | ⏸ deferred |
 
@@ -352,12 +352,12 @@ Free to remove. Nothing here can break anything that is not already broken.
 
 | ID | Delete | Why | Status |
 |---|---|---|---|
-| **PO-12** | `voice/phone_pool_router.py` | 701 lines, not mounted anywhere. The only surviving reference is a sentence in the replacement's docstring. Also recorded as D-22 in the platform register | ✅ fixed (2026-09-29, `@PO-12`) — deleted; the replacement's docstring no longer mentions it |
-| **PO-13** | `frontend/src/pages/assets/AssetLibrary.tsx` | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx` | ✅ fixed (2026-09-29, `@PO-13`) — deleted with its CSS and `services/asset.service.ts`, which only it used |
-| **PO-14** | `send_whatsapp_message()` in `voice/whatsapp_handler.py` | Body is a `[MOCK]` log line with the real SDK call commented out. Nothing imports it, but it is easy to grab by mistake | ✅ fixed (2026-09-29, `@PO-14`) — confirmed unimported, deleted |
-| **PO-15** | The `approval:{id}` Redis publish in `AIService.respond_to_approval` | Nothing subscribes to it. The live channel is `hitl:{id}`, published by the router at [`ai/router.py:456`](../../../backend/src/ai/router.py:456) and consumed at [`governance_service.py:345`](../../../backend/src/ai/governance/governance_service.py:345) | ✅ fixed (2026-09-29, `@PO-15`) — the publish and its misleading comment are gone; this also removes one of SA-04's five `RedisSettings()` call sites |
-| **PO-16** | The `/api/v1/ai/phase11/*` and `/admin/phase11/*` redirect shims | Both carry an explicit *"Remove after 2026-09-01"* comment. That date is today | ✅ fixed (2026-09-29, `@PO-16`) — the backend 307 shim and the five SPA redirects are deleted; no frontend code called the old paths |
-| **PO-17** | The `video_generation` deprecated tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ fixed (2026-09-29, `@PO-17`) — no entity referenced it; unregistered and deleted, with its entries in the three cost tables and the category map. 97 tools are now registered |
+| **PO-12** | `voice/phone_pool_router.py` | 701 lines, not mounted anywhere. The only surviving reference is a sentence in the replacement's docstring. Also recorded as D-22 in the platform register | ✅ fixed (2026-09-29, `964c9ab`) — deleted; the replacement's docstring no longer mentions it |
+| **PO-13** | `frontend/src/pages/assets/AssetLibrary.tsx` | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx` | ✅ fixed (2026-09-29, `9719f1b`) — deleted with its CSS and `services/asset.service.ts`, which only it used |
+| **PO-14** | `send_whatsapp_message()` in `voice/whatsapp_handler.py` | Body is a `[MOCK]` log line with the real SDK call commented out. Nothing imports it, but it is easy to grab by mistake | ✅ fixed (2026-09-29, `2e8410b`) — confirmed unimported, deleted |
+| **PO-15** | The `approval:{id}` Redis publish in `AIService.respond_to_approval` | Nothing subscribes to it. The live channel is `hitl:{id}`, published by the router at [`ai/router.py:456`](../../../backend/src/ai/router.py:456) and consumed at [`governance_service.py:345`](../../../backend/src/ai/governance/governance_service.py:345) | ✅ fixed (2026-09-29, `ba5e6ec`) — the publish and its misleading comment are gone; this also removes one of SA-04's five `RedisSettings()` call sites |
+| **PO-16** | The `/api/v1/ai/phase11/*` and `/admin/phase11/*` redirect shims | Both carry an explicit *"Remove after 2026-09-01"* comment. That date is today | ✅ fixed (2026-09-29, `6d90428`) — the backend 307 shim and the five SPA redirects are deleted; no frontend code called the old paths |
+| **PO-17** | The `video_generation` deprecated tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ fixed (2026-09-29, `a8fb38e`) — no entity referenced it; unregistered and deleted, with its entries in the three cost tables and the category map. 97 tools are now registered |
 
 > Before deleting, confirm nothing still imports it:
 > `grep -rn "<module_name>" backend/src frontend/src --include=*.py --include=*.ts --include=*.tsx`
@@ -370,7 +370,7 @@ Free to remove. Nothing here can break anything that is not already broken.
 
 ### PO-18 — Two Redis channels look like the HITL channel
 
-**✅ Verified · Low** · **Status: fixed (2026-09-29, `@PO-15`)** — closed by the PO-15
+**✅ Verified · Low** · **Status: fixed (2026-09-29, `ba5e6ec`)** — closed by the PO-15
 deletion, which removed both the dead publish and its misleading comment. Only `hitl:{id}`
 remains.
 
