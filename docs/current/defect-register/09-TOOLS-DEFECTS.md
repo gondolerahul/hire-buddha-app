@@ -44,8 +44,13 @@ Labels are the same: **✅ Verified** means the code was read on 2026-09-01.
 | Source | Count |
 |---|---|
 | [`TOOL-LAYER-DEFECTS.md`](TOOL-LAYER-DEFECTS.md) — the deep pass | **49 defects**, all verified |
+| [`PO-06-TOOL-STACK-AUDIT.md`](PO-06-TOOL-STACK-AUDIT.md) — the PO-06 audit | **18 defects** (TL-50…TL-67) + the fix list |
 | This file — additions at doc-09 scope | **6 defects** |
 | This file — efficiency improvements | **10** |
+
+> The **PO-06 audit** (2026-09-29) re-verified the deep pass and TX-01…TX-06 against the
+> current code and added 18 findings. Open it for the full inventory, the re-verification
+> notes, and the prioritised "what needs fixing" list.
 
 The four root faults from the deep register still hold and are the right frame for all
 55 defects:

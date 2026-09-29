@@ -65,6 +65,14 @@ sandbox runtime, and the meta/synthesis pipeline. **49 defects**, all verified.
 | [T3](#5-t3--correctness-and-robustness) | Correctness and robustness | 12 | Needs design; does not block launch |
 | [T4](#6-t4--integrations-that-report-false-success) | Integrations that report false success | 7 | Before promoting any social tool |
 
+> **Re-verified and extended 2026-09-29 by the PO-06 audit.** All 49 entries below still
+> hold; the only wording drift is noted there (TL-29 is cross-module not within-file;
+> TX-01's "never threaded" clause is out of date though its outcome stands; the counts are
+> 97 tools / 68 experimental / 29 active after PO-17). **TL-50 … TL-67** are 18 further
+> tool-layer defects; their full entries live in
+> [`PO-06-TOOL-STACK-AUDIT.md`](PO-06-TOOL-STACK-AUDIT.md) §3, which also carries the
+> prioritised fix list. Reserve those ids here.
+
 Three items are worth reading before anything else:
 
 - **[TL-01](#tl-01--the-default-sandbox-runs-llm-authored-code-as-the-backend-os-user)** —

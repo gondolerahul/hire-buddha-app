@@ -47,11 +47,11 @@ cross-referenced here.
 | Tier | Theme | Count | Open | Fixed | Deferred | Won't fix |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 0 | 4 | 1 | 0 |
-| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 2 | 2 | 1 | 1 |
+| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 1 | 3 | 1 | 1 |
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 22 defects (2 open, 13 fixed, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).**
+**Total: 22 defects (1 open, 14 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The one open defect is PO-07 (social connections); PO-06 delivered its audit.
 
 | ID | Defect | Status |
 |---|---|---|
@@ -60,7 +60,7 @@ cross-referenced here.
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
 | PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `682da36` |
 | PO-05 | A reviewer approves without seeing what they are approving | ✅ fixed `ad74c46` |
-| PO-06 | 64 of the 98 tools are unfinished integrations | open — audit |
+| PO-06 | 64 of the 98 tools are unfinished integrations | ✅ audit delivered `@PO-06` |
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
 | PO-09 | A mistyped config key in the entity builder disappears silently | ✅ fixed `3fadd76` |
@@ -316,10 +316,19 @@ proceeds),
 
 ### PO-06 — 64 of the 98 tools are unfinished integrations
 
-**✅ Verified · High** · **Status: open — audit**
+**✅ Verified · High** · **Status: audit delivered (2026-09-29, `@PO-06`)**
 
 > **Product owner, 2026-09-29:** audit the entire tools stack and list what needs to be
 > fixed. The deliverable is the audit, not a code change.
+
+**Delivered:** [`PO-06-TOOL-STACK-AUDIT.md`](PO-06-TOOL-STACK-AUDIT.md) — re-verifies the
+55 existing tool-layer entries against the current code, adds **18** new defects
+(TL-50…TL-67), and ends with a prioritised fix list. Headline corrections to the numbers
+below: after PO-17 there are **97** registered tools, not 98; by status **29 are
+`ACTIVE`** and 68 `EXPERIMENTAL` (the 64 social + the 3 video tools + `tool_synthesis`).
+The biggest new finding is that execution is **not** restricted to an entity's granted
+tools (TL-50). No code was changed for PO-06; the fixes are scheduled through the tool-layer
+register.
 
 `tools/__init__.py` makes exactly 98 `ToolRegistry.register(...)` calls. 64 of those
 are social-platform tools — 16 modules × 4 tools each. All of them inherit
@@ -734,9 +743,10 @@ Agreed at the 2026-09-29 review. Each item is committed on its own.
 | **2** | PO-04, PO-02, PO-05 | Small, self-contained, directly visible |
 | **3** | PO-01 | Knowledge-base CRUD on CORTEX Knowledge Trees |
 | **4** | PO-09, PO-10 | Make builder typos and broken router imports loud |
-| **5** | PO-06 audit, then PO-07 | The audit decides which platforms the connection module must support |
+| **5** | ~~PO-06 audit~~ (delivered), then PO-07 | The audit decides which platforms the connection module must support — see its Tier 3 |
 
 Deferred: PO-03, PO-08, PO-18 to PO-22, and every improvement. Won't fix: PO-11.
+Open: PO-07 (the last defect in this register), informed by the PO-06 audit's Tier 3.
 
 ---
 
