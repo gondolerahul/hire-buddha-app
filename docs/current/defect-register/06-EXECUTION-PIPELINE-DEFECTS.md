@@ -274,7 +274,7 @@ its next step. There is no way to pin a run to the definition it started with.
 
 ### EP-11 — Several settings the runtime reads cannot be authored through the API
 
-**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-09`)** — with PO-09:
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `3fadd76`)** — with PO-09:
 `critic_cost_share_pct`, `max_concurrent_children` and `critic_model_override` are declared
 (with `goal_validation_interval` and `meta_review_interval`). `capabilities.tools[].usage`
 turned out to have **no reader** in the backend — the builder sends it and nothing uses it —

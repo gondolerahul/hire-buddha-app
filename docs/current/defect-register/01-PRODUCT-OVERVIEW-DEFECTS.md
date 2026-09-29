@@ -63,7 +63,7 @@ cross-referenced here.
 | PO-06 | 64 of the 98 tools are unfinished integrations | open — audit |
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
-| PO-09 | A mistyped config key in the entity builder disappears silently | ✅ fixed `@PO-09` |
+| PO-09 | A mistyped config key in the entity builder disappears silently | ✅ fixed `3fadd76` |
 | PO-10 | A broken import turns a whole feature area into 404s | open |
 | PO-11 | Templates sit outside tenant scoping by design | won't fix |
 | PO-12 | `voice/phone_pool_router.py` | ✅ fixed `964c9ab` |
@@ -389,7 +389,7 @@ that is silently ignored at run time.
 
 ### PO-09 — A mistyped config key in the entity builder disappears silently
 
-**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-09`)**
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `3fadd76`)**
 
 > **Product owner, 2026-09-29:** needs to be fixed.
 
