@@ -33,6 +33,7 @@ __all__ = [
     "cost_estimate_within_budget",
     "no_orphaned_outputs",
     "child_invocations_have_entity_id",
+    "child_invocations_target_known_children",
     "prompt_templates_are_strings",
     "authored_steps_covered",
 ]
@@ -54,8 +55,13 @@ def validate_plan(
     plan: list[dict[str, Any]],
     entity: Any,
     budget: Any = None,
+    known_child_ids: Optional[set[str]] = None,
 ) -> list[Invariant]:
-    """Run every invariant. Returns a list (order matches the spec)."""
+    """Run every invariant. Returns a list (order matches the spec).
+
+    ``known_child_ids`` is the set of entity ids a child invocation may target;
+    ``None`` means the roster is unknown and that check passes.
+    """
     return [
         no_cycle_in_child_invocations(plan, entity),
         all_required_tools_in_capabilities(plan, entity),
@@ -65,6 +71,7 @@ def validate_plan(
         no_orphaned_outputs(plan),
         child_invocations_have_entity_id(plan, entity),
         prompt_templates_are_strings(plan),
+        child_invocations_target_known_children(plan, known_child_ids),
     ]
 
 
@@ -245,6 +252,31 @@ def child_invocations_have_entity_id(
         "child_invocations_have_entity_id",
         passed=not missing,
         detail=("missing entity_id: " + ",".join(missing[:5])) if missing else None,
+    )
+
+
+def child_invocations_target_known_children(
+    plan: list[dict[str, Any]], known_child_ids: Optional[set[str]],
+) -> Invariant:
+    """A CHILD_ENTITY_INVOCATION's ``entity_id`` must be a real child.
+
+    Without a roster the planner LLM invents ids such as ``child_1234``,
+    which only fail later at dispatch (PC-24). Steps carrying only an
+    ``entity_name_hint`` are left to downstream resolution.
+    """
+    if known_child_ids is None:
+        return Invariant("child_invocations_target_known_children", passed=True)
+    unknown: list[str] = []
+    for s in plan:
+        if str(s.get("type", "")).upper() != "CHILD_ENTITY_INVOCATION":
+            continue
+        eid = (s.get("target") or {}).get("entity_id")
+        if eid and str(eid) not in known_child_ids:
+            unknown.append(f"{s.get('name') or s.get('step_id') or '?'}={eid}")
+    return Invariant(
+        "child_invocations_target_known_children",
+        passed=not unknown,
+        detail=("unknown child ids: " + ",".join(unknown[:5])) if unknown else None,
     )
 
 

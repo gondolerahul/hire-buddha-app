@@ -40,9 +40,9 @@
 | [T0](#2-t0--paying-for-criticism-that-is-discarded) | Paying for criticism that is discarded | 5 | Now — this is money per run |
 | [T1](#3-t1--self-correction-that-does-not-correct) | Self-correction that does not correct | 5 | Before claiming the platform self-corrects |
 | [T2](#4-t2--built-and-never-wired) | Built and never wired | 5 | Each is a decision: wire it or delete it |
-| [T3](#5-t3--planning-correctness) | Planning correctness | 9 | When the area is next touched |
+| [T3](#5-t3--planning-correctness) | Planning correctness | 10 | When the area is next touched |
 
-**Total: 24 defects, 10 improvements.**
+**Total: 25 defects, 10 improvements.**
 
 The three to read first:
 
@@ -424,8 +424,9 @@ no research, for a separate reason: every answer was truncated by thinking token
 
 ### PC-24 — The dynamic planner is never told which children exist
 
-**✅ Verified · High** · **Status: open** — found 2026-09-29 once LP-25 let the
-deep-research director's plans come back complete.
+**✅ Verified · High** · **Status: fixed (2026-09-29)** — found 2026-09-29 once LP-25 let
+the deep-research director's plans come back complete. See the fix at the end of this
+entry.
 
 `_PLAN_SYSTEM` tells the model that `target.entity_id` "must be the EXACT child UUID from
 the provided child roster". `PlanGenerator._build_prompt` never provides one: it sends
@@ -446,11 +447,46 @@ and [PO-I4](01-PRODUCT-OVERVIEW-DEFECTS.md#po-i4--make-the-template-clone-report
 - [`ai/planning/plan_generator.py`](../../../backend/src/ai/planning/plan_generator.py) — `_build_prompt`, no roster section
 - [`ai/meta/platform_schema_compiler.py:718`](../../../backend/src/ai/meta/platform_schema_compiler.py:718) — `load_entity_children` reads only `hierarchy.children`
 
-**Fix:** give `PlanContext` the child roster (id, name, role) and render it in
-`_build_prompt`. Make `load_entity_children` the single source that unions `parent_id`
-children with `hierarchy.children`. Add a plan invariant that rejects a
-`CHILD_ENTITY_INVOCATION` whose `entity_id` is not a real child, so an invented id fails
-at planning, not at dispatch.
+**Fix:**
+
+- `load_entity_children` counts a child linked through `hierarchy.children` **or** its own
+  `parent_id`, and excludes archived and deleted children. Router enforcement and the
+  roster share it, so a `parent_id`-only seed is now enforced too.
+- `PlannerService._child_roster` renders the roster with the existing, previously
+  uncalled `describe_entity_children`. It passes the roster and the known child ids —
+  live children plus any child the static plan already targets — in `PlanContext`.
+  `_build_prompt` adds the roster after the goal.
+- New invariant `child_invocations_target_known_children` rejects a candidate that
+  invokes an unknown `entity_id`. A step carrying only an `entity_name_hint` is left to
+  downstream resolution. When the roster could not be loaded the check is skipped.
+
+Live: the same director's plan targeted the real research-gatherer, research-analyst and
+report-writer ids, in that order, and the run delegated to them.
+
+---
+
+### PC-25 — The dynamic planner never sees the user's request
+
+**✅ Verified · High** · **Status: open** — found 2026-09-29 on a live deep-research run.
+
+`PlanContext` carries `input_data`, but `PlanGenerator._build_prompt` never renders it.
+The `## Goal` section is `ctx.goal`, which `PlannerService` fills with the **entity's**
+standing goal. So every dynamic plan is made without knowing what this run was asked to
+do.
+
+Live: asked for "a short research brief on how long-term memory is designed in LLM agent
+frameworks", the research director's plan passed the gatherer
+`{"research_topic": "Produce a world-class, McKinsey-caliber research report by
+orchestrating …"}` — its own goal, not the question. The children only got the question
+because the loop forwards the run's `input` separately (and then lost it again, see
+[EP-25](06-EXECUTION-PIPELINE-DEFECTS.md#ep-25--a-step-whose-template-omits-input-never-sees-the-task)).
+
+- [`ai/planning/plan_generator.py`](../../../backend/src/ai/planning/plan_generator.py) — `_build_prompt`
+- [`ai/planning/planner_service.py`](../../../backend/src/ai/planning/planner_service.py) — `_generate_dynamic_plan_v2` sets `goal=entity.goal`
+
+**Fix:** render the run's request (`input_data["input"]`, internal keys stripped) as a
+`## Request` section, and tell the model to pass it to child steps. The PlanJudge prompt
+has the same gap.
 
 ---
 

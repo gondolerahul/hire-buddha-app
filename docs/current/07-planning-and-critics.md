@@ -41,7 +41,7 @@ two places:
 
 * the **static plan** the tenant authored in the builder, or
 * the **`PlanGenerator`** — which asks an LLM for *three* candidate plans at
-  three different temperatures, runs eight deterministic **invariant** checks on
+  three different temperatures, runs nine deterministic **invariant** checks on
   each, throws away the ones that fail, and picks a winner with an LLM
   **judge**.
 
@@ -300,7 +300,7 @@ sequenceDiagram
     PG->>PG: _authored_candidate - static plan competes, source authored
     loop each candidate
         PG->>INV: validate_plan - steps, entity, budget
-        INV-->>PG: 8 Invariant records
+        INV-->>PG: 9 Invariant records
     end
     alt none survive
         PG->>PG: _repair - wrap static plan as candidate, retry invariants
@@ -364,6 +364,7 @@ The user prompt is assembled section-by-section by `_build_prompt`:
 | Section | Present when | Content |
 |---------|-------------|---------|
 | `## Goal` | always | `ctx.goal`, else `entity.goal` |
+| `## Available Child Entities` | the entity has live children | `ctx.child_roster`, rendered by `describe_entity_children`: each child's name, type, exact `entity_id`, role, goal and tools. `PlannerService._child_roster` builds it on the reconcile path (PC-24) |
 | `## Proposed subgoals (replan)` | supervisor proposed subgoals | one bullet per subgoal description |
 | `## Previous attempt` | `ctx.failed_step` set | failed step name + first 200 chars of the error |
 | `## Intelligence rules` | `ctx.intelligence_rules` non-empty | top 5, rendered to 200 chars each |
@@ -780,12 +781,12 @@ bandit silently falls back to a per-process in-memory dict
 ## 6. Plan invariants
 
 [plan_invariants.py](../../backend/src/ai/planning/plan_invariants.py) is the
-deterministic half of planning: eight pure functions, no DB, no LLM, each
+deterministic half of planning: nine pure functions, no DB, no LLM, each
 returning an `Invariant(name, passed, detail)`.
 
 ```mermaid
 flowchart LR
-    C["Candidate plan"] --> V["validate_plan - steps, entity, budget"]
+    C["Candidate plan"] --> V["validate_plan - steps, entity, budget, known_child_ids"]
     V --> I1["no_cycle_in_child_invocations"]
     V --> I2["all_required_tools_in_capabilities"]
     V --> I3["no_dangling_variable_refs"]
@@ -794,12 +795,13 @@ flowchart LR
     V --> I6["no_orphaned_outputs"]
     V --> I7["child_invocations_have_entity_id"]
     V --> I8["prompt_templates_are_strings"]
-    I1 & I2 & I3 & I4 & I5 & I6 & I7 & I8 --> R{"all passed?"}
+    V --> I9["child_invocations_target_known_children"]
+    I1 & I2 & I3 & I4 & I5 & I6 & I7 & I8 & I9 --> R{"all passed?"}
     R -->|yes| KEEP["kept - eligible for the judge"]
     R -->|no| DROP["dropped - emit agent.plan.invariant_violation"]
 ```
 
-### 6.1 The eight invariants
+### 6.1 The nine invariants
 
 | # | Name | What it checks | Consequence of violating |
 |---|------|----------------|--------------------------|
@@ -811,6 +813,7 @@ flowchart LR
 | 6 | `no_orphaned_outputs` | Any non-final step declaring an `output_slot` must have that slot (or the step's id) referenced downstream. | Candidate dropped. Pure heuristic; the final step is exempt and a missing `output_slot` is fine. |
 | 7 | `child_invocations_have_entity_id` | Every `CHILD_ENTITY_INVOCATION` has `target.entity_id` **or** `target.entity_name_hint`. | Candidate dropped. `child_resolver` can rescue a name hint; it cannot rescue nothing. |
 | 8 | `prompt_templates_are_strings` | `target.prompt_template` is `None` or a `str`. | Candidate dropped. Backstop for LLMs emitting objects, even though `PlanStepTarget` coerces them. |
+| 9 | `child_invocations_target_known_children` | Every `CHILD_ENTITY_INVOCATION` with a `target.entity_id` targets a known child: a live child of the entity (`parent_id` or `hierarchy.children`) or a child the static plan already targets. Name-hint-only steps pass. Skipped when `known_child_ids` is `None` (roster unknown, e.g. `adapt_plan`). | Candidate dropped. Stops invented ids like `child_1234` from reaching dispatch (PC-24). |
 
 Plus one invariant that is **not** in the default suite:
 
@@ -2131,7 +2134,7 @@ them.
 | [planning/planner_service.py](../../backend/src/ai/planning/planner_service.py) | 571 | `reconcile`, `adapt_plan`, `validate_goal_progress`, router enforcement, step-id assignment, planner usage logging. |
 | [planning/plan_generator.py](../../backend/src/ai/planning/plan_generator.py) | 555 | Multi-candidate generation, `PlanContext`/`PlanCandidate`/`PlanCandidates`, invariant filter, repair, binding enforcement, judge selection, `classify_plan_style`. |
 | [planning/plan_style_bandit.py](../../backend/src/ai/planning/plan_style_bandit.py) | 351 | ε-greedy bandit, `PlanStyleArm`, `ArmState`, `BanditTable`, IntelligenceTree persistence. |
-| [planning/plan_invariants.py](../../backend/src/ai/planning/plan_invariants.py) | 338 | Eight pure invariants + `authored_steps_covered` + `validate_plan`. |
+| [planning/plan_invariants.py](../../backend/src/ai/planning/plan_invariants.py) | 370 | Nine pure invariants + `authored_steps_covered` + `validate_plan`. |
 | [planning/supervisor_critic.py](../../backend/src/ai/planning/supervisor_critic.py) | 310 | `SupervisorCritic.assess`, fast paths, prompt builder, verdict parser. |
 | [planning/critic_calibration.py](../../backend/src/ai/planning/critic_calibration.py) | 248 | Weekly false-pass / false-fail rate job writing IntelligenceTree rules. |
 | [planning/child_resolver.py](../../backend/src/ai/planning/child_resolver.py) | 218 | Four-strategy `CHILD_ENTITY_INVOCATION.entity_id` resolution. |
@@ -2206,7 +2209,8 @@ them.
   without `emit_event`, so no `agent.plan.*` event ever fires.
 * **`PlanGenerator.replan` has no caller.** Re-planning goes through
   `PlannerService.adapt_plan`, which passes `entity=None` and therefore disables
-  three of the eight invariants and skips billing the replan tokens.
+  four of the nine invariants (it passes no child roster either) and skips billing the
+  replan tokens.
 * **REPLAN clears `completed_step_ids`.** Guarded for static-plan entities only;
   a dynamic entity really does restart its plan from scratch.
 * **`__completed_steps__` is documented but dead** — nothing writes or reads it

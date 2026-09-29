@@ -720,41 +720,32 @@ async def load_entity_children(
     entity_id: UUID,
     company_id: UUID,
 ) -> List[Any]:
-    """Load the live child ORM rows referenced by an entity's hierarchy.
-
-    Single source of truth for "what children does this entity have" — used
-    both by :func:`describe_entity_children` (for the planner prompt) and by
-    :class:`PlannerService` when it needs to synthesise CHILD_ENTITY_INVOCATION
-    steps for a routing PROCESS/AGENT whose dynamic plan failed to delegate.
-    Returns ``[]`` when the entity is missing or has no resolvable children.
+    """Load an entity's live children — the single source of truth for both
+    the planner roster (:func:`describe_entity_children`) and PlannerService's
+    router enforcement. A child counts if it is linked through
+    ``hierarchy.children`` *or* its own ``parent_id``; seeds use either (PC-24).
+    Archived/deleted children are excluded; hierarchy order comes first.
     """
-    from src.ai.models import HierarchicalEntity
+    from sqlalchemy import or_
 
-    result = await db.execute(
-        select(HierarchicalEntity).where(
-            HierarchicalEntity.id == entity_id,
-            HierarchicalEntity.company_id == company_id,
-        )
-    )
-    entity = result.scalar_one_or_none()
+    from src.ai.models import HierarchicalEntity as HE
+
+    entity = (await db.execute(
+        select(HE).where(HE.id == entity_id, HE.company_id == company_id)
+    )).scalar_one_or_none()
     if not entity:
         return []
-
-    hierarchy = entity.hierarchy or {}
-    children_refs = hierarchy.get("children", [])
-    child_ids = [c.get("child_id") for c in children_refs if c.get("child_id")]
-    if not child_ids:
-        return []
-
-    children_result = await db.execute(
-        select(HierarchicalEntity).where(
-            HierarchicalEntity.company_id == company_id,
-            HierarchicalEntity.id.in_(
-                [UUID(cid) if isinstance(cid, str) else cid for cid in child_ids]
-            ),
-        )
-    )
-    return list(children_result.scalars().all())
+    refs = (entity.hierarchy or {}).get("children") or []
+    ids = [UUID(str(r["child_id"])) for r in refs if isinstance(r, dict) and r.get("child_id")]
+    children = (await db.execute(
+        select(HE).where(
+            HE.company_id == company_id, HE.id != entity_id,
+            HE.status.notin_(("ARCHIVED", "DELETED")),
+            or_(HE.parent_id == entity_id, HE.id.in_(ids)),
+        ).order_by(HE.name)
+    )).scalars().all()
+    rank = {cid: i for i, cid in enumerate(ids)}
+    return sorted(children, key=lambda c: rank.get(c.id, len(rank)))
 
 
 async def describe_entity_children(
@@ -765,8 +756,8 @@ async def describe_entity_children(
 ) -> str:
     """Describe an entity's children for injection into the dynamic planner.
 
-    Returns a markdown summary of all child entities referenced in the
-    entity's hierarchy.children[]. Used by PlannerService to give the
+    Returns a markdown summary of the entity's live children (see
+    :func:`load_entity_children`). Used by PlannerService to give the
     dynamic planner awareness of available child agents. Pass ``children``
     to reuse an already-loaded list (e.g. from :func:`load_entity_children`)
     and skip the extra DB round-trip.

@@ -337,3 +337,31 @@ async def test_candidates_call_llm_concurrently_but_log_usage_one_at_a_time() ->
     assert [c.rationale for c in cands] == ["temp=0.2", "temp=0.5", "temp=0.8"]
     assert [s["step_id"] for s in cands[1].steps] == ["fallback"]  # failed → static
     assert [s["step_id"] for s in cands[0].steps] == ["s1"]
+
+
+# ---------------------------------------------------------------------------
+# PC-24 — the child roster reaches the prompt and invented ids are rejected
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_includes_child_roster() -> None:
+    gen = PlanGenerator(llm_router=_llm_router([]))
+    ctx = PlanContext(entity=_entity(), goal="research",
+                      child_roster="## Available Child Entities\n- gatherer `abc`")
+    prompt = gen._build_prompt(ctx, temperature=0.2)
+    assert "## Available Child Entities" in prompt
+    assert "`abc`" in prompt
+
+
+@pytest.mark.asyncio
+async def test_candidate_with_invented_child_id_is_rejected() -> None:
+    def plan(child_id: str) -> str:
+        return json.dumps({"steps": [{"step_id": "s1", "type": "CHILD_ENTITY_INVOCATION",
+                                      "name": "gather", "target": {"entity_id": child_id}}]})
+
+    llm = _llm_router([plan("child_1234"), plan("abc")])
+    gen = PlanGenerator(llm_router=llm)
+    ctx = PlanContext(entity=_entity(), goal="research", known_child_ids={"abc"})
+    result = await gen.generate(ctx, n=2)
+    assert result.chosen.steps[0]["target"]["entity_id"] == "abc"
+    assert result.alternates == []  # the invented-id candidate was dropped

@@ -54,6 +54,11 @@ class PlanContext:
     goal: str = ""
     proposed_subgoals: list[Any] = field(default_factory=list)
     failed_step: Optional[dict[str, Any]] = None
+    # Rendered "Available Child Entities" block, and the ids a
+    # CHILD_ENTITY_INVOCATION may target (None = roster unknown). Without
+    # them the LLM invents child ids (PC-24).
+    child_roster: str = ""
+    known_child_ids: Optional[set[str]] = None
 
 
 @dataclass
@@ -296,6 +301,8 @@ class PlanGenerator:
     def _build_prompt(self, ctx: PlanContext, *, temperature: float) -> str:
         parts: list[str] = []
         parts.append(f"## Goal\n{ctx.goal or self._goal_from_entity(ctx.entity)}")
+        if ctx.child_roster:
+            parts.append(ctx.child_roster)
         if ctx.proposed_subgoals:
             sg_block = "\n".join(
                 f"  - {getattr(g, 'description', str(g))}" for g in ctx.proposed_subgoals
@@ -372,7 +379,7 @@ class PlanGenerator:
         from src.ai.planning.plan_invariants import validate_plan
         kept: list[PlanCandidate] = []
         for idx, cand in enumerate(candidates):
-            invs = validate_plan(cand.steps, ctx.entity, ctx.budget)
+            invs = validate_plan(cand.steps, ctx.entity, ctx.budget, ctx.known_child_ids)
             failures = [i.name for i in invs if not i.passed]
             cand.invariant_violations = failures
             if failures:

@@ -118,6 +118,7 @@ class PlannerService:
         except Exception:                                                    # pragma: no cover
             n_candidates = 2
 
+        child_roster, known_child_ids = await self._child_roster(entity, static_plan)
         ctx = PlanContext(
             entity=entity,
             input_data=input_data or {},
@@ -125,6 +126,8 @@ class PlannerService:
             intelligence_rules=list((input_data or {}).get("__intelligence_rules__") or []),
             company_id=self.company_id,
             goal=getattr(entity, "goal", "") or "",
+            child_roster=child_roster,
+            known_child_ids=known_child_ids,
         )
         gen = PlanGenerator(llm_router=self.llm, db=self.db)
         result = await gen.generate(ctx, n=n_candidates)
@@ -145,6 +148,40 @@ class PlannerService:
                 "judge_reasoning": result.judge_reasoning,
             },
         }
+
+    async def _child_roster(
+        self, entity: HierarchicalEntity, static_plan: dict[str, Any],
+    ) -> tuple[str, Optional[set[str]]]:
+        """The planner's view of which children it may invoke (PC-24).
+
+        Returns the rendered roster block and the ids a child invocation may
+        target: the entity's live children plus any child its static plan
+        already targets. ``None`` when the roster could not be loaded, so the
+        invariant does not reject plans on a lookup failure.
+        """
+        from src.ai.meta.platform_schema_compiler import (
+            describe_entity_children,
+            load_entity_children,
+        )
+        entity_id = getattr(entity, "id", None)
+        if entity_id is None:
+            return "", None
+        try:
+            children = await load_entity_children(
+                db=self.db, entity_id=entity_id, company_id=self.company_id,
+            )
+            roster = await describe_entity_children(
+                self.db, entity_id, self.company_id, children=children,
+            )
+        except Exception as e:                                              # noqa: BLE001
+            logger.warning(f"Planner child roster unavailable for {entity_id}: {e}")
+            return "", None
+        known = {str(c.id) for c in children}
+        for step in (static_plan or {}).get("steps") or []:
+            eid = (step.get("target") or {}).get("entity_id")
+            if str(step.get("type", "")).upper() == "CHILD_ENTITY_INVOCATION" and eid:
+                known.add(str(eid))
+        return roster, known
 
     def has_parallel_steps(self, steps: List[dict[str, Any]]) -> bool:
         """Return True ONLY if at least two steps can run simultaneously.

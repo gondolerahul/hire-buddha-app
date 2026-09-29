@@ -197,9 +197,9 @@ def test_non_string_prompt_template_fails() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_validate_plan_returns_eight_checks() -> None:
+def test_validate_plan_returns_nine_checks() -> None:
     invs = validate_plan([], _entity(), None)
-    assert len(invs) == 8
+    assert len(invs) == 9
 
 
 def test_validate_plan_clean_plan_all_pass() -> None:
@@ -254,3 +254,48 @@ def test_authored_steps_covered_matches_by_name_case_insensitive():
               "steps": [{"name": "Audit_Log"}]}  # no step_id
     plan = [{"step_id": "x1", "name": "audit_log"}]
     assert authored_steps_covered(plan, static).passed
+
+
+# ---------------------------------------------------------------------------
+# child_invocations_target_known_children (PC-24)
+# ---------------------------------------------------------------------------
+
+
+def _child_step(entity_id=None, name_hint=None):
+    target = {}
+    if entity_id:
+        target["entity_id"] = entity_id
+    if name_hint:
+        target["entity_name_hint"] = name_hint
+    return {"step_id": "s1", "name": "delegate", "type": "CHILD_ENTITY_INVOCATION",
+            "target": target}
+
+
+def test_known_child_passes():
+    from src.ai.planning.plan_invariants import child_invocations_target_known_children
+    inv = child_invocations_target_known_children([_child_step("abc")], {"abc"})
+    assert inv.passed
+
+
+def test_invented_child_id_fails():
+    from src.ai.planning.plan_invariants import child_invocations_target_known_children
+    inv = child_invocations_target_known_children([_child_step("child_1234")], {"abc"})
+    assert not inv.passed
+    assert "child_1234" in (inv.detail or "")
+
+
+def test_unknown_roster_skips_the_check():
+    from src.ai.planning.plan_invariants import child_invocations_target_known_children
+    assert child_invocations_target_known_children([_child_step("child_1234")], None).passed
+
+
+def test_name_hint_only_is_left_to_resolution():
+    from src.ai.planning.plan_invariants import child_invocations_target_known_children
+    inv = child_invocations_target_known_children([_child_step(name_hint="writer")], set())
+    assert inv.passed
+
+
+def test_validate_plan_rejects_invented_child():
+    invs = validate_plan([_child_step("child_1234")], _entity(), None, known_child_ids={"abc"})
+    failed = {i.name for i in invs if not i.passed}
+    assert "child_invocations_target_known_children" in failed
