@@ -940,13 +940,13 @@ half-applied patch is worse than none.
 | Field | Source |
 |---|---|
 | `prompt_tokens` | `usage_metadata.prompt_token_count` |
-| `completion_tokens` | `usage_metadata.candidates_token_count` |
-| thinking tokens | **not captured** — `thoughts_token_count` is ignored |
+| `completion_tokens` | `candidates_token_count + thoughts_token_count` — the billable output |
+| `thinking_tokens` | `usage_metadata.thoughts_token_count` — the thinking share of `completion_tokens`, also stored on the LLM trace span |
 
-For reasoning-heavy Gemini models this under-reports output tokens and therefore
-under-bills. Every capped call on a thinking model may now spend up to its thinking
-budget (default 1024 tokens) on top of the answer, and none of it is billed until LP-06
-is fixed. In the ReAct path the counts are summed across all turns, so a
+Vertex bills thinking tokens at the output rate, so they are part of
+`completion_tokens` and every call site bills them through the `{model}-out` SKU (LP-06,
+fixed 2026-09-29). The voice text path (`voice/gemini_text.py`) keeps its own
+accounting and does not count thinking. In the ReAct path the counts are summed across all turns, so a
 5-turn loop reports one aggregate number with a single `latency_ms` total.
 
 ---
@@ -2001,8 +2001,9 @@ Checklist for the adapter itself, learned from the three that exist:
 12. **Only the step executor writes `LLMInteractionLog`.** Planner and critic
     spend appears in `usage_logs` and `run.total_cost_usd` with no interaction
     row.
-13. **Gemini thinking tokens are not counted.** `thoughts_token_count` is
-    ignored, so reasoning models under-report and under-bill.
+13. **Thinking tokens count as output.** Since LP-06, `completion_tokens` includes
+    `thoughts_token_count`, so it can be much larger than the visible answer. Use
+    `thinking_tokens` for the split.
 14. **`top_p` is silently dropped in every ReAct path.** Only the single-turn
     `generate()` honours it.
 15. **Gemini's tool-schema translation is lossy.** `oneOf`, `pattern`,

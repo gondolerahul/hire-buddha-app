@@ -138,3 +138,49 @@ async def test_complete_answer_is_not_logged(monkeypatch: pytest.MonkeyPatch,
     with caplog.at_level(logging.WARNING, logger="src.ai.llm.gemini_adapter"):
         await adapter.generate(system_prompt="s", messages=_messages(), max_tokens=400)
     assert "truncated" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# LP-06 — thinking tokens are billable output
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_thinking_tokens_are_counted_as_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter, client = _adapter(), _FakeClient()
+    monkeypatch.setattr(adapter, "_build_client", lambda: client)
+    resp = await adapter.generate(system_prompt="s", messages=_messages(), max_tokens=400)
+    assert resp.thinking_tokens == 1019
+    assert resp.completion_tokens == 5 + 1019  # answer + thinking
+
+
+@pytest.mark.asyncio
+async def test_react_sums_thinking_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter, client = _adapter(), _FakeClient()
+    monkeypatch.setattr(adapter, "_build_client", lambda: client)
+
+    async def no_tools(calls: list[Any]) -> list[Any]:
+        return []
+
+    resp = await adapter.generate_with_tools_react(
+        system_prompt="s", initial_messages=_messages(), tool_schemas=[],
+        execute_tool_fn=no_tools,
+    )
+    assert resp.thinking_tokens == 1019
+    assert resp.completion_tokens == 5 + 1019
+
+
+@pytest.mark.asyncio
+async def test_missing_thinking_count_is_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter, client = _adapter("gemini-2.0-flash"), _FakeClient()
+
+    async def generate(**kw: Any) -> Any:
+        resp = await client._generate(**kw)
+        resp.usage_metadata = SimpleNamespace(prompt_token_count=10, candidates_token_count=5,
+                                              thoughts_token_count=None)
+        return resp
+
+    client.aio.models.generate_content = generate
+    monkeypatch.setattr(adapter, "_build_client", lambda: client)
+    resp = await adapter.generate(system_prompt="s", messages=_messages())
+    assert (resp.completion_tokens, resp.thinking_tokens) == (5, 0)

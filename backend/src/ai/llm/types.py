@@ -66,7 +66,10 @@ class LLMResponse:
     function_calls: List[Dict[str, Any]] = field(default_factory=list)
     # [{name: str, args: dict}]
     prompt_tokens: int = 0
+    # Billable output tokens. Includes thinking tokens, which providers bill
+    # at the output rate; ``thinking_tokens`` is that share (LP-06).
     completion_tokens: int = 0
+    thinking_tokens: int = 0
     latency_ms: int = 0
     model_name: str = ""
     provider: str = ""

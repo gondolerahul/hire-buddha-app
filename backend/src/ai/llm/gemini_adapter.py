@@ -66,6 +66,15 @@ class GeminiAdapter(BaseLLMAdapter):
         if max_tokens:
             config.max_output_tokens = max_tokens + (budget or 0)
 
+    @staticmethod
+    def _output_tokens(usage: Any) -> Tuple[int, int]:
+        """(answer, thinking) output tokens. Vertex bills thinking at the
+        output rate, so both go into ``completion_tokens`` (LP-06)."""
+        return (
+            int(getattr(usage, "candidates_token_count", 0) or 0),
+            int(getattr(usage, "thoughts_token_count", 0) or 0),
+        )
+
     def _warn_if_truncated(self, response: Any, max_tokens: Optional[int]) -> None:
         if not response.candidates or "MAX_TOKENS" not in str(response.candidates[0].finish_reason):
             return
@@ -257,11 +266,13 @@ class GeminiAdapter(BaseLLMAdapter):
             output = response.text
 
         usage = response.usage_metadata
+        answer_tokens, thinking_tokens = self._output_tokens(usage)
         return LLMResponse(
             output=output,
             function_calls=function_calls,
             prompt_tokens=getattr(usage, "prompt_token_count", 0) or 0,
-            completion_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+            completion_tokens=answer_tokens + thinking_tokens,
+            thinking_tokens=thinking_tokens,
             latency_ms=latency_ms,
             model_name=self.model_name,
             provider=self._provider_name,
@@ -297,6 +308,7 @@ class GeminiAdapter(BaseLLMAdapter):
 
         total_prompt_tokens = 0
         total_completion_tokens = 0
+        total_thinking_tokens = 0
         total_latency_ms = 0
         combined_output = ""
         all_function_calls_log = []
@@ -324,7 +336,9 @@ class GeminiAdapter(BaseLLMAdapter):
 
             usage = response.usage_metadata
             total_prompt_tokens += getattr(usage, "prompt_token_count", 0) or 0
-            total_completion_tokens += getattr(usage, "candidates_token_count", 0) or 0
+            answer_tokens, thinking_tokens = self._output_tokens(usage)
+            total_completion_tokens += answer_tokens + thinking_tokens
+            total_thinking_tokens += thinking_tokens
 
             turn_text = ""
             function_calls = []
@@ -373,6 +387,7 @@ class GeminiAdapter(BaseLLMAdapter):
             function_calls=all_function_calls_log,
             prompt_tokens=total_prompt_tokens,
             completion_tokens=total_completion_tokens,
+            thinking_tokens=total_thinking_tokens,
             latency_ms=total_latency_ms,
             model_name=self.model_name,
             provider=self._provider_name,

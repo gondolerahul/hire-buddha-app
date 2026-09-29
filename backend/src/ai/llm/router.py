@@ -35,6 +35,7 @@ def _record_llm_span(sp, resp: "LLMResponse") -> None:
             provider=getattr(resp, "provider", None),
             finish_reason=getattr(resp, "finish_reason", None),
             function_calls=getattr(resp, "function_calls", None),
+            thinking_tokens=getattr(resp, "thinking_tokens", None),
         )
         try:
             sp.set_cost(getattr(resp, "cost_usd", 0) or 0)

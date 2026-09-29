@@ -185,7 +185,13 @@ refuse an override with no matching integration.
 
 ### LP-06 — Gemini thinking tokens are not counted
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-09-29)** — `GeminiAdapter` now adds
+`thoughts_token_count` into `completion_tokens`, in both `generate` and the ReAct loop,
+because Vertex bills thinking at the output rate. `LLMResponse.thinking_tokens` records
+that share, and the LLM trace span stores it. Every call site bills `{model}-out` from
+`completion_tokens`, so no call site changed. Live, a plan candidate reported 1313 output
+tokens, 852 of them thinking; before, it would have billed 461. The voice text path
+(`voice/gemini_text.py`) keeps its own accounting and still ignores thinking.
 
 `thoughts_token_count` is ignored in token accounting. For reasoning models, thinking
 tokens are frequently the majority of the spend.
@@ -248,8 +254,8 @@ Live on `gemini-2.5-flash`, the same three calls before and after the fix:
 | plan judge | 400 | 16 tokens, `MAX_TOKENS`, unparseable | 78 tokens, `STOP`, valid JSON |
 | plan candidate | 2000 | 504 tokens, `STOP` | 621 tokens, `STOP` |
 
-Still open: the thinking tokens are not billed
-([LP-06](#lp-06--gemini-thinking-tokens-are-not-counted)).
+The thinking tokens are billed since
+[LP-06](#lp-06--gemini-thinking-tokens-are-not-counted) was fixed.
 
 ---
 
