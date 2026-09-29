@@ -279,7 +279,7 @@ reject anything else at save time.
 
 ### GH-11 — The approvals page does not show what is being approved
 
-**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-05`)** — as PO-05.
+**✅ Verified · High** · **Status: fixed (2026-09-29, `ad74c46`)** — as PO-05.
 
 `context_snapshot` is stored on every approval row and rendered nowhere.
 
@@ -288,7 +288,7 @@ Recorded in full as
 Listed here because it is the governance half: a checkpoint that shows the reviewer nothing
 is a delay, not a control.
 
-> **Update 2026-09-29:** fixed with PO-05 (`@PO-05`). The snapshot now carries what the step
+> **Update 2026-09-29:** fixed with PO-05 (`ad74c46`). The snapshot now carries what the step
 > is about to do (or produced) and the panel renders it.
 
 ---

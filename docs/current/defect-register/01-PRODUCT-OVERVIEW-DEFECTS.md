@@ -46,20 +46,20 @@ cross-referenced here.
 
 | Tier | Theme | Count | Open | Fixed | Deferred | Won't fix |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 4 | 0 | 1 | 0 |
+| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 1 | 3 | 1 | 0 |
 | [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 4 | 0 | 1 | 1 |
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 22 defects (8 open, 7 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
+**Total: 22 defects (5 open, 10 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
 
 | ID | Defect | Status |
 |---|---|---|
 | PO-01 | Deleting a knowledge-base document always fails | open |
-| PO-02 | A tenant admin can open the AI config page but cannot save | ✅ fixed `@PO-02` |
+| PO-02 | A tenant admin can open the AI config page but cannot save | ✅ fixed `c8f4d52` |
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
-| PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `@PO-04` |
-| PO-05 | A reviewer approves without seeing what they are approving | ✅ fixed `@PO-05` |
+| PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `682da36` |
+| PO-05 | A reviewer approves without seeing what they are approving | ✅ fixed `ad74c46` |
 | PO-06 | 64 of the 98 tools are unfinished integrations | open — audit |
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
@@ -116,7 +116,7 @@ dropped in `a30bb85`; documents are now chunked into CORTEX Knowledge Trees — 
 
 ### PO-02 — A tenant admin can open the AI config page but cannot save
 
-**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-02`)**
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `c8f4d52`)**
 
 > **Product owner, 2026-09-29:** a tenant admin should not have access to the AI config
 > page. Close the route to them; the API guard stays `app_admin` only.
@@ -171,7 +171,7 @@ built and skippable.
 
 ### PO-04 — Any logged-in user can read the internal cost report
 
-**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-04`)**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `682da36`)**
 
 > **Product owner, 2026-09-29:** the cost report is for `app_admin` only.
 
@@ -217,7 +217,7 @@ and reloading any `/reports/*` page is proxied away from the SPA
 
 ### PO-05 — A reviewer approves without seeing what they are approving
 
-**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-05`)**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `ad74c46`)**
 
 > **Product owner, 2026-09-29:** needs to be fixed.
 

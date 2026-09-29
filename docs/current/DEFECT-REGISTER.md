@@ -218,7 +218,7 @@ path *are* admin-gated; only the read is open.
 
 ### D-09 — Cost reports are not role-gated
 
-**📄 Doc-reported · High** · **Status: fixed (2026-09-29, `@PO-04`)** — both reports are
+**📄 Doc-reported · High** · **Status: fixed (2026-09-29, `682da36`)** — both reports are
 `app_admin` only (PO-04). The shared query (PO-22) is deferred.
 
 Any authenticated user can `GET /api/v1/reports/costing` and read their company's raw

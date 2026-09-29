@@ -371,7 +371,7 @@ the read is open.
 - Also **D-08** and **D-09**; see
   [PO-04](01-PRODUCT-OVERVIEW-DEFECTS.md#po-04--any-logged-in-user-can-read-the-internal-cost-report)
 
-> **Update 2026-09-29:** the costing half is fixed by PO-04 (`@PO-04`) — `GET /reports/costing`
+> **Update 2026-09-29:** the costing half is fixed by PO-04 (`682da36`) — `GET /reports/costing`
 > and `GET /reports/billing`, which returned the same rows, are `app_admin` only. The open
 > `GET /credits/subscription-tiers` still stands. A third open read on the same surface,
 > `GET /billing/config`, is recorded as [BC-26](#bc-26--any-user-can-read-the-billing-multiplier-and-base-costs).
