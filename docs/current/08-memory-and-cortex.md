@@ -1599,7 +1599,7 @@ always returns a string, never `None`.
 
 From [cortex_router.py](../../backend/src/ai/memory/cortex_router.py), mounted
 at `/api/v1/cortex` (registered without an extra prefix in
-[main.py:87](../../backend/src/main.py:87)).
+[main.py:92](../../backend/src/main.py:92)).
 
 | Method | Path | Purpose |
 |---|---|---|

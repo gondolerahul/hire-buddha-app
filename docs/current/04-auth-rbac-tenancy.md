@@ -1518,7 +1518,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | [backend/src/gateway/auth_middleware.py](../../backend/src/gateway/auth_middleware.py) | 148 | `TenantContext`, `GatewayAuthMiddleware`, `require_internal`, `get_tenant` |
 | [backend/src/gateway/internal_event.py](../../backend/src/gateway/internal_event.py) | 192 | `POST /internal/event` and the in-process `emit_internal_event` helper |
 | [backend/src/gateway/gateway_config.py](../../backend/src/gateway/gateway_config.py) | 73 | `INTERNAL_TOKEN`, `JWT_SECRET`, CORS, rate limit |
-| [backend/src/main.py](../../backend/src/main.py) | 192 | Router mounting and middleware registration order |
+| [backend/src/main.py](../../backend/src/main.py) | 141 | Router mounting and middleware registration order |
 | [frontend/src/hooks/useAuth.tsx](../../frontend/src/hooks/useAuth.tsx) | 123 | `AuthProvider` — session bootstrap, login, register, logout, onboarding redirect |
 | [frontend/src/services/api.client.ts](../../frontend/src/services/api.client.ts) | 71 | Axios instance with the bearer-token and 401-refresh interceptors |
 | [frontend/src/services/auth.service.ts](../../frontend/src/services/auth.service.ts) | 49 | Thin wrappers over the auth endpoints; owns `localStorage` |

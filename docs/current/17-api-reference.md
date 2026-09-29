@@ -36,7 +36,7 @@
 
 ## 1. The 60-second version
 
-There are **225 route declarations** across three separately-running FastAPI
+There are **226 route declarations** across three separately-running FastAPI
 applications.
 
 ```mermaid
@@ -168,7 +168,7 @@ gateway exposes the same three on port 8001.
 
 ## 3. Route index — the complete surface
 
-225 route declarations. Grouped by area; full paths as a client would call them.
+226 route declarations. Grouped by area; full paths as a client would call them.
 
 ### 3.1 Backend API (port 8000)
 
@@ -198,6 +198,7 @@ gateway exposes the same three on port 8001.
 | [Messaging](#14-voice-phone-numbers-and-campaigns) | 2 | `/api/v1/messaging` |
 | [Voice webhooks](#18-webhooks) | 9 | `/webhooks/voice` |
 | [Legacy shims](#22-legacy-and-dead-routes) | 3 | various |
+| Health | 1 | `/api/v1/health` |
 
 ### 3.2 The full table
 
@@ -213,6 +214,12 @@ gateway exposes the same three on port 8001.
 | POST | `/api/v1/auth/refresh` | none (refresh token in body) | Rotate tokens |
 | POST | `/api/v1/auth/oauth/{provider}` | none | OAuth login |
 | GET | `/api/v1/auth/verify-email` | none | Email verification |
+
+**Health** — [common/router_mounts.py](../../backend/src/common/router_mounts.py)
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/health` | none | `{"status": "ok" \| "degraded", "unmounted_routers": [{"router", "error"}]}` — the optional routers whose import failed at boot, so their routes 404. Always 200. Under `/api/v1` because the gateway answers `/health` itself |
 
 **Companies / users / profile / onboarding / partner**
 

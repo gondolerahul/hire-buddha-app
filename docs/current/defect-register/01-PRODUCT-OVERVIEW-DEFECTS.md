@@ -47,11 +47,11 @@ cross-referenced here.
 | Tier | Theme | Count | Open | Fixed | Deferred | Won't fix |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 0 | 4 | 1 | 0 |
-| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 3 | 1 | 1 | 1 |
+| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 2 | 2 | 1 | 1 |
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 22 defects (3 open, 12 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
+**Total: 22 defects (2 open, 13 fixed, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).**
 
 | ID | Defect | Status |
 |---|---|---|
@@ -64,7 +64,7 @@ cross-referenced here.
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
 | PO-09 | A mistyped config key in the entity builder disappears silently | ✅ fixed `3fadd76` |
-| PO-10 | A broken import turns a whole feature area into 404s | open |
+| PO-10 | A broken import turns a whole feature area into 404s | ✅ fixed `@PO-10` |
 | PO-11 | Templates sit outside tenant scoping by design | won't fix |
 | PO-12 | `voice/phone_pool_router.py` | ✅ fixed `964c9ab` |
 | PO-13 | `pages/assets/AssetLibrary.tsx` | ✅ fixed `9719f1b` |
@@ -74,7 +74,7 @@ cross-referenced here.
 | PO-17 | The deprecated `video_generation` tool | ✅ fixed `a8fb38e` |
 | PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `ba5e6ec` (by PO-15) |
 | PO-19 – PO-22 | Rough edges | ⏸ deferred |
-| PO-I1 – PO-I12 | Improvements | ⏸ deferred |
+| PO-I1 – PO-I12 | Improvements | ⏸ deferred, except PO-I9 — done by PO-10 |
 
 The three worth reading first:
 
@@ -453,7 +453,8 @@ Found while verifying:
 
 ### PO-10 — A broken import turns a whole feature area into 404s
 
-**✅ Verified · Medium** · **Status: open**
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-10`)** — also closes SA-I10,
+PO-I9 and API-09
 
 > **Product owner, 2026-09-29:** fix it.
 
@@ -470,6 +471,33 @@ normally and that entire feature area returns 404. Nothing in the UI says why.
 **Fix:** keep the `try/except` if you want a partial boot, but record the failures and
 expose them on the health endpoint, so "billing is 404" is one API call to diagnose
 instead of a log hunt.
+
+**Done (2026-09-29).** The partial boot stays; the failure is now recorded and served.
+
+- `src/common/router_mounts.py` — `mount_optional(app, module, prefix)` imports
+  `module.router` and includes it. On an `ImportError` it logs at **error** level with the
+  traceback, leaves the router out, and appends `{"router", "error"}` to
+  `app.state.unmounted_routers`. The error text has the file path stripped, because the
+  endpoint is public.
+- `main.py` mounts the twelve optional routers through it, **one router per call**. The old
+  blocks grouped two or three routers, so a failure in the second import left the first
+  mounted and the third missing, and the warning named the whole group.
+- **`GET /api/v1/health`** is new; the backend had no health route at all. It returns
+  `{"status": "ok" | "degraded", "unmounted_routers": [...]}` with no auth. It is under
+  `/api/v1` because the gateway answers `/health` itself and proxies only other paths to
+  the backend. It is always a 200: every replica runs the same code, so a 503 would take
+  them all out of rotation for one broken feature area.
+- The core routers (auth, AI, config, CORTEX, artifacts, campaigns, mobile) are still
+  imported unguarded, so a broken import there still stops the boot.
+
+**Evidence:** `tests/unit/test_router_mounts.py` — 4 cases: a good router is mounted and
+health is `ok`; a missing module is reported and the app still serves; a broken import
+inside a module is reported without its file path; and the real `src.main` app reports
+`ok` with nothing unmounted. The last one returns 404 on the old `main.py`, and it is also
+a tripwire: any optional router that stops importing now fails the suite. Live: after a
+restart, `GET :8010/api/v1/health` returned `ok` with an empty list. The real app booted
+with `src.ai.social_router` made unimportable returned `degraded` naming that router,
+`/api/social-connections` answered 404, and the email router stayed mounted.
 
 ---
 
@@ -666,6 +694,8 @@ quotes a different one. Pick "tools an agent in this company can actually call t
 and show that everywhere.
 
 ### PO-I9 — Surface failed router mounts on the health endpoint
+
+**Status: done (2026-09-29, `@PO-10`)** — by PO-10; the endpoint is `GET /api/v1/health`.
 
 **Effect: small, high value at 3am.** See
 [PO-10](#po-10--a-broken-import-turns-a-whole-feature-area-into-404s). Collect the

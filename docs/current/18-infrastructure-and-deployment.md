@@ -1161,7 +1161,7 @@ tool. Point Grafana, Metabase or `psql` at them.
 
 Application-level telemetry (OpenTelemetry, Prometheus) is wired in
 [common/telemetry.py](../../backend/src/common/telemetry.py) and initialised at
-[main.py:190](../../backend/src/main.py:190) — see
+[main.py:141](../../backend/src/main.py:141) — see
 [02 — System architecture](02-system-architecture.md).
 
 ---
@@ -1313,7 +1313,7 @@ flowchart TB
 | Artifacts on local disk | A second app host cannot serve them | Object storage |
 | Single Redis | Queue and pub/sub SPOF | Redis with replication |
 | Single Postgres | Data SPOF | Managed Postgres with replicas |
-| No health endpoints in the scripts | `wait_for_service` only checks the port is open | Real `/health` probes |
+| No health probes in the scripts | `wait_for_service` only checks the port is open; the backend now has `GET /api/v1/health` (PO-10) and the gateway `/health`, but nothing calls them | Probe those two |
 | `--reload` everywhere | Higher memory, filesystem watching | Drop `--reload` in production |
 
 The realistic first steps, in order: systemd units for supervision, log rotation,

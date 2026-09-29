@@ -40,13 +40,13 @@ app.include_router(user_router, prefix="/api/v1")
 from src.auth.onboarding_router import router as onboarding_router
 app.include_router(onboarding_router, prefix="/api/v1")
 
+# Optional routers: a failed import leaves that router out and is reported by
+# GET /api/v1/health instead of crashing the boot (PO-10).
+from src.common.router_mounts import health_router, mount_optional
+app.include_router(health_router)
+
 # Partner management
-try:
-    from src.auth.partner_router import router as partner_router
-    app.include_router(partner_router, prefix="/api/v1")
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import partner router: {e}")
+mount_optional(app, "src.auth.partner_router", prefix="/api/v1")
 
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -105,67 +105,27 @@ async def legacy_assets_path(path: str):
     return RedirectResponse(url=f"/api/v1/artifacts/{path}")
 
 # Billing, reports, credits, and cron jobs
-try:
-    from src.billing.billing_router import router as billing_router
-    app.include_router(billing_router)
-    from src.billing.credits_router import router as credits_router
-    app.include_router(credits_router)
-    from src.billing.cron_router import router as cron_router
-    app.include_router(cron_router)
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import billing routers: {e}")
+mount_optional(app, "src.billing.billing_router")
+mount_optional(app, "src.billing.credits_router")
+mount_optional(app, "src.billing.cron_router")
 
 # Analytics & Reports
-try:
-    from src.ai.reports_router import router as reports_analytics_router
-    app.include_router(reports_analytics_router)
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import analytics reports router: {e}")
+mount_optional(app, "src.ai.reports_router")
 
 # Email connection management
-try:
-    from src.ai.email_router import router as email_router
-    app.include_router(email_router, prefix="/api/v1")
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import email router: {e}")
+mount_optional(app, "src.ai.email_router", prefix="/api/v1")
 
 # Social media connection management
-try:
-    from src.ai.social_router import router as social_router
-    app.include_router(social_router)
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import social router: {e}")
+mount_optional(app, "src.ai.social_router")
 
 # Tool Registry Management
-try:
-    from src.ai.tool_management_router import router as tool_mgmt_router
-    app.include_router(tool_mgmt_router)
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import tool management router: {e}")
+mount_optional(app, "src.ai.tool_management_router")
 
 # Voice and WhatsApp webhook routers
-try:
-    from src.voice.webhook_router import router as webhook_router
-    app.include_router(webhook_router)  # No prefix - webhooks are at /webhooks/voice/*
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import voice webhook router: {e}")
-
-try:
-    from src.voice.phone_number_router import router as phone_number_router
-    app.include_router(phone_number_router)
-    from src.voice.sessions_router import router as sessions_router
-    app.include_router(sessions_router)
-    from src.voice.messaging_router import router as messaging_router
-    app.include_router(messaging_router)
-except ImportError as e:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not import voice routers: {e}")
+mount_optional(app, "src.voice.webhook_router")  # No prefix - webhooks are at /webhooks/voice/*
+mount_optional(app, "src.voice.phone_number_router")
+mount_optional(app, "src.voice.sessions_router")
+mount_optional(app, "src.voice.messaging_router")
 
 
 # Phone Number Pool is now unified into phone_number_router (no separate router)

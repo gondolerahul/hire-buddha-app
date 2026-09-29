@@ -207,7 +207,9 @@ Seven routes are declared in `phone_pool_router.py`. The router is never mounted
 
 ### API-09 — A failed import silently removes a whole route group
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-10`)** — as PO-10: each optional
+router is mounted through `mount_optional`, and one that fails to import is listed by
+`GET /api/v1/health` (`status: degraded`, the router and its error). The partial boot stays.
 
 About a dozen routers are mounted inside `try/except ImportError` with only a
 `logger.warning`: billing, credits, cron, reports, email, social, tool management, voice
@@ -339,6 +341,8 @@ This is the first of the four guardrails named in the platform register, and the
 to write.
 
 ### API-I2 — Surface failed router mounts
+
+**Status: done (2026-09-29, `@PO-10`)** — by PO-10, at `GET /api/v1/health`.
 
 **Effect: medium, large at 3am.**
 [API-09](#api-09--a-failed-import-silently-removes-a-whole-route-group). Collect the

@@ -1932,10 +1932,11 @@ Honest boundaries, all verifiable by grep.
   Decimal("0")` — child runs contribute cost but never charge.
 - **`total_cost_usd` and `billed_amount` are different numbers** and both live on
   `execution_runs`. Reporting on the wrong one silently misstates revenue.
-- **Most routers are mounted inside `try/except ImportError`** in
-  [`main.py`](../../backend/src/main.py) with only a `logger.warning` on failure.
-  A broken import makes a whole feature area 404 rather than crashing the app —
-  check the startup log before debugging a "missing" endpoint.
+- **Twelve routers are optional.** [`main.py`](../../backend/src/main.py) mounts
+  partner, billing, credits, cron, reports, email, social, tool management and the four
+  voice routers through `mount_optional`: a broken import leaves that router out and the
+  app still boots, so its routes 404. `GET /api/v1/health` lists what failed
+  (`status: degraded`) — check it before debugging a "missing" endpoint (PO-10).
 - **Frontend route gates and backend guards are kept separately.** `/ai-config` and
   `/reports/costing` drifted apart until 2026-09-29 (PO-02, PO-04); assume the backend
   is the real boundary.

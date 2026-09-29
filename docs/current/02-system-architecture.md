@@ -119,9 +119,12 @@ seconds with `wait_for_service`. The Arq worker has no port, so it is detected b
 * **What it is.** The main FastAPI application, built imperatively (no factory
   function) in [`backend/src/main.py`](../../backend/src/main.py). It is *not* a
   `create_app()` — the module body constructs `app`, adds middleware, then
-  imports and includes about twenty routers, most of them wrapped in
-  `try/except ImportError` so a broken sub-package degrades to a missing route
-  set rather than a dead process.
+  imports and includes about twenty routers. Twelve are optional and go through
+  `mount_optional` ([`common/router_mounts.py`](../../backend/src/common/router_mounts.py)):
+  a broken import degrades to a missing route set rather than a dead process, and
+  `GET /api/v1/health` lists the routers that failed (`status: degraded`, always a
+  200). The core routers — auth, AI, config, CORTEX, artifacts, campaigns, mobile —
+  are imported unguarded, so a broken import there stops the boot.
 
   ```python
   # backend/src/main.py
@@ -1464,7 +1467,8 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 | [`stop_services.sh`](../../stop_services.sh) | 98 | Kills by PID file, then by port, then `docker compose down` |
 | [`setup_production_vm.sh`](../../setup_production_vm.sh) | 183 | Eight-step Ubuntu bootstrap: Python 3.12, Poetry, Node 20, Docker, venv, npm, `.env` |
 | [`backend/docker-compose.yml`](../../backend/docker-compose.yml) | 76 | Defines `gateway`, `app`, `db` (5433), `redis` (6379); only `db` and `redis` are actually used |
-| [`backend/src/main.py`](../../backend/src/main.py) | 191 | Backend API app: CORS, suspension middleware, ~20 routers, three static mounts, telemetry |
+| [`backend/src/main.py`](../../backend/src/main.py) | 141 | Backend API app: CORS, suspension middleware, ~20 routers (12 of them optional), three static mounts, telemetry |
+| [`backend/src/common/router_mounts.py`](../../backend/src/common/router_mounts.py) | 51 | `mount_optional` — mounts a router or records why its import failed; `GET /api/v1/health` reports the failures |
 | [`backend/src/gateway/app.py`](../../backend/src/gateway/app.py) | 436 | Unified Gateway: five interfaces plus the catch-all reverse proxy with an SSE special case |
 | [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 425 | Drains the event bus, enqueues `process_gateway_event`, in-process fallback, lead-queue routing |
 | [`backend/src/gateway/event_bus.py`](../../backend/src/gateway/event_bus.py) | 186 | `EventEnvelope` dataclass + in-process `asyncio.Queue` fan-out bus |

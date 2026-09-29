@@ -97,7 +97,7 @@ This trips up newcomers immediately. There are **two FastAPI apps** that both co
 
 | App | Port | Started by | Voice responsibility |
 |-----|------|-----------|----------------------|
-| `src.main:app` — backend API | 8000 | [`start_services.sh:92`](../../start_services.sh:92) | All voice **HTTP** routes: `webhook_router`, `phone_number_router`, `sessions_router`, `messaging_router` ([`main.py:161-178`](../../backend/src/main.py:161)) |
+| `src.main:app` — backend API | 8000 | [`start_services.sh:92`](../../start_services.sh:92) | All voice **HTTP** routes: `webhook_router`, `phone_number_router`, `sessions_router`, `messaging_router` ([`main.py:125-128`](../../backend/src/main.py:125)) |
 | `src.gateway.app:app` — unified gateway | 8001 | [`start_services.sh:108`](../../start_services.sh:108) | All voice **WebSocket** endpoints, plus a catch-all HTTP proxy to :8000 |
 | `src.voice.main:app` — standalone streaming service | 8002 | **nothing** | Retired. Duplicates the gateway's WS endpoints. |
 
