@@ -441,6 +441,12 @@ The directory name says the package was moved to PyPI; the code is still in this
 repository. So there are two possible sources of truth for the memory implementation and
 no way to tell from the import which one is installed.
 
+> **Update 2026-09-28 (`e8d9f62`):** the copy is back at `backend/cortex_memory/`, so the
+> misleading directory name is gone. The two-sources problem stands: `import cortex_memory`
+> resolves to the in-repo folder ahead of the installed `hb-cortex-memory` 0.1.0 wheel.
+> The package is maintained in its own repository, and fixes made here (MC-21, MC-22)
+> must be ported back to it.
+
 The repository's only CI workflow is pinned to `paths: ["backend/cortex_memory/**"]` — a
 path that no longer exists — so this package has no test gate either. See
 [19 — Testing](19-TESTING-DEFECTS.md).
