@@ -630,7 +630,6 @@ flowchart TD
 | [user_router.py:44](../../backend/src/auth/user_router.py:44) | `POST /users` | `app_admin`, `partner_admin`, `tenant_admin` |
 | [partner_router.py:27](../../backend/src/auth/partner_router.py:27) | all `/partner/*` | `partner_admin`, `app_admin` |
 | [ai/router.py](../../backend/src/ai/router.py) | template admin routes | `app_admin` |
-| [voice/phone_pool_router.py](../../backend/src/voice/phone_pool_router.py) | pool admin | `app_admin` |
 | [voice/phone_number_router.py](../../backend/src/voice/phone_number_router.py) | number admin | `app_admin` |
 | [ai/tool_management_router.py](../../backend/src/ai/tool_management_router.py) | tool registry | `app_admin` |
 
@@ -674,7 +673,6 @@ Derived from the actual guard code, not from intent. Legend: **Y** = allowed, **
 | Platform analytics reports | [ai/reports_router.py:205](../../backend/src/ai/reports_router.py:205) | Y | Y | — | — | — | — |
 | Portfolio analytics reports | [ai/reports_router.py:116](../../backend/src/ai/reports_router.py:116) | Y | — | Y | Y | — | — |
 | Tool registry management | `tool_management_router.py` | Y | — | — | — | — | — |
-| Phone pool administration | `phone_pool_router.py` | Y | — | — | — | — | — |
 
 ### 7.6 Where enforcement is missing or inconsistent
 

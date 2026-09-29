@@ -127,7 +127,7 @@ gate and a passing gate are indistinguishable**. See
 
 The new path works and the old one was never deleted: two `ToolResult` classes, two healing
 ladders, two RAG paths, two episodic stores, four price tables, two gateways, two config
-classes, the `assets` table, `models.py`, the root `tests/`, `phone_pool_router.py`,
+classes, the `assets` table, `models.py`, the root `tests/`, ~~`phone_pool_router.py`~~ *(deleted, PO-12)*,
 `voice/main.py`.
 
 Adopt the rule that would have prevented all of them: **a migration is not done until the

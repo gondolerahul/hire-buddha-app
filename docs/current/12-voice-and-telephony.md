@@ -923,7 +923,7 @@ The candidate list exists because Tata sends `+918065251146` while the DB may ho
 
 The Tata sync is heroically defensive: it tries four endpoint paths (`/v1/number/my_numbers`, `/v1/my_number/my_numbers`, `/v1/numbers`, `/v1/did/list`) × two auth header shapes (`Bearer <key>` and raw), and accepts a list, or a dict keyed `numbers`/`data`/`did_numbers`/`results`/`items`.
 
-> **Dead file:** [`phone_pool_router.py`](../../backend/src/voice/phone_pool_router.py) (701 lines, prefix `/api/v1/phone-pool`) is the predecessor. Nothing imports it — `phone_number_router.py`'s docstring says it "replaces both the old phone_pool_router.py and phone_number_router.py". The frontend `/phone-pool` route redirects to `/phone-numbers`.
+> The predecessor `phone_pool_router.py` (an unmounted `/api/v1/phone-pool` API) was deleted on 2026-09-29 (PO-12). The frontend `/phone-pool` route redirects to `/phone-numbers`.
 
 ---
 
@@ -1615,7 +1615,6 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 | [`voice/webhook_router.py`](../../backend/src/voice/webhook_router.py) | 1122 | All provider HTTP webhooks: inbound TwiML, status callbacks, WhatsApp inbound. |
 | [`voice/phone_number_router.py`](../../backend/src/voice/phone_number_router.py) | 823 | `/api/v1/phone-numbers` — inventory, claim, assign, provider sync. |
 | [`voice/sessions_router.py`](../../backend/src/voice/sessions_router.py) | 707 | `/api/v1/streaming` — session lists, detail with transcript + summary, stats. |
-| [`voice/phone_pool_router.py`](../../backend/src/voice/phone_pool_router.py) | 701 | **Dead.** Superseded by `phone_number_router.py`. |
 | [`voice/whatsapp_messaging.py`](../../backend/src/voice/whatsapp_messaging.py) | 608 | Outbound WhatsApp for Twilio + Tata, text/media/template. |
 | [`voice/agent_loader.py`](../../backend/src/voice/agent_loader.py) | 574 | Persona → system prompt, tools, context-source extraction, contact injection, TTL cache. |
 | [`voice/session_manager.py`](../../backend/src/voice/session_manager.py) | 415 | CRUD for `voice_sessions` and `whatsapp_sessions`; optional (unused) Redis cache. |

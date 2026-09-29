@@ -1145,11 +1145,8 @@ Each row carries `provider` (`twilio` / `tata_tele`), `country_code` (default
 `+91`), `capabilities` JSON such as `{"voice": true, "sms": false}`,
 `monthly_cost_usd`, and a free-text `label`.
 
-> **Dead file.** [`phone_pool_router.py`](../../backend/src/voice/phone_pool_router.py)
-> still exists and still declares a full `/phone-pool` API in its docstring, but
-> it is **not mounted** in [`main.py`](../../backend/src/main.py) — the comment
-> there says "Phone Number Pool is now unified into phone_number_router". The
-> only surviving reference to it is a sentence in the replacement's docstring.
+> The predecessor `phone_pool_router.py` (an unmounted `/phone-pool` API) was deleted
+> on 2026-09-29 (PO-12). `phone_number_router.py` is the only phone-number API.
 
 ### 6.10 Integrations and the credentials registry
 
@@ -1830,7 +1827,6 @@ Honest boundaries, all verifiable by grep.
 
 | File | Status |
 |------|--------|
-| [`voice/phone_pool_router.py`](../../backend/src/voice/phone_pool_router.py) | not mounted; replaced by `phone_number_router.py` |
 | [`pages/assets/AssetLibrary.tsx`](../../frontend/src/pages/assets/AssetLibrary.tsx) | not routed, not imported; replaced by `Artifacts.tsx` |
 | `send_whatsapp_message()` in [`whatsapp_handler.py:261`](../../backend/src/voice/whatsapp_handler.py:261) | `[MOCK]` log line with the real SDK call commented out; nothing imports it |
 | `VideoGenerationTool` | registered but `status = ToolStatus.DEPRECATED` — "remove after seeds migrate" |

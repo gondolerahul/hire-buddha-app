@@ -425,7 +425,7 @@ no reason to defer any of it.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **D-22** | [`voice/phone_pool_router.py`](../../backend/src/voice/phone_pool_router.py) | 701 lines, 7 routes under `/api/v1/phone-pool`, never mounted. **Keep** `phone_pool_models.py` — the live router still imports `PhoneNumber` from it | ✅ Verified |
+| **D-22** | `voice/phone_pool_router.py` | 701 lines, 7 routes under `/api/v1/phone-pool`, never mounted. **Keep** `phone_pool_models.py` — the live router still imports `PhoneNumber` from it | ✅ fixed (2026-09-29, `@PO-12`) — deleted (PO-12) |
 | **D-23** | [`voice/main.py`](../../backend/src/voice/main.py) + both `streaming.hirebuddha.com` vhosts + the `STREAMING_HOST` default | Blocked on [W-1](#8-w-1--retire-port-8002) only | ✅ Verified |
 | **D-24** | The `/api/v1/ai/phase11/*` redirect shim | Carries an explicit *"Remove after 2026-09-01"* comment at [`main.py:105`](../../backend/src/main.py:105). Remove the five matching legacy routes from the frontend router in the same change | ✅ Verified |
 | **D-25** | The `video_generation` tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ Verified |

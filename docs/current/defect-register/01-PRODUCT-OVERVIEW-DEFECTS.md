@@ -66,7 +66,8 @@ cross-referenced here.
 | PO-09 | A mistyped config key in the entity builder disappears silently | open |
 | PO-10 | A broken import turns a whole feature area into 404s | open |
 | PO-11 | Templates sit outside tenant scoping by design | won't fix |
-| PO-12 – PO-17 | Dead code and dead surfaces | open — delete |
+| PO-12 | `voice/phone_pool_router.py` | ✅ fixed `@PO-12` |
+| PO-13 – PO-17 | Dead code and dead surfaces | open — delete |
 | PO-18 – PO-22 | Rough edges | ⏸ deferred |
 | PO-I1 – PO-I12 | Improvements | ⏸ deferred |
 
@@ -346,7 +347,7 @@ Free to remove. Nothing here can break anything that is not already broken.
 
 | ID | Delete | Why | Status |
 |---|---|---|---|
-| **PO-12** | [`voice/phone_pool_router.py`](../../../backend/src/voice/phone_pool_router.py) | 701 lines, not mounted anywhere. The only surviving reference is a sentence in the replacement's docstring. Also recorded as D-22 in the platform register | ✅ Verified · open |
+| **PO-12** | `voice/phone_pool_router.py` | 701 lines, not mounted anywhere. The only surviving reference is a sentence in the replacement's docstring. Also recorded as D-22 in the platform register | ✅ fixed (2026-09-29, `@PO-12`) — deleted; the replacement's docstring no longer mentions it |
 | **PO-13** | [`frontend/src/pages/assets/AssetLibrary.tsx`](../../../frontend/src/pages/assets/AssetLibrary.tsx) | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx` | ✅ Verified · open |
 | **PO-14** | `send_whatsapp_message()` in [`voice/whatsapp_handler.py:261`](../../../backend/src/voice/whatsapp_handler.py:261) | Body is a `[MOCK]` log line with the real SDK call commented out. Nothing imports it, but it is easy to grab by mistake | 📄 Doc-reported · open |
 | **PO-15** | The `approval:{id}` Redis publish at [`ai/service.py:854`](../../../backend/src/ai/service.py:854) | Nothing subscribes to it. The live channel is `hitl:{id}`, published by the router at [`ai/router.py:456`](../../../backend/src/ai/router.py:456) and consumed at [`governance_service.py:345`](../../../backend/src/ai/governance/governance_service.py:345) | ✅ Verified · open |

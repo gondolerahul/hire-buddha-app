@@ -1186,31 +1186,10 @@ The kernel-admin shim carries an explicit expiry:
 Today is past that date's approach; check whether the frontend still depends on
 it before removing.
 
-### 22.2 Dead router — `phone_pool_router.py`
+### 22.2 Removed router — `phone_pool_router.py`
 
-Seven routes under `/api/v1/phone-pool` are declared but the router is **never
-mounted**. `main.py` says:
-
-```python
-# backend/src/main.py
-# Phone Number Pool is now unified into phone_number_router (no separate router)
-```
-
-and `phone_number_router.py`'s docstring confirms:
-*"Replaces both the old phone_pool_router.py and phone_number_router.py."*
-
-| Dead path | Live replacement |
-|---|---|
-| `POST /api/v1/phone-pool` | `POST /api/v1/phone-numbers` |
-| `POST /api/v1/phone-pool/bulk` | `POST /api/v1/phone-numbers/bulk` |
-| `POST /api/v1/phone-pool/sync` | `POST /api/v1/phone-numbers/sync` |
-| `GET /api/v1/phone-pool` | `GET /api/v1/phone-numbers` |
-| `POST /api/v1/phone-pool/{id}/claim` | `POST /api/v1/phone-numbers/{id}/claim` |
-| `POST /api/v1/phone-pool/{id}/release` | `POST /api/v1/phone-numbers/{id}/release` |
-| `DELETE /api/v1/phone-pool/{id}` | `DELETE /api/v1/phone-numbers/{id}` |
-
-**`backend/src/voice/phone_pool_router.py` (701 lines) is dead code** and a
-candidate for deletion.
+The seven `/api/v1/phone-pool/*` routes were never mounted; their live equivalents are
+the `/api/v1/phone-numbers/*` routes. The file was deleted on 2026-09-29 (PO-12).
 
 ### 22.3 Debug route
 
@@ -1233,8 +1212,8 @@ candidate for deletion.
 4. **`AI_MODEL_CREDENTIALS_GUIDE.md` documents `/api/config/...`; the real path
    is `/api/v1/config/...`.**
 
-5. **`/api/v1/phone-pool/*` does not exist at runtime** — the router is never
-   mounted. Use `/api/v1/phone-numbers/*`.
+5. **There is no `/api/v1/phone-pool/*`.** Its unmounted router was deleted
+   (PO-12). Use `/api/v1/phone-numbers/*`.
 
 6. **Transcript endpoints are only on port 8002**, which `start_services.sh`
    never starts and the gateway claims is retired.

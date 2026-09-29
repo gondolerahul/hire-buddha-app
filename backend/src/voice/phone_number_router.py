@@ -2,7 +2,7 @@
 Unified Phone Number Router — single API surface for number inventory,
 claiming, agent assignment, and provider sync.
 
-Replaces both the old phone_pool_router.py and phone_number_router.py.
+The single router for the `phone_numbers` table (model: phone_pool_models.PhoneNumber).
 
 Endpoints:
   - POST   /phone-numbers              — (app_admin) Add number to inventory
