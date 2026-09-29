@@ -325,7 +325,7 @@ is a delay, not a control.
 
 ### GH-23 — Authorize and Block Cycle always fail with 422
 
-**✅ Verified · Critical** · **Status: fixed (2026-09-29, `@GH23`)** — found 2026-09-29 while
+**✅ Verified · Critical** · **Status: fixed (2026-09-29, `1a55054`)** — found 2026-09-29 while
 fixing PO-05.
 
 `HITLPanel` posts `{status, notes}` as a JSON body. `POST /ai/approvals/{id}/respond`
@@ -355,7 +355,7 @@ approvals page both returned 200 and the waiting runs acted on them (see GH-22).
 
 ### GH-24 — Any user can answer any company's approval
 
-**✅ Verified · High** · **Status: fixed (2026-09-29, `@GH23`)** — found 2026-09-29 while
+**✅ Verified · High** · **Status: fixed (2026-09-29, `1a55054`)** — found 2026-09-29 while
 fixing PO-05; fixed with GH-23.
 
 `respond_to_approval` loads the approval by id alone — no join to `execution_runs`, no
