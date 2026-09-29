@@ -1100,13 +1100,9 @@ pre-approved WhatsApp templates.
 
 > **Two things to know.** The real provider calls live in
 > [`whatsapp_messaging.py`](../../backend/src/voice/whatsapp_messaging.py) and are
-> genuine `httpx` calls to the Twilio and Tata APIs. But there is also a
-> module-level `send_whatsapp_message()` in
-> [`whatsapp_handler.py:261`](../../backend/src/voice/whatsapp_handler.py:261)
-> whose body is `logger.info(f"[MOCK] WhatsApp message to {to}: ...")` with the
-> real Twilio SDK call commented out. Nothing imports it — the handler class uses
-> the factory — so it is dead code, but it is easy to grab by mistake. Separately,
-> `POST /messaging/send` carries a `TODO` noting that the sender number is not
+> genuine `httpx` calls to the Twilio and Tata APIs. (A mock module-level
+> `send_whatsapp_message()` in `whatsapp_handler.py` was deleted on 2026-09-29, PO-14.)
+> Separately, `POST /messaging/send` carries a `TODO` noting that the sender number is not
 > looked up from the database; you must pass `from_number` or rely on env vars.
 
 ### 6.9 Phone number pool
@@ -1826,7 +1822,6 @@ Honest boundaries, all verifiable by grep.
 
 | File | Status |
 |------|--------|
-| `send_whatsapp_message()` in [`whatsapp_handler.py:261`](../../backend/src/voice/whatsapp_handler.py:261) | `[MOCK]` log line with the real SDK call commented out; nothing imports it |
 | `VideoGenerationTool` | registered but `status = ToolStatus.DEPRECATED` — "remove after seeds migrate" |
 | `ReasoningMode.REFLECTION` and `TREE_OF_THOUGHTS` | in `DEPRECATED_REASONING_MODES`; still accepted, emit a deprecation warning |
 | `SeedDocumentFactory` (~50 entities) | superseded by `SeedDocFactoryLite` (1 entity) for cost reasons |
