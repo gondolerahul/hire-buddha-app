@@ -12,6 +12,8 @@ from decimal import Decimal
 from typing import Any, Optional, cast
 from uuid import UUID
 
+from sqlalchemy import select, update
+
 from src.billing.credit_service import CreditService, InsufficientCreditsError
 from src.billing.billing_service import BillingService, calculate_tb
 from src.ai.models import HumanApproval, ExecutionRun
@@ -334,68 +336,106 @@ class GovernanceService:
             await self.db.commit()
             await self.db.refresh(approval)
 
-            # Publish HITL event for real-time dashboard notification
-            channel = f"execution:{run.id}"
-            await self.redis.publish(channel, json.dumps({
-                "status": "HITL_PENDING",
-                "approval_id": str(approval.id),
-                "trigger": trigger_desc,
-                "message": cp.message or f"Human approval required: {trigger_desc}",
-            }))
-
-            # ── Wait for approval via Redis pub/sub ───────────────────────
-            approval_channel = f"hitl:{approval.id}"
-            timeout_sec = cp.timeout_ms / 1000.0
-
+            # Real-time notice for the run's live view. Best-effort: the approval
+            # row is the record, and the approvals page reads it.
             try:
-                pubsub = self.redis.client.pubsub()
-                try:
-                    await pubsub.subscribe(approval_channel)
+                await self.redis.publish(f"execution:{run.id}", json.dumps({
+                    "status": "HITL_PENDING",
+                    "approval_id": str(approval.id),
+                    "trigger": trigger_desc,
+                    "message": cp.message or f"Human approval required: {trigger_desc}",
+                }))
+            except Exception as pub_err:
+                logger.warning(f"HITL pending notice not published: {pub_err}")
 
-                    deadline = asyncio.get_running_loop().time() + timeout_sec
-                    resolved = False
+            # ── Wait for the decision. Fails closed: nothing here lets the
+            # step proceed without an APPROVED decision or auto-approve. ───
+            decision = await self._await_hitl_decision(approval.id, cp.timeout_ms / 1000.0)
 
-                    while asyncio.get_running_loop().time() < deadline:
+            if decision is None:
+                # Time is up. Record TIMEOUT only if nobody answered in the
+                # meantime; a decision that landed at the deadline wins.
+                final = "APPROVED" if cp.auto_approve_on_timeout else "TIMEOUT"
+                notes = "Auto-approved on timeout" if cp.auto_approve_on_timeout else None
+                updated = await self.db.execute(
+                    update(HumanApproval)
+                    .where(HumanApproval.id == approval.id, HumanApproval.status == "PENDING")
+                    .values(status=final, reviewer_notes=notes)
+                )
+                await self.db.commit()
+                if updated.rowcount:
+                    decision = final
+                else:
+                    decision = await self._read_hitl_status(approval.id)
+
+            if decision == "APPROVED":
+                logger.info(f"HITL approved: {trigger_desc}")
+                continue
+            if decision == "REJECTED":
+                logger.info(f"HITL rejected: {trigger_desc}")
+                raise Exception(f"Execution blocked by human reviewer: {trigger_desc}")
+            logger.info(f"HITL timed out: {trigger_desc}")
+            raise Exception(
+                f"HITL checkpoint timed out after {cp.timeout_ms}ms: {trigger_desc}"
+            )
+
+    # The decisions a reviewer can record on an approval row.
+    _HITL_DECISIONS = ("APPROVED", "REJECTED")
+
+    async def _read_hitl_status(self, approval_id: UUID) -> Optional[str]:
+        """The approval row's current status — a fresh read, not the identity map."""
+        status: Optional[str] = (await self.db.execute(
+            select(HumanApproval.status).where(HumanApproval.id == approval_id)
+        )).scalar_one_or_none()
+        return status
+
+    async def _await_hitl_decision(self, approval_id: UUID, timeout_sec: float) -> Optional[str]:
+        """Block until the approval is APPROVED or REJECTED; ``None`` at the deadline.
+
+        The reviewer's answer is written to the approval row, then published on
+        ``hitl:{approval_id}``. Pub/sub makes the wake-up immediate; the row is
+        re-read every couple of seconds as well, so a Redis failure slows the
+        wait down but never skips it.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_sec
+        pubsub: Any = None
+        try:
+            pubsub = self.redis.pubsub()
+            await pubsub.subscribe(f"hitl:{approval_id}")
+        except Exception as sub_err:
+            logger.warning(f"HITL pub/sub unavailable ({sub_err}); waiting on the approval row")
+            pubsub = None
+
+        next_row_check = loop.time()
+        try:
+            while loop.time() < deadline:
+                if pubsub is not None:
+                    try:
                         message = await pubsub.get_message(
                             ignore_subscribe_messages=True, timeout=1.0
                         )
-                        if message and message.get("type") == "message":
-                            data = json.loads(message["data"])
-                            status = data.get("status", "").upper()
-                            if status == "APPROVED":
-                                logger.info(f"HITL approved: {trigger_desc}")
-                                resolved = True
-                                break
-                            elif status == "REJECTED":
-                                logger.info(f"HITL rejected: {trigger_desc}")
-                                approval.status = "REJECTED"
-                                await self.db.commit()
-                                raise Exception(
-                                    f"Execution blocked by human reviewer: {trigger_desc}"
-                                )
-                        await asyncio.sleep(0.5)
-                finally:
-                    await pubsub.unsubscribe(approval_channel)
-
-                if not resolved:
-                    if cp.auto_approve_on_timeout:
-                        logger.info(f"HITL auto-approved on timeout: {trigger_desc}")
-                        approval.status = "APPROVED"
-                        approval.reviewer_notes = "Auto-approved on timeout"
-                    else:
-                        logger.info(f"HITL timed out: {trigger_desc}")
-                        approval.status = "TIMEOUT"
-                        await self.db.commit()
-                        raise Exception(
-                            f"HITL checkpoint timed out after {cp.timeout_ms}ms: {trigger_desc}"
-                        )
-                    await self.db.commit()
-
-            except Exception as hitl_err:
-                if "Execution blocked" in str(hitl_err) or "timed out" in str(hitl_err):
-                    raise
-                logger.warning(f"HITL pub/sub error: {hitl_err}")
-                # Non-fatal: continue execution if pub/sub fails
+                    except Exception as msg_err:
+                        logger.warning(f"HITL pub/sub dropped ({msg_err}); waiting on the approval row")
+                        pubsub, message = None, None
+                    if message and message.get("type") == "message":
+                        published = str(json.loads(message["data"]).get("status", "")).upper()
+                        if published in self._HITL_DECISIONS:
+                            return published
+                if loop.time() >= next_row_check:
+                    stored = await self._read_hitl_status(approval_id)
+                    if stored in self._HITL_DECISIONS:
+                        return stored
+                    next_row_check = loop.time() + 2.0
+                await asyncio.sleep(0.5)
+            return None
+        finally:
+            if pubsub is not None:
+                try:
+                    await pubsub.unsubscribe(f"hitl:{approval_id}")
+                    await pubsub.aclose()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # HITL Expression Evaluator

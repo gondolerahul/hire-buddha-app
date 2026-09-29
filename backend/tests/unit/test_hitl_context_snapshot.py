@@ -30,10 +30,13 @@ class _FakePubSub:
     async def get_message(self, **_):
         return None
 
+    async def aclose(self):
+        pass
+
 
 class _FakeRedis:
-    def __init__(self):
-        self.client = SimpleNamespace(pubsub=lambda: _FakePubSub())
+    def pubsub(self):
+        return _FakePubSub()
 
     async def publish(self, *_):
         pass
@@ -51,6 +54,11 @@ class _FakeDB:
 
     async def refresh(self, obj):
         obj.id = obj.id or uuid.uuid4()
+
+    async def execute(self, stmt):
+        # The wait re-reads the row (still PENDING) and, at the deadline,
+        # conditionally marks it — one row updated.
+        return SimpleNamespace(scalar_one_or_none=lambda: "PENDING", rowcount=1)
 
 
 def _checkpoint(trigger_type: str, **extra) -> dict:
