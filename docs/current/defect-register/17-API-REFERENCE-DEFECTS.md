@@ -138,7 +138,7 @@ It can create executions.
 
 ### API-05 — The frontend calls a delete route that does not exist
 
-**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-01`)** — as PO-01: the route
+**✅ Verified · High** · **Status: fixed (2026-09-29, `4ff3778`)** — as PO-01: the route
 exists and the Knowledge Base has full CRUD.
 
 `KnowledgeBase.tsx` calls `DELETE /ai/documents/{id}`. `ai/router.py` declares only

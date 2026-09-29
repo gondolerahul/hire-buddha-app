@@ -55,7 +55,7 @@ cross-referenced here.
 
 | ID | Defect | Status |
 |---|---|---|
-| PO-01 | Deleting a knowledge-base document always fails | ✅ fixed `@PO-01` |
+| PO-01 | Deleting a knowledge-base document always fails | ✅ fixed `4ff3778` |
 | PO-02 | A tenant admin can open the AI config page but cannot save | ✅ fixed `c8f4d52` |
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
 | PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `682da36` |
@@ -92,7 +92,7 @@ The three worth reading first:
 
 ### PO-01 — Deleting a knowledge-base document always fails
 
-**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-01`)**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `4ff3778`)**
 
 > **Product owner, 2026-09-29:** document upload was wired to the legacy RAG path, which
 > has been retired. The knowledge base must now run on CORTEX memory, and all the basic
