@@ -4,7 +4,8 @@
 > *product* level — features a user can see, click or be promised, that do not work
 > the way the product says they do.
 > **Source document:** [`01-product-overview.md`](../01-product-overview.md)
-> **Compiled:** 2026-09-01, against branch `fresh-main`.
+> **Compiled:** 2026-09-01, against branch `fresh-main`. **Last reviewed:** 2026-09-29, on
+> branch `roadmap-development-defect-fixes`, with the product owner.
 > **Context:** there are **no paying tenants**. Nothing here is a live emergency.
 > Everything in T0 should be closed before the first paying customer.
 
@@ -15,6 +16,9 @@
 - **✅ Verified** — the code was read on 2026-09-01 and the claim held.
 - **📄 Doc-reported** — `01-product-overview.md` says it and it was not re-checked
   by hand. Treat it as a strong lead, but confirm before you change code.
+- **Status** — `open` (scheduled for fixing), `fixed` (with commit), `deferred` (real,
+  not scheduled; pick up on request), or `won't fix` (the behaviour is intended). The
+  product owner's decision from the 2026-09-29 review is quoted under each entry.
 - Line numbers move. Search for the quoted function or variable name, not the line.
 - Defects come first, then improvements. The two lists are separate on purpose:
   a defect is something broken, an improvement is something that works but costs
@@ -40,14 +44,31 @@ cross-referenced here.
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | Before the first paying tenant |
-| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | Before selling the feature |
-| [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | **Now** — free, nothing changes |
-| [T3](#5-t3--rough-edges) | Rough edges | 5 | When the area is next touched |
+| Tier | Theme | Count | Open | Deferred | Won't fix |
+|---|---|---|---|---|---|
+| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 4 | 1 | 0 |
+| [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 4 | 1 | 1 |
+| [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 6 | 0 | 0 |
+| [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 5 | 0 |
 
-**Total: 22 defects, 12 improvements.**
+**Total: 22 defects (14 open, 7 deferred, 1 won't fix), 12 improvements (all deferred).**
+
+| ID | Defect | Status |
+|---|---|---|
+| PO-01 | Deleting a knowledge-base document always fails | open |
+| PO-02 | A tenant admin can open the AI config page but cannot save | open |
+| PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
+| PO-04 | Any logged-in user can read the internal cost report | open |
+| PO-05 | A reviewer approves without seeing what they are approving | open |
+| PO-06 | 64 of the 98 tools are unfinished integrations | open — audit |
+| PO-07 | You can connect 9 social platforms but 16 have tools | open |
+| PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
+| PO-09 | A mistyped config key in the entity builder disappears silently | open |
+| PO-10 | A broken import turns a whole feature area into 404s | open |
+| PO-11 | Templates sit outside tenant scoping by design | won't fix |
+| PO-12 – PO-17 | Dead code and dead surfaces | open — delete |
+| PO-18 – PO-22 | Rough edges | ⏸ deferred |
+| PO-I1 – PO-I12 | Improvements | ⏸ deferred |
 
 The three worth reading first:
 
@@ -65,7 +86,11 @@ The three worth reading first:
 
 ### PO-01 — Deleting a knowledge-base document always fails
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open**
+
+> **Product owner, 2026-09-29:** document upload was wired to the legacy RAG path, which
+> has been retired. The knowledge base must now run on CORTEX memory, and all the basic
+> operations — create, read, update and delete — must work.
 
 The Knowledge Base page has a delete button. It calls
 `DELETE /ai/documents/{id}`. That route does not exist. `ai/router.py` declares only
@@ -85,7 +110,10 @@ dropped in `a30bb85`; documents are now chunked into CORTEX Knowledge Trees — 
 
 ### PO-02 — A tenant admin can open the AI config page but cannot save
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open**
+
+> **Product owner, 2026-09-29:** a tenant admin should not have access to the AI config
+> page. Close the route to them; the API guard stays `app_admin` only.
 
 The React route for `/ai-config` allows `APP_ADMIN` **and** `TENANT_ADMIN`. Every
 `/config/task-defaults` endpoint behind that page is guarded by `_require_app_admin`.
@@ -102,7 +130,10 @@ admin set defaults for their own company. Do not leave a page that only fails on
 
 ### PO-03 — Nothing pushes a new user into onboarding
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: deferred (2026-09-29)**
+
+> **Product owner, 2026-09-29:** new-user onboarding needs a fresh take on how it is
+> designed and implemented. Deferred until then.
 
 The docstring on `onboarding_router.py` says the `ProtectedRoute` guard sends users
 with `onboarding_status != "completed"` to `/onboarding`. It does not.
@@ -124,7 +155,9 @@ built and skippable.
 
 ### PO-04 — Any logged-in user can read the internal cost report
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open**
+
+> **Product owner, 2026-09-29:** the cost report is for `app_admin` only.
 
 `GET /reports/costing` depends on `get_current_user` and `get_db` and nothing else.
 There is no `RoleChecker`. It scopes rows to `current_user.company_id`, so it is not
@@ -145,7 +178,9 @@ the sidebar link is shown to `app_admin` only — anyone who types the URL gets 
 
 ### PO-05 — A reviewer approves without seeing what they are approving
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open**
+
+> **Product owner, 2026-09-29:** needs to be fixed.
 
 Every HITL approval row stores a `context_snapshot` — what the agent was about to do.
 `HITLPanel.tsx` never renders it. `grep context_snapshot` in that file returns
@@ -167,7 +202,10 @@ the row the endpoint returns.
 
 ### PO-06 — 64 of the 98 tools are unfinished integrations
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open — audit**
+
+> **Product owner, 2026-09-29:** audit the entire tools stack and list what needs to be
+> fixed. The deliverable is the audit, not a code change.
 
 `tools/__init__.py` makes exactly 98 `ToolRegistry.register(...)` calls. 64 of those
 are social-platform tools — 16 modules × 4 tools each. All of them inherit
@@ -193,7 +231,9 @@ recommended reduction in [TOOL-LAYER-DEFECTS.md §7](TOOL-LAYER-DEFECTS.md#7-sug
 
 ### PO-07 — You can connect 9 social platforms but 16 have tools
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open**
+
+> **Product owner, 2026-09-29:** fix the social connection module properly.
 
 `VALID_PLATFORMS` in `social_router.py` accepts nine platforms:
 `linkedin, twitter, facebook, instagram, google_ads, youtube, tiktok, reddit, quora`.
@@ -215,7 +255,7 @@ connection type and a tool module — everything else should not be registerable
 
 ### PO-08 — `DB_RECORDS` is an advertised context source that does nothing
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: deferred (2026-09-29)**
 
 `ContextSourceType.DB_RECORDS` exists in the backend enum and in the frontend types.
 The builder shows the panel with a **Coming Soon** badge and disables it. Nothing
@@ -235,7 +275,9 @@ that is silently ignored at run time.
 
 ### PO-09 — A mistyped config key in the entity builder disappears silently
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open**
+
+> **Product owner, 2026-09-29:** needs to be fixed.
 
 Entity create is a closed Pydantic model. Unknown keys are dropped rather than
 rejected. A seed author or an API user who writes `retry_policy` in the wrong JSON
@@ -254,7 +296,9 @@ key. This is a small change with a large effect on how debuggable the builder is
 
 ### PO-10 — A broken import turns a whole feature area into 404s
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open**
+
+> **Product owner, 2026-09-29:** fix it.
 
 Most routers in `main.py` are mounted inside `try / except ImportError` with only a
 `logger.warning` on failure. Billing, credits, cron, reports, email, social, tool
@@ -274,7 +318,9 @@ instead of a log hunt.
 
 ### PO-11 — Templates sit outside tenant scoping by design
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: won't fix (2026-09-29)**
+
+> **Product owner, 2026-09-29:** no fix needed — templates are global by design.
 
 A template is an ordinary entity row with `is_template = true` and
 `company_id = NULL`. `NULL` is what makes it visible to everyone.
@@ -296,14 +342,16 @@ create path is what actually decides the row's visibility.
 
 Free to remove. Nothing here can break anything that is not already broken.
 
+> **Product owner, 2026-09-29:** remove all the dead code and dead surfaces.
+
 | ID | Delete | Why | Status |
 |---|---|---|---|
-| **PO-12** | [`voice/phone_pool_router.py`](../../../backend/src/voice/phone_pool_router.py) | 701 lines, not mounted anywhere. The only surviving reference is a sentence in the replacement's docstring. Also recorded as D-22 in the platform register | ✅ Verified |
-| **PO-13** | [`frontend/src/pages/assets/AssetLibrary.tsx`](../../../frontend/src/pages/assets/AssetLibrary.tsx) | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx` | ✅ Verified |
-| **PO-14** | `send_whatsapp_message()` in [`voice/whatsapp_handler.py:261`](../../../backend/src/voice/whatsapp_handler.py:261) | Body is a `[MOCK]` log line with the real SDK call commented out. Nothing imports it, but it is easy to grab by mistake | 📄 Doc-reported |
-| **PO-15** | The `approval:{id}` Redis publish at [`ai/service.py:854`](../../../backend/src/ai/service.py:854) | Nothing subscribes to it. The live channel is `hitl:{id}`, published by the router at [`ai/router.py:456`](../../../backend/src/ai/router.py:456) and consumed at [`governance_service.py:345`](../../../backend/src/ai/governance/governance_service.py:345) | ✅ Verified |
-| **PO-16** | The `/api/v1/ai/phase11/*` and `/admin/phase11/*` redirect shims | Both carry an explicit *"Remove after 2026-09-01"* comment. That date is today | ✅ Verified |
-| **PO-17** | The `video_generation` deprecated tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ Verified |
+| **PO-12** | [`voice/phone_pool_router.py`](../../../backend/src/voice/phone_pool_router.py) | 701 lines, not mounted anywhere. The only surviving reference is a sentence in the replacement's docstring. Also recorded as D-22 in the platform register | ✅ Verified · open |
+| **PO-13** | [`frontend/src/pages/assets/AssetLibrary.tsx`](../../../frontend/src/pages/assets/AssetLibrary.tsx) | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx` | ✅ Verified · open |
+| **PO-14** | `send_whatsapp_message()` in [`voice/whatsapp_handler.py:261`](../../../backend/src/voice/whatsapp_handler.py:261) | Body is a `[MOCK]` log line with the real SDK call commented out. Nothing imports it, but it is easy to grab by mistake | 📄 Doc-reported · open |
+| **PO-15** | The `approval:{id}` Redis publish at [`ai/service.py:854`](../../../backend/src/ai/service.py:854) | Nothing subscribes to it. The live channel is `hitl:{id}`, published by the router at [`ai/router.py:456`](../../../backend/src/ai/router.py:456) and consumed at [`governance_service.py:345`](../../../backend/src/ai/governance/governance_service.py:345) | ✅ Verified · open |
+| **PO-16** | The `/api/v1/ai/phase11/*` and `/admin/phase11/*` redirect shims | Both carry an explicit *"Remove after 2026-09-01"* comment. That date is today | ✅ Verified · open |
+| **PO-17** | The `video_generation` deprecated tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ Verified · open |
 
 > Before deleting, confirm nothing still imports it:
 > `grep -rn "<module_name>" backend/src frontend/src --include=*.py --include=*.ts --include=*.tsx`
@@ -312,9 +360,12 @@ Free to remove. Nothing here can break anything that is not already broken.
 
 ## 5. T3 — Rough edges
 
+> **Product owner, 2026-09-29:** PO-18 to PO-22 are deferred.
+
 ### PO-18 — Two Redis channels look like the HITL channel
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: deferred (2026-09-29)** — closes with the PO-15
+deletion, which removes both the dead publish and its misleading comment.
 
 `hitl:{id}` is the real one. `approval:{id}` is published and never consumed. A
 developer debugging a stuck approval will find the wrong channel first, because the
@@ -328,7 +379,7 @@ because the misleading comment is the actual cost.
 
 ### PO-19 — The SSE stream closes on a substring match
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: deferred (2026-09-29)**
 
 The browser stops listening when it sees `COMPLETED`, `FAILED` or `CANCELLED` in the
 raw JSON payload — a substring match, not a field read. Any event that happens to
@@ -343,7 +394,7 @@ the stream early and the user will think the run stopped.
 
 ### PO-20 — A long HITL timeout ties up a worker
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: deferred (2026-09-29)**
 
 The governance service subscribes to `hitl:{approval_id}` and then blocks, polling
 until `timeout_ms`. The default is 5 minutes, but the field is free — a tenant can set
@@ -362,7 +413,7 @@ available in the kernel.
 
 ### PO-21 — "Agent" means four different things
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: deferred (2026-09-29)**
 
 `AGENT` is one of four entity types, but the UI, the docs and the sidebar all use
 "agent" loosely for any entity. New developers and new customers both misread
@@ -375,7 +426,7 @@ capacity limits and pricing because of it.
 
 ### PO-22 — Costing and billing reports are the same query
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: deferred (2026-09-29)**
 
 `GET /reports/billing` calls `svc.get_costing_report(...)` — the same method, the same
 rows — and only builds a different `totals` dict. The comment says so:
@@ -394,6 +445,8 @@ gate one and forget the other, which is exactly what happened in
 
 These are not broken. They are places where the product costs more — in money, in
 latency, or in user confusion — than it needs to.
+
+> **Product owner, 2026-09-29:** PO-I1 to PO-I12 are all deferred for now.
 
 ### PO-I1 — Stop blocking a worker on human approval
 
@@ -483,16 +536,19 @@ diagnostic page for a tenant admin would remove most support load.
 
 ---
 
-## 7. Suggested order of work
+## 7. Order of work
+
+Agreed at the 2026-09-29 review. Each item is committed on its own.
 
 | Step | Work | Why here |
 |---|---|---|
 | **1** | T2 deletions — PO-12 to PO-17 | Free. The phase11 shims are already past their own removal date |
-| **2** | PO-04, PO-01, PO-05 | Each is a small, self-contained change with a directly visible effect |
-| **3** | PO-02, PO-03, PO-08 | Align the UI's promises with the API's rules |
-| **4** | PO-I1 (worker blocking) then PO-20 | The largest throughput win in the product |
-| **5** | PO-06, PO-07 | Decide the real tool surface before anyone sells it |
-| **6** | PO-I2, PO-I10 | Build-time cost visibility and step testing — the two things that make the builder usable at scale |
+| **2** | PO-04, PO-02, PO-05 | Small, self-contained, directly visible |
+| **3** | PO-01 | Knowledge-base CRUD on CORTEX Knowledge Trees |
+| **4** | PO-09, PO-10 | Make builder typos and broken router imports loud |
+| **5** | PO-06 audit, then PO-07 | The audit decides which platforms the connection module must support |
+
+Deferred: PO-03, PO-08, PO-18 to PO-22, and every improvement. Won't fix: PO-11.
 
 ---
 
