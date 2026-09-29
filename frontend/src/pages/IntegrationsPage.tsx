@@ -152,7 +152,7 @@ export const IntegrationsPage: React.FC = () => {
                 </div>
             )}
 
-            {(currentUser?.role === UserRole.APP_ADMIN || currentUser?.role === UserRole.TENANT_ADMIN) && (
+            {currentUser?.role === UserRole.APP_ADMIN && (
                 <GlassCard className="mb-8 p-6 border-rose-gold/30 bg-rose-gold/5 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-xl bg-rose-gold/10 flex items-center justify-center text-rose-gold">

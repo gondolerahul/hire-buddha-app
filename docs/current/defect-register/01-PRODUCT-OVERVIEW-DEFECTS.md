@@ -56,7 +56,7 @@ cross-referenced here.
 | ID | Defect | Status |
 |---|---|---|
 | PO-01 | Deleting a knowledge-base document always fails | open |
-| PO-02 | A tenant admin can open the AI config page but cannot save | open |
+| PO-02 | A tenant admin can open the AI config page but cannot save | ✅ fixed `@PO-02` |
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
 | PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `@PO-04` |
 | PO-05 | A reviewer approves without seeing what they are approving | open |
@@ -116,7 +116,7 @@ dropped in `a30bb85`; documents are now chunked into CORTEX Knowledge Trees — 
 
 ### PO-02 — A tenant admin can open the AI config page but cannot save
 
-**✅ Verified · Medium** · **Status: open**
+**✅ Verified · Medium** · **Status: fixed (2026-09-29, `@PO-02`)**
 
 > **Product owner, 2026-09-29:** a tenant admin should not have access to the AI config
 > page. Close the route to them; the API guard stays `app_admin` only.
@@ -131,6 +131,16 @@ So a tenant admin browses to the page, fills the form, presses save, and gets
 
 **Fix:** pick one. Either drop `TENANT_ADMIN` from the route gate, or let a tenant
 admin set defaults for their own company. Do not leave a page that only fails on save.
+
+**Done (2026-09-29):** the first option. `TENANT_ADMIN` is dropped from all three places
+that offered the page — the `/ai-config` route gate, its sidebar item, and the "AI Task
+Defaults" card on the Integrations page, which linked to it. The API was already
+`app_admin` only and is unchanged.
+
+**Evidence:** live on a local SPA. As a `tenant_admin`: no sidebar item, no card on
+`/integrations`, and navigating to `/ai-config` lands on `/dashboard`. As the `app_admin`:
+all three present, and the page loads `GET /config/task-defaults` with 200. There is no
+frontend test runner to hold a regression test ([FE-03](16-FRONTEND-DEFECTS.md#fe-03--there-is-no-test-runner)).
 
 ---
 

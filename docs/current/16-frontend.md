@@ -356,7 +356,7 @@ graph TB
     end
     subgraph Gated["Protected + role allowlist"]
         G1["/ai/tool-registry - app_admin"]
-        G2["/ai-config - app_admin, tenant_admin"]
+        G2["/ai-config - app_admin"]
         G3["/platform-management - 3 admins"]
         G4["/settings/billing, /reports/costing - app_admin"]
         G5["/reports/analytics/* - per-tier allowlists"]
@@ -403,7 +403,7 @@ All non-redirect components are lazy-loaded.
 | `/ai/templates` | `TemplateMarketplace` | any authed | MainLayout | yes |
 | `/knowledge` | `KnowledgeBase` | any authed | MainLayout | yes |
 | `/integrations` | `IntegrationsPage` | any authed | MainLayout | yes |
-| `/ai-config` | `AIModelConfigPage` | `APP_ADMIN`, `TENANT_ADMIN` | MainLayout | yes |
+| `/ai-config` | `AIModelConfigPage` | `APP_ADMIN` | MainLayout | yes |
 | `/profile` | `UserSettings` | any authed | MainLayout | yes |
 | `/platform-management` | `PlatformManagement` | `APP_ADMIN`, `PARTNER_ADMIN`, `TENANT_ADMIN` | MainLayout | yes |
 | `/streaming/phone-numbers` | → `/phone-numbers` | — | — | redirect |
@@ -1477,7 +1477,7 @@ is noted.
 | [`KnowledgeBase.tsx`](../../frontend/src/pages/KnowledgeBase.tsx) | `/knowledge` | Document upload, list, delete, semantic search | `/ai/documents`, `/ai/documents/upload`, `/ai/documents/search` | any authed |
 | [`artifacts/Artifacts.tsx`](../../frontend/src/pages/artifacts/Artifacts.tsx) | `/artifacts` | Unified artifact browser with inline audio/image preview | `artifactService.list/upload/delete`, `apiClient.get('/artifacts/:id/download')` | any authed |
 | [`IntegrationsPage.tsx`](../../frontend/src/pages/IntegrationsPage.tsx) | `/integrations` | Provider credentials + email connections | `integrationService.*`, `emailService.*` | any authed |
-| [`ai-config/AIModelConfigPage.tsx`](../../frontend/src/pages/ai-config/AIModelConfigPage.tsx) | `/ai-config` | Map task types to integrations, single vs router mode | `aiConfigService.*`, `integrationService.getIntegrations` | `app_admin`, `tenant_admin` |
+| [`ai-config/AIModelConfigPage.tsx`](../../frontend/src/pages/ai-config/AIModelConfigPage.tsx) | `/ai-config` | Map task types to integrations, single vs router mode | `aiConfigService.*`, `integrationService.getIntegrations` | `app_admin` |
 
 ### 10.6 Platform, billing, reports
 

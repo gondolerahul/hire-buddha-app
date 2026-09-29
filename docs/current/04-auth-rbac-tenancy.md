@@ -1430,14 +1430,15 @@ flowchart TD
 | `/ai/tool-registry` | `APP_ADMIN` |
 | `/settings/billing` | `APP_ADMIN` |
 | `/reports/analytics/app-admin` | `APP_ADMIN` |
-| `/ai-config` | `APP_ADMIN`, `TENANT_ADMIN` |
+| `/ai-config` | `APP_ADMIN` |
+| `/reports/costing` | `APP_ADMIN` |
 | `/reports/analytics/app-user` | `APP_ADMIN`, `APP_USER` |
 | `/reports/analytics/partner-admin` | `APP_ADMIN`, `PARTNER_ADMIN` |
 | `/platform-management` | `APP_ADMIN`, `PARTNER_ADMIN`, `TENANT_ADMIN` |
 | `/reports/analytics/tenant-admin` | `APP_ADMIN`, `PARTNER_ADMIN`, `TENANT_ADMIN` |
 | `/admin/agent-kernel/*` (5 routes) | `APP_ADMIN`, `PARTNER_ADMIN`, `TENANT_ADMIN` |
 | `/reports/analytics/partner-user` | `APP_ADMIN`, `PARTNER_ADMIN`, `PARTNER_USER` |
-| everything else (~25 routes) | authentication only |
+| everything else (~24 routes) | authentication only |
 
 `MainLayout` separately hides nav items by role ([MainLayout.tsx:68-133](../../frontend/src/components/layout/MainLayout.tsx:68)). Note `/partner` — the partner dashboard — is `<ProtectedRoute>` with **no** `allowedRoles`, so any authenticated user can open it; it will simply get 403s from `/partner/*`. Frontend gating is cosmetic; the backend is the real boundary.
 

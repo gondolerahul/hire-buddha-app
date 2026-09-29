@@ -318,7 +318,7 @@ export const AppRouter: React.FC = () => {
                     <Route
                         path="/ai-config"
                         element={
-                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN, UserRole.TENANT_ADMIN]}>
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
                                 <MainLayout>
                                     <AIModelConfigPage />
                                 </MainLayout>

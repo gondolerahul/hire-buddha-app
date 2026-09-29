@@ -1812,9 +1812,9 @@ sequenceDiagram
 
 Two RBAC quirks worth knowing:
 
-- **`GET /config/task-defaults` is app-admin-only**, so a tenant admin opening
-  the AI Config page gets a 403 and an error banner even though the read is
-  harmless.
+- **Task defaults are app-admin-only, end to end.** Every `/config/task-defaults`
+  endpoint and the AI Config page, its sidebar item and the Integrations page's card
+  are `app_admin` only (PO-02).
 - **`GET /config/integrations` as `app_admin` returns every company's rows**
   with no filter or pagination. Only the ciphertext is withheld.
 
@@ -1987,8 +1987,8 @@ Checklist for the adapter itself, learned from the three that exist:
    `Embedding` card that can never be saved.
 6. **Nothing is seeded.** `model_task_defaults` starts empty. A fresh install
    cannot run a single agent until an app admin configures `text_generation`.
-7. **`GET /config/task-defaults` is `app_admin` only,** so tenant admins see a
-   403 error banner on the AI Config page.
+7. **Task defaults are `app_admin` only** — the API and the AI Config page alike.
+   Tenant admins do not see the page (PO-02).
 8. **`GET /config/integrations` as `app_admin` returns every company's rows**
    with no pagination.
 9. **Vertex AI ignores the stored API key but still requires one to be

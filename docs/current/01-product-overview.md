@@ -1205,12 +1205,12 @@ maps the twelve `TASK_TYPES` (`text_generation`, `thinking`, `text_to_image`,
 `text_to_speech`, `speech_to_speech`, `text_to_video`, `text_to_3d`, …) onto
 specific registry rows, with a `routing_mode` of `single` or `router`.
 
-> **Route/API drift.** The `/ai-config` React route allows `app_admin` **and**
-> `tenant_admin` ([router/index.tsx:321](../../frontend/src/router/index.tsx:321)),
-> but every `/config/task-defaults` endpoint is guarded by `_require_app_admin`
-> ([config/router.py](../../backend/src/config/router.py)). A tenant admin can
-> open the page and will get `403 Only App Administrators can configure AI task
-> defaults` when they save.
+> **`app_admin` only, on both sides.** Task defaults are platform configuration: every
+> `/config/task-defaults` endpoint is guarded by `_require_app_admin`
+> ([config/router.py](../../backend/src/config/router.py)), and the `/ai-config` route, its
+> sidebar item and the Integrations page's "AI Task Defaults" card are shown to
+> `app_admin` only. (Until 2026-09-29 a `tenant_admin` could open the page and got a 403
+> on every request — PO-02.)
 
 ### 6.11 Social connections
 
@@ -1766,7 +1766,7 @@ Legend: **Y** = full access · **S** = scoped (own company or own child tenants)
 | Tool registry management | `/ai/tool-registry` | Y | — | — | — | — | — |
 | Add LLM / telephony integrations | `POST /config/integrations` | Y | — | S | — | — | — |
 | Add email / social / API integrations | `POST /config/integrations` | Y | — | S | — | S | — |
-| Set AI task defaults | `/ai-config` | Y | — | — | — | see note | — |
+| Set AI task defaults | `/ai-config` | Y | — | — | — | — | — |
 | Add / sync / delete phone numbers | `/phone-numbers` | Y | — | — | — | — | — |
 | Claim / release a phone number | `/phone-numbers` | Y | — | Y | — | Y | — |
 | Voice campaigns | `/streaming/campaigns` | Y | Y | Y | Y | Y | Y |
@@ -1787,11 +1787,8 @@ Legend: **Y** = full access · **S** = scoped (own company or own child tenants)
 | Toggle feature flags | `PUT /feature_flags/{key}` | Y | — | see note | — | see note | — |
 | Onboarding wizard | `/onboarding` | Y | Y | Y | Y | Y | Y |
 
-Notes on the three ambiguous rows:
+Notes on the two ambiguous rows:
 
-- **`/ai-config`** — the React route lets `tenant_admin` in, but every
-  `/config/task-defaults` endpoint requires `app_admin`. Tenant admins see the
-  page and get a 403 on save.
 - **`/reports/costing`** — `app_admin` only, on the route and on
   `GET /reports/costing` and `GET /reports/billing` (both return `base_cost`). The
   report spans every company, with an optional `company_id` filter (PO-04,
@@ -1923,8 +1920,9 @@ Honest boundaries, all verifiable by grep.
   [`main.py`](../../backend/src/main.py) with only a `logger.warning` on failure.
   A broken import makes a whole feature area 404 rather than crashing the app —
   check the startup log before debugging a "missing" endpoint.
-- **Frontend route gates and backend guards do not always agree.** `/ai-config`
-  is the live example; assume the backend is the real boundary.
+- **Frontend route gates and backend guards are kept separately.** `/ai-config` and
+  `/reports/costing` drifted apart until 2026-09-29 (PO-02, PO-04); assume the backend
+  is the real boundary.
 - **The HITL channel is `hitl:{approval_id}`.** The router publishes the reviewer's
   decision there and `GovernanceService` waits on it. (A second, unconsumed
   `approval:{id}` publish was deleted on 2026-09-29, PO-15.)

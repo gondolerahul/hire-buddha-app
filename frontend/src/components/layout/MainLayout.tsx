@@ -104,7 +104,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             items: [
                 { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
                 { path: '/integrations', label: 'Integrations', icon: Blocks },
-                ...(([UserRole.APP_ADMIN, UserRole.TENANT_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/ai-config', label: 'AI Configuration', icon: Route }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/ai-config', label: 'AI Configuration', icon: Route }] : []),
                 { path: '/artifacts', label: 'Artifacts', icon: Archive },
             ]
         },
