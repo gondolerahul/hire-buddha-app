@@ -364,7 +364,6 @@ graph TB
     end
     subgraph Redirects["Navigate redirects"]
         R1["Legacy: /agents, /workflows, /assets, /partners, /tenants, /users"]
-        R2["De-prefix: /admin/phase11/* to /admin/agent-kernel/*"]
         R3["Catch-all: * to /dashboard"]
     end
 ```
@@ -430,7 +429,6 @@ All non-redirect components are lazy-loaded.
 | `/admin/agent-kernel/cost` | `CostAttributionDashboard` | 3 admins | MainLayout | yes |
 | `/admin/agent-kernel/feature-flags` | `FeatureFlagsPage` | 3 admins | MainLayout | yes |
 | `/admin/agent-kernel/risks` | `RiskAndExitPage` | 3 admins | MainLayout | yes |
-| `/admin/phase11/{kpi,meta-intelligence,cost,feature-flags,risks}` | → `/admin/agent-kernel/…` | — | — | redirect (removal date noted as 2026-09-01) |
 | `/partners`, `/tenants`, `/users` | → `/platform-management` | — | — | redirect |
 | `*` | → `/dashboard` | — | — | catch-all |
 

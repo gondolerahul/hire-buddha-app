@@ -580,14 +580,6 @@ export const AppRouter: React.FC = () => {
                         }
                     />
 
-                    {/* De-prefix compat: old /admin/phase11/* bookmarks
-                        redirect to /admin/agent-kernel/*. Remove after 2026-09-01. */}
-                    <Route path="/admin/phase11/kpi" element={<Navigate to="/admin/agent-kernel/kpi" replace />} />
-                    <Route path="/admin/phase11/meta-intelligence" element={<Navigate to="/admin/agent-kernel/meta-intelligence" replace />} />
-                    <Route path="/admin/phase11/cost" element={<Navigate to="/admin/agent-kernel/cost" replace />} />
-                    <Route path="/admin/phase11/feature-flags" element={<Navigate to="/admin/agent-kernel/feature-flags" replace />} />
-                    <Route path="/admin/phase11/risks" element={<Navigate to="/admin/agent-kernel/risks" replace />} />
-
                     {/* Legacy Management Redirects */}
                     <Route path="/partners" element={<Navigate to="/platform-management" replace />} />
                     <Route path="/tenants" element={<Navigate to="/platform-management" replace />} />

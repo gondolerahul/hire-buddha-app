@@ -1172,19 +1172,9 @@ curl -s -H "Authorization: Bearer $TOKEN" $BASE/api/v1/ai/admin/executions/$RUN/
 |---|---|---|
 | `GET /api/v1/assets` | `/api/v1/artifacts` | Legacy assets listing |
 | `GET /api/v1/assets/{path:path}` | `/api/v1/artifacts/{path}` | Legacy assets path |
-| `GET\|POST /api/v1/ai/phase11/{subpath}` | `/api/v1/ai/admin/{subpath}` | 307, preserves query |
 
-The kernel-admin shim carries an explicit expiry:
-
-```python
-# backend/src/main.py
-# Kernel admin de-prefix compat shim. The router moved from
-# /api/v1/ai/phase11/* to /api/v1/ai/admin/*; this redirect keeps old
-# bookmarks and the unmigrated frontend working. Remove after 2026-09-01.
-```
-
-Today is past that date's approach; check whether the frontend still depends on
-it before removing.
+The `/api/v1/ai/phase11/*` → `/api/v1/ai/admin/*` 307 shim reached its 2026-09-01
+removal date and was deleted on 2026-09-29 (PO-16). Nothing in the frontend called it.
 
 ### 22.2 Removed router — `phone_pool_router.py`
 

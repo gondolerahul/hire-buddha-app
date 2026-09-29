@@ -226,7 +226,7 @@ router failed to load.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **API-10** | `GET\|POST /api/v1/ai/phase11/{subpath}` | 307 shim carrying an explicit *"Remove after 2026-09-01"* comment. **That date is today.** Remove the five matching legacy routes from the frontend router in the same change | ✅ Verified |
+| **API-10** | `GET\|POST /api/v1/ai/phase11/{subpath}` | 307 shim carrying an explicit *"Remove after 2026-09-01"* comment. **That date is today.** Remove the five matching legacy routes from the frontend router in the same change | ✅ fixed (2026-09-29, `@PO-16`) — as PO-16, with the five SPA routes |
 | **API-11** | `GET /api/v1/assets` and `/api/v1/assets/{path}` | Redirect shims to `/api/v1/artifacts*`. The legacy `assets` table they existed for was never dropped either — see [DM-10](03-DATA-MODEL-DEFECTS.md#4-t2--wrong-types-and-dead-tables) | ✅ Verified |
 | **API-12** | `voice/phone_pool_router.py` | 701 lines, never mounted. **Keep** `phone_pool_models.py` — the live router still imports `PhoneNumber` from it. Also **D-22** | ✅ fixed (2026-09-29, `@PO-12`) — as PO-12 |
 | **API-13** | `GET /api/v1/auth/admin-only` | Exists purely to probe the admin role guard. A debug route on the public surface | ✅ Verified |

@@ -1825,7 +1825,6 @@ Honest boundaries, all verifiable by grep.
 | `VideoGenerationTool` | registered but `status = ToolStatus.DEPRECATED` — "remove after seeds migrate" |
 | `ReasoningMode.REFLECTION` and `TREE_OF_THOUGHTS` | in `DEPRECATED_REASONING_MODES`; still accepted, emit a deprecation warning |
 | `SeedDocumentFactory` (~50 entities) | superseded by `SeedDocFactoryLite` (1 entity) for cost reasons |
-| `/admin/phase11/*` routes and `/api/v1/ai/phase11/*` | 307 redirects to `/admin/agent-kernel/*`; both marked "Remove after 2026-09-01" |
 
 **Off by default and gated:**
 

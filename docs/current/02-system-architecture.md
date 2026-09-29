@@ -613,11 +613,9 @@ tracks triple-quoted blocks so docstrings and prompt templates do not trip it.
 
 **Rule 5 — canary-label ban** (`CANARY_LABEL_MODE = "error"`). No filename or
 source line under `src/ai/` may contain `p11`, `P11` or `phase11`. Alembic
-migrations are skipped because renaming applied revisions is unsafe. The only
-surviving references are one-release redirect shims *outside* the tree — see the
-`/api/v1/ai/phase11/*` → `/api/v1/ai/admin/*` 307 redirect in
-[`main.py:106`](../../backend/src/main.py:106), which carries a removal date of
-2026-09-01.
+migrations are skipped because renaming applied revisions is unsafe. The
+one-release redirect shims outside the tree (`/api/v1/ai/phase11/*` in `main.py` and
+`/admin/phase11/*` in the SPA router) were removed on 2026-09-29 (PO-16).
 
 **Rule 6 — `tools/` root.** Only `__init__.py`, `base.py`, `resilience.py` and
 `README.md` may sit at `src/ai/tools/`. Every concrete tool lives in a
