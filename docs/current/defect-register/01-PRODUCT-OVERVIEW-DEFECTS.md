@@ -60,7 +60,7 @@ cross-referenced here.
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
 | PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `682da36` |
 | PO-05 | A reviewer approves without seeing what they are approving | ✅ fixed `ad74c46` |
-| PO-06 | 64 of the 98 tools are unfinished integrations | ✅ audit delivered `@PO-06` |
+| PO-06 | 64 of the 98 tools are unfinished integrations | ✅ audit delivered `579c14f` |
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
 | PO-08 | `DB_RECORDS` is an advertised context source that does nothing | ⏸ deferred |
 | PO-09 | A mistyped config key in the entity builder disappears silently | ✅ fixed `3fadd76` |
@@ -316,7 +316,7 @@ proceeds),
 
 ### PO-06 — 64 of the 98 tools are unfinished integrations
 
-**✅ Verified · High** · **Status: audit delivered (2026-09-29, `@PO-06`)**
+**✅ Verified · High** · **Status: audit delivered (2026-09-29, `579c14f`)**
 
 > **Product owner, 2026-09-29:** audit the entire tools stack and list what needs to be
 > fixed. The deliverable is the audit, not a code change.
