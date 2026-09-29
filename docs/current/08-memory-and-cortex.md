@@ -1424,6 +1424,11 @@ for `skill_promotion_scan` and `meta_agent_prompt_evolution`.
 A rule distilled by Dreaming is not trusted immediately. It earns its way into
 prompts.
 
+> **Not enforced today (2026-09-29).** This is the design. Nothing yet records
+> validations or calls `next_state`, Dreaming stamps no state, and the `RunMemory` path
+> does not filter, so every distilled rule reaches prompts. See
+> [MC-I11](defect-register/08-MEMORY-AND-CORTEX-DEFECTS.md#mc-i11--enforce-the-intelligence-rule-lifecycle).
+
 ```mermaid
 stateDiagram-v2
     [*] --> candidate: distilled by dreaming / reflector

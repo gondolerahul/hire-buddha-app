@@ -39,11 +39,11 @@ something that works but costs more than it should.
 | 03 | [Database & data model](03-DATA-MODEL-DEFECTS.md) | [03](../03-data-model.md) | 20 | 10 |
 | 04 | [Auth, RBAC & multi-tenancy](04-AUTH-RBAC-TENANCY-DEFECTS.md) | [04](../04-auth-rbac-tenancy.md) | 22 | 10 |
 | 05 | [The agent kernel](05-AGENT-KERNEL-DEFECTS.md) | [05](../05-agent-kernel.md) | 21 | 10 |
-| 06 | [Entities & the execution pipeline](06-EXECUTION-PIPELINE-DEFECTS.md) | [06](../06-execution-pipeline.md) | 24 | 10 |
-| 07 | [Planning, critics & self-correction](07-PLANNING-AND-CRITICS-DEFECTS.md) | [07](../07-planning-and-critics.md) | 22 | 10 |
-| 08 | [Memory, CORTEX & retrieval](08-MEMORY-AND-CORTEX-DEFECTS.md) | [08](../08-memory-and-cortex.md) | 20 | 10 |
+| 06 | [Entities & the execution pipeline](06-EXECUTION-PIPELINE-DEFECTS.md) | [06](../06-execution-pipeline.md) | 25 | 10 |
+| 07 | [Planning, critics & self-correction](07-PLANNING-AND-CRITICS-DEFECTS.md) | [07](../07-planning-and-critics.md) | 25 | 10 |
+| 08 | [Memory, CORTEX & retrieval](08-MEMORY-AND-CORTEX-DEFECTS.md) | [08](../08-memory-and-cortex.md) | 20 (9 fixed, 11 deferred) | 11 |
 | 09 | [Tools & the tool registry](09-TOOLS-DEFECTS.md) | [09](../09-tools.md) | 6 + **[49 deep](TOOL-LAYER-DEFECTS.md)** | 10 |
-| 10 | [LLM providers & routing](10-LLM-PROVIDERS-DEFECTS.md) | [10](../10-llm-providers.md) | 24 | 10 |
+| 10 | [LLM providers & routing](10-LLM-PROVIDERS-DEFECTS.md) | [10](../10-llm-providers.md) | 25 | 10 |
 | 11 | [Meta-intelligence & the Board](11-META-INTELLIGENCE-DEFECTS.md) | [11](../11-meta-intelligence.md) | 19 | 10 |
 | 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 | 10 |
 | 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 | 10 |
@@ -73,7 +73,7 @@ Ranked by consequence, not by how hard they are to fix. Six of the ten are small
 | 1 | **The wallet is credited with an amount the client chooses**, with no replay guard | [BC-01](14-BILLING-AND-CREDITS-DEFECTS.md#bc-01--the-client-chooses-how-much-to-credit-its-own-wallet) | Verify a $1 payment, claim $1000, repeat |
 | 2 | **Any admin can promote themselves to `app_admin`** | [AU-01](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-01--any-admin-can-promote-themselves-to-app_admin) | One PATCH; `app_admin` then bypasses every tenant filter |
 | 3 | **The email-connection API has no authentication** | [AU-02](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-02--the-email-connection-api-has-no-authentication-at-all) | Five routes managing SMTP/IMAP credentials, open |
-| 4 | **CORTEX is write-only** — memory is recorded and never read back into a prompt | [MC-01](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-01--cortex-is-write-only-on-the-live-path) | An agent's tenth run knows what its first run knew |
+| 4 | **CORTEX is write-only** — memory is recorded and never read back into a prompt | [MC-01](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-01--cortex-is-write-only-on-the-live-path) | An agent's tenth run knows what its first run knew. **Fixed 2026-09-28** |
 | 5 | **Three of the four credit gates have no callers** | [BC-05](14-BILLING-AND-CREDITS-DEFECTS.md#bc-05--three-of-the-four-credit-gates-have-no-callers) | No pre-run gate, no in-run breaker. Both are written and tested |
 | 6 | **No webhook signature is verified, and a failure would not block** | [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block) | Anyone who can reach the endpoint can run any tenant's agents |
 | 7 | **The default sandbox runs LLM-authored code as the backend OS user** | [TL-01](TOOL-LAYER-DEFECTS.md#tl-01--the-default-sandbox-runs-llm-authored-code-as-the-backend-os-user) + [TX-01](09-TOOLS-DEFECTS.md#tx-01--the-per-company-sandbox-flag-is-never-read) | The feature flag says "on"; the runtime default says "off"; off wins |
@@ -156,7 +156,7 @@ day:
 | **1. Turn on the lights** | Fix CI, make skips fail, add gate-failure metrics, add an error boundary | [19](19-TESTING-DEFECTS.md), [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md), [15](15-GOVERNANCE-AND-HITL-DEFECTS.md), [16](16-FRONTEND-DEFECTS.md) |
 | **2. Close the money and auth holes** | BC-01, BC-02, BC-03, AU-01, AU-02, AU-03, GW-01 | [14](14-BILLING-AND-CREDITS-DEFECTS.md), [04](04-AUTH-RBAC-TENANCY-DEFECTS.md), [13](13-GATEWAY-AND-REALTIME-DEFECTS.md) |
 | **3. Clear the ground** | Every T2 deletion across all registers. Free, and it shrinks what everyone else has to reason about | all |
-| **4. Call what already exists** | The credit gates, the memory read path, the cost resolver, the two worker jobs | [14](14-BILLING-AND-CREDITS-DEFECTS.md), [08](08-MEMORY-AND-CORTEX-DEFECTS.md), [09](09-TOOLS-DEFECTS.md), [02](02-SYSTEM-ARCHITECTURE-DEFECTS.md) |
+| **4. Call what already exists** | The credit gates, ~~the memory read path~~, the cost resolver, ~~the two worker jobs~~ *(memory read path and worker jobs done 2026-09-28)* | [14](14-BILLING-AND-CREDITS-DEFECTS.md), [08](08-MEMORY-AND-CORTEX-DEFECTS.md), [09](09-TOOLS-DEFECTS.md), [02](02-SYSTEM-ARCHITECTURE-DEFECTS.md) |
 | **5. Fix the defaults** | `STREAMING_HOST`, the gateway DB port, `cost_unit`, Redis URL parsing, placeholder secrets | [02](02-SYSTEM-ARCHITECTURE-DEFECTS.md), [10](10-LLM-PROVIDERS-DEFECTS.md) |
 | **6. Make the run report the truth** | AK-01, then the single cost write path | [05](05-AGENT-KERNEL-DEFECTS.md), [14](14-BILLING-AND-CREDITS-DEFECTS.md) |
 | **7. Throughput** | Stop blocking a worker on HITL; enforce the child cap; add LLM retry and timeout | [15](15-GOVERNANCE-AND-HITL-DEFECTS.md), [05](05-AGENT-KERNEL-DEFECTS.md), [10](10-LLM-PROVIDERS-DEFECTS.md) |

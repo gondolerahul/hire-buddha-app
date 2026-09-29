@@ -104,7 +104,6 @@ Partly stale — text updated, the defect itself still stands:
 | PO-01 | [01](01-PRODUCT-OVERVIEW-DEFECTS.md) | The delete route must now remove Knowledge Tree chunk nodes, not `document_chunks` rows |
 | DM-11 | 03 | Two of the four text-typed numeric columns went with their tables |
 | IN-05 | [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | The cortex workflow's filter matches again; there is still no CI for `backend/tests/` |
-| MC-20 | 08 | The misleading folder name is gone; the in-repo copy still shadows the installed wheel |
 | TS-I7, README §1 | 19, [README](README.md) | `assemble_memory` is no longer a "never called" example |
 
 ---
@@ -118,6 +117,13 @@ exposed. They are part of the backlog like any other entry.
 |---|---|
 | PC-25 | 07 |
 | EP-25 | [06](06-EXECUTION-PIPELINE-DEFECTS.md) |
+| MC-23, MC-24 (deferred), MC-I11 (improvement) | 08 |
+
+On 2026-09-29 the memory register (08) was reviewed with the product owner.
+- MC-04, MC-08, MC-17 and MC-20 were removed by product decision; MC-20's facts moved into
+  MC-I10.
+- Every other open MC defect was marked **deferred**.
+- The register carries a status table at the top.
 
 The Summary table and **Total** line of every register touched were kept in step.
 
