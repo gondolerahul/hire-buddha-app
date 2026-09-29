@@ -37,11 +37,11 @@
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | **Now** — a gate that fails open is not a gate |
-| [T1](#3-t1--hitl-correctness) | HITL correctness | 8 | Before HITL is sold as a safety feature |
+| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | Before HITL is sold as a safety feature |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | Before an operator trusts the flags page |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | When the area is next touched |
 
-**Total: 24 defects, 10 improvements.**
+**Total: 25 defects, 10 improvements.**
 
 The three to read first:
 
@@ -58,7 +58,9 @@ The three to read first:
 
 ### GH-01 — If Redis is down, every HITL checkpoint is skipped
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-29, `98af2c0`)** — with GH-22: the wait
+fails closed and re-reads the approval row, so a Redis outage delays a decision instead of
+skipping the checkpoint.
 
 > **Update 2026-09-29:** worse than stated. The subscribe call itself is broken, so this
 > swallow fires on every checkpoint, Redis up or down — see
@@ -173,7 +175,8 @@ expensive: four price tables, and forgetting one produces no error.
 
 ### GH-22 — Every HITL checkpoint fails to subscribe, so none of them waits
 
-**✅ Verified · Critical** · **Status: open** — found 2026-09-29 while verifying PO-05.
+**✅ Verified · Critical** · **Status: fixed (2026-09-29, `98af2c0`)** — found 2026-09-29
+while verifying PO-05; fixed with GH-01.
 
 The wait calls `self.redis.client.pubsub()`. On the live path `self.redis` is the
 `redis.asyncio.Redis` that `arq_jobs` builds with `redis.from_url(...)`, where `client` is a
@@ -194,13 +197,40 @@ once, and the row stays `PENDING`.
 **Fix:** `self.redis.pubsub()`, and fail closed as GH-01 asks. Add a test that runs the wait
 against a real `redis.asyncio.Redis`, not a mock with a `.client` attribute.
 
+**Done (2026-09-29).** The wait is now `GovernanceService._await_hitl_decision`:
+
+- it subscribes with `self.redis.pubsub()`;
+- it also re-reads the approval row's `status` every 2 seconds, so a lost publish or a Redis
+  outage delays the decision but never skips the checkpoint — GH-01's fail-closed ask;
+- it returns the decision as a value, and `evaluate_hitl` acts on it directly — the
+  catch-all that let steps through, and the exception-text matching of GH-06, are gone;
+- at the deadline the row is marked `TIMEOUT` (or auto-approved) with a conditional
+  `UPDATE … WHERE status = 'PENDING'`, so an answer that lands at the deadline wins;
+- the `HITL_PENDING` notice on `execution:{run_id}` is best-effort — the row is the record.
+
+**Evidence:** `tests/unit/test_hitl_wait.py`, 7 cases, all failing on the old code: an
+approval and a rejection over a **real** `redis.asyncio.Redis` built exactly as `arq_jobs`
+builds it (the approval case asserts the step waited for the message); Redis down with the
+decision arriving on the row (approve and reject); timeout with and without auto-approve;
+and a decision at the deadline beating the timeout. Live, with the worker restarted on the
+new code and a one-step agent carrying a `BEFORE_STEP` checkpoint: run 1 sat `RUNNING` with
+no step output until **Authorize** was clicked on the approvals page, then completed with
+its output; run 2, left unanswered, timed out after its 10-minute window — approval
+`TIMEOUT`, run `FAILED`, step never executed; run 3, **Block Cycle** — the step failed with
+*Execution blocked by human reviewer* and never ran. Run 3 also exposed
+[GH-25](#gh-25--a-rejected-step-is-retried-and-the-reviewer-is-asked-again).
+
 ---
 
 ## 3. T1 — HITL correctness
 
 ### GH-06 — Reject and timeout are detected by matching exception text
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `98af2c0`)** — by the GH-22 rewrite: the
+wait returns the decision as a value and `evaluate_hitl` raises from it directly; no
+exception text is matched anywhere on the HITL path. The exceptions are still plain
+`Exception`s — typed ones are what
+[GH-25](#gh-25--a-rejected-step-is-retried-and-the-reviewer-is-asked-again) needs.
 
 ```python
 if "Execution blocked" in str(hitl_err) or "timed out" in str(hitl_err):
@@ -295,7 +325,8 @@ is a delay, not a control.
 
 ### GH-23 — Authorize and Block Cycle always fail with 422
 
-**✅ Verified · Critical** · **Status: open** — found 2026-09-29 while fixing PO-05.
+**✅ Verified · Critical** · **Status: fixed (2026-09-29, `@GH23`)** — found 2026-09-29 while
+fixing PO-05.
 
 `HITLPanel` posts `{status, notes}` as a JSON body. `POST /ai/approvals/{id}/respond`
 declares `status` and `notes` as plain function parameters, which FastAPI reads from the
@@ -311,11 +342,21 @@ this hides itself: the worker never waits, so nothing appears stuck.
 **Fix:** accept a request body (a small Pydantic model), validate `status` against
 `APPROVED | REJECTED`, and show the error in the panel.
 
+**Done (2026-09-29).** The endpoint takes `ApprovalDecision` — `status: Literal["APPROVED",
+"REJECTED"]`, optional `notes`, unknown keys forbidden — as its JSON body. The panel shows
+the API's error message, and refreshes the list on a 404 or 409.
+
+**Evidence:** `tests/integration/test_hitl_respond.py` — the panel's exact request is
+accepted and recorded (fails on the old code); a bad status, an unknown key or an empty body
+is a 422 and leaves the approval `PENDING`. Live: **Authorize** and **Block Cycle** on the
+approvals page both returned 200 and the waiting runs acted on them (see GH-22).
+
 ---
 
 ### GH-24 — Any user can answer any company's approval
 
-**✅ Verified · High** · **Status: open** — found 2026-09-29 while fixing PO-05.
+**✅ Verified · High** · **Status: fixed (2026-09-29, `@GH23`)** — found 2026-09-29 while
+fixing PO-05; fixed with GH-23.
 
 `respond_to_approval` loads the approval by id alone — no join to `execution_runs`, no
 `company_id` check — then updates it and publishes on `hitl:{id}`. The list endpoint is
@@ -327,6 +368,38 @@ can approve or reject that tenant's run.
 **Fix:** load the approval joined to its run and require `run.company_id ==
 current_user.company_id` (`app_admin` excepted), as `get_pending_approvals` does. Refuse a
 second answer to an approval that is no longer `PENDING`.
+
+**Done (2026-09-29).** `AIService.respond_to_approval` loads the approval joined to its run
+and requires `run.company_id == current_user.company_id` — for every role, `app_admin`
+included, matching the pending list (which is also own-company only). The decision is
+written with `UPDATE … WHERE status = 'PENDING'`: a second answer, or an answer after the
+worker timed out, is a 409 naming the current status.
+
+**Evidence:** `tests/integration/test_hitl_respond.py` — another company gets 404 and the
+approval stays `PENDING`; a second answer is 409 and the first stands; an answer to a
+`TIMEOUT` approval is 409. All three fail on the old code.
+
+---
+
+### GH-25 — A rejected step is retried, and the reviewer is asked again
+
+**✅ Verified · High** · **Status: open** — found 2026-09-29 while verifying GH-22.
+
+**Block Cycle** fails the step with *Execution blocked by human reviewer*. The loop cannot
+tell that failure from any other: the post critic judges it (an LLM call — it answered
+`REJECT`, tag `BLOCKED_DEPENDENCY`, *"Unblock to proceed"*), the retry strategy retries the
+step, and the checkpoint fires again with a new approval. On the live run the reviewer was
+asked three times in a row for the same step before the run was cancelled.
+
+So a rejection is a *request to be asked again*, not a stop — and each round costs a critic
+call and holds the worker for another wait.
+
+- [`ai/core/executors/single_step.py`](../../../backend/src/ai/core/executors/single_step.py) — any step exception becomes `success=False`
+- [`ai/governance/governance_service.py`](../../../backend/src/ai/governance/governance_service.py) — raises a plain `Exception`
+
+**Fix:** raise a typed `HITLRejected` (and `HITLTimeout`), carry it to the loop as a
+distinct outcome, and end the run — or at least that plan branch — without a critic call or
+a retry. Decide with the product owner whether a rejection ends the whole run.
 
 ---
 
@@ -420,7 +493,7 @@ Collected in one place, because individually each looks defensible:
 
 | Gate | Failure behaviour |
 |---|---|
-| HITL pub/sub | continues unapproved |
+| HITL pub/sub | ~~continues unapproved~~ — fails closed since 2026-09-29 (GH-01, GH-22) |
 | `RedisRateLimiter` | returns allowed |
 | Gateway slowapi limit | not attached to most routes at all |
 | `CompanySuspensionMiddleware` | continues |

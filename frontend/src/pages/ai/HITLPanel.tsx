@@ -39,6 +39,7 @@ export const HITLPanel: React.FC = () => {
     const [approvals, setApprovals] = useState<HumanApproval[]>([]);
     const [loading, setLoading] = useState(true);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const [error, setError] = useState<string | null>(null);
 
     const toggleExpanded = (id: string) =>
         setExpanded(prev => {
@@ -65,14 +66,18 @@ export const HITLPanel: React.FC = () => {
     };
 
     const handleRespond = async (approvalId: string, status: 'APPROVED' | 'REJECTED') => {
+        setError(null);
         try {
             await apiClient.post(`/ai/approvals/${approvalId}/respond`, {
                 status,
                 notes: `Responded via HITL Dashboard`
             });
             setApprovals(prev => prev.filter(a => a.id !== approvalId));
-        } catch (error) {
-            console.error('Failed to respond to approval:', error);
+        } catch (err: any) {
+            const detail = err?.response?.data?.detail;
+            setError(typeof detail === 'string' ? detail : 'Could not record your decision. Please try again.');
+            // Already answered, or the run stopped waiting: the list is stale.
+            if (err?.response?.status === 409 || err?.response?.status === 404) fetchPendingApprovals();
         }
     };
 
@@ -89,6 +94,17 @@ export const HITLPanel: React.FC = () => {
                     {approvals.length} PENDING BLOCKS
                 </div>
             </header>
+
+            {error && (
+                <GlassCard className="mb-6 p-4 border border-red-400/40 text-red-300">
+                    <div className="flex items-center justify-between gap-4" role="alert">
+                        <span>{error}</span>
+                        <button type="button" onClick={() => setError(null)} aria-label="Dismiss">
+                            <XCircle size={16} />
+                        </button>
+                    </div>
+                </GlassCard>
+            )}
 
             <div className="standard-grid">
                 {approvals.length === 0 ? (

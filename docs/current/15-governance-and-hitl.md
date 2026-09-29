@@ -565,14 +565,14 @@ sequenceDiagram
     G->>R: SUBSCRIBE hitl:{approval_id}
     loop until deadline (timeout_ms)
         G->>R: get_message(timeout=1.0)
+        G->>DB: every 2 s, re-read the approval row's status
         G->>G: asyncio.sleep(0.5)
     end
 
-    H->>UI: click Approve
-    UI->>DB: PATCH approval status
+    H->>UI: click Authorize
+    UI->>DB: POST /ai/approvals/{id}/respond - UPDATE ... WHERE status = PENDING
     UI->>R: PUBLISH hitl:{approval_id} {status: APPROVED}
     R-->>G: message
-    G->>G: resolved = True, break
     G->>W: return - step proceeds
 ```
 
@@ -588,68 +588,50 @@ the second is the reply path.
 
 ### 8.2 The wait loop
 
-```python
-# backend/src/ai/governance/governance_service.py
-deadline = asyncio.get_running_loop().time() + timeout_sec
-resolved = False
+`GovernanceService._await_hitl_decision` returns `"APPROVED"`, `"REJECTED"` or `None`
+(the deadline passed). It listens on two sources:
 
-while asyncio.get_running_loop().time() < deadline:
-    message = await pubsub.get_message(
-        ignore_subscribe_messages=True, timeout=1.0
-    )
-    if message and message.get("type") == "message":
-        data = json.loads(message["data"])
-        status = data.get("status", "").upper()
-        if status == "APPROVED":
-            resolved = True
-            break
-        elif status == "REJECTED":
-            approval.status = "REJECTED"
-            await self.db.commit()
-            raise Exception(
-                f"Execution blocked by human reviewer: {trigger_desc}"
-            )
-    await asyncio.sleep(0.5)
-```
+- **pub/sub** — `self.redis.pubsub()` subscribed to `hitl:{approval_id}`; a message wakes
+  it at once (`get_message(timeout=1.0)` plus a 0.5-second sleep);
+- **the approval row** — its `status` is re-read every 2 seconds, so a decision is seen
+  even when the publish was lost or Redis is down.
 
-Polling with a 1-second `get_message` timeout plus a 0.5-second sleep — so
-approval is noticed within roughly 1.5 seconds.
+If subscribing fails, or the connection drops mid-wait, it logs a warning and keeps
+waiting on the row alone. **Nothing in the wait lets a step proceed without a decision.**
+(Until 2026-09-29 the wait called `self.redis.client.pubsub()`, which raises on the
+worker's `redis.asyncio.Redis`, and a catch-all let the step proceed unapproved — so no
+checkpoint ever waited. GH-22, GH-01.)
+
+`evaluate_hitl` then acts on the decision directly — no exception text is matched:
+
+| Decision | Result |
+|---|---|
+| `APPROVED` | next checkpoint, then the step runs |
+| `REJECTED` | raises `Execution blocked by human reviewer: …` — the step fails |
+| deadline | see §8.3 |
 
 ### 8.3 Timeout behaviour
 
-```python
-# backend/src/ai/governance/governance_service.py
-if not resolved:
-    if cp.auto_approve_on_timeout:
-        approval.status = "APPROVED"
-        approval.reviewer_notes = "Auto-approved on timeout"
-    else:
-        approval.status = "TIMEOUT"
-        await self.db.commit()
-        raise Exception(
-            f"HITL checkpoint timed out after {cp.timeout_ms}ms: {trigger_desc}"
-        )
-```
+At the deadline the row is marked with a **conditional** update — `TIMEOUT`, or `APPROVED`
+with *"Auto-approved on timeout"* when `auto_approve_on_timeout` is set — `WHERE status =
+'PENDING'`. If a reviewer's answer landed at the same moment, the update matches nothing
+and their decision wins. A `TIMEOUT` raises `HITL checkpoint timed out after …ms`.
 
 Default `timeout_ms` is **300000 (5 minutes)** and `auto_approve_on_timeout`
 defaults to **`False`** — so the safe default is *fail closed on timeout*.
 
-### 8.4 Pub/sub failure fails open
+### 8.4 Answering an approval
 
-```python
-# backend/src/ai/governance/governance_service.py
-except Exception as hitl_err:
-    if "Execution blocked" in str(hitl_err) or "timed out" in str(hitl_err):
-        raise
-    logger.warning(f"HITL pub/sub error: {hitl_err}")
-    # Non-fatal: continue execution if pub/sub fails
-```
+`POST /ai/approvals/{approval_id}/respond` takes a JSON body
+`{"status": "APPROVED" | "REJECTED", "notes"?}` (`ApprovalDecision`; anything else is a
+422). `AIService.respond_to_approval` finds the approval **through its run's company** —
+another company's approval is a 404 — and records the decision with `UPDATE … WHERE status
+= 'PENDING'`, so an approval is answered once: a second answer, or one after the worker
+timed out, is a 409. The router then publishes on `hitl:{approval_id}` (best-effort; the
+worker also reads the row). GH-23, GH-24.
 
-⚠️ **If Redis is unavailable, the checkpoint is skipped and the step runs
-unapproved.** The approval row stays `PENDING` forever. The two genuine
-outcomes — rejected and timed out — are re-raised by matching on the exception
-*message text*, which is fragile: reword either message and the corresponding
-gate silently stops working.
+⚠️ A rejection fails the step, and the loop treats that like any failed step: it retries,
+and the checkpoint asks the reviewer again (GH-25).
 
 ### 8.5 Operational implications of a blocking wait
 
@@ -1255,17 +1237,16 @@ redis-cli DEL "tool:search:company_<uuid>"
 
 ## 16. Gotchas
 
-1. **Almost every gate fails open.** Credit checks, HITL pub/sub, rate limiting,
-   suspension middleware, semantic duplicate checks — all swallow non-fatal
-   errors and let the request through. A broken gate looks exactly like a
-   passing gate.
+1. **Almost every gate fails open.** Credit checks, rate limiting, suspension
+   middleware, semantic duplicate checks — all swallow non-fatal errors and let
+   the request through. A broken gate looks exactly like a passing gate. (The HITL
+   wait no longer does — since 2026-09-29 it fails closed, §8.2.)
 
-2. **If Redis is down, HITL checkpoints are skipped entirely.** The step runs
-   unapproved and the approval row stays `PENDING` forever.
+2. **A HITL wait survives a Redis outage.** It re-reads the approval row every 2
+   seconds, so decisions still land; they are just noticed up to ~2 seconds later.
 
-3. **HITL reject/timeout detection matches on exception message text**
-   (`"Execution blocked"`, `"timed out"`). Reword either message and the gate
-   silently stops re-raising.
+3. **A rejected step is retried, and the reviewer is asked again** (GH-25). The loop
+   does not yet tell a reviewer's rejection apart from any other step failure.
 
 4. **A HITL wait blocks an Arq worker slot** for up to `timeout_ms` (default 5
    minutes). Concurrent approvals can starve the worker pool.

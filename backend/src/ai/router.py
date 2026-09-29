@@ -10,7 +10,7 @@ from src.ai.schemas import (
     HierarchicalEntityCreate, HierarchicalEntityUpdate, HierarchicalEntityResponse, 
     ExecutionRunCreate, ExecutionRunResponse, ExecutionRunSummary, EntityType,
     DocumentResponse, DocumentSearchResult, ExecutionRefineRequest, CSATRequest,
-    DocumentDetail, DocumentUpdate,
+    DocumentDetail, DocumentUpdate, ApprovalDecision,
 )
 from src.ai.service import AIService
 from src.ai.services.knowledge_base import KnowledgeBaseService, file_type_of
@@ -444,30 +444,34 @@ async def list_pending_approvals(
 @router.post("/approvals/{approval_id}/respond")
 async def respond_to_approval(
     approval_id: UUID,
-    status: str, # APPROVED | REJECTED
-    notes: Optional[str] = None,
+    decision: ApprovalDecision,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Answer one of your company's pending approvals: ``{"status": "APPROVED" | "REJECTED", "notes"?}``."""
     service = AIService(db)
-    await service.respond_to_approval(approval_id, status, current_user.id, notes)
+    await service.respond_to_approval(
+        approval_id, decision.status, current_user.id, decision.notes,
+        company_id=current_user.company_id,
+    )
 
-    # Publish approval response to Redis so the worker's HITL checkpoint loop unblocks
+    # Wake the waiting worker at once. Best-effort: the worker also re-reads
+    # the approval row, so a failed publish only delays it by a few seconds.
     try:
         import redis.asyncio as redis_lib
         import json
         from src.common.config import settings
         r = redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379")
         await r.publish(f"hitl:{approval_id}", json.dumps({
-            "status": status,
+            "status": decision.status,
             "responded_by": str(current_user.id),
-            "notes": notes,
+            "notes": decision.notes,
         }))
         await r.close()
     except Exception:
-        pass  # Non-fatal: worker will timeout if pub/sub fails
+        pass
 
-    return {"status": "success"}
+    return {"status": "success", "decision": decision.status}
 
 # --- Tools ---
 @router.get("/tools", response_model=list[dict])

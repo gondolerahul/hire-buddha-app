@@ -560,7 +560,7 @@ sequenceDiagram
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/v1/ai/approvals/pending` | List `PENDING` approvals for the tenant: `id`, `run_id`, `checkpoint_trigger`, `status`, `requested_at`, `timeout_ms`, `context_snapshot` |
-| POST | `/api/v1/ai/approvals/{approval_id}/respond` | Approve or reject, with reviewer notes |
+| POST | `/api/v1/ai/approvals/{approval_id}/respond` | Approve or reject. JSON body `{"status": "APPROVED" \| "REJECTED", "notes"?}` (422 otherwise). The approval must belong to your company (404) and still be `PENDING` (409) |
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ai/approvals/$APPROVAL_ID/respond -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"status":"APPROVED","reviewer_notes":"looks correct"}'

@@ -838,21 +838,39 @@ class AIService:
         )
         return result.scalars().all()
 
-    async def respond_to_approval(self, approval_id: UUID, status: str, user_id: UUID, notes: str = None) -> HumanApproval:
-        result = await self.db.execute(select(HumanApproval).where(HumanApproval.id == approval_id))
-        approval = result.scalar_one_or_none()
+    async def respond_to_approval(
+        self, approval_id: UUID, status: str, user_id: UUID, notes: str = None, *, company_id: UUID,
+    ) -> HumanApproval:
+        """Record a reviewer's decision on one of the company's pending approvals.
+
+        Scoped like ``get_pending_approvals``: through the run's company. Only a
+        PENDING approval can be answered, once — the conditional UPDATE makes a
+        second answer, or an answer after the worker timed out, a 409.
+        """
+        from sqlalchemy import update
+
+        approval = (await self.db.execute(
+            select(HumanApproval).join(ExecutionRun)
+            .where(HumanApproval.id == approval_id, ExecutionRun.company_id == company_id)
+        )).scalar_one_or_none()
         if not approval:
             raise HTTPException(status_code=404, detail="Approval request not found")
-        
-        approval.status = status
-        approval.responded_by = user_id
-        approval.responded_at = datetime.utcnow()
-        approval.reviewer_notes = notes
-        
+
+        answered = await self.db.execute(
+            update(HumanApproval)
+            .where(HumanApproval.id == approval_id, HumanApproval.status == "PENDING")
+            .values(status=status, responded_by=user_id,
+                    responded_at=datetime.utcnow(), reviewer_notes=notes)
+        )
+        if not answered.rowcount:
+            current = (await self.db.execute(
+                select(HumanApproval.status).where(HumanApproval.id == approval_id)
+            )).scalar_one_or_none()
+            raise HTTPException(status_code=409, detail=f"This approval is already {current}")
         await self.db.commit()
         await self.db.refresh(approval)
         # The router publishes the decision on "hitl:{approval_id}", the channel
-        # GovernanceService waits on.
+        # GovernanceService waits on (it also re-reads this row).
         return approval
 
     async def get_dashboard_stats(self, company_id: UUID, user_role: str = None) -> dict:

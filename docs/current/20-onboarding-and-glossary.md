@@ -447,8 +447,8 @@ in [15 §13](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue)
 
 1. **Postgres is on host port 5433**, and `.env.example` says 5432.
 
-2. **Most gates fail open.** Credit checks, HITL pub/sub, rate limiting,
-   suspension middleware and duplicate detection all swallow non-fatal errors
+2. **Most gates fail open.** Credit checks, rate limiting, suspension
+   middleware and duplicate detection all swallow non-fatal errors
    and let the request through. A broken gate looks exactly like a passing gate.
    Read logs, not just outcomes.
 

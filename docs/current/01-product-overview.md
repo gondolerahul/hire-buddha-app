@@ -849,9 +849,11 @@ input and its cost so far. That content is the approval's `context_snapshot`, bu
 [`governance/hitl_snapshot.py`](../../backend/src/ai/governance/hitl_snapshot.py)
 (PO-05, 2026-09-29).
 
-> **The approval flow does not work end to end today.** No checkpoint actually waits
-> (GH-22), the panel's buttons get 422 (GH-23), and the respond endpoint does not check the
-> company (GH-24). See [15 — Governance defects](defect-register/15-GOVERNANCE-AND-HITL-DEFECTS.md).
+A decision is posted as `{"status": "APPROVED" | "REJECTED", "notes"?}`; only the run's own
+company can answer, and only once. The waiting worker hears it over `hitl:{approval_id}`
+and also re-reads the approval row, so a Redis outage delays a decision but never skips a
+checkpoint. (All three were broken until 2026-09-29 — GH-22, GH-23, GH-24.) A rejected
+step is currently retried and the reviewer asked again (GH-25).
 
 ### 6.4 Template marketplace
 
@@ -1919,9 +1921,8 @@ Honest boundaries, all verifiable by grep.
 - **HITL blocks a worker.** The governance service subscribes to
   `hitl:{approval_id}` and polls with a timeout while holding the run. Long
   `timeout_ms` values tie up worker capacity.
-- **HITL does not block anything yet.** The wait's subscribe call raises on every
-  checkpoint and the step proceeds unapproved (GH-22); the panel's buttons get 422
-  (GH-23).
+- **A rejection is retried.** Block Cycle fails the step, the loop retries it, and
+  the checkpoint asks the reviewer again (GH-25).
 - **Credits drain daily-first, always.** Then wallet (pay-as-you-go) or
   subscription+bonus. There is no way to make a run spend from a specific bucket.
 - **Only top-level runs settle billing.** `if run.parent_run_id: return

@@ -300,8 +300,8 @@ prompt, output, description, input and cost behind **Show what is being approved
 Live: a real `AFTER_STEP` checkpoint fired through `GovernanceService.evaluate_hitl` on the
 local database appeared on the panel with the resolved prompt and the step's output.
 
-**Found while fixing — the approval flow does not work end to end.** Recorded in
-[15](15-GOVERNANCE-AND-HITL-DEFECTS.md) and not fixed here:
+**Found while fixing — the approval flow did not work end to end.** Recorded in
+[15](15-GOVERNANCE-AND-HITL-DEFECTS.md) and fixed right after this, on 2026-09-29:
 [GH-22](15-GOVERNANCE-AND-HITL-DEFECTS.md#gh-22--every-hitl-checkpoint-fails-to-subscribe-so-none-of-them-waits)
 (no checkpoint ever waits — the subscribe call raises on every checkpoint and the step
 proceeds),

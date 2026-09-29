@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.ai.schemas.entity import HierarchicalEntityResponse
 from src.ai.schemas.enums import RunStatus
@@ -17,6 +17,7 @@ __all__ = [
     "LLMInteractionLogResponse",
     "ToolInteractionLogResponse",
     "HumanApprovalResponse",
+    "ApprovalDecision",
     "ExecutionRunSummary",
     "ExecutionRunResponse",
 ]
@@ -90,6 +91,14 @@ class HumanApprovalResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ApprovalDecision(BaseModel):
+    """A reviewer's answer to a pending HITL approval."""
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["APPROVED", "REJECTED"]
+    notes: Optional[str] = Field(default=None, max_length=4000)
 
 
 class ExecutionRunSummary(BaseModel):
