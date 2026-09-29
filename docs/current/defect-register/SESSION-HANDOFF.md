@@ -29,7 +29,7 @@
 | | |
 |---|---|
 | Branch | `roadmap-development-defect-fixes`, cut from `main` at `9896b8b` |
-| Commits on the branch | 13, **none pushed** |
+| Commits on the branch | Listed below, **none pushed** |
 | Working tree | Clean, apart from two spreadsheets the product owner is editing: `Consolidated-Defect-Register.xlsx` and `HireBuddha-Roadmap-Backlog.xlsx`. Leave them uncommitted |
 | Host tests | 1017 passed, 7 known failures (see [§8](#8-testing)) |
 | CORTEX package tests | 49 passed |
@@ -52,6 +52,7 @@ Commits, oldest first:
 | `a0990da` | PC-24 — planner child roster |
 | `bb9e978` | LP-06 — thinking tokens billed |
 | `338a0c2` | Register maintenance: invalidated defects |
+| `1e0a6f3` | This handoff document |
 
 ---
 
