@@ -1919,7 +1919,7 @@ All routes below are mounted under `/api/v1` from
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | GET | `/ai/approvals/pending` | user | Pending `human_approvals` for the company. |
-| POST | `/ai/approvals/{id}/respond` | user | `?status=APPROVED|REJECTED&notes=…`; publishes on `hitl:{id}` **and** `approval:{id}`. |
+| POST | `/ai/approvals/{id}/respond` | user | `?status=APPROVED|REJECTED&notes=…`; publishes on `hitl:{id}`, the channel the waiting worker subscribes to. |
 | GET | `/ai/tools` | user | Enriched tool list; falls back to the bare `ToolRegistry` list if the DB is down. |
 | GET | `/ai/stats` | user | `{entities_total, executions_today, documents_total}`. |
 

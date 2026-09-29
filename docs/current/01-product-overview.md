@@ -1825,7 +1825,6 @@ Honest boundaries, all verifiable by grep.
 | `VideoGenerationTool` | registered but `status = ToolStatus.DEPRECATED` — "remove after seeds migrate" |
 | `ReasoningMode.REFLECTION` and `TREE_OF_THOUGHTS` | in `DEPRECATED_REASONING_MODES`; still accepted, emit a deprecation warning |
 | `SeedDocumentFactory` (~50 entities) | superseded by `SeedDocFactoryLite` (1 entity) for cost reasons |
-| `approval:{id}` Redis publish in [`service.py:854`](../../backend/src/ai/service.py:854) | nothing subscribes; the live channel is `hitl:{id}`, published by the router |
 | `/admin/phase11/*` routes and `/api/v1/ai/phase11/*` | 307 redirects to `/admin/agent-kernel/*`; both marked "Remove after 2026-09-01" |
 
 **Off by default and gated:**
@@ -1930,8 +1929,9 @@ Honest boundaries, all verifiable by grep.
 - **Frontend route gates and backend guards do not always agree.** `/ai-config`
   and `/reports/costing` are the two live examples; assume the backend is the
   real boundary.
-- **Two Redis channels look like the HITL channel.** `hitl:{id}` is real;
-  `approval:{id}` is published but never consumed.
+- **The HITL channel is `hitl:{approval_id}`.** The router publishes the reviewer's
+  decision there and `GovernanceService` waits on it. (A second, unconsumed
+  `approval:{id}` publish was deleted on 2026-09-29, PO-15.)
 
 ---
 

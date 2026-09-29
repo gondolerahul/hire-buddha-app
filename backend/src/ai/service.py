@@ -842,28 +842,8 @@ class AIService:
         
         await self.db.commit()
         await self.db.refresh(approval)
-        
-        # P0.3 — Notify waiting worker via Redis pub/sub so it can unblock immediately.
-        # The execution engine subscribes to "approval:{approval_id}" before gating
-        # on the HumanApproval record and awaits this event with a configurable timeout.
-        try:
-            from arq import create_pool
-            from arq.connections import RedisSettings
-            _redis = await create_pool(RedisSettings())
-            await _redis.publish(
-                f"approval:{approval_id}",
-                json.dumps({
-                    "approval_id": str(approval_id),
-                    "status": status,
-                    "notes": notes or "",
-                    "responded_at": approval.responded_at.isoformat(),
-                })
-            )
-            await _redis.close()
-        except Exception:
-            # Non-fatal: worker will time out gracefully if Redis is unavailable
-            pass
-        
+        # The router publishes the decision on "hitl:{approval_id}", the channel
+        # GovernanceService waits on.
         return approval
 
     async def get_dashboard_stats(self, company_id: UUID, user_role: str = None) -> dict:
