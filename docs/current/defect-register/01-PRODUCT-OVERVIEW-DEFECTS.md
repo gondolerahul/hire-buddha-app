@@ -46,16 +46,16 @@ cross-referenced here.
 
 | Tier | Theme | Count | Open | Fixed | Deferred | Won't fix |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 1 | 3 | 1 | 0 |
+| [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 0 | 4 | 1 | 0 |
 | [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 4 | 0 | 1 | 1 |
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 22 defects (5 open, 10 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
+**Total: 22 defects (4 open, 11 fixed, 6 deferred, 1 won't fix), 12 improvements (all deferred).**
 
 | ID | Defect | Status |
 |---|---|---|
-| PO-01 | Deleting a knowledge-base document always fails | open |
+| PO-01 | Deleting a knowledge-base document always fails | ✅ fixed `@PO-01` |
 | PO-02 | A tenant admin can open the AI config page but cannot save | ✅ fixed `c8f4d52` |
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
 | PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `682da36` |
@@ -92,7 +92,7 @@ The three worth reading first:
 
 ### PO-01 — Deleting a knowledge-base document always fails
 
-**✅ Verified · High** · **Status: open**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-01`)**
 
 > **Product owner, 2026-09-29:** document upload was wired to the legacy RAG path, which
 > has been retired. The knowledge base must now run on CORTEX memory, and all the basic
@@ -112,6 +112,50 @@ coming back in search results. *(Updated 2026-09-28: the v1 `document_chunks` ta
 dropped in `a30bb85`; documents are now chunked into CORTEX Knowledge Trees — see
 [MC-12](08-MEMORY-AND-CORTEX-DEFECTS.md).)*
 
+**Done (2026-09-29).** Upload already ingested into Knowledge Trees; the rest of CRUD is
+built on the same nodes. `ai/services/knowledge_base.py` (`KnowledgeBaseService`) keeps the
+`documents` row and its nodes in step, using host-side node operations in
+`ai/memory/knowledge_tree_service.py` — no change to the `cortex_memory` package, nothing to
+port.
+
+| Operation | Endpoint | Row | Knowledge Tree |
+|---|---|---|---|
+| Create | `POST /ai/documents/upload` (`?entity_id=` optional) | created, `processing` | ingested by `process_document` into the agent's tree or the company tree |
+| Read | `GET /ai/documents`, `GET /ai/documents/{id}` | + `entity_name` | chunk counts, section titles, opening text |
+| Update — rename | `PATCH /ai/documents/{id}` `{filename}` | `filename` | every node's `source_ref.filename`, the document node's title |
+| Update — scope | `PATCH /ai/documents/{id}` `{entity_id}` (`null` = company-wide) | `entity_id` | nodes moved to the target tree, re-parented under its root |
+| Update — content | `POST /ai/documents/{id}/file` | name, type, size, `processing` | old nodes deleted; the job ingests the new file |
+| Delete | `DELETE /ai/documents/{id}` | deleted | every node deleted, with embeddings and edges |
+
+Also:
+
+- Every operation is confined to the caller's company. Uploading or moving a document to
+  **another company's agent is now refused** (404); before, `upload` accepted any
+  `entity_id`.
+- Rename, re-scope and replace return 409 while the document is `processing` — the job has
+  already read the scope and filename.
+- Tree `total_nodes` counts are adjusted on delete and move.
+- Deleting an entity already turned its documents company-wide in the `documents` table,
+  but left their nodes in the deleted entity's tree, where no agent could read them. The
+  nodes now move to the company tree too.
+- The enqueue builds its Redis settings from `REDIS_URL` — two of SA-04's five sites are gone
+  (this one and PO-15's).
+- The page: an upload scope picker; per document View (outline and text), Edit (name and
+  scope), Replace and Delete; errors are shown instead of logged; the list refreshes while
+  anything is processing.
+
+**Evidence:** `tests/integration/test_knowledge_base_crud.py`, 8 cases against the real
+Postgres in a rolled-back transaction: read outline; delete removes the row and every node,
+adjusts `total_nodes`, drops the document from search and leaves other documents alone;
+rename reaches every node and search results; re-scope moves the nodes both ways; replace
+drops old nodes and re-queues; 409 while processing; another company gets 404 and cannot
+scope a document to its own agent; `DELETE /ai/documents/{id}` through the router (404 on
+the old router). Live on the local stack: uploaded a Markdown file on the page, viewed its
+sections and text, renamed it and scoped it to an agent (all five nodes moved to that
+agent's tree with the new name), replaced it (old nodes gone, new content in the same tree),
+deleted it (no row and no nodes left). Embedding was not exercised live — Vertex ADC had
+expired, so the uploads ended `failed` with unembedded chunks; search is covered by the
+integration tests.
 ---
 
 ### PO-02 — A tenant admin can open the AI config page but cannot save

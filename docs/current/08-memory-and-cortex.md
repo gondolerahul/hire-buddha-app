@@ -1034,6 +1034,23 @@ with `entity_id`, that entity's tree plus the company tree; without, every
 Knowledge Tree in the company. It returns `500` when the query cannot be
 embedded, so a broken embedding setup is not mistaken for "no results".
 
+The rest of the Knowledge Base's operations live in
+[`KnowledgeBaseService`](../../backend/src/ai/services/knowledge_base.py), which keeps the
+`documents` row and its nodes in step (PO-01, 2026-09-29). Every node an upload creates —
+DOCUMENT, SECTION and CHUNK — carries `source_ref.document_id`, so one key finds them all:
+
+| Operation | Row | Nodes |
+|---|---|---|
+| Read (`GET /documents/{id}`) | metadata | chunk counts, section titles, the opening text |
+| Rename (`PATCH`, `filename`) | `filename` | document node title and every node's `source_ref.filename` |
+| Re-scope (`PATCH`, `entity_id`) | `entity_id` | moved into the agent's Knowledge Tree (or the company tree), document node re-parented under its root; both trees' `total_nodes` adjusted |
+| Replace (`POST /documents/{id}/file`) | filename, type, size, `processing` | old nodes deleted now; `process_document` ingests the new file |
+| Delete (`DELETE`) | deleted | deleted, with their embeddings and edges; `total_nodes` adjusted |
+
+Rename, re-scope and replace are refused (409) while the document is `processing`, because
+the ingestion job has already read the scope and filename. When an entity is deleted, its
+documents become company-wide and their nodes move to the company tree with them.
+
 ```mermaid
 stateDiagram-v2
     [*] --> processing: file uploaded

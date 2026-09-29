@@ -357,6 +357,10 @@ register the two missing worker jobs
 add the four missing indexes
 ([DM-I1](03-DATA-MODEL-DEFECTS.md#dm-i1--add-the-indexes-the-queries-already-assume)).
 
+> **Update 2026-09-29:** the first two are done — `DELETE /ai/documents/{id}` (PO-01) and
+> the worker jobs (MC-I3). The exercise itself now names `video_generate` (PO-17); pick a
+> different first task from the open registers.
+
 Each teaches a real part of the system and leaves the codebase better.
 
 ### ON-I4 — Mark the unwired parts of the mental model

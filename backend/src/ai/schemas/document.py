@@ -5,11 +5,13 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "DocumentUploadResponse",
     "DocumentResponse",
+    "DocumentDetail",
+    "DocumentUpdate",
     "DocumentSearchRequest",
     "DocumentSearchResult",
 ]
@@ -36,9 +38,32 @@ class DocumentResponse(BaseModel):
     upload_status: str
     created_at: datetime
     updated_at: datetime
+    # The agent the document is scoped to; None means company-wide.
+    entity_name: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class DocumentDetail(DocumentResponse):
+    """One document plus what was ingested into its Knowledge Tree."""
+    chunks_total: int = 0
+    chunks_embedded: int = 0
+    sections: list[str] = []
+    preview: str = ""
+    preview_truncated: bool = False
+
+
+class DocumentUpdate(BaseModel):
+    """Rename a document and/or change its scope.
+
+    Send ``entity_id`` to scope the document to that agent, or ``entity_id: null``
+    to make it company-wide; omit it to leave the scope unchanged.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    filename: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    entity_id: Optional[UUID] = None
 
 
 class DocumentSearchRequest(BaseModel):

@@ -219,8 +219,17 @@ class AIService:
         # These are references from operational tables that should no longer
         # point to a deleted entity, but where the FK is nullable.
 
-        # Documents — unlink from entity
+        # Documents — unlink from entity. They become company-wide, so their
+        # Knowledge Tree nodes move to the company tree with them; otherwise
+        # they would stay in the deleted entity's tree, unreadable by any agent.
         from src.ai.models import Document
+        from src.ai.memory.knowledge_tree_service import KnowledgeTreeService
+        doc_rows = (await self.db.execute(
+            select(Document.id, Document.company_id).where(Document.entity_id.in_(all_entity_ids))
+        )).all()
+        for doc_id, doc_company_id in doc_rows:
+            trees = KnowledgeTreeService(self.db, doc_company_id)
+            await trees.move_document(doc_id, await trees.get_or_create_company_knowledge_tree())
         await self.db.execute(
             update(Document).where(Document.entity_id.in_(all_entity_ids)).values(entity_id=None)
         )
@@ -887,55 +896,21 @@ class AIService:
             "documents_total": documents_count.scalar() or 0
         }
 
-    # Document & RAG Methods
+    # Document & RAG Methods — see ai/services/knowledge_base.py
     async def upload_document(self, file_content: bytes, filename: str, file_type: str, company_id: UUID, entity_id: UUID = None):
-        # Create document record
-        document = Document(
-            company_id=company_id,
-            entity_id=entity_id,
-            filename=filename,
-            file_type=file_type,
-            file_size=str(len(file_content)),
-            upload_status="processing"
+        from src.ai.services.knowledge_base import KnowledgeBaseService
+        return await KnowledgeBaseService(self.db, company_id).upload(
+            file_content, filename, file_type, entity_id=entity_id,
         )
-        self.db.add(document)
-        await self.db.commit()
-        await self.db.refresh(document)
-        
-        # Enqueue Job to Arq
-        redis = await create_pool(RedisSettings())
-        await redis.enqueue_job(
-            'process_document', 
-            str(document.id),
-            file_content,
-            file_type,
-            filename
-        )
-        await redis.close()
-        
-        return document
-    
+
     async def search_documents(self, query: str, company_id: UUID, entity_id: UUID = None, top_k: int = 5):
         """Semantic search over the company's documents (their Knowledge Tree chunks)."""
-        from src.ai.memory.knowledge_tree_service import KnowledgeTreeService
+        from src.ai.services.knowledge_base import KnowledgeBaseService
+        return await KnowledgeBaseService(self.db, company_id).search(query, entity_id=entity_id, top_k=top_k)
 
-        results = await KnowledgeTreeService(self.db, company_id).search_documents(
-            query, entity_id=entity_id, top_k=top_k,
-        )
-        if results is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Embedding generation failed. Please check your AI integration configuration."
-            )
-        return results
-    
     async def get_documents(self, company_id: UUID, entity_id: UUID = None):
-        query = select(Document).where(Document.company_id == company_id)
-        if entity_id:
-            query = query.where(Document.entity_id == entity_id)
-        
-        result = await self.db.execute(query)
-        return result.scalars().all()
+        from src.ai.services.knowledge_base import KnowledgeBaseService
+        return await KnowledgeBaseService(self.db, company_id).list(entity_id)
 
     # ── Template Management ────────────────────────────────────────────────
 

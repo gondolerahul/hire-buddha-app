@@ -9,9 +9,11 @@ from src.auth.models import User
 from src.ai.schemas import (
     HierarchicalEntityCreate, HierarchicalEntityUpdate, HierarchicalEntityResponse, 
     ExecutionRunCreate, ExecutionRunResponse, ExecutionRunSummary, EntityType,
-    DocumentResponse, DocumentSearchResult, ExecutionRefineRequest, CSATRequest
+    DocumentResponse, DocumentSearchResult, ExecutionRefineRequest, CSATRequest,
+    DocumentDetail, DocumentUpdate,
 )
 from src.ai.service import AIService
+from src.ai.services.knowledge_base import KnowledgeBaseService, file_type_of
 
 router = APIRouter(prefix="/ai", tags=["AI Hierarchical Agent Platform"])
 
@@ -605,7 +607,7 @@ async def upload_context_source(
         "file_category": artifact.file_category,
     }
 
-# --- Documents ---
+# --- Documents (the Knowledge Base, stored in CORTEX Knowledge Trees) ---
 @router.post("/documents/upload", response_model=dict)
 async def upload_document(
     file: UploadFile = File(...),
@@ -613,19 +615,10 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Read file content
+    """Upload a document; omit ``entity_id`` to share it with every agent in the company."""
     file_content = await file.read()
-    
-    # Get file extension
-    file_type = file.filename.split('.')[-1].lower() if '.' in file.filename else 'txt'
-    
-    service = AIService(db)
-    document = await service.upload_document(
-        file_content=file_content,
-        filename=file.filename,
-        file_type=file_type,
-        company_id=current_user.company_id,
-        entity_id=entity_id
+    document = await KnowledgeBaseService(db, current_user.company_id).upload(
+        file_content, file.filename, file_type_of(file.filename), entity_id=entity_id,
     )
     return {"id": str(document.id), "status": document.upload_status}
 
@@ -664,8 +657,53 @@ async def list_documents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    service = AIService(db)
-    return await service.get_documents(current_user.company_id, entity_id)
+    return await KnowledgeBaseService(db, current_user.company_id).list(entity_id)
+
+@router.get("/documents/{document_id}", response_model=DocumentDetail)
+async def get_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """One document with its ingestion outline and a text preview."""
+    return await KnowledgeBaseService(db, current_user.company_id).get(document_id)
+
+@router.patch("/documents/{document_id}", response_model=DocumentDetail)
+async def update_document(
+    document_id: UUID,
+    body: DocumentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Rename and/or re-scope a document (``entity_id: null`` = company-wide)."""
+    return await KnowledgeBaseService(db, current_user.company_id).update(
+        document_id, filename=body.filename,
+        move="entity_id" in body.model_fields_set, entity_id=body.entity_id,
+    )
+
+@router.post("/documents/{document_id}/file", response_model=dict)
+async def replace_document_file(
+    document_id: UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Replace a document's content; it is re-ingested under the same id."""
+    file_content = await file.read()
+    document = await KnowledgeBaseService(db, current_user.company_id).replace_file(
+        document_id, file_content, file.filename, file_type_of(file.filename),
+    )
+    return {"id": str(document.id), "status": document.upload_status}
+
+@router.delete("/documents/{document_id}", response_model=dict)
+async def delete_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a document and every Knowledge Tree node ingested from it."""
+    removed = await KnowledgeBaseService(db, current_user.company_id).delete(document_id)
+    return {"id": str(document_id), "deleted": True, "nodes_removed": removed}
 
 @router.post("/documents/search", response_model=List[dict])
 async def search_documents(

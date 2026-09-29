@@ -264,6 +264,10 @@ gateway exposes the same three on port 8001.
 | POST | `/api/v1/ai/documents/upload` | Upload a RAG document |
 | POST | `/api/v1/ai/avatar/upload` | Upload an avatar |
 | GET | `/api/v1/ai/documents` | List documents |
+| GET | `/api/v1/ai/documents/{document_id}` | One document with its ingestion outline |
+| PATCH | `/api/v1/ai/documents/{document_id}` | Rename and/or re-scope a document |
+| POST | `/api/v1/ai/documents/{document_id}/file` | Replace a document's content |
+| DELETE | `/api/v1/ai/documents/{document_id}` | Delete a document and its Knowledge Tree nodes |
 | POST | `/api/v1/ai/documents/search` | Semantic search |
 | GET | `/api/v1/ai/templates` | List templates |
 | GET | `/api/v1/ai/templates/{template_id}` | Get a template |
@@ -569,14 +573,21 @@ promptly — see [15 §8](15-governance-and-hitl.md#8-the-hitl-wait-mechanism).
 
 ## 9. Documents, artifacts and templates
 
-### Documents (RAG)
+### Documents (the Knowledge Base, stored in CORTEX Knowledge Trees)
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/v1/ai/documents/upload` | Upload → extract → chunk → embed |
-| GET | `/api/v1/ai/documents` | List documents |
+| POST | `/api/v1/ai/documents/upload` | Upload → extract → chunk → embed into a Knowledge Tree. `?entity_id=` scopes it to one agent; omit for company-wide |
+| GET | `/api/v1/ai/documents` | List documents (with `entity_name`, the scoped agent) |
+| GET | `/api/v1/ai/documents/{document_id}` | One document plus `chunks_total`, `chunks_embedded`, `sections` and a text `preview` |
+| PATCH | `/api/v1/ai/documents/{document_id}` | Body `{filename?, entity_id?}` — rename, and/or move to an agent's tree (`entity_id: null` = company-wide). 409 while processing |
+| POST | `/api/v1/ai/documents/{document_id}/file` | Replace the content (multipart `file`); old nodes are deleted and the new file re-ingested under the same id. 409 while processing |
+| DELETE | `/api/v1/ai/documents/{document_id}` | Delete the row and every Knowledge Tree node ingested from it → `{deleted, nodes_removed}` |
 | POST | `/api/v1/ai/documents/search` | Semantic search over chunks |
 | POST | `/api/v1/ai/context-sources/upload` | Attach a design-time context source |
+
+Every document route is confined to the caller's company; an `entity_id` from another
+company is a 404.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ai/documents/upload -H "Authorization: Bearer $TOKEN" -F 'file=@report.pdf'

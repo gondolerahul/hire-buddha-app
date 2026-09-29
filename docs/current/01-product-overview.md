@@ -900,13 +900,17 @@ new entity's edit page, where they change the system prompt and run it.
 
 **Route:** `/knowledge`.
 
-[`KnowledgeBase.tsx`](../../frontend/src/pages/KnowledgeBase.tsx) is a
-three-function page: upload, list, semantic search.
+[`KnowledgeBase.tsx`](../../frontend/src/pages/KnowledgeBase.tsx) manages the documents
+agents draw on: upload (company-wide, or scoped to one agent), list, view what was
+ingested, rename, change scope, replace the file, delete, and semantic search. A document
+is a `documents` row plus the nodes ingested into a CORTEX Knowledge Tree;
+[`KnowledgeBaseService`](../../backend/src/ai/services/knowledge_base.py) keeps the two in
+step (PO-01). See [08 §10.3](08-memory-and-cortex.md).
 
 ```mermaid
 flowchart LR
     F["File picker - multi-select"] -->|"POST /ai/documents/upload multipart"| API["Backend"]
-    API --> SVC["AIService.upload_document"]
+    API --> SVC["KnowledgeBaseService.upload"]
     SVC --> DOC["documents row - upload_status processing"]
     SVC --> CH["process_document: section + chunk"]
     CH --> EMB["EmbeddingService - company scoped"]
@@ -930,10 +934,13 @@ Documents feed agents in three ways:
    **"Coming Soon"** badge
    ([EntityConfigurationTabs.tsx:1526](../../frontend/src/pages/ai/EntityConfigurationTabs.tsx:1526)).
 
-> **Known gap.** The page's delete button calls
-> `DELETE /ai/documents/{id}`, but no such route exists anywhere in the backend
-> — `grep -n "documents" backend/src/ai/router.py` returns only `upload`, `list`
-> and `search`. Deleting a knowledge-base document from the UI fails.
+| Operation | Endpoint | What happens in CORTEX |
+|-----------|----------|------------------------|
+| Read one | `GET /ai/documents/{id}` | chunk counts, section titles and the opening text |
+| Rename | `PATCH /ai/documents/{id}` `{filename}` | the new name reaches every node, so search results show it |
+| Change scope | `PATCH /ai/documents/{id}` `{entity_id}` | the nodes move to that agent's tree, or to the company tree with `null` |
+| Replace | `POST /ai/documents/{id}/file` | old nodes deleted, the new file re-ingested under the same id |
+| Delete | `DELETE /ai/documents/{id}` | the row and every node go, so the document stops coming back in search and memory |
 
 ### 6.6 CORTEX memory explorer
 
@@ -1814,7 +1821,6 @@ Honest boundaries, all verifiable by grep.
 |-------|----------|
 | Social media publishing is not production | Every `SocialMediaTool` subclass inherits `status = ToolStatus.EXPERIMENTAL` ([social/base.py:48](../../backend/src/ai/tools/social/base.py:48)). The README states they are "not yet wired to any production entity and several are unfinished" |
 | Database records as an agent context source | `ContextSourceType.DB_RECORDS` exists in the enum, and the UI panel is disabled with a **Coming Soon** badge |
-| Deleting a knowledge-base document | The frontend calls `DELETE /ai/documents/{id}`; the route does not exist |
 | Inbound webhook signature verification | Three `TODO`s in [webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py) — LinkedIn client secret, GitHub HMAC-SHA256, Facebook app secret are all unvalidated |
 | WhatsApp default sender lookup | `POST /messaging/send` has `# Use company's default number for provider (TODO: lookup from DB)` — you must supply `from_number` |
 | Voice service metrics | `backend/src/voice/main.py:105` — `# TODO: Implement actual metrics collection` |

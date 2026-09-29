@@ -12,6 +12,8 @@ interface JellyButtonProps {
     className?: string;
     style?: React.CSSProperties;
     roseGold?: boolean;
+    /** Tooltip, also used as the accessible name (icon-only buttons need one). */
+    title?: string;
 }
 
 export const JellyButton: React.FC<JellyButtonProps> = ({
@@ -23,7 +25,8 @@ export const JellyButton: React.FC<JellyButtonProps> = ({
     disabled = false,
     className = '',
     style,
-    roseGold = false
+    roseGold = false,
+    title,
 }) => {
     return (
         <motion.button
@@ -32,6 +35,8 @@ export const JellyButton: React.FC<JellyButtonProps> = ({
             disabled={disabled}
             className={`jelly-button jelly-button--${variant} jelly-button--${size} ${roseGold ? 'jelly-button--rose-gold' : ''} ${className}`}
             style={style}
+            title={title}
+            aria-label={title}
             whileHover={!disabled ? { scale: 1.02, y: -2 } : {}}
             whileTap={!disabled ? { scale: 0.98, y: 0 } : {}}
             transition={{ type: "spring", stiffness: 400, damping: 10 }}

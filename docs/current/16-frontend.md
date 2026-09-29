@@ -1474,7 +1474,7 @@ is noted.
 
 | File | Route | Purpose | Key API calls | Role |
 |------|-------|---------|---------------|------|
-| [`KnowledgeBase.tsx`](../../frontend/src/pages/KnowledgeBase.tsx) | `/knowledge` | Document upload, list, delete, semantic search | `/ai/documents`, `/ai/documents/upload`, `/ai/documents/search` | any authed |
+| [`KnowledgeBase.tsx`](../../frontend/src/pages/KnowledgeBase.tsx) | `/knowledge` | Knowledge Base CRUD — upload (company-wide or per agent), view the ingested outline, rename, re-scope, replace, delete — and semantic search | `/ai/documents`, `/ai/documents/{id}` (GET, PATCH, DELETE), `/ai/documents/{id}/file`, `/ai/documents/upload`, `/ai/documents/search`, `/ai/entities` | any authed |
 | [`artifacts/Artifacts.tsx`](../../frontend/src/pages/artifacts/Artifacts.tsx) | `/artifacts` | Unified artifact browser with inline audio/image preview | `artifactService.list/upload/delete`, `apiClient.get('/artifacts/:id/download')` | any authed |
 | [`IntegrationsPage.tsx`](../../frontend/src/pages/IntegrationsPage.tsx) | `/integrations` | Provider credentials + email connections | `integrationService.*`, `emailService.*` | any authed |
 | [`ai-config/AIModelConfigPage.tsx`](../../frontend/src/pages/ai-config/AIModelConfigPage.tsx) | `/ai-config` | Map task types to integrations, single vs router mode | `aiConfigService.*`, `integrationService.getIntegrations` | `app_admin` |

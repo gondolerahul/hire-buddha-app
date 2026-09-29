@@ -1930,6 +1930,10 @@ All routes below are mounted under `/api/v1` from
 | POST | `/ai/context-sources/upload` | user | ≤500 MB; artifact + optional `Document` + auto-append to the entity's context sources. |
 | POST | `/ai/documents/upload` | user | Document row + `process_document` job. |
 | GET | `/ai/documents` | user | List, optional `entity_id`. |
+| GET | `/ai/documents/{id}` | user | One document with its ingestion outline and preview. |
+| PATCH | `/ai/documents/{id}` | user | Rename and/or re-scope (`{filename?, entity_id?}`). |
+| POST | `/ai/documents/{id}/file` | user | Replace the content; re-ingested under the same id. |
+| DELETE | `/ai/documents/{id}` | user | Delete the row and its Knowledge Tree nodes. |
 | POST | `/ai/documents/search` | user | pgvector cosine search, `?query=&entity_id=&top_k=`. |
 | POST | `/ai/avatar/upload` | user | ≤5 MB image → `/artifact/user-uploads/avatars/…`. |
 
