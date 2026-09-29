@@ -160,7 +160,7 @@ Every `VITE_*` variable referenced anywhere in `src/`:
 | `VITE_API_BASE_URL` | [`api.client.ts:3`](../../frontend/src/services/api.client.ts:3), [`ExecutionDetail.tsx:17`](../../frontend/src/pages/ai/ExecutionDetail.tsx:17), `oauth.service.ts:57`, and 20+ raw `fetch()` calls in `pages/streaming/` and `PhonePool.tsx` | `https://gateway.hirebuddha.com/api/v1` (only in `api.client.ts` and `ExecutionDetail.tsx`) | Must **include** the `/api/v1` suffix |
 | `VITE_GOOGLE_CLIENT_ID` | [`oauth.service.ts:3`](../../frontend/src/services/oauth.service.ts:3) | none (`undefined`) | Google OAuth |
 | `VITE_MICROSOFT_CLIENT_ID` | [`oauth.service.ts:4`](../../frontend/src/services/oauth.service.ts:4) | none | Microsoft OAuth |
-| `VITE_API_URL` | [`artifact.service.ts:83`](../../frontend/src/services/artifact.service.ts:83), `asset.service.ts:77`, `Artifacts.tsx:193`, `AssetLibrary.tsx:147` | `''` | **A second, different base URL** — this one must *not* include `/api/v1` because the code appends it |
+| `VITE_API_URL` | [`artifact.service.ts:83`](../../frontend/src/services/artifact.service.ts:83), `Artifacts.tsx:193` | `''` | **A second, different base URL** — this one must *not* include `/api/v1` because the code appends it |
 
 `.env.example` only documents three of the four:
 
@@ -873,7 +873,6 @@ export const toolService = {
 | `billing.service.ts` | `/billing`, `/reports`, `/credits` | config, costing/billing reports, subscription tiers |
 | `credits.service.ts` | `/credits` | balance, Razorpay top-up + verify, subscriptions |
 | `artifact.service.ts` | `/artifacts` | list/get/upload/delete/`getDownloadUrl` |
-| `asset.service.ts` | `/assets` | same shape as artifacts — **superseded, see [§10](#10-page-by-page-catalogue)** |
 | `events.ts` | SSE | `useAgentEvents` hook + `parseAgentEvent` |
 
 ---
@@ -1513,7 +1512,6 @@ These files compile and are never reached:
 
 | File | Lines | Why it is dead |
 |------|-------|----------------|
-| [`pages/assets/AssetLibrary.tsx`](../../frontend/src/pages/assets/AssetLibrary.tsx) | 314 | Superseded by `Artifacts.tsx`; `/assets` redirects to `/artifacts`. Nothing imports it. |
 | [`pages/reports/BillingReport.tsx`](../../frontend/src/pages/reports/BillingReport.tsx) | 171 | Never routed, never imported. |
 | [`pages/streaming/PhoneNumbersPage.tsx`](../../frontend/src/pages/streaming/PhoneNumbersPage.tsx) | 516 | Superseded by `PhonePool.tsx`; `/streaming/phone-numbers` redirects away. Still exported from `streaming/index.ts`. |
 | [`components/ToolSelectionPanel.tsx`](../../frontend/src/components/ToolSelectionPanel.tsx) | 107 | Its job was absorbed into the Capabilities tab. Nothing imports it. |
@@ -1522,9 +1520,8 @@ These files compile and are never reached:
 | `ProvenanceRibbon` in `components/agent/AgentKernel.tsx` | ~30 | Exported, never used. |
 | `components/agent/cortex-helpers.ts` | 46 | Only its own test imports it. |
 | [`hooks/useSSE.ts`](../../frontend/src/hooks/useSSE.ts) | 58 | Superseded by `useAgentEvents`. |
-| `services/asset.service.ts` | 80 | Only `AssetLibrary` uses it. |
 
-That is roughly **1,650 lines of unreferenced code**, plus their CSS. Worth
+That is roughly **1,250 lines of unreferenced code** (`AssetLibrary.tsx` and `asset.service.ts` were deleted under PO-13), plus their CSS. Worth
 noting that `agent.service.getPlanCandidates` and `getBanditState` exist purely
 to feed the two unmounted components.
 

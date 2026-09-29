@@ -1472,10 +1472,9 @@ The page renders category-appropriate previews — a custom audio player for cal
 recordings, a zoomable image viewer, a video player — and shows size and
 duration.
 
-> **Dead file.** [`assets/AssetLibrary.tsx`](../../frontend/src/pages/assets/AssetLibrary.tsx)
-> (314 lines) is the predecessor. It is not routed and not imported by anything
-> except its own CSS. `/assets` redirects to `/artifacts`, and the backend keeps
-> `/api/v1/assets*` → `/api/v1/artifacts*` redirects for old clients.
+> The predecessor page, `assets/AssetLibrary.tsx`, and its `asset.service.ts` were
+> deleted on 2026-09-29 (PO-13). `/assets` redirects to `/artifacts`, and the backend
+> keeps `/api/v1/assets*` → `/api/v1/artifacts*` redirects for old clients.
 
 ### 6.15 Admin surfaces
 
@@ -1827,7 +1826,6 @@ Honest boundaries, all verifiable by grep.
 
 | File | Status |
 |------|--------|
-| [`pages/assets/AssetLibrary.tsx`](../../frontend/src/pages/assets/AssetLibrary.tsx) | not routed, not imported; replaced by `Artifacts.tsx` |
 | `send_whatsapp_message()` in [`whatsapp_handler.py:261`](../../backend/src/voice/whatsapp_handler.py:261) | `[MOCK]` log line with the real SDK call commented out; nothing imports it |
 | `VideoGenerationTool` | registered but `status = ToolStatus.DEPRECATED` — "remove after seeds migrate" |
 | `ReasoningMode.REFLECTION` and `TREE_OF_THOUGHTS` | in `DEPRECATED_REASONING_MODES`; still accepted, emit a deprecation warning |
