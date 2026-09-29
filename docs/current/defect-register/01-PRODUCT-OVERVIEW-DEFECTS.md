@@ -75,8 +75,11 @@ clicks delete, gets an error, and the document stays.
 - [`frontend/src/pages/KnowledgeBase.tsx:106`](../../../frontend/src/pages/KnowledgeBase.tsx:106) — the call
 - [`ai/router.py:606`](../../../backend/src/ai/router.py:606), [`:658`](../../../backend/src/ai/router.py:658), [`:667`](../../../backend/src/ai/router.py:667) — the only three document routes
 
-**Fix:** add the delete route. It must also delete the `document_chunks` rows and
-their embeddings, or the deleted document keeps coming back in search results.
+**Fix:** add the delete route. It must also delete the document's chunk nodes (and their
+embeddings) from the company or entity Knowledge Tree, or the deleted document keeps
+coming back in search results. *(Updated 2026-09-28: the v1 `document_chunks` table was
+dropped in `a30bb85`; documents are now chunked into CORTEX Knowledge Trees — see
+[MC-12](08-MEMORY-AND-CORTEX-DEFECTS.md).)*
 
 ---
 

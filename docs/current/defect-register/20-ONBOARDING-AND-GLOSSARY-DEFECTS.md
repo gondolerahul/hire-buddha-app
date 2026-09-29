@@ -139,7 +139,9 @@ is not started. A newcomer reading top to bottom learns the wrong thing first.
 
 ### ON-05 — Section 3.3 describes a memory block that is never injected
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: invalid (2026-09-28, `f8db3b0`)** — MC-01 wired the
+read path: `AgentLoop` assembles `__memory__` through `RunMemory`, and the step executor
+puts it in the prompt's context layer. Section 3.3 now describes real behaviour.
 
 The mental-model section says:
 
@@ -245,7 +247,7 @@ contributor arrives, not to document the wall.
 |---|---|---|---|
 | **ON-10** | `src/ai/models.py` is a deprecated shim still in the tree | Re-exports every ORM class from `src.ai.orm.*` so old imports keep working. §7.3 lists it as a trap. It has been a trap for long enough — delete it and fix the importers | ✅ Verified |
 | **ON-11** | The root `tests/` directory | Four `__init__.py` files and nothing else. §7.3 lists it as a trap. Deleting it removes the trap entirely. Also [TS-09](19-TESTING-DEFECTS.md#4-t2--dead-scaffolding) | ✅ Verified |
-| **ON-12** | `backend/cortex_memory_moved_to_pypi_repo/` | The directory name is itself the documentation. §7.3 and §9 item 5 both explain it. Either publish the package or move it back — see [MC-I10](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-i10--decide-where-cortex_memory-lives) | ✅ Verified |
+| **ON-12** | `backend/cortex_memory_moved_to_pypi_repo/` | The directory name is itself the documentation. §7.3 and §9 item 5 both explain it. Either publish the package or move it back — see [MC-I10](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-i10--decide-where-cortex_memory-lives) | ✅ Verified · **invalid (2026-09-28, `e8d9f62`)** — renamed back to `backend/cortex_memory/` |
 | **ON-13** | `core/README.md` documents two files that do not exist | `execution_engine.py` and `recursive_engine.py`. §7.4 recommends it as worth reading. Also [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified |
 | **ON-14** | `docs/phase9/` through `docs/phase12/` | Historical plans kept alongside current documentation. §7.4 warns "the code is truth", which is the right instruction and does not stop a newcomer opening them first. Move them under `docs/history/` | 📄 Doc-reported |
 

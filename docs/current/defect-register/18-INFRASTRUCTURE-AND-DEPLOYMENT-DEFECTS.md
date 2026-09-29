@@ -147,6 +147,11 @@ That directory is now `backend/cortex_memory_moved_to_pypi_repo/`. The filter ma
 nothing, so **the workflow has never fired** — and its `working-directory: backend` plus
 `pip install -e cortex_memory[dev]` would fail if it did.
 
+> **Update 2026-09-28 (`e8d9f62`):** the package copy is back at `backend/cortex_memory/`
+> (with its `pyproject.toml`), so the path filter and the install step match again. The
+> cortex-memory workflow will fire on its next push. The rest of this defect stands:
+> nothing in CI runs `backend/tests/`, the lint, or the frontend build.
+
 Nothing in CI runs `backend/tests/` (1,063 tests), the layout lint, ruff, black, or the
 frontend build. `scripts/run_ci_matrix.sh` defines three lanes wired to no trigger.
 

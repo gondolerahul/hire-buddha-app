@@ -191,7 +191,10 @@ these tables.
 
 ### DM-07 — `document_chunks.embedding` has no ANN index
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: invalid (2026-09-28, `a30bb85`)** — the
+`document_chunks` table was dropped with the rest of v1 memory. Knowledge-base search now
+runs over `cortex_nodes`, which has the HNSW index. Same finding as
+[MC-12](08-MEMORY-AND-CORTEX-DEFECTS.md).
 
 `cortex_nodes.embedding` gets a proper HNSW index (`vector_cosine_ops`, `m=16`,
 `ef_construction=64`). `document_chunks.embedding` gets nothing.
@@ -239,7 +242,6 @@ parent:
 | `llm_interaction_logs` | `execution_runs` |
 | `tool_interaction_logs` | `execution_runs` |
 | `human_approvals` | `execution_runs` |
-| `document_chunks` | `documents` |
 | `campaign_calls` | `campaigns` |
 | `call_content` | `call_logs` |
 | `cortex_nodes`, `cortex_edges` | `cortex_trees` |
@@ -261,7 +263,7 @@ instead of a cross-tenant leak.
 | ID | Problem | Why it matters | Status |
 |---|---|---|---|
 | **DM-10** | The legacy `assets` table was never dropped | The artifacts migration says it "leaves `assets` in place (dropped last after verification)". That follow-up migration does not exist. `op.drop_table('assets')` appears only in the **downgrade** path of the migration that created it | ✅ Verified |
-| **DM-11** | Four numeric values are stored as text | `episodic_memories.total_cost_usd` is `String(20)`, `documents.file_size` is `String`, `document_chunks.chunk_index` is `String`, `companies.default_daily_credits` is `String`. Sorting `chunk_index` gives `1, 10, 11, 2`. Summing a cost means casting in every query | ✅ Verified |
+| **DM-11** | ~~Four~~ Two numeric values are stored as text | `documents.file_size` is `String` and `companies.default_daily_credits` is `String`. Summing or sorting means casting in every query. *(2026-09-28: the other two, `episodic_memories.total_cost_usd` and `document_chunks.chunk_index`, went with their tables in `a30bb85`.)* | ✅ Verified · partly invalid |
 | **DM-12** | Every `DateTime` column is naive | No `timezone=True` anywhere. UTC is a convention held up only by `datetime.utcnow` defaults. One `datetime.now()` slipping in anywhere produces silently wrong timestamps | ✅ Verified |
 | **DM-13** | `JSON` on old tables, `JSONB` on new ones | `JSON` cannot be indexed usefully and re-parses on every read. The split runs right through the entity table — the nine config columns are plain `JSON` | ✅ Verified |
 | **DM-14** | Three columns are literally named `metadata` | `campaigns`, `campaign_calls` and `cortex_edges`. SQLAlchemy reserves `metadata` on the declarative class, so each maps a different Python attribute. Writing `campaign.metadata` returns the table metadata object, not the JSON, and does so **without raising** | ✅ Verified |

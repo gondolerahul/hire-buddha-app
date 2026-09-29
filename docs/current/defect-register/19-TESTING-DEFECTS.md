@@ -59,7 +59,11 @@ The three to read first:
 
 ### TS-01 — The only CI workflow has never fired
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: invalid (2026-09-28, `e8d9f62`)** — the in-repo
+package copy was renamed back to `backend/cortex_memory/`, which has its own
+`pyproject.toml`, so the `paths` filter and `pip install -e "cortex_memory[dev]"` both
+match again. Not yet exercised in CI (the branch is unpushed). The wider gap — no CI for
+`backend/tests/` — is [IN-05](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md#in-05--the-repository-has-no-functioning-ci).
 
 One GitHub Actions workflow exists, triggering on:
 
@@ -380,7 +384,7 @@ this register set:
 **Effect: large for this codebase specifically.** The single most common defect shape across
 all twenty registers is **a module that is complete, unit-tested, and has no production
 call site**: `ToolCostResolver`, `RedisRateLimiter`, `TrustLearner`,
-`FailurePatternService`, `check_credit_gate`, `assemble_memory`, `PlanGenerator.replan`,
+`FailurePatternService`, `check_credit_gate`, `assemble_memory` *(called since MC-01)*, `PlanGenerator.replan`,
 `Budget.can_afford`, `get_reasoning`.
 
 A test that asserts every public entry point in a declared "service" module is referenced

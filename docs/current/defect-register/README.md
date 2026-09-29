@@ -94,7 +94,7 @@ has **no production call site**:
 
 `ToolCostResolver` · `RedisRateLimiter` · `TrustLearner` · `FailurePatternService` ·
 `check_credit_gate` · `consume_step_cost` · `check_credit_circuit_breaker` ·
-`assemble_memory` · `CortexBridge.get_relevant_knowledge` · `PlanGenerator.replan` ·
+~~`assemble_memory`~~ *(called since MC-01)* · `CortexBridge.get_relevant_knowledge` · `PlanGenerator.replan` ·
 `Budget.can_afford` · `get_reasoning` · `get_visible_tools_for_company` ·
 `get_tools_for_company` · `EgressProxyManager`
 

@@ -40,9 +40,9 @@
 | [T0](#2-t0--tenant-boundary-and-correctness) | Tenant boundary and correctness | 4 | Before the first paying tenant |
 | [T1](#3-t1--config-that-does-nothing) | Config that does nothing | 8 | Each is a decision: wire it or remove it from the UI |
 | [T2](#4-t2--dead-columns-and-dead-docs) | Dead columns and dead docs | 5 | **Now** — free |
-| [T3](#5-t3--traps-in-the-step-engine) | Traps in the step engine | 7 | When the area is next touched |
+| [T3](#5-t3--traps-in-the-step-engine) | Traps in the step engine | 8 | When the area is next touched |
 
-**Total: 24 defects, 10 improvements.**
+**Total: 25 defects, 10 improvements.**
 
 The three to read first:
 
@@ -452,6 +452,35 @@ distinct step. A run that quietly reformatted twenty tool calls looks the same a
 did not, except for the bill.
 
 - [`ai/step_executor.py:597`](../../../backend/src/ai/step_executor.py:597)–610
+
+---
+
+### EP-25 — A step whose template omits `{{input}}` never sees the task
+
+**✅ Verified · High** · **Status: open** — found 2026-09-29 on a live deep-research run.
+
+`step_executor` builds the user prompt from `step.target.prompt_template` (default
+`{{input}}`), then appends an "Available Context from Previous Steps" block built from
+every context key **not** in `INTERNAL_CONTEXT_KEYS`. `input` is in that set. So when a
+template does not reference `{{input}}`, the run's actual request reaches the model
+nowhere.
+
+Live: the research-gatherer (a `SKILL` whose static step's `prompt_template` is its
+description) was invoked with `input` set to the user's question. Its LLM user prompt
+was its description plus an `__agent_state__` dump. The question was missing, and it
+answered "Please provide me with the research topic". The research-analyst did the
+same. Seeds that write a description into `prompt_template` are common.
+
+A second leak shows in the same block: `__agent_state__` is not in
+`INTERNAL_CONTEXT_KEYS`, so loop bookkeeping (iteration, budget pressure, subgoals) is
+rendered to the model as if it were a previous step's output.
+
+- [`ai/step_executor.py:808`](../../../backend/src/ai/step_executor.py:808) — template → prompt
+- [`ai/step_executor.py:831`](../../../backend/src/ai/step_executor.py:831) — context block excludes `input`
+- [`ai/constants.py:31`](../../../backend/src/ai/constants.py:31) — `INTERNAL_CONTEXT_KEYS`
+
+**Fix:** when the rendered template does not contain the run input, append it as a
+`## Task` section. Add `__agent_state__` to `INTERNAL_CONTEXT_KEYS`.
 
 ---
 
