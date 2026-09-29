@@ -71,7 +71,7 @@ cross-referenced here.
 | PO-14 | Mock `send_whatsapp_message()` | ✅ fixed `@PO-14` |
 | PO-15 | Unconsumed `approval:{id}` publish | ✅ fixed `@PO-15` |
 | PO-16 | The phase11 redirect shims | ✅ fixed `@PO-16` |
-| PO-17 | The deprecated `video_generation` tool | open — delete |
+| PO-17 | The deprecated `video_generation` tool | ✅ fixed `@PO-17` |
 | PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `@PO-15` (by PO-15) |
 | PO-19 – PO-22 | Rough edges | ⏸ deferred |
 | PO-I1 – PO-I12 | Improvements | ⏸ deferred |
@@ -357,7 +357,7 @@ Free to remove. Nothing here can break anything that is not already broken.
 | **PO-14** | `send_whatsapp_message()` in `voice/whatsapp_handler.py` | Body is a `[MOCK]` log line with the real SDK call commented out. Nothing imports it, but it is easy to grab by mistake | ✅ fixed (2026-09-29, `@PO-14`) — confirmed unimported, deleted |
 | **PO-15** | The `approval:{id}` Redis publish in `AIService.respond_to_approval` | Nothing subscribes to it. The live channel is `hitl:{id}`, published by the router at [`ai/router.py:456`](../../../backend/src/ai/router.py:456) and consumed at [`governance_service.py:345`](../../../backend/src/ai/governance/governance_service.py:345) | ✅ fixed (2026-09-29, `@PO-15`) — the publish and its misleading comment are gone; this also removes one of SA-04's five `RedisSettings()` call sites |
 | **PO-16** | The `/api/v1/ai/phase11/*` and `/admin/phase11/*` redirect shims | Both carry an explicit *"Remove after 2026-09-01"* comment. That date is today | ✅ fixed (2026-09-29, `@PO-16`) — the backend 307 shim and the five SPA redirects are deleted; no frontend code called the old paths |
-| **PO-17** | The `video_generation` deprecated tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ Verified · open |
+| **PO-17** | The `video_generation` deprecated tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ fixed (2026-09-29, `@PO-17`) — no entity referenced it; unregistered and deleted, with its entries in the three cost tables and the category map. 97 tools are now registered |
 
 > Before deleting, confirm nothing still imports it:
 > `grep -rn "<module_name>" backend/src frontend/src --include=*.py --include=*.ts --include=*.tsx`

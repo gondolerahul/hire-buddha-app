@@ -1,8 +1,7 @@
 """Video tool split — Phase 12 `03`.
 
 Covers the three composable tools (``video_generate`` / ``video_edit`` /
-``video_add_sound``), the shared ffmpeg helper argv construction, and the
-deprecated ``video_generation`` shim. ffmpeg is not installed on CI hosts, so
+``video_add_sound``) and the shared ffmpeg helper argv construction. ffmpeg is not installed on CI hosts, so
 every ffmpeg/ffprobe call is routed through a fake ``run_sandbox_exec`` that
 records argv — we assert on the commands built, not on real encoding.
 """
@@ -13,7 +12,7 @@ from typing import Any, List, Optional, Sequence
 
 import pytest
 
-from src.ai.tools.base import ToolRegistry, ToolStatus
+from src.ai.tools.base import ToolRegistry
 from src.ai.tools.media.video import _ffmpeg, _support
 from src.ai.tools.media.video.video_add_sound import VideoAddSoundTool
 from src.ai.tools.media.video.video_edit import VideoEditTool
@@ -62,14 +61,14 @@ def _make_clip(tmp_path, name: str) -> str:
 # --------------------------------------------------------------------------- #
 # Registration
 # --------------------------------------------------------------------------- #
-def test_three_tools_registered_and_shim_deprecated() -> None:
+def test_three_tools_registered_and_legacy_name_gone() -> None:
     import src.ai.tools  # noqa: F401  (triggers registration)
 
     assert isinstance(ToolRegistry.get_tool("video_generate"), VideoGenerateTool)
     assert isinstance(ToolRegistry.get_tool("video_edit"), VideoEditTool)
     assert isinstance(ToolRegistry.get_tool("video_add_sound"), VideoAddSoundTool)
-    shim = ToolRegistry.get_tool("video_generation")
-    assert shim is not None and shim.status == ToolStatus.DEPRECATED
+    # The deprecated video_generation mega-tool was removed (PO-17).
+    assert ToolRegistry.get_tool("video_generation") is None
 
 
 # --------------------------------------------------------------------------- #
@@ -258,25 +257,3 @@ async def test_add_sound_missing_audio_file_errors(tmp_path) -> None:
         )
     )
     assert "error" in res
-
-
-# --------------------------------------------------------------------------- #
-# Deprecated shim — delegates
-# --------------------------------------------------------------------------- #
-@pytest.mark.asyncio
-async def test_shim_single_segment_delegates_to_generate(monkeypatch) -> None:
-    from src.ai.tools.media.video_generation import VideoGenerationTool
-
-    shim = VideoGenerationTool()
-    captured = {}
-
-    async def fake_generate(input_data, context=None):
-        captured["input"] = input_data
-        return json.dumps({"video_path": "/x.mp4", "duration_seconds": 5})
-
-    monkeypatch.setattr(shim._generate, "run_with_context", fake_generate)
-    out = json.loads(
-        await shim.run(json.dumps({"prompt": "cat", "length_seconds": 5}))
-    )
-    assert out["video_path"] == "/x.mp4"
-    assert "cat" in captured["input"]

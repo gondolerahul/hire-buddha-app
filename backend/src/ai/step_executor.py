@@ -473,7 +473,6 @@ class StepExecutorService:
                 # (used as fallback when IntegrationRegistry has no entry)
                 _TOOL_FIXED_COST = {
                     "image_generation": _Dec("0.04"),   # Imagen 4 standard
-                    "video_generation": _Dec("0.05"),   # Veo per-call
                     "video_generate": _Dec("0.05"),     # Veo per-call (split tool)
                 }
                 _sku_matches = _TOOL_SKU_MAP.get(tool_id, [])
@@ -940,7 +939,6 @@ class StepExecutorService:
                         }
                         _TOOL_FIXED_COST = {
                             "image_generation": _Dec("0.04"),
-                            "video_generation": _Dec("0.05"),
                             "video_generate": _Dec("0.05"),
                         }
                         _afc_sku_matches = _TOOL_SKU_MAP.get(_tr.tool, [])

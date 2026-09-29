@@ -135,14 +135,14 @@ base_cost = base_cost_image_gen × image_gen_count
 **Service Category**: `VIDEO_GEN` / `VIDEO_GENERATION`  
 **Task Types**: `text_to_video`, `image_to_video`, `audio_to_video`
 
-The legacy `video_generation` mega-tool has been split into three composable tools:
+The legacy `video_generation` mega-tool was split into three composable tools, and its
+deprecated shim was deleted on 2026-09-29 (PO-17):
 
 | Tool | Description | Fixed Cost (fallback) | Baseline Est. |
 |---|---|---|---|
 | `video_generate` | AI generation of a single segment (Veo) | **$0.05** | **$0.10** |
 | `video_edit` | Concat, trim, extend (ffmpeg-based, CPU) | — (billed via sandbox) | **$0.01** |
 | `video_add_sound` | Add audio/music overlay (CPU) | — (billed via sandbox) | **$0.01** |
-| `video_generation` | **DEPRECATED** shim → delegates to above | **$0.05** | **$0.10** |
 
 ### Key Notes
 

@@ -189,6 +189,11 @@ anything — and they are taught it as though it works.
 - [`backend/src/ai/ONBOARDING.md:65`](../../../backend/src/ai/ONBOARDING.md:65)–75
 - [`ai/tools/base.py:192`](../../../backend/src/ai/tools/base.py:192) — the unwired gate
 
+> **Update 2026-09-29:** problem 1 is gone. `video_generation` was deleted (PO-17) and the
+> exercise, in `ONBOARDING.md` and in `20-onboarding-and-glossary.md`, now names
+> `video_generate`, which really is `EXPERIMENTAL`. Problems 2 and 3 stand: the gate is still
+> unwired (TL-13), so the exercise still teaches a control that controls nothing.
+
 ---
 
 ### ON-07 — "Most gates fail open" is stated and then not acted on

@@ -1616,7 +1616,7 @@ non-social set is the one that actually gets used by production entities:
 |-------|-------|
 | `core/` | `calculator`, `search`, `batch_search`, `scraper`, `file_writer` |
 | `documents/` | `pdf_generator`, `docx_tool`, `pptx_tool`, `excel`, `document_save` |
-| `media/` | `image_generation`, `video_generate`, `video_edit`, `video_add_sound`, plus a `DEPRECATED` `video_generation` mega-tool shim |
+| `media/` | `image_generation`, `video_generate`, `video_edit`, `video_add_sound` (the `DEPRECATED` `video_generation` shim was deleted on 2026-09-29, PO-17) |
 | `sandbox/` | `sandbox_executor`, `terminal_tool`, `browser_tool` |
 | `email/` | `email_ingest`, `email_classify`, `email_draft`, `email_send` |
 | `crm/` | `get_current_datetime`, `whatsapp_send_tenant`, `google_calendar_create_event`, `crm_update_lead` |
@@ -1822,7 +1822,6 @@ Honest boundaries, all verifiable by grep.
 
 | File | Status |
 |------|--------|
-| `VideoGenerationTool` | registered but `status = ToolStatus.DEPRECATED` — "remove after seeds migrate" |
 | `ReasoningMode.REFLECTION` and `TREE_OF_THOUGHTS` | in `DEPRECATED_REASONING_MODES`; still accepted, emit a deprecation warning |
 | `SeedDocumentFactory` (~50 entities) | superseded by `SeedDocFactoryLite` (1 entity) for cost reasons |
 

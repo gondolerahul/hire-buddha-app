@@ -164,7 +164,7 @@ Who carries which status today:
 | Status | Tools |
 |--------|-------|
 | `EXPERIMENTAL` | all 64 `social/` tools (set on the `SocialMediaTool` base class), `video_generate`, `video_edit`, `video_add_sound`, `tool_synthesis`, every `MCPToolAdapter` |
-| `DEPRECATED` | `video_generation` only |
+| `DEPRECATED` | none registered (`video_generation`, the last one, was deleted on 2026-09-29, PO-17) |
 | `DRAFT` | `SandboxedSynthesizedTool` instances |
 | `ACTIVE` | everything else — all of `core/`, `documents/`, `email/`, `crm/`, `sandbox/`, `image_generation`, and the meta tools other than `tool_synthesis` |
 
@@ -625,7 +625,6 @@ Legend for external dependency: `—` = pure local compute.
 | `video_generate` | media | [media/video/video_generate.py](../../backend/src/ai/tools/media/video/video_generate.py) | One Veo 3.1 clip, max 8 s | `model_name`, `prompt`, `length_seconds`, `is_audio_required`, `start_frame_path`, `end_frame_path` | Google Vertex AI Veo | EXPERIMENTAL | fixed `$0.05` |
 | `video_edit` | media | [media/video/video_edit.py](../../backend/src/ai/tools/media/video/video_edit.py) | ffmpeg concat / trim / resize / transition / overlay / extend | `operation`, `inputs[]`, `output_path`, op params | ffmpeg via sandbox runtime | EXPERIMENTAL | `sandbox-runtime` seconds |
 | `video_add_sound` | media | [media/video/video_add_sound.py](../../backend/src/ai/tools/media/video/video_add_sound.py) | Attach or mix an audio track onto a clip | `video_path`, `source` (file/tts/generated), `mode`, `gain`, `loop`, `fade` | ffmpeg via sandbox runtime | EXPERIMENTAL | `sandbox-runtime` seconds |
-| `video_generation` | media | [media/video_generation.py](../../backend/src/ai/tools/media/video_generation.py) | Deprecated shim — splits long requests into segments then concats | same as `video_generate` plus `length_seconds` beyond 8 s | Veo plus ffmpeg | DEPRECATED | fixed `$0.05` |
 
 ### 5.5 `sandbox/` — 3 tools
 
@@ -928,8 +927,6 @@ flowchart TD
     subgraph VID["video/"]
         V1["video_generate - Veo 3.1 - max 8 s per clip"] --> V2["video_edit - ffmpeg concat trim resize transition overlay"]
         V2 --> V3["video_add_sound - replace or overlay audio"]
-        V4["video_generation DEPRECATED"] -->|"length over 8 s"| V1
-        V4 --> V2
     end
     V1 --> FF["_ffmpeg.run_ffmpeg via run_sandbox_exec"]
     V2 --> FF
@@ -953,8 +950,9 @@ hard error. There is no AI Studio / direct API-key path.
 
 **The video split.** `video_generation` was one mega-tool. Phase 12 split it into
 three so a planner can express "generate 3 clips, concat them, add narration" as
-three inspectable steps with three separate cost lines. The old name survives as
-a `DEPRECATED` shim that delegates. `MAX_SEGMENT_SECONDS = 8`
+three inspectable steps with three separate cost lines. The old name's `DEPRECATED`
+delegating shim was deleted on 2026-09-29 (PO-17): a clip longer than one segment is
+now a plan of several `video_generate` calls joined by `video_edit`. `MAX_SEGMENT_SECONDS = 8`
 ([_support.py:24](../../backend/src/ai/tools/media/video/_support.py:24)) and
 `calculate_segments` picks the largest legal segment sizes (8, 6, 5, 4).
 
@@ -1761,7 +1759,6 @@ TOOL_SKU_MAP: dict[str, list[str]] = {
 
 TOOL_FIXED_COST: dict[str, Decimal] = {
     "image_generation": Decimal("0.04"),
-    "video_generation": Decimal("0.05"),
     "video_generate":   Decimal("0.05"),
 }
 ```
@@ -2067,9 +2064,6 @@ reading the backend's `.env` file off the host filesystem.
 
 - **`meta_spec_critic` is a `Tool` that is not in the registry.** It is
   instantiated directly. Do not expect to find it via `ToolRegistry.get_tool`.
-
-- **`video_generation` is DEPRECATED but still registered** and still visible
-  to any entity that names it, because the visibility gate is not wired in.
 
 - **Social tokens for 8 of 16 platforms cannot be refreshed.** No entry in
   `PLATFORM_REFRESH_CONFIG` means the connection dies when the access token

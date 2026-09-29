@@ -40,7 +40,6 @@ _BUILTIN_CATEGORIES = {
     "email_draft": "email",
     "email_send": "email",
     "image_generation": "media",
-    "video_generation": "media",
     "video_generate": "media",
     "video_edit": "media",
     "video_add_sound": "media",

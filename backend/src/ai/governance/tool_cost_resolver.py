@@ -51,7 +51,6 @@ TOOL_SKU_MAP: dict[str, list[str]] = {
 # no entry in IntegrationRegistry.
 TOOL_FIXED_COST: dict[str, Decimal] = {
     "image_generation": Decimal("0.04"),
-    "video_generation": Decimal("0.05"),
     # video_generate carries the model cost; video_edit / video_add_sound are
     # compute-only and bill via the sandbox SKU, so they have no fixed cost here.
     "video_generate": Decimal("0.05"),

@@ -138,4 +138,5 @@ def test_canonical_sku_map_present() -> None:
 
 def test_canonical_fixed_costs() -> None:
     assert TOOL_FIXED_COST["image_generation"] == Decimal("0.04")
-    assert TOOL_FIXED_COST["video_generation"] == Decimal("0.05")
+    assert TOOL_FIXED_COST["video_generate"] == Decimal("0.05")
+    assert "video_generation" not in TOOL_FIXED_COST

@@ -733,7 +733,7 @@ One row per billable thing. "Metered" means a `usage_logs` row and/or a `run.tot
 | CORTEX summarisation LLM | `{model}-in` / `-out` | per 1M tokens | [cortex_bridge.py:241](../../backend/src/ai/memory/cortex_bridge.py:241) | ✅ unattributed → `tool` |
 | Embeddings | `{embedding_model}-in` | per 1M **characters** | [embedding_service.py:353](../../backend/src/ai/memory/embedding_service.py:353) | ✅ `embedding` tag |
 | Image generation | `imagen-4.0-generate-001`, else fixed `$0.04` | per image | [tool_cost_resolver.py:52](../../backend/src/ai/governance/tool_cost_resolver.py:52) + [image_generation.py:372](../../backend/src/ai/tools/media/image_generation.py:372) | ⚠️ double-charged, see below |
-| Video generation | fixed `$0.05` (`video_generate`, `video_generation`) | per call | [tool_cost_resolver.py:52](../../backend/src/ai/governance/tool_cost_resolver.py:52) | ⚠️ no `usage_logs` row |
+| Video generation | fixed `$0.05` (`video_generate`) | per call | [tool_cost_resolver.py:52](../../backend/src/ai/governance/tool_cost_resolver.py:52) | ⚠️ no `usage_logs` row |
 | Video edit / add sound | none | — | bills through the sandbox SKU | ✅ indirect |
 | Telephony minutes | `tata-tele-voice-in-out`, `in-out` | per minute, ceilinged | [usage_logger.py:148](../../backend/src/voice/usage_logger.py:148) | ✅ full |
 | Voice LLM audio | `gemini-3.1-flash-live-preview-in` / `-out` | per 1M tokens @ 167 tok/s, or per minute | [usage_logger.py:191](../../backend/src/voice/usage_logger.py:191) | ✅ full |

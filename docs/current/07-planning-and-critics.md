@@ -570,14 +570,14 @@ Track 7 plan was never built.
 
 | Step type | Cost rule |
 |-----------|-----------|
-| `TOOL_CALL` | `TOOL_BASELINE_COST[tool_id]`, default `$0.01`. Range: `calculator` `$0.001` → `video_generation` `$0.10`. |
+| `TOOL_CALL` | `TOOL_BASELINE_COST[tool_id]`, default `$0.01`. Range: `calculator` `$0.001` → `video_generate` `$0.10`. |
 | `CHILD_ENTITY_INVOCATION` | flat `$0.10` |
 | `THOUGHT` / `ACTION` / `RECURSE` | `$0.005 × MODEL_PRICE_FACTOR[model]`. Factors run `gemini-2.5-flash-lite` `0.5` → `claude-opus-4-1` `8.0`. |
 | `READ` / `NAVIGATE` / `WRITE` | `$0.001` |
 | anything else | `$0.01` |
 
 Latency (`estimate_latency_s`) assumes strictly sequential execution:
-`web_search` 3 s, `headless_browser` 10 s, `video_generation` 60 s, thinking
+`web_search` 3 s, `headless_browser` 10 s, `video_generate` 60 s, thinking
 steps 6 s, child invocation 30 s, everything else 1 s.
 
 ---

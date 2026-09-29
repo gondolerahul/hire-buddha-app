@@ -592,7 +592,7 @@ roughly 86, and remove ~1,600 lines.
 > `grep -rn "<module_name>" backend/src frontend/src --include=*.py --include=*.ts --include=*.tsx`
 
 See also **D-25** in the platform register — the `video_generation` deprecated shim,
-which belongs to this tier and is already recorded there.
+which belonged to this tier. It was deleted on 2026-09-29 (PO-17).
 
 ---
 
@@ -979,7 +979,7 @@ all 20 numbered documents. Two of its entries fall inside this subsystem and are
 | Platform entry | Superseded by | Change |
 |---|---|---|
 | **D-20** — A custom tool created through the API is inert | [TL-10](#tl-10--tenant-scoped-tools-are-unreachable-by-construction), [TL-14](#tl-14--is_enabled--false-does-not-disable-anything), Fault A | Was 📄 Doc-reported; now ✅ Verified. The root cause is broader than "no loader" — tenant-scoped tools are unreachable even when a runtime object exists |
-| **D-25** — The `video_generation` tool | [TL-13](#tl-13--the-tool-status-gate-is-not-wired-into-execution), T2 | Unchanged; still a valid deletion. The reason it is still selectable is TL-13 |
+| **D-25** — The `video_generation` tool | [TL-13](#tl-13--the-tool-status-gate-is-not-wired-into-execution), T2 | **Deleted 2026-09-29 (PO-17).** TL-13 itself still stands |
 
 Everything else in this file is new and does not appear in the platform register.
 

@@ -428,7 +428,7 @@ no reason to defer any of it.
 | **D-22** | `voice/phone_pool_router.py` | 701 lines, 7 routes under `/api/v1/phone-pool`, never mounted. **Keep** `phone_pool_models.py` — the live router still imports `PhoneNumber` from it | ✅ fixed (2026-09-29, `@PO-12`) — deleted (PO-12) |
 | **D-23** | [`voice/main.py`](../../backend/src/voice/main.py) + both `streaming.hirebuddha.com` vhosts + the `STREAMING_HOST` default | Blocked on [W-1](#8-w-1--retire-port-8002) only | ✅ Verified |
 | **D-24** | The `/api/v1/ai/phase11/*` redirect shim | Carries an explicit *"Remove after 2026-09-01"* comment at [`main.py:105`](../../backend/src/main.py:105). Remove the five matching legacy routes from the frontend router in the same change | ✅ fixed (2026-09-29, `@PO-16`) — deleted with the SPA routes (PO-16) |
-| **D-25** | The `video_generation` tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ Verified |
+| **D-25** | The `video_generation` tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ fixed (2026-09-29, `@PO-17`) — deleted (PO-17) |
 | **D-26** | [`ai/lead_queue_worker.py`](../../backend/src/ai/lead_queue_worker.py) | Or wire it up — see [D-21](#d-21--the-lead-queue-is-never-drained) | ✅ Verified |
 | **D-27** | `gateway/main.py` | Dead; only `gateway/app.py` is served | 📄 Doc-reported |
 | **D-28** | The legacy `assets` table + its two redirect shims | The artifacts migration said it would drop `assets` and never did | 📄 Doc-reported |

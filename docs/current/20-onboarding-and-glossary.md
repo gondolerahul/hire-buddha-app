@@ -237,7 +237,7 @@ you will have in week one is answerable from the schema.
 
 The in-repo onboarding guide
 ([backend/src/ai/ONBOARDING.md](../../backend/src/ai/ONBOARDING.md)) proposes a
-guided exercise: enable the `EXPERIMENTAL` `video_generation` tool for your dev
+guided exercise: enable the `EXPERIMENTAL` `video_generate` tool for your dev
 tenant.
 
 ```mermaid
@@ -265,12 +265,12 @@ psql -h localhost -p 5433 -U postgres -d hirebuddha -c "SELECT id, name, type FR
 **Step 2** — enable the flag:
 
 ```bash
-psql -h localhost -p 5433 -U postgres -d hirebuddha -c "INSERT INTO feature_flags (id, company_id, flag_key, enabled) VALUES (gen_random_uuid(), '<company-id>', 'tools.experimental.video_generation', true);"
+psql -h localhost -p 5433 -U postgres -d hirebuddha -c "INSERT INTO feature_flags (id, company_id, flag_key, enabled) VALUES (gen_random_uuid(), '<company-id>', 'tools.experimental.video_generate', true);"
 ```
 
 **Step 3** — add a unit test in `backend/tests/unit/test_tool_status.py`
 asserting `ToolRegistry.get_visible_tools_for_company(...)` surfaces
-`video_generation` when the flag is on.
+`video_generate` when the flag is on.
 
 **Step 4** — run it:
 

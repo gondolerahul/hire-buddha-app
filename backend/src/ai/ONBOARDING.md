@@ -62,17 +62,17 @@ This codebase implements `docs/phase11/`. Skim:
 
 ## 5. First PR (15 min) — guided exercise
 
-Enable the EXPERIMENTAL `video_generation` tool for your dev tenant:
+Enable the EXPERIMENTAL `video_generate` tool for your dev tenant:
 
 1. Find the tenant's company_id in the `companies` table.
 2. Insert a row into `feature_flags`:
    ```sql
    INSERT INTO feature_flags (id, company_id, flag_key, enabled)
-   VALUES (gen_random_uuid(), '<company-id>', 'tools.experimental.video_generation', true);
+   VALUES (gen_random_uuid(), '<company-id>', 'tools.experimental.video_generate', true);
    ```
 3. Add a unit test under `tests/unit/test_tool_status.py` that asserts
    `ToolRegistry.get_visible_tools_for_company(<company_id>, feature_flags=...)`
-   surfaces `video_generation` when the flag is on.
+   surfaces `video_generate` when the flag is on.
 4. Run `.venv/bin/python -m pytest tests/unit/test_tool_status.py`.
 5. Submit the PR. The CI will run the lint + the unit suite.
 
