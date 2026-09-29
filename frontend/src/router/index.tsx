@@ -442,7 +442,7 @@ export const AppRouter: React.FC = () => {
                     <Route
                         path="/reports/costing"
                         element={
-                            <ProtectedRoute>
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
                                 <MainLayout>
                                     <CostingReport />
                                 </MainLayout>

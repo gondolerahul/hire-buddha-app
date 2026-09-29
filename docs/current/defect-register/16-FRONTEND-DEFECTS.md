@@ -36,11 +36,11 @@
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
 | [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 4 | **Now** — all four are small |
-| [T1](#3-t1--broken-behaviour) | Broken behaviour | 7 | Before the next release |
+| [T1](#3-t1--broken-behaviour) | Broken behaviour | 8 | Before the next release |
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 5 | Free |
 | [T3](#5-t3--performance) | Performance | 7 | When the page in question is next touched |
 
-**Total: 23 defects, 10 improvements.**
+**Total: 24 defects, 10 improvements.**
 
 The three to read first:
 
@@ -271,6 +271,30 @@ The backend has an OAuth path (`get_or_create_oauth_user`, `POST /auth/oauth/{pr
 so the feature is half-built rather than absent.
 
 - [`frontend/src/pages/auth/LoginPage.tsx:76`](../../../frontend/src/pages/auth/LoginPage.tsx:76)–85
+
+---
+
+### FE-24 — Reloading any `/reports/*` page proxies the browser to the gateway
+
+**✅ Verified · Medium** · **Status: open** — found 2026-09-29 while verifying PO-04.
+
+The Vite dev server proxies every path starting with `/reports` to
+`http://gateway.hirebuddha.com` — meant for the backend's static `/reports` mount (generated
+research reports). The SPA's own report pages share that prefix: `/reports/costing` and every
+`/reports/analytics/*` page. Client-side navigation works, but a full page load — a refresh,
+a bookmark, a pasted link — never reaches the SPA. The dev server forwards it to the gateway,
+which answers with the backend's static mount, not the app.
+
+Observed locally: loading `http://localhost:3010/reports/costing` landed on
+`https://gateway.hirebuddha.com`. Production serves the SPA through the same dev server
+([SA-I1](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-i1--serve-the-frontend-as-a-build-not-a-dev-server)),
+so the same reload fails there.
+
+- [`frontend/vite.config.ts`](../../../frontend/vite.config.ts) — `server.proxy['/reports']`
+
+**Fix:** give the static mount a prefix the SPA does not use (for example
+`/static-reports`), or proxy only requests that do not accept `text/html` (a `bypass`
+function).
 
 ---
 

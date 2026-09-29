@@ -350,7 +350,7 @@ graph TB
         C6["/ai/templates"]
         C7["/knowledge, /integrations, /artifacts"]
         C8["/cortex and /cortex/trees/:treeId"]
-        C9["/profile, /wallet, /reports/costing"]
+        C9["/profile, /wallet"]
         C10["/partner, /phone-numbers"]
         C11["/streaming/sessions, /campaigns, /campaigns/:id, /calls/:id"]
     end
@@ -358,7 +358,7 @@ graph TB
         G1["/ai/tool-registry - app_admin"]
         G2["/ai-config - app_admin, tenant_admin"]
         G3["/platform-management - 3 admins"]
-        G4["/settings/billing - app_admin"]
+        G4["/settings/billing, /reports/costing - app_admin"]
         G5["/reports/analytics/* - per-tier allowlists"]
         G6["/admin/agent-kernel/* - 3 admins"]
     end
@@ -415,7 +415,7 @@ All non-redirect components are lazy-loaded.
 | `/assets` | → `/artifacts` | — | — | redirect |
 | `/cortex` | `CortexExplorer` | any authed | MainLayout | yes |
 | `/cortex/trees/:treeId` | `CortexTreeDetail` | any authed | MainLayout | yes |
-| `/reports/costing` | `CostingReport` | any authed **(see note)** | MainLayout | yes |
+| `/reports/costing` | `CostingReport` | `app_admin` | MainLayout | yes |
 | `/reports/analytics/app-admin` | `AppAdminReports` | `APP_ADMIN` | MainLayout | yes |
 | `/reports/analytics/app-user` | `AppUserReports` | `APP_ADMIN`, `APP_USER` | MainLayout | yes |
 | `/reports/analytics/partner-admin` | `PartnerAdminReports` | `APP_ADMIN`, `PARTNER_ADMIN` | MainLayout | yes |
@@ -434,10 +434,10 @@ All non-redirect components are lazy-loaded.
 
 Notes on the table:
 
-- **`/reports/costing` is not role-gated in the router** even though the sidebar
-  only shows it to `APP_ADMIN` ([`MainLayout.tsx:128`](../../frontend/src/components/layout/MainLayout.tsx:128)).
-  Any authenticated user can type the URL. The backend endpoint is the real
-  gate.
+- **`/reports/costing` is `APP_ADMIN` only** in the router, matching the sidebar
+  ([`MainLayout.tsx:128`](../../frontend/src/components/layout/MainLayout.tsx:128)) and the
+  backend (PO-04). Reloading it — like any `/reports/*` page — is caught by the Vite
+  `/reports` proxy (FE-24).
 - **Three redirects are broken.** `<Navigate to="/ai/entities/edit/:id">` sends
   the user to the literal string `:id` — React Router's `Navigate` does not
   interpolate params. The same bug affects `/agents/:id`, `/workflows/:id` and
@@ -490,7 +490,7 @@ token that fails `/auth/me` correctly counts as logged out.
 The sidebar in [`MainLayout.tsx:61-144`](../../frontend/src/components/layout/MainLayout.tsx:61)
 builds its menu with the *same* role predicates, but as a **separate hand-kept
 list**. Adding a route does not add a nav item, and the two lists can drift
-(they already have — `/reports/costing`). Menu groups:
+(`/reports/costing` did, until PO-04). Menu groups:
 
 | Group | Items | Visible to |
 |-------|-------|-----------|
@@ -1487,7 +1487,7 @@ is noted.
 | [`UserSettings.tsx`](../../frontend/src/pages/UserSettings.tsx) | `/profile` | Name, password, avatar, company logo | `PUT /auth/profile`, `PUT /auth/password`, `profileService.uploadAvatar/uploadLogo` | any authed |
 | [`billing/WalletPage.tsx`](../../frontend/src/pages/billing/WalletPage.tsx) | `/wallet` | Balance, Razorpay top-up, subscription purchase/cancel | `creditsService.*` + `window.Razorpay` | any authed |
 | [`billing/BillingSettings.tsx`](../../frontend/src/pages/billing/BillingSettings.tsx) | `/settings/billing` | Multiplier, fees, discount, subscription tiers | `billingService.getConfig/updateConfig/*SubscriptionTier` | `app_admin` |
-| [`reports/CostingReport.tsx`](../../frontend/src/pages/reports/CostingReport.tsx) | `/reports/costing` | Monthly cost breakdown by grouping | `billingService.getCostingReport` | any authed (sidebar: `app_admin`) |
+| [`reports/CostingReport.tsx`](../../frontend/src/pages/reports/CostingReport.tsx) | `/reports/costing` | Monthly cost breakdown by company and grouping | `billingService.getCostingReport` | `app_admin` |
 | `reports/AppAdminReports.tsx` | `/reports/analytics/app-admin` | 7-panel platform analytics | 7 `reportsService` calls | `app_admin` |
 | `reports/AppUserReports.tsx` | `/reports/analytics/app-user` | Ops + incidents + data growth | 5 `reportsService` calls | `app_admin`, `app_user` |
 | `reports/PartnerAdminReports.tsx` | `/reports/analytics/partner-admin` | Tenant health portfolio | `getTenantHealth` | `app_admin`, `partner_admin` |
@@ -2382,8 +2382,8 @@ Concretely:
 - **Three legacy redirects are broken** — `<Navigate to="/…/:id">` does not
   interpolate. Copy the `ExecutionRedirect` component pattern if you need one.
 - **The sidebar and the router are separate lists.** Adding a route does not add
-  a nav item, and their role predicates can drift (`/reports/costing` already
-  has).
+  a nav item, and their role predicates can drift (`/reports/costing` did,
+  until PO-04).
 - **`useState(entity?.x)` in `EntityConfigurationTabs` only reads the prop
   once.** Any change that lets that component mount before the entity loads will
   silently render an empty form.

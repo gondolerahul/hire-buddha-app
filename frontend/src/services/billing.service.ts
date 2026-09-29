@@ -19,6 +19,7 @@ export interface BillingConfig {
 export interface BillingEvent {
     id: string;
     company_id: string;
+    company_name: string | null;
     period_month: string;
     grouping_type: string | null;
     grouping_value: string | null;

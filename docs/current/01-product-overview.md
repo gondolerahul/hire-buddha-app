@@ -1277,7 +1277,7 @@ Connection management itself is four endpoints under
 ### 6.12 Billing, wallet, credits and top-ups
 
 **Routes:** `/wallet` (everyone), `/settings/billing` (`app_admin`),
-`/reports/costing`.
+`/reports/costing` (`app_admin` — the platform's raw provider cost across every company).
 
 There are two distinct numbers for every run:
 
@@ -1774,7 +1774,7 @@ Legend: **Y** = full access · **S** = scoped (own company or own child tenants)
 | Artifacts library | `/artifacts` | S | S | S | S | S | S |
 | Wallet and top-up | `/wallet` | S | S | S | S | S | S |
 | Billing config | `/settings/billing` | Y | — | — | — | — | — |
-| Costing report | `/reports/costing` | Y | see note | see note | see note | see note | see note |
+| Costing report | `/reports/costing` | Y all companies | — | — | — | — | — |
 | Platform analytics | `/reports/analytics/app-admin` | Y | — | — | — | — | — |
 | Ops and incidents | `.../app-user` | Y | Y | — | — | — | — |
 | Portfolio analytics | `.../partner-admin` | Y | — | Y | — | — | — |
@@ -1792,11 +1792,10 @@ Notes on the three ambiguous rows:
 - **`/ai-config`** — the React route lets `tenant_admin` in, but every
   `/config/task-defaults` endpoint requires `app_admin`. Tenant admins see the
   page and get a 403 on save.
-- **`/reports/costing`** — the React route has **no** `allowedRoles`, and
-  `GET /reports/costing` has **no** role check either; it only scopes to
-  `current_user.company_id`. Any authenticated user who types the URL sees their
-  own company's costing rows. The sidebar link is `app_admin`-only, which is the
-  only thing hiding it.
+- **`/reports/costing`** — `app_admin` only, on the route and on
+  `GET /reports/costing` and `GET /reports/billing` (both return `base_cost`). The
+  report spans every company, with an optional `company_id` filter (PO-04,
+  2026-09-29).
 - **Feature flags** — the page is open to all three admin roles, but the
   create/toggle controls check `isAppAdmin` in the component
   ([FeatureFlagsPage.tsx:28](../../frontend/src/pages/admin/FeatureFlagsPage.tsx:28)).
@@ -1925,8 +1924,7 @@ Honest boundaries, all verifiable by grep.
   A broken import makes a whole feature area 404 rather than crashing the app —
   check the startup log before debugging a "missing" endpoint.
 - **Frontend route gates and backend guards do not always agree.** `/ai-config`
-  and `/reports/costing` are the two live examples; assume the backend is the
-  real boundary.
+  is the live example; assume the backend is the real boundary.
 - **The HITL channel is `hitl:{approval_id}`.** The router publishes the reviewer's
   decision there and `GovernanceService` waits on it. (A second, unconsumed
   `approval:{id}` publish was deleted on 2026-09-29, PO-15.)

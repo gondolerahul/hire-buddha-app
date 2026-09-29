@@ -1266,8 +1266,8 @@ graph TB
 
 | Report | Endpoint | Who can see it | Source | What it answers |
 |---|---|---|---|---|
-| **Costing Report** | `GET /api/v1/reports/costing` | any authenticated user, own company | `billing_events` | Internal operational expense — `base_cost` and usage counters |
-| **Billing Report** | `GET /api/v1/reports/billing` | any authenticated user, own company | `billing_events` (**same query**) | Client-facing revenue — `total_billing`, fees, discounts |
+| **Costing Report** | `GET /api/v1/reports/costing` | `app_admin`; every company, or `?company_id=` | `billing_events` | Internal operational expense — `base_cost` and usage counters |
+| **Billing Report** | `GET /api/v1/reports/billing` | `app_admin`; every company, or `?company_id=` | `billing_events` (**same query**) | Client-facing revenue — `total_billing`, fees, discounts |
 | Wallet liability | `GET /reports/analytics/wallet-liability` | `app_admin` | `credit_wallets ⋈ companies` | Total unspent credit the platform owes, ascending by balance |
 | Usage breakdown | `GET /reports/analytics/usage-breakdown` | own company | `usage_logs ⋈ integration_registry` | Cost by `model_name` + `service_category`, plus a daily trend |
 | Credit forecast | `GET /reports/analytics/credit-forecast` | own company | `credit_wallets` + `usage_logs` | 7-day average burn, 30-day projection, depletion date |
@@ -1282,7 +1282,7 @@ graph TB
 
 ⚠️ **Costing and Billing are the same query.** Both call `BillingService.get_costing_report` with identical arguments; only the `totals` dict differs — [billing_router.py:188](../../backend/src/billing/billing_router.py:188). The comment in the code admits it: *"For now billing and costing use the same data source."*
 
-⚠️ **Neither money report is role-gated.** Any authenticated user can `GET /api/v1/reports/costing` and see their company's internal cost basis, including `base_cost` — i.e. what the platform actually pays providers, and by division, the markup.
+**Both money reports are `app_admin` only** (PO-04, 2026-09-29). Each row carries `base_cost` — what the platform pays providers, and by division, the markup — so neither may reach a tenant. Billing events are recorded under the company that ran the work, so the reports span every company, with an optional `company_id` filter, and each row names its company (`company_name`). `GET /billing/config` still returns the multiplier to any user ([BC-26](defect-register/14-BILLING-AND-CREDITS-DEFECTS.md#bc-26--any-user-can-read-the-billing-multiplier-and-base-costs)).
 
 The frontend renders both from the same `BillingEvent` type with different column sets and a CSV export — [CostingReport.tsx](../../frontend/src/pages/reports/CostingReport.tsx) and [BillingReport.tsx](../../frontend/src/pages/reports/BillingReport.tsx). Both offer the grouping dropdown `partner | tenant | user | process | agent`, though only `process`, `agent` and `tool` are ever written.
 
@@ -1324,8 +1324,8 @@ Prefix `/api/v1`, tag `Billing & Reports`.
 |---|---|---|---|---|
 | `GET` | `/billing/config` | any user | — | `{config}` for the caller's company, falling back to global |
 | `PUT` | `/billing/config` | `app_admin`, `partner_admin` | `BillingConfigUpdate` incl. optional `company_id` (`None` = global) | `{config}` |
-| `GET` | `/reports/costing` | any user | `period_month`, `grouping_type` | `{events, totals, count}` |
-| `GET` | `/reports/billing` | any user | `period_month`, `grouping_type` | `{events, totals, count}` |
+| `GET` | `/reports/costing` | `app_admin` | `period_month`, `grouping_type`, `company_id` | `{events, totals, count}` |
+| `GET` | `/reports/billing` | `app_admin` | `period_month`, `grouping_type`, `company_id` | `{events, totals, count}` |
 
 ### 13.2 Credits, subscriptions and payments — [credits_router.py](../../backend/src/billing/credits_router.py)
 
@@ -1620,7 +1620,7 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 - ⚠️ `subscription_tiers` has no migration. Fresh databases lack the table.
 - ⚠️ `billing_events` has no unique constraint on its logical upsert key; concurrent settlements can duplicate rows.
 - ⚠️ `partner_admin` can `PUT /billing/config` with `company_id: null`, editing **platform-wide** pricing.
-- ⚠️ `GET /reports/costing` has no role check — any user can read their company's raw provider cost and infer the markup.
+- ⚠️ `GET /billing/config` has no role check — any user can read the multiplier and base costs (BC-26).
 - ⚠️ `GET /credits/subscription-tiers` has no auth dependency at all.
 
 ---

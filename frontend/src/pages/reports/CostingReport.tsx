@@ -23,12 +23,12 @@ function formatUSD(val: number): string {
 
 function exportToCSV(events: BillingEvent[], filename: string) {
     const headers = [
-        'Period', 'Grouping Type', 'Grouping Value', 'Base Cost', 'Multiplied',
+        'Period', 'Company', 'Grouping Type', 'Grouping Value', 'Base Cost', 'Multiplied',
         'Platform Fee', 'Partner Fee', 'Discount', 'Total', 'Tel In (min)',
         'Tel Out (min)', 'Images', 'Videos', 'Other AI Cost',
     ];
     const rows = events.map((e) => [
-        e.period_month, e.grouping_type, e.grouping_value, e.base_cost,
+        e.period_month, e.company_name ?? e.company_id, e.grouping_type, e.grouping_value, e.base_cost,
         e.multiplied_cost, e.platform_fee_amount, e.partner_fee_amount,
         e.discount_amount, e.total_billing, e.telephony_in_minutes,
         e.telephony_out_minutes, e.image_gen_count, e.video_gen_count, e.other_ai_cost,
@@ -86,7 +86,7 @@ export const CostingReport: React.FC = () => {
                         <BarChart2 size={24} style={{ marginRight: '0.5rem' }} />
                         Costing Report
                     </h1>
-                    <p className="page-subtitle">Internal operational expense tracking</p>
+                    <p className="page-subtitle">Internal operational expense tracking, across every company</p>
                 </div>
                 <div className="report-header-actions">
                     <button className="btn-secondary" onClick={fetchReport}>
@@ -157,6 +157,7 @@ export const CostingReport: React.FC = () => {
                         <thead>
                             <tr>
                                 <th>Period</th>
+                                <th>Company</th>
                                 {groupingType && <th>Grouping</th>}
                                 <th>Base Cost</th>
                                 <th>Multiplied</th>
@@ -175,6 +176,7 @@ export const CostingReport: React.FC = () => {
                             {events.map((e) => (
                                 <tr key={e.id}>
                                     <td>{e.period_month}</td>
+                                    <td>{e.company_name ?? e.company_id}</td>
                                     {groupingType && <td>{e.grouping_value || '—'}</td>}
                                     <td className="num">{formatUSD(e.base_cost)}</td>
                                     <td className="num">{formatUSD(e.multiplied_cost)}</td>

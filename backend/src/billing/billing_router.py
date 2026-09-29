@@ -12,11 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.database import get_db
 from src.auth.router import get_current_user
+from src.auth.dependencies import RoleChecker
 from src.auth.models import User
 from src.billing.billing_service import BillingService
 from src.billing.billing_models import BillingEvent, BillingConfig
 
 router = APIRouter(prefix="/api/v1", tags=["Billing & Reports"])
+
+# Both reports carry base_cost — what the platform pays providers. With the
+# multiplier known that is the margin, so they are app_admin only.
+app_admin_only = RoleChecker(["app_admin"])
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -64,6 +69,7 @@ def _event_to_dict(e: BillingEvent) -> dict:
     return {
         "id": str(e.id),
         "company_id": str(e.company_id),
+        "company_name": e.company.name if "company" in e.__dict__ and e.company else None,
         "period_month": e.period_month.isoformat() if e.period_month else None,
         "grouping_type": e.grouping_type,
         "grouping_value": e.grouping_value,
@@ -149,12 +155,15 @@ async def update_billing_config(
 async def get_costing_report(
     period_month: Optional[date] = Query(None, description="First day of month, e.g. 2026-02-01"),
     grouping_type: Optional[str] = Query(None, description="partner|tenant|user|process|agent"),
-    current_user: User = Depends(get_current_user),
+    company_id: Optional[UUID] = Query(None, description="One company; omit for every company"),
+    current_user: User = Depends(app_admin_only),
     db: AsyncSession = Depends(get_db),
 ):
+    # Events are recorded under the company that ran the work, so the
+    # platform view spans every company unless one is asked for.
     svc = BillingService(db)
     events = await svc.get_costing_report(
-        company_id=current_user.company_id,
+        company_id=company_id,
         period_month=period_month,
         grouping_type=grouping_type,
     )
@@ -182,14 +191,14 @@ async def get_costing_report(
 async def get_billing_report(
     period_month: Optional[date] = Query(None),
     grouping_type: Optional[str] = Query(None, description="partner|tenant|user|process|agent"),
-    current_user: User = Depends(get_current_user),
+    company_id: Optional[UUID] = Query(None, description="One company; omit for every company"),
+    current_user: User = Depends(app_admin_only),
     db: AsyncSession = Depends(get_db),
 ):
-    # For now billing and costing use the same data source;
-    # billing shows TB formula result prominently
+    # Same rows as the costing report (base_cost included), with revenue totals.
     svc = BillingService(db)
     events = await svc.get_costing_report(
-        company_id=current_user.company_id,
+        company_id=company_id,
         period_month=period_month,
         grouping_type=grouping_type,
     )

@@ -42,9 +42,9 @@
 | [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 6 | **Before the first paying tenant** |
 | [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 7 | Before any margin analysis |
 | [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | Before relying on the control |
-| [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 7 | Now — mostly cheap |
+| [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 8 | Now — mostly cheap |
 
-**Total: 25 defects, 10 improvements.**
+**Total: 26 defects, 10 improvements.**
 
 The three to read first:
 
@@ -371,6 +371,11 @@ the read is open.
 - Also **D-08** and **D-09**; see
   [PO-04](01-PRODUCT-OVERVIEW-DEFECTS.md#po-04--any-logged-in-user-can-read-the-internal-cost-report)
 
+> **Update 2026-09-29:** the costing half is fixed by PO-04 (`@PO-04`) — `GET /reports/costing`
+> and `GET /reports/billing`, which returned the same rows, are `app_admin` only. The open
+> `GET /credits/subscription-tiers` still stands. A third open read on the same surface,
+> `GET /billing/config`, is recorded as [BC-26](#bc-26--any-user-can-read-the-billing-multiplier-and-base-costs).
+
 ---
 
 ### BC-21 — Percentages and fractions are mixed, with the wrong label
@@ -443,6 +448,26 @@ and a fair indicator of how much of that file has been reviewed.
 
 - [`backend/pyproject.toml:32`](../../../backend/pyproject.toml:32)
 - [`billing/credits_router.py`](../../../backend/src/billing/credits_router.py) — the duplicate key
+
+---
+
+### BC-26 — Any user can read the billing multiplier and base costs
+
+**✅ Verified · High** · **Status: open** — found 2026-09-29 while fixing PO-04.
+
+`GET /billing/config` depends on `get_current_user` only. It returns the caller's effective
+`BillingConfig` — `multiplier_factor`, `platform_fee_pct`, `sales_partner_fee_pct`,
+`discount_pct` and the `base_cost_*` fields. For a tenant that is the global default row: the
+platform's markup, stated directly. PO-04 closed the two reports that let a user *infer* it;
+this endpoint hands it over.
+
+The only frontend caller is the `app_admin`-gated Billing Settings page, so gating the read
+breaks nothing in the UI.
+
+- [`billing/billing_router.py`](../../../backend/src/billing/billing_router.py) — `get_billing_config`
+
+**Fix:** `app_admin` only, like the write. If a partner needs its own `sales_partner_fee_pct`,
+return that field alone.
 
 ---
 

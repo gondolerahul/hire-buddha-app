@@ -16,7 +16,8 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, true
+from sqlalchemy.orm import selectinload
 
 from src.billing.billing_models import BillingConfig, BillingEvent
 
@@ -199,18 +200,24 @@ class BillingService:
 
     async def get_costing_report(
         self,
-        company_id: UUID,
+        company_id: Optional[UUID] = None,
         period_month: Optional[date] = None,
         grouping_type: Optional[str] = None,
     ) -> list:
-        """Return billing events for costing report (internal view)."""
-        conditions = [BillingEvent.company_id == company_id]
+        """Return billing events for the costing report (internal view).
+
+        ``company_id=None`` returns every company's events. Each event's
+        ``company`` is loaded so the report can name it.
+        """
+        conditions = []
+        if company_id:
+            conditions.append(BillingEvent.company_id == company_id)
         if period_month:
             conditions.append(BillingEvent.period_month == period_month)
         if grouping_type:
             conditions.append(BillingEvent.grouping_type == grouping_type)
 
-        stmt = select(BillingEvent).where(and_(*conditions)).order_by(
+        stmt = select(BillingEvent).options(selectinload(BillingEvent.company)).where(and_(true(), *conditions)).order_by(
             BillingEvent.period_month.desc(), BillingEvent.total_billing.desc()
         )
         result = await self.db.execute(stmt)

@@ -58,7 +58,7 @@ cross-referenced here.
 | PO-01 | Deleting a knowledge-base document always fails | open |
 | PO-02 | A tenant admin can open the AI config page but cannot save | open |
 | PO-03 | Nothing pushes a new user into onboarding | ⏸ deferred |
-| PO-04 | Any logged-in user can read the internal cost report | open |
+| PO-04 | Any logged-in user can read the internal cost report | ✅ fixed `@PO-04` |
 | PO-05 | A reviewer approves without seeing what they are approving | open |
 | PO-06 | 64 of the 98 tools are unfinished integrations | open — audit |
 | PO-07 | You can connect 9 social platforms but 16 have tools | open |
@@ -161,7 +161,7 @@ built and skippable.
 
 ### PO-04 — Any logged-in user can read the internal cost report
 
-**✅ Verified · High** · **Status: open**
+**✅ Verified · High** · **Status: fixed (2026-09-29, `@PO-04`)**
 
 > **Product owner, 2026-09-29:** the cost report is for `app_admin` only.
 
@@ -177,8 +177,31 @@ the sidebar link is shown to `app_admin` only — anyone who types the URL gets 
 - [`billing/billing_router.py:148`](../../../backend/src/billing/billing_router.py:148) — `get_costing_report`
 - [`frontend/src/router/index.tsx:443`](../../../frontend/src/router/index.tsx:443) — `<ProtectedRoute>` with no roles
 
-**Fix:** gate the route to `app_admin`. See also **BC-xx** in
-[14 — Billing](14-BILLING-AND-CREDITS-DEFECTS.md).
+**Fix:** gate the route to `app_admin`. See also **BC-20** in
+[14 — Billing](14-BILLING-AND-CREDITS-DEFECTS.md#bc-20--two-open-endpoints-on-the-money-surface).
+
+**Done (2026-09-29):**
+
+- `GET /reports/costing` **and** `GET /reports/billing` depend on `RoleChecker(["app_admin"])`.
+  The billing report returns the same rows, `base_cost` included, and no page uses it —
+  gating only the costing route would have left the cost one URL away.
+- Billing events are recorded under the company that ran the work, so an `app_admin` report
+  scoped to the caller's own company would show no tenant costs. Both reports now span every
+  company, take an optional `company_id` filter, and name each row's company
+  (`company_name`, eager-loaded).
+- The React route is `allowedRoles={[UserRole.APP_ADMIN]}`; the page shows a Company column
+  and exports it in the CSV.
+
+**Evidence:** `tests/unit/test_billing_report_access.py` — the five other roles get 403 on
+both routes and the query never runs; `app_admin` gets every company by default and one
+company with `company_id`. 14 cases, all failing on the old code. Live on a local API and
+SPA: a `tenant_admin` receives 403 from the API and is redirected from the page to
+`/dashboard`; the `app_admin` sees the report with its Company column.
+
+Found while fixing: `GET /billing/config` returns the multiplier and base costs to any user
+([BC-26](14-BILLING-AND-CREDITS-DEFECTS.md#bc-26--any-user-can-read-the-billing-multiplier-and-base-costs)),
+and reloading any `/reports/*` page is proxied away from the SPA
+([FE-24](16-FRONTEND-DEFECTS.md#fe-24--reloading-any-reports-page-proxies-the-browser-to-the-gateway)).
 
 ---
 
