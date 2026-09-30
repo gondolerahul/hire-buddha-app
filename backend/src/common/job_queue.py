@@ -9,6 +9,10 @@ port and dropping the password, TLS and database index.
 Enqueueing through here also leaves the caller's trace context in Redis
 under the job id, so the worker's span for the job joins the trace of the
 request that queued it (SA-10).
+
+Child runs go on their own queue, ``CHILD_RUN_QUEUE``, consumed by a second
+worker (``ai.worker.ChildWorkerSettings``), so a fan-out cannot take every job
+slot the top-level runs need (SA-07).
 """
 import json
 from contextlib import asynccontextmanager
@@ -21,6 +25,8 @@ from arq.jobs import Job
 
 from src.common.config import settings
 from src.common.telemetry import TRACE_KEY_TTL_SECONDS, current_trace_carrier, trace_key
+
+CHILD_RUN_QUEUE = "children"
 
 
 def arq_redis_settings() -> RedisSettings:
@@ -52,3 +58,13 @@ async def enqueue_job(function: str, *args: Any, **kwargs: Any) -> Optional[Job]
     """Enqueue one job. ``None`` means a job with the same ``_job_id`` already exists."""
     async with arq_pool() as pool:
         return await enqueue_on(pool, function, *args, **kwargs)
+
+
+async def enqueue_child_run(redis: Any, run_id: Any) -> Optional[Job]:
+    """Queue a child run on ``CHILD_RUN_QUEUE``, in the current (parent's) trace.
+
+    ``redis`` is any redis-py asyncio client; the job goes on the children
+    queue whatever that client's default queue is.
+    """
+    pool = redis if isinstance(redis, ArqRedis) else ArqRedis(redis.connection_pool)
+    return await enqueue_on(pool, "run_execution_recursive", str(run_id), _queue_name=CHILD_RUN_QUEUE)

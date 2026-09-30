@@ -63,6 +63,8 @@ kill_port "Frontend" 3000
 echo -e "${BLUE}[2/4] Stopping Arq Worker...${NC}"
 stop_service "Arq Worker" "$LOG_DIR/arq_worker.pid"
 pkill -f "arq src.ai.worker.WorkerSettings" 2>/dev/null && echo -e "${GREEN}✓ Arq processes terminated${NC}"
+stop_service "Arq child-run worker" "$LOG_DIR/arq_child_worker.pid"
+pkill -f "arq src.ai.worker.ChildWorkerSettings" 2>/dev/null && echo -e "${GREEN}✓ Arq child-run processes terminated${NC}"
 
 # Step 3: Stop the API (Port 8000)
 echo -e "${BLUE}[3/4] Stopping API...${NC}"

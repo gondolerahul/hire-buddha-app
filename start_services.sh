@@ -112,6 +112,17 @@ else
     echo -e "${GREEN}✓ Arq Worker started (PID: $ARQ_PID)${NC}"
 fi
 
+# Child runs have their own queue and worker (SA-07); without it they never run.
+if pgrep -f "arq src.ai.worker.ChildWorkerSettings" > /dev/null; then
+    echo -e "${YELLOW}Arq child-run worker already running. Skipping.${NC}"
+else
+    cd "$BACKEND_DIR"
+    nohup "$BACKEND_DIR/.venv/bin/python" -m arq src.ai.worker.ChildWorkerSettings > "$LOG_DIR/arq_child_worker.log" 2>&1 &
+    CHILD_PID=$!
+    echo $CHILD_PID > "$LOG_DIR/arq_child_worker.pid"
+    echo -e "${GREEN}✓ Arq child-run worker started (PID: $CHILD_PID)${NC}"
+fi
+
 # Step 4: Start Frontend
 echo -e "${BLUE}[4/4] Starting Frontend (Port 3000)...${NC}"
 

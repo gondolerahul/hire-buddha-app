@@ -257,6 +257,12 @@ cleaned up — the same silent-stall shape as
 
 > **2026-09-29:** the main caller, `CortexBridge` (`ai/memory/cortex_bridge.py:346`),
 > does enqueue. The `cortex_router.py:259` path is the one to check.
+>
+> **2026-09-30:** correction — `CortexBridge` *tried* to enqueue, but built
+> `ArqRedis(self.redis.client)` from the client's `.client` **method**, which raised on
+> every call; the error was logged as a warning and the child run stayed `PENDING`. Fixed
+> with SA-07: it now calls `enqueue_child_run`, which puts the run on the child-run
+> queue. The `cortex_router.py:259` path is still unchecked.
 
 ---
 

@@ -206,7 +206,18 @@ whether four dreaming runs a day is actually what you want before switching it o
 
 ### SA-07 — The child-run queue is declared and not used
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — child runs go on `children`
+(`common/job_queue.enqueue_child_run`, used by ChildEntityExecutor and CORTEX RECURSE) and
+a second worker consumes it: `python -m arq src.ai.worker.ChildWorkerSettings`, started
+and stopped by the service scripts, same functions, no crons, `max_jobs =
+CHILD_WORKER_MAX_JOBS` (10). That `max_jobs` is now a hard cap on concurrent child runs
+across all parents; the per-parent `max_concurrent_children` is still advisory (AK-07 /
+D-13). `/api/v1/health` expects a live worker on both queues (SA-I4). Live: a child run
+queued with no child worker waited on `children` (health `down`, `due_jobs: 1`) while two
+main-queue workers ignored it; the child worker took it 14.8 s later on start. A parent
+is still resumed on the default queue. Found on the way: the CORTEX RECURSE enqueue had
+never worked — it built `ArqRedis` from the client's `.client` method and raised — so its
+child runs stayed `PENDING`; it now uses the same helper.
 
 `CHILD_RUN_QUEUE = "children"` is declared with a long comment explaining that it
 exists so a fan-out `PROCESS` cannot starve top-level runs. The comment then says
@@ -504,6 +515,9 @@ One Redis lookup with a 60-second TTL replaces one Postgres round trip per reque
 **Effect: medium.** One worker runs everything: agent executions (up to 2 hours),
 document processing, campaign dialling and seven crons. A long `PROCESS` run occupies
 a slot that a 3-second document embed also needs.
+
+**Status: partly done (2026-09-30, SA-07)** — child runs have their own pool; everything else
+still shares one.
 
 `CHILD_RUN_QUEUE` was the first step towards this and was never finished. Two worker
 pools — one for interactive/short jobs, one for long runs — would stop head-of-line

@@ -107,7 +107,8 @@ class ChildEntityExecutor:
         governance = (entity.governance or {}) if entity else {}
         if not within_child_dispatch_cap(state, governance):
             # The cap is now advisory: with the inline backpressure path retired,
-            # we dispatch anyway and let the child queue absorb the fan-out.
+            # we dispatch anyway and let the child queue absorb the fan-out —
+            # the child worker's max_jobs is the hard cap (SA-07).
             logger.info(
                 "Child dispatch cap reached for parent %s (%d in flight); "
                 "dispatching anyway.", run.id, pending_child_count(state),
@@ -137,7 +138,7 @@ class ChildEntityExecutor:
     ) -> ActionResult:
         """Create the child run, enqueue it as its own job, return an
         ``awaiting_children`` ActionResult so the loop suspends."""
-        from arq.connections import ArqRedis
+        from src.common.job_queue import enqueue_child_run
 
         ctx = await state.materialise_context_dict()
         child_run = await engine._step_executor.create_child_run(
@@ -148,9 +149,9 @@ class ChildEntityExecutor:
         step_id = str(getattr(step_obj, "step_id", None) or getattr(step_obj, "name", "") or "")
 
         # Enqueue the child as its own isolated run job (same entry point a
-        # top-level run uses → its own session, budget, and AgentLoop).
-        arq_redis = ArqRedis(redis.connection_pool)
-        await arq_redis.enqueue_job("run_execution_recursive", str(child_run.id))
+        # top-level run uses → its own session, budget, and AgentLoop), on the
+        # child-run queue and its own worker (SA-07).
+        await enqueue_child_run(redis, child_run.id)
 
         logger.info(
             "Async-dispatched child run %s (step=%s) for parent %s; suspending.",

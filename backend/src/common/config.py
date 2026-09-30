@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     WORKER_HEARTBEAT_SECONDS: int = 10
     # A due job waiting longer than this makes /api/v1/health "degraded".
     WORKER_BACKLOG_ALERT_SECONDS: int = 600
+    # Child runs have their own queue and worker (SA-07); this many run at
+    # once across all parents, and the rest wait in the queue.
+    CHILD_WORKER_MAX_JOBS: int = 10
 
     # Phase 12 `02` S4 — per-tenant container sandbox. OFF by default;
     # SubprocessRuntime stays the dev/CI default and the production rollback.

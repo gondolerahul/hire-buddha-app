@@ -217,11 +217,11 @@ async def test_child_executor_async_dispatch_returns_awaiting_and_enqueues(monke
         def __init__(self, _pool):
             pass
 
-        async def enqueue_job(self, name, *args):
-            enqueued.append((name, args))
+        async def enqueue_job(self, name, *args, _queue_name=None, **kwargs):
+            enqueued.append((name, args, _queue_name))
 
-    # Patch ArqRedis used inside _dispatch_async.
-    monkeypatch.setattr("arq.connections.ArqRedis", _FakeArqRedis)
+    # Patch the ArqRedis enqueue_child_run builds from the parent's client.
+    monkeypatch.setattr("src.common.job_queue.ArqRedis", _FakeArqRedis)
 
     class _FakeRedis:
         connection_pool = object()
@@ -246,7 +246,8 @@ async def test_child_executor_async_dispatch_returns_awaiting_and_enqueues(monke
         {"run_id": str(child_id), "step_id": "child_step", "status": "PENDING"}
     ]
     assert result.completed_step_ids == []          # step completes only on resume
-    assert enqueued == [("run_execution_recursive", (str(child_id),))]
+    # On the child-run queue, which has its own worker (SA-07).
+    assert enqueued == [("run_execution_recursive", (str(child_id),), "children")]
 
 
 # ---------------------------------------------------------------------------

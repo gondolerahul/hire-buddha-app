@@ -94,7 +94,8 @@ async def test_worker_status(monkeypatch, workers, oldest_age, expected):
     now = time.time()
     r = FakeRedis()
     if workers:
-        await beat(r, default_queue_name, "vm:1", now=now)
+        for queue in worker_health.EXPECTED_QUEUES:
+            await beat(r, queue, "vm:1", now=now)
     r.sets[default_queue_name] = {"j1": (now - oldest_age) * 1000}
     monkeypatch.setattr(worker_health.redis, "from_url", lambda *a, **k: r)
     status = await worker_health.worker_status()

@@ -28,13 +28,14 @@
 
 ## 1. The 60-second version
 
-HireBuddha runs as **four long-lived processes on one virtual machine**, fronted by Apache:
+HireBuddha runs as **four kinds of long-lived process on one virtual machine** (five
+processes — there are two Arq workers), fronted by Apache:
 
 | # | Process | Port | One-line job |
 |---|---------|------|--------------|
 | 1 | Vite dev server (React SPA) | 3000 | Serves the browser app |
 | 2 | API (FastAPI) | 8000 | Every HTTP and WebSocket endpoint: REST, business logic, auth, billing, AI routers, inbound webhooks, internal events, audio/video/telephony media streams |
-| 3 | Arq worker | — | Runs agent executions and cron jobs off a Redis queue |
+| 3 | Arq workers | — | Two processes off Redis queues: the main worker runs top-level agent executions, documents, events, campaigns and the crons (`arq:queue`); the child-run worker runs child runs (`children`, SA-07) |
 | 4 | Docker: PostgreSQL+pgvector / Redis | 5433 / 6379 | Durable state / queue, cache, pub-sub |
 
 Until 2026-09-30 there was a fifth: the **Unified Gateway** on port 8001, a second
@@ -96,15 +97,15 @@ flowchart TD
     C -->|no| ERR["exit 1"]
     C -->|yes| D1["1. docker compose up -d db redis"]
     D1 --> D2["2. uvicorn src.main:app :8000"]
-    D2 --> D3["3. python -m arq src.ai.worker.WorkerSettings"]
+    D2 --> D3["3. python -m arq src.ai.worker.WorkerSettings and ChildWorkerSettings"]
     D3 --> D4["4. npm run dev -- --host 0.0.0.0 :3000"]
     D4 --> DONE["Print URLs, write PID files to logs/"]
 ```
 
 Each step is skipped if its port is already bound (`check_port` uses `lsof`), and
 each writes a PID file into `logs/`. Steps 2 and 4 then poll for up to 30
-seconds with `wait_for_service`. The Arq worker has no port, so it is detected by
-`pgrep -f "arq src.ai.worker.WorkerSettings"` instead.
+seconds with `wait_for_service`. The Arq workers have no port, so each is detected by
+`pgrep -f "arq src.ai.worker.WorkerSettings"` (or `…ChildWorkerSettings`) instead.
 
 ### 2.1 API — port 8000
 
@@ -196,11 +197,19 @@ served by `GET /api/v1/streaming/voice-sessions/{id}`.
 
 * **What it is.** A queue consumer, not a web server. Its entrypoint module is
   [`backend/src/ai/worker.py`](../../backend/src/ai/worker.py) — deliberately
-  small, containing only `WorkerSettings` and cron registration, because arq
-  requires them at module level for worker discovery.
-* **How it starts.**
-  `backend/.venv/bin/python -m arq src.ai.worker.WorkerSettings`
-  ([`start_services.sh`](../../start_services.sh)).
+  small, containing only the two settings classes and cron registration,
+  because arq requires them at module level for worker discovery.
+* **How it starts.** As two processes
+  ([`start_services.sh`](../../start_services.sh)):
+  `backend/.venv/bin/python -m arq src.ai.worker.WorkerSettings` — the default
+  queue `arq:queue` and every cron — and
+  `backend/.venv/bin/python -m arq src.ai.worker.ChildWorkerSettings` — child
+  runs only, on the queue `children`, at most `CHILD_WORKER_MAX_JOBS` (10) at
+  once. ChildEntityExecutor and CORTEX RECURSE enqueue child runs there
+  (`common/job_queue.enqueue_child_run`), so a fan-out waits for those slots
+  instead of taking the ones top-level runs, documents and events need (SA-07).
+  Without the child worker, child runs are never picked up — health says
+  `down` for `children`.
 * **What it owns.** Long-running agent executions. When you POST
   `/api/v1/execute`, the API creates a row and returns immediately; the worker is
   what actually drives [`AgentLoop.run()`](../../backend/src/ai/core/agent_loop.py).
@@ -264,7 +273,7 @@ and the rate limiter falls back to counting in process memory.
 [`ai/campaign_worker.py`](../../backend/src/ai/campaign_worker.py) is **not** a
 separate process. It defines three coroutines (`execute_campaign_task`,
 `pause_campaign_task`, `stop_campaign_task`) that are imported into
-`WorkerSettings.functions` and run inside the same Arq worker.
+`WorkerSettings.functions` and run inside the main Arq worker.
 
 There used to be a second, `ai/lead_queue_worker.py` — a 5-second poller meant to
 dial CRM leads from the `lead_queue` table. Nothing ever started or registered
@@ -297,7 +306,7 @@ graph TB
     subgraph HOST["Host processes - backend/.venv and npm"]
         FE["Vite dev server :3000"]
         API["API :8000 - src.main:app"]
-        WK["Arq worker - src.ai.worker.WorkerSettings"]
+        WK["Arq workers - src.ai.worker.WorkerSettings and ChildWorkerSettings"]
     end
 
     subgraph DOCKER["Docker compose - db and redis only"]
@@ -338,6 +347,7 @@ graph TB
 |---------|------|--------------------------|----------|----------|
 | API | 8000 | `backend/.venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload` (`backend/`) | `logs/backend_api.log` | `logs/backend_api.pid` |
 | Arq worker | — | `backend/.venv/bin/python -m arq src.ai.worker.WorkerSettings` (`backend/`) | `logs/arq_worker.log` | `logs/arq_worker.pid` |
+| Arq child-run worker | — | `backend/.venv/bin/python -m arq src.ai.worker.ChildWorkerSettings` (`backend/`) | `logs/arq_child_worker.log` | `logs/arq_child_worker.pid` |
 | Frontend (Vite) | 3000 | `npm run dev -- --host 0.0.0.0` (`frontend/`) | `logs/frontend.log` | `logs/frontend.pid` |
 | PostgreSQL + pgvector | 5433 | `docker compose up -d db` (`backend/`) | `docker logs hirebuddha-db` | — |
 | Redis | 6379 | `docker compose up -d redis` (`backend/`) | `docker logs hirebuddha-redis` | — |
@@ -944,10 +954,18 @@ job_timeout = 7200  # 2-hour absolute ceiling; per-entity timeout via logic_gate
 redis_settings = arq_redis_settings()
 ```
 
-`CHILD_RUN_QUEUE = "children"` is declared with a long comment explaining it is
-the *intended* dedicated queue for async child runs so a fan-out `PROCESS` cannot
-starve top-level runs — but it is explicitly **"NOT routed yet"**; children still
-go on the default queue, bounded only by `governance.max_concurrent_children`.
+Child runs have their own queue, `CHILD_RUN_QUEUE = "children"`
+([`common/job_queue.py`](../../backend/src/common/job_queue.py)), and their own
+worker, `ChildWorkerSettings`: same functions, no crons, `max_jobs =
+CHILD_WORKER_MAX_JOBS` (10). `enqueue_child_run` puts `run_execution_recursive`
+there whatever the caller's client defaults to. The child worker's `max_jobs` is
+the one hard cap on concurrent child runs across all parents;
+`governance.max_concurrent_children` is still advisory per parent. A parent is
+resumed by `resume_parent_run` on the default queue — so a nested parent (a child
+that fanned out) finishes its run on the main worker. Until SA-07 (2026-09-30)
+the queue was declared with a "NOT routed yet" comment and every child went on
+the default queue; the CORTEX RECURSE enqueue did not work at all (it built
+`ArqRedis` from the client's `.client` method and raised every time).
 
 ---
 
@@ -1396,7 +1414,7 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 
 | File | Lines | What it does |
 |------|-------|--------------|
-| [`start_services.sh`](../../start_services.sh) | 150 | Boots Docker, the API, the worker and the frontend in dependency order; writes PID files and logs into `logs/` |
+| [`start_services.sh`](../../start_services.sh) | 159 | Boots Docker, the API, both workers and the frontend in dependency order; writes PID files and logs into `logs/` |
 | [`stop_services.sh`](../../stop_services.sh) | 98 | Kills by PID file, then by port, then `docker compose down` |
 | [`setup_production_vm.sh`](../../setup_production_vm.sh) | 183 | Eight-step Ubuntu bootstrap: Python 3.12, Poetry, Node 20, Docker, venv, npm, `.env` |
 | [`backend/docker-compose.yml`](../../backend/docker-compose.yml) | 57 | Defines `app` (the API, 8000), `db` (5433), `redis` (6379); only `db` and `redis` are actually used |
@@ -1411,7 +1429,7 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 | [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 600 | Twelve webhook adapters + `detect_strategy` + `POST /webhook/inbound` |
 | [`backend/src/gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py) | 100 | The Twilio/Tata media-stream WebSockets |
 | [`backend/src/voice/public_urls.py`](../../backend/src/voice/public_urls.py) | 20 | `stream_url` / `callback_url` — the URLs handed to telephony providers |
-| [`backend/src/ai/worker.py`](../../backend/src/ai/worker.py) | 124 | `WorkerSettings`: 9 job functions, 7 crons, `job_timeout=7200`, Redis host/port parse |
+| [`backend/src/ai/worker.py`](../../backend/src/ai/worker.py) | 159 | `WorkerSettings` (11 job functions, 9 crons, `job_timeout=7200`) and `ChildWorkerSettings` (the `children` queue); every job traced; each worker's heartbeat; Redis from all of `REDIS_URL` |
 | [`backend/src/ai/core/arq_jobs.py`](../../backend/src/ai/core/arq_jobs.py) | 1126 | Every Arq job body, including the ghost-run and idempotency guards |
 | [`backend/src/ai/core/trace.py`](../../backend/src/ai/core/trace.py) | 373 | `TraceRecorder`, `SpanHandle`, the ambient `span()` context manager |
 | [`backend/src/ai/core/events.py`](../../backend/src/ai/core/events.py) | 297 | `TelemetryEvent` envelope, `event` / `aevent` / `emit`, test capture |

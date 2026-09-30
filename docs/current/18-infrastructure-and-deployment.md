@@ -51,18 +51,22 @@ graph TB
 
     subgraph Background["nohup processes"]
         WK["Arq worker<br/>src.ai.worker.WorkerSettings"]
+        CW["Arq child-run worker<br/>src.ai.worker.ChildWorkerSettings"]
     end
 
     BE --> PG
     BE --> RD
     RD --> WK
+    RD --> CW
     WK --> PG
+    CW --> PG
 ```
 
 | Process | Port | Entrypoint | Log | PID file |
 |---|---|---|---|---|
 | API | 8000 | `uvicorn src.main:app` | `logs/backend_api.log` | `logs/backend_api.pid` |
 | Arq worker | — | `python -m arq src.ai.worker.WorkerSettings` | `logs/arq_worker.log` | `logs/arq_worker.pid` |
+| Arq child-run worker | — | `python -m arq src.ai.worker.ChildWorkerSettings` | `logs/arq_child_worker.log` | `logs/arq_child_worker.pid` |
 | Frontend | 3000 | `npm run dev` | `logs/frontend.log` | `logs/frontend.pid` |
 | PostgreSQL | 5433 | `docker compose up db` | docker | — |
 | Redis | 6379 | `docker compose up redis` | docker | — |
@@ -421,7 +425,7 @@ flowchart TD
     CS --> E{"pgrep arq worker?"}
     C2 --> E
     E -->|running| ES["Skip"]
-    E -->|no| E1["3/4 nohup python -m arq src.ai.worker.WorkerSettings"]
+    E -->|no| E1["3/4 nohup python -m arq src.ai.worker.WorkerSettings, then ChildWorkerSettings the same way"]
     ES --> F{"Port 3000 in use?"}
     E1 --> F
     F -->|yes| FS["Skip"]
@@ -451,18 +455,23 @@ Every step is **idempotent** — an already-occupied port is skipped with a
 warning rather than causing a failure. Re-running the script to bring up one
 crashed service is safe.
 
-The Arq worker is detected by process name rather than port:
+The Arq workers are detected by process name rather than port:
 
 ```bash
 if pgrep -f "arq src.ai.worker.WorkerSettings" > /dev/null; then
+if pgrep -f "arq src.ai.worker.ChildWorkerSettings" > /dev/null; then
 ```
+
+The second is the child-run worker (SA-07). Child runs go on its queue,
+`children`, and nothing else consumes it: a deploy that starts only the main
+worker leaves every child run waiting, and `/api/v1/health` says `down`.
 
 All services run with `--reload`, including in the "production" path. That is
 convenient but means a syntax error in a saved file takes down a live service.
 
 ### 6.2 `stop_services.sh`
 
-Shuts down in reverse dependency order — frontend, worker, backend, gateway,
+Shuts down in reverse dependency order — frontend, both workers, API,
 Docker — using a belt-and-braces approach per service:
 
 1. Kill by PID file (`kill`, then `kill -9`)
@@ -471,7 +480,7 @@ Docker — using a belt-and-braces approach per service:
 
 ```mermaid
 flowchart LR
-    S1["1/4 Frontend 3000"] --> S2["2/4 Arq worker"]
+    S1["1/4 Frontend 3000"] --> S2["2/4 Arq workers"]
     S2 --> S3["3/4 API 8000"]
     S3 --> S5["4/4 docker compose down"]
 ```
@@ -1156,7 +1165,7 @@ restarts only the one you killed.
 ### 16.3 Tail logs
 
 ```bash
-tail -f logs/backend_api.log logs/arq_worker.log logs/frontend.log
+tail -f logs/backend_api.log logs/arq_worker.log logs/arq_child_worker.log logs/frontend.log
 ```
 
 ### 16.4 Inspect the Arq queue

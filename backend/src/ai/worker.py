@@ -6,8 +6,10 @@ This file is intentionally minimal. The job functions live in
 ``ai.campaign_worker`` and ``mobile.reconciler``; a run itself is driven by
 ``ai.core.agent_loop.AgentLoop``.
 
-Only WorkerSettings and cron registration remain here because arq
-requires them at module level for worker discovery. Every job and cron is
+Only the two worker settings classes and cron registration remain here
+because arq requires them at module level for worker discovery:
+``WorkerSettings`` consumes the default queue (top-level runs, documents,
+campaigns, events, crons) and ``ChildWorkerSettings`` the child-run queue. Every job and cron is
 registered through ``traced_job``, so each run is a span in the trace of
 whatever queued it (SA-10).
 """
@@ -49,7 +51,8 @@ from src.mobile.reconciler import mobile_housekeeping_job
 
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
-from src.common.job_queue import arq_redis_settings
+from src.common.config import settings
+from src.common.job_queue import CHILD_RUN_QUEUE, arq_redis_settings
 from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
 from src.common.worker_health import start_heartbeat, stop_heartbeat
 from arq.constants import default_queue_name
@@ -59,19 +62,15 @@ from arq.constants import default_queue_name
 # Arq WorkerSettings
 # ---------------------------------------------------------------------------
 
-# Intended dedicated queue for async child runs, so a fan-out PROCESS can't
-# starve top-level runs (and vice-versa). NOT routed yet: enqueuing children
-# here requires deploying a worker bound to this queue, otherwise children
-# would never be consumed. Until that worker exists, child dispatch stays on
-# the default queue and load is bounded by governance.max_concurrent_children
-# (see ChildEntityExecutor). Wire this in the C4 chain alongside the deletion.
-CHILD_RUN_QUEUE = "children"
-
-
 async def startup(ctx: dict) -> None:
     setup_tracing("hirebuddha-worker")
     # Reported on /api/v1/health, so a dead worker is visible (SA-I4).
     start_heartbeat(ctx, default_queue_name)
+
+
+async def child_startup(ctx: dict) -> None:
+    setup_tracing("hirebuddha-child-worker")
+    start_heartbeat(ctx, CHILD_RUN_QUEUE)
 
 
 async def shutdown(ctx: dict) -> None:
@@ -136,4 +135,25 @@ try:
     ]
 except ImportError:
     pass  # arq.cron may not be available in all versions
+
+
+class ChildWorkerSettings:
+    """Child runs only (SA-07): ``python -m arq src.ai.worker.ChildWorkerSettings``.
+
+    ChildEntityExecutor and CORTEX RECURSE enqueue child runs on
+    ``CHILD_RUN_QUEUE``, so a fan-out waits for these slots instead of taking
+    the ones top-level runs, documents and events need. ``max_jobs`` is the
+    one hard cap on concurrent children across all parents
+    (``governance.max_concurrent_children`` is advisory). A parent is resumed
+    — ``resume_parent_run`` — on the default queue. Same functions as the main
+    worker, so anything enqueued here still runs; no crons.
+    """
+    queue_name = CHILD_RUN_QUEUE
+    functions = WorkerSettings.functions
+    max_jobs = settings.CHILD_WORKER_MAX_JOBS
+    job_timeout = WorkerSettings.job_timeout
+    redis_settings = WorkerSettings.redis_settings
+
+    on_startup = child_startup
+    on_shutdown = shutdown
 

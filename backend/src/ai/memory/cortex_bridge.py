@@ -349,12 +349,13 @@ class CortexBridge:
                     result_slot=result_slot,
                     execution_run_id=run.id,
                 )
-                # Enqueue the child run to Arq
+                # Enqueue the child run on the child-run queue (SA-07). Until
+                # then this built ArqRedis from the client's .client method and
+                # raised every time: the run was created and never enqueued.
                 if child_run_id:
                     try:
-                        from arq.connections import ArqRedis
-                        arq_redis = ArqRedis(self.redis.client if hasattr(self, 'redis') else None)
-                        await arq_redis.enqueue_job("run_execution_recursive", str(child_run_id))
+                        from src.common.job_queue import enqueue_child_run
+                        await enqueue_child_run(self.redis, child_run_id)
                         logger.info(f"Enqueued child run {child_run_id} for RECURSE")
                     except Exception as enqueue_err:
                         logger.warning(

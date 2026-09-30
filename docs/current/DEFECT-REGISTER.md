@@ -295,6 +295,9 @@ guide section so nobody can configure a path that cannot work.
 *"dispatching anyway"* and dispatches. The comment states the cap is now advisory.
 `max_concurrent_children` is configurable in the builder and enforces nothing.
 
+> **2026-09-30:** still advisory per parent, but child runs now have their own queue and worker
+> (SA-07), whose `max_jobs` caps concurrent children across all parents.
+
 - [`ai/core/executors/child_entity.py:112`](../../backend/src/ai/core/executors/child_entity.py:112) — the advisory branch
 - [`:48`](../../backend/src/ai/core/executors/child_entity.py:48) — `within_child_dispatch_cap`
 - [`:33`](../../backend/src/ai/core/executors/child_entity.py:33) — `DEFAULT_MAX_CONCURRENT_CHILDREN = 8`

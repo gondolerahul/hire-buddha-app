@@ -244,6 +244,12 @@ The queue that was supposed to absorb the fan-out —
 [SA-07](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-07--the-child-run-queue-is-declared-and-not-used).
 So both halves of the fan-out control are inactive.
 
+> **2026-09-30:** the queue half is done (SA-07): child runs go on `children`, consumed by
+> their own worker, whose `max_jobs` (`CHILD_WORKER_MAX_JOBS`, 10) caps concurrent child
+> runs across all parents and keeps a fan-out from taking the slots top-level runs need.
+> The per-parent cap is still advisory: a `PROCESS` with 50 children still dispatches 50,
+> which now wait their turn in the child queue.
+
 - [`ai/core/executors/child_entity.py`](../../../backend/src/ai/core/executors/child_entity.py) — `within_child_dispatch_cap` and the advisory branch
 - Also recorded as **D-13** in the platform register
 
@@ -456,7 +462,8 @@ write-capable tool — rather than a blanket skip that reads like a bug.
 
 **Effect: large under load.** [AK-07](#ak-07--the-child-concurrency-cap-does-not-cap-anything).
 Enforcing it needs the dedicated child queue that `worker.py` already declares and does
-not route. Two changes, one outcome: a fan-out `PROCESS` stops being able to starve every
+not route. **2026-09-30:** the child queue is routed and has its own worker (SA-07); the
+per-parent cap itself is still to do. Two changes, one outcome: a fan-out `PROCESS` stops being able to starve every
 other run in the system.
 
 ### AK-I5 — Stop building the state dict twice per iteration
