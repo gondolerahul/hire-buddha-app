@@ -159,16 +159,15 @@ seconds with `wait_for_service`. The Arq worker has no port, so it is detected b
   | Edge counters | `GET /metrics/gateway` | [`gateway/status.py`](../../backend/src/gateway/status.py) |
 
 * **On startup** its `lifespan` starts the
-  [`CentralDispatcher`](../../backend/src/gateway/dispatcher.py), which drains the
-  in-process [`InMemoryEventBus`](../../backend/src/gateway/event_bus.py) that the
-  webhook and internal-event endpoints publish to.
+  [`CentralDispatcher`](../../backend/src/gateway/dispatcher.py) — today only the
+  Redis-cached agent lookup the audio/video handshakes use.
 * **What it talks to.** PostgreSQL (SQLAlchemy async), Redis (job enqueue, SSE
   pub-sub, the rate-limit counters, the mobile call-control channels), LLM
   providers over HTTPS.
 * **If it dies.** Everything public goes down: the SPA, all webhooks, all live
   audio. Runs already in the worker keep going; their SSE streams are lost until
-  the API is back. The event bus is **in-memory**, so any webhook envelope that
-  had been published but not yet dispatched is lost.
+  the API is back. Webhooks it had acknowledged are safe: a 202 is sent only after
+  the job is in Redis (SA-09).
 
 ### 2.2 The former Unified Gateway — merged into the API
 
@@ -245,10 +244,10 @@ The same compose file *also* declares an `app` service that builds the
 redis` and then launches the Python processes on the host from `backend/.venv`.
 The containerised app path is an alternative that is not the deployed one.
 
-If Postgres dies: everything fails, loudly. If Redis dies: job enqueue fails
-(the dispatcher falls back to in-process execution — see
-[§7](#7-cross-process-communication)), SSE streams go silent, and the rate
-limiter falls back to counting in process memory.
+If Postgres dies: everything fails, loudly. If Redis dies: job enqueue fails —
+executions error, and the webhook and internal-event endpoints answer 503 so the
+caller retries (see [§7](#7-cross-process-communication)) — SSE streams go silent,
+and the rate limiter falls back to counting in process memory.
 
 ### 2.6 One more "worker" that is not a process
 
@@ -606,7 +605,7 @@ Run it manually with `python backend/scripts/lint_ai_layout.py`.
 | `auth/` | Users, companies, partners, RBAC dependencies, onboarding wizard. | `models.py`, `router.py`, `dependencies.py`, `company_router.py`, `partner_router.py`, `user_router.py`, `profile_router.py`, `onboarding_router.py` |
 | `billing/` | SKU costing, credit wallets, admin cron endpoints. | `billing_models.py`, `billing_service.py`, `credit_service.py`, `credits_router.py`, `cron_router.py` (`/api/v1/cron/*`, `app_admin` only), `cron_service.py` |
 | `config/` | Admin-managed integration registry and per-task model defaults. | `models.py` (`ModelTaskDefault`, `TASK_TYPES`), `service.py`, `router.py`, `schemas.py` |
-| `gateway/` | Inbound events and real-time media — routers the API mounts (there is no gateway app any more). | `webhook_inbound.py`, `internal_event.py`, `telephony_streams.py`, `audio_gateway.py`, `video_gateway.py`, `web_audio_adapter.py`, `event_bus.py`, `dispatcher.py`, `status.py` |
+| `gateway/` | Inbound events and real-time media — routers the API mounts (there is no gateway app any more). | `webhook_inbound.py`, `internal_event.py`, `envelope.py`, `telephony_streams.py`, `audio_gateway.py`, `video_gateway.py`, `web_audio_adapter.py`, `dispatcher.py`, `status.py` |
 | `voice/` | Telephony, WhatsApp, live-audio session handling. | `webhook_router.py` (1.4k lines of Twilio/Tata/WhatsApp HTTP webhooks), `public_urls.py` (the stream and callback URLs handed to providers), `websocket_handler.py` (the biggest file in the repo), `session_manager.py`, `phone_number_router.py`, `gemini_live.py`, `azure_realtime.py`, `call_guards.py`, `usage_logger.py` |
 | `ai/core/` | The agent kernel: control loop and its layers. | `agent_loop.py` (1500 lines), `agent_state.py`, `budget.py`, `perceiver.py`, `strategist.py`, `observer.py`, `reflector.py`, `arq_jobs.py`, `trace.py`, `events.py`, `agent_loop_sse.py`, `feature_flags.py`, `executors/`, `reasoning/` |
 | `ai/planning/` | Plan generation, critics, retry policy, cost estimation. | `plan_generator.py`, `planner_service.py`, `critic_pipeline.py`, `supervisor_critic.py`, `goal_guard.py`, `retry_strategies.py`, `cost_estimator.py`, `critic_calibration.py`, `plan_style_bandit.py`, `step_health_record.py` |
@@ -626,8 +625,8 @@ Run it manually with `python backend/scripts/lint_ai_layout.py`.
 
 ## 7. Cross-process communication
 
-Four distinct mechanisms. Knowing which one a feature uses tells you where to
-look when it breaks.
+Three distinct mechanisms, plus a shared secret. Knowing which one a feature
+uses tells you where to look when it breaks.
 
 ```mermaid
 graph LR
@@ -641,7 +640,6 @@ graph LR
     SPA -->|"SSE - text/event-stream"| API
     EXT -->|"HTTP webhook + X-Internal-Token"| API
     EXT -->|"WebSocket audio"| API
-    API -->|"in-process asyncio.Queue"| API
     API -->|"arq enqueue_job"| RD
     RD -->|"dequeue"| WK
     WK -->|"PUBLISH execution:run_id"| RD
@@ -650,8 +648,7 @@ graph LR
 
 | Mechanism | Where | Notes |
 |-----------|-------|-------|
-| In-process event bus | [`gateway/event_bus.py`](../../backend/src/gateway/event_bus.py) | `InMemoryEventBus` — an `asyncio.Queue` fan-out, `maxsize` from `EVENT_BUS_MAXSIZE` (1000), drained by the dispatcher the API starts in its `lifespan`. **Single process only.** Events published with zero consumers are counted as dropped. |
-| Arq job queue | Redis sorted set, consumed by the worker | The only durable hand-off between the web tier and the execution tier. Producers enqueue through [`common/job_queue.py`](../../backend/src/common/job_queue.py). |
+| Arq job queue | Redis sorted set, consumed by the worker | The only durable hand-off between the web tier and the execution tier. Producers enqueue through [`common/job_queue.py`](../../backend/src/common/job_queue.py); inbound webhooks and internal events through [`gateway/envelope.py`](../../backend/src/gateway/envelope.py), before their 202. |
 | Redis pub-sub | Channel `execution:{run_id}` (per-run trace/SSE), `agent.events` (global telemetry), `voice:session:{id}:control` and `mobile:user:{id}:push` (mobile dialer) | Producers: [`trace.py:251`](../../backend/src/ai/core/trace.py:251), [`agent_loop_sse.py:75`](../../backend/src/ai/core/agent_loop_sse.py:75), [`events.aevent`](../../backend/src/ai/core/events.py:241), [`mobile/realtime.py`](../../backend/src/mobile/realtime.py). Consumers: the SSE endpoint, the stream handler, the push socket. |
 | Internal token | Header `X-Internal-Token`, checked by `require_internal` in [`internal_event.py`](../../backend/src/gateway/internal_event.py) | Only `POST /internal/event` takes it; compared in constant time with `INTERNAL_TOKEN`. |
 
@@ -823,8 +820,9 @@ request headers.
 
 ### 7.4 Webhook and internal-event ingestion
 
-Both interfaces normalise into the same `EventEnvelope` dataclass and publish to
-the same bus, which the dispatcher drains.
+Both interfaces normalise into the same `EventEnvelope` dataclass and enqueue a
+`process_gateway_event` job **before** answering
+([`gateway/envelope.py`](../../backend/src/gateway/envelope.py)).
 
 ```mermaid
 flowchart TD
@@ -832,15 +830,15 @@ flowchart TD
     DET --> NORM["strategy.normalize -> client_id, event_type, normalized_data"]
     I["POST /internal/event + X-Internal-Token"] --> ENV
     NORM --> ENV["EventEnvelope channel, source, client_id, event_type, raw_data, metadata"]
-    ENV --> BUS["InMemoryEventBus.publish - BackgroundTask"]
-    BUS --> DISP["CentralDispatcher._consume_event_bus"]
-    DISP --> CH{"channel"}
-    CH -->|"webhook or internal"| ASYNC["_dispatch_async"]
-    CH -->|"audio or video"| STREAM["DispatchResult mode=streaming"]
-    ASYNC --> ARQ{"arq pool reachable?"}
-    ARQ -->|yes| JOB["enqueue process_gateway_event"]
-    ARQ -->|no| INPROC["_execute_in_process - fire and forget task"]
+    ENV --> Q["queue_event - enqueue process_gateway_event"]
+    Q -->|"in Redis"| OK["202 accepted"]
+    Q -->|"Redis refused"| NO["503 - the caller retries"]
 ```
+
+Until SA-09 the endpoints answered 202 first and published to an in-process
+`asyncio.Queue` from a background task; a dispatcher drained it and enqueued the
+job, or — when arq was unreachable — ran the AgentLoop inside the API process.
+An API restart in between lost the event without a trace.
 
 Twelve webhook adapters are registered in order, with `GenericWebhookStrategy`
 required to be last ([`webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py)):
@@ -970,7 +968,6 @@ Loaded by the API and the Arq worker.
 | `CORS_ORIGINS` | six-host comma string | The one CORS list, exposed as `cors_origins_list`. |
 | `RATE_LIMIT` | `200/minute` | slowapi limit per client IP on REST routes ([`common/rate_limit.py`](../../backend/src/common/rate_limit.py)). Webhooks and internal events are exempt. |
 | `INTERNAL_TOKEN` | `change-me-in-production` | Shared secret for `POST /internal/event`. |
-| `EVENT_BUS_MAXSIZE` | `1000` | Per-consumer queue depth before events are dropped. |
 | `VIDEO_STREAMING_ENABLED` | `True` | |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
 | `TURN_SERVER_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` | `""` | Optional TURN relay for WebRTC. |
@@ -1054,9 +1051,9 @@ the **last line of `main.py`**. It creates a `TracerProvider` with
 `OTEL_EXPORTER_OTLP_ENDPOINT` (insecure gRPC), instruments the FastAPI app for
 HTTP only (WebSocket scopes are excluded — a span per audio frame would swamp the
 exporter), and mounts the `prometheus_client` ASGI app at `/metrics`.
-`GET /metrics/gateway` is a separate JSON endpoint with the event-bus counters
-and active video sessions; it is declared before the `/metrics` mount, which
-would otherwise match it.
+`GET /metrics/gateway` is a separate JSON endpoint with the active video
+sessions; it is declared before the `/metrics` mount, which would otherwise match
+it.
 
 The webhook and streaming endpoints the gateway served are now covered by the
 API's instrumentation. The **worker** has none; a worker-side OTel exporter would
@@ -1372,8 +1369,8 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 | [`backend/src/common/router_mounts.py`](../../backend/src/common/router_mounts.py) | 52 | `mount_optional` — mounts a router or records why its import failed; `GET /api/v1/health` and `GET /health` report the failures |
 | [`backend/src/common/rate_limit.py`](../../backend/src/common/rate_limit.py) | 22 | The slowapi `limiter`: `RATE_LIMIT` per client IP, Redis storage with in-memory fallback |
 | [`backend/src/common/job_queue.py`](../../backend/src/common/job_queue.py) | 37 | `arq_redis_settings`, `arq_pool`, `enqueue_job` — every arq connection, from all of `REDIS_URL` |
-| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 416 | Drains the event bus, enqueues `process_gateway_event`, in-process fallback, agent resolution for audio/video |
-| [`backend/src/gateway/event_bus.py`](../../backend/src/gateway/event_bus.py) | 186 | `EventEnvelope` dataclass + in-process `asyncio.Queue` fan-out bus |
+| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 110 | Redis-cached agent resolution for the audio/video handshakes |
+| [`backend/src/gateway/envelope.py`](../../backend/src/gateway/envelope.py) | 95 | `EventEnvelope` + `queue_event` — webhook and internal events go onto arq before their 202 |
 | [`backend/src/gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, `WellKnownEvents`, `emit_internal_event` helper |
 | [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 600 | Twelve webhook adapters + `detect_strategy` + `POST /webhook/inbound` |
 | [`backend/src/gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py) | 100 | The Twilio/Tata media-stream WebSockets |
@@ -1406,9 +1403,9 @@ process-wide list**; per-company allow-lists are listed as remaining work.
   `gateway.hirebuddha.com` with `STREAMING_PROTOCOL=wss`.
 * **Enqueue through `common/job_queue.py`.** A hand-built `RedisSettings(...)`
   is what SA-04/SA-05 removed; a test fails if one reappears.
-* **The event bus is in-process.** `InMemoryEventBus` is an `asyncio.Queue`. It
-  does not survive an API restart and does not span processes. Events
-  published with no consumer registered are counted as dropped, not queued.
+* **A webhook 202 means the job is in Redis.** The endpoint enqueues before it
+  answers, and answers 503 if it cannot — so a provider's retry, not an
+  in-memory queue, covers a Redis outage.
 * **Terminal SSE detection is a substring match** on `"status": "COMPLETED"` in
   the raw JSON. That is why `agent_loop_sse` copies `outcome` into `status`.
 * **`CompanySuspensionMiddleware` opens its own DB session** on every

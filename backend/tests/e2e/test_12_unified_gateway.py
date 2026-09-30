@@ -20,8 +20,11 @@ from unittest.mock import AsyncMock, patch, MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.main import app
-from src.gateway.event_bus import EventEnvelope, get_event_bus, _bus
+from src.gateway import envelope as envelope_module
+from src.gateway.envelope import EventEnvelope
 from src.common.config import settings
+
+TEST_INTERNAL_TOKEN = "e2e-internal-token"
 
 
 # ---------------------------------------------------------------------------
@@ -30,12 +33,23 @@ from src.common.config import settings
 
 @pytest_asyncio.fixture(scope="module")
 async def gateway_client():
-    """Async HTTP client bound to the API app."""
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
-        base_url="http://test",
-    ) as c:
-        yield c
+    """Async HTTP client bound to the API app.
+
+    Events are queued on arq before the endpoint answers; the enqueue is
+    replaced so these tests put nothing on the real queue.
+    """
+    queued = []
+
+    async def fake_enqueue(function, *args, **kwargs):
+        queued.append((function, args, kwargs))
+        return MagicMock(job_id="e2e")
+
+    with patch.object(envelope_module, "enqueue_job", fake_enqueue),          patch.object(settings, "INTERNAL_TOKEN", TEST_INTERNAL_TOKEN):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as c:
+            yield c
 
 
 # ===========================================================================
@@ -54,11 +68,10 @@ async def test_gateway_health(gateway_client):
 
 @pytest.mark.asyncio
 async def test_gateway_metrics(gateway_client):
-    """GET /metrics/gateway returns event bus stats."""
+    """GET /metrics/gateway returns the active video sessions."""
     resp = await gateway_client.get("/metrics/gateway")
     assert resp.status_code == 200
     data = resp.json()
-    assert "event_bus" in data
     assert "active_video_sessions" in data
 
 
@@ -150,7 +163,7 @@ async def test_internal_event_returns_202(gateway_client):
             "source": "vector_db",
             "payload": {"document_id": "doc-456", "chunk_count": 42},
         },
-        headers={"X-Internal-Token": settings.INTERNAL_TOKEN},
+        headers={"X-Internal-Token": TEST_INTERNAL_TOKEN},
     )
     assert resp.status_code == 202
     data = resp.json()
@@ -203,7 +216,7 @@ async def test_internal_event_schema_validation(gateway_client):
             "payload": {},
             "priority": 99,  # Out of range (1-10)
         },
-        headers={"X-Internal-Token": settings.INTERNAL_TOKEN},
+        headers={"X-Internal-Token": TEST_INTERNAL_TOKEN},
     )
     assert resp.status_code == 422
 
@@ -221,7 +234,7 @@ async def test_internal_event_custom_correlation_id(gateway_client):
             "payload": {"signal": "complete"},
             "correlation_id": my_corr_id,
         },
-        headers={"X-Internal-Token": settings.INTERNAL_TOKEN},
+        headers={"X-Internal-Token": TEST_INTERNAL_TOKEN},
     )
     assert resp.status_code == 202
     data = resp.json()
@@ -229,41 +242,8 @@ async def test_internal_event_custom_correlation_id(gateway_client):
 
 
 # ===========================================================================
-# Event Bus Unit Tests
+# Envelope
 # ===========================================================================
-
-@pytest.mark.asyncio
-async def test_event_bus_publish_and_subscribe():
-    """In-memory event bus publishes and consumer receives events."""
-    from src.gateway.event_bus import InMemoryEventBus
-
-    bus = InMemoryEventBus(maxsize=10)
-    received = []
-
-    async def consumer():
-        async with bus.subscribe() as sub:
-            envelope = await sub._queue.get()
-            received.append(envelope)
-
-    import asyncio
-    consumer_task = asyncio.create_task(consumer())
-
-    await asyncio.sleep(0.01)  # let consumer register
-
-    envelope = EventEnvelope(
-        channel="webhook",
-        source="email",
-        client_id="company-123",
-        event_type="new_email",
-        raw_data={"from": "test@test.com"},
-    )
-    await bus.publish(envelope)
-    await consumer_task
-
-    assert len(received) == 1
-    assert received[0].event_type == "new_email"
-    assert received[0].client_id == "company-123"
-
 
 @pytest.mark.asyncio
 async def test_event_envelope_serialization():
@@ -286,44 +266,11 @@ async def test_event_envelope_serialization():
     assert restored.id == env.id
 
 
-# ===========================================================================
-# Dispatcher Unit Tests
-# ===========================================================================
-
 @pytest.mark.asyncio
-async def test_dispatcher_rejects_envelope_without_client_id():
-    """CentralDispatcher.dispatch() rejects envelopes with no client_id."""
-    from src.gateway.dispatcher import CentralDispatcher
-
-    dispatcher = CentralDispatcher()
-    envelope = EventEnvelope(
-        channel="webhook",
-        source="email",
-        client_id="",   # No client_id
-        event_type="new_email",
-        raw_data={},
-    )
-    result = await dispatcher.dispatch(envelope)
-    assert result.accepted is False
-    assert result.error == "no_client_id"
-
-
-@pytest.mark.asyncio
-async def test_dispatcher_accepts_streaming_channels():
-    """CentralDispatcher marks audio/video as streaming mode (no DB needed)."""
-    from src.gateway.dispatcher import CentralDispatcher
-
-    dispatcher = CentralDispatcher()
-    envelope = EventEnvelope(
-        channel="audio",
-        source="twilio",
-        client_id="company-uuid-123",
-        event_type="call_started",
-        raw_data={},
-    )
-    result = await dispatcher.dispatch(envelope)
-    assert result.accepted is True
-    assert result.mode == "streaming"
+async def test_webhook_without_client_id_is_rejected(gateway_client):
+    """No tenant, nothing to run: 400 rather than a 202 the worker would drop."""
+    resp = await gateway_client.post("/webhook/inbound", json={"type": "x"})
+    assert resp.status_code == 400
 
 
 # ===========================================================================

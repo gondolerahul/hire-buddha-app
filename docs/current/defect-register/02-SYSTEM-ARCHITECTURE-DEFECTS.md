@@ -247,7 +247,13 @@ it.** Leaving it is the only wrong answer.
 
 ### SA-09 — The event bus loses everything on a gateway restart
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — `POST /webhook/inbound` and
+`POST /internal/event` enqueue the `process_gateway_event` arq job themselves and answer
+202 only once Redis has it; if Redis refuses, they answer 503 so the caller retries
+(`gateway/envelope.py`, `queue_event`). A webhook without `client_id` gets 400 instead of
+a 202 the worker would drop. The in-process `InMemoryEventBus`, `EVENT_BUS_MAXSIZE`, the
+dispatcher's consumer task and its in-process AgentLoop fallback are deleted; the
+dispatcher only resolves agents for the audio/video handshakes.
 
 `InMemoryEventBus` is an `asyncio.Queue` fan-out inside the gateway process. It does
 not persist and does not span processes. Any envelope published but not yet dispatched

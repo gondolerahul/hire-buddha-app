@@ -21,7 +21,7 @@ from src.common.rate_limit import limiter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start the dispatcher that drains inbound webhook and internal events."""
+    """Start the dispatcher: the agent cache for the audio/video WebSockets."""
     from src.gateway.dispatcher import get_dispatcher
 
     dispatcher = get_dispatcher()

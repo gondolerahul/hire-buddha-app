@@ -1,74 +1,43 @@
 """
-Central AI Dispatcher.
+Agent resolution for the audio and video WebSockets.
 
-The brain of the Unified Gateway. Receives normalized EventEnvelope objects
-from any of the 5 interfaces and routes them to the correct AI agent.
+``resolve_agent_for_client`` picks the agent a streaming session talks to, with
+a five-minute Redis cache. The API's lifespan starts the dispatcher (opens that
+Redis connection) and stops it.
 
-Routing logic:
-  1. Extract company_id from the envelope
-  2. Look up which agent to invoke (from DB or Redis cache)
-  3. Construct a standard execution envelope
-  4. For async channels (webhook, internal): enqueue via arq job queue
-  5. For streaming channels (audio, video): signal is used directly by
-     the WebSocket handler (dispatcher provides agent context only)
-
-The class is intentionally lightweight — it delegates all business logic
-to the existing ExecutionEngine, SessionManager, and AgentContextLoader.
+This used to be the "Central AI Dispatcher": it drained an in-process event bus
+that the webhook and internal-event endpoints published to, enqueued
+``process_gateway_event``, and — when arq was unreachable — ran a whole
+AgentLoop inside the web process. The endpoints now queue their events on arq
+themselves before answering (``gateway/envelope.py``, SA-09), so all of that is
+gone. The class keeps its name for its callers.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# DispatchResult — returned by dispatch()
-# ---------------------------------------------------------------------------
-
-@dataclass
-class DispatchResult:
-    accepted: bool
-    mode: str                     # "async_job" | "streaming" | "rejected"
-    job_id: Optional[str] = None  # arq job ID for async_job mode
-    session_id: Optional[str] = None
-    agent_id: Optional[str] = None
-    error: Optional[str] = None
-
-
-# ---------------------------------------------------------------------------
-# CentralDispatcher
-# ---------------------------------------------------------------------------
-
 class CentralDispatcher:
-    """
-    Routes normalized EventEnvelope objects to the appropriate AI agent.
+    """Resolves the agent for a streaming client, with a Redis cache.
 
     Lifecycle:
-        dispatcher = CentralDispatcher()
-        await dispatcher.start()          # call once on app startup
-        result = await dispatcher.dispatch(envelope)
-        await dispatcher.stop()           # call on app shutdown
+        dispatcher = get_dispatcher()
+        await dispatcher.start()          # on app startup: connect the cache
+        agent = await dispatcher.resolve_agent_for_client(client_id, "audio")
+        await dispatcher.stop()           # on app shutdown
     """
 
     def __init__(self) -> None:
         self._redis = None
-        self._running = False
-        self._consumer_task: Optional[asyncio.Task] = None
-
-    # -------------------------------------------------------------------------
-    # Lifecycle
-    # -------------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Initialize Redis connection and start the event bus consumer."""
+        """Connect the agent cache. Redis is optional: without it every lookup hits the DB."""
         from src.common.config import settings
-        from src.gateway.event_bus import get_event_bus
 
         try:
             import redis.asyncio as aioredis
@@ -77,189 +46,13 @@ class CentralDispatcher:
             )
             logger.info("[Dispatcher] Redis connection established")
         except Exception as e:
-            logger.warning(f"[Dispatcher] Redis unavailable, session cache disabled: {e}")
-
-        self._running = True
-        bus = get_event_bus()
-        self._consumer_task = asyncio.create_task(
-            self._consume_event_bus(bus), name="dispatcher-event-consumer"
-        )
-        logger.info("[Dispatcher] Central AI Dispatcher started")
+            logger.warning(f"[Dispatcher] Redis unavailable, agent cache disabled: {e}")
 
     async def stop(self) -> None:
         """Graceful shutdown."""
-        self._running = False
-        if self._consumer_task:
-            self._consumer_task.cancel()
-            try:
-                await self._consumer_task
-            except asyncio.CancelledError:
-                pass
         if self._redis:
             await self._redis.aclose()
-        logger.info("[Dispatcher] Central AI Dispatcher stopped")
-
-    # -------------------------------------------------------------------------
-    # Event bus consumer loop
-    # -------------------------------------------------------------------------
-
-    async def _consume_event_bus(self, bus) -> None:
-        """Background task: drains event bus and dispatches each envelope."""
-        async with bus.subscribe() as subscription:
-            async for envelope in subscription:
-                if not self._running:
-                    break
-                try:
-                    await self.dispatch(envelope)
-                except Exception as exc:
-                    logger.error(
-                        f"[Dispatcher] Error dispatching event {envelope.id}: {exc}",
-                        exc_info=True,
-                    )
-
-    # -------------------------------------------------------------------------
-    # Dispatch
-    # -------------------------------------------------------------------------
-
-    async def dispatch(self, envelope) -> DispatchResult:
-        """
-        Route a normalized EventEnvelope to the correct AI agent.
-
-        For webhook / internal events: creates an ExecutionRun via arq.
-        For audio / video: agent context is resolved but the WebSocket handler
-        manages the live session directly.
-        """
-        from src.gateway.event_bus import EventEnvelope
-
-        channel = envelope.channel
-        client_id = envelope.client_id
-
-        if not client_id:
-            logger.warning(f"[Dispatcher] Envelope {envelope.id} has no client_id — dropping")
-            return DispatchResult(accepted=False, mode="rejected", error="no_client_id")
-
-        logger.info(
-            f"[Dispatcher] Dispatching {envelope.event_type} "
-            f"from {envelope.source} for client {client_id} (channel={channel})"
-        )
-
-        if channel in ("webhook", "internal"):
-            return await self._dispatch_async(envelope)
-        elif channel in ("audio", "video"):
-            # These are handled directly by the WebSocket handlers;
-            # dispatcher only validates and optionally caches context.
-            return DispatchResult(accepted=True, mode="streaming")
-        else:
-            # REST is passthrough — should not normally be dispatched here
-            return DispatchResult(accepted=True, mode="async_job")
-
-    # -------------------------------------------------------------------------
-    # Async dispatch (webhook / internal events)
-    # -------------------------------------------------------------------------
-
-    async def _dispatch_async(self, envelope) -> DispatchResult:
-        """
-        Enqueue an ExecutionRun for webhook / internal events.
-
-        Falls back to direct in-process execution if arq is not available.
-        """
-        try:
-            from src.common.job_queue import enqueue_job
-
-            job = await enqueue_job("process_gateway_event", envelope.to_dict())
-
-            job_id = job.job_id if job else "queued"
-            logger.info(f"[Dispatcher] Enqueued gateway event job {job_id}")
-            return DispatchResult(accepted=True, mode="async_job", job_id=job_id)
-
-        except Exception as exc:
-            logger.warning(
-                f"[Dispatcher] arq enqueue failed ({exc}); falling back to in-process dispatch"
-            )
-            # Fire-and-forget in-process fallback
-            asyncio.create_task(self._execute_in_process(envelope))
-            return DispatchResult(accepted=True, mode="async_job", job_id="in_process")
-
-    async def _execute_in_process(self, envelope) -> None:
-        """
-        In-process fallback execution when arq is unavailable: creates an
-        ExecutionRun and drives the AgentLoop in this process.
-        """
-        try:
-            from src.common.database import AsyncSessionLocal
-            from src.ai.models import HierarchicalEntity, ExecutionRun, RunStatus
-            from sqlalchemy import select
-
-            async with AsyncSessionLocal() as db:
-                company_id = UUID(envelope.client_id)
-
-                # Check for entity_id targeting a specific agent
-                raw_data = envelope.raw_data or {}
-                entity_id = raw_data.get("entity_id", "")
-
-                if entity_id:
-                    try:
-                        result = await db.execute(
-                            select(HierarchicalEntity).where(
-                                HierarchicalEntity.id == UUID(entity_id),
-                                HierarchicalEntity.company_id == company_id,
-                                HierarchicalEntity.status != 'ARCHIVED',
-                            )
-                        )
-                        agent = result.scalar_one_or_none()
-                    except Exception:
-                        agent = None
-                else:
-                    agent = None
-
-                # Fallback: find first active agent for this company
-                if not agent:
-                    result = await db.execute(
-                        select(HierarchicalEntity).where(
-                            HierarchicalEntity.company_id == company_id,
-                            HierarchicalEntity.status != 'ARCHIVED',
-                        ).limit(1)
-                    )
-                    agent = result.scalar_one_or_none()
-
-                if not agent:
-                    logger.warning(
-                        f"[Dispatcher] No active agent for company {envelope.client_id}"
-                    )
-                    return
-
-                run = ExecutionRun(
-                    company_id=company_id,
-                    entity_id=agent.id,
-                    input_data={
-                        "input": json.dumps(envelope.raw_data),
-                        "channel": envelope.channel,
-                        "source": envelope.source,
-                        "event_type": envelope.event_type,
-                        "correlation_id": envelope.id,
-                    },
-                    status=RunStatus.PENDING,
-                )
-                db.add(run)
-                await db.commit()
-                await db.refresh(run)
-
-                # Execute synchronously in this task via the AgentLoop (the sole
-                # run engine; C4 retired the legacy execute_run path).
-                from src.common.config import settings
-                import redis.asyncio as aioredis
-                redis_client = await aioredis.from_url(settings.REDIS_URL)
-
-                from src.ai.core.agent_loop import AgentLoop
-                loop = AgentLoop(db, redis_client, company_id=company_id)
-                await loop.run(run.id)
-                await redis_client.aclose()
-
-        except Exception as exc:
-            logger.error(
-                f"[Dispatcher] In-process execution failed for event {envelope.id}: {exc}",
-                exc_info=True,
-            )
+        logger.info("[Dispatcher] Stopped")
 
     # -------------------------------------------------------------------------
     # Agent / session resolution helpers (used by WebSocket handlers)

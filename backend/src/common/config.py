@@ -33,7 +33,6 @@ class Settings(BaseSettings):
     # ── Webhook / internal-event / media-stream edge ──────────────────────
     # Shared secret for POST /internal/event (X-Internal-Token).
     INTERNAL_TOKEN: str = "change-me-in-production"
-    EVENT_BUS_MAXSIZE: int = 1000
     VIDEO_STREAMING_ENABLED: bool = True
     # STUN/TURN servers for WebRTC ICE negotiation (comma-separated)
     STUN_SERVERS: str = "stun:stun.l.google.com:19302"

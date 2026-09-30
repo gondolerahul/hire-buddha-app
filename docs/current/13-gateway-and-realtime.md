@@ -13,8 +13,8 @@
 3. [Configuration](#3-configuration)
 4. [Auth at the edge — who gets in](#4-auth-at-the-edge--who-gets-in)
 5. [The former REST proxy](#5-the-former-rest-proxy)
-6. [The dispatcher](#6-the-dispatcher)
-7. [The event bus and internal events](#7-the-event-bus-and-internal-events)
+6. [Agent resolution (the former dispatcher)](#6-agent-resolution-the-former-dispatcher)
+7. [Queuing inbound events and internal events](#7-queuing-inbound-events-and-internal-events)
 8. [Inbound webhooks](#8-inbound-webhooks)
 9. [Browser audio over WebSocket](#9-browser-audio-over-websocket)
 10. [Video and WebRTC](#10-video-and-webrtc)
@@ -81,8 +81,8 @@ graph TB
         R4["WS /stream/audio"]
         R5["WS /stream/video"]
         R6["WS /stream/twilio and /stream/tata"]
-        BUS["InMemoryEventBus - asyncio.Queue"]
-        DISP["CentralDispatcher"]
+        QE["queue_event - before the 202"]
+        DISP["CentralDispatcher - agent resolution"]
     end
 
     subgraph State["Shared state"]
@@ -105,10 +105,11 @@ graph TB
     AP -.websocket upgrade.-> R5
     AP -.websocket upgrade.-> R6
 
-    R2 --> BUS
-    R3 --> BUS
-    BUS --> DISP
-    DISP -->|arq enqueue| RD
+    R2 --> QE
+    R3 --> QE
+    QE -->|arq enqueue| RD
+    R4 --> DISP
+    R5 --> DISP
     RD --> WK
     WK --> PG
     WK -->|publish execution:run_id| RD
@@ -183,7 +184,6 @@ async def lifespan(app: FastAPI):
 sequenceDiagram
     participant U as uvicorn
     participant A as API app
-    participant B as InMemoryEventBus
     participant D as CentralDispatcher
     participant R as Redis
 
@@ -196,27 +196,25 @@ sequenceDiagram
     else Redis down
         D->>D: log warning, session cache disabled, keep going
     end
-    D->>B: get_event_bus, subscribe, spawn dispatcher-event-consumer task
     A-->>U: ready, serving traffic
 
     Note over U,R: ... requests served ...
 
     U->>A: ASGI lifespan shutdown
     A->>D: stop
-    D->>D: cancel consumer task
     D->>R: aclose
 ```
 
 **Redis is optional at startup.** [`dispatcher.py`](../../backend/src/gateway/dispatcher.py)
 swallows the connection error and logs a warning. The API boots without Redis;
-you only discover the problem when the agent cache and arq enqueue fail later.
+the webhook and internal-event endpoints then answer 503 until it is back.
 
 ### 2.4 Route table
 
 | Method | Path | Handler | Purpose |
 |--------|------|---------|---------|
 | `GET` | `/health`, `/api/v1/health` | [`health`](../../backend/src/common/router_mounts.py) | Liveness + routers that failed to mount. |
-| `GET` | `/metrics/gateway` | [`gateway_metrics`](../../backend/src/gateway/status.py) | Event bus stats + active video sessions. |
+| `GET` | `/metrics/gateway` | [`gateway_metrics`](../../backend/src/gateway/status.py) | Active video sessions. |
 | `POST` | `/webhook/inbound` | [`unified_webhook_inbound`](../../backend/src/gateway/webhook_inbound.py) | Interface 2. |
 | `POST` | `/internal/event` | [`unified_internal_event`](../../backend/src/gateway/internal_event.py) | Interface 3. |
 | `WS` | `/stream/audio` | [`unified_audio_streaming`](../../backend/src/gateway/audio_gateway.py) | Interface 4. |
@@ -230,19 +228,8 @@ There is no catch-all route. `GET /metrics/gateway` is declared before the
 Prometheus `/metrics` mount that `setup_telemetry` adds last, which would
 otherwise match it.
 
-`/metrics/gateway` is worth memorising because it is the first thing you curl
-when webhooks go missing:
-
-```json
-{
-  "event_bus": {"consumer_count": 1, "total_published": 12, "total_dropped": 0},
-  "active_video_sessions": 0,
-  "video_sessions": {}
-}
-```
-
-`consumer_count` should be `1` — the dispatcher. If it is `0`, the dispatcher's
-consumer task died and every webhook you receive will be dropped.
+When webhooks go missing, look at the worker, not the API: a 202 means the
+`process_gateway_event` job is in Redis (see [section 7](#7-queuing-inbound-events-and-internal-events)).
 
 ---
 
@@ -261,7 +248,6 @@ defaults — its `DATABASE_URL` pointed at port 5432, not the compose file's 543
 | `STREAMING_HOST` | `localhost:8000` | Public host used to build the `ws(s)://` URLs handed to telephony providers ([`voice/public_urls.py`](../../backend/src/voice/public_urls.py)). Set to `gateway.hirebuddha.com` in production. |
 | `STREAMING_PROTOCOL` | `ws` | Scheme for those URLs; `wss` in production (then HTTP callbacks are `https`). |
 | `INTERNAL_TOKEN` | `change-me-in-production` | Shared secret for `X-Internal-Token` on `/internal/event`. |
-| `EVENT_BUS_MAXSIZE` | `1000` | Per-consumer `asyncio.Queue` bound. Beyond it, events are dropped with a warning. |
 | `VIDEO_STREAMING_ENABLED` | `True` | Kill switch for `/stream/video` media (signalling still answers). |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
 | `TURN_SERVER_URL` | `""` | Appended to the ICE server list when set. |
@@ -270,7 +256,8 @@ defaults — its `DATABASE_URL` pointed at port 5432, not the compose file's 543
 
 Gone with the gateway: `BACKEND_URL` (the proxy target), `GATEWAY_PORT`,
 `JWT_SECRET` / `JWT_ALGORITHM` (a second copy of the JWT key, used only to decode
-tokens for logging) and `EVENT_BUS_TYPE` (never read). A `.env` that still sets
+tokens for logging) and `EVENT_BUS_TYPE` (never read); `EVENT_BUS_MAXSIZE` went
+with the in-process bus (SA-09). A `.env` that still sets
 them is harmless — `extra="ignore"`.
 
 The edge reaches the *voice* subsystem by importing it directly
@@ -358,80 +345,16 @@ reach the API's routers directly. What it did, and what its removal changed:
 
 ---
 
-## 6. The dispatcher
+## 6. Agent resolution (the former dispatcher)
 
-[`dispatcher.py`](../../backend/src/gateway/dispatcher.py) (425 lines) is the
-"Central AI Dispatcher". Despite the name it dispatches only two of the five
-interfaces — webhook and internal events. REST is proxied; audio and video are
-handled inline by their WebSocket routes.
+[`dispatcher.py`](../../backend/src/gateway/dispatcher.py) keeps the name
+`CentralDispatcher`, but since SA-09 its only job is picking the agent a
+streaming session talks to. It used to drain the in-process event bus, enqueue
+`process_gateway_event`, and — when arq was unreachable — run a whole AgentLoop
+inside the web process. The ingress endpoints now queue their own events
+([section 7](#7-queuing-inbound-events-and-internal-events)).
 
-### 6.1 What it actually routes
-
-| Envelope `channel` | Dispatch mode | What happens |
-|--------------------|---------------|--------------|
-| `webhook` | `async_job` | `_dispatch_async` → arq `enqueue_job("process_gateway_event", envelope)` |
-| `internal` | `async_job` | same as webhook |
-| `audio` | `streaming` | Returns immediately; the WS handler owns the session. Dispatcher only resolved the agent. |
-| `video` | `streaming` | same as audio |
-| anything else (incl. `rest`) | `async_job` | Returns `accepted=True` with no side effect — a no-op branch. |
-| *missing `client_id`* | `rejected` | `DispatchResult(accepted=False, error="no_client_id")`, event dropped with a warning. |
-
-```mermaid
-flowchart TD
-    E["EventEnvelope from bus"] --> C{"client_id present"}
-    C -->|no| REJ["DispatchResult rejected - no_client_id"]
-    C -->|yes| CH{"channel"}
-    CH -->|webhook or internal| ASY["_dispatch_async"]
-    CH -->|audio or video| STR["DispatchResult mode=streaming"]
-    CH -->|other| NOP["DispatchResult mode=async_job - no side effect"]
-
-    ASY --> ARQ{"arq pool created and job enqueued"}
-    ARQ -->|success| JOB["job_id returned - worker picks it up"]
-    ARQ -->|exception| FB["_execute_in_process fire and forget"]
-    FB --> RUN["Create ExecutionRun then AgentLoop.run in this process"]
-```
-
-### 6.2 The arq handoff and its fallback
-
-The happy path opens a **new** arq pool per event, enqueues, and closes it:
-
-```python
-# backend/src/gateway/dispatcher.py:171-182
-redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-arq_pool = await create_pool(redis_settings)
-job = await arq_pool.enqueue_job("process_gateway_event", envelope.to_dict())
-await arq_pool.aclose()
-job_id = job.job_id if job else "queued"
-```
-
-Creating a pool per event is wasteful but simple. If *anything* in that block
-throws — Redis down, arq missing — the dispatcher falls back to running the work
-**inside the API process**:
-
-```python
-# backend/src/gateway/dispatcher.py:184-190
-except Exception as exc:
-    logger.warning(
-        f"[Dispatcher] arq enqueue failed ({exc}); falling back to in-process dispatch"
-    )
-    asyncio.create_task(self._execute_in_process(envelope))
-    return DispatchResult(accepted=True, mode="async_job", job_id="in_process")
-```
-
-That fallback runs a full `AgentLoop` — LLM calls, tool calls, database writes —
-on the API's event loop. It is a safety valve, not a mode you want in
-production: a busy fallback will starve live audio sessions and REST requests
-sharing the same loop. Grep for `job_id="in_process"` / the warning line when the
-API feels slow.
-
-The worker-side job is
-[`process_gateway_event`](../../backend/src/ai/core/arq_jobs.py:163), registered in
-[`src/ai/worker.py`](../../backend/src/ai/worker.py). It re-does entity resolution,
-special-cases `sheet.row_inserted` into the campaign pipeline, and otherwise
-creates an `ExecutionRun` and runs the `AgentLoop`. See
-[06 — Execution pipeline](06-execution-pipeline.md).
-
-### 6.3 Agent resolution and its cache
+### 6.1 Agent resolution and its cache
 
 Audio and video handshakes call `resolve_agent_for_client`. It is Redis-cached
 for 5 minutes under `gateway:agent:{client_id}:{channel}`:
@@ -461,88 +384,62 @@ sequenceDiagram
 ```
 
 The `LIMIT 1` with no `ORDER BY` is important: **which** agent answers a call for
-a multi-agent tenant is whatever Postgres returns first. Same pattern appears in
-`_execute_in_process` and in `process_gateway_event`. Route deliberately by
-passing `entity_id` in the webhook payload or query string.
+a multi-agent tenant is whatever Postgres returns first. The same pattern
+appears in `process_gateway_event`. Route deliberately by passing `entity_id` in
+the webhook payload or query string.
 
-### 6.4 Dispatcher lifecycle
+### 6.2 Lifecycle
 
-```mermaid
-stateDiagram-v2
-    [*] --> Created: get_dispatcher lazily constructs singleton
-    Created --> Starting: start
-    Starting --> Running: Redis connected, consumer task spawned
-    Starting --> RunningNoRedis: Redis unavailable, warning logged
-    Running --> Consuming: async for envelope in subscription
-    RunningNoRedis --> Consuming
-    Consuming --> Consuming: dispatch each envelope, exceptions logged not raised
-    Consuming --> Stopping: stop
-    Stopping --> [*]: task cancelled, redis closed
-```
+The API's `lifespan` calls `start()` (connect the Redis cache — optional; without
+it every lookup hits Postgres) and `stop()` (close it). There is no background
+task any more.
 
 ---
 
-## 7. The event bus and internal events
+## 7. Queuing inbound events and internal events
 
-### 7.1 It is in-process, not Redis
+### 7.1 Queued before the 202
 
-This is the single most misread part of the edge. The docstring for
-[`event_bus.py`](../../backend/src/gateway/event_bus.py) says "Async Event Bus —
-In-process implementation using `asyncio.Queue`", and that is literally all it is.
-`get_event_bus()` unconditionally returns an `InMemoryEventBus` (the gateway's
-`EVENT_BUS_TYPE` setting, never read, went with it).
+`POST /webhook/inbound` and `POST /internal/event` build an `EventEnvelope`
+and call [`queue_event`](../../backend/src/gateway/envelope.py), which enqueues
+a `process_gateway_event` arq job — **before** the endpoint answers:
 
-| Property | Value |
-|----------|-------|
-| Transport | `asyncio.Queue`, one queue per subscriber, inside one Python process |
-| Durability | None. A gateway restart loses everything queued. |
-| Fan-out | Every subscriber gets every event (`put_nowait` in a loop) |
-| Backpressure | `maxsize=EVENT_BUS_MAXSIZE` (1000). On `QueueFull` the event is **dropped**, not blocked. |
-| Cross-process | **No.** Redis pub/sub is used elsewhere in the platform, but not by this bus. |
-| Consumers today | Exactly one: `CentralDispatcher._consume_event_bus` |
-
-Cross-process delivery happens *after* the bus, via the arq job queue in Redis.
+| Outcome | Response |
+|---------|----------|
+| Redis took the job | `202` with the `correlation_id` |
+| Redis unreachable | `503 {"status": "unavailable", ...}` — the provider retries |
+| No `client_id` (webhook) | `400` — the worker would drop a tenant-less event |
 
 ```mermaid
 flowchart TB
-    subgraph GWP["Gateway process - single asyncio loop"]
-        WH["POST /webhook/inbound handler"] -->|BackgroundTasks| PUB1["_publish_to_bus"]
-        IE["POST /internal/event handler"] -->|BackgroundTasks| PUB2["_publish_event"]
-        HLP["emit_internal_event helper - direct call"] --> PUB3["bus.publish"]
-        PUB1 --> BUS["InMemoryEventBus"]
-        PUB2 --> BUS
-        PUB3 --> BUS
-        BUS -->|put_nowait fan-out| Q1["asyncio.Queue maxsize 1000"]
-        Q1 --> DISP["CentralDispatcher consumer task"]
+    subgraph API["API process"]
+        WH["POST /webhook/inbound handler"] --> ENV["EventEnvelope"]
+        IE["POST /internal/event handler"] --> ENV
+        HLP["emit_internal_event helper - API or worker"] --> ENV
+        ENV --> Q["queue_event - enqueue_job process_gateway_event"]
     end
-
-    DISP -->|arq enqueue_job| RQ[("Redis - arq queue")]
-    RQ --> WORK["Arq worker process - process_gateway_event"]
+    Q -->|"job in Redis, then 202"| RQ[("Redis - arq queue")]
+    Q -.->|"Redis down: 503"| X["caller retries"]
+    RQ --> WORK["Arq worker - process_gateway_event"]
     WORK --> DB[("PostgreSQL")]
-    DISP -.fallback when arq fails.-> INPROC["AgentLoop inside the API process"]
 ```
 
-The dropped-event counter is exposed on `/health` and `/metrics/gateway`:
+Until SA-09 (2026-09-30) the endpoints answered 202 first and published the
+envelope to an `InMemoryEventBus` — an `asyncio.Queue` inside the process — from
+a Starlette background task; the dispatcher drained it and enqueued the job. A
+restart in between lost the event without a trace, an event published while the
+dispatcher was not subscribed was counted as "dropped", a full queue (1000)
+dropped events too, and when arq failed the dispatcher ran the AgentLoop
+in-process, on the same event loop as live audio. The bus, its
+`EVENT_BUS_MAXSIZE` setting and its counters on `/metrics/gateway` are gone.
 
-```python
-# backend/src/gateway/event_bus.py:130-136
-@property
-def stats(self) -> dict:
-    return {
-        "consumer_count": len(self._consumers),
-        "total_published": self._total_published,
-        "total_dropped": self._total_dropped,
-    }
-```
-
-A rising `total_dropped` with `consumer_count: 0` means the dispatcher consumer
-is gone. A rising `total_dropped` with `consumer_count: 1` means the dispatcher
-is slower than the inbound rate.
+The arq job is the durable hand-off: once it is in Redis it survives an API
+restart and is retried by the worker.
 
 ### 7.2 The envelope
 
-Everything on the bus is one shape,
-[`EventEnvelope`](../../backend/src/gateway/event_bus.py:37):
+Everything queued is one shape,
+[`EventEnvelope`](../../backend/src/gateway/envelope.py):
 
 ```mermaid
 classDiagram
@@ -562,7 +459,7 @@ classDiagram
 
 | Field | Meaning | Example |
 |-------|---------|---------|
-| `channel` | Which interface produced it | `"webhook"`, `"internal"`, `"audio"`, `"video"`, `"rest"` |
+| `channel` | Which interface produced it | `"webhook"`, `"internal"` |
 | `source` | Originating system | `"email"`, `"crm"`, `"github"`, `"vector_db"`, `"cron"`, `"agent:abc123"` |
 | `client_id` | Tenant / company UUID string | `"3f7c…"` |
 | `event_type` | Dot-namespaced type | `"new_email"`, `"github.push"`, `"timer.daily_summary"` |
@@ -571,8 +468,7 @@ classDiagram
 | `id` | Correlation id — reused as the envelope id | UUID4 string |
 | `timestamp` | ISO-8601 UTC at construction | `"2026-08-13T09:12:44.101+00:00"` |
 
-`to_dict()` / `from_dict()` exist because the envelope is JSON-serialised into
-the arq job.
+`to_dict()` is what goes into the arq job; `process_gateway_event` reads it back.
 
 ### 7.3 `/internal/event` — Interface 3
 
@@ -581,14 +477,14 @@ A typed, authenticated endpoint for other parts of the platform to push events i
 | Field | Type | Required | Constraint |
 |-------|------|----------|-----------|
 | `event_type` | str | yes | dot-namespaced |
-| `client_id` | str | yes | company/tenant UUID |
+| `client_id` | str | yes | company/tenant UUID, non-empty |
 | `source` | str | yes | e.g. `vector_db`, `cron`, `agent:<uuid>` |
 | `payload` | dict | no | arbitrary JSON, default `{}` |
 | `priority` | int | no | 1–10, default 5. Carried in `metadata` only — **nothing reads it** |
 | `correlation_id` | str | no | echoed back; auto-UUID4 if omitted |
 
 Well-known types are collected in
-[`WellKnownEvents`](../../backend/src/gateway/internal_event.py:146):
+[`WellKnownEvents`](../../backend/src/gateway/internal_event.py):
 `doc_indexed`, `timer.daily_summary`, `timer.weekly_report`, `agent.signal`,
 `campaign.done`, `build.done`. These are constants only — no handler switches on
 them; `process_gateway_event` treats everything except `sheet.row_inserted` the
@@ -597,34 +493,30 @@ same way.
 ```mermaid
 sequenceDiagram
     participant SVC as Internal service
-    participant MW as GatewayAuthMiddleware
     participant EP as POST /internal/event
-    participant BT as Starlette BackgroundTasks
-    participant BUS as InMemoryEventBus
-    participant D as CentralDispatcher
     participant RQ as Redis arq queue
+    participant W as Arq worker
 
-    SVC->>MW: POST /internal/event with X-Internal-Token
+    SVC->>EP: POST /internal/event with X-Internal-Token
+    EP->>EP: require_internal - constant-time compare
     alt token mismatch
-        MW-->>SVC: 401 Unauthorized
+        EP-->>SVC: 401
     else token ok
-        MW->>EP: tenant.is_internal = true
-        EP->>EP: require_internal dependency re-checks
-        EP->>EP: correlation_id = provided or uuid4
-        EP->>BT: add_task _publish_event envelope
-        EP-->>SVC: 202 accepted with correlation_id
-        BT->>BUS: publish
-        BUS->>D: queued envelope
-        D->>RQ: enqueue_job process_gateway_event
+        EP->>EP: validate body, correlation_id = provided or uuid4
+        EP->>RQ: enqueue_job process_gateway_event
+        alt queued
+            EP-->>SVC: 202 queued=true
+        else Redis down
+            EP-->>SVC: 503 queued=false
+        end
+        RQ->>W: process_gateway_event
     end
 ```
 
-There is also a direct in-process helper,
-[`emit_internal_event`](../../backend/src/gateway/internal_event.py:157), that
-skips HTTP. **Nothing calls it.** Worse, if you call it from the arq worker it
-will publish into *that* process's bus, which has no dispatcher subscribed, so the
-event is silently counted as dropped. From outside the API process, use the HTTP
-endpoint.
+There is also a direct helper,
+[`emit_internal_event`](../../backend/src/gateway/internal_event.py), that
+skips HTTP and the token and calls the same `queue_event`, so it works from the
+API or the worker. **Nothing calls it** yet.
 
 ---
 
@@ -671,9 +563,12 @@ flowchart TD
     S --> SIG["validate_signature - result logged, never blocks"]
     G --> SIG
     SIG --> NORM["normalize -> client_id, event_type, normalized_data"]
-    NORM --> ENV["EventEnvelope channel=webhook"]
-    ENV --> BG["BackgroundTasks _publish_to_bus"]
-    BG --> R202["202 accepted with correlation_id, source, event_type"]
+    NORM --> CID{"client_id present"}
+    CID -->|no| R400["400"]
+    CID -->|yes| ENV["EventEnvelope channel=webhook"]
+    ENV --> QE["queue_event - enqueue process_gateway_event"]
+    QE -->|queued| R202["202 accepted with correlation_id, source, event_type"]
+    QE -->|Redis down| R503["503 - provider retries"]
 ```
 
 ### 8.2 Signature verification — what is actually implemented
@@ -720,31 +615,27 @@ SA-08.)
 sequenceDiagram
     participant HS as HubSpot
     participant AP as Apache
-    participant GW as Gateway
+    participant GW as API
     participant ST as CRMWebhookStrategy
-    participant BUS as Event bus
-    participant D as Dispatcher
     participant RQ as Redis arq
     participant W as Arq worker
 
     HS->>AP: POST /webhook/inbound?client_id=UUID with X-HubSpot-Signature
     AP->>GW: forwarded
-    GW->>GW: middleware sets tenant.is_webhook, company_id from query
     GW->>ST: detect_strategy matches on x-hubspot header
     ST->>ST: validate_signature -> True, base class no-op
     ST->>ST: normalize -> event_type, phone, entity_id, properties
+    GW->>RQ: enqueue_job process_gateway_event EventEnvelope
+    RQ-->>GW: job stored
     GW-->>HS: 202 accepted with correlation_id
-    Note over GW,BUS: response already sent; BackgroundTasks now runs
-    GW->>BUS: publish EventEnvelope channel=webhook source=crm
-    BUS->>D: consumer receives envelope
-    D->>RQ: enqueue_job process_gateway_event
     RQ->>W: worker picks up job
     W->>W: resolve entity, create ExecutionRun, run AgentLoop
 ```
 
-The `202` is returned **before** the event reaches the bus, because Starlette
-background tasks run after the response is flushed. A provider seeing `202` has
-no guarantee the event was processed — only that it was accepted.
+The `202` is returned only **after** the job is in Redis: a provider that sees it
+knows the event survives an API restart. If Redis cannot take it the provider
+gets a 503 and retries (SA-09). What the `202` still does not promise is that the
+run succeeded — or that a retried delivery will not run twice (section 8.3).
 
 ### 8.5 Adding a provider
 
@@ -1239,7 +1130,7 @@ flowchart LR
 | Transport | Where | Direction | Used for | Why this one |
 |-----------|-------|-----------|----------|--------------|
 | **REST** | `/api/v1/*` on the API | request/response | Every `/api/v1/*` call: CRUD on entities, runs, billing, config | Cacheable, debuggable, stateless. |
-| **HTTP POST, fire-and-forget** | `/webhook/inbound`, `/internal/event` | inbound only, `202` | External systems and internal services triggering agents | Providers demand fast ACKs. Work is deferred to the bus and arq. |
+| **HTTP POST, fire-and-forget** | `/webhook/inbound`, `/internal/event` | inbound only, `202` | External systems and internal services triggering agents | Providers demand fast ACKs. The work is queued on arq before the 202. |
 | **SSE** | `/api/v1/ai/executions/{id}/stream` | server → browser | Live execution traces, iteration timeline, HITL prompts | One-way, text-only, survives plain HTTP proxies, auto-reconnects in the browser, no extra client library. |
 | **WebSocket, JSON frames** | `/stream/twilio/*`, `/stream/tata/*`, `/webhooks/voice/tata/incoming`, `/stream/audio` with telephony providers | bidirectional | Telephony media (base64 mulaw in JSON) | The wire format is dictated by Twilio and its clones. |
 | **WebSocket, binary frames** | `/stream/audio` with `provider=web` | bidirectional | Browser microphone in, TTS out | Raw PCM16 avoids base64's 33% overhead on a latency-critical path. |
@@ -1377,12 +1268,11 @@ flowchart TD
 
 ### 14.1 Is the edge stateless?
 
-Mostly, but not entirely. Four things live in the API process's memory:
+Mostly, but not entirely. Three things live in the API process's memory:
 
 | State | Where | Consequence with more than one instance |
 |-------|-------|-----------------------------------------|
-| `InMemoryEventBus` singleton | [`event_bus.py:176`](../../backend/src/gateway/event_bus.py:176) | Not shared. Fine in practice: each instance's dispatcher consumes only its own instance's events and pushes work to the shared arq queue. Metrics on `/health` become per-instance. |
-| `CentralDispatcher` singleton + consumer task | [`dispatcher.py:417`](../../backend/src/gateway/dispatcher.py:417) | One per instance. Also fine. |
+| `CentralDispatcher` singleton (agent cache client) | [`dispatcher.py`](../../backend/src/gateway/dispatcher.py) | One per instance. Fine: the cache itself is in Redis. |
 | `_active_video_sessions` dict | [`video_gateway.py:341`](../../backend/src/gateway/video_gateway.py:341) | `/metrics/gateway` reports only the sessions on the instance you happened to hit. |
 | Open WebSocket connections and their `VoiceSession` / `RTCPeerConnection` | per connection | **Session affinity required.** A telephony provider or browser must keep talking to the same instance for the life of the call. |
 
@@ -1407,9 +1297,7 @@ graph TB
     end
 
     subgraph PerInstance["Per instance - not shared"]
-        B1["Event bus A"]
         V1["Video sessions A"]
-        B2["Event bus B"]
         V2["Video sessions B"]
     end
 
@@ -1417,9 +1305,7 @@ graph TB
     G2 --> RD
     G1 --> PG
     G2 --> PG
-    G1 --- B1
     G1 --- V1
-    G2 --- B2
     G2 --- V2
 
     WSC["Live WebSocket - must pin to one instance"] -.sticky.-> G1
@@ -1562,15 +1448,12 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | Log line | Meaning |
 |----------|---------|
 | `[Dispatcher] Redis connection established` | Normal boot. |
-| `[Dispatcher] Redis unavailable, session cache disabled` | Redis down; agent cache off and arq enqueue will fail into the in-process fallback. |
-| `[EventBus] Consumer registered (1 total)` | Dispatcher subscribed. Should appear once per boot. |
-| `[EventBus] No consumers registered; event '<type>' dropped` | Dispatcher consumer is gone. Every webhook is being thrown away. |
-| `[EventBus] Consumer queue full; dropping event '<id>'` | Inbound rate exceeds dispatch rate; raise `EVENT_BUS_MAXSIZE` or find the slow dispatch. |
-| `[WebhookRouter] Received <type> from source=<s> client=<id> correlation=<uuid>` | Webhook accepted. |
+| `[Dispatcher] Redis unavailable, agent cache disabled` | Redis down at boot; agent lookups hit Postgres and webhooks will 503 until Redis is back. |
+| `[WebhookRouter] Received <type> from source=<s> client=<id> correlation=<uuid>` | Webhook received. |
+| `[Ingress] Queued webhook event <type> (<uuid>) as job <id>` | The job is in Redis; the 202 follows. |
+| `[WebhookRouter] Could not queue event <uuid>` | Redis refused the enqueue; the caller got 503. |
 | `[WebhookRouter] <provider> signature validation not yet configured` | Expected today; see [8.2](#82-signature-verification--what-is-actually-implemented). |
-| `[Dispatcher] Envelope <id> has no client_id — dropping` | Caller forgot `?client_id=`. |
-| `[Dispatcher] arq enqueue failed (...); falling back to in-process dispatch` | Redis/arq problem. Agent runs are now executing inside the API process. |
-| `[Dispatcher] No active agent for company <id>` | Tenant has no non-archived `HierarchicalEntity`. |
+| `[process_gateway_event] No active entity for company <id>` (worker log) | Tenant has no non-archived `HierarchicalEntity`. |
 | `[AudioGateway] Session <id> ready (web, agent=<id>)` | Browser audio session established. |
 | `[VideoGateway] Session <id> connected (provider=web, ..., webrtc=False)` | aiortc missing or video disabled. |
 | `[VideoSession] Audio track error: ...` | Almost certainly the `__mro__` bug in [10.1](#101-implemented-versus-stubbed--read-this-first). |
@@ -1585,7 +1468,8 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | WebSocket returns 200 HTML or 400 instead of upgrading | Path not covered by the Apache rewrite rules | `grep RewriteRule deploy/apache/gateway.hirebuddha.com-le-ssl.conf` |
 | WebSocket drops after ~60 s in production | `ProxyTimeout` missing on that vhost | Add `ProxyTimeout 86400` |
 | Audio WS closes with `1008 No agent found for client` | No non-archived entity for that company, or wrong `client_id` | Query `hierarchical_entities` for the company |
-| Webhook returns 202 but nothing runs | Missing `?client_id=`, or dispatcher consumer dead | `/metrics/gateway` → `event_bus.consumer_count` and `total_dropped` |
+| Webhook returns 202 but nothing runs | The worker is not consuming, or the tenant has no active entity | `logs/arq_worker.log` for `process_gateway_event`; `/api/v1/health` |
+| Webhook returns 503 | Redis is down or unreachable from the API | `redis-cli ping`; the API log shows `Could not queue event` |
 | Everyone is rate limited at once | `get_remote_address` sees `127.0.0.1` for all callers behind Apache | Configure `RemoteIPHeader X-Forwarded-For` |
 | Duplicate executions from one webhook | Provider retried; no idempotency | See [8.3](#83-idempotency--there-is-none) |
 | Video calls silent | aiortc not installed, and the `__mro__` bug | `pip list \| grep aiortc`, then fix `video_gateway.py:202` |
@@ -1600,8 +1484,8 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | [`backend/src/common/rate_limit.py`](../../backend/src/common/rate_limit.py) | 22 | The slowapi `limiter` (`RATE_LIMIT` per client IP). |
 | [`backend/src/gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py) | 100 | The Twilio/Tata media-stream WebSockets. |
 | [`backend/src/gateway/status.py`](../../backend/src/gateway/status.py) | 18 | `GET /metrics/gateway`. |
-| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 425 | `CentralDispatcher`: consumes the bus, enqueues arq jobs, resolves agents, in-process fallback, lead-queue path. |
-| [`backend/src/gateway/event_bus.py`](../../backend/src/gateway/event_bus.py) | 186 | `EventEnvelope`, `InMemoryEventBus`, `EventBusSubscription`, `get_event_bus`. In-process only. |
+| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 110 | `CentralDispatcher`: agent resolution (Redis-cached) for the audio/video handshakes. |
+| [`backend/src/gateway/envelope.py`](../../backend/src/gateway/envelope.py) | 95 | `EventEnvelope` and `queue_event` — the enqueue that precedes every ingress 202. |
 | [`backend/src/gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, `InternalEvent` schema, `WellKnownEvents`, unused `emit_internal_event` helper. |
 | [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 598 | 12 webhook strategies, `detect_strategy`, `POST /webhook/inbound`. No working signature verification. |
 | [`backend/src/gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) | 244 | `WS /stream/audio` handshake and provider routing. |
@@ -1623,8 +1507,8 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 
 - **There is no gateway process.** `src/gateway/` is a package of routers the
   API mounts; `gateway.hirebuddha.com` is the API's public name on port 8000.
-- **The "event bus" is not Redis.** It is an `asyncio.Queue` inside one process,
-  with exactly one subscriber. Cross-process delivery happens later, via arq.
+- **There is no event bus any more.** Webhook and internal events go straight
+  onto the arq queue before the endpoint answers; a 503 means Redis refused them.
 - **`TURN_USERNAME` and `TURN_CREDENTIAL` are never read.** `priority` on
   internal events is stored and ignored.
 - **Nothing authenticates `/stream/audio` or `/stream/video`.** HTTP middleware
@@ -1645,9 +1529,6 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 - **`X-Accel-Buffering: no` is an nginx header** and does nothing under Apache.
 - **Agent selection is `LIMIT 1` with no `ORDER BY`** in three separate places.
   For multi-agent tenants, pass an explicit `entity_id`.
-- **The arq fallback runs a full AgentLoop inside the API process.** Convenient in
-  dev, dangerous under load — it shares an event loop with live audio and every
-  REST request.
 - **SSE has no `Last-Event-ID` and no replay.** Reconnection loses everything that
   happened while disconnected; the UI's 3-second polling is what actually keeps
   the page correct.

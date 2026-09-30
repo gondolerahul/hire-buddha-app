@@ -7,8 +7,9 @@ Uses the Strategy Pattern to:
   1. Identify the source (email, CRM, LinkedIn, GitHub, generic)
   2. Validate the signature (per-provider)
   3. Normalize to a standard EventEnvelope
-  4. Return 202 Accepted immediately
-  5. Publish to the event bus (async processing by the dispatcher)
+  4. Queue it as a process_gateway_event arq job (src/gateway/envelope.py)
+  5. Return 202 only once Redis has the job — 503 otherwise, so the provider
+     retries (SA-09)
 
 Adding a new webhook source = add a new WebhookStrategy subclass.
 """
@@ -23,11 +24,11 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from src.common.rate_limit import limiter
-from src.gateway.event_bus import EventEnvelope, get_event_bus
+from src.gateway.envelope import EventEnvelope, queue_event
 
 logger = logging.getLogger(__name__)
 
@@ -523,14 +524,15 @@ def detect_strategy(headers: dict, payload: dict) -> WebhookStrategy:
 
 @router.post("/webhook/inbound", status_code=202)
 @limiter.exempt
-async def unified_webhook_inbound(request: Request, background_tasks: BackgroundTasks):
+async def unified_webhook_inbound(request: Request):
     """
     Unified Webhook Receiver — Interface 2.
 
     Accepts HTTP POST from any external system (email providers, CRMs,
     LinkedIn, GitHub, Twilio, etc.).
 
-    Returns 202 Accepted immediately. Processing is async via the event bus.
+    Returns 202 once the event is queued for the worker, 503 if it cannot be
+    queued (the provider should retry), 400 without a ``client_id``.
     """
     raw_body = await request.body()
 
@@ -564,6 +566,14 @@ async def unified_webhook_inbound(request: Request, background_tasks: Background
         f"client={client_id} correlation={correlation_id}"
     )
 
+    if not client_id:
+        # The worker drops an event with no tenant; say so instead of a 202.
+        return JSONResponse(status_code=400, content={
+            "status": "rejected",
+            "correlation_id": correlation_id,
+            "detail": "client_id query parameter is required",
+        })
+
     # Build normalized envelope
     envelope = EventEnvelope(
         channel="webhook",
@@ -580,8 +590,15 @@ async def unified_webhook_inbound(request: Request, background_tasks: Background
         id=correlation_id,
     )
 
-    # Publish to event bus (non-blocking)
-    background_tasks.add_task(_publish_to_bus, envelope)
+    try:
+        await queue_event(envelope)
+    except Exception:
+        logger.exception(f"[WebhookRouter] Could not queue event {correlation_id}")
+        return JSONResponse(status_code=503, content={
+            "status": "unavailable",
+            "correlation_id": correlation_id,
+            "detail": "The event could not be queued. Retry later.",
+        })
 
     return {
         "status": "accepted",
@@ -589,13 +606,3 @@ async def unified_webhook_inbound(request: Request, background_tasks: Background
         "source": source,
         "event_type": event_type,
     }
-
-
-async def _publish_to_bus(envelope: EventEnvelope) -> None:
-    """Background task: publish event envelope to the event bus."""
-    try:
-        bus = get_event_bus()
-        await bus.publish(envelope)
-        logger.info(f"[WebhookRouter] Published event {envelope.id} to bus")
-    except Exception as exc:
-        logger.error(f"[WebhookRouter] Failed to publish event: {exc}")

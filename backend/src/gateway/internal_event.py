@@ -19,12 +19,13 @@ import logging
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.common.config import settings
 from src.common.rate_limit import limiter
-from src.gateway.event_bus import EventEnvelope, get_event_bus
+from src.gateway.envelope import EventEnvelope, queue_event
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class InternalEvent(BaseModel):
     )
     client_id: str = Field(
         ...,
+        min_length=1,
         description="Company / tenant UUID for routing to the correct AI agent",
     )
     source: str = Field(
@@ -99,13 +101,14 @@ class InternalEventResponse(BaseModel):
     description=(
         "Accepts events from internal microservices. "
         "Requires X-Internal-Token authentication header. "
-        "Returns 202 immediately; processing is async."
+        "Returns 202 once the event is queued for the worker; 503 if it "
+        "cannot be queued. Processing is async."
     ),
+    responses={503: {"description": "The event could not be queued; retry"}},
 )
 @limiter.exempt
 async def unified_internal_event(
     event: InternalEvent,
-    background_tasks: BackgroundTasks,
     _: None = Depends(require_internal),
 ):
     """
@@ -135,18 +138,22 @@ async def unified_internal_event(
         id=correlation_id,
     )
 
-    queued = True
     try:
-        background_tasks.add_task(_publish_event, envelope)
-    except Exception as exc:
-        logger.error(f"[InternalEvent] Failed to queue event {correlation_id}: {exc}")
-        queued = False
+        await queue_event(envelope)
+    except Exception:
+        logger.exception(f"[InternalEvent] Could not queue event {correlation_id}")
+        return JSONResponse(status_code=503, content={
+            "status": "unavailable",
+            "correlation_id": correlation_id,
+            "event_type": event.event_type,
+            "queued": False,
+        })
 
     return InternalEventResponse(
         status="accepted",
         correlation_id=correlation_id,
         event_type=event.event_type,
-        queued=queued,
+        queued=True,
     )
 
 
@@ -173,8 +180,9 @@ async def emit_internal_event(
     priority: int = 5,
 ) -> str:
     """
-    Helper for other platform services to emit internal events without
-    going through the HTTP endpoint (direct in-process publish).
+    Helper for other platform services (API or worker) to emit an internal
+    event without going through the HTTP endpoint: queues it straight onto
+    arq, like the endpoint does. Raises if Redis cannot take it.
 
     Returns the correlation_id.
     """
@@ -188,16 +196,5 @@ async def emit_internal_event(
         metadata={"priority": priority, "correlation_id": correlation_id},
         id=correlation_id,
     )
-    bus = get_event_bus()
-    await bus.publish(envelope)
+    await queue_event(envelope)
     return correlation_id
-
-
-async def _publish_event(envelope: EventEnvelope) -> None:
-    """Background task: publish to event bus."""
-    try:
-        bus = get_event_bus()
-        await bus.publish(envelope)
-        logger.info(f"[InternalEvent] Published {envelope.event_type} ({envelope.id})")
-    except Exception as exc:
-        logger.error(f"[InternalEvent] Publish failed: {exc}")

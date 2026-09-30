@@ -387,21 +387,13 @@ From [backend/.env.example](../../backend/.env.example):
 | `TURN_SERVER_URL` | *(commented out)* | Optional TURN relay |
 | `TURN_USERNAME` | *(commented out)* | TURN credential |
 | `TURN_CREDENTIAL` | *(commented out)* | TURN credential |
-| `EVENT_BUS_TYPE` | `memory` | Event bus backend |
-| `EVENT_BUS_MAXSIZE` | `1000` | In-memory queue depth |
 | `CORS_ORIGINS` | `http://localhost:3000,https://dev.hirebuddha.com,...` | Comma-separated allowed origins |
 
-Note `SECRET_KEY` and `JWT_SECRET` are **separate** — the backend signs user
-JWTs with `SECRET_KEY`, while the gateway validates streaming handshakes with
-`JWT_SECRET`. In compose, `JWT_SECRET` is fed from `${SECRET_KEY}`, so they
-match there; in a hand-rolled `.env` they can drift apart, which produces
-confusing "invalid token" failures on WebSocket connect only.
-
-> ⚠️ `EVENT_BUS_TYPE=memory` means the event bus is **per-process and in-memory**.
-> Events published in the gateway are not visible to the backend or the worker.
-> This is a hard constraint on running multiple gateway instances — see
-> [13 — Gateway and realtime](13-gateway-and-realtime.md) and
-> [§17](#17-scaling-limits).
+`SECRET_KEY` is the only JWT key; the gateway's separate `JWT_SECRET` went
+with the gateway on 2026-09-30. Webhook and internal events no longer pass
+through an in-process event bus: the endpoint enqueues the arq job before it
+answers (SA-09), so they survive an API restart and any number of API processes
+share one queue.
 
 > ⚠️ **`backend/.env` is committed to the working tree** (it exists alongside
 > `.env.example` and is byte-identical at 2165 bytes). Confirm it is in
@@ -1266,12 +1258,11 @@ Everything runs on one VM, and several design choices assume that.
 ```mermaid
 flowchart TB
     subgraph Current["Today - single VM"]
-        A["Apache"] --> P1["All 5 processes"]
+        A["Apache"] --> P1["All 4 processes"]
         P1 --> D1[("One Postgres")]
         P1 --> R1[("One Redis")]
     end
     subgraph Blockers["What blocks horizontal scaling"]
-        B1["EVENT_BUS_TYPE=memory<br/>per-process, not shared"]
         B2["nohup processes<br/>no supervisor, no restart-on-crash"]
         B3["PID-file service management<br/>assumes one host"]
         B4["Feature-flag process cache<br/>60s TTL per process"]
@@ -1282,13 +1273,12 @@ flowchart TB
 
 | Constraint | Consequence | Fix direction |
 |---|---|---|
-| `EVENT_BUS_TYPE=memory` | Events do not cross processes | Switch to a Redis-backed bus |
 | `nohup` process management | No auto-restart on crash | systemd units or a supervisor |
 | PID files in `logs/` | Single-host assumption | Container orchestration |
 | Artifacts on local disk | A second app host cannot serve them | Object storage |
 | Single Redis | Queue and pub/sub SPOF | Redis with replication |
 | Single Postgres | Data SPOF | Managed Postgres with replicas |
-| No health probes in the scripts | `wait_for_service` only checks the port is open; the backend now has `GET /api/v1/health` (PO-10) and the gateway `/health`, but nothing calls them | Probe those two |
+| No health probes in the scripts | `wait_for_service` only checks the port is open; the API has `GET /api/v1/health` (also `/health`), but nothing calls it | Probe it |
 | `--reload` everywhere | Higher memory, filesystem watching | Drop `--reload` in production |
 
 The realistic first steps, in order: systemd units for supervision, log rotation,
@@ -1363,7 +1353,7 @@ a Redis-backed event bus, then moving artifacts to object storage.
 13. **CORS origins are hard-coded in `main.py`** as well as the env var; the
     hard-coded list is authoritative for the backend.
 
-14. **`EVENT_BUS_TYPE=memory` is per-process.** Cross-process events do not work.
+14. **Inbound events go straight onto the arq queue.** There is no in-process event bus any more (SA-09).
 
 15. **No log rotation for `logs/`.** The most likely cause of a full disk.
 

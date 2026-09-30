@@ -227,7 +227,8 @@ credentials does nothing.
 
 ### GW-07 — The event bus is in-process with one subscriber
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — the bus is deleted; the ingress
+endpoints enqueue on arq before their 202 (SA-09).
 
 "Event bus" suggests infrastructure. It is an `asyncio.Queue` inside one process with
 exactly one subscriber, and cross-process delivery happens later via arq.
@@ -248,9 +249,9 @@ told the delivery succeeded, in-memory is the wrong durability.
 
 ### GW-08 — The arq fallback runs a full AgentLoop inside the gateway
 
-**📄 Doc-reported · High** · **Status: open, worse (2026-09-30)** — after the merge the fallback
-runs inside the API process, sharing its event loop with every REST request as well as
-live audio. The fix is GW-I5 / SA-09.
+**📄 Doc-reported · High** · **Status: fixed (2026-09-30)** — the fallback is deleted: when arq
+is unreachable the endpoint answers 503 and the caller retries (SA-09, GW-I5). (Between
+the single-port merge and SA-09 it briefly ran inside the API process.)
 
 When the arq pool is unreachable, `_execute_in_process` runs the whole agent loop as a
 fire-and-forget task **in the gateway process**.
@@ -444,6 +445,9 @@ commit.
 
 ### GW-I3 — Persist webhook envelopes before acknowledging
 
+**Status: done (2026-09-30)** — the arq job in Redis is the persisted envelope, written before
+the 202 (SA-09).
+
 **Effect: large.** [GW-07](#gw-07--the-event-bus-is-in-process-with-one-subscriber). Once a
 provider is told `200 OK`, the platform owns that event. An `asyncio.Queue` is not a
 durable owner. Write it to Postgres or push it to Redis before returning.
@@ -458,6 +462,8 @@ return 401`. Do the second half even before the first — a `False` that does no
 worse than no check, because it looks like a check.
 
 ### GW-I5 — Return 503 instead of running the loop in the gateway
+
+**Status: done (2026-09-30)** — SA-09.
 
 **Effect: medium, removes a failure amplifier.**
 [GW-08](#gw-08--the-arq-fallback-runs-a-full-agentloop-inside-the-gateway). The fallback
