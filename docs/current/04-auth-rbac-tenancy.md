@@ -120,10 +120,10 @@ Things worth noticing right away:
 | Observation | Why it matters |
 |---|---|
 | `users.company_id` is `nullable=False` | Every user always has a company. There are no "floating" users. |
-| `users.role` is a free-text `String`, not an enum | Nothing at the DB level stops `role = "wizard"`. Validation lives only in [service.py:52](../../backend/src/auth/service.py:52). |
+| `users.role` is a free-text `String` in the database | The API validates it: request schemas type roles as `Role` ([roles.py](../../backend/src/auth/roles.py)), so an unknown role is a 422 (AU-01, AU-21). There is no database constraint. |
 | `companies.parent_id` is a self-FK | The whole hierarchy is one adjacency-list column. Only **one** level of nesting is ever queried (`parent_id == my_company_id`); nobody walks the tree recursively. |
-| `refresh_tokens.token` stores the raw token | A database read gives an attacker working refresh tokens. See section 15. |
-| `users.is_active` exists but is barely enforced | Grep shows it is set and returned, but `_authenticate_user` never checks it. A deactivated user can still log in. |
+| `refresh_tokens.token_hash` stores a SHA-256, not the token | Since AU-10 a database read yields no working sessions. See section 5. |
+| `users.is_active`, `is_verified`, `token_version` | All checked on every request since 2026-09-30 (AU-04, AU-08, AU-05). |
 
 ---
 
@@ -620,12 +620,12 @@ Three rules for a new endpoint:
 
 ### 7.1 The six role strings
 
-Defined nowhere as a Python enum — only as a comment on [models.py:35](../../backend/src/auth/models.py:35) and as a TypeScript enum on the frontend at [types/index.ts:24](../../frontend/src/types/index.ts:24).
+Defined as the Python `Role` enum ([auth/roles.py](../../backend/src/auth/roles.py), a `StrEnum`, so its members compare and hash as the stored strings) and as a TypeScript enum on the frontend at [types/index.ts:24](../../frontend/src/types/index.ts:24). Until 2026-09-30 the backend had only a comment on `users.role` (AU-21).
 
 | Role string | Company type it belongs to | Typical holder |
 |---|---|---|
 | `app_admin` | `APP` | HireBuddha platform staff, superuser |
-| `app_user` | `APP` | Platform ops / support, read-mostly |
+| `app_user` | `APP` | Platform ops: the platform reports only; no cross-tenant access (see §7.6 item 1) |
 | `partner_admin` | `PARTNER` | Reseller or agency owner managing tenants |
 | `partner_user` | `PARTNER` | Reseller staff |
 | `tenant_admin` | `TENANT` | Customer's own admin — **the default for self-registration** |
@@ -636,15 +636,15 @@ Two defaults that disagree:
 - `users.role` column default is `"tenant_user"` ([models.py:35](../../backend/src/auth/models.py:35)).
 - `service.create_user` explicitly sets `role="tenant_admin"` for self-registration ([service.py:139](../../backend/src/auth/service.py:139)), because a self-registering user is the first person in a brand-new workspace and must be able to invite others.
 
-### 7.2 There is no hierarchy
+### 7.2 One guard, and `app_admin` always passes it
 
-This is the most important RBAC fact in the codebase, and it surprises everyone. `RoleChecker` is a set-membership test:
+`RoleChecker` is the only role guard (AU-17, 2026-09-30):
 
 ```python
 # backend/src/auth/dependencies.py
 class RoleChecker:
-    def __init__(self, allowed_roles: list[str]):
-        self.allowed_roles = allowed_roles
+    def __init__(self, allowed_roles: Iterable[str]):
+        self.allowed_roles = frozenset(Role(r) for r in allowed_roles) | {Role.APP_ADMIN}
 
     def __call__(self, user: User = Depends(get_current_user)):
         if user.role not in self.allowed_roles:
@@ -652,7 +652,17 @@ class RoleChecker:
         return user
 ```
 
-`app_admin` is **not** implicitly allowed everywhere. It only gets through a guard if the guard's list literally contains `"app_admin"`. Every guard in the codebase spells it out by hand, which works, but means one forgotten entry locks the platform admin out of an endpoint.
+- **`app_admin` is always allowed** (AU-18). Before, it passed only a guard whose list spelt
+  it out; every list did, but one forgotten entry would have locked the platform
+  administrator out.
+- **Role names are checked when the guard is built** (AU-21): `RoleChecker(["tenant-admin"])`
+  raises `ValueError` when the route module is imported, instead of making a guard that
+  silently allows nobody.
+- `tests/unit/test_role_guards.py` walks the real app's route table and checks every guard
+  admits `app_admin` and holds only real roles, and pins the roles of the routes converted
+  from the old helpers.
+
+There is still no inheritance beyond `app_admin`: a guard lists the other roles it allows.
 
 The *conceptual* hierarchy — which the guard lists approximate — looks like this:
 
@@ -671,7 +681,7 @@ flowchart TD
     PA -->|"manages"| TA
     TA --> TU
 
-    NOTE["NOT enforced by inheritance. Every guard lists roles explicitly."]
+    NOTE["Only app_admin is implicit. Every guard lists the other roles."]
     AA -.-> NOTE
 ```
 
@@ -689,18 +699,24 @@ flowchart TD
 | [voice/phone_number_router.py](../../backend/src/voice/phone_number_router.py) | number admin | `app_admin` |
 | [ai/tool_management_router.py](../../backend/src/ai/tool_management_router.py) | tool registry | `app_admin` |
 
-### 7.4 The four *other* guard styles
+### 7.4 The hand-rolled guards are gone
 
-`RoleChecker` is not the only mechanism. Four hand-rolled variants coexist, and they disagree about what "admin" means:
+Until 2026-09-30 four hand-rolled helpers sat beside `RoleChecker`, two of them named
+`_require_admin` and disagreeing about what "admin" meant (AU-17). All thirty call sites
+are now `RoleChecker` dependencies in the route signature:
 
-| Helper | File | Definition of admin |
+| Was | File | Now |
 |---|---|---|
-| `_require_admin` | [ai/api/admin.py:91](../../backend/src/ai/api/admin.py:91) | `app_admin`, `partner_admin`, **`tenant_admin`** |
-| `_require_admin` | [billing/cron_router.py:16](../../backend/src/billing/cron_router.py:16) | `app_admin` only |
-| `_require_app_admin` | [config/router.py:156](../../backend/src/config/router.py:156) | `app_admin` only |
-| `_require_roles(user, *roles)` | [ai/reports_router.py:24](../../backend/src/ai/reports_router.py:24) | varies per endpoint |
+| `_require_admin` (20 routes) | [ai/api/admin.py](../../backend/src/ai/api/admin.py) | `RoleChecker(ADMIN_ROLES)` — `app_admin`, `partner_admin`, `tenant_admin` |
+| `_require_admin` (2) | [billing/cron_router.py](../../backend/src/billing/cron_router.py) | `RoleChecker([Role.APP_ADMIN])` |
+| `_require_app_admin` (3) | [config/router.py](../../backend/src/config/router.py) | `RoleChecker([Role.APP_ADMIN])` |
+| `_require_roles(user, …)` (5) | [ai/reports_router.py](../../backend/src/ai/reports_router.py) | `RoleChecker([...])` with the same roles |
 
-Two functions with the same name, `_require_admin`, mean two different things. `ai/api/admin.py` treats `tenant_admin` as an admin — so the "kernel admin" endpoints (`/api/v1/ai/admin/*`, the Meta-Intelligence Board and KPI dashboards) are open to every tenant admin, scoped to their own `company_id`. That is intentional, and [router/index.tsx:545](../../frontend/src/router/index.tsx:545) mirrors it in the frontend, but the naming makes it easy to misread.
+The kernel admin endpoints (`/api/v1/ai/admin/*`, the Meta-Intelligence Board and KPI
+dashboards) stay open to every tenant admin, scoped to their own `company_id` in the handler
+— [router/index.tsx:545](../../frontend/src/router/index.tsx:545) mirrors that. `ADMIN_ROLES`
+in `roles.py` names that set once. Their 403 message is now *Operation not permitted*
+everywhere (it was four different strings).
 
 ### 7.5 The permission matrix
 
@@ -735,7 +751,7 @@ Derived from the actual guard code, not from intent. Legend: **Y** = allowed, **
 
 Being blunt about the weak spots:
 
-1. **`app_user` is a role with almost no meaning.** It appears in only three backend lines, all in `reports_router.py`. It is absent from every `RoleChecker` list, so an `app_user` is rejected from `/companies/partners`, `/companies/tenants`, `POST /companies`, `POST /users` and the whole `/partner/*` tree — but `GET /companies` falls into the `else` branch and returns "own company only", the same as a tenant user. In practice `app_user` behaves like a tenant user with two extra report pages.
+1. **`app_user` is a narrow role, on purpose.** It appears only in `reports_router.py`'s guards. It is refused `/companies/partners`, `/companies/tenants`, `POST /companies`, `POST /users`, user and company edits (since AU-01/AU-03) and the whole `/partner/*` tree; `GET /companies` returns its own company only, as for a tenant user. So in practice `app_user` is **a user of the APP company with the platform ops reports** (`/reports/analytics/data-growth`, the Ops & Incidents page) and nothing cross-tenant. Product decision (2026-09-30, AU-19): keep it that way; cross-tenant read access for support staff would be a separate feature.
 
 2. ~~**`tenant_user` can suspend its own company.**~~ **Fixed 2026-09-30 (AU-03).** `update_company` guarded only on company match, so any user could `PATCH /companies/{their_own_id}` with `{"status": "suspended"}` and lock out the whole company. It now separates renaming (`app_admin` any; `partner_admin` its own company and tenants; `tenant_admin` its own company) from status changes (`app_admin` any company but its own; `partner_admin` its own tenants). `CompanyUpdate.status` is `Literal["active", "suspended"]`.
 
@@ -1491,11 +1507,10 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 ### Low / hygiene
 
 - No CSRF token anywhere, mitigated by the fact that auth is a header, not a cookie.
-- `users.role` is a free-text column with no DB constraint and no Python enum.
+- `users.role` has no database constraint (the API validates it against `Role`).
 - Five copy-pasted implementations of the "own + children" cascade that already disagree about `partner_user`.
-- Two different functions named `_require_admin` with different definitions of admin.
 - `GET /auth/admin-only` ([router.py:76](../../backend/src/auth/router.py:76)) is a leftover smoke-test endpoint that ships in production.
-- `test_register_new_user` in [test_01_auth.py:15](../../backend/tests/e2e/test_01_auth.py:15) asserts `data["email"]`, but `/auth/register` returns a `Token`. The test is stale relative to the route.
+- `test_register_new_user` in [test_01_auth.py:15](../../backend/tests/e2e/test_01_auth.py:15) asserts `data["email"]` — true again since AU-08, when `/auth/register` stopped returning a `Token` and returns `{email, message}`.
 
 ---
 

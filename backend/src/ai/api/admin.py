@@ -51,7 +51,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_user
+from src.auth.dependencies import RoleChecker, get_current_user
+from src.auth.roles import ADMIN_ROLES
 from src.auth.models import User
 from src.common.database import get_db
 
@@ -82,15 +83,6 @@ def _parse_since(value: str, *, default_days: int = 7) -> timedelta:
     if unit == "d":
         return timedelta(days=n)
     return timedelta(weeks=n)
-
-
-def _is_admin(user: User) -> bool:
-    return user.role in ("app_admin", "partner_admin", "tenant_admin")
-
-
-def _require_admin(user: User) -> None:
-    if not _is_admin(user):
-        raise HTTPException(status_code=403, detail="admin role required")
 
 
 async def _execution_company_check(
@@ -263,9 +255,8 @@ async def get_bandit_state(
 async def list_skill_candidates(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
-    _require_admin(user)
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
     return await MetaIntelligenceTree(db, user.company_id).list_skill_candidates(limit=limit)
 
@@ -276,9 +267,8 @@ async def list_anti_patterns(
     tags: Optional[str] = Query(None, description="comma-separated tag filter"),
     top_k: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
-    _require_admin(user)
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()] or None
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
     rows = await MetaIntelligenceTree(db, user.company_id).query_anti_patterns(
@@ -302,9 +292,8 @@ async def list_prompt_candidates(
     only_pending: bool = Query(True),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
-    _require_admin(user)
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
     return await MetaIntelligenceTree(db, user.company_id).list_prompt_candidates(
         only_pending=only_pending, limit=limit,
@@ -315,9 +304,8 @@ async def list_prompt_candidates(
 async def approve_prompt_candidate(
     node_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
-    _require_admin(user)
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
     ok = await MetaIntelligenceTree(db, user.company_id).approve_prompt_candidate(node_id)
     if not ok:
@@ -331,7 +319,7 @@ async def promote_skill_candidate(
     node_id: UUID,
     name: Optional[str] = Query(None, description="Optional override for the new SKILL name"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Create a SKILL HierarchicalEntity from a skill_candidate node.
 
@@ -339,7 +327,6 @@ async def promote_skill_candidate(
     with a `tool_call` step per chain element, marks the candidate as
     promoted, and returns the new entity_id.
     """
-    _require_admin(user)
     if user.company_id is None:
         raise HTTPException(status_code=400, detail="user has no company")
 
@@ -405,10 +392,9 @@ async def promote_skill_candidate(
 async def promote_draft_entity(
     entity_id: UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Flip a DRAFT entity to ACTIVE (admin override of the Board pipeline)."""
-    _require_admin(user)
     from src.ai.orm.entity import HierarchicalEntity
     ent = (await db.execute(
         select(HierarchicalEntity).where(HierarchicalEntity.id == entity_id)
@@ -435,7 +421,7 @@ async def promote_draft_entity(
 async def run_spec_critic(
     payload: dict,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Ad-hoc invocation of the meta_spec_critic tool against a spec.
 
@@ -443,7 +429,6 @@ async def run_spec_critic(
     Returns the parsed verdict / concerns / rules_referenced from the
     critic LLM.
     """
-    _require_admin(user)
     if user.company_id is None:
         raise HTTPException(status_code=400, detail="user has no company")
     spec = payload.get("spec")
@@ -481,10 +466,9 @@ async def toggle_experimental_tool(
     tool_id: str,
     enabled: bool = Query(...),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Flip the per-company ``tools.experimental.{tool_id}`` flag."""
-    _require_admin(user)
     if user.company_id is None:
         raise HTTPException(status_code=400, detail="user has no company")
     flag_key = f"tools.experimental.{tool_id}"
@@ -528,9 +512,8 @@ async def get_company_cost_attribution(
     company_id: UUID,
     since: str = Query("7d"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
-    _require_admin(user)
     if user.role != "app_admin" and company_id != user.company_id:
         raise HTTPException(status_code=403, detail="not authorised for this company")
     delta = _parse_since(since)
@@ -576,9 +559,8 @@ async def kpi_runs(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
-    _require_admin(user)
     scope = _company_scope(user, company_id)
     delta = _parse_since(since)
     rows = (await db.execute(
@@ -621,9 +603,8 @@ async def kpi_cost(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
-    _require_admin(user)
     scope = _company_scope(user, company_id)
     delta = _parse_since(since)
     rows = (await db.execute(
@@ -655,9 +636,8 @@ async def kpi_critic(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
-    _require_admin(user)
     delta = _parse_since(since)
     # Verdict distribution from health_record CORTEX nodes.
     verdicts = (await db.execute(
@@ -707,9 +687,8 @@ async def kpi_critic(
 async def kpi_meta_agent(
     since: str = Query("30d"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
-    _require_admin(user)
     delta = _parse_since(since, default_days=30)
     rows = (await db.execute(
         text(
@@ -750,7 +729,7 @@ async def kpi_risk_indicators(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Computed live signal for each programme-level risk in §1 of the
     Track 15 doc, plus its threshold and current status.
@@ -765,7 +744,6 @@ async def kpi_risk_indicators(
             "details":    "..."
         }
     """
-    _require_admin(user)
     delta = _parse_since(since)
     scope = _company_scope(user, company_id)
     scope_str = str(scope) if scope else None
@@ -966,13 +944,12 @@ async def kpi_risk_indicators(
 @router.get("/admin/exit_checklist")
 async def programme_exit_checklist(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Compute each item of the Phase 11 exit checklist (Track 15 §5)
     against live DB state. Returns a list of ``{id, title, satisfied,
     detail}`` items plus a ``percent_complete`` rollup.
     """
-    _require_admin(user)
     items: list[dict[str, Any]] = []
 
     # 1. Migration head
@@ -1160,10 +1137,9 @@ def _decisions_log_path() -> str:
 @router.get("/admin/decisions")
 async def list_decisions(
     limit: int = Query(50, ge=1, le=500),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     """Tail the programme decision log (most recent first)."""
-    _require_admin(user)
     import os as _os
     path = _decisions_log_path()
     if not _os.path.exists(path):
@@ -1202,14 +1178,13 @@ async def list_decisions(
 @router.post("/admin/decisions")
 async def append_decision(
     payload: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Append one decision entry to ``docs/DECISIONS.md``.
 
     Body::
         {"summary": "...", "rationale": "...", "kind": "decision"}
     """
-    _require_admin(user)
     summary = str(payload.get("summary") or "").strip()
     rationale = str(payload.get("rationale") or "").strip()
     kind = str(payload.get("kind") or "decision").strip()
@@ -1243,7 +1218,7 @@ async def append_decision(
 async def list_feature_flags_admin(
     scope: str = Query("all", description="all | global | company"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     """Return every ``feature_flags`` row visible to the caller.
 
@@ -1252,7 +1227,6 @@ async def list_feature_flags_admin(
       company's overrides.
     - Non-admins receive a 403.
     """
-    _require_admin(user)
     if scope not in {"all", "global", "company", "entity"}:
         raise HTTPException(status_code=400, detail=f"invalid scope={scope!r}")
 
@@ -1308,7 +1282,7 @@ async def set_feature_flag(
     flag_key: str,
     payload: dict,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Upsert a feature flag at the requested scope.
 
@@ -1321,7 +1295,6 @@ async def set_feature_flag(
         "entity_id": UUID | null
       }
     """
-    _require_admin(user)
     scope = str(payload.get("scope", "company"))
     enabled = payload.get("enabled")
     value_json = payload.get("value_json")
@@ -1393,9 +1366,8 @@ async def delete_feature_flag(
     company_id: Optional[UUID] = Query(None),
     entity_id: Optional[UUID] = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
-    _require_admin(user)
     if scope == "global" and user.role != "app_admin":
         raise HTTPException(
             status_code=403, detail="only app_admin can delete global flags",

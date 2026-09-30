@@ -16,6 +16,7 @@ from src.config.schemas import (
 from src.config.models import ModelTaskDefault, TASK_TYPES
 from src.config.service import ConfigService
 from src.auth.dependencies import get_current_user, RoleChecker
+from src.auth.roles import Role
 from src.auth.models import User
 
 router = APIRouter(prefix="/config", tags=["Integrations"])
@@ -153,19 +154,9 @@ async def delete_integration(
 # Task Defaults — App Admin ONLY
 # ============================================================================
 
-def _require_app_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Dependency: only app_admin can manage system task defaults."""
-    if current_user.role != "app_admin":
-        raise HTTPException(
-            status_code=403,
-            detail="Only App Administrators can configure AI task defaults"
-        )
-    return current_user
-
-
 @router.get("/task-defaults", response_model=list[ModelTaskDefaultResponse])
 async def list_task_defaults(
-    current_user: User = Depends(_require_app_admin),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -200,7 +191,7 @@ async def list_task_defaults(
 @router.post("/task-defaults", response_model=ModelTaskDefaultResponse)
 async def set_task_default(
     body: ModelTaskDefaultCreate,
-    current_user: User = Depends(_require_app_admin),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -248,7 +239,7 @@ async def set_task_default(
 @router.delete("/task-defaults/{task_type}", status_code=204)
 async def delete_task_default(
     task_type: str,
-    current_user: User = Depends(_require_app_admin),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a task default. Only app_admin can call this."""

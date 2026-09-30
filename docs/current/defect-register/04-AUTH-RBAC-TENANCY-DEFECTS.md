@@ -617,7 +617,10 @@ product goal that the guard blocks.
 
 ### AU-16 — The refresh cookie nobody reads
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: won't fix (2026-09-30)** — the entry asks for the cookie to be
+kept, and it is: it is the base for [AU-I7](#au-i7--move-refresh-tokens-into-the-cookie-that-already-exists).
+`/auth/register` no longer sets it (registration returns no tokens since AU-08), and
+`/auth/logout` clears it.
 
 `/auth/register`, `/auth/login`, `/auth/refresh` and `/auth/oauth/{provider}` all set an
 `HttpOnly; Secure; SameSite=lax` cookie named `refresh_token`. Nothing reads it. The
@@ -634,7 +637,8 @@ deleted by mistake.
 
 ### AU-17 — Two functions named `_require_admin` mean different things
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — with AU-18, AU-21 and
+[AU-I2](#au-i2--one-role-enum-one-guard).
 
 | Helper | File | Who counts as admin |
 |---|---|---|
@@ -648,11 +652,30 @@ decorator does not tell you who can call it — you have to follow the import.
 
 **Fix:** one guard mechanism, `RoleChecker`, everywhere. Delete the hand-rolled ones.
 
+**Done (2026-09-30).** All thirty call sites of the four helpers are `RoleChecker`
+dependencies in their route signatures, with the same roles: `ai/api/admin.py` (20 routes,
+`RoleChecker(ADMIN_ROLES)` — `ADMIN_ROLES` now named once in `auth/roles.py`), the two cron
+routes and the three task-default routes (`app_admin`), and five analytics reports (their
+listed roles). The helpers, and `admin.py`'s `_is_admin`, are deleted; every guarded 403 now
+says *Operation not permitted*.
+
+**Evidence:** `tests/unit/test_role_guards.py`, 17 cases — `app_admin` passes a guard that does
+not list it; other roles are refused; a misspelt role fails at construction; no
+`_require_admin` / `_require_app_admin` / `_require_roles` definition remains under `src/`;
+walking the real app's routes, every one of the 40+ guards admits `app_admin` and holds only
+`Role` members; nine routes (among them the converted ones) keep exactly their roles. Fails on
+the old code. Live: `GET /ai/admin/admin/kpi/runs` 200 for `app_admin` and `tenant_admin`, 403
+for `tenant_user`; the cron, task-default and data-growth routes 403 for both tenant roles and
+200 for `app_admin`.
+
 ---
 
 ### AU-18 — There is no hierarchy, so `app_admin` can be locked out by omission
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — `RoleChecker` always admits
+`app_admin`. Every existing list already named it, so no route's behaviour changed; the trap
+is gone for the next one. The route-table test fails if any guard would refuse it. Evidence
+under [AU-17](#au-17--two-functions-named-_require_admin-mean-different-things).
 
 `RoleChecker` is a flat set-membership test. `app_admin` is **not** implicitly allowed
 anywhere — it only gets through a guard whose list literally contains `"app_admin"`.
@@ -667,7 +690,11 @@ like a bug in the feature rather than in the guard.
 
 ### AU-19 — `app_user` is a role with almost no meaning
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: won't fix (2026-09-30)** — product decision: keep `app_user`
+as it behaves — an APP-company user with the platform ops reports and no cross-tenant access
+— and document it. `04-auth-rbac-tenancy.md` §7.1 and §7.6 now describe it that way instead of
+"platform ops / support, read-mostly". Cross-tenant read access for support staff would be a
+new feature.
 
 `app_user` appears in exactly three backend lines, all in `reports_router.py`. It is in
 no `RoleChecker` list, so it is rejected from `/companies/partners`,
@@ -696,7 +723,12 @@ tenant-boundary bug to hide.
 
 ### AU-21 — The role strings exist as a comment, not an enum
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-09-30)** — `auth/roles.py` has the `Role` enum
+(since AU-01, which typed the request schemas with it, so an unknown role in a request is a
+422); since AU-17 `RoleChecker` converts its list to `Role` members, so a typo like
+`"tenant-admin"` raises when the route module is imported. Evidence under
+[AU-17](#au-17--two-functions-named-_require_admin-mean-different-things). `users.role` still
+has no database constraint.
 
 The six roles are declared as a comment on `users.role` in the backend and as a real
 TypeScript enum on the frontend. There is no Python enum. Every guard list is a list of
@@ -754,6 +786,8 @@ is exactly why [AU-01](#au-01--any-admin-can-promote-themselves-to-app_admin) is
 critical rather than merely bad.
 
 ### AU-I2 — One role enum, one guard
+
+**Status: done (2026-09-30)** — AU-17, AU-18, AU-21.
 
 **Effect: medium.** A Python `Role` enum, and `RoleChecker` as the only guard. This
 closes [AU-17](#au-17--two-functions-named-_require_admin-mean-different-things),

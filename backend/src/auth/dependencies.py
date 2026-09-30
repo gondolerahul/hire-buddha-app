@@ -7,9 +7,10 @@ from sqlalchemy.orm import selectinload
 from src.common.config import settings
 from src.common.database import get_db
 from src.auth.models import User
+from src.auth.roles import Role
 from src.auth.schemas import TokenData
 
-from typing import Optional
+from typing import Iterable, Optional
 import logging
 
 from src.common.security import ACCESS_TOKEN_TYPE
@@ -98,8 +99,16 @@ async def get_current_user_from_query(token: str, db: AsyncSession = Depends(get
     return await _authenticate_user(token, db)
 
 class RoleChecker:
-    def __init__(self, allowed_roles: list[str]):
-        self.allowed_roles = allowed_roles
+    """Dependency: the signed-in user, if their role is allowed; 403 otherwise.
+
+    The one role guard (AU-17). ``app_admin`` is always allowed — the platform
+    administrator is never locked out by a list that forgot it (AU-18). Each
+    role must be a ``Role``; a misspelt role name raises when the route module
+    is imported, instead of making a guard that silently allows nobody (AU-21).
+    """
+
+    def __init__(self, allowed_roles: Iterable[str]):
+        self.allowed_roles: frozenset[Role] = frozenset(Role(r) for r in allowed_roles) | {Role.APP_ADMIN}
 
     def __call__(self, user: User = Depends(get_current_user)):
         if user.role not in self.allowed_roles:

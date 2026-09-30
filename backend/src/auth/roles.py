@@ -18,8 +18,11 @@ class Role(StrEnum):
     TENANT_USER = "tenant_user"
 
 
+# The admin of a company: manages its users, and sees the kernel admin pages
+# (``/api/v1/ai/admin/*``) for its own scope.
+ADMIN_ROLES: frozenset[Role] = frozenset({Role.APP_ADMIN, Role.PARTNER_ADMIN, Role.TENANT_ADMIN})
 # Roles that manage users: create them, edit them, deactivate them.
-USER_ADMIN_ROLES: frozenset[Role] = frozenset({Role.APP_ADMIN, Role.PARTNER_ADMIN, Role.TENANT_ADMIN})
+USER_ADMIN_ROLES: frozenset[Role] = ADMIN_ROLES
 
 _ASSIGNABLE: dict[Role, frozenset[Role]] = {
     Role.APP_ADMIN: frozenset(Role),

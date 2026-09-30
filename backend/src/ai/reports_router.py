@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.database import get_db
-from src.auth.router import get_current_user
+from src.auth.dependencies import RoleChecker, get_current_user
+from src.auth.roles import Role
 from src.auth.models import User
 from src.ai.reports_service import ReportsService
 
@@ -19,11 +20,6 @@ router = APIRouter(prefix="/api/v1/reports/analytics", tags=["Analytics & Report
 ADMIN_ROLES = {"app_admin", "app_user", "partner_admin", "partner_user", "tenant_admin"}
 APP_ROLES = {"app_admin", "app_user"}
 PARTNER_ROLES = {"app_admin", "partner_admin", "partner_user"}
-
-
-def _require_roles(user: User, *roles: str):
-    if user.role not in roles:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
 # ─── Execution Health ──────────────────────────────────────────────────────────
@@ -86,10 +82,9 @@ async def get_hitl_report(
 
 @router.get("/wallet-liability", summary="Global credit wallet balances (app_admin)")
 async def get_wallet_liability(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_roles(current_user, "app_admin")
     svc = ReportsService(db)
     return await svc.get_wallet_liability()
 
@@ -110,10 +105,9 @@ async def get_usage_breakdown(
 
 @router.get("/tenant-health", summary="Per-tenant health scorecards (partner roles)")
 async def get_tenant_health(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN, Role.PARTNER_ADMIN, Role.PARTNER_USER])),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_roles(current_user, "app_admin", "partner_admin", "partner_user")
     svc = ReportsService(db)
     return await svc.get_tenant_health_scores(partner_company_id=current_user.company_id)
 
@@ -175,10 +169,9 @@ async def get_credit_forecast(
 
 @router.get("/subscription-mrr", summary="MRR, subscription tiers, churn (app_admin)")
 async def get_subscription_mrr(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_roles(current_user, "app_admin")
     svc = ReportsService(db)
     return await svc.get_subscription_mrr()
 
@@ -187,10 +180,9 @@ async def get_subscription_mrr(
 
 @router.get("/partner-performance", summary="Per-partner revenue contribution (app_admin)")
 async def get_partner_performance(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_roles(current_user, "app_admin")
     svc = ReportsService(db)
     return await svc.get_partner_performance()
 
@@ -199,9 +191,8 @@ async def get_partner_performance(
 
 @router.get("/data-growth", summary="Table row counts and archival readiness (app_user)")
 async def get_data_growth(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RoleChecker([Role.APP_ADMIN, Role.APP_USER])),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_roles(current_user, "app_admin", "app_user")
     svc = ReportsService(db)
     return await svc.get_data_growth()
