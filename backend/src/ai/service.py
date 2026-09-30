@@ -2,10 +2,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, or_
 from fastapi import HTTPException
 from uuid import UUID, uuid4
-from arq import create_pool
 import re
 import logging
-from arq.connections import RedisSettings
+from src.common.job_queue import enqueue_job
 from src.ai.models import (
     HierarchicalEntity, ExecutionRun, LLMInteractionLog, 
     ToolInteractionLog, HumanApproval, Document, EntityType
@@ -322,9 +321,7 @@ class AIService:
         execution = result.scalar_one()
 
         # Enqueue Job to Arq
-        redis = await create_pool(RedisSettings())
-        await redis.enqueue_job('run_execution_recursive', str(execution.id))
-        await redis.close()
+        await enqueue_job("run_execution_recursive", str(execution.id))
 
         return execution
 
@@ -617,9 +614,7 @@ class AIService:
         retry_run = result.scalar_one()
 
         # 5. Enqueue to arq
-        redis = await create_pool(RedisSettings())
-        await redis.enqueue_job("run_execution_recursive", str(retry_run.id))
-        await redis.close()
+        await enqueue_job("run_execution_recursive", str(retry_run.id))
 
         return retry_run
 
@@ -753,9 +748,7 @@ class AIService:
         refine_run = result.scalar_one()
 
         # 8. Enqueue to arq
-        redis = await create_pool(RedisSettings())
-        await redis.enqueue_job("run_execution_recursive", str(refine_run.id))
-        await redis.close()
+        await enqueue_job("run_execution_recursive", str(refine_run.id))
 
         return refine_run
 

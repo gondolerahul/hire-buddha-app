@@ -437,20 +437,12 @@ async def retry_failed_calls(
         await db.commit()
 
         # Mark campaigns running and enqueue execution tasks
-        from arq import create_pool
-        from arq.connections import RedisSettings
-        from src.common.config import settings
-        from urllib.parse import urlparse
+        from src.common.job_queue import arq_pool
 
-        parsed = urlparse(settings.REDIS_URL or "redis://localhost:6379")
-        redis_settings = RedisSettings(host=parsed.hostname or "localhost", port=parsed.port or 6379)
-        redis = await create_pool(redis_settings)
-        try:
+        async with arq_pool() as redis:
             for campaign_id in campaign_ids:
                 await service.update_campaign_status(campaign_id, "running")
                 await redis.enqueue_job('execute_campaign_task', str(campaign_id))
-        finally:
-            await redis.close()
 
         logger.info(
             f"Retry-failed: reset {len(call_ids)} calls across "
@@ -669,21 +661,10 @@ async def update_campaign_status(
         
         # Enqueue background task if starting campaign
         if status == "running":
-            from arq import create_pool
-            from arq.connections import RedisSettings
-            from src.common.config import settings
-            from urllib.parse import urlparse
-            
-            parsed = urlparse(settings.REDIS_URL or "redis://localhost:6379")
-            redis_settings = RedisSettings(host=parsed.hostname or "localhost", port=parsed.port or 6379)
-            
-            redis = await create_pool(redis_settings)
-            await redis.enqueue_job(
-                'execute_campaign_task',
-                str(campaign_id)
-            )
-            await redis.close()
-            
+            from src.common.job_queue import enqueue_job
+
+            await enqueue_job('execute_campaign_task', str(campaign_id))
+
             logger.info(f"Enqueued campaign execution task for {campaign_id}")
         
         return {

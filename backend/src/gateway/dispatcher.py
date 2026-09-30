@@ -67,7 +67,7 @@ class CentralDispatcher:
 
     async def start(self) -> None:
         """Initialize Redis connection and start the event bus consumer."""
-        from src.gateway.gateway_config import settings
+        from src.common.config import settings
         from src.gateway.event_bus import get_event_bus
 
         try:
@@ -164,18 +164,9 @@ class CentralDispatcher:
         Falls back to direct in-process execution if arq is not available.
         """
         try:
-            from src.gateway.gateway_config import settings
-            import redis.asyncio as aioredis
-            from arq.connections import RedisSettings, create_pool
+            from src.common.job_queue import enqueue_job
 
-            redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-            arq_pool = await create_pool(redis_settings)
-
-            job = await arq_pool.enqueue_job(
-                "process_gateway_event",
-                envelope.to_dict(),
-            )
-            await arq_pool.aclose()
+            job = await enqueue_job("process_gateway_event", envelope.to_dict())
 
             job_id = job.job_id if job else "queued"
             logger.info(f"[Dispatcher] Enqueued gateway event job {job_id}")
@@ -264,7 +255,7 @@ class CentralDispatcher:
 
                 # Execute synchronously in this task via the AgentLoop (the sole
                 # run engine; C4 retired the legacy execute_run path).
-                from src.gateway.gateway_config import settings
+                from src.common.config import settings
                 import redis.asyncio as aioredis
                 redis_client = await aioredis.from_url(settings.REDIS_URL)
 

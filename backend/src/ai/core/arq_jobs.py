@@ -294,8 +294,6 @@ async def _handle_sheet_row_campaign(
     → TataStreamHandler → GeminiLiveClient (speech-to-speech conversation)
     """
     from src.ai.campaign_models import Campaign, CampaignCall
-    from arq.connections import RedisSettings, create_pool
-    from src.common.config import settings as app_settings
     from src.auth.models import User
 
     # ── 1. Extract lead data from the webhook payload ───────────────────
@@ -410,18 +408,9 @@ async def _handle_sheet_row_campaign(
 
     # ── 6. Enqueue campaign execution via arq ───────────────────────────
     try:
-        from urllib.parse import urlparse
-        parsed = urlparse(app_settings.REDIS_URL or "redis://localhost:6379")
-        redis_settings = RedisSettings(
-            host=parsed.hostname or "localhost",
-            port=parsed.port or 6379,
-        )
-        arq_pool = await create_pool(redis_settings)
-        job = await arq_pool.enqueue_job(
-            "execute_campaign_task",
-            str(campaign.id),
-        )
-        await arq_pool.aclose()
+        from src.common.job_queue import enqueue_job
+
+        job = await enqueue_job("execute_campaign_task", str(campaign.id))
 
         job_id = job.job_id if job else "queued"
         logger.info(

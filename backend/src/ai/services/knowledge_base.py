@@ -188,19 +188,13 @@ class KnowledgeBaseService:
             )
 
     async def _enqueue_ingestion(self, document: Document, file_content: bytes) -> None:
-        from arq import create_pool
-        from arq.connections import RedisSettings
-        from src.common.config import settings
+        from src.common.job_queue import enqueue_job
 
         try:
-            redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
-            try:
-                await redis.enqueue_job(
-                    "process_document", str(document.id), file_content,
-                    document.file_type, document.filename,
-                )
-            finally:
-                await redis.close()
+            await enqueue_job(
+                "process_document", str(document.id), file_content,
+                document.file_type, document.filename,
+            )
         except Exception as exc:
             logger.error(f"Could not enqueue ingestion for document {document.id}: {exc}")
             document.upload_status = "failed"

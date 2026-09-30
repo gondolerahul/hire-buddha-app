@@ -1,20 +1,14 @@
 """
 worker.py — Arq worker entrypoint.
 
-This file is intentionally minimal. All execution logic lives in:
-  - ai.core.execution_engine   (ExecutionEngine)
-  - ai.core.arq_jobs           (job functions)
-  - ai.core.prompt_utils        (parse_variables, build_sandwich_prompt, etc.)
-  - ai.core.context_utils       (store_step_output, sanitize_context)
-  - ai.core.exceptions          (UncertaintySignal, AgentError, etc.)
-  - ai.step_executor            (StepExecutorService)
+This file is intentionally minimal. The job functions live in
+``ai.core.arq_jobs`` (runs, documents, Dreaming, CORTEX, crons),
+``ai.campaign_worker`` and ``mobile.reconciler``; a run itself is driven by
+``ai.core.agent_loop.AgentLoop``.
 
 Only WorkerSettings and cron registration remain here because arq
 requires them at module level for worker discovery.
-
-Phase 10A restructuring: decomposed from 1,992 lines → ~80 lines.
 """
-from arq.connections import RedisSettings
 import logging
 import warnings
 
@@ -53,6 +47,7 @@ from src.mobile.reconciler import mobile_housekeeping_job
 
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
+from src.common.job_queue import arq_redis_settings
 
 
 # ---------------------------------------------------------------------------
@@ -92,16 +87,8 @@ class WorkerSettings:
 
     job_timeout = 7200  # 2-hour absolute ceiling; per-entity timeout via logic_gate config
 
-    # Parse Redis URL from environment config
-    @staticmethod
-    def _parse_redis_url():
-        from src.common.config import settings
-        from urllib.parse import urlparse
-        parsed = urlparse(settings.REDIS_URL or "redis://localhost:6379")
-        return parsed.hostname or "localhost", parsed.port or 6379
-
-    _host, _port = _parse_redis_url.__func__()
-    redis_settings = RedisSettings(host=_host, port=_port)
+    # All of REDIS_URL — password, TLS and database index included (SA-05).
+    redis_settings = arq_redis_settings()
 
 
 try:

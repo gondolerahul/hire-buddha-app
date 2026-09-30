@@ -118,7 +118,13 @@ default in play it cannot connect at all.
 
 ### SA-04 — Five enqueue calls ignore `REDIS_URL` and hardcode localhost
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `common/job_queue.py`
+(`arq_redis_settings`, `arq_pool`, `enqueue_job`) builds every arq connection with
+`RedisSettings.from_dsn(settings.REDIS_URL)`. PO-01 and PO-15 had already removed two of
+the five `RedisSettings()` sites; the other three are gone, and so are three more that
+parsed `REDIS_URL` by hand (host and port only): both campaign-router enqueues and the
+sheet-row campaign job. `tests/unit/test_arq_redis_settings.py` fails if any
+`RedisSettings(` or hand-parsed `REDIS_URL` reappears outside the helper.
 
 `ai/service.py` enqueues jobs with `create_pool(RedisSettings())` — no arguments — at
 five separate places. `RedisSettings()` with no arguments means arq's defaults:
@@ -137,7 +143,10 @@ everywhere. The worker already has `_parse_redis_url` — extract and reuse it.
 
 ### SA-05 — The worker's Redis parser throws away password, TLS and database index
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `WorkerSettings.redis_settings =
+arq_redis_settings()`; `_parse_redis_url` is deleted. The test reloads the worker with
+`REDIS_URL=rediss://:secret@redis.internal:6380/2` and gets password, TLS and database 2
+(the old code gave no password, no TLS, database 0).
 
 `WorkerSettings._parse_redis_url` returns only `parsed.hostname` and `parsed.port`.
 A `REDIS_URL` of `rediss://:secret@redis.internal:6380/2` becomes
@@ -266,7 +275,7 @@ the expensive work is the one with no distributed tracing.
 | **SA-12** | [`voice/main.py`](../../../backend/src/voice/main.py) | The retired port-8002 app. Blocked only on **W-1** in the platform register. The two routers it mounts (`webhook_router`, `messaging_router`) are already mounted by the backend | ✅ Verified |
 | **SA-13** | Both `streaming.hirebuddha.com` vhosts | See [SA-02](#sa-02--apache-still-proxies-streaminghirebuddhacom-to-the-dead-port) | ✅ Verified |
 | **SA-14** | The duplicate `*:80` vhost for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares a port-80 vhost, and `app.hirebuddha.com-le-ssl.conf` declares a **second** one at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins, and it is not obvious which | ✅ Verified |
-| **SA-15** | The stale `worker.py` docstring | It says execution logic lives in `ai.core.execution_engine`. That module does not exist — `core/` has no `execution_engine.py`. The docstring sends every new reader to a file that was deleted | ✅ Verified |
+| **SA-15** | The stale `worker.py` docstring | It says execution logic lives in `ai.core.execution_engine`. That module does not exist — `core/` has no `execution_engine.py`. The docstring sends every new reader to a file that was deleted | ✅ fixed (2026-09-30) — the docstring names `arq_jobs`, `campaign_worker`, `mobile.reconciler` and `AgentLoop` |
 
 ---
 

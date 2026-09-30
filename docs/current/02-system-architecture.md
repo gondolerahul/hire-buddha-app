@@ -723,21 +723,20 @@ sequenceDiagram
     W->>PG: "INSERT execution_trace_events, UPDATE run status"
 ```
 
-The enqueue itself is three lines in
-[`ai/service.py:316`](../../backend/src/ai/service.py:316):
+The enqueue itself is one line in
+[`ai/service.py`](../../backend/src/ai/service.py):
 
 ```python
 # backend/src/ai/service.py
-# Enqueue Job to Arq
-redis = await create_pool(RedisSettings())
-await redis.enqueue_job('run_execution_recursive', str(execution.id))
-await redis.close()
+await enqueue_job("run_execution_recursive", str(execution.id))
 ```
 
-Note `RedisSettings()` with **no arguments** — arq's defaults, i.e.
-`localhost:6379`. `settings.REDIS_URL` is ignored on this path. It works today
-because Redis happens to be on localhost, and it is a latent bug the day Redis
-moves. The same pattern repeats at `service.py:612`, `:748` and `:927`.
+`enqueue_job` and `arq_pool` live in
+[`common/job_queue.py`](../../backend/src/common/job_queue.py). Every producer and
+the worker build their arq connection there, with `RedisSettings.from_dsn(REDIS_URL)`
+— host, port, password, TLS and database index. Before SA-04/SA-05 three enqueues
+used `RedisSettings()` (arq's `localhost:6379`, whatever `REDIS_URL` said) and the
+worker and campaign routes parsed the URL by hand, keeping only host and port.
 
 On the worker side, `run_execution_recursive` runs two guards before doing any
 work — both worth knowing because they explain "my job silently did nothing":
@@ -985,19 +984,9 @@ outcome-triggered path (`dreaming_outcome_trigger`, which *is* registered) works
 # backend/src/ai/worker.py
 job_timeout = 7200  # 2-hour absolute ceiling; per-entity timeout via logic_gate config
 
-@staticmethod
-def _parse_redis_url():
-    from src.common.config import settings
-    from urllib.parse import urlparse
-    parsed = urlparse(settings.REDIS_URL or "redis://localhost:6379")
-    return parsed.hostname or "localhost", parsed.port or 6379
-
-_host, _port = _parse_redis_url.__func__()
-redis_settings = RedisSettings(host=_host, port=_port)
+# All of REDIS_URL — password, TLS and database index included (SA-05).
+redis_settings = arq_redis_settings()
 ```
-
-Only **host and port** are extracted from `REDIS_URL`. A password, TLS scheme
-(`rediss://`) or database index in the URL is silently discarded.
 
 `CHILD_RUN_QUEUE = "children"` is declared with a long comment explaining it is
 the *intended* dedicated queue for async child runs so a fan-out `PROCESS` cannot
