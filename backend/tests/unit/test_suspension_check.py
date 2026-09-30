@@ -40,7 +40,7 @@ class _FakeSession:
 
 
 def _user(status: str):
-    return SimpleNamespace(email="rep@acme.test", company=SimpleNamespace(status=status))
+    return SimpleNamespace(email="rep@acme.test", is_active=True, company=SimpleNamespace(status=status))
 
 
 def test_the_middleware_is_gone():
@@ -49,7 +49,7 @@ def test_the_middleware_is_gone():
 
 
 async def test_a_suspended_company_is_refused_by_the_dependency():
-    token = create_access_token(data={"sub": "rep@acme.test", "company_id": "c1"})
+    token = create_access_token(data={"sub": "rep@acme.test", "company_id": "c1", "type": "access"})
     db = _FakeSession(_user("suspended"))
     with pytest.raises(HTTPException) as exc:
         await _authenticate_user(token, db)
@@ -59,6 +59,6 @@ async def test_a_suspended_company_is_refused_by_the_dependency():
 
 
 async def test_an_active_company_passes():
-    token = create_access_token(data={"sub": "rep@acme.test", "company_id": "c1"})
+    token = create_access_token(data={"sub": "rep@acme.test", "company_id": "c1", "type": "access"})
     user = _user("active")
     assert await _authenticate_user(token, _FakeSession(user)) is user

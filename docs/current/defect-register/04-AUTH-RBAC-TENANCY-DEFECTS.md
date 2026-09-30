@@ -227,7 +227,7 @@ renaming it, 403 renaming the partner's tenant, and could still use the API afte
 
 ### AU-04 — `is_active` is never checked, so deactivating a user does nothing
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)**
 
 `users.is_active` exists, defaults to `True`, is editable through `UserUpdate`, and is
 shown in the partner dashboard. Neither `authenticate_user` nor `_authenticate_user`
@@ -241,6 +241,24 @@ that person is locked out. They can still log in and still use every API.
 
 **Fix:** reject inactive users in `_authenticate_user`, next to the existing suspension
 check. One line.
+
+**Done (2026-09-30).** Four places, not one — each is a way back in:
+
+| Path | Deactivated user gets |
+|---|---|
+| Any authenticated request (`_authenticate_user`) | 401 *This account has been deactivated* |
+| `POST /auth/login`, `/auth/token` with the right password (`authenticate_user` → `require_active`) | 403, same message. A wrong password is still a plain 401, so the 403 does not confirm the account to someone without the password |
+| `POST /auth/refresh` (`verify_refresh_token`) | 401 |
+| `POST /auth/oauth/{provider}` (`require_active` on the upserted user) | 403 |
+
+The 401 on requests makes the frontend try a refresh, which fails, and send the user to the
+login page, which shows the 403's message.
+
+**Evidence:** `tests/unit/test_auth_token_checks.py` — a deactivated user's token is
+refused; the right password is a 403 and a wrong one still returns nothing; refresh and
+OAuth refuse. Live on the local API: an `app_admin` deactivated a registered user; the
+user's existing token got 401 *This account has been deactivated*, login with the right
+password 403, a wrong password 401, refresh 401; after reactivation login worked again.
 
 ---
 
@@ -427,7 +445,7 @@ Combined with the default value still being `change-me-in-production` in the che
 
 ### AU-14 — The `type` claim is not checked on login tokens
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)**
 
 `create_access_token` mints both login tokens and email-verification tokens. The only
 difference is a `type` claim, and `_authenticate_user` **never inspects it**.
@@ -441,6 +459,19 @@ full login token.
 - [`auth/service.py:277`](../../../backend/src/auth/service.py:277) — `verify_email_token`
 
 **Fix:** require `type == "access"` in `_authenticate_user` and stamp it at mint time.
+
+**Done (2026-09-30).** `service.issue_access_token(user)` is the one minting helper for
+login tokens (register, login, `/token`, refresh, OAuth — five hand-written dicts before) and
+stamps `type: "access"`; `_authenticate_user` refuses any other `type`, and a token with
+none. The two type strings are constants in `common/security.py`. Access tokens issued
+before the change have no `type`, so each signed-in browser refreshes once (its refresh
+token is unaffected). The `print("Auth Debug: …")` lines in `_authenticate_user`, which
+wrote user emails to stdout, are `logger.debug` calls without the email.
+
+**Evidence:** `tests/unit/test_auth_token_checks.py` — a login token authenticates; an
+`email_verification`, a `password_reset` and an untyped token are all 401. 8 of its 9
+cases fail on the old code. Live: a verification-type token for a real user got 401 from
+`/auth/me`.
 
 ---
 

@@ -7,7 +7,6 @@ from src.auth import service
 import httpx
 import os
 from src.auth import service
-from src.common.security import create_access_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -15,7 +14,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def register(user: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
     new_user = await service.create_user(db, user)
     # Generate tokens so the frontend can immediately authenticate
-    access_token = create_access_token(data={"sub": new_user.email, "company_id": str(new_user.company_id)})
+    access_token = service.issue_access_token(new_user)
     refresh_token = await service.create_refresh_token(db, new_user.id)
 
     response.set_cookie(
@@ -38,7 +37,7 @@ async def login(response: Response, login_data: UserLogin, db: AsyncSession = De
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = create_access_token(data={"sub": user.email, "company_id": str(user.company_id)})
+    access_token = service.issue_access_token(user)
     refresh_token = await service.create_refresh_token(db, user.id)
     
     # Set HttpOnly cookie
@@ -63,7 +62,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = create_access_token(data={"sub": user.email, "company_id": str(user.company_id)})
+    access_token = service.issue_access_token(user)
     return {"access_token": access_token, "token_type": "bearer"}
 
 from src.auth.dependencies import get_current_user, RoleChecker
@@ -86,7 +85,7 @@ async def refresh_token(
     new_refresh_token = await service.rotate_refresh_token(db, request.refresh_token)
     user = await service.verify_refresh_token(db, new_refresh_token)
     
-    access_token = create_access_token(data={"sub": user.email, "company_id": str(user.company_id)})
+    access_token = service.issue_access_token(user)
     
     response.set_cookie(
         key="refresh_token",
@@ -157,9 +156,9 @@ async def oauth_login(
     if not email:
         raise HTTPException(status_code=400, detail="Could not retrieve email from provider")
 
-    user = await service.get_or_create_oauth_user(db, email, name)
+    user = service.require_active(await service.get_or_create_oauth_user(db, email, name))
     
-    access_token = create_access_token(data={"sub": user.email, "company_id": str(user.company_id)})
+    access_token = service.issue_access_token(user)
     refresh_token = await service.create_refresh_token(db, user.id)
     
     response.set_cookie(

@@ -3,7 +3,7 @@ from sqlalchemy.future import select
 from fastapi import HTTPException, status
 from src.auth.models import User, Company, RefreshToken
 from src.auth.schemas import UserCreate, UserLogin
-from src.common.security import get_password_hash, verify_password, create_access_token
+from src.common.security import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_TYPE, EMAIL_VERIFICATION_TOKEN_TYPE
 from src.common.email import email_service
 from datetime import datetime, timedelta
 import uuid
@@ -200,6 +200,20 @@ async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
     
     return new_user
 
+def issue_access_token(user: User) -> str:
+    """A login access token for ``user`` — the only kind that authenticates requests."""
+    return create_access_token(
+        data={"sub": user.email, "company_id": str(user.company_id), "type": ACCESS_TOKEN_TYPE}
+    )
+
+
+def require_active(user: User) -> User:
+    """403 for a deactivated user, so a correct password does not sign them in (AU-04)."""
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated")
+    return user
+
+
 async def authenticate_user(db: AsyncSession, login_data: UserLogin):
     result = await db.execute(select(User).filter(User.email == login_data.email))
     user = result.scalars().first()
@@ -207,7 +221,7 @@ async def authenticate_user(db: AsyncSession, login_data: UserLogin):
         return None
     if not verify_password(login_data.password, user.hashed_password):
         return None
-    return user
+    return require_active(user)
 
 async def create_refresh_token(db: AsyncSession, user_id: uuid.UUID) -> str:
     token = secrets.token_urlsafe(32)
@@ -242,6 +256,8 @@ async def verify_refresh_token(db: AsyncSession, token: str) -> User:
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="This account has been deactivated")
         
     return user
 
@@ -329,7 +345,7 @@ async def verify_email_token(db: AsyncSession, token: str):
         raise HTTPException(status_code=400, detail="Invalid or expired token")
     
     # Check token type
-    if payload.get("type") != "email_verification":
+    if payload.get("type") != EMAIL_VERIFICATION_TOKEN_TYPE:
         raise HTTPException(status_code=400, detail="Invalid token type")
     
     email = payload.get("sub")

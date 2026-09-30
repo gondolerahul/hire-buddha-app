@@ -214,7 +214,7 @@ The closest working thing is **email verification**, which is a different flow:
 | Verify endpoint | [router.py:176](../../backend/src/auth/router.py:176) `GET /auth/verify-email?token=` |
 | Token check | [service.py:277](../../backend/src/auth/service.py:277) `verify_email_token` — decodes the JWT and requires `payload["type"] == "email_verification"` |
 
-Note that `create_access_token` is reused to mint the verification token, and the `type` claim is the only thing distinguishing it from a login token. Nothing stops a normal login token from being replayed at `/auth/verify-email` — it simply fails the `type` check, which is the correct outcome, but the reverse is worth watching: any code that mints a token with `type: email_verification` is minting something that `get_current_user` will happily accept as a login token, because `_authenticate_user` never inspects `type`.
+Note that `create_access_token` is reused to mint the verification token, and the `type` claim is the only thing distinguishing it from a login token. Both directions are checked: a login token fails `verify_email_token`'s `type` check, and since 2026-09-30 (AU-14) `_authenticate_user` accepts only `type == "access"`, so a verification token no longer signs anyone in.
 
 Also note the `/verify-email` frontend route does not exist in [router/index.tsx](../../frontend/src/router/index.tsx) — the verification email links to a page that falls through to the `*` catch-all and redirects to `/dashboard`.
 
@@ -239,21 +239,25 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 ```
 
-Every login-style call site passes exactly the same dict:
+Every login-style call site (register, login, `/token`, refresh, OAuth) goes through one
+helper, which stamps the token's `type` (AU-14, 2026-09-30):
 
 ```python
-# backend/src/auth/router.py — identical at lines 18, 41, 66, 89, 162
-create_access_token(data={"sub": user.email, "company_id": str(user.company_id)})
+# backend/src/auth/service.py
+def issue_access_token(user: User) -> str:
+    return create_access_token(
+        data={"sub": user.email, "company_id": str(user.company_id), "type": ACCESS_TOKEN_TYPE}
+    )
 ```
 
 ### 4.2 The complete claim set
 
 | Claim | Type | Source | Notes |
 |---|---|---|---|
-| `sub` | string | `user.email` | The **only** claim the validator reads. Not the user UUID — the email. |
+| `sub` | string | `user.email` | Identifies the user. Not the user UUID — the email. |
 | `company_id` | string | `str(user.company_id)` | **Ignored** by `get_current_user`, which loads the user's current company. (It was read by the deleted `CompanySuspensionMiddleware`.) |
 | `exp` | int | `utcnow() + ACCESS_TOKEN_EXPIRE_MINUTES` | Added by `create_access_token`. Verified by `jose`. |
-| `type` | string | *only* on email-verification tokens | Set by the verification-email path; checked at [service.py:286](../../backend/src/auth/service.py:286). |
+| `type` | string | `"access"` on login tokens, `"email_verification"` on verification tokens | `_authenticate_user` accepts only `"access"`; `verify_email_token` accepts only `"email_verification"` (AU-14). Before 2026-09-30 login tokens carried no `type` and the validator did not read it, so a verification token signed in. |
 
 There is **no** `iat`, `nbf`, `iss`, `aud`, `jti`, `role`, or `user_id` claim. That has two consequences worth internalising:
 
@@ -278,17 +282,26 @@ logging only; it was merged into the API on 2026-09-30 and that setting is gone.
 ```python
 # backend/src/auth/dependencies.py
 payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-email: str = payload.get("sub")
-if email is None:
-    raise credentials_exception
-token_data = TokenData(email=email)
+email = payload.get("sub")
+if email is None or payload.get("type") != ACCESS_TOKEN_TYPE:
+    raise credentials_exception                      # 401
 ...
 result = await db.execute(
     select(User).options(selectinload(User.company)).filter(User.email == token_data.email)
 )
+if not user.is_active:
+    raise HTTPException(401, "This account has been deactivated")
+if user.company and user.company.status == "suspended":
+    raise HTTPException(403, "Company account is suspended. ...")
 ```
 
-`jose.jwt.decode` verifies the signature and `exp` automatically. Everything else — the user still existing, the company not being suspended — is a fresh DB read on **every single request**, with the company eager-loaded via `selectinload` so the suspension check does not fire a second query.
+`jose.jwt.decode` verifies the signature and `exp` automatically. The token must be a
+login token (AU-14). Everything else — the user still existing and still active (AU-04),
+the company not being suspended — is a fresh DB read on **every single request**, with the
+company eager-loaded via `selectinload` so the suspension check does not fire a second
+query. A deactivated user's request is a 401, so the frontend tries a refresh, which is
+refused too, and lands on the login page; logging in with the right password then answers
+403 *This account has been deactivated* (a wrong password stays a plain 401).
 
 ---
 
@@ -687,7 +700,7 @@ Being blunt about the weak spots:
 
 4. ~~**`update_user` lets any admin change any role in their company.**~~ **Fixed 2026-09-30 (AU-01).** The handler applied every field of `UserUpdate` once the caller was an admin of the same company — *or the row's owner* — and `role` was an unchecked string, so any user could PATCH `{"role": "app_admin"}` onto their own row. `PATCH /users/{id}` now goes through `service.update_user_as_admin`: anyone may change their own `full_name`; everything else needs a user admin of the target's company (partner admins: their own company and its tenants), the target's current role and any new role must both be ones the caller could assign (`roles.assignable_roles`, the same table `create_user_as_admin` uses), and nobody changes their own role or active status. `role` is typed `Role`, so an unknown string is a 422.
 
-5. **`is_active` is never checked.** `authenticate_user` and `_authenticate_user` both ignore it. Deactivating a user in the UI does not lock them out.
+5. ~~**`is_active` is never checked.**~~ **Fixed 2026-09-30 (AU-04).** `_authenticate_user` refuses a deactivated user's token (401), `authenticate_user` refuses the right password (403), and the refresh path and OAuth login refuse them too. Deactivating a user now locks them out on their next request.
 
 6. **`is_verified` is never checked either.** Self-registered users get `is_verified = False` and a token in the same response. Nothing gates on verification.
 
@@ -1414,7 +1427,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | 9 | Password reset is frontend-only; the two endpoints do not exist. | [PasswordReset.tsx:23](../../frontend/src/pages/auth/PasswordReset.tsx:23) vs. empty backend grep |
 | 10 | No password policy server-side. `password: str`, no length or complexity rule. | [schemas.py:5](../../backend/src/auth/schemas.py:5) |
 | 11 | No rate limiting on `/auth/login` beyond the API-wide `200/minute` per client IP — nothing per account. | [rate_limit.py](../../backend/src/common/rate_limit.py) |
-| 12 | `is_active` and `is_verified` are never enforced at login. | [dependencies.py:16](../../backend/src/auth/dependencies.py:16) |
+| 12 | `is_verified` is never enforced at login. (`is_active` is, since AU-04.) | [dependencies.py:16](../../backend/src/auth/dependencies.py:16) |
 | 13 | OAuth `state` is the provider name, not a CSRF nonce; account linking is by unverified email. | [oauth.service.ts:17](../../frontend/src/services/oauth.service.ts:17), [service.py:221](../../backend/src/auth/service.py:221) |
 
 ### Medium
@@ -1426,7 +1439,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | 16 | `ENCRYPTION_MASTER_KEY` has a hard-coded 37-char default that is silently truncated to 32 bytes. | [config.py:9](../../backend/src/common/config.py:9), [security.py:40-44](../../backend/src/common/security.py:40) |
 | 17 | ~~`CompanySuspensionMiddleware` swallows all exceptions — fails open on a DB error.~~ Gone 2026-09-30: the middleware is deleted (SA-18); the dependency's check fails closed. | [dependencies.py](../../backend/src/auth/dependencies.py) |
 | 18 | SSE stream takes the JWT as a **query parameter**, so it lands in access logs and browser history. | [ai/router.py:328](../../backend/src/ai/router.py:328), [dependencies.py:72](../../backend/src/auth/dependencies.py:72) |
-| 19 | `print()` debug statements in the auth path leak user emails to stdout. | [dependencies.py:18](../../backend/src/auth/dependencies.py:18), `:34`, `:44`, `:48` |
+| 19 | ~~`print()` debug statements in the auth path leak user emails to stdout.~~ Gone 2026-09-30: `_authenticate_user` logs at `debug`, without the email. | [dependencies.py](../../backend/src/auth/dependencies.py) |
 | 20 | ~~Gateway `JWT_SECRET` ≠ backend `SECRET_KEY`, so gateway JWT decode always fails silently.~~ Gone 2026-09-30 with the gateway and its `JWT_SECRET`. | — |
 | 21 | Tokens in `localStorage` — XSS-exposed. The `HttpOnly` refresh cookie already exists but is unused. | [api.client.ts:19](../../frontend/src/services/api.client.ts:19) |
 | 22 | Concurrent 401s each trigger their own refresh; rotation makes all but the first fail and force a logout. | [api.client.ts:35](../../frontend/src/services/api.client.ts:35) |

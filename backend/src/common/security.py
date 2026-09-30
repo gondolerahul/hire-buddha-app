@@ -9,6 +9,11 @@ from src.common.config import settings
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
+# The ``type`` claim separates a login token from other tokens signed with the
+# same key. Only ACCESS_TOKEN_TYPE authenticates API requests (AU-14).
+ACCESS_TOKEN_TYPE = "access"
+EMAIL_VERIFICATION_TOKEN_TYPE = "email_verification"
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 

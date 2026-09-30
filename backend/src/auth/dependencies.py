@@ -10,47 +10,56 @@ from src.auth.models import User
 from src.auth.schemas import TokenData
 
 from typing import Optional
+import logging
+
+from src.common.security import ACCESS_TOKEN_TYPE
+
+logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 async def _authenticate_user(token: Optional[str], db: AsyncSession):
-    if token is None:
-        print("Auth Debug: Token is None - Authorization header missing or invalid")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    """The user a login access token belongs to, or 401/403.
 
+    The token must be a login token (``type == "access"``, AU-14) — not, say, an
+    email-verification token signed with the same key — and its user must exist
+    and be active (AU-04). A suspended company is a 403.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if token is None:
+        raise credentials_exception
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            print("Auth Debug: Token payload missing 'sub'")
-            raise credentials_exception
-        token_data = TokenData(email=email)
     except JWTError as e:
-        print(f"Auth Debug: JWT Error: {e}")
+        logger.debug("auth: JWT rejected: %s", e)
         raise credentials_exception
-    
+    email = payload.get("sub")
+    if email is None or payload.get("type") != ACCESS_TOKEN_TYPE:
+        logger.debug("auth: token has no subject or is not a login token (type=%r)", payload.get("type"))
+        raise credentials_exception
+    token_data = TokenData(email=email)
+
     result = await db.execute(select(User).options(selectinload(User.company)).filter(User.email == token_data.email))
     user = result.scalars().first()
     if user is None:
-        print(f"Auth Debug: User not found for email {token_data.email}")
         raise credentials_exception
-        
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account has been deactivated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     if user.company and user.company.status == "suspended":
-        print(f"Auth Debug: Company suspended for user {user.email}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Company account is suspended. Please contact support."
         )
-        
+
     return user
 
 async def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
