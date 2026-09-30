@@ -14,7 +14,7 @@ interface Document {
     entity_name: string | null;
     filename: string;
     file_type: string;
-    file_size?: string;
+    file_size?: number;
     upload_status: 'processing' | 'completed' | 'partial' | 'failed';
     created_at: string;
     updated_at: string;
@@ -206,9 +206,8 @@ export const KnowledgeBase: React.FC = () => {
         }
     };
 
-    const formatFileSize = (sizeStr?: string) => {
-        if (!sizeStr) return 'Unknown';
-        const bytes = parseInt(sizeStr);
+    const formatFileSize = (bytes?: number) => {
+        if (bytes == null) return 'Unknown';
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';

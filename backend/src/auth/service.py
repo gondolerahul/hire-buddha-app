@@ -177,7 +177,7 @@ async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
         )
         global_config = config_result.scalar_one_or_none()
         if global_config and global_config.default_daily_credits:
-            new_company.default_daily_credits = str(global_config.default_daily_credits)
+            new_company.default_daily_credits = global_config.default_daily_credits
             logger.info(f"Using BillingConfig default_daily_credits: {global_config.default_daily_credits}")
     except Exception as e:
         logger.warning(f"Could not read BillingConfig for default credits: {e}")
@@ -415,7 +415,7 @@ async def get_or_create_oauth_user(db: AsyncSession, email: str, full_name: str)
         )
         global_config = config_result.scalar_one_or_none()
         if global_config and global_config.default_daily_credits:
-            new_company.default_daily_credits = str(global_config.default_daily_credits)
+            new_company.default_daily_credits = global_config.default_daily_credits
     except Exception:
         pass  # Fall back to model default
 

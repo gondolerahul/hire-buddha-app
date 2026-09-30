@@ -180,7 +180,7 @@ Defined at [auth/models.py:10](../../backend/src/auth/models.py:10).
 | `status` | String | yes | `active` | `active` or `suspended`. Login is rejected for suspended companies ([dependencies.py](../../backend/src/auth/dependencies.py)) |
 | `onboarding_status` | String | yes | `pending` | `pending` / `in_progress` / `completed` |
 | `onboarding_metadata` | JSONB | yes | — | Which onboarding steps were completed and their config |
-| `default_daily_credits` | String | yes | — | Per-tenant override of the daily credit grant. Stored as **text**, not numeric |
+| `default_daily_credits` | Numeric(10,4) | yes | — | Per-tenant override of the daily credit grant. Text until DM-11 (2026-10-01) |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 
 Relationships: self-referencing `parent`/`children`; one-to-many `users`. Almost every
@@ -689,7 +689,7 @@ Defined at [orm/document.py](../../backend/src/ai/orm/document.py).
 | `entity_id` | UUID FK→hierarchical_entities.id | yes | — | Owning agent; nulled out when the entity is soft-deleted |
 | `filename` | String | no | — | |
 | `file_type` | String | no | — | `pdf`, `docx`, `txt` |
-| `file_size` | **String** | yes | — | Text, not integer |
+| `file_size` | BigInteger | yes | — | Bytes. Text until DM-11 (2026-10-01) |
 | `upload_status` | String | yes | `processing` | `processing` / `completed` / `partial` / `failed` — from how many of the document's chunk nodes were embedded |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 
@@ -2091,8 +2091,6 @@ flowchart LR
 - **Three columns are literally named `metadata`** (`campaigns`, `campaign_calls`,
   `cortex_edges`) and are mapped to differently-named Python attributes. Writing
   `campaign.metadata` gets you SQLAlchemy's table metadata object, not your JSON.
-- **Several numeric-looking values are stored as text**: `documents.file_size`
-  (`String`), `companies.default_daily_credits` (`String`).
 - **All `DateTime` columns are naive.** There is no `timezone=True` anywhere. UTC is a
   convention enforced only by `datetime.utcnow` defaults.
 - **Only `hierarchical_entities` is soft-deleted.** Deletion sets `status='DELETED'` and

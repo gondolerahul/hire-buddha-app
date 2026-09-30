@@ -51,7 +51,7 @@ class KnowledgeBaseService:
             await self._require_entity(entity_id)
         document = Document(
             company_id=self.company_id, entity_id=entity_id, filename=filename,
-            file_type=file_type, file_size=str(len(file_content)), upload_status="processing",
+            file_type=file_type, file_size=len(file_content), upload_status="processing",
         )
         self.db.add(document)
         await self.db.commit()
@@ -129,7 +129,7 @@ class KnowledgeBaseService:
         await self._trees().delete_document(document.id)
         document.filename = filename
         document.file_type = file_type
-        document.file_size = str(len(file_content))
+        document.file_size = len(file_content)
         document.upload_status = "processing"
         await self.db.commit()
         await self.db.refresh(document)

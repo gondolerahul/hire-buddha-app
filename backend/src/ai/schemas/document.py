@@ -34,7 +34,7 @@ class DocumentResponse(BaseModel):
     entity_id: Optional[UUID]
     filename: str
     file_type: str
-    file_size: Optional[str]
+    file_size: Optional[int]
     upload_status: str
     created_at: datetime
     updated_at: datetime

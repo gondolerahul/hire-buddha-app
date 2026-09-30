@@ -56,7 +56,7 @@ async def _ingested(db, company_id, filename="policy.md", entity_id=None, body=D
     from src.ai.services.knowledge_base import KnowledgeBaseService
 
     doc = Document(company_id=company_id, entity_id=entity_id, filename=filename,
-                   file_type="md", file_size=str(len(body)), upload_status="completed")
+                   file_type="md", file_size=len(body), upload_status="completed")
     db.add(doc)
     await db.flush()
     svc = KnowledgeBaseService(db, company_id, embedding=_Embedder())
