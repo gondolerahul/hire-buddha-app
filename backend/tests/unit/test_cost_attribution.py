@@ -100,15 +100,16 @@ async def test_zero_amount_short_circuits() -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_sku_id_skips_insert() -> None:
+async def test_missing_sku_id_still_writes_the_row() -> None:
+    """BC-07: a charge with no registry SKU is a usage_logs row with no SKU."""
     db = _db_stub()
     row = await CostLedger(db).add(
         run_id=uuid4(), company_id=uuid4(),
         amount=Decimal("0.05"), attribution="critic_super",
         sku_id=None,
     )
-    assert row is None
-    db.add.assert_not_called()
+    assert row is not None and row.sku_id is None
+    db.add.assert_called_once_with(row)
 
 
 # ---------------------------------------------------------------------------

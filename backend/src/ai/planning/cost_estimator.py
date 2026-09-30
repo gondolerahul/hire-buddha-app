@@ -13,9 +13,13 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, cast
 
+from src.ai.governance.tool_cost_resolver import TOOL_FIXED_COST
+
 
 # ---------------------------------------------------------------------------
 # Baseline tables — keep alphabetised; missing entries fall back to default.
+# Tools with a fixed price are not here: their estimate is the price charged,
+# ``tool_cost_resolver.TOOL_FIXED_COST``.
 # ---------------------------------------------------------------------------
 
 
@@ -30,12 +34,10 @@ TOOL_BASELINE_COST: dict[str, Decimal] = {
     "excel":            Decimal("0.005"),
     "file_writer":      Decimal("0.001"),
     "headless_browser": Decimal("0.05"),
-    "image_generation": Decimal("0.04"),
     "pdf_generator":    Decimal("0.01"),
     "pptx_tool":        Decimal("0.01"),
     "sandbox_executor": Decimal("0.02"),
     "scraper_tool":     Decimal("0.02"),
-    "video_generate":   Decimal("0.10"),
     "video_edit":       Decimal("0.01"),
     "video_add_sound":  Decimal("0.01"),
     "web_search":       Decimal("0.005"),
@@ -110,7 +112,9 @@ def estimate_step_cost(step: Any, entity: Any = None) -> Decimal:
     target = s.get("target") or {}
     if stype == "TOOL_CALL":
         tool_id = str(target.get("tool_id") or s.get("tool_id") or "")
-        return TOOL_BASELINE_COST.get(tool_id, _DEFAULT_TOOL_COST)
+        # A fixed-cost tool costs exactly what the resolver charges (BC-11);
+        # the rest are estimated from telemetry.
+        return TOOL_FIXED_COST.get(tool_id) or TOOL_BASELINE_COST.get(tool_id, _DEFAULT_TOOL_COST)
     if stype == "CHILD_ENTITY_INVOCATION":
         return _CHILD_INVOCATION_COST
     if stype in ("THOUGHT", "ACTION", "RECURSE"):

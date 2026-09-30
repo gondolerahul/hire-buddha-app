@@ -1011,7 +1011,6 @@ marquee/most-dangerous capability"*:
 
 | Flag | Default | Controls |
 |---|---|---|
-| `tools.cost_resolver_v2_enabled` | `True` | The consolidated `ToolCostResolver` |
 | `tools.resilience_v2_enabled` | `True` | v2 retry / circuit-breaker policies |
 | `tools.cost_attribution_required` | `True` | Every cost surface must write an attributed `usage_logs` row |
 

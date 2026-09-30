@@ -234,15 +234,6 @@ class ImageGenerationTool(Tool):
 
             logger.info(f"[ImageGen] Generating with model={model_name}, company={company_id}, prompt='{prompt[:80]}...'")
 
-            # Per-image cost for billing (Imagen 4 standard pricing)
-            # imagen-4.0-generate-001 = $0.04/image, fast = $0.02, ultra = $0.06
-            image_cost_map = {
-                "imagen-4.0-generate-001": 0.04,
-                "imagen-4-fast": 0.02,
-                "imagen-4-ultra": 0.06,
-            }
-            image_cost = image_cost_map.get(model_name, 0.04)
-
             # ── Imagen models use generate_image API ──────────────────────────
             if "imagen" in model_name.lower():
                 imagen_config = types.GenerateImagesConfig(
@@ -369,36 +360,9 @@ class ImageGenerationTool(Tool):
                     logger.warning(f"[ImageGen] Artifact DB registration failed (non-fatal): {_reg_err}")
             # ────────────────────────────────────────────────────────────────────────────
 
-            # ── Record billing event for image generation ─────────────────────────
-            if company_id:
-                try:
-                    from decimal import Decimal as _Decimal
-                    from uuid import UUID as _UUID
-                    from src.common.database import AsyncSessionLocal
-                    from src.billing.billing_service import BillingService
-                    from src.billing.credit_service import CreditService
-
-                    async with AsyncSessionLocal() as _db:
-                        _num_images = len(result["images"])
-                        _total_cost = _Decimal(str(image_cost)) * _num_images
-
-                        billing_svc = BillingService(_db)
-                        await billing_svc.record_billing_event(
-                            company_id=_UUID(str(company_id)),
-                            base_cost=_total_cost,
-                            grouping_type="tool",
-                            grouping_value="image_generation",
-                            image_gen_count=_num_images,
-                            other_ai_cost=_total_cost,
-                        )
-                        credit_svc = CreditService(_db)
-                        try:
-                            await credit_svc.consume(_UUID(str(company_id)), _total_cost)
-                        except Exception:
-                            pass  # Don't block the result if credit deduction fails
-                except Exception as _billing_err:
-                    logger.warning(f"[ImageGen] Billing event failed (non-fatal): {_billing_err}")
-            # ─────────────────────────────────────────────────────────────────────
+            # No billing here: the step executor charges every tool call once,
+            # through ToolCostResolver, and settlement bills the run (BC-08 —
+            # this block used to charge the wallet a second time).
 
             return json.dumps(result)
 

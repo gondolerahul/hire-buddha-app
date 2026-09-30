@@ -27,7 +27,8 @@ class UsageLog(Base):
     timestamp: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True, index=True)  # DM-06
-    sku_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("integration_registry.id"), nullable=False)
+    # NULL for a charge with no registry row — a fixed-cost tool (BC-07).
+    sku_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("integration_registry.id"), nullable=True)
     raw_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
     calculated_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
     log_metadata: Mapped[Any] = mapped_column(JSON, nullable=True)
@@ -36,7 +37,7 @@ class UsageLog(Base):
 
     company: Mapped["Company"] = relationship("Company")
     run: Mapped["ExecutionRun | None"] = relationship("ExecutionRun", back_populates="usage_logs")
-    sku: Mapped["IntegrationRegistry"] = relationship("IntegrationRegistry")
+    sku: Mapped["IntegrationRegistry | None"] = relationship("IntegrationRegistry")
 
     __table_args__ = (
         Index("ix_usage_logs_attribution", "attribution"),

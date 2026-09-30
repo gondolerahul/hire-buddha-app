@@ -40,11 +40,11 @@
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
 | [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 8 | **Before the first paying tenant** |
-| [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 7 | Before any margin analysis |
+| [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 8 | Before any margin analysis |
 | [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | Before relying on the control |
 | [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 8 | Now — mostly cheap |
 
-**Total: 28 defects, 10 improvements.**
+**Total: 29 defects, 10 improvements.**
 
 The three to read first:
 
@@ -423,7 +423,13 @@ old code: 422.
 
 ### BC-07 — Fixed-cost tool charges write no `usage_logs` row
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: fixed (2026-09-30)** — `usage_logs.sku_id` is nullable
+(migration `bc07_usage_log_sku_nullable`); the row is written without a SKU, with the tool's
+name in `log_metadata`, and the usage-breakdown report outer-joins the registry to show it.
+**Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
+`StepExecutorService._charge_tool` on the real Postgres, and
+`tests/unit/test_tool_cost_resolver.py` / `test_cost_attribution.py`. `test_a_fixed_cost_tool_is_charged_once_with_a_line_item`,
+`test_a_fixed_cost_charge_appears_in_the_usage_breakdown`.
 
 `image_generation` ($0.04) and `video_generate` ($0.05) bump `run.total_cost_usd` directly
 but write **no** `usage_logs` row, because `sku_id` is `NOT NULL` and there is no SKU.
@@ -436,7 +442,12 @@ wallet. The money is charged and the line item does not exist, which makes
 
 ### BC-08 — Image generation is charged twice
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — confirmed in the code: the tool
+recorded a billing event and called `CreditService.consume` at raw cost, on top of the
+executor's charge and the run's settlement at TB. The tool's billing block (and its own price
+map) is deleted; the executor charges it once. **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
+`StepExecutorService._charge_tool` on the real Postgres, and
+`tests/unit/test_tool_cost_resolver.py` / `test_cost_attribution.py`. `test_the_image_tool_no_longer_bills_the_wallet_itself`.
 
 `image_generation` self-bills $0.04 inside the tool via `BillingService`, **and** is
 charged again by the executor's fixed-cost branch at TB.
@@ -448,7 +459,11 @@ A guaranteed double charge on that branch. Recorded in the tool layer as part of
 
 ### BC-09 — `attribution="actor_step"` is never written
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `StepExecutorService._log_usage`
+passed no attribution, so `UsageService` recorded `tool`. It now tags a step's LLM call
+`actor_step` and a tool-input reformat call `reformat_retry`. **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
+`StepExecutorService._charge_tool` on the real Postgres, and
+`tests/unit/test_tool_cost_resolver.py` / `test_cost_attribution.py`. `test_a_steps_llm_spend_is_attributed_to_the_step`.
 
 Step LLM spend — usually the majority of a run's cost — lands under `tool` instead of
 `actor_step`.
@@ -461,7 +476,13 @@ vs-tool cost is wrong.
 
 ### BC-10 — The tool cost path ignores `cost_unit` and has no APP fallback
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `ToolCostResolver` falls back to the
+platform (APP) company's row when the tenant has none, and divides a registry price by its
+`cost_unit` (`usage_service.unit_divisor`, now shared with the LLM path). **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
+`StepExecutorService._charge_tool` on the real Postgres, and
+`tests/unit/test_tool_cost_resolver.py` / `test_cost_attribution.py`.
+`test_a_tenant_without_its_own_row_pays_the_platform_price`,
+`test_a_per_thousand_price_is_charged_per_call`.
 
 Two separate gaps in one path:
 
@@ -475,7 +496,15 @@ written.
 
 ### BC-11 — Four price tables, and the intended source of truth is unused
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `ToolCostResolver` is the one price
+lookup: both tool paths in `step_executor` call `_charge_tool`, which calls it and adds the
+amount atomically; the two inline tables are deleted, and so is the image tool's own price
+map. `cost_estimator` keeps its telemetry-refreshed *estimates* but takes fixed-cost tools'
+prices from `TOOL_FIXED_COST`, so an estimate cannot disagree with the charge (it said $0.10
+for `video_generate`, which charged $0.05). Found on the way:
+[BC-29](#bc-29--any-custom-api-registry-row-prices-every-tool). **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
+`StepExecutorService._charge_tool` on the real Postgres, and
+`tests/unit/test_tool_cost_resolver.py` / `test_cost_attribution.py`.
 
 `ToolCostResolver` was built as the single cached source of truth. It has **zero production
 callers**. The live logic is two hand-copied blocks of `_TOOL_SKU_MAP` / `_TOOL_FIXED_COST`
@@ -490,6 +519,21 @@ mis-charge.
 - [`ai/governance/tool_cost_resolver.py`](../../../backend/src/ai/governance/tool_cost_resolver.py) — unused
 - [`ai/step_executor.py:452`](../../../backend/src/ai/step_executor.py:452) and [`:923`](../../../backend/src/ai/step_executor.py:923) — the two inline copies
 - [`ai/planning/cost_estimator.py`](../../../backend/src/ai/planning/cost_estimator.py) — the fourth table
+
+---
+
+### BC-29 — Any custom-API registry row prices every tool
+
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — found while fixing BC-11.
+
+Both inline tool-cost lookups (and the unused resolver) matched a registry row with
+`service_sku = tool_id OR service_category = 'CUSTOM_API' OR …` and `LIMIT 1`. A company with
+one custom-API row — say a CRM integration at $0.75 per call — was charged $0.75 for every
+`calculator`, `web_search` or other tool call that had no row of its own.
+
+**Fix (2026-09-30):** the lookup matches only the tool's own SKUs (`tool_id` and
+`TOOL_SKU_MAP[tool_id]`). **Evidence:** `test_a_custom_api_row_does_not_price_other_tools`
+(a $0.75 `CUSTOM_API` row, then `calculator`: $0), and the unit test on the lookup's SQL.
 
 ---
 
@@ -527,7 +571,7 @@ So one pricing override does nothing, and the other silently deletes a real cost
 | **BC-14** | `check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker`, `require_credits` | Defined, unit-tested, **zero callers**. See [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) | ✅ fixed (2026-09-30) with BC-05 — the gate, breaker and `require_credits` are called; `consume_step_cost` is deleted |
 | **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ fixed (2026-09-30) with BC-04 — Arq crons at 00:00 and 01:30 UTC |
 | **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ fixed (2026-09-30) with BC-03 — set when the Razorpay subscription is created; every charge and status change is matched on it |
-| **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ Verified |
+| **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ fixed (2026-09-30) with BC-11 — the flag is deleted; the resolver is used unconditionally |
 | **BC-18** | Abandoned checkouts and orphaned subscriptions | A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | ✅ fixed (2026-09-30) — the daily job marks a top-up order still `pending` after 24 h `expired` and a subscription still `pending_payment` `failed` (cancelling its Razorpay subscription); a payment that arrives later for an expired order is still credited. A failed top-up payment is recorded by the webhook (BC-I5). `test_billing_crons.py` |
 
 ---
@@ -699,6 +743,11 @@ estimate at dispatch, release the difference at settlement. The estimator alread
 This is what makes overdraw structurally impossible rather than caught late.
 
 ### BC-I3 — One cost write path
+
+**Status: done for tools (2026-09-30)** — BC-07…BC-11: every tool charge is one resolver
+lookup and one attributed `usage_logs` row, and the image tool no longer charges on its own.
+LLM calls already wrote attributed rows through `UsageService`. `run.total_cost_usd` is still
+maintained alongside the ledger rather than derived from it.
 
 **Effect: large.** [BC-07](#bc-07--fixed-cost-tool-charges-write-no-usage_logs-row),
 [BC-08](#bc-08--image-generation-is-charged-twice),

@@ -1617,7 +1617,6 @@ through to env + defaults, so deploy order does not matter.
 | `meta_agent.curator_consolidation_enabled` | `False` | Curator consolidation. |
 | `meta_agent.spec_critic_tiebreak` | `False` | Third-model tiebreak for high-stakes disagreements. |
 | `meta_agent.tool_synthesis_enabled` | `False` | Kill switch for LLM-authored tools. Even ON it stays Meta-Agent-only, container-exec-only, DRAFT-register-only. |
-| `tools.cost_resolver_v2_enabled` | `True` | Tool cost resolution. |
 | `tools.resilience_v2_enabled` | `True` | Tool retry/fallback. |
 | `tools.cost_attribution_required` | `True` | Every cost surface must write an attributed `usage_logs` row; enforced by a CI guard. |
 | `planner.v2_enabled` | `True` | Planner v2. |

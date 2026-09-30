@@ -10,22 +10,38 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+async def app_company_id(db: AsyncSession) -> Optional[UUID]:
+    """The platform (APP) company, which owns the cost-bearing SKUs."""
+    from src.auth.models import Company
+    result = await db.execute(select(Company.id).where(Company.type == "APP").limit(1))
+    return result.scalar_one_or_none()
+
+
+def unit_divisor(cost_unit: Optional[str]) -> Decimal:
+    """How many units ``internal_cost`` is quoted for: a price "per 1M tokens"
+    is divided by 1,000,000 to price one token, "per 1000 …" by 1000."""
+    import re
+    unit_lower = (cost_unit or "").lower()
+    if "1m token" in unit_lower or "per_million" in unit_lower or "million" in unit_lower:
+        return Decimal("1000000.0")
+    if re.search(r"(?<!\d)1000(?!\d)|(?<!\d)1k\b|thousand", unit_lower):
+        return Decimal("1000.0")
+    return Decimal("1.0")
+
+
 class UsageService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def _get_app_company_id(self) -> Optional[UUID]:
         """Get the ID of the platform (APP) company.
-        
+
         Cost-bearing services (AI models, telephony, SERP API, etc.) are
         always registered at the platform level under the APP company.
         This helper enables the fallback lookup for cost calculation.
         """
-        from src.auth.models import Company
-        result = await self.db.execute(
-            select(Company.id).where(Company.type == "APP").limit(1)
-        )
-        return result.scalar_one_or_none()
+        return await app_company_id(self.db)
 
     async def log_usage(
         self,
@@ -87,17 +103,9 @@ class UsageService:
         # raw_quantity is float (e.g. number of tokens)
         
         # Support unit-based costing (e.g., 1M Tokens, per_million_tokens)
-        divisor = Decimal("1.0")
-        if registry_entry.cost_unit:
-            unit_lower = registry_entry.cost_unit.lower()
-            if "1m token" in unit_lower or "per_million" in unit_lower or "million" in unit_lower:
-                divisor = Decimal("1000000.0")
-            elif "1k token" in unit_lower:
-                divisor = Decimal("1000.0")
-            elif "1000 char" in unit_lower:
-                divisor = Decimal("1000.0")
-        
-        calculated_cost = (registry_entry.internal_cost * Decimal(str(raw_quantity))) / divisor
+        calculated_cost = (
+            registry_entry.internal_cost * Decimal(str(raw_quantity))
+        ) / unit_divisor(registry_entry.cost_unit)
 
         # Validate attribution against the closed enum; unknown values
         # silently fall back to the column default "tool" rather than

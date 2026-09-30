@@ -336,18 +336,23 @@ class ReportsService:
         from src.config.models import IntegrationRegistry
         since = datetime.utcnow() - timedelta(days=days)
 
+        # Outer join: a fixed-cost tool charge has no SKU (BC-07) and is
+        # reported under the tool's name.
+        service = func.coalesce(IntegrationRegistry.model_name,
+                                UsageLog.log_metadata["tool"].as_string()).label("service")
+        category = func.coalesce(IntegrationRegistry.service_category, "TOOL").label("category")
         q = select(
-            IntegrationRegistry.model_name,
-            IntegrationRegistry.service_category,
+            service,
+            category,
             func.count(UsageLog.id).label("calls"),
             func.sum(UsageLog.raw_quantity).label("total_qty"),
             func.sum(UsageLog.calculated_cost).label("total_cost"),
-        ).join(IntegrationRegistry, UsageLog.sku_id == IntegrationRegistry.id) \
+        ).outerjoin(IntegrationRegistry, UsageLog.sku_id == IntegrationRegistry.id) \
          .where(
             UsageLog.company_id == company_id,
             UsageLog.timestamp >= since,
         ) \
-         .group_by(IntegrationRegistry.model_name, IntegrationRegistry.service_category) \
+         .group_by(service, category) \
          .order_by(desc("total_cost"))
 
         result = await self.db.execute(q)
@@ -355,8 +360,8 @@ class ReportsService:
 
         channels = [
             {
-                "service": r.model_name,
-                "category": r.service_category,
+                "service": r.service,
+                "category": r.category,
                 "calls": r.calls,
                 "total_quantity": float(r.total_qty or 0),
                 "total_cost_usd": round(float(r.total_cost or 0), 6),

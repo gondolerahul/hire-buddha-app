@@ -508,7 +508,10 @@ inside the container; only the connection is missing.
 
 ### TL-19 — Four price tables, one of which is the unused source of truth
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — as BC-07…BC-11 and BC-29 in
+[14 — Billing](14-BILLING-AND-CREDITS-DEFECTS.md#bc-11--four-price-tables-and-the-intended-source-of-truth-is-unused):
+`ToolCostResolver` is the one lookup for both tool paths, with the platform fallback and
+`cost_unit`; the image tool no longer bills itself; the estimator takes fixed prices from it.
 
 `ToolCostResolver` was built as the Track 8 single source of truth. It has **zero
 production call sites** — only its own unit test imports it. The live logic is two

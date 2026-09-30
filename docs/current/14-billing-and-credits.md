@@ -665,25 +665,34 @@ flowchart TD
         A6 --> A7
     end
     subgraph P2["Path 2 - CostLedger"]
-        B1["caller passes an already-computed amount plus sku_id"] --> B2{"sku_id present?"}
-        B2 -->|no| B3["emit agent.cost.charged event only - NO row"]
-        B2 -->|yes| B4["INSERT usage_logs - commit is the caller's job"]
+        B1["caller passes an already-computed amount, sku_id if any"] --> B4["INSERT usage_logs - commit is the caller's job"]
         B4 --> B5["emit agent.cost.charged persisted true"]
     end
 ```
 
-`CostLedger.add` refuses to insert without a `sku_id`, because the column is `NOT NULL`. It emits a telemetry event instead and returns `None` — [cost_attribution.py:101](../../backend/src/ai/services/cost_attribution.py:101):
+`CostLedger.add` writes the row with or without a `sku_id`: `usage_logs.sku_id` is nullable
+since BC-07 (migration `bc07_usage_log_sku_nullable`). A fixed-cost tool charge has no
+registry row, so its row has no SKU and carries the tool's name in `log_metadata.tool`;
+before, the ledger skipped the insert and the charge reached `run.total_cost_usd` with no
+line item. The usage-breakdown report outer-joins the registry and names such rows after the
+tool (category `TOOL`).
 
-```python
-# backend/src/ai/services/cost_attribution.py
-if sku_id is None:
-    logger.info(
-        "CostLedger.add: skipping SQL insert (no sku_id) for "
-        "attribution=%s amount=%s", attribution, amount,
-    )
-    ...
-    return None
-```
+**Tool calls** have one price lookup, `ToolCostResolver` —
+[tool_cost_resolver.py](../../backend/src/ai/governance/tool_cost_resolver.py) — called by
+`StepExecutorService._charge_tool` from both tool paths (a `TOOL_CALL` step and a REACT
+function call): the company's registry row for the tool (`service_sku == tool_id` or one of
+`TOOL_SKU_MAP[tool_id]`), else the platform (APP) company's row, else
+`TOOL_FIXED_COST[tool_id]`, else $0 with a warning. A registry price is divided by its
+`cost_unit` (`usage_service.unit_divisor`, shared with the LLM path), so a
+"per 1000 requests" SKU charges a thousandth per call. `_charge_tool` adds the amount to the
+run atomically (`_bump_run_cost`), which commits the ledger row with it. Before BC-11 the two
+tool paths each carried a hand-copied price table, the resolver had no callers, a tenant
+without its own row paid nothing (BC-10), and an `OR service_category = 'CUSTOM_API'` in the
+lookup let any custom-API row price every tool (BC-29).
+
+A step's own LLM call is tagged `actor_step` and a tool-input reformat call
+`reformat_retry` (BC-09 — both fell back to `tool`, so the dashboard's largest bucket was
+mislabelled).
 
 The shared helper every non-tool LLM call site uses is `log_llm_response_usage` — it swallows all errors so a billing hiccup never breaks the pipeline — [attributed_usage.py:22](../../backend/src/ai/services/attributed_usage.py:22).
 
@@ -773,9 +782,13 @@ The older document lists prices for things that are not actually metered. Concre
 
 The estimator table is genuinely useful, but it belongs to planning, not billing — see [07 — Planning & critics](07-planning-and-critics.md). It is used to answer "will this plan fit in the budget?" before the plan runs.
 
-### 6.2 Image generation is charged twice
+### 6.2 Image generation was charged twice
 
-`image_generation` has two independent charge paths that both fire:
+**Fixed 2026-09-30 (BC-08).** The tool no longer bills anything itself; the step executor
+charges it once through `ToolCostResolver` ($0.04 fixed, or the registry's Imagen SKU), and
+settlement bills the run. What it did before:
+
+`image_generation` had two independent charge paths that both fired:
 
 ```mermaid
 flowchart TD
@@ -1680,11 +1693,11 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 
 **Metering**
 
-- ⚠️ Fixed-cost tool charges (`image_generation` $0.04, `video_generate` $0.05) bump `run.total_cost_usd` but write **no** `usage_logs` row, because `sku_id` is `NOT NULL`. The attribution dashboard and the usage-breakdown report therefore under-report against the wallet.
-- ⚠️ `ToolCostResolver` — the module whose docstring says it "collapses all three into one cached service" — has **no production caller**. `step_executor.py` still carries two verbatim inline copies of `TOOL_SKU_MAP` and `TOOL_FIXED_COST` at [line 452](../../backend/src/ai/step_executor.py:452) and [line 923](../../backend/src/ai/step_executor.py:923). Changing the resolver changes nothing at runtime.
-- ⚠️ The tool cost path **ignores `cost_unit`** and never falls back to the APP company. An unseeded tenant's tools are free.
-- ⚠️ Image generation is charged twice (§6.2): once inside the tool at raw cost, once via the normal run settlement at TB.
-- ⚠️ `attribution="actor_step"` is never written. Step LLM spend — usually the majority — lands under `tool`.
+- ~~⚠️ Fixed-cost tool charges write **no** `usage_logs` row.~~ Fixed 2026-09-30 (BC-07): the row is written with no SKU.
+- ~~⚠️ `ToolCostResolver` has **no production caller**; `step_executor.py` carries two inline price tables.~~ Fixed 2026-09-30 (BC-11): the resolver is the one lookup (§5.2).
+- ~~⚠️ The tool cost path **ignores `cost_unit`** and never falls back to the APP company.~~ Fixed 2026-09-30 (BC-10).
+- ~~⚠️ Image generation is charged twice (§6.2).~~ Fixed 2026-09-30 (BC-08).
+- ~~⚠️ `attribution="actor_step"` is never written.~~ Fixed 2026-09-30 (BC-09).
 - ⚠️ Telephony is ceiling-rounded to whole minutes for the *usage log* but recorded as a fractional minute count in the *billing event*. The two never agree.
 
 **Credits**

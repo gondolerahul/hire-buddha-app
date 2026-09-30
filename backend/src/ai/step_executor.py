@@ -451,70 +451,9 @@ class StepExecutorService:
             )
             self.db.add(log)
 
-            # ── Track tool cost in run.total_cost_usd ────────────────────────────
-            # Look up cost for this tool from integration registry.
-            # Match by: service_sku for the tool directly, or by specific
-            # service_sku values known to correspond to this tool's backend.
-            # Excludes LLM entries to avoid cross-contamination.
-            try:
-                from src.config.models import IntegrationRegistry as _IR
-                from sqlalchemy import select as _sel, or_ as _or
-                from decimal import Decimal as _Dec
-                # Map built-in tool IDs → known integration registry service_skus
-                _TOOL_SKU_MAP = {
-                    "web_search": ["serp-api-key"],
-                    "batch_web_search": ["serp-api-key"],
-                    "scraper_tool": ["firecrawl-api", "firecrawl"],
-                    "headless_browser": ["headless-browser"],
-                    "pdf_generator": ["pdf-generator"],
-                    "image_generation": ["imagen-4.0-generate-001"],
-                }
-                # Fixed per-call costs for tools that bill independently
-                # (used as fallback when IntegrationRegistry has no entry)
-                _TOOL_FIXED_COST = {
-                    "image_generation": _Dec("0.04"),   # Imagen 4 standard
-                    "video_generate": _Dec("0.05"),     # Veo per-call (split tool)
-                }
-                _sku_matches = _TOOL_SKU_MAP.get(tool_id, [])
-                _or_clauses = [
-                    _IR.service_sku == tool_id,
-                    _IR.service_category == "CUSTOM_API",
-                ]
-                for _sku in _sku_matches:
-                    _or_clauses.append(_IR.service_sku == _sku)
-                _ir_result = await self.db.execute(
-                    _sel(_IR).where(
-                        _IR.company_id == run.company_id,
-                        _or(*_or_clauses),
-                        _IR.status == "active",
-                        _IR.internal_cost.isnot(None),
-                        _IR.service_category != "LLM",  # Exclude LLM entries
-                    ).limit(1)
-                )
-                _ir_entry = _ir_result.scalar_one_or_none()
-                if _ir_entry and _ir_entry.internal_cost:
-                    _tool_cost = _Dec(str(_ir_entry.internal_cost))
-                    await self._bump_run_cost(run, _tool_cost, 0)
-                    logger.info(f"Tool cost for '{tool_id}': ${_tool_cost} (via {_ir_entry.provider_name}/{_ir_entry.service_sku})")
-                    # Log to usage_logs as well
-                    from src.ai.models import UsageLog as _UL
-                    self.db.add(_UL(
-                        company_id=run.company_id,
-                        run_id=run.id,
-                        sku_id=_ir_entry.id,
-                        raw_quantity=_Dec("1"),
-                        calculated_cost=_tool_cost,
-                        log_metadata={"tool": tool_id, "latency_ms": latency},
-                    ))
-                elif tool_id in _TOOL_FIXED_COST:
-                    _tool_cost = _TOOL_FIXED_COST[tool_id]
-                    await self._bump_run_cost(run, _tool_cost, 0)
-                    logger.info(f"Tool cost for '{tool_id}': ${_tool_cost} (fixed fallback)")
-                else:
-                    logger.warning(f"No cost entry found for tool '{tool_id}' — cost not tracked")
-            except Exception as _ce:
-                logger.warning(f"Could not log tool cost for '{tool_id}': {_ce}")
-            # ─────────────────────────────────────────────────────────────────────
+            # One price lookup for every tool call (BC-11); the charge and its
+            # usage_logs row are committed together below.
+            await self._charge_tool(run, tool_id, latency)
 
             await self.db.commit()
             
@@ -535,6 +474,21 @@ class StepExecutorService:
             return {"step": step.name, "output": tool_result.output}
         except Exception as e:
             return {"step": step.name, "error": str(e), "success": False}
+
+    async def _charge_tool(self, run: 'ExecutionRun', tool_id: str, latency_ms: int = 0) -> Decimal:
+        """Price one tool call through ToolCostResolver — the one price table
+        (BC-11) — write its usage_logs row, and add it to the run atomically."""
+        from src.ai.governance.tool_cost_resolver import ToolCostResolver
+        try:
+            charge = await ToolCostResolver(self.db, run.company_id).charge(
+                run=run, tool_id=tool_id, latency_ms=latency_ms)
+            if charge.amount > 0:
+                await self._bump_run_cost(run, charge.amount, 0)  # commits the ledger row too
+                logger.info(f"Tool cost for '{tool_id}': ${charge.amount} ({charge.source})")
+            return charge.amount
+        except Exception as e:
+            logger.warning(f"Could not charge tool '{tool_id}': {e}")
+            return Decimal("0")
 
     def _is_format_error(self, output_lower: str, keywords: set) -> bool:
         """Check if a tool output indicates a formatting/parsing error (not infra)."""
@@ -618,7 +572,8 @@ class StepExecutorService:
                 step_name=(step_description[:100] if step_description else "__reformat__"),
             )
             self.db.add(reformat_log)
-            await self._log_usage(run, resp.model_name, resp.prompt_tokens, resp.completion_tokens, reformat_log)
+            await self._log_usage(run, resp.model_name, resp.prompt_tokens, resp.completion_tokens, reformat_log,
+                                  attribution="reformat_retry")
 
             reformatted = resp.output.strip()
 
@@ -924,51 +879,7 @@ class StepExecutorService:
                     all_tool_results.append(_tr.to_dict())
                     results.append({"tool": _tr.tool, "output": _tr.output, "success": _tr.success})
 
-                    # ── Track tool cost in run.total_cost_usd (AFC path) ──
-                    try:
-                        from src.config.models import IntegrationRegistry as _IR
-                        from sqlalchemy import select as _sel, or_ as _or
-                        from decimal import Decimal as _Dec
-                        _TOOL_SKU_MAP = {
-                            "web_search": ["serp-api-key"],
-                            "batch_web_search": ["serp-api-key"],
-                            "scraper_tool": ["firecrawl-api", "firecrawl"],
-                            "headless_browser": ["headless-browser"],
-                            "pdf_generator": ["pdf-generator"],
-                            "image_generation": ["imagen-4.0-generate-001"],
-                        }
-                        _TOOL_FIXED_COST = {
-                            "image_generation": _Dec("0.04"),
-                            "video_generate": _Dec("0.05"),
-                        }
-                        _afc_sku_matches = _TOOL_SKU_MAP.get(_tr.tool, [])
-                        _afc_or = [
-                            _IR.service_sku == _tr.tool,
-                            _IR.service_category == "CUSTOM_API",
-                        ]
-                        for _s in _afc_sku_matches:
-                            _afc_or.append(_IR.service_sku == _s)
-                        _afc_ir = await self.db.execute(
-                            _sel(_IR).where(
-                                _IR.company_id == run.company_id,
-                                _or(*_afc_or),
-                                _IR.status == "active",
-                                _IR.internal_cost.isnot(None),
-                                _IR.service_category != "LLM",
-                            ).limit(1)
-                        )
-                        _afc_entry = _afc_ir.scalar_one_or_none()
-                        if _afc_entry and _afc_entry.internal_cost:
-                            _tc = _Dec(str(_afc_entry.internal_cost))
-                            await self._bump_run_cost(run, _tc, 0)
-                            logger.info(f"Tool cost for '{_tr.tool}': ${_tc} (via {_afc_entry.provider_name}/{_afc_entry.service_sku})")
-                        elif _tr.tool in _TOOL_FIXED_COST:
-                            _tc = _TOOL_FIXED_COST[_tr.tool]
-                            await self._bump_run_cost(run, _tc, 0)
-                            logger.info(f"Tool cost for '{_tr.tool}': ${_tc} (fixed fallback)")
-                    except Exception as _tc_err:
-                        logger.debug(f"AFC tool cost tracking skipped for '{_tr.tool}': {_tc_err}")
-                    # ──────────────────────────────────────────────────────
+                    await self._charge_tool(run, _tr.tool, _tr.latency_ms or 0)
 
                     # CORTEX: ingest scraper/browser results as knowledge nodes
                     if _tr.tool in ("scraper_tool", "headless_browser") and _tr.success:
@@ -1108,8 +1019,12 @@ Step 2: [your analysis]
 
         return output, response
 
-    async def _log_usage(self, run, model_name: str, prompt_tokens: int, completion_tokens: int, log):
-        """Helper to log LLM usage stats using model_name from LLMResponse."""
+    async def _log_usage(self, run, model_name: str, prompt_tokens: int, completion_tokens: int, log,
+                         attribution: str = "actor_step"):
+        """Helper to log LLM usage stats using model_name from LLMResponse.
+
+        ``attribution`` tags the usage_logs rows: a step's own LLM call is
+        ``actor_step`` (BC-09 — it used to fall back to ``tool``)."""
         input_sku = f"{model_name}-in" if model_name else "unknown-in"
         output_sku = f"{model_name}-out" if model_name else "unknown-out"
 
@@ -1119,14 +1034,16 @@ Step 2: [your analysis]
             company_id=run.company_id,
             service_sku=input_sku,
             raw_quantity=float(prompt_tokens),
-            execution_id=run.id
+            execution_id=run.id,
+            attribution=attribution,
         )
 
         output_usage = await self.usage_service.log_usage(
             company_id=run.company_id,
             service_sku=output_sku,
             raw_quantity=float(completion_tokens),
-            execution_id=run.id
+            execution_id=run.id,
+            attribution=attribution,
         )
 
         # Ensure null-safe accumulation

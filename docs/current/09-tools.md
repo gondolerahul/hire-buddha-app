@@ -1774,7 +1774,7 @@ The live cost logic is two hand-copied blocks in `step_executor.py`:
 |---|---|---|
 | Direct `TOOL_CALL` step | [step_executor.py:446–504](../../backend/src/ai/step_executor.py:446) | inline `_TOOL_SKU_MAP` + `_TOOL_FIXED_COST` literals; on a registry hit also inserts a `UsageLog` row; on a fixed-cost hit only bumps `run.total_cost_usd` |
 | REACT / AFC turn | [step_executor.py:918+](../../backend/src/ai/step_executor.py:918) | a second copy of the same literals |
-| `tools.cost_resolver_v2_enabled` | [core/feature_flags.py:86](../../backend/src/ai/core/feature_flags.py:86) | defaults to `True` but **is never read** |
+| ~~`tools.cost_resolver_v2_enabled`~~ | — | deleted 2026-09-30 (BC-17): `ToolCostResolver` is the only tool price lookup, unconditionally |
 
 So there are three copies of the SKU map (resolver, direct path, REACT path) and
 a fourth price table in `planning/cost_estimator.py`. Adding a priced tool means

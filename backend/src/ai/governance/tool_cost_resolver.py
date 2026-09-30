@@ -1,24 +1,27 @@
 """
-ai.governance.tool_cost_resolver — Phase 11 Track 8 single-source-of-truth
-for tool cost lookup.
+ai.governance.tool_cost_resolver — the one price lookup for tool calls (BC-11).
 
-Before Track 8 the cost-lookup logic lived inline twice in
-``step_executor.py`` (direct TOOL_CALL path + REACT AFC path) and once
-again as fixed-cost fallbacks. This module collapses all three into
-one cached service.
+Every tool charge goes through :meth:`ToolCostResolver.charge`: both tool
+paths in ``step_executor`` (the direct TOOL_CALL step and the REACT function
+calls) call ``StepExecutorService._charge_tool``, which calls it. Before
+BC-11 each path carried its own hand-copied price tables and this module —
+built to replace them — had no callers.
 
-Lookup priority (first hit wins):
+Lookup, first hit wins:
 
-  1. ``IntegrationRegistry.service_sku == tool_id``
-  2. ``IntegrationRegistry.service_sku`` in :data:`TOOL_SKU_MAP[tool_id]`
+  1. the company's own active ``integration_registry`` row for the tool —
+     ``service_sku == tool_id`` or one of :data:`TOOL_SKU_MAP[tool_id]`
+  2. the platform's (APP company's) row for it — cost-bearing services are
+     registered once, at platform level, as the LLM path already assumed
+     (BC-10: tenants without their own row were charged nothing)
   3. :data:`TOOL_FIXED_COST[tool_id]` (e.g. image_generation = $0.04)
-  4. ``Decimal('0')`` (with a one-time warning per process)
+  4. ``Decimal('0')``, with a one-time warning per process.
 
-The resolver returns the charged amount so callers can update
-``run.total_cost_usd`` and pass the same value into AgentLoop's
-``Budget.consume(...)``. Every successful charge is recorded through
-:class:`ai.services.cost_attribution.CostLedger` with the caller's
-attribution tag.
+A registry price is per ``cost_unit``: one call is one unit of a per-call SKU
+and a thousandth of a "per 1000 …" SKU (``unit_divisor``, shared with
+``UsageService``; BC-10). Every non-zero charge is written as one attributed
+``usage_logs`` row — with its SKU when it came from the registry, without one
+for a fixed cost (BC-07).
 """
 from __future__ import annotations
 
@@ -33,7 +36,8 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Lookup tables — moved here from step_executor.py
+# The price tables — the only ones (the planner's cost_estimator predicts
+# costs from telemetry; for fixed-cost tools it starts from these).
 # ---------------------------------------------------------------------------
 
 
@@ -47,8 +51,7 @@ TOOL_SKU_MAP: dict[str, list[str]] = {
 }
 
 
-# Fallback per-call costs for tools that bill independently and have
-# no entry in IntegrationRegistry.
+# Per-call costs for tools with no registry row.
 TOOL_FIXED_COST: dict[str, Decimal] = {
     "image_generation": Decimal("0.04"),
     # video_generate carries the model cost; video_edit / video_add_sound are
@@ -81,7 +84,7 @@ class ToolChargeResult:
         sku_id: Optional[UUID] = None,
     ):
         self.amount = amount
-        self.source = source           # "registry" | "fixed" | "missing"
+        self.source = source           # "registry" | "platform" | "fixed" | "missing"
         self.sku_id = sku_id
 
     def __bool__(self) -> bool:
@@ -89,12 +92,12 @@ class ToolChargeResult:
 
 
 class ToolCostResolver:
-    """Single entry point for charging tool cost to a run."""
+    """Single entry point for pricing and recording a tool call."""
 
     def __init__(self, db: Any, company_id: UUID):
         self.db = db
         self.company_id = company_id
-        # Per-process cache. Key: tool_id. Value: (Decimal, source, sku_id).
+        # Per-instance cache. Key: tool_id. Value: (Decimal, source, sku_id).
         self._cache: dict[str, tuple[Decimal, str, Optional[UUID]]] = {}
 
     # ------------------------------------------------------------------
@@ -102,7 +105,7 @@ class ToolCostResolver:
     # ------------------------------------------------------------------
 
     async def resolve(self, tool_id: str) -> tuple[Decimal, str, Optional[UUID]]:
-        """Pure lookup: ``(amount, source, sku_id)``. Cached per tool_id."""
+        """Pure lookup: ``(amount, source, sku_id)`` for one call. Cached per tool_id."""
         if tool_id in self._cache:
             return self._cache[tool_id]
         result = await self._lookup_uncached(tool_id)
@@ -117,39 +120,26 @@ class ToolCostResolver:
         latency_ms: int = 0,
         attribution: str = "tool",
     ) -> ToolChargeResult:
-        """Resolve cost, mutate ``run.total_cost_usd``, write a ledger row.
+        """Price one call and add its ``usage_logs`` row to the session.
 
-        Returns a :class:`ToolChargeResult` regardless of whether a row
-        was inserted (``source="missing"`` means we logged a warning
-        and didn't charge).
+        Does not touch ``run.total_cost_usd``: the caller adds the amount
+        atomically (``StepExecutorService._bump_run_cost``), and its commit
+        persists the row with it.
         """
         amount, source, sku_id = await self.resolve(tool_id)
         if amount <= 0:
             return ToolChargeResult(amount=Decimal("0"), source=source, sku_id=sku_id)
-
-        # Update the run's running total in-process (DB commit is the
-        # caller's responsibility).
-        try:
-            existing = Decimal(str(run.total_cost_usd or 0))
-        except Exception:                                                   # pragma: no cover
-            existing = Decimal("0")
-        run.total_cost_usd = existing + amount
-
-        # Persist the attribution row.
-        try:
-            from src.ai.services.cost_attribution import CostLedger
-            await CostLedger(self.db).add(
-                run_id=getattr(run, "id", None),
-                company_id=getattr(run, "company_id", self.company_id),
-                amount=amount,
-                attribution=attribution,
-                sku_id=sku_id,
-                raw_quantity=1.0,
-                latency_ms=latency_ms,
-                log_metadata={"tool": tool_id, "cost_source": source},
-            )
-        except Exception as exc:                                            # pragma: no cover
-            logger.warning(f"CostLedger insert failed for tool {tool_id}: {exc}")
+        from src.ai.services.cost_attribution import CostLedger
+        await CostLedger(self.db).add(
+            run_id=getattr(run, "id", None),
+            company_id=getattr(run, "company_id", None) or self.company_id,
+            amount=amount,
+            attribution=attribution,
+            sku_id=sku_id,
+            raw_quantity=1.0,
+            latency_ms=latency_ms,
+            log_metadata={"tool": tool_id, "cost_source": source},
+        )
         return ToolChargeResult(amount=amount, source=source, sku_id=sku_id)
 
     def invalidate(self, tool_id: Optional[str] = None) -> None:
@@ -163,34 +153,39 @@ class ToolCostResolver:
     # Internals
     # ------------------------------------------------------------------
 
+    async def _registry_row(self, tool_id: str, company_id: UUID) -> Any:
+        from src.config.models import IntegrationRegistry as _IR
+        skus = [tool_id, *TOOL_SKU_MAP.get(tool_id, [])]
+        return (await self.db.execute(
+            select(_IR).where(
+                _IR.company_id == company_id,
+                or_(*(_IR.service_sku == sku for sku in skus)),
+                _IR.status == "active",
+                _IR.internal_cost.isnot(None),
+                _IR.service_category != "LLM",
+            ).limit(1)
+        )).scalar_one_or_none()
+
     async def _lookup_uncached(
         self, tool_id: str,
     ) -> tuple[Decimal, str, Optional[UUID]]:
-        from src.config.models import IntegrationRegistry as _IR
-        sku_matches = TOOL_SKU_MAP.get(tool_id, [])
-        or_clauses = [
-            _IR.service_sku == tool_id,
-            _IR.service_category == "CUSTOM_API",
-        ]
-        for sku in sku_matches:
-            or_clauses.append(_IR.service_sku == sku)
+        from src.ai.usage_service import app_company_id, unit_divisor
 
         try:
-            row = (await self.db.execute(
-                select(_IR).where(
-                    _IR.company_id == self.company_id,
-                    or_(*or_clauses),
-                    _IR.status == "active",
-                    _IR.internal_cost.isnot(None),
-                    _IR.service_category != "LLM",
-                ).limit(1)
-            )).scalar_one_or_none()
+            row = await self._registry_row(tool_id, self.company_id)
+            source = "registry"
+            if row is None:
+                platform = await app_company_id(self.db)
+                if platform and platform != self.company_id:
+                    row = await self._registry_row(tool_id, platform)
+                    source = "platform"
         except Exception as exc:                                            # pragma: no cover
             logger.debug(f"ToolCostResolver registry lookup failed: {exc}")
             row = None
 
-        if row is not None and row.internal_cost is not None:
-            return (Decimal(str(row.internal_cost)), "registry", row.id)
+        if row is not None:
+            per_call = Decimal(str(row.internal_cost)) / unit_divisor(row.cost_unit)
+            return (per_call, source, row.id)
 
         fixed = TOOL_FIXED_COST.get(tool_id)
         if fixed is not None:

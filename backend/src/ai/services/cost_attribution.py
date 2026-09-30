@@ -79,11 +79,10 @@ class CostLedger:
         Notes:
           * When ``attribution`` is unknown, we log a warning and fall
             back to ``"tool"`` so a typo never silently drops a charge.
-          * ``sku_id`` is required by the existing schema; when the
-            caller doesn't know it (e.g. supervisor LLM with no
-            IntegrationRegistry row), the ledger short-circuits to a
-            structured event without inserting — the run.total_cost_usd
-            update is the caller's responsibility either way.
+          * ``sku_id`` may be None — a fixed-cost tool, or a supervisor
+            LLM with no IntegrationRegistry row. The row is written anyway
+            (BC-07: it used to be skipped, so the charge had no line item);
+            the run.total_cost_usd update is the caller's responsibility.
           * ``commit=False`` by default — the caller's transaction
             handles persistence; tests pass ``commit=True`` for clarity.
         """
@@ -96,28 +95,6 @@ class CostLedger:
 
         amount = Decimal(str(amount or 0))
         if amount <= 0:
-            return None
-
-        if sku_id is None:
-            # No registry row to bind to — emit a telemetry event so the
-            # dashboard still sees the cost, but skip the SQL insert
-            # (UsageLog.sku_id is NOT NULL).
-            logger.info(
-                "CostLedger.add: skipping SQL insert (no sku_id) for "
-                "attribution=%s amount=%s", attribution, amount,
-            )
-            try:
-                from src.ai.core.events import event
-                event(
-                    "agent.cost.charged",
-                    run_id=str(run_id) if run_id else None,
-                    company_id=str(company_id) if company_id else None,
-                    attribution=attribution, sku=None,
-                    amount_usd=float(amount), latency_ms=int(latency_ms),
-                    persisted=False,
-                )
-            except Exception:                                               # pragma: no cover
-                pass
             return None
 
         from src.ai.orm.usage import UsageLog
@@ -143,7 +120,7 @@ class CostLedger:
                 run_id=str(run_id) if run_id else None,
                 company_id=str(company_id) if company_id else None,
                 attribution=attribution,
-                sku=str(sku_id),
+                sku=str(sku_id) if sku_id else None,
                 amount_usd=float(amount),
                 latency_ms=int(latency_ms),
                 persisted=True,

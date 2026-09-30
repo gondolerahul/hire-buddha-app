@@ -82,8 +82,9 @@ DEFAULTS: dict[str, bool] = {
     # the marquee/most-dangerous capability. Even when ON, the tool_synthesis
     # meta-tool stays Meta-Agent-only + container-only-exec + DRAFT-register-only.
     "meta_agent.tool_synthesis_enabled": False,
-    # Tool & cost consolidation defaults.
-    "tools.cost_resolver_v2_enabled": True,
+    # Tool & cost consolidation defaults. (tools.cost_resolver_v2_enabled is
+    # gone: ToolCostResolver is the only tool price lookup, unconditionally —
+    # BC-17. The flag was declared and never read.)
     "tools.resilience_v2_enabled": True,
     # Last canary flag of the cost-attribution programme: flipped ON once
     # embedding became the final metered cost site (memory/embedding_service.py).
