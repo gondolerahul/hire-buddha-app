@@ -379,7 +379,7 @@ instead of a cross-tenant leak.
 | **DM-12** | Every `DateTime` column is naive | No `timezone=True` anywhere. UTC is a convention held up only by `datetime.utcnow` defaults. One `datetime.now()` slipping in anywhere produces silently wrong timestamps | ✅ Verified |
 | **DM-13** | `JSON` on old tables, `JSONB` on new ones | `JSON` cannot be indexed usefully and re-parses on every read. The split runs right through the entity table — the nine config columns are plain `JSON` | ✅ Verified |
 | **DM-14** | Three columns are literally named `metadata` | `campaigns`, `campaign_calls` and `cortex_edges`. SQLAlchemy reserves `metadata` on the declarative class, so each maps a different Python attribute. Writing `campaign.metadata` returns the table metadata object, not the JSON, and does so **without raising** | ✅ Verified |
-| **DM-15** | `clean_db.sql` truncates by a hand-maintained list | New tables are not covered until someone adds them. Currently missing: `cortex_edges`, `execution_trace_events`, `source_trust_scores`, `feature_flags`, `lead_queue`, `phone_numbers`. A "clean" dev database keeps stale rows in six tables | ✅ Verified |
+| **DM-15** | `clean_db.sql` truncates by a hand-maintained list | New tables are not covered until someone adds them. Currently missing: `cortex_edges`, `execution_trace_events`, `source_trust_scores`, `feature_flags`, `lead_queue`, `phone_numbers`. A "clean" dev database keeps stale rows in six tables | ✅ Verified · **fixed (2026-09-30)** — the script reads the table list from `pg_tables` and truncates everything but `alembic_version` and `subscription_tiers` in one statement. It also had a worse bug: `tool_registry_entries` references `companies` and `users`, so `TRUNCATE companies … CASCADE` emptied it and the "BUILT_IN tools preserved" step found nothing. The BUILT_IN rows are now set aside first and put back (links cleared). Run on a seeded scratch database: the old script left no tools, the new one both BUILT_IN tools, the three tiers and `alembic_version`, and nothing else |
 
 ---
 
@@ -538,6 +538,8 @@ of every vector search. The same argument as DM-I2 applies, with more force beca
 search SQL is hand-written and easy to get wrong.
 
 ### DM-I7 — Make `clean_db.sql` derive its table list
+
+**Status: done (2026-09-30)** — DM-15.
 
 **Effect: small, prevents confusion.** Query `information_schema.tables` and truncate
 everything except the explicit keep-list (`subscription_tiers`, built-in

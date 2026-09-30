@@ -1930,7 +1930,7 @@ census is what catches the drift the pattern would otherwise hide.
 | Script | What it does | When to run it |
 |---|---|---|
 | [`seed_admin_user.py`](../../backend/db-scripts/seed_admin_user.py) | Creates the `APP` company "HireBuddha" and the `app_admin` user `admin@hirebuddha.com` / `adminpass`. Idempotent | Immediately after the first `alembic upgrade head` on a fresh database |
-| [`clean_db.sql`](../../backend/db-scripts/clean_db.sql) | `TRUNCATE`s all transactional tables in dependency order, preserving `subscription_tiers` and `tool_registry_entries WHERE tool_type='BUILT_IN'`. Skips tables that do not exist | Resetting a dev/staging environment. Irreversible |
+| [`clean_db.sql`](../../backend/db-scripts/clean_db.sql) | Truncates **every** table in the public schema except `alembic_version` and `subscription_tiers` — the list is read from `pg_tables`, not maintained by hand — and puts back the `BUILT_IN` rows of `tool_registry_entries` (with `company_id` / `created_by` cleared). Reports the tables that still hold rows | Resetting a dev/staging environment. Irreversible |
 | [`backfill_cortex_trees.py`](../../backend/db-scripts/backfill_cortex_trees.py) | Creates a CORTEX tree for each completed execution run that lacks one, so the Memory Trees UI shows history | One-off after enabling CORTEX on an existing database |
 
 ```bash
