@@ -1617,7 +1617,7 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 
 **Schema and access**
 
-- ⚠️ `subscription_tiers` has no migration. Fresh databases lack the table.
+- ~~⚠️ `subscription_tiers` has no migration.~~ Fixed 2026-09-30 (DM-01): `dm21_schema_catch_up` creates it and seeds Starter, Growth and Scale.
 - ⚠️ `billing_events` has no unique constraint on its logical upsert key; concurrent settlements can duplicate rows.
 - ⚠️ `partner_admin` can `PUT /billing/config` with `company_id: null`, editing **platform-wide** pricing.
 - ⚠️ `GET /billing/config` has no role check — any user can read the multiplier and base costs (BC-26).

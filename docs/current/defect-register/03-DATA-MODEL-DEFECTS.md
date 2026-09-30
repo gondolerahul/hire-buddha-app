@@ -36,12 +36,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--the-database-cannot-be-rebuilt-correctly) | The database cannot be rebuilt correctly | 3 | Now — a fresh deploy is broken today |
+| [T0](#2-t0--the-database-cannot-be-rebuilt-correctly) | The database cannot be rebuilt correctly | 4 | Now — a fresh deploy is broken today |
 | [T1](#3-t1--missing-constraints-and-indexes) | Missing constraints and indexes | 6 | Before data volume grows |
 | [T2](#4-t2--wrong-types-and-dead-tables) | Wrong types and dead tables | 6 | Opportunistically |
 | [T3](#5-t3--traps-that-produce-wrong-answers) | Traps that produce wrong answers | 5 | Document now, fix when touched |
 
-**Total: 20 defects, 10 improvements.**
+**Total: 21 defects, 10 improvements.**
 
 The three worth reading first:
 
@@ -62,7 +62,7 @@ an existing database and fatal on a new one.
 
 ### DM-01 — `subscription_tiers` has no migration
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — with DM-21.
 
 The table is referenced by the ORM (`SubscriptionTier` in `billing_models.py`), by the
 credits router, and by the seed path. Nothing in `backend/migrations/` creates it.
@@ -82,11 +82,22 @@ every subscription route fails at the first query.
 **Fix:** write the migration. It should also seed the three tiers the frontend falls
 back to, so the fallback stops being load-bearing.
 
+**Done (2026-09-30)** in `dm21_schema_catch_up` (see
+[DM-21](#dm-21--a-fresh-database-cannot-be-built-at-all)): the table is created if absent,
+with the ORM's columns and the `tier_level` unique constraint, and — only when it holds no
+rows — seeded with the wallet page's `FALLBACK_PLANS`: Starter (level 1, 29, 20 %), Growth
+(2, 79, 30 %), Scale (3, 199, 40 %). The seed names every column, because a table made by
+`create_all` (the local one) has no server-side defaults — the first attempt failed there on
+`id`. The frontend fallback is left in place; it no longer shows once tiers exist.
+
+**Evidence:** the schema census (below) finds the table on a fresh database. Local: the
+migration seeded the three tiers into the hand-made table.
+
 ---
 
 ### DM-02 — `phone_numbers` is created by a script, not a migration
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — with DM-21.
 
 `phone_numbers` — the whole phone-number inventory — is created by
 `backend/migrations/merge_phone_tables.py`, a **standalone Python script** that lives
@@ -104,6 +115,67 @@ So the documented setup sequence has a manual step between `alembic upgrade head
 
 **Fix:** convert the script into a real Alembic revision. Keep it idempotent so
 existing databases are unaffected.
+
+**Done (2026-09-30)** in `dm21_schema_catch_up`: `phone_numbers` and its six indexes are
+created if absent; rows of `phone_number_pool` and `customer_phone_numbers`, if those
+tables exist, are merged in the way the script did (an assignment to a pooled number
+updates it, any other becomes an `assigned` row; `ON CONFLICT DO NOTHING`), and both legacy
+tables are dropped. `*_old` backups the script made are left alone.
+`migrations/merge_phone_tables.py` is deleted — it also hard-coded the local database URL.
+The setup sequence no longer has a manual step between `alembic upgrade head` and
+`seed_admin_user.py` (half of
+[ON-01](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md#on-01--the-setup-sequence-omits-two-required-steps)).
+
+---
+
+### DM-21 — A fresh database cannot be built at all
+
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — found 2026-09-30 while
+reproducing DM-01. The handoff had noted it as a local quirk; it was never registered.
+
+DM-01 and DM-02 understated the problem: `alembic upgrade head` on an empty database did not
+get as far as missing two tables. It **failed**:
+
+- `m0b1e0d1a100` and `m0b1e0d1a200` read a `db-scripts/*.sql` file and passed the whole
+  multi-statement string to `op.execute`. `env.py` runs migrations on asyncpg, which prepares
+  every statement: *cannot insert multiple commands into a prepared statement*. The whole
+  upgrade ran in one transaction, so it rolled back to an empty database.
+- Past that point, eleven columns the ORM reads and writes had no migration either — they
+  existed only on databases patched by hand:
+
+| Table | Columns |
+|---|---|
+| `campaign_calls` | `rep_disposition`, `rep_note`, `rep_dispositioned_at`, `rep_dispositioned_by`, `disposition_source`, `callback_at` |
+| `execution_runs` | `billed_amount` |
+| `llm_interaction_logs` | `step_name` |
+| `voice_sessions`, `whatsapp_sessions` | `session_metadata` (the migration created `metadata`) |
+| `conversation_history` | `message_metadata` (the migration created `metadata`) |
+
+So a new environment could not be deployed from the repository at all, and every
+environment that worked had been patched by hand.
+
+**Fix (2026-09-30):**
+
+- `migrations/sql_script.py` — `execute_sql_file(path)` splits a `.sql` file into
+  statements (dropping comments and `BEGIN`/`COMMIT`; refusing `$$` bodies) and executes them
+  one by one. Both mobile revisions use it. The files are unchanged, so they still apply
+  with `psql`.
+- Revision `dm21_schema_catch_up` creates what was missing — with DM-01 and DM-02, the two
+  tables — adds the eight columns, and renames the three `metadata` columns to the names the
+  ORM maps. Each step checks the live schema first; where a hand-patched database has both
+  `metadata` and the new name, the old values fill the new column's gaps and `metadata` is
+  dropped.
+- `src/common/orm_models.py` and the schema census — see DM-20.
+
+**Evidence:** a scratch database built by `alembic upgrade head` now reaches
+`dm21_schema_catch_up`, and the census finds every ORM table and column there
+(`tests/integration/test_schema_census.py`, 6 cases; `tests/unit/test_orm_model_registry.py`,
+7 cases). The local database (backed up first) was migrated: the three tiers were seeded,
+the empty legacy phone tables dropped, the duplicate `metadata` columns merged and dropped;
+it now differs from the ORM only by the census's listed exceptions.
+
+- [`migrations/sql_script.py`](../../../backend/migrations/sql_script.py)
+- [`migrations/versions/dm21_schema_catch_up.py`](../../../backend/migrations/versions/dm21_schema_catch_up.py)
 
 ---
 
@@ -327,7 +399,9 @@ column whose name contradicts its constraint.
 
 ### DM-19 — Two migration files share a filename prefix
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-09-30)** — the onboarding/phone-pool file is
+renamed `y2z3a4b5c6d7_add_onboarding_and_phone_pool.py`, after its `revision`. The chain is
+unchanged.
 
 `a1b2c3d4e5f6_add_voice_and_whatsapp_streaming_tables.py` and
 `a1b2c3d4e5f6_add_onboarding_and_phone_pool.py` share the prefix `a1b2c3d4e5f6_`, but
@@ -340,7 +414,7 @@ finds the wrong file.
 
 ### DM-20 — Some migrations are defensively idempotent because environments drifted
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-09-30)** — the census exists; see below.
 
 Several migrations call `sa.inspect(bind)` and skip work when a table or column already
 exists (`p11t02_feature_flags`, `y2z3a4b5c6d7`). The document is honest about why: some
@@ -351,6 +425,27 @@ be missing a column, and nothing reports it.
 
 **Fix:** a schema-census check comparing `__tablename__` and columns against the live
 database. It is the second of the four guardrails named in the platform register.
+
+**Done (2026-09-30).** `tests/integration/test_schema_census.py` creates a scratch database,
+runs `alembic upgrade head` into it, and checks every ORM table exists, every ORM column
+exists with the same type (`FLOAT` and `DOUBLE PRECISION` are the same type), every declared
+index exists, and every database table and column is mapped — or listed with the defect id
+that explains it (today: `assets` and `call_content.audio_asset_id` for DM-10,
+`feature_flags` for DM-03). A stale entry in that list fails too. It takes about five
+seconds. Nullability is not compared: six columns differ harmlessly (the database is
+stricter on five CORTEX/entity flags, the ORM on `source_trust_scores.updated_at`).
+
+The census compares against **every** table because the model list is now one list,
+`src/common/orm_models.py`, used by it and by `migrations/env.py` — whose own import list had
+lost `voice.phone_pool_models`, so autogenerate could not see `phone_numbers`.
+`tests/unit/test_orm_model_registry.py` fails when a module that declares a table is
+missing from it. The defensive `inspect` pattern stays in the old migrations: databases
+stamped past them exist; the census is what makes the resulting drift visible. It is in
+`tests/integration/`, so it runs with the integration suite, not the default host run —
+wiring it into a merge gate is still [DM-I9](#dm-i9--add-a-schema-census-to-the-merge-gate).
+
+**Evidence:** on the old code the census fails at the fixture (`alembic upgrade head`
+exits non-zero at `m0b1e0d1a100`).
 
 ---
 

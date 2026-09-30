@@ -843,7 +843,10 @@ Defined at [billing_models.py:85](../../backend/src/billing/billing_models.py:85
 | `is_active` | Boolean | no | `True` | |
 | `created_at` / `updated_at` | DateTime | no | utcnow | |
 
-Master data — preserved by `clean_db.sql`.
+Master data — preserved by `clean_db.sql`. Created by migration `dm21_schema_catch_up`
+(DM-01, 2026-09-30), which also seeds the three plans the wallet page falls back to when the
+table is empty — Starter (29, 20 %), Growth (79, 30 %), Scale (199, 40 %) — if it holds
+none. Before that no migration created it.
 
 ### 7.7 `subscriptions`
 
@@ -1028,11 +1031,11 @@ Defined at [voice/phone_pool_models.py:26](../../backend/src/voice/phone_pool_mo
 
 Six indexes: phone, status, company, agent, customer, provider.
 
-**This table has no Alembic migration.** It is created by the standalone script
-[migrations/merge_phone_tables.py:49](../../backend/migrations/merge_phone_tables.py:49),
-which merges the legacy `phone_number_pool` and `customer_phone_numbers` tables. On a
-brand-new database built purely from `alembic upgrade head`, `phone_numbers` will be
-missing.
+Created by migration `dm21_schema_catch_up` (DM-02, 2026-09-30). Until then it came from a
+standalone script, `migrations/merge_phone_tables.py`, outside the chain, and a database
+built by `alembic upgrade head` did not have it. The revision also carries the script's
+data step: rows of the two legacy tables (`phone_number_pool`, `customer_phone_numbers`)
+are copied in and the legacy tables dropped. The script is deleted.
 
 ### 8.5 `campaigns`
 
@@ -1333,8 +1336,8 @@ Created and maintained by Alembic. Single column `version_num`. Holds the curren
 | Table | Status | Evidence |
 |---|---|---|
 | `assets` | **Superseded by `artifacts`, but never dropped.** The migration explicitly says "Leaves 'assets' table in place (dropped last after verification)" | [h1i2j3k4l5m6:11](../../backend/migrations/versions/h1i2j3k4l5m6_create_artifacts_table_and_migrate_from_assets.py:11) |
-| `phone_number_pool` | Legacy; merged into `phone_numbers` by the standalone script, which drops it | [merge_phone_tables.py](../../backend/migrations/merge_phone_tables.py) |
-| `customer_phone_numbers` | Legacy; same merge | same |
+| `phone_number_pool` | Dropped — merged into `phone_numbers` by `dm21_schema_catch_up` (DM-02) | [dm21_schema_catch_up.py](../../backend/migrations/versions/dm21_schema_catch_up.py) |
+| `customer_phone_numbers` | Dropped — same merge | same |
 | `partners`, `tenants` | Dropped — replaced by the single `companies` table | [c3e80da7ca0a](../../backend/migrations/versions/c3e80da7ca0a_remove_legacy_partner_and_tenant_tables.py) |
 | `agents`, `workflows`, `executions` | Dropped — replaced by `hierarchical_entities` + `execution_runs` | [09e4d21677b1](../../backend/migrations/versions/09e4d21677b1_refactor_ai_models_to_hierarchical_.py) |
 | `ai_models`, `system_configs`, `system_rates`, `partner_rates`, `invoices`, `payment_methods`, `ledger_entries` | Dropped by the costing refactor — replaced by `integration_registry` + `usage_logs` | [a804c0db1551](../../backend/migrations/versions/a804c0db1551_refactor_costing_system.py) |
@@ -1739,14 +1742,15 @@ returned nodes — retrieval is itself a signal.
 | File | What it does |
 |---|---|
 | [backend/alembic.ini](../../backend/alembic.ini) | `script_location = %(here)s/migrations`, `prepend_sys_path = .`, logging config. The `sqlalchemy.url` in the file is the placeholder `driver://user:pass@localhost/dbname` and is **always overridden** at runtime |
-| [backend/migrations/env.py](../../backend/migrations/env.py) | Imports every model module so `Base.metadata` is complete, sets `target_metadata`, and overrides the URL from settings |
+| [backend/migrations/env.py](../../backend/migrations/env.py) | Calls `import_all_models()` ([common/orm_models.py](../../backend/src/common/orm_models.py)) so both metadata objects are complete, sets `target_metadata`, and overrides the URL from settings |
+| [backend/migrations/sql_script.py](../../backend/migrations/sql_script.py) | `execute_sql_file(path)` for revisions that keep their DDL in `db-scripts/*.sql`: runs it one statement at a time, because asyncpg cannot execute a multi-statement string |
 | [backend/migrations/script.py.mako](../../backend/migrations/script.py.mako) | Template for new revision files |
 
 The two things in `env.py` a newcomer must know:
 
 ```python
 # backend/migrations/env.py
-target_metadata = [Base.metadata, cortex_memory.metadata]
+target_metadata = import_all_models()   # [Base.metadata, cortex_memory.metadata]
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 ```
 
@@ -1774,8 +1778,21 @@ alembic revision --autogenerate -m "add_widget_table"   # diff models vs DB
 alembic revision -m "backfill_widgets"                  # empty, hand-written
 ```
 
-Add every new model module to the import block at the top of `env.py`, or autogenerate
-will not see it (and may propose dropping its table).
+Add every new model module to `MODEL_MODULES` in
+[common/orm_models.py](../../backend/src/common/orm_models.py), or autogenerate will not see
+it (and may propose dropping its table). `tests/unit/test_orm_model_registry.py` fails when a
+module that declares `__tablename__` is missing. Until 2026-09-30 `env.py` kept its own list,
+which had lost `voice.phone_pool_models`.
+
+A database built from the chain alone must match the ORM:
+`tests/integration/test_schema_census.py` (DM-20) creates a scratch database, runs
+`alembic upgrade head` into it, and compares every ORM table's columns, column types and
+declared indexes with what the migrations built. A table or column the database may hold
+without a model is listed there with its defect id. Run it after writing a migration:
+
+```bash
+PYTHONUTF8=1 .venv/Scripts/python.exe -m pytest tests/integration/test_schema_census.py -q
+```
 
 ### The migration chain
 
@@ -1868,17 +1885,23 @@ Full chronological list, in dependency order:
 | 52 | `z9b0c1d2e3f4` | `y7z8a9b0c1d2` | `campaign_calls.disposition_reason` |
 | 53 | `m0b1e0d1a100` | `z9b0c1d2e3f4` | Mobile dialer tables (runs `db-scripts/mobile_dialer_001.sql`) |
 | 54 | `m0b1e0d1a200` | `m0b1e0d1a100` | `mobile_client_logs` (runs `db-scripts/mobile_dialer_002_logs.sql`) |
-| 55 | `mem1a2b3c4d5` | `m0b1e0d1a200` | Drops the v1 memory tables `episodic_memories` and `document_chunks` — **current head** |
+| 55 | `mem1a2b3c4d5` | `m0b1e0d1a200` | Drops the v1 memory tables `episodic_memories` and `document_chunks` |
+| 56 | `dm21_schema_catch_up` | `mem1a2b3c4d5` | Creates what only hand-built databases had: `subscription_tiers` (seeded), `phone_numbers` (legacy phone tables merged in and dropped), six `campaign_calls` rep-disposition columns, `execution_runs.billed_amount`, `llm_interaction_logs.step_name`, and renames three `metadata` columns to the names the ORM maps (DM-21, DM-01, DM-02) |
 
-Two filenames collide on the prefix `a1b2c3d4e5f6_`: the voice-tables migration
-(revision `a1b2c3d4e5f6`) and the onboarding/phone-pool migration (revision
-`y2z3a4b5c6d7`). Alembic keys off the `revision` variable, not the filename, so this
-works — but it is confusing when grepping.
+Revisions 53 and 54 run their `.sql` file through `migrations/sql_script.py`. Until
+2026-09-30 they passed the whole file to `op.execute`, which asyncpg rejects (*cannot insert
+multiple commands into a prepared statement*), so `alembic upgrade head` on a fresh database
+stopped at 53 and rolled everything back (DM-21).
+
+The onboarding/phone-pool migration's file was named `a1b2c3d4e5f6_…`, the voice-tables
+migration's revision id; it is `y2z3a4b5c6d7_add_onboarding_and_phone_pool.py`, matching its
+`revision` variable, since 2026-09-30 (DM-19).
 
 Several migrations are defensively idempotent: they call `sa.inspect(bind)` and skip
-work if a table or column already exists (see `p11t02_feature_flags` and
-`y2z3a4b5c6d7`). That pattern exists because some environments were stamped past
-migrations that never actually ran.
+work if a table or column already exists (see `p11t02_feature_flags`,
+`y2z3a4b5c6d7` and `dm21_schema_catch_up`). That pattern exists because some environments
+were stamped past migrations that never actually ran, or were patched by hand. The schema
+census is what catches the drift the pattern would otherwise hide.
 
 ---
 
@@ -1917,13 +1940,12 @@ Not Alembic. Each is idempotent and run manually
 | [`seeds/default_entities/SeedDocFactoryLite/`](../../backend/scripts/seeds/default_entities/SeedDocFactoryLite/) | Trimmed Document Factory variant |
 | [`seeds/deep_research/DeepResearchSetup/`](../../backend/scripts/seeds/deep_research/DeepResearchSetup/) | Deep Research v2 entities plus a `trigger_execution.py` smoke test. Created entity ids are cached in `entity_ids.json` |
 | [`scripts/seed_sandbox_sku.py`](../../backend/scripts/seed_sandbox_sku.py) | Idempotently inserts the `sandbox-runtime` SKU into `integration_registry`, owned by the APP company, `cost_unit=second`. Without it, sandbox metering logs a warning and records nothing |
-| [`migrations/merge_phone_tables.py`](../../backend/migrations/merge_phone_tables.py) | Creates `phone_numbers` and merges `phone_number_pool` + `customer_phone_numbers` into it, then drops the old tables |
+
 
 ```mermaid
 flowchart LR
   A["createdb hirebuddha"] --> B["alembic upgrade head"]
-  B --> C["python -m migrations.merge_phone_tables"]
-  C --> D["python db-scripts/seed_admin_user.py"]
+  B --> D["python db-scripts/seed_admin_user.py"]
   D --> E["python -m scripts.seed_sandbox_sku"]
   E --> F["seed integration_registry SKUs via admin UI or API"]
   F --> G["optional: scripts/seeds/... default entities"]
@@ -2013,10 +2035,10 @@ flowchart LR
 
 ## Gotchas and things that surprise newcomers
 
-- **`phone_numbers` has no Alembic migration.** It is created by
-  [migrations/merge_phone_tables.py](../../backend/migrations/merge_phone_tables.py), a
-  standalone script that lives *next to* the Alembic `versions/` folder but is not part
-  of the chain. A database built only from `alembic upgrade head` will be missing it.
+- **A fresh database is built by `alembic upgrade head` alone** — since 2026-09-30 (DM-21).
+  Before, the chain failed at `m0b1e0d1a100`, and past it `phone_numbers`,
+  `subscription_tiers` and eleven columns existed only on hand-patched databases. The schema
+  census (`tests/integration/test_schema_census.py`) keeps it that way.
 - **`target_metadata` is a list.** `[Base.metadata, cortex_memory.metadata]`. Reduce it
   to one entry and autogenerate will propose dropping the CORTEX tables.
 - **The CORTEX ORM lives in `site-packages`, not the repo.** `cortex_memory` is an

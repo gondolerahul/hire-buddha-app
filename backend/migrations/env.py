@@ -7,23 +7,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-from src.common.database import Base
 from src.common.config import settings
-
-# Import all models to ensure they are registered with Base.metadata
-from src.auth import models as auth_models
-from src.ai import models as ai_models
-from src.config import models as config_models
-from src.billing import billing_models
-from src.ai.memory import cortex_models  # re-export shim (cortex tables live on the package Base)
-import cortex_memory  # CORTEX ORM now owns its own Base/metadata (Phase 12 `04`)
-from src.ai import email_models
-from src.ai import artifact_models
-from src.ai import campaign_models
-from src.ai import social_models
-from src.voice import models as voice_models
-from src.ai import lead_queue_model  # CRM lead queue
-from src.mobile import models as mobile_models  # mobile dialer app
+from src.common.orm_models import import_all_models
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -34,11 +19,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support. The CORTEX tables moved onto the cortex_memory
-# package's own Base (Phase 12 `04`); include its metadata so the host's
-# autogenerate manages (and never drops) the package-owned tables.
-target_metadata = [Base.metadata, cortex_memory.metadata]
+# Every table the ORM declares: the host's Base and the cortex_memory package's
+# own Base (the CORTEX tables moved onto it in Phase 12 `04`), so autogenerate
+# manages — and never drops — either.
+target_metadata = import_all_models()
 
 # Override sqlalchemy.url with the one from settings
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

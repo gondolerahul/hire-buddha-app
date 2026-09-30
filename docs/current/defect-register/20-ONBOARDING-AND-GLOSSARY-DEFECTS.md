@@ -77,6 +77,13 @@ Two steps are missing, and both are documented elsewhere in the same set
 A developer following document 20 exactly gets a database missing a table the ORM
 references, and discovers it only when a phone-numbers page 500s.
 
+> **Update 2026-09-30:** the first row is gone — `phone_numbers` is created by migration
+> `dm21_schema_catch_up` and the script is deleted
+> ([DM-02](03-DATA-MODEL-DEFECTS.md#dm-02--phone_numbers-is-created-by-a-script-not-a-migration)).
+> Before that, `alembic upgrade head` itself failed on an empty database
+> ([DM-21](03-DATA-MODEL-DEFECTS.md#dm-21--a-fresh-database-cannot-be-built-at-all)).
+> The `seed_sandbox_sku` step is still missing from the sequence.
+
 - [`backend/migrations/merge_phone_tables.py`](../../../backend/migrations/merge_phone_tables.py)
 - [`backend/scripts/seed_sandbox_sku.py`](../../../backend/scripts/seed_sandbox_sku.py)
 

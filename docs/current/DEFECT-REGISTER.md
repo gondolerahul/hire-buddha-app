@@ -180,7 +180,8 @@ absent and carries a `TODO` where the HMAC comparison belongs.
 
 ### D-06 — `subscription_tiers` has no migration
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — DM-01: migration
+`dm21_schema_catch_up` creates and seeds it.
 
 The table is referenced by the ORM, the credits router and the seed path, but nothing
 in `backend/migrations/` creates it. A database built purely from Alembic will not

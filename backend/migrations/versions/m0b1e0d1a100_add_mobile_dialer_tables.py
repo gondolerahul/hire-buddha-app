@@ -18,6 +18,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
+from migrations.sql_script import execute_sql_file
+
 
 revision: str = 'm0b1e0d1a100'
 down_revision: Union[str, Sequence[str], None] = 'z9b0c1d2e3f4'
@@ -28,10 +30,8 @@ SQL_FILE = Path(__file__).resolve().parents[2] / "db-scripts" / "mobile_dialer_0
 
 
 def upgrade() -> None:
-    sql = SQL_FILE.read_text()
-    # Alembic already runs inside a transaction.
-    sql = sql.replace("BEGIN;", "").replace("COMMIT;", "")
-    op.execute(sql)
+    # One statement at a time: asyncpg cannot run a multi-statement string.
+    execute_sql_file(SQL_FILE)
 
 
 def downgrade() -> None:
