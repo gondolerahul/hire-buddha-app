@@ -200,6 +200,10 @@ chmod +x setup_production_vm.sh && ./setup_production_vm.sh
 It deliberately stops short of migrations, seeding and starting services, and
 prints those as "next steps".
 
+On a **Windows** development machine, start and stop the stack with
+`start_services.ps1` / `stop_services.ps1` instead — see
+[§6.3](#63-windows-development-start_servicesps1--stop_servicesps1).
+
 ---
 
 ## 3. docker-compose
@@ -495,14 +499,52 @@ flowchart LR
 ```
 
 > ⚠️ It runs a blanket `pkill -f "uvicorn"`. If you have **any other uvicorn
-> application running on this machine**, it will be killed too — including a
-> gateway an older start script left on port 8001, which is the one time that
-> helps.
+> application running on this machine**, it will be killed too.
+
+Before that it stops a **retired Unified Gateway** explicitly: by the
+`logs/unified_gateway.pid` an older `start_services.sh` wrote, by its command
+line (`uvicorn src.gateway.app:app`) and by port 8001. The first
+`./stop_services.sh` after deploying the single-port merge is what stops the old
+gateway on a VM. `start_services.sh` warns if port 8001 is still in use.
 
 `docker compose down` stops the containers but keeps the named volumes, so your
 data survives a stop/start cycle.
 
-### 6.3 The voice service
+### 6.3 Windows development: `start_services.ps1` / `stop_services.ps1`
+
+**Development only.** The test and production environments are Ubuntu VMs on GCP
+and use the `.sh` scripts above. On a Windows development machine use the
+PowerShell pair at the repo root; they start and stop the same services, with the
+same `logs/<service>.log` and `logs/<service>.pid` files:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start_services.ps1
+powershell -ExecutionPolicy Bypass -File .\stop_services.ps1
+```
+
+(`-ExecutionPolicy Bypass` applies to that one run and changes no machine setting.
+From a PowerShell prompt where scripts are allowed, `.\start_services.ps1` is enough.)
+
+| | `start_services.ps1` | `stop_services.ps1` |
+|---|---|---|
+| Order | Docker (`db`, `redis`, then waits for `pg_isready`) → API → both Arq workers → frontend | frontend → both workers → API (and a retired gateway on 8001) → `docker compose stop` |
+| Already running / not running | Skipped: port 8000 or 3000 in use, or a worker's command line found | Reported and skipped |
+| Finding a service | — | PID file first, then port (3000, 8000, 8001) or worker command line. A process is stopped only if its command line is the service's — something else on 3000 or 8000 is reported and left alone |
+| How | Hidden `cmd.exe /c … > logs\<service>.log 2>&1`, with `PYTHONUTF8=1`; the API with `--reload`, bound to 127.0.0.1 (`-Lan` binds 0.0.0.0) | `taskkill /T /F` on the outermost process of the service's tree |
+| Options | `-Only docker,api,workers,frontend` | `-Only frontend,workers,api,docker`; `-WhatIf` lists what would be stopped |
+| Docker | `docker compose up -d db redis` | `docker compose stop` — containers and data are kept (the `.sh` runs `down`) |
+
+The workers do not reload on code changes. After a backend change:
+
+```powershell
+.\stop_services.ps1 -Only workers; .\start_services.ps1 -Only workers
+```
+
+Stops are forceful on Windows — a hidden console process cannot be sent Ctrl+C —
+so a job a worker is running is cut off, and the killed worker's heartbeat stays
+on `/api/v1/health` for up to 30 s.
+
+### 6.4 The voice service
 
 There is no separate voice process. The telephony webhooks and media-stream
 WebSockets are served by the API on 8000; the retired port-8002 service
@@ -1319,10 +1361,13 @@ a Redis-backed event bus, then moving artifacts to object storage.
 | File | What it does |
 |---|---|
 | [setup_production_vm.sh](../../setup_production_vm.sh) | 8-step idempotent VM provisioner |
-| [start_services.sh](../../start_services.sh) | Starts Docker, backend, gateway, worker, frontend |
-| [stop_services.sh](../../stop_services.sh) | Reverse-order shutdown with PID / pkill / port fallbacks |
-| [backend/docker-compose.yml](../../backend/docker-compose.yml) | `gateway`, `app`, `db`, `redis` |
+| [start_services.sh](../../start_services.sh) | Starts Docker, the API, both Arq workers, the frontend (Ubuntu VMs) |
+| [stop_services.sh](../../stop_services.sh) | Reverse-order shutdown with PID / pkill / port fallbacks; stops a retired gateway on 8001 |
+| [start_services.ps1](../../start_services.ps1) | The same start, for Windows development only |
+| [stop_services.ps1](../../stop_services.ps1) | The same stop, for Windows development only; `-WhatIf`, `-Only` |
+| [backend/docker-compose.yml](../../backend/docker-compose.yml) | `app`, `db`, `redis` |
 | [backend/Dockerfile](../../backend/Dockerfile) | Two-stage Poetry build |
+| [backend/.dockerignore](../../backend/.dockerignore) | Keeps `.env`, host virtualenvs, runtime data and caches out of the image |
 | [backend/pyproject.toml](../../backend/pyproject.toml) | All Python deps, ruff/mypy config |
 | [backend/alembic.ini](../../backend/alembic.ini) | Migration config |
 | [backend/.env.example](../../backend/.env.example) | Complete env template |

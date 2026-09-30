@@ -89,7 +89,11 @@ Everything else in this document is detail on those boxes and arrows.
 
 [`start_services.sh`](../../start_services.sh) is the authoritative list. It does
 four things in order, and the ordering matters: Docker first (everything needs
-the DB), then the API, then the worker, then the frontend.
+the DB), then the API, then the workers, then the frontend. On a Windows
+development machine, [`start_services.ps1`](../../start_services.ps1) and
+[`stop_services.ps1`](../../stop_services.ps1) do the same
+([18 §6.3](18-infrastructure-and-deployment.md#63-windows-development-start_servicesps1--stop_servicesps1));
+the test and production VMs are Ubuntu and use the `.sh` scripts.
 
 ```mermaid
 flowchart TD
@@ -353,9 +357,9 @@ graph TB
 | Redis | 6379 | `docker compose up -d redis` (`backend/`) | `docker logs hirebuddha-redis` | — |
 
 Shutdown is [`stop_services.sh`](../../stop_services.sh), which kills by PID
-file, then force-kills by port (`lsof -t -i:$port`), then `pkill -f uvicorn`
-(which also stops a gateway an older start script left on 8001), then `docker
-compose down`. Note that `docker compose down` removes the containers but **not**
+file, then force-kills by port (`lsof -t -i:$port`), stops a retired gateway an
+older start script left on 8001 (PID file, command line, port), then `pkill -f
+uvicorn`, then `docker compose down`. Note that `docker compose down` removes the containers but **not**
 the named volumes, so data survives a stop/start cycle.
 
 ### Provisioning a fresh VM
@@ -1414,8 +1418,10 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 
 | File | Lines | What it does |
 |------|-------|--------------|
-| [`start_services.sh`](../../start_services.sh) | 159 | Boots Docker, the API, both workers and the frontend in dependency order; writes PID files and logs into `logs/` |
-| [`stop_services.sh`](../../stop_services.sh) | 98 | Kills by PID file, then by port, then `docker compose down` |
+| [`start_services.sh`](../../start_services.sh) | 164 | Boots Docker, the API, both workers and the frontend in dependency order; writes PID files and logs into `logs/` |
+| [`stop_services.sh`](../../stop_services.sh) | 102 | Kills by PID file, then by port; stops a retired gateway on 8001; then `docker compose down` |
+| [`start_services.ps1`](../../start_services.ps1) | 206 | Windows development only: the same start, same logs and PID files |
+| [`stop_services.ps1`](../../stop_services.ps1) | 201 | Windows development only: the same stop; `-WhatIf` and `-Only` |
 | [`setup_production_vm.sh`](../../setup_production_vm.sh) | 183 | Eight-step Ubuntu bootstrap: Python 3.12, Poetry, Node 20, Docker, venv, npm, `.env` |
 | [`backend/docker-compose.yml`](../../backend/docker-compose.yml) | 57 | Defines `app` (the API, 8000), `db` (5433), `redis` (6379); only `db` and `redis` are actually used |
 | [`backend/src/main.py`](../../backend/src/main.py) | 173 | The API app: lifespan (dispatcher), CORS, rate limiter, ~30 routers (18 of them optional) including the webhook/stream edge, three static mounts, telemetry |

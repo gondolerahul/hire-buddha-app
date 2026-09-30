@@ -13,12 +13,11 @@
 > **Where the work is paused (2026-09-30, end of the third session):** register 02 is
 > done — all 21 defects fixed; improvements SA-I2, SA-I4, SA-I10 done, SA-I5 moot, SA-I6
 > partly done, SA-I1/I3/I7/I8/I9 open. Register 01 still has **PO-07** open. Resume on
-> the product owner's next pick. Left running locally: the `backend-api` preview (:8000),
-> one main Arq worker and one child-run worker (logs `logs/arq_worker_sa10.log`,
-> `logs/arq_child_worker.log`); nothing listens on :4317, so both log trace-export
-> retries (see §9 for a throwaway receiver). Another
-> session's `-alt` servers (:8010, :3010) and its own Arq worker also run — that worker
-> predates SA-I4, sends no heartbeat, and should be restarted.
+> the product owner's next pick. Left running locally, started with
+> `start_services.ps1`: Docker, the API (:8000), both Arq workers and the frontend
+> (:3000); `stop_services.ps1` stops them. The previous session's `-alt` servers
+> (:8010 API, :3010 frontend) also run; its stale Arq worker was stopped while
+> testing the stop script.
 
 ---
 
@@ -282,8 +281,9 @@ Windows 11, Git Bash and PowerShell. All paths below are relative to the repo ro
 |---|---|
 | Postgres (pgvector) + Redis | `docker compose up -d db redis` in `backend/`. Containers `hirebuddha-db` (**port 5433**) and `hirebuddha-redis` (6379) |
 | Backend venv | `backend/.venv` — Python 3.12 via uv, dependencies from `poetry.lock` |
-| API + frontend | `.claude/launch.json`: `backend-api` (uvicorn :8000) and `frontend` (vite :3000) |
-| Arq workers | Two since SA-07. `cd backend && PYTHONUTF8=1 .venv/Scripts/python.exe -m arq src.ai.worker.WorkerSettings > ../logs/arq_worker.log 2>&1`, and the same with `ChildWorkerSettings` > `../logs/arq_child_worker.log`. **Restart both after any backend change** — they do not reload. `curl -s localhost:8000/api/v1/health` shows each queue's live workers |
+| Whole stack | `powershell -ExecutionPolicy Bypass -File .\start_services.ps1` / `.\stop_services.ps1` at the repo root (Windows development only; the VMs use the `.sh` pair). `-Only docker,api,workers,frontend` picks services; `stop_services.ps1 -WhatIf` lists what it would stop. See `18-infrastructure-and-deployment.md` §6.3 |
+| API + frontend | Or `.claude/launch.json`: `backend-api` (uvicorn :8000) and `frontend` (vite :3000) |
+| Arq workers | Two since SA-07: `WorkerSettings` and `ChildWorkerSettings`. **Restart both after any backend change** — they do not reload: `.\stop_services.ps1 -Only workers; .\start_services.ps1 -Only workers`. `curl -s localhost:8000/api/v1/health` shows each queue's live workers |
 | One port | Everything — REST, webhooks, `/internal/event`, media-stream WebSockets — is on :8000 since `19f57bb`. `backend/.env` has `STREAMING_HOST=localhost:8000`; its `INTERNAL_TOKEN` is still the placeholder, so `/internal/event` answers 503 locally |
 | Vertex AI | Application Default Credentials: `gcloud auth application-default login`. Project `hirebuddha-production`, region `us-central1` (`backend/.env`) |
 | Seeds | `db-scripts/seed_admin_user.py` (admin@hirebuddha.com), `db-scripts/seed_integration_registry.py` (gemini-2.5-flash and text-embedding-005 SKUs + task defaults). Deep-research entities: `scripts/seeds/deep_research/DeepResearchSetup/create_v2.py` |

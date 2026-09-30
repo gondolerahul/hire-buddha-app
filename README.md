@@ -152,8 +152,10 @@ hb-proto-3/
 │   └── apache/            # VirtualHost configs, security hardening, setup script
 ├── docs/                  # Architecture & specification documents
 ├── setup_production_vm.sh # Full VM setup (Python, Node, Docker, deps)
-├── start_services.sh      # Start all services
+├── start_services.sh      # Start all services (Ubuntu test/production VMs)
 ├── stop_services.sh       # Stop all services
+├── start_services.ps1     # Start all services - Windows development only
+├── stop_services.ps1      # Stop all services - Windows development only
 └── AI_MODEL_CREDENTIALS_GUIDE.md  # AI provider setup guide
 ```
 

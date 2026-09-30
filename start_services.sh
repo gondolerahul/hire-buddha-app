@@ -97,6 +97,11 @@ else
     wait_for_service "Backend API" 8000
 fi
 
+# The Unified Gateway on :8001 was merged into the API (2026-09-30).
+if check_port 8001; then
+    echo -e "${YELLOW}Port 8001 is still in use - probably the retired Unified Gateway. Run ./stop_services.sh, then start again.${NC}"
+fi
+
 # Step 3: Start Arq Worker
 echo -e "${BLUE}[3/4] Starting Arq Worker...${NC}"
 

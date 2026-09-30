@@ -71,7 +71,15 @@ echo -e "${BLUE}[3/4] Stopping API...${NC}"
 stop_service "API" "$LOG_DIR/backend_api.pid"
 kill_port "API" 8000
 
-# Final cleanup of uvicorn (also stops a gateway left on :8001 by an older start script)
+# The Unified Gateway on :8001 was merged into the API (2026-09-30). A machine
+# still running one from an older start_services.sh has it stopped here.
+if [ -f "$LOG_DIR/unified_gateway.pid" ]; then
+    stop_service "Legacy Unified Gateway" "$LOG_DIR/unified_gateway.pid"
+fi
+pkill -f "uvicorn src.gateway.app:app" 2>/dev/null && echo -e "${GREEN}✓ Legacy Unified Gateway stopped${NC}"
+kill_port "Legacy Unified Gateway" 8001
+
+# Final cleanup of uvicorn
 pkill -f "uvicorn" 2>/dev/null && echo -e "${GREEN}✓ All remaining Uvicorn processes stopped${NC}"
 
 # Step 4: Stop Docker services
