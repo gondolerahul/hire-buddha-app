@@ -45,13 +45,14 @@ export const emailService = {
         return response.data;
     },
 
-    getConnections: async (companyId: string): Promise<EmailConnection[]> => {
-        const response = await apiClient.get<EmailConnection[]>(`/email/connections?company_id=${companyId}`);
+    // The API scopes every connection to the signed-in user's company.
+    getConnections: async (): Promise<EmailConnection[]> => {
+        const response = await apiClient.get<EmailConnection[]>('/email/connections');
         return response.data;
     },
 
-    createConnection: async (data: EmailConnectionCreate & { company_id: string }): Promise<EmailConnection> => {
-        const response = await apiClient.post<EmailConnection>(`/email/connections?company_id=${data.company_id}`, data);
+    createConnection: async (data: EmailConnectionCreate): Promise<EmailConnection> => {
+        const response = await apiClient.post<EmailConnection>('/email/connections', data);
         return response.data;
     },
 

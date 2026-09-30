@@ -2,6 +2,10 @@
 Email Connection CRUD API Router.
 
 Endpoints for managing AI agent email connections (IMAP/SMTP).
+
+Every route needs a signed-in user, and every connection is read, validated and
+deleted only within that user's company (AU-02). A connection of another company
+is a 404, the same as one that does not exist.
 """
 import logging
 import imaplib
@@ -14,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.common.database import get_db
-from src.auth.models import User
+from src.auth.dependencies import get_current_user_and_company
 from src.ai.email_models import EmailConnection
 from src.common.security import encrypt_api_key, decrypt_api_key
 
@@ -86,7 +90,7 @@ PROVIDER_DEFAULTS = {
 # --- Endpoints ---
 
 @router.get("/provider-defaults")
-async def get_provider_defaults():
+async def get_provider_defaults(auth=Depends(get_current_user_and_company)):
     """Get default IMAP/SMTP settings for known email providers."""
     return PROVIDER_DEFAULTS
 
@@ -95,20 +99,12 @@ async def get_provider_defaults():
 async def create_email_connection(
     data: EmailConnectionCreate,
     db: AsyncSession = Depends(get_db),
-    # current_user will be injected by auth middleware in production
-    company_id: Optional[str] = None
+    auth=Depends(get_current_user_and_company),
 ):
-    """Create a new email connection with encrypted credentials."""
-    # For now, use a placeholder company_id (auth middleware will provide real one)
-    if not company_id:
-        # In production, this comes from the authenticated user
-        raise HTTPException(status_code=400, detail="company_id is required")
-    
-    try:
-        company_uuid = UUID(company_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid company_id format")
-    
+    """Create a new email connection with encrypted credentials, in the caller's company."""
+    _, company = auth
+    company_uuid = company.id
+
     # Check if connection already exists for this email
     existing = await db.execute(
         select(EmailConnection).where(
@@ -158,18 +154,14 @@ async def create_email_connection(
 
 @router.get("/connections")
 async def list_email_connections(
-    company_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(get_current_user_and_company),
 ):
-    """List all email connections for a company."""
-    try:
-        company_uuid = UUID(company_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid company_id format")
-    
+    """List the caller's company's email connections."""
+    _, company = auth
     result = await db.execute(
         select(EmailConnection).where(
-            EmailConnection.company_id == company_uuid
+            EmailConnection.company_id == company.id
         )
     )
     connections = result.scalars().all()
@@ -179,22 +171,13 @@ async def list_email_connections(
 @router.delete("/connections/{connection_id}")
 async def delete_email_connection(
     connection_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(get_current_user_and_company),
 ):
-    """Delete an email connection."""
-    try:
-        conn_uuid = UUID(connection_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid connection_id format")
-    
-    result = await db.execute(
-        select(EmailConnection).where(EmailConnection.id == conn_uuid)
-    )
-    connection = result.scalar_one_or_none()
-    
-    if not connection:
-        raise HTTPException(status_code=404, detail="Email connection not found")
-    
+    """Delete one of the caller's company's email connections."""
+    _, company = auth
+    connection = await _get_own_connection(db, connection_id, company.id)
+
     await db.delete(connection)
     await db.commit()
     
@@ -204,25 +187,16 @@ async def delete_email_connection(
 @router.post("/connections/{connection_id}/validate", response_model=EmailValidateResponse)
 async def validate_email_connection(
     connection_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(get_current_user_and_company),
 ):
     """
     Validate email connection by running an IMAP NOOP command.
     This tests the credentials without performing any mail operations.
     """
-    try:
-        conn_uuid = UUID(connection_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid connection_id format")
-    
-    result = await db.execute(
-        select(EmailConnection).where(EmailConnection.id == conn_uuid)
-    )
-    connection = result.scalar_one_or_none()
-    
-    if not connection:
-        raise HTTPException(status_code=404, detail="Email connection not found")
-    
+    _, company = auth
+    connection = await _get_own_connection(db, connection_id, company.id)
+
     try:
         # Decrypt password
         password = decrypt_api_key(connection.encrypted_app_password)
@@ -269,6 +243,24 @@ async def validate_email_connection(
             valid=False,
             message=f"Connection failed: {str(e)}"
         )
+
+
+async def _get_own_connection(db: AsyncSession, connection_id: str, company_id: UUID) -> EmailConnection:
+    """The connection, if it belongs to ``company_id``; otherwise 404."""
+    try:
+        conn_uuid = UUID(connection_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection_id format")
+    result = await db.execute(
+        select(EmailConnection).where(
+            EmailConnection.id == conn_uuid,
+            EmailConnection.company_id == company_id,
+        )
+    )
+    connection = result.scalar_one_or_none()
+    if not connection:
+        raise HTTPException(status_code=404, detail="Email connection not found")
+    return connection
 
 
 def _to_response(connection: EmailConnection) -> dict:

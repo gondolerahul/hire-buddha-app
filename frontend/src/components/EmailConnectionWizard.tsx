@@ -8,7 +8,6 @@ import { emailService, EmailConnection, ProviderDefaults } from '../services/ema
 interface EmailConnectionWizardProps {
     isOpen: boolean;
     onClose: () => void;
-    companyId: string;
     onConnectionCreated?: (connection: EmailConnection) => void;
 }
 
@@ -23,7 +22,6 @@ const PROVIDERS = [
 export const EmailConnectionWizard: React.FC<EmailConnectionWizardProps> = ({
     isOpen,
     onClose,
-    companyId,
     onConnectionCreated
 }) => {
     const [step, setStep] = useState<WizardStep>('provider');
@@ -83,7 +81,6 @@ export const EmailConnectionWizard: React.FC<EmailConnectionWizardProps> = ({
             const connection = await emailService.createConnection({
                 ...formData,
                 provider_type: selectedProvider,
-                company_id: companyId
             });
             setCreatedConnection(connection);
             setStep('validate');

@@ -42,7 +42,7 @@ export const IntegrationsPage: React.FC = () => {
 
             // Also fetch email connections if user is loaded
             if (currentUser?.company_id) {
-                fetchEmailConnections(currentUser.company_id);
+                fetchEmailConnections();
             }
         } catch (err) {
             setError('Failed to load integrations');
@@ -52,10 +52,10 @@ export const IntegrationsPage: React.FC = () => {
         }
     };
 
-    const fetchEmailConnections = async (companyId: string) => {
+    const fetchEmailConnections = async () => {
         try {
             setEmailLoading(true);
-            const data = await emailService.getConnections(companyId);
+            const data = await emailService.getConnections();
             setEmailConnections(data);
         } catch (err) {
             console.error('Failed to load email connections', err);
@@ -80,7 +80,7 @@ export const IntegrationsPage: React.FC = () => {
 
     useEffect(() => {
         if (currentUser?.company_id) {
-            fetchEmailConnections(currentUser.company_id);
+            fetchEmailConnections();
         }
     }, [currentUser]);
 
@@ -293,7 +293,7 @@ export const IntegrationsPage: React.FC = () => {
                                 onClick={async () => {
                                     if (window.confirm('Delete this email connection?')) {
                                         await emailService.deleteConnection(conn.id);
-                                        if (currentUser?.company_id) fetchEmailConnections(currentUser.company_id);
+                                        if (currentUser?.company_id) fetchEmailConnections();
                                     }
                                 }}
                                 className="text-red-500 hover:text-red-400"
@@ -328,9 +328,8 @@ export const IntegrationsPage: React.FC = () => {
                     onClose={() => setIsEmailWizardOpen(false)}
                     onConnectionCreated={() => {
                         setIsEmailWizardOpen(false);
-                        fetchEmailConnections(currentUser.company_id);
+                        fetchEmailConnections();
                     }}
-                    companyId={currentUser.company_id}
                 />
             )}
         </div>

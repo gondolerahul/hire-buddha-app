@@ -666,10 +666,13 @@ Full semantics in [10 — LLM providers](10-llm-providers.md).
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/v1/email/provider-defaults` | Known provider presets |
-| POST | `/api/v1/email/connections` | Create a connection |
-| GET | `/api/v1/email/connections` | List |
-| DELETE | `/api/v1/email/connections/{connection_id}` | Delete |
-| POST | `/api/v1/email/connections/{connection_id}/validate` | Test credentials |
+| POST | `/api/v1/email/connections` | Create a connection in the caller's company |
+| GET | `/api/v1/email/connections` | List the caller's company's connections |
+| DELETE | `/api/v1/email/connections/{connection_id}` | Delete (own company only; 404 otherwise) |
+| POST | `/api/v1/email/connections/{connection_id}/validate` | Test credentials (own company only) |
+
+Every `/email/*` route needs a bearer token and is scoped to the caller's company (AU-02,
+2026-09-30); before, all five were anonymous.
 | POST | `/api/social-connections` | Create a social connection |
 | GET | `/api/social-connections` | List |
 | DELETE | `/api/social-connections/{connection_id}` | Delete |

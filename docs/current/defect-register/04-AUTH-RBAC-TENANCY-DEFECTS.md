@@ -120,7 +120,7 @@ freshly registered `tenant_admin` PATCHing `{"role": "app_admin"}` onto itself g
 
 ### AU-02 — The email connection API has no authentication at all
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)**
 
 All five routes on `/api/v1/email/*` depend on `get_db` and nothing else. No
 `get_current_user`, no `RoleChecker`.
@@ -156,6 +156,24 @@ request with no `Authorization` header straight through.
 
 **Fix:** add `get_current_user_and_company` and scope every query. Copy
 `social_router.py`, never this file.
+
+**Done (2026-09-30).** Every route depends on `get_current_user_and_company` (so an
+anonymous call is a 401 before any query). List and create use the caller's company; the
+`company_id` query parameter is gone, and one sent anyway is ignored. Delete and validate
+go through `_get_own_connection`, which matches on id **and** company and answers 404
+otherwise — so another tenant's app password is never decrypted. The frontend
+(`email.service.ts`, `EmailConnectionWizard`, `IntegrationsPage`) no longer sends a company
+id.
+
+**Evidence:** `tests/unit/test_email_router_auth.py` — all five routes return 401 without a
+token and never reach the database. `tests/integration/test_email_connection_scope.py` —
+against the real Postgres: list shows only the caller's company even with another
+company's id in the query string; create lands in the caller's company; another company's
+connection cannot be deleted (404, row still there) and is never decrypted or logged into
+(404, no IMAP call); the caller's own connection validates and deletes. 9 of the 10 fail
+on the old code. Live on the local API: anonymous calls to all five routes got 401; tenant
+B listing with tenant A's company id got `[]`, and validating or deleting A's connection got
+404 while A still saw it and could delete it.
 
 ---
 

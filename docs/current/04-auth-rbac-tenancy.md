@@ -914,28 +914,13 @@ select(SocialConnection).where(
 
 | Risk | Location | Detail |
 |---|---|---|
-| **Email connections have no auth at all** | [ai/email_router.py](../../backend/src/ai/email_router.py) | `GET /api/v1/email/connections?company_id=<any-uuid>` has **no `Depends(get_current_user)`**. Any unauthenticated caller can enumerate another company's mailboxes. |
-| **Email connection delete/validate ignore company** | [email_router.py:179](../../backend/src/ai/email_router.py:179), [:204](../../backend/src/ai/email_router.py:204) | Look up by `connection_id` alone. `DELETE /email/connections/{id}` deletes any tenant's connection; `POST .../validate` decrypts another tenant's app password and attempts an IMAP login with it. |
+| ~~**Email connections have no auth at all**~~ **Fixed 2026-09-30 (AU-02)** | [ai/email_router.py](../../backend/src/ai/email_router.py) | Every route now depends on `get_current_user_and_company`; list and create use the caller's company (a `company_id` in the query string is ignored), and delete/validate look a connection up by id **and** company, 404 otherwise. Before, all five routes were anonymous and delete/validate looked up by id alone — `validate` decrypted another tenant's app password and logged into the mailbox. |
 | Templates are global | [ai/service.py:57](../../backend/src/ai/service.py:57) | `is_template == True` rows have `company_id = NULL` and are visible to everyone by design. Anything put in a template is public to all tenants. |
 | `app_admin` short-circuits | throughout | `if user_role != "app_admin"` skips the filter entirely. Correct, but it means a role-escalation bug (7.6 item 4) becomes a full-database read. |
 | Copy-pasted cascade logic | `user_router`, `company_router`, `ai/router`, `ai/service`, `phone_number_router` | Five independent implementations of "own + children". They already disagree about `partner_user`. |
 | Webhooks derive tenancy from provider data | [voice/webhook_router.py](../../backend/src/voice/webhook_router.py) | `company_id` comes from the phone-number assignment row, not from a token. Correct approach, but the trust boundary is the telephony provider's signature, not a HireBuddha credential. |
 
-The email router is the standout. Its own code comments admit it:
-
-```python
-# backend/src/ai/email_router.py
-async def create_email_connection(
-    data: EmailConnectionCreate,
-    db: AsyncSession = Depends(get_db),
-    # current_user will be injected by auth middleware in production
-    company_id: Optional[str] = None
-):
-    """Create a new email connection with encrypted credentials."""
-    # For now, use a placeholder company_id (auth middleware will provide real one)
-```
-
-There is no such middleware — nothing in front of the routes injects a company. The frontend passes `companyId` explicitly from [EmailConnectionWizard.tsx:86](../../frontend/src/components/EmailConnectionWizard.tsx:86), which is why it works in the UI — but that also means the client picks its own tenant. Compare with `social_router.py`, which took the same feature and did it correctly with `get_current_user_and_company`.
+Until 2026-09-30 the email router was the standout: its create route took `company_id` from the query string with a comment saying *"current_user will be injected by auth middleware in production"* — there was no such middleware, so the client picked its own tenant. It now follows `social_router.py`: `get_current_user_and_company` on every route, and the frontend no longer sends a company id (AU-02).
 
 ---
 
@@ -1207,7 +1192,7 @@ stateDiagram-v2
 
 The app password is encrypted with the same `encrypt_api_key` and validated by a real `imaplib.IMAP4_SSL` login plus `NOOP` ([email_router.py:231-233](../../backend/src/ai/email_router.py:231)). The wizard is [EmailConnectionWizard.tsx](../../frontend/src/components/EmailConnectionWizard.tsx).
 
-As covered in section 9.3, **none of these endpoints authenticate**. That is the single highest-severity finding in this document.
+Every one of these endpoints requires a signed-in user and works only on the caller's company's connections (AU-02, fixed 2026-09-30; see section 9.3).
 
 ---
 
@@ -1413,7 +1398,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 
 | # | Gap | Evidence |
 |---|---|---|
-| 1 | **`/api/v1/email/*` has no authentication whatsoever.** Read, create, delete, and validate another tenant's mailbox credentials by passing their `company_id` or `connection_id`. `validate` decrypts the stored app password and logs into the mailbox. | [email_router.py:94](../../backend/src/ai/email_router.py:94), [:159](../../backend/src/ai/email_router.py:159), [:179](../../backend/src/ai/email_router.py:179), [:204](../../backend/src/ai/email_router.py:204) |
+| 1 | ~~**`/api/v1/email/*` has no authentication whatsoever.**~~ **Fixed (AU-02):** every route requires a user and is confined to that user's company. | [email_router.py](../../backend/src/ai/email_router.py) |
 | 2 | ~~**Privilege escalation via `PATCH /users/{id}`.**~~ **Fixed (AU-01):** role changes are checked against the caller's assignable roles and refused on the caller's own row; see §7.6 item 4. | [service.py](../../backend/src/auth/service.py) `update_user_as_admin` |
 | 3 | **Production secrets are the committed defaults.** `SECRET_KEY=dev_secret_key_change_in_production` in `backend/.env`; anyone with it mints tokens for any user. (`INTERNAL_TOKEN=change-me-in-production` no longer opens `/internal/event` — a placeholder disables it, SA-20.) | `backend/.env`, [config.py](../../backend/src/common/config.py) |
 | 4 | ~~**Any authenticated user can suspend their own company**~~ **Fixed (AU-03):** status is `app_admin` (other companies) or `partner_admin` (its tenants) only, never the caller's own company. | [company_router.py](../../backend/src/auth/company_router.py) `update_company` |
@@ -1503,7 +1488,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 - **There is no logout endpoint.** Signing out only clears `localStorage`.
 - **Two `_require_admin` functions exist with different meanings.** `ai/api/admin.py` counts `tenant_admin` as admin; `billing/cron_router.py` does not.
 - **The OAuth buttons on the login page have no `onClick`.** The backend flow works; the UI never triggers it.
-- **`/api/v1/email/*` is completely unauthenticated.** Do not copy that router as a template — copy `social_router.py` instead.
+- **`/api/v1/email/*` was completely unauthenticated until 2026-09-30 (AU-02).** It now matches `social_router.py`; either is a fair template for a company-scoped credentials API.
 - **The gateway is not a security boundary for REST.** Its own docstring says the backend enforces auth. Only `/internal/event` is blocked at the gateway.
 - **Onboarding is enforced only at login, only for tenant roles.** Deep-linking to `/dashboard` skips it.
 
