@@ -85,7 +85,7 @@ data is reachable by anyone else. Several are one-line fixes.
 
 ### D-01 — Top-up credits an amount the client chooses
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `f7e8d69`)** — BC-01: the stored order amount is credited, once; Razorpay's webhook also credits it (BC-I5, `01a5386`).
 
 The Razorpay signature *is* verified correctly (HMAC-SHA256 over
 `order_id|payment_id`). The problem is what happens next: the wallet is credited with
@@ -102,7 +102,7 @@ reject when `txn.status == "success"`.
 
 ### D-02 — Subscribing strands the wallet and grants nothing
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `fe8f1a6`)** — BC-03: subscriptions are Razorpay Subscriptions; each paid cycle grants its credits; the balance stays spendable (BC-02).
 
 Three confirmed facts compound:
 
@@ -129,7 +129,7 @@ balance on switch).
 
 ### D-03 — The billing crons are never scheduled
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `e46bff3`)** — BC-04: both billing jobs are Arq crons; the daily one renews only expired credits; the monthly one only reconciles with Razorpay.
 
 `WorkerSettings.cron_jobs` registers CORTEX resumption, dreaming, critic calibration,
 skill promotion, prompt evolution, KPI rollup and cost-estimator refresh. It registers
@@ -208,7 +208,7 @@ settlement writes duplicate rows, and every report summing this table over-count
 
 ### D-08 — Subscription tiers are readable without a token
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30, `7e706b3`)** — BC-20: the tier list needs a signed-in user.
 
 `GET /api/v1/credits/subscription-tiers` takes only
 `db: AsyncSession = Depends(get_db)`. The sibling POST/PUT/DELETE routes on the same
@@ -234,7 +234,7 @@ the same underlying query with only a different `totals` dict.
 
 ### D-10 — `partner_admin` can edit platform-wide pricing
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: fixed (2026-09-30, `7e706b3`)** — BC-19: the billing config and tier writes are `app_admin` only.
 
 `PUT /billing/config` reportedly accepts `company_id: null` from a partner admin,
 writing the global default row every tenant inherits.
@@ -462,7 +462,7 @@ up a launch.
 | **D-34** | `_final_status` can return `COMPLETED` when every step failed | Runs that did nothing are billed and reported as successes | 📄 Doc |
 | **D-35** | Run status transitions are advisory | `validate_transition` warns but never blocks; illegal states are reachable | 📄 Doc |
 | **D-36** | Agent selection is `LIMIT 1` with no `ORDER BY` | Non-deterministic agent choice, in three separate call sites | 📄 Doc |
-| **D-37** | No credit holds | Cost accrues during a run and settles at the end, so one run can overdraw | 📄 Doc |
+| **D-37** | No credit holds | Cost accrues during a run and settles at the end, so one run can overdraw | ✅ fixed (2026-09-30, `c1eecb9`) — BC-06: a run holds its estimated bill; the BC-05 breaker stops it at the wallet |
 | **D-38** | Frontend has no error boundary | One render throw blanks the entire page | 📄 Doc |
 | **D-39** | `npm run lint` fails — no ESLint config exists | The `lint` script is defined in `package.json`; no config file is present. No lint gate at all | ✅ Verified |
 | **D-40** | No frontend test runner | Two `.test.ts` files import `vitest`, which is not configured | 📄 Doc |

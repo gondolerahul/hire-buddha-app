@@ -37,23 +37,72 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 8 | **Before the first paying tenant** |
-| [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 8 | Before any margin analysis |
-| [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | Before relying on the control |
-| [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 8 | Now — mostly cheap |
+| Tier | Theme | Count | Fixed | Won't fix |
+|---|---|---|---|---|
+| [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 8 | 8 | 0 |
+| [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 8 | 8 | 0 |
+| [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | 5 | 0 |
+| [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 8 | 7 | 1 |
 
-**Total: 29 defects, 10 improvements.**
+**Total: 29 defects (28 fixed, 1 won't fix), 10 improvements (8 done, 1 done for tools, 1 partly
+done).** Worked 2026-09-30 on branch `roadmap-development-defect-fixes`; three defects were
+found on the way and added (BC-27, BC-28, BC-29).
 
-The three to read first:
+| ID | Defect | Status |
+|---|---|---|
+| BC-01 | The client chooses how much to credit its own wallet | ✅ fixed `f7e8d69` |
+| BC-02 | Switching to a subscription makes the existing balance unspendable | ✅ fixed `6ee7034` |
+| BC-03 | Subscribing strands the wallet and grants nothing | ✅ fixed `fe8f1a6` (Razorpay Subscriptions) |
+| BC-04 | The billing crons are never scheduled | ✅ fixed `fe8f1a6`, `e46bff3` |
+| BC-05 | Three of the four credit gates have no callers | ✅ fixed `c1eecb9` |
+| BC-06 | There are no holds, so one run can overdraw | ✅ fixed `c1eecb9` |
+| BC-07 | Fixed-cost tool charges write no `usage_logs` row | ✅ fixed `d71918d` |
+| BC-08 | Image generation is charged twice | ✅ fixed `d71918d` |
+| BC-09 | `attribution="actor_step"` is never written | ✅ fixed `d71918d` |
+| BC-10 | The tool cost path ignores `cost_unit` and has no APP fallback | ✅ fixed `d71918d` |
+| BC-11 | Four price tables, and the intended source of truth is unused | ✅ fixed `d71918d` |
+| BC-12 | Telephony minutes are rounded two different ways | ✅ fixed `77d0dd2` |
+| BC-13 | `base_cost_llm` ignored; `base_cost_telephony` overwrites | ✅ fixed `77d0dd2` |
+| BC-14 | The credit gates had zero callers | ✅ fixed `c1eecb9` |
+| BC-15 | The daily and monthly cron jobs are unscheduled | ✅ fixed `e46bff3` |
+| BC-16 | `razorpay_subscription_id` is never populated | ✅ fixed `fe8f1a6` |
+| BC-17 | `tools.cost_resolver_v2_enabled` is never read | ✅ fixed `d71918d` (flag deleted) |
+| BC-18 | Abandoned checkouts and orphaned subscriptions | ✅ fixed `e46bff3` |
+| BC-19 | `partner_admin` can edit platform-wide pricing | ✅ fixed `7e706b3` |
+| BC-20 | Two open endpoints on the money surface | ✅ fixed `682da36` (PO-04), `7e706b3` |
+| BC-21 | Percentages and fractions are mixed, with the wrong label | ✅ fixed `7e706b3` |
+| BC-22 | The seeded default is not at cost | won't fix — a pricing choice |
+| BC-23 | `subscription_tiers` has no migration | ✅ fixed `fd3eb83` (DM-01) |
+| BC-24 | `billing_events` has no unique constraint | ✅ fixed `80b22ed` (DM-04) |
+| BC-25 | Stripe is a dependency with no code; duplicate response key | ✅ fixed `52bd614`, `f7e8d69` |
+| BC-26 | Any user can read the billing multiplier and base costs | ✅ fixed `7e706b3` |
+| BC-27 | Concurrent deductions overwrite each other *(new)* | ✅ fixed `6ee7034` |
+| BC-28 | Subscribing always fails with 422 *(new)* | ✅ fixed `fe8f1a6` |
+| BC-29 | Any custom-API registry row prices every tool *(new)* | ✅ fixed `d71918d` |
 
-- **[BC-01](#bc-01--the-client-chooses-how-much-to-credit-its-own-wallet)** — verify a $1
-  payment, claim $1000, replay it indefinitely.
-- **[BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers)** — a normal agent run
-  has no pre-execution credit gate and no in-run circuit breaker.
-- **[BC-03](#bc-03--subscribing-strands-the-wallet-and-grants-nothing)** — a complete
-  pay-and-get-nothing path.
+| ID | Improvement | Status |
+|---|---|---|
+| BC-I1 | Call the credit gates that already exist | ✅ done `c1eecb9` |
+| BC-I2 | Credit holds instead of settle-at-the-end | ✅ done `c1eecb9` |
+| BC-I3 | One cost write path | ◐ done for tools `d71918d` |
+| BC-I4 | Schedule the crons | ✅ done `e46bff3` |
+| BC-I5 | Add the Razorpay webhook | ✅ done `01a5386` |
+| BC-I6 | Validate pricing inputs on write | ✅ done `7e706b3` |
+| BC-I7 | Reap abandoned payments and subscriptions | ✅ done `e46bff3` |
+| BC-I8 | Make cost queryable per run | ◐ partly — the endpoint exists; no child runs, no billed amount |
+| BC-I9 | Reconcile telephony rounding | ✅ done `77d0dd2` |
+| BC-I10 | Remove the Stripe dependency | ✅ done `52bd614` |
+
+**Not exercised live:** the Razorpay API calls themselves (orders, plans, subscriptions,
+cancel, invoices — no Razorpay test account here; covered with an in-memory fake), and the
+credit breaker stopping a real run mid-flight (Vertex ADC had expired; covered by integration
+tests). Deployment: add `webhook_secret` to the `razorpay_keys` registry row, point a Razorpay
+webhook at `/api/v1/credits/razorpay/webhook` with the `payment.*` and `subscription.*`
+events, and apply migrations `bc01`, `bc03`, `bc06`, `bc07`.
+
+The original summary, for reference — the three to read first were BC-01 (verify a $1
+payment, claim $1000, replay it indefinitely), BC-05 (no pre-execution credit gate and no
+in-run circuit breaker) and BC-03 (a complete pay-and-get-nothing path).
 
 ---
 
@@ -61,7 +110,7 @@ The three to read first:
 
 ### BC-01 — The client chooses how much to credit its own wallet
 
-**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — the stored order amount is
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `f7e8d69`)** — the stored order amount is
 credited, once; the verify request has no amount.
 
 The Razorpay signature check is correct — HMAC-SHA256 over `order_id|payment_id`, compared
@@ -124,7 +173,7 @@ signature case passes on both.
 
 ### BC-02 — Switching to a subscription makes the existing balance unspendable
 
-**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — every bucket is spendable,
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `6ee7034`)** — every bucket is spendable,
 soonest-expiring first; `account_model` no longer gates spending.
 
 The deduction path is an `if` / `elif` on `account_model`:
@@ -167,7 +216,7 @@ the BC-27 race. Five fail on the old code.
 
 ### BC-03 — Subscribing strands the wallet and grants nothing
 
-**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — subscriptions are Razorpay
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `fe8f1a6`)** — subscriptions are Razorpay
 Subscriptions; the first payment grants its cycle's credits at verification.
 
 Three confirmed facts compound into a complete pay-and-get-nothing path:
@@ -227,7 +276,7 @@ were not exercised live — there is no Razorpay test account here.
 
 ### BC-04 — The billing crons are never scheduled
 
-**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — both jobs are Arq crons; the
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `e46bff3`)** — both jobs are Arq crons; the
 daily one renews only expired credits; the monthly one no longer grants unpaid credits.
 
 `WorkerSettings.cron_jobs` registers seven jobs: CORTEX resumption, dreaming, critic
@@ -284,7 +333,7 @@ renewed or created all 165 wallets on the first run and changed nothing on the s
 
 ### BC-05 — Three of the four credit gates have no callers
 
-**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — every top-level run is admitted on
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `c1eecb9`)** — every top-level run is admitted on
 credit and stopped by a circuit breaker; triggering without free credit is a 402.
 
 `14-billing-and-credits.md` and `01-product-overview.md` both describe credit enforcement
@@ -352,7 +401,7 @@ it.
 
 ### BC-06 — There are no holds, so one run can overdraw
 
-**📄 Doc-reported · High** · **Status: fixed (2026-09-30)** — a top-level run holds its
+**📄 Doc-reported · High** · **Status: fixed (2026-09-30, `c1eecb9`)** — a top-level run holds its
 estimated bill from admission to settlement; the breaker (BC-05) bounds a single run.
 
 Cost accrues on the run and the wallet is debited only at settlement. With no reservation
@@ -379,7 +428,7 @@ bounded by the BC-05 breaker to the cost of the iteration that crossed the line.
 
 ### BC-27 — Concurrent deductions overwrite each other
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — found while fixing BC-02.
+**✅ Verified · High** · **Status: fixed (2026-09-30, `6ee7034`)** — found while fixing BC-02.
 
 Every wallet change was read-modify-write in Python with no lock: read `wallet_balance`,
 subtract, assign, commit. Two sessions doing it at once each wrote their own result over the
@@ -403,7 +452,7 @@ deductions were lost.
 
 ### BC-28 — Subscribing always fails with 422
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — found while fixing BC-03.
+**✅ Verified · High** · **Status: fixed (2026-09-30, `fe8f1a6`)** — found while fixing BC-03.
 
 The wallet page's **Subscribe** button posted `{plan_tier, monthly_fee}` to
 `POST /credits/subscriptions`; the API's `SubscriptionCreate` requires `tier_level`. Every
@@ -423,7 +472,7 @@ old code: 422.
 
 ### BC-07 — Fixed-cost tool charges write no `usage_logs` row
 
-**📄 Doc-reported · High** · **Status: fixed (2026-09-30)** — `usage_logs.sku_id` is nullable
+**📄 Doc-reported · High** · **Status: fixed (2026-09-30, `d71918d`)** — `usage_logs.sku_id` is nullable
 (migration `bc07_usage_log_sku_nullable`); the row is written without a SKU, with the tool's
 name in `log_metadata`, and the usage-breakdown report outer-joins the registry to show it.
 **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
@@ -442,7 +491,7 @@ wallet. The money is charged and the line item does not exist, which makes
 
 ### BC-08 — Image generation is charged twice
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — confirmed in the code: the tool
+**✅ Verified · High** · **Status: fixed (2026-09-30, `d71918d`)** — confirmed in the code: the tool
 recorded a billing event and called `CreditService.consume` at raw cost, on top of the
 executor's charge and the run's settlement at TB. The tool's billing block (and its own price
 map) is deleted; the executor charges it once. **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
@@ -459,7 +508,7 @@ A guaranteed double charge on that branch. Recorded in the tool layer as part of
 
 ### BC-09 — `attribution="actor_step"` is never written
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — `StepExecutorService._log_usage`
+**✅ Verified · High** · **Status: fixed (2026-09-30, `d71918d`)** — `StepExecutorService._log_usage`
 passed no attribution, so `UsageService` recorded `tool`. It now tags a step's LLM call
 `actor_step` and a tool-input reformat call `reformat_retry`. **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
 `StepExecutorService._charge_tool` on the real Postgres, and
@@ -476,7 +525,7 @@ vs-tool cost is wrong.
 
 ### BC-10 — The tool cost path ignores `cost_unit` and has no APP fallback
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — `ToolCostResolver` falls back to the
+**✅ Verified · High** · **Status: fixed (2026-09-30, `d71918d`)** — `ToolCostResolver` falls back to the
 platform (APP) company's row when the tenant has none, and divides a registry price by its
 `cost_unit` (`usage_service.unit_divisor`, now shared with the LLM path). **Evidence:** `tests/integration/test_tool_metering.py`, 7 cases through
 `StepExecutorService._charge_tool` on the real Postgres, and
@@ -496,7 +545,7 @@ written.
 
 ### BC-11 — Four price tables, and the intended source of truth is unused
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — `ToolCostResolver` is the one price
+**✅ Verified · High** · **Status: fixed (2026-09-30, `d71918d`)** — `ToolCostResolver` is the one price
 lookup: both tool paths in `step_executor` call `_charge_tool`, which calls it and adds the
 amount atomically; the two inline tables are deleted, and so is the image tool's own price
 map. `cost_estimator` keeps its telemetry-refreshed *estimates* but takes fixed-cost tools'
@@ -524,7 +573,7 @@ mis-charge.
 
 ### BC-29 — Any custom-API registry row prices every tool
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — found while fixing BC-11.
+**✅ Verified · High** · **Status: fixed (2026-09-30, `d71918d`)** — found while fixing BC-11.
 
 Both inline tool-cost lookups (and the unused resolver) matched a registry row with
 `service_sku = tool_id OR service_category = 'CUSTOM_API' OR …` and `LIMIT 1`. A company with
@@ -539,7 +588,7 @@ one custom-API row — say a CRM integration at $0.75 per call — was charged $
 
 ### BC-12 — Telephony minutes are rounded two different ways
 
-**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — one rule, per started minute
+**✅ Verified · Medium** · **Status: fixed (2026-09-30, `77d0dd2`)** — one rule, per started minute
 (`voice/usage_logger.billed_minutes`: 125 s is 3 minutes); the usage log and the billing event
 both use it. **Evidence:** `tests/integration/test_billing_overrides.py` —
 `test_minutes_are_billed_per_started_minute`, and the event records the 3 minutes it is given.
@@ -552,7 +601,7 @@ ledger and the monthly aggregate always shows a discrepancy.
 
 ### BC-13 — `base_cost_llm` is read and then ignored; `base_cost_telephony` overwrites
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — each override is applied where the cost
+**✅ Verified · High** · **Status: fixed (2026-09-30, `77d0dd2`)** — each override is applied where the cost
 is computed, so the charge and the report agree; `base_cost_llm` is retired.
 
 Worse than recorded: the telephony override changed only the *billing event* — the voice
@@ -597,11 +646,11 @@ So one pricing override does nothing, and the other silently deletes a real cost
 
 | ID | Item | Reality | Status |
 |---|---|---|---|
-| **BC-14** | `check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker`, `require_credits` | Defined, unit-tested, **zero callers**. See [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) | ✅ fixed (2026-09-30) with BC-05 — the gate, breaker and `require_credits` are called; `consume_step_cost` is deleted |
-| **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ fixed (2026-09-30) with BC-04 — Arq crons at 00:00 and 01:30 UTC |
-| **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ fixed (2026-09-30) with BC-03 — set when the Razorpay subscription is created; every charge and status change is matched on it |
-| **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ fixed (2026-09-30) with BC-11 — the flag is deleted; the resolver is used unconditionally |
-| **BC-18** | Abandoned checkouts and orphaned subscriptions | A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | ✅ fixed (2026-09-30) — the daily job marks a top-up order still `pending` after 24 h `expired` and a subscription still `pending_payment` `failed` (cancelling its Razorpay subscription); a payment that arrives later for an expired order is still credited. A failed top-up payment is recorded by the webhook (BC-I5). `test_billing_crons.py` |
+| **BC-14** | `check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker`, `require_credits` | Defined, unit-tested, **zero callers**. See [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) | ✅ fixed (2026-09-30, `c1eecb9`) with BC-05 — the gate, breaker and `require_credits` are called; `consume_step_cost` is deleted |
+| **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ fixed (2026-09-30, `e46bff3`) with BC-04 — Arq crons at 00:00 and 01:30 UTC |
+| **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ fixed (2026-09-30, `fe8f1a6`) with BC-03 — set when the Razorpay subscription is created; every charge and status change is matched on it |
+| **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ fixed (2026-09-30, `d71918d`) with BC-11 — the flag is deleted; the resolver is used unconditionally |
+| **BC-18** | Abandoned checkouts and orphaned subscriptions | A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | ✅ fixed (2026-09-30, `e46bff3`) — the daily job marks a top-up order still `pending` after 24 h `expired` and a subscription still `pending_payment` `failed` (cancelling its Razorpay subscription); a payment that arrives later for an expired order is still credited. A failed top-up payment is recorded by the webhook (BC-I5). `test_billing_crons.py` |
 
 ---
 
@@ -609,7 +658,7 @@ So one pricing override does nothing, and the other silently deletes a real cost
 
 ### BC-19 — `partner_admin` can edit platform-wide pricing
 
-**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — confirmed: `PUT /billing/config`
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `7e706b3`)** — confirmed: `PUT /billing/config`
 allowed `partner_admin` with any `company_id`, `null` included, and the tier create/update
 routes allowed it too (tiers are platform-wide). Product decision: pricing is `app_admin` only.
 All four write routes now use `RoleChecker(["app_admin"])`. **Evidence:**
@@ -630,7 +679,7 @@ A reseller can therefore change the platform's pricing for every other reseller'
 
 ### BC-20 — Two open endpoints on the money surface
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — the costing half by PO-04, the tier list
+**✅ Verified · High** · **Status: fixed (2026-09-30, `7e706b3`)** — the costing half by PO-04, the tier list
 now needs a signed-in user.
 
 | Endpoint | Guard |
@@ -658,7 +707,7 @@ the read is open.
 
 ### BC-21 — Percentages and fractions are mixed, with the wrong label
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — `BillingConfigUpdate` range-checks
+**✅ Verified · High** · **Status: fixed (2026-09-30, `7e706b3`)** — `BillingConfigUpdate` range-checks
 `platform_fee_pct`, `sales_partner_fee_pct`, `discount_pct` to 0–1, `multiplier_factor` to
 (0, 100], daily credits and overrides to ≥ 0; tier `bonus_pct` (a percentage) to 0–100 and the
 fee to > 0. Out of range is a 422. The Billing Settings page labels the three as fractions,
@@ -679,7 +728,8 @@ prevents a mis-billing that would be very hard to unwind.
 
 ### BC-22 — The seeded default is not at cost
 
-**📄 Doc-reported · Medium · not a bug**
+**📄 Doc-reported · Medium · not a bug** · **Status: won't fix (2026-09-30)** — the default
+markup is a pricing choice, not a defect; recorded so analyses do not assume `mf=1`.
 
 The global default is `mf=1.3`, `pf=0.15`, `spf=0.10` — every tenant pays **1.625× raw
 cost** by default.
@@ -692,7 +742,8 @@ exists at all.
 
 ### BC-23 — `subscription_tiers` has no migration
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30, `fd3eb83`)** — as DM-01: migration
+`dm21_schema_catch_up` creates the table and seeds Starter, Growth and Scale.
 
 Referenced by the ORM, the credits router and the seed path; created by nothing in
 `backend/migrations/`. A database built purely from Alembic lacks the table and every
@@ -721,7 +772,7 @@ Same as [DM-04](03-DATA-MODEL-DEFECTS.md#dm-04--billing_events-has-no-unique-con
 
 ### BC-25 — Stripe is a dependency with no code, and `verify_topup` returns a duplicate key
 
-**✅ Verified · Low** · **Status: fixed (2026-09-30)** — `stripe` is removed from
+**✅ Verified · Low** · **Status: fixed (2026-09-30, `52bd614`)** — `stripe` is removed from
 `pyproject.toml` and `poetry.lock` (re-locked with Poetry 2.5.1: only the `stripe` entry and
 the content hash change; `poetry install --dry-run` changes nothing else). The duplicate key
 went with BC-01.
@@ -745,7 +796,7 @@ and a fair indicator of how much of that file has been reviewed.
 
 ### BC-26 — Any user can read the billing multiplier and base costs
 
-**✅ Verified · High** · **Status: fixed (2026-09-30)** — `GET /billing/config` is `app_admin`
+**✅ Verified · High** · **Status: fixed (2026-09-30, `7e706b3`)** — `GET /billing/config` is `app_admin`
 only (`RoleChecker`); the five other roles get 403. Evidence as BC-19. Found 2026-09-29 while
 fixing PO-04.
 
@@ -769,7 +820,7 @@ return that field alone.
 
 ### BC-I1 — Call the credit gates that already exist
 
-**Status: done (2026-09-30)** — see [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers).
+**Status: done (2026-09-30, `c1eecb9`)** — see [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers).
 
 **Effect: the largest single change in this register, and most of the code is written.**
 [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers). Two call sites in
@@ -781,7 +832,7 @@ and it makes the user-facing "top up and retry" message reachable.
 
 ### BC-I2 — Credit holds instead of settle-at-the-end
 
-**Status: done (2026-09-30)** — see [BC-06](#bc-06--there-are-no-holds-so-one-run-can-overdraw).
+**Status: done (2026-09-30, `c1eecb9`)** — see [BC-06](#bc-06--there-are-no-holds-so-one-run-can-overdraw).
 The wallet is still debited at settlement; the hold reserves credit until then.
 
 **Effect: large.** [BC-06](#bc-06--there-are-no-holds-so-one-run-can-overdraw). Reserve an
@@ -792,7 +843,7 @@ This is what makes overdraw structurally impossible rather than caught late.
 
 ### BC-I3 — One cost write path
 
-**Status: done for tools (2026-09-30)** — BC-07…BC-11: every tool charge is one resolver
+**Status: done for tools (2026-09-30, `d71918d`)** — BC-07…BC-11: every tool charge is one resolver
 lookup and one attributed `usage_logs` row, and the image tool no longer charges on its own.
 LLM calls already wrote attributed rows through `UsageService`. `run.total_cost_usd` is still
 maintained alongside the ledger rather than derived from it.
@@ -812,7 +863,7 @@ three tables.
 
 ### BC-I4 — Schedule the crons
 
-**Status: done (2026-09-30)** — see [BC-04](#bc-04--the-billing-crons-are-never-scheduled).
+**Status: done (2026-09-30, `e46bff3`)** — see [BC-04](#bc-04--the-billing-crons-are-never-scheduled).
 
 **Effect: large.** [BC-04](#bc-04--the-billing-crons-are-never-scheduled). Two entries in
 `WorkerSettings.cron_jobs`, next to the seven that are already there. Also change the daily
@@ -820,7 +871,7 @@ job from an assignment to a top-up so re-running it is safe.
 
 ### BC-I5 — Add the Razorpay webhook
 
-**Status: done (2026-09-30)** — `POST /api/v1/credits/razorpay/webhook`
+**Status: done (2026-09-30, `01a5386`)** — `POST /api/v1/credits/razorpay/webhook`
 (`billing/razorpay_webhook.py`). The signature is an HMAC-SHA256 of the raw body under
 `razorpay_keys.webhook_secret` (503 when unset, 400 when wrong). `payment.captured` credits a
 top-up through the same `PaymentService.credit_topup` as the browser callback — so either
@@ -845,7 +896,7 @@ it closes the worst of it.
 
 ### BC-I6 — Validate pricing inputs on write
 
-**Status: done (2026-09-30)** — see BC-19 and BC-21.
+**Status: done (2026-09-30, `7e706b3`)** — see BC-19 and BC-21.
 
 **Effect: medium, prevents a very expensive mistake.**
 [BC-21](#bc-21--percentages-and-fractions-are-mixed-with-the-wrong-label). Range-check
@@ -854,7 +905,7 @@ it closes the worst of it.
 
 ### BC-I7 — Reap abandoned payments and subscriptions
 
-**Status: done (2026-09-30)** — see BC-18.
+**Status: done (2026-09-30, `e46bff3`)** — see BC-18.
 
 **Effect: small.** [BC-18](#4-t2--gates-and-jobs-that-never-run). One query in the daily
 job: mark `pending` transactions older than 24 hours as `expired`, and orphaned
@@ -863,7 +914,13 @@ pile of rows that mean nothing.
 
 ### BC-I8 — Make cost queryable per run without a join storm
 
-**Effect: medium.** Answering "why was I charged $X?" today means joining `usage_logs`,
+**Status: partly done (2026-09-30)** — the endpoint exists:
+`GET /api/v1/admin/executions/{run_id}/cost_attribution` groups the run's `usage_logs` by
+attribution. Since BC-07 and BC-09 every charge is a row and correctly tagged, so for a single
+run it answers "where did the money go". Not done: it does not fold in child runs' rows or
+show the billed amount (TB) next to the cost.
+
+**Effect: medium.**Answering "why was I charged $X?" today means joining `usage_logs`,
 `llm_interaction_logs`, `tool_interaction_logs` and `billing_events`, none of which are
 indexed on the columns used
 ([DM-05](03-DATA-MODEL-DEFECTS.md#dm-05--execution_runs-has-no-index-on-company_id-or-entity_id),
@@ -874,7 +931,7 @@ turns a support investigation into one call.
 
 ### BC-I9 — Reconcile telephony rounding
 
-**Status: done (2026-09-30)** — see BC-12.
+**Status: done (2026-09-30, `77d0dd2`)** — see BC-12.
 
 **Effect: small.**[BC-12](#bc-12--telephony-minutes-are-rounded-two-different-ways). Pick
 one rounding rule and use it in both places. Today every telephony reconciliation shows a
@@ -882,7 +939,7 @@ difference that is not a real difference.
 
 ### BC-I10 — Remove the Stripe dependency
 
-**Status: done (2026-09-30)** — see BC-25.
+**Status: done (2026-09-30, `52bd614`)** — see BC-25.
 
 **Effect: small.**[BC-25](#bc-25--stripe-is-a-dependency-with-no-code-and-verify_topup-returns-a-duplicate-key).
 A payment SDK in the dependency list with no code behind it is a maintenance and audit
