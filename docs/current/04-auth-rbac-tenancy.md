@@ -659,7 +659,7 @@ Derived from the actual guard code, not from intent. Legend: **Y** = allowed, **
 | Update company / suspend | [company_router.py:110](../../backend/src/auth/company_router.py:110) | any | own | own only | own only | own | **own** |
 | List users | [user_router.py:14](../../backend/src/auth/user_router.py:14) | all | — | own+children | — | own | — |
 | Create user | [service.py:52](../../backend/src/auth/service.py:52) | any role, any company | — | 4 non-app roles, own+children | — | `tenant_*` in own company | — |
-| Update user | [user_router.py:48](../../backend/src/auth/user_router.py:48) | any | own company | own company | own company | own company | self only |
+| Update user (`service.update_user_as_admin`, AU-01) | [service.py](../../backend/src/auth/service.py) | any role but own | own name only | own+children, 4 non-app roles, not own role | own name only | own company, `tenant_*`, not own role | own name only |
 | Partner dashboard `/partner/*` | [partner_router.py:27](../../backend/src/auth/partner_router.py:27) | all tenants | — | own children | — | — | — |
 | Upload own avatar | [profile_router.py:26](../../backend/src/auth/profile_router.py:26) | Y | Y | Y | Y | Y | Y |
 | Upload company logo | [profile_router.py:66](../../backend/src/auth/profile_router.py:66) | Y | — | Y | — | Y | — |
@@ -689,7 +689,7 @@ Being blunt about the weak spots:
 
 3. **Partner admins cannot update their own tenants.** The same check means a `partner_admin` can create a tenant but then cannot rename or suspend it — only `app_admin` can. The `/partner/*` router is read-only.
 
-4. **`update_user` lets any admin change any role in their company.** [user_router.py:62-72](../../backend/src/auth/user_router.py:62) checks company match and admin-ness, then blindly applies `UserUpdate`, which includes `role: Optional[str]`. A `tenant_admin` can therefore set their own role to `"app_admin"`. Nothing validates the target role string. **This is a privilege-escalation path.** Note that the stricter `create_user_as_admin` *does* validate assignable roles — the update path simply never got the same treatment.
+4. ~~**`update_user` lets any admin change any role in their company.**~~ **Fixed 2026-09-30 (AU-01).** The handler applied every field of `UserUpdate` once the caller was an admin of the same company — *or the row's owner* — and `role` was an unchecked string, so any user could PATCH `{"role": "app_admin"}` onto their own row. `PATCH /users/{id}` now goes through `service.update_user_as_admin`: anyone may change their own `full_name`; everything else needs a user admin of the target's company (partner admins: their own company and its tenants), the target's current role and any new role must both be ones the caller could assign (`roles.assignable_roles`, the same table `create_user_as_admin` uses), and nobody changes their own role or active status. `role` is typed `Role`, so an unknown string is a 422.
 
 5. **`is_active` is never checked.** `authenticate_user` and `_authenticate_user` both ignore it. Deactivating a user in the UI does not lock them out.
 
@@ -1418,7 +1418,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | # | Gap | Evidence |
 |---|---|---|
 | 1 | **`/api/v1/email/*` has no authentication whatsoever.** Read, create, delete, and validate another tenant's mailbox credentials by passing their `company_id` or `connection_id`. `validate` decrypts the stored app password and logs into the mailbox. | [email_router.py:94](../../backend/src/ai/email_router.py:94), [:159](../../backend/src/ai/email_router.py:159), [:179](../../backend/src/ai/email_router.py:179), [:204](../../backend/src/ai/email_router.py:204) |
-| 2 | **Privilege escalation via `PATCH /users/{id}`.** `UserUpdate` includes `role`, and the handler applies it after only a company-match check. A `tenant_admin` can promote themselves to `app_admin`. | [user_router.py:48-72](../../backend/src/auth/user_router.py:48), [schemas.py:70](../../backend/src/auth/schemas.py:70) |
+| 2 | ~~**Privilege escalation via `PATCH /users/{id}`.**~~ **Fixed (AU-01):** role changes are checked against the caller's assignable roles and refused on the caller's own row; see §7.6 item 4. | [service.py](../../backend/src/auth/service.py) `update_user_as_admin` |
 | 3 | **Production secrets are the committed defaults.** `SECRET_KEY=dev_secret_key_change_in_production` in `backend/.env`; anyone with it mints tokens for any user. (`INTERNAL_TOKEN=change-me-in-production` no longer opens `/internal/event` — a placeholder disables it, SA-20.) | `backend/.env`, [config.py](../../backend/src/common/config.py) |
 | 4 | **Any authenticated user can suspend their own company**, locking out its admins. No role check on `PATCH /companies/{id}`. | [company_router.py:118](../../backend/src/auth/company_router.py:118) |
 

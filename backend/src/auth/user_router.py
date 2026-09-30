@@ -7,7 +7,7 @@ from src.common.database import get_db
 from src.auth.models import User, Company
 from src.auth.schemas import UserCreateAdmin, UserResponse, UserUpdate
 from src.auth.dependencies import get_current_user, RoleChecker
-from src.auth.service import create_user_as_admin
+from src.auth.service import create_user_as_admin, update_user_as_admin
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -52,25 +52,4 @@ async def update_user(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Get the user to update
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalars().first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Permission check: simplified - app_admin or same company admin
-    if current_user.role != "app_admin" and current_user.company_id != user.company_id:
-        raise HTTPException(status_code=403, detail="Not authorized to update this user")
-    
-    # Admin roles can update anyone in their company. 
-    # Regular users shouldn't be here, but let's be safe.
-    if current_user.role not in ["app_admin", "partner_admin", "tenant_admin"] and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    update_data = user_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(user, field, value)
-    
-    await db.commit()
-    await db.refresh(user)
-    return user
+    return await update_user_as_admin(db, user_id, user_update, current_user)

@@ -10,7 +10,8 @@ import uuid
 import secrets
 from sqlalchemy import or_
 
-from src.auth.schemas import UserCreate, UserLogin, UserCreateAdmin
+from src.auth.schemas import UserCreate, UserLogin, UserCreateAdmin, UserUpdate
+from src.auth.roles import Role, USER_ADMIN_ROLES, assignable_roles
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,30 +50,35 @@ async def _provision_new_tenant(db: AsyncSession, company: Company):
     except Exception as e:
         logger.warning(f"Failed to provision CreditWallet for company {company.id}: {e}")
 
+async def _require_user_admin_over(db: AsyncSession, actor: User, company_id) -> None:
+    """403 unless ``actor`` administers users of ``company_id``.
+
+    app_admin: every company. partner_admin: its own company and its tenants.
+    tenant_admin: its own company. Anyone else: no company.
+    """
+    if actor.role == Role.APP_ADMIN:
+        return
+    if actor.role == Role.TENANT_ADMIN and company_id == actor.company_id:
+        return
+    if actor.role == Role.PARTNER_ADMIN:
+        if company_id == actor.company_id:
+            return
+        result = await db.execute(select(Company.parent_id).where(Company.id == company_id))
+        if result.scalar_one_or_none() == actor.company_id:
+            return
+    raise HTTPException(status_code=403, detail="Not authorized to manage users of this company")
+
+
 async def create_user_as_admin(db: AsyncSession, user_in: UserCreateAdmin, creator: User):
     # Permission Checks
-    if creator.role == "tenant_admin":
-        if user_in.company_id != creator.company_id:
-            raise HTTPException(status_code=403, detail="Can only create users in your own company")
-        if user_in.role not in ["tenant_admin", "tenant_user"]:
-            raise HTTPException(status_code=403, detail="Invalid role for tenant admin to assign")
-    
-    elif creator.role == "partner_admin":
-        # Get target company to check parent_id
-        result = await db.execute(select(Company).where(Company.id == user_in.company_id))
-        target_company = result.scalar_one_or_none()
-        if not target_company:
-            raise HTTPException(status_code=404, detail="Target company not found")
-        
-        # Partner admin can create for their own company or their tenants
-        if target_company.id != creator.company_id and target_company.parent_id != creator.company_id:
-            raise HTTPException(status_code=403, detail="Not authorized to create users for this company")
-        
-        if user_in.role not in ["partner_admin", "partner_user", "tenant_admin", "tenant_user"]:
-            raise HTTPException(status_code=403, detail="Invalid role for partner admin to assign")
-            
-    elif creator.role != "app_admin":
+    if creator.role not in USER_ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="Not authorized to create users")
+    result = await db.execute(select(Company.id).where(Company.id == user_in.company_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Target company not found")
+    await _require_user_admin_over(db, creator, user_in.company_id)
+    if user_in.role not in assignable_roles(creator.role):
+        raise HTTPException(status_code=403, detail=f"A {creator.role} cannot assign the role {user_in.role}")
 
     # Check if email exists
     result = await db.execute(select(User).filter(User.email == user_in.email))
@@ -86,13 +92,53 @@ async def create_user_as_admin(db: AsyncSession, user_in: UserCreateAdmin, creat
         full_name=user_in.full_name,
         hashed_password=hashed_password,
         company_id=user_in.company_id,
-        role=user_in.role,
+        role=str(user_in.role),
         is_verified=True # Admin created users are pre-verified
     )
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
     return new_user
+
+
+async def update_user_as_admin(db: AsyncSession, user_id: uuid.UUID, update: UserUpdate, actor: User) -> User:
+    """Apply ``update`` to a user, if ``actor`` may make that change (AU-01).
+
+    Anyone may change their own ``full_name``. Everything else is a user-admin
+    action: the actor must administer the target's company, the target's current
+    role must be one the actor could assign, and a new role must be one too. No
+    one changes their own role or deactivates themselves — the escalation this
+    closes was a tenant admin PATCHing ``{"role": "app_admin"}`` onto their own row.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    changes = update.model_dump(exclude_unset=True)
+    if "role" in changes and changes["role"] == user.role:
+        del changes["role"]  # unchanged — edit forms send the current role back
+    if "is_active" in changes and changes["is_active"] == user.is_active:
+        del changes["is_active"]
+    is_self = user.id == actor.id
+
+    if is_self and ("role" in changes or "is_active" in changes):
+        raise HTTPException(status_code=403, detail="You cannot change your own role or active status")
+    if not is_self or set(changes) - {"full_name"}:
+        if actor.role not in USER_ADMIN_ROLES:
+            raise HTTPException(status_code=403, detail="Not authorized to update this user")
+        await _require_user_admin_over(db, actor, user.company_id)
+        allowed = assignable_roles(actor.role)
+        if not is_self and user.role not in allowed:
+            raise HTTPException(status_code=403, detail=f"A {actor.role} cannot manage a {user.role}")
+        if "role" in changes and changes["role"] not in allowed:
+            raise HTTPException(status_code=403, detail=f"A {actor.role} cannot assign the role {changes['role']}")
+
+    for field, value in changes.items():
+        setattr(user, field, str(value) if field == "role" else value)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
     # Check if user exists

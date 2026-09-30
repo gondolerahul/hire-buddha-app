@@ -62,7 +62,8 @@ The three to read before anything else:
 
 ### AU-01 — Any admin can promote themselves to `app_admin`
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — worse than recorded: the
+self-edit branch let **any** user, `tenant_user` included, PATCH their own role.
 
 `PATCH /api/v1/users/{user_id}` checks two things — same company, and caller is one of
 `app_admin` / `partner_admin` / `tenant_admin` — and then does this:
@@ -88,6 +89,32 @@ The update path simply never got the same treatment.
 
 **Fix:** run the same assignable-role check the create path uses, and refuse a role
 change on the caller's own row entirely.
+
+**Done (2026-09-30).** The route also let a non-admin through when `current_user.id ==
+user_id`, and then applied every field — so a `tenant_user` could set its own `role` (or
+`is_active`) too.
+
+- `auth/roles.py` — a `Role` enum (`StrEnum`, so it compares and hashes as the stored
+  string), `USER_ADMIN_ROLES`, and `assignable_roles(role)`: `app_admin` any role,
+  `partner_admin` the four partner/tenant roles, `tenant_admin` the two tenant roles.
+- `UserUpdate.role` and `UserCreateAdmin.role` are typed `Role`: an unknown string is a 422.
+- `PATCH /users/{id}` calls `service.update_user_as_admin`. Anyone may change their own
+  `full_name`. Anything else needs a user admin of the target's company (a partner admin:
+  its own company and its tenants — before, partner admins could not edit their tenants'
+  users at all); the target's current role and the new role must both be assignable by the
+  caller; nobody changes their **own** role or active status. Resending the current role
+  or `is_active` is not a change, so the edit form still saves.
+- `create_user_as_admin` uses the same table and company check.
+
+**Evidence:** `tests/unit/test_user_role_escalation.py` — 17 cases through the router: all
+five non-`app_admin` roles are refused a self-promotion and nothing is committed;
+`app_admin` cannot change its own role; nobody reactivates themselves; a self-rename that
+resends the current role saves; a tenant admin cannot grant any partner/app role, can
+promote and deactivate a colleague, and a plain user cannot edit a colleague; a partner
+admin manages its tenant's users but not another partner's, and cannot grant `app_admin`;
+`"tenant-admin"` is a 422. 13 of the 17 fail on the old code. Live on the local API: a
+freshly registered `tenant_admin` PATCHing `{"role": "app_admin"}` onto itself got 403,
+`"superuser"` 422, a rename 200, and `/auth/me` still said `tenant_admin`.
 
 ---
 

@@ -2,6 +2,8 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
+from src.auth.roles import Role
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -9,7 +11,7 @@ class UserCreate(BaseModel):
 
 class UserCreateAdmin(UserCreate):
     company_id: UUID
-    role: str
+    role: Role
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -70,7 +72,7 @@ class OnboardingStepRequest(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     is_active: Optional[bool] = None
-    role: Optional[str] = None
+    role: Optional[Role] = None
 
 class UserResponse(BaseModel):
     id: UUID
