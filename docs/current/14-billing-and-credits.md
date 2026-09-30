@@ -176,9 +176,9 @@ Configurable pricing knobs. `company_id IS NULL` is the **global default row**; 
 | `sales_partner_fee_pct` | Numeric(10,4) | no | `0.0` | `spf` — the partner's cut |
 | `discount_pct` | Numeric(10,4) | no | `0.0` | `d` — fraction subtracted |
 | `default_daily_credits` | Numeric(10,4) | no | `5.0` (server default) | Free credits injected daily |
-| `base_cost_telephony` | Numeric(14,6) | yes | `NULL` | Per-minute override, telephony events only |
-| `base_cost_llm` | Numeric(14,6) | yes | `NULL` | ⚠️ Read but **never applied** — see §16 |
-| `base_cost_image_gen` | Numeric(14,6) | yes | `NULL` | Per-image override |
+| `base_cost_telephony` | Numeric(14,6) | yes | `NULL` | Per-minute carrier rate: replaces the telephony part of a call's cost, in the charge and the billing event (`BillingService.voice_base_cost`, BC-13) |
+| `base_cost_llm` | Numeric(14,6) | yes | `NULL` | Retired (BC-13): it had no unit and nothing applied it. No longer in the API or the page; the column is unused |
+| `base_cost_image_gen` | Numeric(14,6) | yes | `NULL` | Per-image price: `ToolCostResolver` charges it for `image_generation` (BC-13) |
 | `is_active` | Boolean | no | `true` | Inactive rows are invisible to the lookup |
 | `created_at` / `updated_at` | DateTime | no | utcnow | |
 
@@ -587,7 +587,13 @@ The 167 tokens-per-second constant is hard-coded — [usage_logger.py:226](../..
 
 Then `CreditService.consume(0.54782813)` — note this is `consume`, which **raises** `InsufficientCreditsError` when the balance is short, unlike a run's `consume_incremental`, which drains the wallet to zero and reports a shortfall.
 
-Finally a billing event with `event_category="telephony"` and `telephony_out_minutes = 125/60 = 2.0833`. ⚠️ Two inconsistencies fall out of this: the billing event records **2.08 minutes** while the usage log billed **3 minutes**, and if `base_cost_telephony` is configured the event's `base_cost` is *replaced* by `base_cost_telephony × 2.0833`, throwing away the `0.313` of LLM audio cost — [billing_service.py:124](../../backend/src/billing/billing_service.py:124).
+Finally a billing event with `event_category="telephony"` and `telephony_out_minutes = 3` —
+the minutes billed, rounded the way the usage log rounds them (`usage_logger.billed_minutes`,
+BC-12). If `base_cost_telephony` is configured, it replaces the **telephony part** of the
+call's cost — `0.024` becomes `3 × base_cost_telephony` — and the `0.313` of speech-model
+audio stays; that one base cost is what the wallet is charged (through TB) and what the event
+records (`BillingService.voice_base_cost`, BC-13). Before, the event recorded `2.08` minutes,
+and the override replaced the whole cost, in the event only.
 
 ### 4.4 Worked example 3 — a document generation
 
@@ -1688,8 +1694,8 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 
 - ⚠️ The seeded global default is **not** at-cost. `mf=1.3`, `pf=0.15`, `spf=0.10` means every tenant pays `1.625×` raw cost by default. Any pricing analysis that assumes `mf=1.0` is wrong.
 - ⚠️ `pf`, `spf` and `d` are fractions (`0.15`), but `SubscriptionTier.bonus_pct` is a percentage (`30.0`). The BillingSettings UI labels the first group "%" anyway. Entering `15` instead of `0.15` gives a 1500% platform fee.
-- ⚠️ `base_cost_llm` is read in `record_billing_event` and then **does nothing** — the branch body is `pass` with the comment "Assuming base cost provided is directly overridden" — [billing_service.py:126](../../backend/src/billing/billing_service.py:126). The UI still exposes the field.
-- ⚠️ `base_cost_telephony` **replaces** the entire `base_cost`, discarding the voice LLM audio cost that was passed in.
+- ~~⚠️ `base_cost_llm` is read in `record_billing_event` and then **does nothing**.~~ Retired 2026-09-30 (BC-13): removed from the API (an unknown config field is a 422) and the page.
+- ~~⚠️ `base_cost_telephony` **replaces** the entire `base_cost`.~~ Fixed 2026-09-30 (BC-13): it replaces the carrier part, in the charge and the event; an override can be cleared by sending `null`.
 
 **Metering**
 
@@ -1698,7 +1704,7 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 - ~~⚠️ The tool cost path **ignores `cost_unit`** and never falls back to the APP company.~~ Fixed 2026-09-30 (BC-10).
 - ~~⚠️ Image generation is charged twice (§6.2).~~ Fixed 2026-09-30 (BC-08).
 - ~~⚠️ `attribution="actor_step"` is never written.~~ Fixed 2026-09-30 (BC-09).
-- ⚠️ Telephony is ceiling-rounded to whole minutes for the *usage log* but recorded as a fractional minute count in the *billing event*. The two never agree.
+- ~~⚠️ Telephony is ceiling-rounded for the *usage log* but fractional in the *billing event*.~~ Fixed 2026-09-30 (BC-12): both use `billed_minutes`.
 
 **Credits**
 

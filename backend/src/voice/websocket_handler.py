@@ -1527,7 +1527,7 @@ class BaseStreamHandler:
 
                     # Usage + billing
                     usage_logger = VoiceUsageLogger(session)
-                    total_cost = await usage_logger.log_voice_session_usage(
+                    usage = await usage_logger.log_voice_session_usage(
                         session_id=self.session_id,
                         company_id=self.voice_session.company_id,
                         provider=self.voice_session.provider,
@@ -1539,10 +1539,18 @@ class BaseStreamHandler:
                             "turn_count": self.turn_number,
                         },
                     )
+                    total_cost = usage.total_cost
                     logger.info(f"Session {self.session_id} total cost: ${total_cost}")
 
                     if total_cost and total_cost > 0:
-                        cost_decimal = Decimal(str(total_cost))
+                        # One base cost for the charge and the billing event,
+                        # with the telephony override applied (BC-13).
+                        cost_decimal = await BillingService(session).voice_base_cost(
+                            self.voice_session.company_id,
+                            total_cost=Decimal(str(total_cost)),
+                            telephony_cost=usage.telephony_cost,
+                            telephony_minutes=usage.telephony_minutes,
+                        )
 
                         # Fix #1: Apply TB formula before credit deduction
                         # (matches the pattern in worker.py execute_run)
@@ -1585,7 +1593,8 @@ class BaseStreamHandler:
                         # Fix #7: Pass event_category="telephony" so charges
                         # appear in the correct report column
                         try:
-                            duration_minutes = Decimal(str(duration)) / Decimal("60")
+                            # Billed minutes, rounded as the usage log rounds them (BC-12).
+                            duration_minutes = usage.telephony_minutes
                             await BillingService(session).record_billing_event(
                                 company_id=self.voice_session.company_id,
                                 base_cost=cost_decimal,

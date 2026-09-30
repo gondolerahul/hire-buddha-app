@@ -58,9 +58,9 @@ export const BillingSettings: React.FC = () => {
                 sales_partner_fee_pct: config.sales_partner_fee_pct,
                 discount_pct: config.discount_pct,
                 default_daily_credits: config.default_daily_credits,
-                base_cost_telephony: config.base_cost_telephony || undefined,
-                base_cost_llm: config.base_cost_llm || undefined,
-                base_cost_image_gen: config.base_cost_image_gen || undefined,
+                // null clears an override (undefined would leave it unchanged)
+                base_cost_telephony: config.base_cost_telephony || null,
+                base_cost_image_gen: config.base_cost_image_gen || null,
             };
             const res = await billingService.updateConfig(payload);
             setConfig(res.config);
@@ -182,7 +182,7 @@ export const BillingSettings: React.FC = () => {
 
                     <hr className="divider" />
                     <h3 className="section-subtitle mt-4">Base Cost Overrides</h3>
-                    <p className="card-desc">Optional overrides to standard API cost rates. Leave empty to use exact usage rates.</p>
+                    <p className="card-desc">Optional. Telephony replaces the carrier rate per billed minute of a call (the speech model's cost is kept); Image Gen is the price of each generated image. Leave empty to use the registry rates.</p>
 
                     <div className="form-row">
                         <div className="form-group">
@@ -201,14 +201,6 @@ export const BillingSettings: React.FC = () => {
                                 value={config.base_cost_image_gen || ''}
                                 onChange={e => setConfig({ ...config, base_cost_image_gen: parseFloat(e.target.value) || null })}
                                 placeholder="0.05"
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>LLM Overlay ($/call)</label>
-                            <input
-                                type="number" step="0.0001"
-                                value={config.base_cost_llm || ''}
-                                onChange={e => setConfig({ ...config, base_cost_llm: parseFloat(e.target.value) || null })}
                             />
                         </div>
                     </div>

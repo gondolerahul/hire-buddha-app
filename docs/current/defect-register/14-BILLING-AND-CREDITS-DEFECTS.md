@@ -539,7 +539,10 @@ one custom-API row — say a CRM integration at $0.75 per call — was charged $
 
 ### BC-12 — Telephony minutes are rounded two different ways
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — one rule, per started minute
+(`voice/usage_logger.billed_minutes`: 125 s is 3 minutes); the usage log and the billing event
+both use it. **Evidence:** `tests/integration/test_billing_overrides.py` —
+`test_minutes_are_billed_per_started_minute`, and the event records the 3 minutes it is given.
 
 The **usage log** ceiling-rounds to whole minutes. The **billing event** records a
 fractional minute count. The two never agree, so telephony reconciliation between the
@@ -549,7 +552,33 @@ ledger and the monthly aggregate always shows a discrepancy.
 
 ### BC-13 — `base_cost_llm` is read and then ignored; `base_cost_telephony` overwrites
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — each override is applied where the cost
+is computed, so the charge and the report agree; `base_cost_llm` is retired.
+
+Worse than recorded: the telephony override changed only the *billing event* — the voice
+cleanup charged the wallet `TB(total_cost)` before recording it — so the report and the charge
+disagreed whenever it was set. And an override, once set, could never be cleared (the page
+sent `undefined` for an empty field, and the service ignored `None`).
+
+**Fix (2026-09-30):**
+
+- `VoiceUsageLogger.log_voice_session_usage` returns the call's telephony part and billed
+  minutes with its total. `BillingService.voice_base_cost` replaces only the telephony part
+  with `base_cost_telephony × minutes`; that one base cost is charged (through TB) and
+  recorded. `record_billing_event` no longer applies overrides.
+- `base_cost_image_gen` is applied by `ToolCostResolver` to `image_generation` — before, only
+  the image tool's own (double) billing event used it, and that is gone (BC-08).
+- `base_cost_llm` had no unit and nothing applied it: removed from the API and the Billing
+  Settings page; `BillingConfigUpdate` forbids unknown fields, so sending it is a 422. The
+  column stays, unused.
+- `PUT /billing/config` changes only the fields sent; an override sent as `null` is cleared,
+  a formula field sent as `null` is left alone. The page sends `null` for an emptied override.
+
+**Evidence:** `tests/integration/test_billing_overrides.py`, 8 cases on the real Postgres: a
+3-minute call of $0.06 carrier + $0.20 speech with a $0.01/min override costs $0.23 (the old
+event recorded $0.03); no override leaves $0.26; the event records the base it is given; the
+image override prices `image_generation`; an override is cleared by `null` while a formula
+field is not; `base_cost_llm` is a 422.
 
 In `record_billing_event`:
 
@@ -824,7 +853,9 @@ turns a support investigation into one call.
 
 ### BC-I9 — Reconcile telephony rounding
 
-**Effect: small.** [BC-12](#bc-12--telephony-minutes-are-rounded-two-different-ways). Pick
+**Status: done (2026-09-30)** — see BC-12.
+
+**Effect: small.**[BC-12](#bc-12--telephony-minutes-are-rounded-two-different-ways). Pick
 one rounding rule and use it in both places. Today every telephony reconciliation shows a
 difference that is not a real difference.
 

@@ -99,6 +99,26 @@ class BillingService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def voice_base_cost(
+        self,
+        company_id: UUID,
+        *,
+        total_cost: Decimal,
+        telephony_cost: Decimal,
+        telephony_minutes: Decimal,
+    ) -> Decimal:
+        """A call's base cost, with the company's telephony override applied.
+
+        ``base_cost_telephony`` is a per-minute carrier rate: it replaces the
+        telephony part of the call's cost and leaves the rest (the speech
+        model's audio) as logged. Before BC-13 it replaced the whole cost, and
+        only in the billing event — the wallet was charged without it.
+        """
+        config = await self.get_billing_config(company_id)
+        if config is None or config.base_cost_telephony is None:
+            return total_cost
+        return total_cost - telephony_cost + Decimal(str(config.base_cost_telephony)) * telephony_minutes
+
     async def record_billing_event(
         self,
         company_id: UUID,
@@ -125,15 +145,9 @@ class BillingService:
             pf = Decimal(str(config.platform_fee_pct))
             spf = Decimal(str(config.sales_partner_fee_pct))
             d = Decimal(str(config.discount_pct))
-            
-            # Use overrides if defined
-            if event_category == "telephony" and config.base_cost_telephony is not None:
-                base_cost = Decimal(str(config.base_cost_telephony)) * (telephony_in_minutes + telephony_out_minutes)
-            elif event_category == "llm" and config.base_cost_llm is not None:
-                # Assuming base cost provided is directly overridden. 
-                pass
-            elif event_category == "image" and config.base_cost_image_gen is not None:
-                base_cost = Decimal(str(config.base_cost_image_gen)) * Decimal(str(image_gen_count))
+        # base_cost is final here: the base-cost overrides are applied where
+        # the cost is computed (voice_base_cost, ToolCostResolver), so what is
+        # recorded is what the wallet was charged (BC-13).
 
         tb = calculate_tb(base_cost, mf, pf, spf, d)
 
@@ -205,19 +219,22 @@ class BillingService:
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
+    # The formula fields must always have a value; an override may be cleared.
+    REQUIRED_CONFIG_FIELDS = ("multiplier_factor", "platform_fee_pct", "sales_partner_fee_pct",
+                              "discount_pct", "default_daily_credits")
+    OVERRIDE_FIELDS = ("base_cost_telephony", "base_cost_image_gen")
+
     async def update_billing_config(
         self,
         company_id: Optional[UUID],
-        multiplier_factor: Optional[Decimal] = None,
-        platform_fee_pct: Optional[Decimal] = None,
-        sales_partner_fee_pct: Optional[Decimal] = None,
-        discount_pct: Optional[Decimal] = None,
-        default_daily_credits: Optional[Decimal] = None,
-        base_cost_telephony: Optional[Decimal] = None,
-        base_cost_llm: Optional[Decimal] = None,
-        base_cost_image_gen: Optional[Decimal] = None,
+        **fields: Optional[Decimal],
     ) -> BillingConfig:
-        """Create or update billing config for a company (or global)."""
+        """Create or update billing config for a company (or global).
+
+        Only the fields passed are changed. A formula field passed as None is
+        left alone; an override passed as None is cleared (before, an override
+        once set could never be removed).
+        """
         stmt = select(BillingConfig).where(
             BillingConfig.company_id == company_id,
             BillingConfig.is_active == True,
@@ -229,23 +246,13 @@ class BillingService:
             config = BillingConfig(company_id=company_id)
             self.db.add(config)
 
-        if multiplier_factor is not None:
-            config.multiplier_factor = multiplier_factor
-        if platform_fee_pct is not None:
-            config.platform_fee_pct = platform_fee_pct
-        if sales_partner_fee_pct is not None:
-            config.sales_partner_fee_pct = sales_partner_fee_pct
-        if discount_pct is not None:
-            config.discount_pct = discount_pct
-            
-        if default_daily_credits is not None:
-            config.default_daily_credits = default_daily_credits
-        if base_cost_telephony is not None:
-            config.base_cost_telephony = base_cost_telephony
-        if base_cost_llm is not None:
-            config.base_cost_llm = base_cost_llm
-        if base_cost_image_gen is not None:
-            config.base_cost_image_gen = base_cost_image_gen
+        for name, value in fields.items():
+            if name in self.REQUIRED_CONFIG_FIELDS and value is not None:
+                setattr(config, name, value)
+            elif name in self.OVERRIDE_FIELDS:
+                setattr(config, name, value)
+            elif name not in self.REQUIRED_CONFIG_FIELDS:
+                raise ValueError(f"Unknown billing config field: {name}")
 
         config.updated_at = datetime.utcnow()
         await self.db.commit()

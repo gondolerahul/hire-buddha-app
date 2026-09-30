@@ -10,7 +10,6 @@ export interface BillingConfig {
     discount_pct: number;
     default_daily_credits: number;
     base_cost_telephony?: number | null;
-    base_cost_llm?: number | null;
     base_cost_image_gen?: number | null;
     is_active: boolean;
     updated_at: string;
@@ -72,9 +71,8 @@ export interface BillingConfigUpdate {
     sales_partner_fee_pct?: number;
     discount_pct?: number;
     default_daily_credits?: number;
-    base_cost_telephony?: number;
-    base_cost_llm?: number;
-    base_cost_image_gen?: number;
+    base_cost_telephony?: number | null;   // null clears the override
+    base_cost_image_gen?: number | null;
     company_id?: string;
 }
 

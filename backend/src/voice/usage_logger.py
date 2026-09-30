@@ -9,6 +9,7 @@ Logs:
 """
 import math
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Dict, Any
@@ -22,6 +23,20 @@ from src.ai.models import UsageLog
 from src.voice.models import VoiceSession
 
 logger = logging.getLogger(__name__)
+
+
+def billed_minutes(duration_seconds: int) -> Decimal:
+    """Telephony is billed per started minute: 125 s is 3 minutes. The one
+    rounding rule — the usage log and the billing event both use it (BC-12)."""
+    return Decimal(str(math.ceil(max(duration_seconds, 0) / 60.0)))
+
+
+@dataclass
+class VoiceUsage:
+    """A call's logged cost: the total, and its telephony part (BC-13)."""
+    total_cost: Decimal
+    telephony_cost: Decimal
+    telephony_minutes: Decimal
 
 
 class VoiceUsageLogger:
@@ -56,7 +71,7 @@ class VoiceUsageLogger:
         audio_input_seconds: Optional[int] = None,
         audio_output_seconds: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None
-    ) -> Decimal:
+    ) -> VoiceUsage:
         """
         Log usage for a completed voice session.
         
@@ -70,10 +85,11 @@ class VoiceUsageLogger:
             metadata: Additional metadata to log
             
         Returns:
-            Total calculated cost in USD
+            The total cost in USD and its telephony part
         """
         total_cost = Decimal("0.0")
-        
+        telephony_part = Decimal("0")
+
         # Default audio durations to total call duration.
         # Both input (user speech) and output (agent speech) span the
         # entire call, so each is billed for the full duration.
@@ -96,6 +112,7 @@ class VoiceUsageLogger:
             )
             if telephony_cost:
                 total_cost += telephony_cost
+                telephony_part = telephony_cost
                 logger.info(f"Logged telephony cost: ${telephony_cost} for {duration_seconds}s")
         except Exception as e:
             logger.error(f"Failed to log telephony usage: {e}")
@@ -142,9 +159,9 @@ class VoiceUsageLogger:
             logger.info(f"Updated voice session {session_id} total cost: ${total_cost}")
         except Exception as e:
             logger.error(f"Failed to update session total cost: {e}")
-        
-        return total_cost
-    
+
+        return VoiceUsage(total_cost, telephony_part, billed_minutes(duration_seconds))
+
     async def _log_telephony_usage(
         self,
         company_id: UUID,
@@ -165,9 +182,9 @@ class VoiceUsageLogger:
             return None
         
         # Calculate cost (rate is per minute, floored to higher integer value based on requirement limit)
-        duration_minutes = Decimal(str(math.ceil(duration_seconds / 60.0)))
+        duration_minutes = billed_minutes(duration_seconds)
         calculated_cost = registry_entry.internal_cost * duration_minutes
-        
+
         # Create usage log
         usage_log = UsageLog(
             company_id=company_id,

@@ -9,7 +9,9 @@ built to replace them — had no callers.
 
 Lookup, first hit wins:
 
-  1. the company's own active ``integration_registry`` row for the tool —
+  0. for ``image_generation``, the company's ``billing_config.base_cost_image_gen``
+     when set — the per-image override on the Billing Settings page (BC-13)
+  1. the company's ownactive ``integration_registry`` row for the tool —
      ``service_sku == tool_id`` or one of :data:`TOOL_SKU_MAP[tool_id]`
   2. the platform's (APP company's) row for it — cost-bearing services are
      registered once, at platform level, as the LLM path already assumed
@@ -84,7 +86,7 @@ class ToolChargeResult:
         sku_id: Optional[UUID] = None,
     ):
         self.amount = amount
-        self.source = source           # "registry" | "platform" | "fixed" | "missing"
+        self.source = source           # "config" | "registry" | "platform" | "fixed" | "missing"
         self.sku_id = sku_id
 
     def __bool__(self) -> bool:
@@ -170,6 +172,16 @@ class ToolCostResolver:
         self, tool_id: str,
     ) -> tuple[Decimal, str, Optional[UUID]]:
         from src.ai.usage_service import app_company_id, unit_divisor
+
+        if tool_id == "image_generation":
+            # The company's billing config may fix the per-image cost (BC-13).
+            try:
+                from src.billing.billing_service import BillingService
+                config = await BillingService(self.db).get_billing_config(self.company_id)
+                if config is not None and config.base_cost_image_gen is not None:
+                    return (Decimal(str(config.base_cost_image_gen)), "config", None)
+            except Exception as exc:                                        # pragma: no cover
+                logger.debug(f"ToolCostResolver billing-config lookup failed: {exc}")
 
         try:
             row = await self._registry_row(tool_id, self.company_id)

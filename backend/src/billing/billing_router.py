@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.database import get_db
@@ -27,13 +27,18 @@ app_admin_only = RoleChecker(["app_admin"])
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class BillingConfigUpdate(BaseModel):
+    # An unknown field (a typo, or the retired base_cost_llm) is a 422, not a no-op.
+    model_config = ConfigDict(extra="forbid")
+
     multiplier_factor: Optional[Decimal] = None
     platform_fee_pct: Optional[Decimal] = None
     sales_partner_fee_pct: Optional[Decimal] = None
     discount_pct: Optional[Decimal] = None
     default_daily_credits: Optional[Decimal] = None
+    # Overrides: $/minute replaces a call's telephony part; $/image replaces
+    # image_generation's price. null clears. (base_cost_llm is gone: it had no
+    # unit and nothing applied it — BC-13.)
     base_cost_telephony: Optional[Decimal] = None
-    base_cost_llm: Optional[Decimal] = None
     base_cost_image_gen: Optional[Decimal] = None
     company_id: Optional[UUID] = None  # None = update global default
 
@@ -103,7 +108,6 @@ def _config_to_dict(c: BillingConfig) -> dict:
         "discount_pct": float(c.discount_pct),
         "default_daily_credits": float(c.default_daily_credits),
         "base_cost_telephony": float(c.base_cost_telephony) if c.base_cost_telephony is not None else None,
-        "base_cost_llm": float(c.base_cost_llm) if c.base_cost_llm is not None else None,
         "base_cost_image_gen": float(c.base_cost_image_gen) if c.base_cost_image_gen is not None else None,
         "is_active": c.is_active,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
@@ -136,15 +140,8 @@ async def update_billing_config(
 
     svc = BillingService(db)
     config = await svc.update_billing_config(
-        company_id=payload.company_id,
-        multiplier_factor=payload.multiplier_factor,
-        platform_fee_pct=payload.platform_fee_pct,
-        sales_partner_fee_pct=payload.sales_partner_fee_pct,
-        discount_pct=payload.discount_pct,
-        default_daily_credits=payload.default_daily_credits,
-        base_cost_telephony=payload.base_cost_telephony,
-        base_cost_llm=payload.base_cost_llm,
-        base_cost_image_gen=payload.base_cost_image_gen,
+        payload.company_id,
+        **payload.model_dump(exclude_unset=True, exclude={"company_id"}),
     )
     return {"config": _config_to_dict(config)}
 
