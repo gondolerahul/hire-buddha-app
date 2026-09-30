@@ -1,11 +1,18 @@
 # Defect-Fixing Session Handoff
 
 > **What this document is:** the state of the defect-fixing work on branch
-> `roadmap-development-defect-fixes` at the end of the 2026-09-28 → 2026-09-29 session.
-> It covers what was fixed, what became invalid, and how to pick the work up in a new
-> session.
+> `roadmap-development-defect-fixes`. It covers what was fixed, what became invalid, and
+> how to pick the work up in a new session. It spans two sessions: the 2026-09-28 →
+> 2026-09-29 memory/planner session, and the 2026-09-29 → 2026-09-30 session that added
+> the HITL, entity-config and health-endpoint fixes and the PO-06 tool-stack audit.
 > **It does not choose what to fix next.** Defects are fixed one at a time, as the
 > product owner names them. The registers in this folder are the backlog.
+>
+> **Where the work is paused (2026-09-30):** register 01 has **one** open defect left,
+> **PO-07** (social connections); PO-06 delivered its audit rather than a code change.
+> Work is paused for the product owner's review of register 02 (System Architecture);
+> resume on their comments, or on PO-07. The `-alt` dev servers (:8010 API, :3010
+> frontend) and the Arq worker are left running for live verification.
 
 ---
 
@@ -31,11 +38,11 @@
 | Branch | `roadmap-development-defect-fixes`, cut from `main` at `9896b8b` |
 | Commits on the branch | Listed below, **none pushed** |
 | Working tree | Clean, apart from two spreadsheets the product owner is editing: `Consolidated-Defect-Register.xlsx` and `HireBuddha-Roadmap-Backlog.xlsx`. Leave them uncommitted |
-| Host tests | 1017 passed, 7 known failures (see [§8](#8-testing)) |
+| Host tests | 1059 passed, 7 known failures (see [§8](#8-testing)) |
 | CORTEX package tests | 49 passed |
 | Type check, layout lint | Pass |
 
-Commits, oldest first:
+Commits, oldest first. The first session (memory/planner):
 
 | Commit | Change |
 |---|---|
@@ -53,6 +60,22 @@ Commits, oldest first:
 | `bb9e978` | LP-06 — thinking tokens billed |
 | `338a0c2` | Register maintenance: invalidated defects |
 | `1e0a6f3` | This handoff document |
+
+The second session (register 01 — Product Overview — plus the tools/HITL work), oldest
+first. The register-01 deletions (PO-12…PO-17) and the earlier PO-01/02/04/05 fixes are
+recorded in [`01-PRODUCT-OVERVIEW-DEFECTS.md`](01-PRODUCT-OVERVIEW-DEFECTS.md); the
+headline commits since:
+
+| Commit | Change |
+|---|---|
+| `98af2c0` | GH-22, GH-01 — HITL checkpoints wait for a decision and fail closed |
+| `1a55054` | GH-23, GH-24 — reviewers can answer approvals; own company only; once |
+| `3fadd76` | PO-09 — an unknown entity-config key is a 422; runtime knobs declared (also EP-11, PC-16) |
+| `0fd3b29` | PO-10 — a router that fails to import is reported on `GET /api/v1/health` (also SA-I10, PO-I9, API-09, API-I2) |
+| `579c14f` | PO-06 — the tool stack audit (`PO-06-TOOL-STACK-AUDIT.md`); 18 new defects TL-50…TL-67 |
+
+Docs-only follow-ups record each commit id in the registers (`3e20b89`, `396e84a`,
+`5101339`, `6624778`).
 
 ---
 
@@ -78,6 +101,18 @@ defect is observable at runtime — against the local stack with real Gemini cal
 | **LP-06** | 10 | Gemini thinking tokens not counted or billed | `bb9e978` | A plan candidate billed 1313 output tokens, 852 of them thinking (was 461) |
 
 *New* means the defect was found during this session and added to the register.
+
+**Second session (register 01 and the tools/HITL work).** Same discipline — a unit test
+that fails on the old code, plus live verification where observable.
+
+| ID | Register | Defect | Commit | Live evidence |
+|---|---|---|---|---|
+| **GH-22 / GH-01** | [15](15-GOVERNANCE-AND-HITL-DEFECTS.md) | HITL checkpoints never waited; the wait failed open | `98af2c0` | Restarted worker: an authorized run waited then completed; an unanswered run timed out and failed; the step never ran on a block |
+| **GH-06** | 15 | Rejections were detected by matching error text | `98af2c0` | Closed with GH-22 — the decision is read from the row, not the message |
+| **GH-23 / GH-24** | 15 | Authorize/Block returned 422; any company could answer | `1a55054` | Authorize and Block work; a foreign company gets 404; a second answer gets 409; the approvals page shows the error |
+| **PO-09 / EP-11 / PC-16** | [01](01-PRODUCT-OVERVIEW-DEFECTS.md), [06](06-EXECUTION-PIPELINE-DEFECTS.md), [07](07-PLANNING-AND-CRITICS-DEFECTS.md) | A mistyped entity-config key was dropped silently; runtime knobs undeclared | `3fadd76` | A `PUT` with `meta_review_intreval` → 422 naming the key; `meta_review_interval: 5` stored; the builder and every seed still save |
+| **PO-10 / SA-I10 / PO-I9 / API-09 / API-I2** | 01, [02](02-SYSTEM-ARCHITECTURE-DEFECTS.md), [17](17-API-REFERENCE-DEFECTS.md) | A broken router import turned a feature area into silent 404s | `0fd3b29` | `GET /api/v1/health` → `ok`; the real app booted with `social_router` broken → `degraded` naming it, its routes 404, other routers up |
+| **PO-06** | 01 | Audit of the whole tools stack (deliverable, not a code change) | `579c14f` | [`PO-06-TOOL-STACK-AUDIT.md`](PO-06-TOOL-STACK-AUDIT.md) — 55 entries re-verified, 18 new (TL-50…TL-67), fix list; dev-DB evidence in its §4 |
 
 **Package changes to port.** MC-21 and MC-22 changed the CORTEX package itself:
 `backend/cortex_memory/dreaming.py`, `episodic_tree.py` and
@@ -118,6 +153,16 @@ exposed. They are part of the backlog like any other entry.
 | PC-25 | 07 |
 | EP-25 | [06](06-EXECUTION-PIPELINE-DEFECTS.md) |
 | MC-23, MC-24 (deferred), MC-I11 (improvement) | 08 |
+
+Recorded in the second session while fixing/auditing, not yet scheduled:
+
+| ID | Register | What |
+|---|---|---|
+| GH-25 | [15](15-GOVERNANCE-AND-HITL-DEFECTS.md) | Block Cycle blocks the step but the loop retries and re-asks the reviewer (3× before cancel) |
+| FE-24 | [16](16-FRONTEND-DEFECTS.md) | The Vite dev proxy sends full-page `/reports/*` loads to the gateway host |
+| FE-25 | 16 | Saving the entity builder with no change rewrites config it does not show |
+| BC-26 | [14](14-BILLING-AND-CREDITS-DEFECTS.md) | Any user can read the billing multiplier and base costs |
+| TL-50…TL-67 | [PO-06 audit](PO-06-TOOL-STACK-AUDIT.md) | 18 tool-layer defects; the biggest is TL-50 (execution is not restricted to an entity's granted tools) |
 
 On 2026-09-29 the memory register (08) was reviewed with the product owner.
 - MC-04, MC-08, MC-17 and MC-20 were removed by product decision; MC-20's facts moved into
@@ -210,6 +255,13 @@ The last live run (2026-09-29) got as far as these. The director planned and del
 to all three children. The report writer produced a full Markdown report on the requested
 topic, then failed on the DOCX and PDF steps, which failed the run.
 
+> **These two are now formal defects, not just local gaps.** The PO-06 audit found the
+> real name is `docx_tool` (the seed/fixture names `docx_generator`, `scraper`,
+> `batch_search` — none of which are registered) — **TL-67**; and `weasyprint`, `markdown`,
+> `playwright` and the DuckDuckGo library are undeclared in `pyproject.toml`, so
+> `pdf_generator`, `headless_browser` and `web_search`'s free fallback are dead on any
+> clean install — **TL-66**. See [`PO-06-TOOL-STACK-AUDIT.md`](PO-06-TOOL-STACK-AUDIT.md).
+
 ---
 
 ## 8. Testing
@@ -220,8 +272,9 @@ From `backend/`:
 PYTHONUTF8=1 .venv/Scripts/python.exe -m pytest tests -q -p no:cacheprovider --ignore=tests/integration --ignore=tests/e2e
 ```
 
-Expected: **1017 passed, 7 failed.** The 7 fail identically on `main` and are not
-regressions:
+Expected: **1059 passed, 7 failed** (1017 at the first handoff; the second session added
+the HITL-wait, entity-strict-key and router-mount tests). The 7 fail identically on `main`
+and are not regressions:
 
 - `tests/ai/core/test_meta_review.py::TestMetaReviewerDefaults::test_graceful_fallback_on_error`
 - `tests/chaos/test_feature_flags_table_unavailable.py::test_pool_exhaustion_falls_through_to_default`
