@@ -8,9 +8,20 @@ import sys
 import types
 
 import httpx
+import pytest
 from fastapi import APIRouter, FastAPI
 
+from src.common import router_mounts
 from src.common.router_mounts import health_router, mount_optional
+
+
+@pytest.fixture(autouse=True)
+def worker_consuming(monkeypatch):
+    """Health reads the worker heartbeat from Redis; these tests are not about it."""
+    async def ok():
+        return {"status": "ok", "queues": {}}
+
+    monkeypatch.setattr(router_mounts, "worker_status", ok)
 
 
 def _app() -> FastAPI:

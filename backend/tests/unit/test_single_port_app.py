@@ -19,11 +19,21 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from starlette.middleware.cors import CORSMiddleware
 
+from src.common import router_mounts
 from src.common.config import Settings, settings
 from src.main import app
 from src.voice import public_urls
 
 SRC = Path(__file__).resolve().parents[2] / "src"
+
+
+@pytest.fixture(autouse=True)
+def worker_consuming(monkeypatch):
+    """Health reads the worker heartbeat from Redis; these tests are not about it."""
+    async def ok():
+        return {"status": "ok", "queues": {}}
+
+    monkeypatch.setattr(router_mounts, "worker_status", ok)
 
 
 def _http_routes() -> set[tuple[str, str]]:

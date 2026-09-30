@@ -1527,7 +1527,7 @@ API surface: `POST /api/v1/messaging/send` and `POST /api/v1/messaging/send-temp
 ./start_services.sh
 
 # 2. Confirm the API is up with every router mounted
-curl -s localhost:8000/api/v1/health | jq      # expects {"status": "ok", "unmounted_routers": []}
+curl -s localhost:8000/api/v1/health | jq      # expects "status": "ok", "unmounted_routers": [] and worker.status "ok"
 
 # 3. Expose the API so a provider can reach it
 ngrok http 8000

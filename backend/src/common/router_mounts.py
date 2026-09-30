@@ -10,6 +10,8 @@ import logging
 
 from fastapi import APIRouter, FastAPI, Request
 
+from src.common.worker_health import worker_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,19 +43,23 @@ health_router = APIRouter(tags=["health"])
 @health_router.get("/api/v1/health")
 @health_router.get("/health", include_in_schema=False)
 async def health(request: Request) -> dict:
-    """Liveness plus the routers that failed to mount.
+    """Liveness, the routers that failed to mount, and whether a worker is consuming.
 
     Always 200: every replica runs the same code, so a 503 here would pull all
-    of them out of rotation for one broken feature area. ``status`` says
-    ``degraded`` instead. ``/health`` is the path the gateway answered on
-    before it was merged into the API; both paths return the same body.
+    of them out of rotation for one broken feature area — or for a dead
+    worker, which is not the API's fault. ``status`` says ``degraded``
+    instead. ``/health`` is the path the gateway answered on before it was
+    merged into the API; both paths return the same body.
     """
     from src.common.config import settings
 
     unmounted = getattr(request.app.state, "unmounted_routers", [])
+    worker = await worker_status()
     return {
-        "status": "degraded" if unmounted else "ok",
+        "status": "degraded" if unmounted or worker["status"] != "ok" else "ok",
         "unmounted_routers": unmounted,
+        # Live arq workers per queue, and the queue's due jobs (SA-I4).
+        "worker": worker,
         # Configuration, not health: disabled until INTERNAL_TOKEN is a real secret.
         "internal_events": "enabled" if settings.internal_events_enabled else "disabled",
     }

@@ -51,6 +51,8 @@ from src.mobile.reconciler import mobile_housekeeping_job
 from src.common.database import AsyncSessionLocal  # noqa: F401
 from src.common.job_queue import arq_redis_settings
 from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
+from src.common.worker_health import start_heartbeat, stop_heartbeat
+from arq.constants import default_queue_name
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +70,12 @@ CHILD_RUN_QUEUE = "children"
 
 async def startup(ctx: dict) -> None:
     setup_tracing("hirebuddha-worker")
+    # Reported on /api/v1/health, so a dead worker is visible (SA-I4).
+    start_heartbeat(ctx, default_queue_name)
 
 
 async def shutdown(ctx: dict) -> None:
+    await stop_heartbeat(ctx)
     shutdown_tracing()
 
 

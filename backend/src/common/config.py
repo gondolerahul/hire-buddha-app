@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     TURN_USERNAME: str = ""
     TURN_CREDENTIAL: str = ""
 
+    # ── Worker health (SA-I4) ─────────────────────────────────────────────
+    # Each arq worker beats this often; one silent for three beats is dead.
+    WORKER_HEARTBEAT_SECONDS: int = 10
+    # A due job waiting longer than this makes /api/v1/health "degraded".
+    WORKER_BACKLOG_ALERT_SECONDS: int = 600
+
     # Phase 12 `02` S4 — per-tenant container sandbox. OFF by default;
     # SubprocessRuntime stays the dev/CI default and the production rollback.
     SANDBOX_CONTAINER_RUNTIME_ENABLED: bool = False

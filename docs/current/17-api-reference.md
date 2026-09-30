@@ -203,7 +203,7 @@ not part of OpenAPI.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/v1/health` | none | `{"status": "ok" \| "degraded", "unmounted_routers": [{"router", "error"}]}` — the optional routers whose import failed at boot, so their routes 404. Always 200. Under `/api/v1` because the gateway answers `/health` itself |
+| GET | `/api/v1/health` | none | `{"status": "ok" \| "degraded", "unmounted_routers": [{"router", "error"}], "worker": {"status": "ok" \| "down" \| "backlogged" \| "unknown", "queues": {"arq:queue": {"workers", "due_jobs", "oldest_due_seconds"}}}, "internal_events": "enabled" \| "disabled"}` — the optional routers whose import failed at boot (their routes 404), and the live arq workers per queue from their heartbeats (SA-I4). `degraded` when a router is missing or the worker is not `ok`. Always 200. Under `/api/v1` because the gateway answers `/health` itself |
 
 **Companies / users / profile / onboarding / partner**
 

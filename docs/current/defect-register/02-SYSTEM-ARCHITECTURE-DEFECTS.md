@@ -474,6 +474,15 @@ boot with a clear message.
 
 ### SA-I4 — Give the worker a health signal
 
+**Status: done (2026-09-30)** — each worker writes a heartbeat into `hb:workers:<queue>` every
+`WORKER_HEARTBEAT_SECONDS` (10) from its own task (arq's health key is written only between
+jobs, so a worker busy on long runs would look dead). `GET /api/v1/health` gains a `worker`
+block — live workers per queue, due jobs, the oldest due job's wait — and turns `degraded`
+when a queue has no live worker, a due job has waited over `WORKER_BACKLOG_ALERT_SECONDS`
+(600), or Redis is unreadable; still HTTP 200. Instead of a stuck-`PENDING` SQL count it
+reads the queue itself, which needs no database query and no index on `execution_runs`.
+Live: a hard-killed worker showed as `down` 32 s later.
+
 **Effect: large.** When the Arq worker dies, the API keeps accepting executions and
 every run sits in `PENDING` forever. Nothing surfaces an error to the user. The
 document calls this "the most common *the platform looks broken but nothing is

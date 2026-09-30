@@ -115,7 +115,7 @@ seconds with `wait_for_service`. The Arq worker has no port, so it is detected b
   `mount_optional` ([`common/router_mounts.py`](../../backend/src/common/router_mounts.py)):
   a broken import degrades to a missing route set rather than a dead process, and
   `GET /api/v1/health` (also `GET /health`) lists the routers that failed
-  (`status: degraded`, always a 200). The core routers — auth, AI, config,
+  (`status: degraded`, always a 200) — and reports the worker, see §2.3. The core routers — auth, AI, config,
   CORTEX, artifacts, campaigns, mobile (with its push socket) — are imported
   unguarded, so a broken import there stops the boot.
 
@@ -211,9 +211,18 @@ served by `GET /api/v1/streaming/voice-sessions/{id}`.
   `hirebuddha-worker` — one per job, in the trace of the request that queued it
   (see [§10](#opentelemetry-and-prometheus)).
 * **If it dies.** The API still accepts executions; runs sit in `PENDING`
-  forever. Nothing surfaces an error to the user. This is the most common
-  "the platform looks broken but nothing is logging" failure — always check
-  `logs/arq_worker.log` first.
+  until a worker comes back. Nothing surfaces an error to the user, but
+  `GET /api/v1/health` does (SA-I4): each worker writes a heartbeat into the
+  sorted set `hb:workers:<queue>` every `WORKER_HEARTBEAT_SECONDS` (10) from its
+  own task — arq's built-in health key is written only between jobs, so a
+  worker busy on long runs would look dead — and health counts the members seen
+  in the last three beats. It also reads the queue: due jobs and how long the
+  oldest has waited. The `worker` block says `down` (no live worker),
+  `backlogged` (a due job older than `WORKER_BACKLOG_ALERT_SECONDS`, 600) or
+  `unknown` (Redis unreadable), and top-level `status` turns `degraded`; still
+  HTTP 200, since a dead worker is not a reason to pull the API out of
+  rotation. A worker killed outright drops off within 30 s; one stopped
+  cleanly leaves at once. Then check `logs/arq_worker.log`.
 
 ### 2.4 Frontend — port 3000
 
@@ -1392,7 +1401,8 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 | [`setup_production_vm.sh`](../../setup_production_vm.sh) | 183 | Eight-step Ubuntu bootstrap: Python 3.12, Poetry, Node 20, Docker, venv, npm, `.env` |
 | [`backend/docker-compose.yml`](../../backend/docker-compose.yml) | 57 | Defines `app` (the API, 8000), `db` (5433), `redis` (6379); only `db` and `redis` are actually used |
 | [`backend/src/main.py`](../../backend/src/main.py) | 173 | The API app: lifespan (dispatcher), CORS, rate limiter, ~30 routers (18 of them optional) including the webhook/stream edge, three static mounts, telemetry |
-| [`backend/src/common/router_mounts.py`](../../backend/src/common/router_mounts.py) | 52 | `mount_optional` — mounts a router or records why its import failed; `GET /api/v1/health` and `GET /health` report the failures |
+| [`backend/src/common/router_mounts.py`](../../backend/src/common/router_mounts.py) | 65 | `mount_optional` — mounts a router or records why its import failed; `GET /api/v1/health` and `GET /health` report the failures and the worker |
+| [`backend/src/common/worker_health.py`](../../backend/src/common/worker_health.py) | 113 | Worker heartbeat (`start_heartbeat` / `stop_heartbeat`, from the worker's startup/shutdown) and `worker_status()`, the health endpoint's `worker` block |
 | [`backend/src/common/rate_limit.py`](../../backend/src/common/rate_limit.py) | 22 | The slowapi `limiter`: `RATE_LIMIT` per client IP, Redis storage with in-memory fallback |
 | [`backend/src/common/job_queue.py`](../../backend/src/common/job_queue.py) | 37 | `arq_redis_settings`, `arq_pool`, `enqueue_job` — every arq connection, from all of `REDIS_URL` |
 | [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 110 | Redis-cached agent resolution for the audio/video handshakes |

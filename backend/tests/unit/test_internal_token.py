@@ -10,6 +10,7 @@ constant-time, and /health reports which it is.
 import httpx
 import pytest
 
+from src.common import router_mounts
 from src.common.config import Settings, settings
 from src.gateway import envelope as envelope_module
 from src.main import app
@@ -23,6 +24,15 @@ def no_real_queue(monkeypatch):
         return object()
 
     monkeypatch.setattr(envelope_module, "enqueue_job", fake_enqueue)
+
+
+@pytest.fixture(autouse=True)
+def worker_consuming(monkeypatch):
+    """Health reads the worker heartbeat from Redis; these tests are not about it."""
+    async def ok():
+        return {"status": "ok", "queues": {}}
+
+    monkeypatch.setattr(router_mounts, "worker_status", ok)
 
 
 async def _call(method: str, path: str, **kwargs) -> httpx.Response:

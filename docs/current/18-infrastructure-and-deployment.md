@@ -174,7 +174,7 @@ Verify each service:
 |---|---|
 | Backend API | `curl -s localhost:8000/` → `{"message":"Welcome to HireBuddha Platform v2.0"}` |
 | Swagger | open `http://localhost:8000/docs` |
-| Health | `curl -s localhost:8000/api/v1/health` → `{"status":"ok","unmounted_routers":[]}` |
+| Health | `curl -s localhost:8000/api/v1/health` → `{"status":"ok","unmounted_routers":[],"worker":{"status":"ok","queues":{"arq:queue":{"workers":1,"due_jobs":0,"oldest_due_seconds":0}}},"internal_events":"disabled"}`. `worker.status` is `down` until the worker has started (it beats every 10 s) |
 | Frontend | open `http://localhost:3000` |
 | Worker booted | `.venv/bin/python -c "from src.ai.worker import WorkerSettings; print(len(WorkerSettings.functions), 'jobs;', len(WorkerSettings.cron_jobs), 'crons')"` |
 | Redis | `redis-cli ping` → `PONG` |
@@ -1165,10 +1165,19 @@ tail -f logs/backend_api.log logs/arq_worker.log logs/frontend.log
 redis-cli --scan --pattern 'arq:*' | head -50
 ```
 
-Queue depth:
+Queue depth — `arq:queue` is a sorted set scored by due time in ms, so
+`LLEN` fails with `WRONGTYPE` (and says 0 on an empty queue, whose key does
+not exist):
 
 ```bash
-redis-cli LLEN arq:queue
+redis-cli ZCARD arq:queue
+```
+
+Or read it from health, with the live workers and the oldest due job's wait:
+
+```bash
+curl -s localhost:8000/api/v1/health | jq .worker
+redis-cli ZRANGE hb:workers:arq:queue 0 -1 WITHSCORES   # host:pid and last beat
 ```
 
 ### 16.5 Drain and restart the worker

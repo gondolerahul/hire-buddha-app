@@ -23,6 +23,7 @@ from src.main import app
 from src.gateway import envelope as envelope_module
 from src.gateway.envelope import EventEnvelope
 from src.common.config import settings
+from src.common import router_mounts
 
 TEST_INTERNAL_TOKEN = "e2e-internal-token"
 
@@ -44,7 +45,8 @@ async def gateway_client():
         queued.append((function, args, kwargs))
         return MagicMock(job_id="e2e")
 
-    with patch.object(envelope_module, "enqueue_job", fake_enqueue),          patch.object(settings, "INTERNAL_TOKEN", TEST_INTERNAL_TOKEN):
+    with patch.object(envelope_module, "enqueue_job", fake_enqueue),          patch.object(settings, "INTERNAL_TOKEN", TEST_INTERNAL_TOKEN), \
+         patch.object(router_mounts, "worker_status", AsyncMock(return_value={"status": "ok", "queues": {}})):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",

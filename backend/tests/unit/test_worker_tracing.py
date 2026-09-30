@@ -121,5 +121,6 @@ async def test_the_worker_installs_its_own_tracer_provider(monkeypatch):
 
     calls = []
     monkeypatch.setattr(worker, "setup_tracing", calls.append)
+    monkeypatch.setattr(worker, "start_heartbeat", lambda ctx, queue: None)
     await worker.WorkerSettings.on_startup({})
     assert calls == ["hirebuddha-worker"]
