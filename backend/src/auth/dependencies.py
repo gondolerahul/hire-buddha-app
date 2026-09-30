@@ -14,6 +14,8 @@ import logging
 
 from src.common.security import ACCESS_TOKEN_TYPE
 
+EMAIL_NOT_VERIFIED = "Please verify your email address before signing in"
+
 logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
@@ -23,7 +25,7 @@ async def _authenticate_user(token: Optional[str], db: AsyncSession):
 
     The token must be a login token (``type == "access"``, AU-14) — not, say, an
     email-verification token signed with the same key — its user must exist and
-    be active (AU-04), and its ``tv`` must equal the user's ``token_version``, so
+    be active (AU-04) and verified (AU-08), and its ``tv`` must equal the user's ``token_version``, so
     ending a user's sessions ends their access tokens too (AU-05). A suspended
     company is a 403.
     """
@@ -57,6 +59,14 @@ async def _authenticate_user(token: Optional[str], db: AsyncSession):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="This account has been deactivated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not user.is_verified:
+        # Unverified accounts cannot sign in (AU-08); a token issued before that
+        # rule does not outlive it.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=EMAIL_NOT_VERIFIED,
             headers={"WWW-Authenticate": "Bearer"},
         )
 

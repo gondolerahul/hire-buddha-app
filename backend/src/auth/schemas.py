@@ -25,6 +25,20 @@ class Token(BaseModel):
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
+class EmailRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class RegistrationResponse(BaseModel):
+    email: EmailStr
+    message: str
+
+
 class LogoutRequest(BaseModel):
     refresh_token: str
     all_sessions: bool = False  # also end every other session of this user

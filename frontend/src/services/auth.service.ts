@@ -12,13 +12,19 @@ export const authService = {
         return data;
     },
 
-    async register(userData: RegisterRequest): Promise<AuthResponse> {
+    /** Creates the account and emails a verification link; signs nobody in (AU-08). */
+    async register(userData: RegisterRequest): Promise<{ email: string; message: string }> {
         const { data } = await apiClient.post('/auth/register', userData);
+        return data;
+    },
 
-        // Store tokens
-        localStorage.setItem('access_token', data.access_token);
-        localStorage.setItem('refresh_token', data.refresh_token);
+    async verifyEmail(token: string): Promise<{ message: string }> {
+        const { data } = await apiClient.get('/auth/verify-email', { params: { token } });
+        return data;
+    },
 
+    async resendVerification(email: string): Promise<{ message: string }> {
+        const { data } = await apiClient.post('/auth/resend-verification', { email });
         return data;
     },
 

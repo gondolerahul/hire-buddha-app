@@ -165,7 +165,7 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
                     </div>
 
                     <GlassInput
-                        label="Password"
+                        label="Password (min 12 characters)"
                         type="password"
                         value={formData.password}
                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}

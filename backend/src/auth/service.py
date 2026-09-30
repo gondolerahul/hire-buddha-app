@@ -13,6 +13,8 @@ from sqlalchemy import or_, update
 
 from src.auth.schemas import UserCreate, UserLogin, UserCreateAdmin, UserUpdate
 from src.auth.roles import Role, USER_ADMIN_ROLES, assignable_roles
+from src.auth.dependencies import EMAIL_NOT_VERIFIED
+from src.auth.throttle import ACCOUNT_EMAILS, LOGIN_FAILURES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,7 @@ async def create_user_as_admin(db: AsyncSession, user_in: UserCreateAdmin, creat
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # Create User
+    check_password_policy(user_in.password, user_in.email)
     hashed_password = get_password_hash(user_in.password)
     new_user = User(
         email=user_in.email,
@@ -142,6 +145,12 @@ async def update_user_as_admin(db: AsyncSession, user_id: uuid.UUID, update: Use
     return user
 
 async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
+    """Self-registration: a new TENANT workspace and its unverified tenant_admin.
+
+    The account cannot sign in until the email address is verified (AU-08); the
+    router sends the verification email.
+    """
+    check_password_policy(user.password, user.email)
     # Check if user exists
     result = await db.execute(select(User).filter(User.email == user.email))
     existing_user = result.scalars().first()
@@ -233,6 +242,26 @@ async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
     )
 
 
+MIN_PASSWORD_LENGTH = 12
+MAX_PASSWORD_LENGTH = 128
+
+
+def check_password_policy(password: str, email: str | None = None) -> None:
+    """422 unless ``password`` may be set (AU-07).
+
+    12 to 128 characters, and not the account's email address. Checked wherever
+    a password is chosen — registration, admin creation, reset — not at login,
+    so existing passwords keep working. The message is a plain string because
+    the UI shows ``detail`` as text.
+    """
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=422, detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
+    if len(password) > MAX_PASSWORD_LENGTH:
+        raise HTTPException(status_code=422, detail=f"Password must be at most {MAX_PASSWORD_LENGTH} characters long")
+    if email and password.strip().lower() == email.strip().lower():
+        raise HTTPException(status_code=422, detail="Password must not be your email address")
+
+
 def require_active(user: User) -> User:
     """403 for a deactivated user, so a correct password does not sign them in (AU-04)."""
     if not user.is_active:
@@ -240,14 +269,37 @@ def require_active(user: User) -> User:
     return user
 
 
+def require_verified(user: User) -> User:
+    """403 until the user has confirmed their email address (AU-08)."""
+    if not user.is_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=EMAIL_NOT_VERIFIED)
+    return user
+
+
 async def authenticate_user(db: AsyncSession, login_data: UserLogin):
+    """The user for a correct email and password, or ``None``.
+
+    Ten wrong passwords for one account in 15 minutes stop sign-in for that
+    account until the window ends (429), wherever the attempts come from (AU-07).
+    Unknown emails count too, so the limit does not reveal which accounts exist.
+    A right password for a deactivated or unverified account is a 403.
+    """
+    wait = await LOGIN_FAILURES.retry_after(login_data.email)
+    if wait:
+        minutes = -(-wait // 60)
+        unit = "minute" if minutes == 1 else "minutes"
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed sign-in attempts. Try again in {minutes} {unit}.",
+            headers={"Retry-After": str(wait)},
+        )
     result = await db.execute(select(User).filter(User.email == login_data.email))
     user = result.scalars().first()
-    if not user:
+    if not user or not verify_password(login_data.password, user.hashed_password):
+        await LOGIN_FAILURES.hit(login_data.email)
         return None
-    if not verify_password(login_data.password, user.hashed_password):
-        return None
-    return require_active(user)
+    await LOGIN_FAILURES.clear(login_data.email)
+    return require_verified(require_active(user))
 
 def hash_refresh_token(token: str) -> str:
     """The stored form of a refresh token (AU-10).
@@ -300,6 +352,8 @@ async def _refresh_token_user(db: AsyncSession, token: str) -> tuple[RefreshToke
         raise HTTPException(status_code=401, detail="User not found")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="This account has been deactivated")
+    if not user.is_verified:
+        raise HTTPException(status_code=401, detail=EMAIL_NOT_VERIFIED)
     return refresh_token, user
 
 
@@ -421,3 +475,61 @@ async def verify_email_token(db: AsyncSession, token: str):
     
     return {"message": "Email verified successfully"}
 
+
+# ── Verification and password reset (AU-06, AU-08) ────────────────────────────
+
+async def _user_by_email(db: AsyncSession, email: str) -> User | None:
+    result = await db.execute(select(User).filter(User.email == email))
+    return result.scalars().first()
+
+
+async def needs_verification_email(db: AsyncSession, email: str) -> bool:
+    """Whether to (re)send a verification email to ``email``.
+
+    Only for an existing, active, unverified account, at most five account
+    emails an hour per address. The endpoint answers the same either way, so it
+    does not reveal which addresses have accounts.
+    """
+    user = await _user_by_email(db, email)
+    if user is None or user.is_verified or not user.is_active:
+        return False
+    if await ACCOUNT_EMAILS.retry_after(email):
+        return False
+    await ACCOUNT_EMAILS.hit(email)
+    return True
+
+
+async def password_reset_target(db: AsyncSession, email: str) -> User | None:
+    """The account a forgot-password request should email, or ``None`` (same rules)."""
+    user = await _user_by_email(db, email)
+    if user is None or not user.is_active:
+        return None
+    if await ACCOUNT_EMAILS.retry_after(email):
+        return None
+    await ACCOUNT_EMAILS.hit(email)
+    return user
+
+
+async def reset_password(db: AsyncSession, token: str, new_password: str) -> None:
+    """Set a new password from a reset link, and end every session (AU-06).
+
+    The token must be a ``password_reset`` token issued against the password the
+    account still has, so each link works once. Proving control of the mailbox
+    also verifies the address.
+    """
+    from src.auth.account_emails import PASSWORD_RESET_TOKEN_TYPE, password_fingerprint
+    from src.common.security import decode_access_token
+
+    invalid = HTTPException(status_code=400, detail="This reset link is invalid, used or expired. Ask for a new one.")
+    payload = decode_access_token(token)
+    if not payload or payload.get("type") != PASSWORD_RESET_TOKEN_TYPE or not payload.get("sub"):
+        raise invalid
+    user = await _user_by_email(db, payload["sub"])
+    if user is None or not user.is_active or payload.get("pwh") != password_fingerprint(user.hashed_password):
+        raise invalid
+    check_password_policy(new_password, user.email)
+    user.hashed_password = get_password_hash(new_password)
+    user.is_verified = True
+    await revoke_all_sessions(db, user.id)
+    await db.commit()
+    await LOGIN_FAILURES.clear(user.email)

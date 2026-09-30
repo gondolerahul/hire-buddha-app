@@ -43,7 +43,7 @@ class _DB:
 
 def _user(active=True):
     return SimpleNamespace(id=uuid.uuid4(), email="rep@example.com", company_id=uuid.uuid4(),
-                           is_active=active, token_version=0, company=SimpleNamespace(status="active"),
+                           is_active=active, is_verified=True, token_version=0, company=SimpleNamespace(status="active"),
                            hashed_password=get_password_hash("correct horse battery"))
 
 
@@ -103,3 +103,12 @@ def test_oauth_login_refuses_a_deactivated_user():
     with pytest.raises(HTTPException) as exc:
         service.require_active(_user(active=False))
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_an_unverified_users_token_stops_working():
+    user = _user()
+    user.is_verified = False
+    with pytest.raises(HTTPException) as exc:
+        await _authenticate_user(service.issue_access_token(user), _DB(user))
+    assert exc.value.status_code == 401 and "verify" in exc.value.detail

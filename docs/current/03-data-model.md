@@ -199,6 +199,7 @@ Purpose: one login. Defined at [auth/models.py:28](../../backend/src/auth/models
 | `company_id` | UUID FK→companies.id | no | — | Tenant |
 | `role` | String | yes | `tenant_user` | See [§11.3](#113-user-roles) |
 | `is_active` | Boolean | yes | `True` | Checked on every request and at login since AU-04 |
+| `is_verified` | Boolean | yes | `False` | Must be true to sign in since AU-08; self-registration starts false, admin- and OAuth-created users true. `au08_verify_existing_users` set it for every earlier account |
 | `token_version` | Integer | no | `0` | Carried in access tokens as `tv`; bumping it ends every session (AU-05, 2026-09-30) |
 | `is_verified` | Boolean | yes | `False` | |
 | `profile_picture_url` | String | yes | — | |

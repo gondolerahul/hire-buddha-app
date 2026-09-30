@@ -58,6 +58,11 @@ export const LoginPage: React.FC = () => {
                         />
 
                         {error && <div className="error-message">{error}</div>}
+                        {error.includes('verify your email') && (
+                            <Link to={`/verify-email?email=${encodeURIComponent(email)}`} className="auth-link">
+                                Send the verification link again
+                            </Link>
+                        )}
 
                         <JellyButton
                             type="submit"

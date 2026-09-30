@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     # internal-event endpoints. Counted in Redis; in memory if Redis is down.
     RATE_LIMIT: str = "200/minute"
 
+    # ── Account emails (AU-06, AU-08) ─────────────────────────────────────
+    # Where verification and password-reset links point: the SPA's origin.
+    FRONTEND_URL: str = "http://localhost:3000"
+    # Local development only: when an account email cannot be sent (no SMTP
+    # integration), write its link to the API log instead. Never in production —
+    # the links are credentials.
+    EMAIL_LINKS_IN_LOG: bool = False
+
     # ── Webhook / internal-event / media-stream edge ──────────────────────
     # Shared secret for POST /internal/event (X-Internal-Token). Empty or a
     # known placeholder disables the endpoint (503) rather than guarding it

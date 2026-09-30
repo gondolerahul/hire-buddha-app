@@ -9,6 +9,7 @@ const LoginPage = lazy(() => import('@/pages/auth').then(m => ({ default: m.Logi
 const RegisterPage = lazy(() => import('@/pages/auth').then(m => ({ default: m.RegisterPage })));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/PasswordReset').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('@/pages/auth/PasswordReset').then(m => ({ default: m.ResetPasswordPage })));
+const VerifyEmailPage = lazy(() => import('@/pages/auth/VerifyEmail').then(m => ({ default: m.VerifyEmailPage })));
 const OAuthCallbackPage = lazy(() => import('@/pages/auth/OAuthCallback').then(m => ({ default: m.OAuthCallbackPage })));
 const Dashboard = lazy(() => import('@/pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const EntityLibrary = lazy(() => import('@/pages/ai/EntityLibrary').then(m => ({ default: m.EntityLibrary })));
@@ -120,6 +121,7 @@ export const AppRouter: React.FC = () => {
                     <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
                     <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
                     <Route path="/reset-password" element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
+                    <Route path="/verify-email" element={<PublicRoute><VerifyEmailPage /></PublicRoute>} />
                     <Route path="/auth/callback" element={<OAuthCallbackPage />} />
 
                     {/* Protected Routes */}

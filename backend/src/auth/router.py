@@ -1,32 +1,52 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Body
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Response, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.security import OAuth2PasswordRequestForm
 from src.common.database import get_db
-from src.auth.schemas import UserCreate, UserResponse, Token, UserLogin, RefreshTokenRequest, LogoutRequest, OAuthRequest
-from src.auth import service
+from src.auth.schemas import (
+    UserCreate, UserResponse, Token, UserLogin, RefreshTokenRequest, LogoutRequest, OAuthRequest,
+    EmailRequest, PasswordResetRequest, RegistrationResponse,
+)
+from src.auth import account_emails, service
 import httpx
 import os
 from src.auth import service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-@router.post("/register", response_model=Token)
-async def register(user: UserCreate, response: Response, db: AsyncSession = Depends(get_db)):
+@router.post("/register", response_model=RegistrationResponse, status_code=status.HTTP_201_CREATED)
+async def register(user: UserCreate, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Create a workspace and its admin, and email a verification link (AU-08).
+
+    No tokens: the account cannot sign in until the address is verified.
+    """
     new_user = await service.create_user(db, user)
-    # Generate tokens so the frontend can immediately authenticate
-    access_token = service.issue_access_token(new_user)
-    refresh_token = await service.create_refresh_token(db, new_user.id)
+    background.add_task(account_emails.send_verification_email, new_user.email)
+    return {"email": new_user.email, "message": "Check your email for a link to verify your address."}
 
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        max_age=7 * 24 * 60 * 60
-    )
 
-    return {"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token}
+@router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
+async def resend_verification(request: EmailRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Send the verification link again. The same answer whether or not the address has an account."""
+    if await service.needs_verification_email(db, request.email):
+        background.add_task(account_emails.send_verification_email, request.email)
+    return {"message": "If that address has an unverified account, a new link is on its way."}
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+async def forgot_password(request: EmailRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Email a single-use, 30-minute reset link (AU-06). The same answer for any address."""
+    user = await service.password_reset_target(db, request.email)
+    if user is not None:
+        background.add_task(account_emails.send_password_reset_email, user.email, user.hashed_password)
+    return {"message": "If that address has an account, a reset link is on its way."}
+
+
+@router.post("/reset-password")
+async def reset_password(request: PasswordResetRequest, db: AsyncSession = Depends(get_db)):
+    """Set a new password from a reset link. Every existing session ends."""
+    await service.reset_password(db, request.token, request.new_password)
+    return {"message": "Password updated. Sign in with your new password."}
+
 
 @router.post("/login", response_model=Token)
 async def login(response: Response, login_data: UserLogin, db: AsyncSession = Depends(get_db)):

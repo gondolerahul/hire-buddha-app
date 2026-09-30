@@ -190,7 +190,11 @@ not part of OpenAPI.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/v1/auth/register` | none | Register a user |
+| POST | `/api/v1/auth/register` | none | Register a user; emails a verification link, returns no tokens |
+| POST | `/api/v1/auth/resend-verification` | none | Send the verification link again (202 for any address) |
+| POST | `/api/v1/auth/forgot-password` | none | Email a password-reset link (202 for any address) |
+| POST | `/api/v1/auth/reset-password` | none (reset token in body) | Set a new password; ends every session |
+| POST | `/api/v1/auth/logout` | none (refresh token in body) | End this session, or every session with `all_sessions` (204) |
 | POST | `/api/v1/auth/login` | none | Login → JWT |
 | POST | `/api/v1/auth/token` | none | OAuth2 password-form login |
 | GET | `/api/v1/auth/me` | Bearer | Current user |
@@ -309,11 +313,20 @@ Request — `UserCreate`:
 | `password` | `str` | yes |
 | `full_name` | `str` | yes |
 
+The password must be 12–128 characters and not the email (422 otherwise). Response —
+`201 {"email", "message"}`: no tokens. The account signs in once the address is verified
+through the emailed link (AU-08). Locally, with no SMTP integration, set
+`EMAIL_LINKS_IN_LOG=true` in `backend/.env` and take the link from the API log.
+
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/register -H 'Content-Type: application/json' -d '{"email":"dev@example.com","password":"Passw0rd!","full_name":"Dev User"}'
+curl -X POST http://localhost:8000/api/v1/auth/register -H 'Content-Type: application/json' -d '{"email":"dev@example.com","password":"a long enough passphrase","full_name":"Dev User"}'
 ```
 
 ### `POST /api/v1/auth/login`
+
+A wrong email or password is 401; the right password for a deactivated or unverified account
+is 403; ten failures for one account within 15 minutes make sign-in answer 429 with
+`Retry-After` until the window ends.
 
 Request — `UserLogin` (`email`, `password`). Response — `Token`:
 
@@ -1058,7 +1071,13 @@ The frontend consumer is
 ### 21.1 Register, log in, run an entity, watch it
 
 ```bash
-BASE=http://localhost:8000 && TOKEN=$(curl -s -X POST $BASE/api/v1/auth/register -H 'Content-Type: application/json' -d '{"email":"demo@example.com","password":"Passw0rd!","full_name":"Demo"}' >/dev/null; curl -s -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"demo@example.com","password":"Passw0rd!"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])') && echo "token acquired"
+BASE=http://localhost:8000 && curl -s -X POST $BASE/api/v1/auth/register -H 'Content-Type: application/json' -d '{"email":"demo@example.com","password":"a long enough passphrase","full_name":"Demo"}'
+```
+
+Open the verification link (emailed, or in the API log with `EMAIL_LINKS_IN_LOG=true`), then:
+
+```bash
+TOKEN=$(curl -s -X POST $BASE/api/v1/auth/login -H 'Content-Type: application/json' -d '{"email":"demo@example.com","password":"a long enough passphrase"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])') && echo "token acquired"
 ```
 
 ```bash

@@ -22,7 +22,7 @@ pytestmark = pytest.mark.needs_db
 async def _user(db, company_id):
     from src.auth.models import User
     user = User(email=f"au05-{uuid.uuid4().hex[:8]}@example.com", full_name="AU05", hashed_password="x",
-                company_id=company_id, role="tenant_user", is_active=True)
+                company_id=company_id, role="tenant_user", is_active=True, is_verified=True)
     db.add(user)
     await db.flush()
     await db.refresh(user)

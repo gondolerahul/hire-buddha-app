@@ -33,8 +33,11 @@ class ApiClient {
             async (error) => {
                 const originalRequest = error.config;
 
-                // If 401 and not already retrying, try to refresh token
-                if (error.response?.status === 401 && !originalRequest._retry) {
+                // If 401 and not already retrying, try to refresh token. With no
+                // refresh token there is nothing to try: pass the 401 on (public
+                // pages make calls that 401 when signed out; redirecting would loop).
+                const canRefresh = this.refreshing !== null || !!localStorage.getItem('refresh_token');
+                if (error.response?.status === 401 && !originalRequest._retry && canRefresh) {
                     originalRequest._retry = true;
 
                     try {

@@ -306,7 +306,7 @@ made session D's access token and refresh token 401, and a new login worked.
 
 ### AU-06 — Password reset works in the browser and does not exist in the backend
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — with AU-07 and AU-08.
 
 The frontend has a complete two-page reset flow, routed at `/forgot-password` and
 `/reset-password`. It calls `POST /auth/forgot-password` and `POST /auth/reset-password`.
@@ -326,11 +326,42 @@ editing the database.
 [`common/email.py`](../../../backend/src/common/email.py) already has the token minting
 and send path to copy.
 
+**Done (2026-09-30).** That machinery had never run — see AU-08 — so both flows were built in
+`auth/account_emails.py` and the auth router:
+
+- `POST /auth/forgot-password {email}` → 202, the same answer for any address (no account
+  enumeration); an active account is emailed a link to `/reset-password?token=…`. At most
+  five account emails an hour per address.
+- The reset token is a JWT with `type: "password_reset"`, 30 minutes, and `pwh` — a
+  fingerprint of the password hash it was issued against — so it works **once**: the new
+  password changes the hash.
+- `POST /auth/reset-password {token, new_password}` checks the policy (AU-07), sets the
+  password, marks the address verified (the user proved they read its mail), ends every
+  session through `revoke_all_sessions` (AU-05), and clears the sign-in throttle.
+- Emails are sent after the response (FastAPI background tasks) through the `smtp-system`
+  integration, with links built from the new `FRONTEND_URL` setting (the old code read an
+  env var defaulting to port 5173; the SPA runs on 3000). The endpoints themselves are the
+  retry. `EMAIL_LINKS_IN_LOG` (local development only) writes a link that could not be
+  emailed to the log.
+
+**Evidence:** `tests/integration/test_account_email_flows.py` (auth router against the real
+Postgres, SMTP captured, Redis faked), 7 cases, among them the reset end to end — same 202
+for known and unknown addresses, the old password refused and the new one accepted, the
+earlier session's refresh token refused, the link refused the second time — and a
+verification token refused as a reset token. Live, in the browser against the local stack (2026-10-01): registering on `/register`
+landed on `/verify-email` ("we've sent a verification link"); signing in before verifying
+showed *Please verify your email address before signing in* with a "Send the verification
+link again" link; the link (read from the API log with `EMAIL_LINKS_IN_LOG`) verified the
+address; sign-in then worked and landed on onboarding; the sidebar's Logout called
+`POST /auth/logout` (204) and cleared storage; `/forgot-password` → the logged reset link →
+a new password on `/reset-password` succeeded, after which the old password got 401, the new
+one 200, and the same link again 400.
+
 ---
 
 ### AU-07 — There is no password policy on the server
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — with [AU-I6](#au-i6--rate-limit-login-by-email-not-only-by-ip).
 
 `UserCreate.password` is a bare `str`. No minimum length, no complexity rule, no breach
 check. A one-character password is accepted by the API.
@@ -352,11 +383,29 @@ guessing.
 
 **Fix:** a Pydantic validator with a length minimum, plus a per-email login rate limit.
 
+**Done (2026-09-30).**
+
+- `service.check_password_policy`: 12–128 characters and not the account's email, where a
+  password is chosen — register, admin create, reset. Not a Pydantic validator: its 422
+  `detail` would be a list, and every page renders `detail` as text; this one is a string.
+  Existing passwords are not re-checked at login. The create-user modal says "min 12".
+- `auth/throttle.py`: ten wrong passwords for one account in 15 minutes and sign-in for that
+  account answers 429 with `Retry-After` until the window ends, the right password included;
+  unknown emails count the same, so the limit reveals nothing; a correct password clears the
+  count. Keyed by a SHA-256 of the email in Redis; if Redis is down the check is skipped and
+  logged rather than locking everyone out.
+
+**Evidence:** `tests/unit/test_login_throttle_and_policy.py` (10 cases: lengths, email as
+password, lock at the tenth failure in any letter case, clear, no email in the key, Redis
+down fails open) and, through the real router, a weak password's readable 422 and a 429
+after ten wrong passwords in `tests/integration/test_account_email_flows.py`.
+
 ---
 
 ### AU-08 — `is_verified` gates nothing
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — product decision: an unverified
+account cannot sign in.
 
 Self-registered users get `is_verified = False` **and a working access token in the same
 response**. Nothing anywhere checks the flag. The verification email exists and the
@@ -369,6 +418,36 @@ the link, lands on the dashboard, and the token is never presented to the endpoi
 - [`auth/service.py`](../../../backend/src/auth/service.py) — `create_user`
 - [`common/email.py:183`](../../../backend/src/common/email.py:183) — the link builder
 - [`frontend/src/router/index.tsx`](../../../frontend/src/router/index.tsx) — no `/verify-email` route
+
+**Worse than recorded:** no verification email was ever sent. `send_verification_email` had
+no caller; a comment in `create_user` said the background worker sent it, and no job did.
+
+**Done (2026-09-30).**
+
+- `POST /auth/register` returns `201 {email, message}` and **no tokens**, and emails a
+  verification link (24 hours). `POST /auth/resend-verification {email}` sends it again —
+  202 for any address, at most five an hour.
+- An unverified account is refused everywhere: the right password is a 403 *Please verify
+  your email address before signing in*; its refresh and access tokens are 401.
+- Admin-created and OAuth users are verified at creation, as before. A password reset
+  verifies the address too.
+- Revision `au08_verify_existing_users` marks every existing account verified: none had
+  been sent a link, and blocking them would have locked out every self-registered user.
+- Frontend: registration goes to a new `/verify-email` page ("we've sent a link", with a
+  resend form); the email's link opens the same page, which verifies and offers sign-in; the
+  login page shows "Send the verification link again" on the 403.
+
+**Evidence:** `tests/integration/test_account_email_flows.py` — registration sends one
+`/verify-email` link and returns no token; sign-in is 403 until the link is opened, then 200;
+resend answers alike for unknown and unverified addresses and emails only the latter;
+`tests/unit/test_auth_token_checks.py` — an unverified user's access token is 401. Live: see
+[AU-06](#au-06--password-reset-works-in-the-browser-and-does-not-exist-in-the-backend).
+
+**Found while verifying:** the single-flight refresh added for AU-09 (`6127c33`) sent the
+browser to `/login` on any 401 when no refresh token was stored. The login page itself makes
+a call that 401s when signed out (`GET /ai/admin/feature_flags/me`), so the login page
+reloaded forever. `api.client.ts` now passes the 401 on when there is no refresh token to try,
+as before.
 
 ---
 
@@ -715,6 +794,10 @@ query per child tenant — which is also
 [PO-I6](01-PRODUCT-OVERVIEW-DEFECTS.md#po-i6--cache-the-partner-entity-fan-out).
 
 ### AU-I6 — Rate-limit login by email, not only by IP
+
+**Status: done (2026-09-30)** — with AU-07: a fixed 15-minute window of ten failures per
+account, not exponential backoff; `governance/rate_limiter.py` was not used (it is a
+sliding-window request counter, and this counts failures).
 
 **Effect: medium.** The gateway's `200/minute` per remote address does nothing against a
 distributed attempt and hurts legitimate users behind one NAT. A per-email counter with

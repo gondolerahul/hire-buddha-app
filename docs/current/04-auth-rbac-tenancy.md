@@ -168,55 +168,88 @@ flowchart LR
     H -->|"yes"| J["return User"]
 ```
 
-### 3.2 What is NOT validated
+### 3.2 Password policy and sign-in throttling (AU-07)
 
-`UserCreate` in [schemas.py:5](../../backend/src/auth/schemas.py:5) declares `password: str` with **no constraints**. There is no minimum length, no complexity rule, no breach check, and no rate limit on `/auth/login`. A one-character password is accepted by the API.
+`service.check_password_policy(password, email)` runs wherever a password is **chosen** —
+registration, admin creation, reset — and answers 422 with a plain-string `detail` unless
+the password is 12–128 characters and is not the account's email address. Existing
+passwords are not re-checked at login. The frontend pages ask for the same 12 characters.
+Until 2026-09-30 `password: str` had no constraint at all and a one-character password was
+accepted.
 
-The only password policy in the whole codebase is client-side, in [PasswordReset.tsx:108](../../frontend/src/pages/auth/PasswordReset.tsx:108):
+Sign-in is throttled per **account**, not per address (`auth/throttle.py`): ten wrong
+passwords for one email in 15 minutes and that account's sign-in answers 429 (with
+`Retry-After`) until the window ends — even with the right password — however many client
+addresses the attempts come from. Unknown emails are counted the same way, so the limit
+reveals nothing. A correct password clears the count. The counters live in Redis under a
+SHA-256 of the email; if Redis is unreachable the check is skipped (logged), because an
+outage must not lock everyone out. The API-wide 200 requests/minute per IP still applies
+on top. The same module limits account emails (verification, reset) to five an hour per
+address.
 
-```tsx
-// frontend/src/pages/auth/PasswordReset.tsx
-if (password.length < 12) {
-    setError('Password must be at least 12 characters long');
-    return;
-}
-```
+### 3.3 Password reset and email verification (AU-06, AU-08)
 
-That check runs in the browser and is trivially bypassed.
-
-### 3.3 Password reset — the frontend exists, the backend does not
-
-This is the single most surprising gap in the auth module. The frontend has a complete two-page reset flow:
-
-- `/forgot-password` → `POST /auth/forgot-password { email }` — [PasswordReset.tsx:23](../../frontend/src/pages/auth/PasswordReset.tsx:23)
-- `/reset-password?token=...` → `POST /auth/reset-password { token, new_password }` — [PasswordReset.tsx:121](../../frontend/src/pages/auth/PasswordReset.tsx:121)
-
-Both routes are wired up in [router/index.tsx:121-122](../../frontend/src/router/index.tsx:121). **Neither endpoint exists in the backend.** Grepping the whole `backend/` tree for `forgot`, `reset-password`, or `new_password` returns zero matches. Both pages will show "Failed to send reset email" against a 404.
+Both flows were half-built until 2026-09-30: the reset pages called endpoints that did not
+exist, and nothing ever sent a verification email (the one sender had no caller), so
+`is_verified` was `false` for every self-registered user and gated nothing. They now work
+end to end, in [account_emails.py](../../backend/src/auth/account_emails.py) (tokens, links,
+emails) and the auth router.
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant FE as ForgotPasswordPage
-    participant API as Backend /api/v1
+    participant FE as SPA
+    participant API as /api/v1/auth
+    participant M as Mailbox
 
-    U->>FE: enters email, submits
-    FE->>API: POST /auth/forgot-password
-    Note over API: NO ROUTE REGISTERED
-    API-->>FE: 404 Not Found
-    FE-->>U: "Failed to send reset email"
+    U->>FE: registers
+    FE->>API: POST /register
+    API-->>FE: 201, no tokens
+    API-)M: verification link (24 h)
+    U->>FE: opens /verify-email?token=
+    FE->>API: GET /verify-email?token=
+    API-->>FE: verified
+    U->>FE: forgot password
+    FE->>API: POST /forgot-password
+    API-->>FE: 202 (same answer for any address)
+    API-)M: reset link (30 min, single use)
+    U->>FE: /reset-password?token=, new password
+    FE->>API: POST /reset-password
+    API-->>FE: 200, every session ended
 ```
 
-The closest working thing is **email verification**, which is a different flow:
-
-| Piece | Location |
+| Endpoint | Does |
 |---|---|
-| Verification link builder | [common/email.py:183](../../backend/src/common/email.py:183) `send_verification_email` — builds `{FRONTEND_URL}/verify-email?token=...` |
-| Verify endpoint | [router.py:176](../../backend/src/auth/router.py:176) `GET /auth/verify-email?token=` |
-| Token check | [service.py:277](../../backend/src/auth/service.py:277) `verify_email_token` — decodes the JWT and requires `payload["type"] == "email_verification"` |
+| `POST /auth/register` | Creates the workspace and its **unverified** `tenant_admin`; emails a verification link; returns `201 {email, message}` — **no tokens** |
+| `GET /auth/verify-email?token=` | Verifies the address (unchanged) |
+| `POST /auth/resend-verification {email}` | `202`, the same answer whether or not the address has an unverified account |
+| `POST /auth/forgot-password {email}` | `202`, the same answer for any address; emails a reset link to an active account |
+| `POST /auth/reset-password {token, new_password}` | Checks the policy, sets the password, marks the address verified, ends every session (`revoke_all_sessions`), clears the sign-in throttle |
+
+Tokens are JWTs signed with `SECRET_KEY`, told apart from login tokens by `type`:
+
+| Token | `type` | Lifetime | Single use |
+|---|---|---|---|
+| Verification | `email_verification` | 24 hours | no (verifying twice is harmless) |
+| Password reset | `password_reset` | 30 minutes | yes — carries `pwh`, a fingerprint of the password hash it was issued against; setting a password changes the hash |
+
+**An unverified account cannot sign in** (product decision, 2026-09-30): the right password
+answers 403 *Please verify your email address before signing in* (the login page then offers
+"Send the verification link again"), and an unverified user's refresh token and access
+token are refused (401). Admin-created and OAuth users are created verified. Migration
+`au08_verify_existing_users` marked every account that existed before the rule verified —
+none had ever been sent a link.
+
+Emails go out after the response (FastAPI background tasks) through the `smtp-system`
+integration; the resend and forgot-password endpoints are the retry. Links point at
+`settings.FRONTEND_URL` (default `http://localhost:3000`; set the public SPA origin in
+production). With no SMTP integration the email is not sent and an error is logged; in local
+development `EMAIL_LINKS_IN_LOG=true` also writes the link to the API log. Never set it in
+production — the links are credentials.
 
 Note that `create_access_token` is reused to mint the verification token, and the `type` claim is the only thing distinguishing it from a login token. Both directions are checked: a login token fails `verify_email_token`'s `type` check, and since 2026-09-30 (AU-14) `_authenticate_user` accepts only `type == "access"`, so a verification token no longer signs anyone in.
 
-Also note the `/verify-email` frontend route does not exist in [router/index.tsx](../../frontend/src/router/index.tsx) — the verification email links to a page that falls through to the `*` catch-all and redirects to `/dashboard`.
+The `/verify-email` page ([VerifyEmail.tsx](../../frontend/src/pages/auth/VerifyEmail.tsx)) verifies a `?token=`, or, after registering, says where the link went and offers to send it again. Until 2026-09-30 the route did not exist and the email's link fell through to `/dashboard`.
 
 ---
 
@@ -712,7 +745,7 @@ Being blunt about the weak spots:
 
 5. ~~**`is_active` is never checked.**~~ **Fixed 2026-09-30 (AU-04).** `_authenticate_user` refuses a deactivated user's token (401), `authenticate_user` refuses the right password (403), and the refresh path and OAuth login refuse them too. Deactivating a user now locks them out on their next request.
 
-6. **`is_verified` is never checked either.** Self-registered users get `is_verified = False` and a token in the same response. Nothing gates on verification.
+6. ~~**`is_verified` is never checked either.**~~ **Fixed 2026-09-30 (AU-08).** Registration returns no tokens and sends a verification link; an unverified account cannot sign in, refresh or call the API. See §3.3.
 
 ---
 
@@ -1434,10 +1467,10 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | 6 | ~~Refresh tokens stored in **plaintext**.~~ **Fixed (AU-10):** only a SHA-256 is stored. | [models.py](../../backend/src/auth/models.py) |
 | 7 | ~~Refresh-token reuse detected but not acted on.~~ **Fixed (AU-09):** reuse ends every session. | [service.py](../../backend/src/auth/service.py) |
 | 8 | ~~Access tokens cannot be revoked.~~ **Fixed (AU-05):** per user, through `token_version`. | [dependencies.py](../../backend/src/auth/dependencies.py) |
-| 9 | Password reset is frontend-only; the two endpoints do not exist. | [PasswordReset.tsx:23](../../frontend/src/pages/auth/PasswordReset.tsx:23) vs. empty backend grep |
-| 10 | No password policy server-side. `password: str`, no length or complexity rule. | [schemas.py:5](../../backend/src/auth/schemas.py:5) |
-| 11 | No rate limiting on `/auth/login` beyond the API-wide `200/minute` per client IP — nothing per account. | [rate_limit.py](../../backend/src/common/rate_limit.py) |
-| 12 | `is_verified` is never enforced at login. (`is_active` is, since AU-04.) | [dependencies.py:16](../../backend/src/auth/dependencies.py:16) |
+| 9 | ~~Password reset is frontend-only.~~ **Fixed (AU-06):** both endpoints exist; see §3.3. | [router.py](../../backend/src/auth/router.py) |
+| 10 | ~~No password policy server-side.~~ **Fixed (AU-07):** 12–128 characters, not the email. | [service.py](../../backend/src/auth/service.py) `check_password_policy` |
+| 11 | ~~No per-account rate limit on `/auth/login`.~~ **Fixed (AU-07):** 10 failures per account per 15 minutes → 429. | [throttle.py](../../backend/src/auth/throttle.py) |
+| 12 | ~~`is_verified` is never enforced at login.~~ **Fixed (AU-08):** unverified accounts cannot sign in. | [service.py](../../backend/src/auth/service.py) `require_verified` |
 | 13 | OAuth `state` is the provider name, not a CSRF nonce; account linking is by unverified email. | [oauth.service.ts:17](../../frontend/src/services/oauth.service.ts:17), [service.py:221](../../backend/src/auth/service.py:221) |
 
 ### Medium
@@ -1463,7 +1496,6 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 - Two different functions named `_require_admin` with different definitions of admin.
 - `GET /auth/admin-only` ([router.py:76](../../backend/src/auth/router.py:76)) is a leftover smoke-test endpoint that ships in production.
 - `test_register_new_user` in [test_01_auth.py:15](../../backend/tests/e2e/test_01_auth.py:15) asserts `data["email"]`, but `/auth/register` returns a `Token`. The test is stale relative to the route.
-- The verification email links to `/verify-email?token=`, a frontend route that does not exist and falls through to the `*` → `/dashboard` catch-all.
 
 ---
 

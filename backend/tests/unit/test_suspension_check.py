@@ -40,7 +40,7 @@ class _FakeSession:
 
 
 def _user(status: str):
-    return SimpleNamespace(email="rep@acme.test", is_active=True, token_version=0, company=SimpleNamespace(status=status))
+    return SimpleNamespace(email="rep@acme.test", is_active=True, is_verified=True, token_version=0, company=SimpleNamespace(status=status))
 
 
 def test_the_middleware_is_gone():

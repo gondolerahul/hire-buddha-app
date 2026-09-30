@@ -70,24 +70,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const register = async (email: string, password: string, fullName: string) => {
-        // Register now returns Token response (same as login)
-        const response = await authService.register({
-            email,
-            password,
-            full_name: fullName,
-        });
-        setToken(localStorage.getItem('access_token'));
-
-        // Fetch the full user profile
-        try {
-            const currentUser = await authService.getCurrentUser();
-            setUser(currentUser);
-        } catch {
-            // Profile fetch failed — proceed to onboarding anyway
-        }
-
-        // New registrations always need onboarding
-        window.location.href = '/onboarding';
+        // Registration emails a verification link and signs nobody in (AU-08):
+        // the account can sign in once the address is verified.
+        await authService.register({ email, password, full_name: fullName });
+        window.location.href = `/verify-email?email=${encodeURIComponent(email)}`;
     };
 
     const logout = () => {

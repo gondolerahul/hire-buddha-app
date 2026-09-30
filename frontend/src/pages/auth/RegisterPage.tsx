@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, GlassInput, JellyButton } from '@/components/ui';
 import logo from '@/assets/logo.png';
@@ -12,7 +12,6 @@ export const RegisterPage: React.FC = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const { register } = useAuth();
-    const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -28,7 +27,6 @@ export const RegisterPage: React.FC = () => {
 
         try {
             await register(email, password, fullName);
-            navigate('/dashboard');
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Registration failed. Please try again.');
         } finally {
