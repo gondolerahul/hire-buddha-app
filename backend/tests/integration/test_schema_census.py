@@ -2,7 +2,8 @@
 
 Builds a scratch database from the migration chain alone — the way a fresh
 deploy does — and compares it with every table the ORM declares
-(``src.common.orm_models``): tables, columns, column types and declared indexes.
+(``src.common.orm_models``): tables, columns, column types, declared indexes and
+unique constraints.
 Before DM-21 the chain stopped at ``m0b1e0d1a100`` (asyncpg rejected its
 multi-statement SQL), and past it the database lacked ``subscription_tiers``,
 ``phone_numbers`` and eleven columns that had only been created by hand.
@@ -99,9 +100,12 @@ def census(fresh_database_url):
         for name in insp.get_table_names():
             indexed = {tuple(i["column_names"]) for i in insp.get_indexes(name)}
             indexed |= {tuple(u["column_names"]) for u in insp.get_unique_constraints(name)}
+            unique = {tuple(u["column_names"]) for u in insp.get_unique_constraints(name)}
+            unique |= {tuple(i["column_names"]) for i in insp.get_indexes(name) if i["unique"]}
             tables[name] = {
                 "columns": {c["name"]: _type_name(c["type"], conn.dialect) for c in insp.get_columns(name)},
                 "indexed": indexed,
+                "unique": unique,
             }
         return tables, conn.dialect
 
@@ -159,6 +163,20 @@ def test_every_declared_index_exists(census):
         for name, table in orm.items()
         for index in table.indexes
         if index.columns and tuple(c.name for c in index.columns) not in live.get(name, {}).get("indexed", set())
+    ]
+    assert missing == []
+
+
+def test_every_declared_unique_constraint_exists(census):
+    from sqlalchemy import UniqueConstraint
+
+    orm, live, _ = census
+    missing = [
+        f"{name}: {constraint.name} {tuple(c.name for c in constraint.columns)}"
+        for name, table in orm.items()
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+        and tuple(c.name for c in constraint.columns) not in live.get(name, {}).get("unique", set())
     ]
     assert missing == []
 

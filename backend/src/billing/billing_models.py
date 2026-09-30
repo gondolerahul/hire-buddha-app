@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Integer, Boolean, DateTime, Date,
-    ForeignKey, Numeric, JSON, Index, text
+    ForeignKey, Numeric, JSON, Index, UniqueConstraint, text
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -159,12 +159,24 @@ class PaymentTransaction(Base):
     )
 
 
+BILLING_EVENT_UNIQUE_KEY = "uq_billing_events_period_grouping"
+
+
 class BillingEvent(Base):
     """
     Monthly aggregated billing records for costing and billing reports.
     Populated by cron job on the 1st of each month and on task completion.
     """
     __tablename__ = "billing_events"
+    # One row per company, month and grouping; record_billing_event upserts on
+    # it. NULL groupings count as equal (Postgres 15+), or two ungrouped rows
+    # for the same month would both be allowed (DM-04).
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "period_month", "grouping_type", "grouping_value",
+            name="uq_billing_events_period_grouping", postgresql_nulls_not_distinct=True,
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)

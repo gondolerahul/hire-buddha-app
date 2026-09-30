@@ -913,6 +913,15 @@ Defined at [billing_models.py:158](../../backend/src/billing/billing_models.py:1
 | `other_ai_cost` | Numeric(14,6) | no | `0` | |
 | `created_at` / `updated_at` | DateTime | no | utcnow | |
 
+**Unique** on `(company_id, period_month, grouping_type, grouping_value)` —
+`uq_billing_events_period_grouping`, `NULLS NOT DISTINCT` so ungrouped rows count too
+(Postgres 15+). `BillingService.record_billing_event` writes with one
+`INSERT … ON CONFLICT ON CONSTRAINT uq_billing_events_period_grouping DO UPDATE SET x =
+billing_events.x + excluded.x`, so concurrent settlements add into one row. Before DM-04
+(2026-09-30) there was no key and the write was select-then-insert-or-add-in-Python:
+concurrent settlements could create duplicate rows (every report over-counted) or overwrite
+each other's increments.
+
 ---
 
 ## 8. Voice, telephony and campaign tables
@@ -1893,6 +1902,9 @@ Full chronological list, in dependency order:
 | 54 | `m0b1e0d1a200` | `m0b1e0d1a100` | `mobile_client_logs` (runs `db-scripts/mobile_dialer_002_logs.sql`) |
 | 55 | `mem1a2b3c4d5` | `m0b1e0d1a200` | Drops the v1 memory tables `episodic_memories` and `document_chunks` |
 | 56 | `dm21_schema_catch_up` | `mem1a2b3c4d5` | Creates what only hand-built databases had: `subscription_tiers` (seeded), `phone_numbers` (legacy phone tables merged in and dropped), six `campaign_calls` rep-disposition columns, `execution_runs.billed_amount`, `llm_interaction_logs.step_name`, and renames three `metadata` columns to the names the ORM maps (DM-21, DM-01, DM-02) |
+| 57 | `dm05_run_indexes` | `dm21_schema_catch_up` | `execution_runs` by company, entity and parent; `run_id` on the four run log tables (DM-05, DM-06) |
+| 58 | `bc01_payment_txn_unique` | `dm05_run_indexes` | A Razorpay order or payment is recorded once (BC-01) |
+| 59 | `dm04_billing_event_unique` | `bc01_payment_txn_unique` | Merges duplicate `billing_events` rows, then `uq_billing_events_period_grouping` (DM-04) |
 
 Revisions 53 and 54 run their `.sql` file through `migrations/sql_script.py`. Until
 2026-09-30 they passed the whole file to `op.execute`, which asyncpg rejects (*cannot insert

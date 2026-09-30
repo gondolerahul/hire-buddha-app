@@ -204,7 +204,8 @@ missing.
 
 ### DM-04 — `billing_events` has no unique constraint
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — also BC-24 in
+[14 — Billing](14-BILLING-AND-CREDITS-DEFECTS.md).
 
 `class BillingEvent` has no `__table_args__` and no `UniqueConstraint`. The logical
 upsert key is `(company_id, period_month, grouping_type, grouping_value)` and nothing
@@ -225,6 +226,28 @@ The only index on the table is `idx_billing_events_grouping` on
 
 **Fix:** add the unique constraint and switch the write to `ON CONFLICT DO UPDATE`.
 De-duplicate existing rows in the same migration.
+
+**Done (2026-09-30).** The write had a second race besides duplicate rows: when the row
+existed, both writers read it and wrote back `their read + their amount`, so one increment
+was lost.
+
+- Revision `dm04_billing_event_unique` merges existing duplicates (amounts summed into the
+  oldest row of each group, the rest deleted), then adds `uq_billing_events_period_grouping
+  (company_id, period_month, grouping_type, grouping_value)` with `NULLS NOT DISTINCT` —
+  without it, two ungrouped rows for the same month would both be allowed. That needs
+  Postgres 15 (the compose file pins `pgvector:pg15`); the revision refuses to run on an
+  older server rather than add a weaker key.
+- `record_billing_event` is one `INSERT … ON CONFLICT ON CONSTRAINT … DO UPDATE SET x =
+  billing_events.x + excluded.x … RETURNING`, so the add happens in the database, atomically.
+  The constraint is declared on the model too.
+
+**Evidence:** `tests/integration/test_billing_event_upsert.py`, against the real Postgres with
+real commits: 12 concurrent settlements from separate sessions leave one row holding 12×
+every amount; four concurrent ungrouped events share one row; separate groupings and
+categories stay apart. The two concurrency cases fail on the old code. The migration was run
+on a scratch database seeded with six rows in three groups (two ungrouped): it left three
+rows with the amounts summed. The schema census now also checks declared unique
+constraints.
 
 ---
 

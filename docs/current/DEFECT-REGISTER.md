@@ -195,7 +195,8 @@ Reproduce: `grep -rl subscription_tiers backend/migrations/` → no match.
 
 ### D-07 — `billing_events` has no unique constraint
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — DM-04: unique key with `NULLS NOT
+DISTINCT`, existing duplicates merged, and the write is an atomic `ON CONFLICT DO UPDATE`.
 
 No `__table_args__` and no `UniqueConstraint` on the logical upsert key
 (`company_id`, `period_month`, `grouping_type`, `grouping_value`). Concurrent

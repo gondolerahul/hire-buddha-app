@@ -13,13 +13,18 @@ Where:
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, datetime
 from typing import Optional
+import uuid
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, true
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 
-from src.billing.billing_models import BillingConfig, BillingEvent
+from src.billing.billing_models import BILLING_EVENT_UNIQUE_KEY, BillingConfig, BillingEvent
+
+_CATEGORY_CHARGES = ("telephony", "llm", "image", "video")
+_CHARGE_COLUMNS = tuple(f"{c}_charge" for c in _CATEGORY_CHARGES) + ("api_charge",)
 
 
 def calculate_tb(
@@ -135,67 +140,44 @@ class BillingService:
         today = date.today()
         period = date(today.year, today.month, 1)
 
-        # Upsert: look for existing event this month with same grouping
-        stmt = select(BillingEvent).where(
-            and_(
-                BillingEvent.company_id == company_id,
-                BillingEvent.period_month == period,
-                BillingEvent.grouping_type == grouping_type,
-                BillingEvent.grouping_value == grouping_value,
-            )
+        # One row per (company, month, grouping) — the unique constraint
+        # uq_billing_events_period_grouping (DM-04). A single INSERT ... ON
+        # CONFLICT adds this event's amounts to the row atomically, so two
+        # concurrent settlements can neither create a second row nor overwrite
+        # each other's increments (the old select-then-write did both).
+        charge_column = f"{event_category}_charge" if event_category in _CATEGORY_CHARGES else "api_charge"
+        amounts = {
+            **{k: Decimal(str(v)) for k, v in tb.items()},
+            "telephony_in_minutes": telephony_in_minutes,
+            "telephony_out_minutes": telephony_out_minutes,
+            "image_gen_count": image_gen_count,
+            "video_gen_count": video_gen_count,
+            "other_ai_cost": other_ai_cost,
+            **{column: Decimal("0") for column in _CHARGE_COLUMNS},
+        }
+        amounts[charge_column] = tb["total_billing"]
+        now = datetime.utcnow()
+        insert_stmt = pg_insert(BillingEvent).values(
+            id=uuid.uuid4(),
+            company_id=company_id,
+            period_month=period,
+            grouping_type=grouping_type,
+            grouping_value=grouping_value,
+            created_at=now,
+            updated_at=now,
+            **amounts,
         )
-        result = await self.db.execute(stmt)
-        event = result.scalar_one_or_none()
-
-        if event:
-            # Accumulate into existing
-            event.base_cost += tb["base_cost"]
-            event.multiplied_cost += tb["multiplied_cost"]
-            event.platform_fee_amount += tb["platform_fee_amount"]
-            event.partner_fee_amount += tb["partner_fee_amount"]
-            event.discount_amount += tb["discount_amount"]
-            event.total_billing += tb["total_billing"]
-            event.telephony_in_minutes += telephony_in_minutes
-            event.telephony_out_minutes += telephony_out_minutes
-            event.image_gen_count += image_gen_count
-            event.video_gen_count += video_gen_count
-            event.other_ai_cost += other_ai_cost
-            
-            # Increment breakdown charges
-            if event_category == "telephony":
-                event.telephony_charge += tb["total_billing"]
-            elif event_category == "llm":
-                event.llm_charge += tb["total_billing"]
-            elif event_category == "image":
-                event.image_charge += tb["total_billing"]
-            elif event_category == "video":
-                event.video_charge += tb["total_billing"]
-            else:
-                event.api_charge += tb["total_billing"]
-
-            event.updated_at = datetime.utcnow()
-        else:
-            event = BillingEvent(
-                company_id=company_id,
-                period_month=period,
-                grouping_type=grouping_type,
-                grouping_value=grouping_value,
-                **{k: Decimal(str(v)) for k, v in tb.items()},
-                telephony_in_minutes=telephony_in_minutes,
-                telephony_out_minutes=telephony_out_minutes,
-                image_gen_count=image_gen_count,
-                video_gen_count=video_gen_count,
-                other_ai_cost=other_ai_cost,
-                telephony_charge=tb["total_billing"] if event_category == "telephony" else Decimal("0"),
-                llm_charge=tb["total_billing"] if event_category == "llm" else Decimal("0"),
-                image_charge=tb["total_billing"] if event_category == "image" else Decimal("0"),
-                video_charge=tb["total_billing"] if event_category == "video" else Decimal("0"),
-                api_charge=tb["total_billing"] if event_category not in ["telephony", "llm", "image", "video"] else Decimal("0"),
-            )
-            self.db.add(event)
-
+        table = BillingEvent.__table__
+        upsert = insert_stmt.on_conflict_do_update(
+            constraint=BILLING_EVENT_UNIQUE_KEY,
+            set_={
+                **{column: table.c[column] + insert_stmt.excluded[column] for column in amounts},
+                "updated_at": insert_stmt.excluded.updated_at,
+            },
+        ).returning(BillingEvent)
+        result = await self.db.execute(upsert, execution_options={"populate_existing": True})
+        event = result.scalar_one()
         await self.db.commit()
-        await self.db.refresh(event)
         return event
 
     async def get_costing_report(
