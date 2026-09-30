@@ -609,7 +609,11 @@ So one pricing override does nothing, and the other silently deletes a real cost
 
 ### BC-19 — `partner_admin` can edit platform-wide pricing
 
-**📄 Doc-reported · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — confirmed: `PUT /billing/config`
+allowed `partner_admin` with any `company_id`, `null` included, and the tier create/update
+routes allowed it too (tiers are platform-wide). Product decision: pricing is `app_admin` only.
+All four write routes now use `RoleChecker(["app_admin"])`. **Evidence:**
+`tests/unit/test_billing_config_access.py` (21 cases; 16 fail on the old code). Live on the local API: a `tenant_admin` gets 403 reading and writing `/billing/config` and creating a tier, `app_admin` gets 422 for `platform_fee_pct: 15` (*Input should be less than or equal to 1*) and 200 reading the config, and the tier list is 401 without a token and 200 with one.
 
 `PUT /billing/config` reportedly accepts `company_id: null` from a `partner_admin`, writing
 the **global default row that every tenant inherits**.
@@ -626,7 +630,8 @@ A reseller can therefore change the platform's pricing for every other reseller'
 
 ### BC-20 — Two open endpoints on the money surface
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — the costing half by PO-04, the tier list
+now needs a signed-in user.
 
 | Endpoint | Guard |
 |---|---|
@@ -645,12 +650,21 @@ the read is open.
 > and `GET /reports/billing`, which returned the same rows, are `app_admin` only. The open
 > `GET /credits/subscription-tiers` still stands. A third open read on the same surface,
 > `GET /billing/config`, is recorded as [BC-26](#bc-26--any-user-can-read-the-billing-multiplier-and-base-costs).
+>
+> **Update 2026-09-30:** fixed. `GET /credits/subscription-tiers` requires a signed-in user
+> (any role — the wallet page lists the plans); anonymous is a 401. See BC-19 for the evidence.
 
 ---
 
 ### BC-21 — Percentages and fractions are mixed, with the wrong label
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `BillingConfigUpdate` range-checks
+`platform_fee_pct`, `sales_partner_fee_pct`, `discount_pct` to 0–1, `multiplier_factor` to
+(0, 100], daily credits and overrides to ≥ 0; tier `bonus_pct` (a percentage) to 0–100 and the
+fee to > 0. Out of range is a 422. The Billing Settings page labels the three as fractions,
+limits the inputs to 0–1, shows the percentage under each (*= 15.0%*), and shows a 422's
+messages instead of trying to render its `detail` list. **Evidence:** as BC-19 — six
+out-of-range bodies are 422 with nothing saved; 0.15 saves.
 
 `pf`, `spf` and `d` are **fractions** (`0.15`). `SubscriptionTier.bonus_pct` is a
 **percentage** (`30.0`). The Billing Settings UI labels the first group "%" anyway.
@@ -728,7 +742,9 @@ and a fair indicator of how much of that file has been reviewed.
 
 ### BC-26 — Any user can read the billing multiplier and base costs
 
-**✅ Verified · High** · **Status: open** — found 2026-09-29 while fixing PO-04.
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `GET /billing/config` is `app_admin`
+only (`RoleChecker`); the five other roles get 403. Evidence as BC-19. Found 2026-09-29 while
+fixing PO-04.
 
 `GET /billing/config` depends on `get_current_user` only. It returns the caller's effective
 `BillingConfig` — `multiplier_factor`, `platform_fee_pct`, `sales_partner_fee_pct`,
@@ -825,6 +841,8 @@ Even before the webhook, credit `txn.amount` and check `txn.status`. That is two
 it closes the worst of it.
 
 ### BC-I6 — Validate pricing inputs on write
+
+**Status: done (2026-09-30)** — see BC-19 and BC-21.
 
 **Effect: medium, prevents a very expensive mistake.**
 [BC-21](#bc-21--percentages-and-fractions-are-mixed-with-the-wrong-label). Range-check

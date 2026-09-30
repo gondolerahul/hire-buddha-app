@@ -8,12 +8,13 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.common.database import get_db
 from src.auth.router import get_current_user
+from src.auth.dependencies import RoleChecker
 from src.auth.models import User
 from src.billing.credit_service import CreditService
 from src.billing.payment_service import (
@@ -49,18 +50,24 @@ class SubscriptionCreate(BaseModel):
     tier_level: int   # 1, 2, 3, etc.
 
 
+# Tiers are platform-wide, so only app_admin writes them (BC-19; partner_admin
+# could). bonus_pct is a percentage — 30 is 30% — unlike the billing config's
+# fractions.
+app_admin_only = RoleChecker(["app_admin"])
+
+
 class SubscriptionTierCreate(BaseModel):
     name: str
-    tier_level: int
-    monthly_fee: Decimal
-    bonus_pct: Decimal
+    tier_level: int = Field(ge=1)
+    monthly_fee: Decimal = Field(gt=0)
+    bonus_pct: Decimal = Field(ge=0, le=100)
     is_active: bool = True
 
 
 class SubscriptionTierUpdate(BaseModel):
     name: Optional[str] = None
-    monthly_fee: Optional[Decimal] = None
-    bonus_pct: Optional[Decimal] = None
+    monthly_fee: Optional[Decimal] = Field(None, gt=0)
+    bonus_pct: Optional[Decimal] = Field(None, ge=0, le=100)
     is_active: Optional[bool] = None
 
 
@@ -168,7 +175,10 @@ async def verify_topup(
 # ─── Subscription Tiers ───────────────────────────────────────────────────────
 
 @router.get("/subscription-tiers", summary="List available subscription tiers")
-async def list_subscription_tiers(db: AsyncSession = Depends(get_db)):
+async def list_subscription_tiers(
+    current_user: User = Depends(get_current_user),  # BC-20: was open to anyone
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(SubscriptionTier).where(SubscriptionTier.is_active == True).order_by(SubscriptionTier.tier_level)
     )
@@ -188,11 +198,9 @@ async def list_subscription_tiers(db: AsyncSession = Depends(get_db)):
 @router.post("/subscription-tiers", summary="Create a subscription tier (Admin only)")
 async def create_subscription_tier(
     payload: SubscriptionTierCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(app_admin_only),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.role not in ("app_admin", "partner_admin"):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     tier = SubscriptionTier(
         name=payload.name,
@@ -216,11 +224,9 @@ async def create_subscription_tier(
 async def update_subscription_tier(
     tier_id: UUID,
     payload: SubscriptionTierUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(app_admin_only),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.role not in ("app_admin", "partner_admin"):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     result = await db.execute(select(SubscriptionTier).where(SubscriptionTier.id == tier_id))
     tier = result.scalar_one_or_none()
@@ -246,11 +252,9 @@ async def update_subscription_tier(
 @router.delete("/subscription-tiers/{tier_id}", summary="Delete a subscription tier (Admin only)")
 async def delete_subscription_tier(
     tier_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(app_admin_only),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.role != "app_admin":
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     result = await db.execute(select(SubscriptionTier).where(SubscriptionTier.id == tier_id))
     tier = result.scalar_one_or_none()

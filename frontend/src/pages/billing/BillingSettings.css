@@ -174,3 +174,11 @@
     height: 1.25rem;
     accent-color: var(--color-rose-gold);
 }
+
+/* The fee fields are fractions; the hint shows the percentage (BC-21). */
+.field-hint {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #888);
+}

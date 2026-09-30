@@ -1313,7 +1313,7 @@ Three things to understand:
 
 1. **`spf` is a property of the tenant's billing config, not of the partner.** There is no `partners.commission_pct` column. To give a partner a different rate you write a `billing_config` row for each of their tenants.
 2. **No money actually moves.** `partner_fee_amount` is a reporting number. There is no payout table, no partner wallet, no settlement job. It exists only so the app admin can compute what to pay out manually.
-3. **`partner_admin` can edit billing config.** `PUT /api/v1/billing/config` accepts `app_admin` *or* `partner_admin`, and the payload includes an arbitrary `company_id` — including `None`, which edits the **global default**. A partner admin can therefore change platform-wide pricing. See [billing_router.py:127](../../backend/src/billing/billing_router.py:127).
+3. **Only `app_admin` edits billing config.** Until BC-19, `PUT /api/v1/billing/config` also accepted `partner_admin`, with any `company_id` — `None` included, which is the global default every tenant inherits. A partner who needs a different `spf` for its tenants asks the platform admin, who writes those tenants' rows.
 
 ### 11.3 Partner-level reporting
 
@@ -1432,8 +1432,8 @@ Prefix `/api/v1`, tag `Billing & Reports`.
 
 | Method | Path | Auth | Body / query | Returns |
 |---|---|---|---|---|
-| `GET` | `/billing/config` | any user | — | `{config}` for the caller's company, falling back to global |
-| `PUT` | `/billing/config` | `app_admin`, `partner_admin` | `BillingConfigUpdate` incl. optional `company_id` (`None` = global) | `{config}` |
+| `GET` | `/billing/config` | `app_admin` (BC-26) | — | `{config}` for the caller's company, falling back to global |
+| `PUT` | `/billing/config` | `app_admin` (BC-19) | `BillingConfigUpdate` — only the fields sent change; `pf`/`spf`/`d` 0–1, `mf` (0, 100], overrides ≥ 0 or `null` to clear; unknown fields 422; optional `company_id` (`None` = global) | `{config}` |
 | `GET` | `/reports/costing` | `app_admin` | `period_month`, `grouping_type`, `company_id` | `{events, totals, count}` |
 | `GET` | `/reports/billing` | `app_admin` | `period_month`, `grouping_type`, `company_id` | `{events, totals, count}` |
 
@@ -1445,14 +1445,15 @@ Prefix `/api/v1/credits`, tag `Credits & Payments`.
 |---|---|---|---|---|
 | `GET` | `/balance` | any user | — | full bucket breakdown + `total_available` |
 | `POST` | `/topup` | any user | `{amount}` | `{order_id, amount, currency, key_id}` |
-| `POST` | `/topup/verify` | any user | `{razorpay_order_id, razorpay_payment_id, razorpay_signature, amount}` | `{credits_added, new_balance}` |
-| `GET` | `/subscription-tiers` | **no auth dependency** | — | list of active tiers |
-| `POST` | `/subscription-tiers` | `app_admin`, `partner_admin` | `SubscriptionTierCreate` | `{id, message}` |
-| `PUT` | `/subscription-tiers/{tier_id}` | `app_admin`, `partner_admin` | `SubscriptionTierUpdate` | `{id, message}` |
+| `POST` | `/topup/verify` | any user | `{razorpay_order_id, razorpay_payment_id, razorpay_signature}` | `{message, credits_added, new_balance}` — the stored order amount, once (BC-01) |
+| `POST` | `/razorpay/webhook` | Razorpay signature | the raw event | `{status}` (§9.4) |
+| `GET` | `/subscription-tiers` | any signed-in user (BC-20) | — | list of active tiers |
+| `POST` | `/subscription-tiers` | `app_admin` (BC-19) | `SubscriptionTierCreate` — fee > 0, `bonus_pct` 0–100 | `{id, message}` |
+| `PUT` | `/subscription-tiers/{tier_id}` | `app_admin` (BC-19) | `SubscriptionTierUpdate` | `{id, message}` |
 | `DELETE` | `/subscription-tiers/{tier_id}` | `app_admin` only | — | `{message}` |
-| `GET` | `/subscriptions` | any user | — | active subscription or `{subscription: null, account_model: "pay_as_you_go"}` |
-| `POST` | `/subscriptions` | any user | `{tier_level}` | `{order_id, key_id, subscription_id, bonus_credits_pct, …}` |
-| `POST` | `/subscriptions/verify` | any user | `{razorpay_*, subscription_id}` | `{message, plan_tier, monthly_fee, bonus_credits_pct}` |
+| `GET` | `/subscriptions` | any user | — | the live (`active`, `past_due`, `paused`) subscription or `{subscription: null, account_model: "pay_as_you_go"}` |
+| `POST` | `/subscriptions` | any user | `{tier_level}` | `{razorpay_subscription_id, key_id, subscription_id, bonus_credits_pct, …}`; 409 with a live one (§9.3) |
+| `POST` | `/subscriptions/verify` | any user | `{razorpay_payment_id, razorpay_subscription_id, razorpay_signature}` | `{message, plan_tier, monthly_fee, bonus_credits_pct, credits_granted}` |
 | `DELETE` | `/subscriptions/{subscription_id}` | any user, own company | — | `{message}` |
 
 `GET /subscription-tiers` has no `Depends(get_current_user)` — it is publicly readable.
@@ -1729,9 +1730,10 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 
 - ~~⚠️ `subscription_tiers` has no migration.~~ Fixed 2026-09-30 (DM-01): `dm21_schema_catch_up` creates it and seeds Starter, Growth and Scale.
 - ~~⚠️ `billing_events` has no unique constraint on its logical upsert key; concurrent settlements can duplicate rows.~~ Fixed 2026-09-30 (DM-04 / BC-24, `80b22ed`): a unique key on it and an `INSERT … ON CONFLICT DO UPDATE`.
-- ⚠️ `partner_admin` can `PUT /billing/config` with `company_id: null`, editing **platform-wide** pricing.
-- ⚠️ `GET /billing/config` has no role check — any user can read the multiplier and base costs (BC-26).
-- ⚠️ `GET /credits/subscription-tiers` has no auth dependency at all.
+- ~~⚠️ `partner_admin` can `PUT /billing/config` with `company_id: null`.~~ Fixed 2026-09-30 (BC-19): the billing config and the tier writes are `app_admin` only.
+- ~~⚠️ `GET /billing/config` has no role check.~~ Fixed 2026-09-30 (BC-26): `app_admin` only.
+- ~~⚠️ `GET /credits/subscription-tiers` has no auth dependency at all.~~ Fixed 2026-09-30 (BC-20): signed-in users only.
+- `pf`, `spf` and `d` are range-checked to 0–1 on write and labelled as fractions on the page (BC-21).
 
 ---
 

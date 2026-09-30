@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.database import get_db
@@ -20,7 +20,9 @@ from src.billing.billing_models import BillingEvent, BillingConfig
 router = APIRouter(prefix="/api/v1", tags=["Billing & Reports"])
 
 # Both reports carry base_cost — what the platform pays providers. With the
-# multiplier known that is the margin, so they are app_admin only.
+# multiplier known that is the margin, so they are app_admin only. So is the
+# billing config itself: reading it states the markup (BC-26), and writing it
+# with company_id null sets every tenant's price (BC-19).
 app_admin_only = RoleChecker(["app_admin"])
 
 
@@ -30,16 +32,18 @@ class BillingConfigUpdate(BaseModel):
     # An unknown field (a typo, or the retired base_cost_llm) is a 422, not a no-op.
     model_config = ConfigDict(extra="forbid")
 
-    multiplier_factor: Optional[Decimal] = None
-    platform_fee_pct: Optional[Decimal] = None
-    sales_partner_fee_pct: Optional[Decimal] = None
-    discount_pct: Optional[Decimal] = None
-    default_daily_credits: Optional[Decimal] = None
+    # pf, spf and d are fractions — 0.15 is 15% — so each is 0..1 (BC-21:
+    # an admin typing 15 configured a 1500% fee, and nothing checked).
+    multiplier_factor: Optional[Decimal] = Field(None, gt=0, le=100)
+    platform_fee_pct: Optional[Decimal] = Field(None, ge=0, le=1)
+    sales_partner_fee_pct: Optional[Decimal] = Field(None, ge=0, le=1)
+    discount_pct: Optional[Decimal] = Field(None, ge=0, le=1)
+    default_daily_credits: Optional[Decimal] = Field(None, ge=0)
     # Overrides: $/minute replaces a call's telephony part; $/image replaces
     # image_generation's price. null clears. (base_cost_llm is gone: it had no
     # unit and nothing applied it — BC-13.)
-    base_cost_telephony: Optional[Decimal] = None
-    base_cost_image_gen: Optional[Decimal] = None
+    base_cost_telephony: Optional[Decimal] = Field(None, ge=0)
+    base_cost_image_gen: Optional[Decimal] = Field(None, ge=0)
     company_id: Optional[UUID] = None  # None = update global default
 
 
@@ -116,9 +120,9 @@ def _config_to_dict(c: BillingConfig) -> dict:
 
 # ─── Billing Config ──────────────────────────────────────────────────────────
 
-@router.get("/billing/config", summary="Get billing configuration")
+@router.get("/billing/config", summary="Get billing configuration (app_admin)")
 async def get_billing_config(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(app_admin_only),
     db: AsyncSession = Depends(get_db),
 ):
     svc = BillingService(db)
@@ -128,15 +132,12 @@ async def get_billing_config(
     return {"config": _config_to_dict(config)}
 
 
-@router.put("/billing/config", summary="Update billing configuration")
+@router.put("/billing/config", summary="Update billing configuration (app_admin)")
 async def update_billing_config(
     payload: BillingConfigUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(app_admin_only),
     db: AsyncSession = Depends(get_db),
 ):
-    # Only admins can update billing config
-    if current_user.role not in ("app_admin", "partner_admin"):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     svc = BillingService(db)
     config = await svc.update_billing_config(

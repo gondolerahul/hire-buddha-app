@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, Settings, Save, Plus, Trash2, Edit } from 'lucide-react';
 import { billingService, BillingConfig, SubscriptionTier } from '@/services/billing.service';
 import './BillingSettings.css';
+import { apiErrorMessage } from '@/utils/apiError';
+
+// pf, spf and d are fractions: 0.15 is 15% (BC-21).
+const asPercent = (v?: number | null) =>
+    v === undefined || v === null || Number.isNaN(v) ? '' : `= ${(v * 100).toFixed(1)}%`;
 
 export const BillingSettings: React.FC = () => {
     const [config, setConfig] = useState<Partial<BillingConfig>>({});
@@ -41,7 +46,7 @@ export const BillingSettings: React.FC = () => {
             }
             setTiers(tiersRes);
         } catch (err: any) {
-            setError(err?.response?.data?.detail || 'Failed to load billing configuration.');
+            setError(apiErrorMessage(err, 'Failed to load billing configuration.'));
         } finally {
             setLoading(false);
         }
@@ -66,7 +71,7 @@ export const BillingSettings: React.FC = () => {
             setConfig(res.config);
             setSuccessMsg('Billing configuration saved successfully.');
         } catch (err: any) {
-            setError(err?.response?.data?.detail || 'Failed to save billing configuration.');
+            setError(apiErrorMessage(err, 'Failed to save billing configuration.'));
         } finally {
             setSaving(false);
         }
@@ -95,7 +100,7 @@ export const BillingSettings: React.FC = () => {
             fetchData();
             setSuccessMsg('Subscription tier saved successfully.');
         } catch (err: any) {
-            setError(err?.response?.data?.detail || 'Failed to save subscription tier.');
+            setError(apiErrorMessage(err, 'Failed to save subscription tier.'));
         }
     };
 
@@ -106,7 +111,7 @@ export const BillingSettings: React.FC = () => {
             fetchData();
             setSuccessMsg('Subscription tier deleted.');
         } catch (err: any) {
-            setError(err?.response?.data?.detail || 'Failed to delete tier.');
+            setError(apiErrorMessage(err, 'Failed to delete tier.'));
         }
     };
 
@@ -138,7 +143,7 @@ export const BillingSettings: React.FC = () => {
                     <div className="form-group">
                         <label>Multiplier Factor (mf)</label>
                         <input
-                            type="number" step="0.01"
+                            type="number" step="0.01" min="0.01"
                             value={config.multiplier_factor || ''}
                             onChange={e => setConfig({ ...config, multiplier_factor: parseFloat(e.target.value) })}
                         />
@@ -146,28 +151,31 @@ export const BillingSettings: React.FC = () => {
 
                     <div className="form-row">
                         <div className="form-group">
-                            <label>Platform Fee % (pf)</label>
+                            <label>Platform Fee (pf) (fraction, 0–1)</label>
                             <input
-                                type="number" step="0.01"
-                                value={config.platform_fee_pct || ''}
+                                type="number" step="0.01" min="0" max="1"
+                                value={config.platform_fee_pct ?? ''}
                                 onChange={e => setConfig({ ...config, platform_fee_pct: parseFloat(e.target.value) })}
                             />
+                            <small className="field-hint">{asPercent(config.platform_fee_pct)}</small>
                         </div>
                         <div className="form-group">
-                            <label>Partner Fee % (spf)</label>
+                            <label>Partner Fee (spf) (fraction, 0–1)</label>
                             <input
-                                type="number" step="0.01"
-                                value={config.sales_partner_fee_pct || ''}
+                                type="number" step="0.01" min="0" max="1"
+                                value={config.sales_partner_fee_pct ?? ''}
                                 onChange={e => setConfig({ ...config, sales_partner_fee_pct: parseFloat(e.target.value) })}
                             />
+                            <small className="field-hint">{asPercent(config.sales_partner_fee_pct)}</small>
                         </div>
                         <div className="form-group">
-                            <label>Discount % (d)</label>
+                            <label>Discount (d) (fraction, 0–1)</label>
                             <input
-                                type="number" step="0.01"
-                                value={config.discount_pct || ''}
+                                type="number" step="0.01" min="0" max="1"
+                                value={config.discount_pct ?? ''}
                                 onChange={e => setConfig({ ...config, discount_pct: parseFloat(e.target.value) })}
                             />
+                            <small className="field-hint">{asPercent(config.discount_pct)}</small>
                         </div>
                     </div>
 
