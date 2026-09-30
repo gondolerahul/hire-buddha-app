@@ -339,6 +339,14 @@ hold counts against the breaker; child runs are not gated; `trigger_execution` o
 wallet is a 402 and writes no run. `tests/unit/test_governance_service.py` covers the gate's
 floor, its fail-closed error handling and the breaker's TB arithmetic. The three agent-loop
 unit modules, which drive the loop on a fake session, stub admission and the breaker.
+Live, through the real worker, on the local `deep-research-v2` process with the company's
+wallet set to $0: `trigger_execution` answered 402 (*Required: $0.5000, Free: $0.0000*),
+and a run queued without the API check ended `FAILED` in the worker with *Cannot start
+execution: $0.0000 of credit is free …*, $0 cost, $0 billed. With $0.55: the run was admitted
+and held $0.50 while running, and the hold was released when it ended. That run then failed
+for an environmental reason — Vertex ADC had expired, so no LLM call succeeded — so the
+breaker stopping a *real* run mid-flight is not yet shown live; the integration tests cover
+it.
 
 ---
 
