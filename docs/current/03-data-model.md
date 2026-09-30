@@ -1372,7 +1372,7 @@ Created and maintained by Alembic. Single column `version_num`. Holds the curren
 
 | Table | Status | Evidence |
 |---|---|---|
-| `assets` | **Superseded by `artifacts`, but never dropped.** The migration explicitly says "Leaves 'assets' table in place (dropped last after verification)" | [h1i2j3k4l5m6:11](../../backend/migrations/versions/h1i2j3k4l5m6_create_artifacts_table_and_migrate_from_assets.py:11) |
+| `assets` | Dropped 2026-10-01 by `dm10_drop_legacy_assets` (DM-10), with `call_content.audio_asset_id`. `h1i2j3k4l5m6` had copied its rows into `artifacts` and left it "for one release"; the drop first checks every row has its artifact | [dm10_drop_legacy_assets.py](../../backend/migrations/versions/dm10_drop_legacy_assets.py) |
 | `phone_number_pool` | Dropped — merged into `phone_numbers` by `dm21_schema_catch_up` (DM-02) | [dm21_schema_catch_up.py](../../backend/migrations/versions/dm21_schema_catch_up.py) |
 | `customer_phone_numbers` | Dropped — same merge | same |
 | `partners`, `tenants` | Dropped — replaced by the single `companies` table | [c3e80da7ca0a](../../backend/migrations/versions/c3e80da7ca0a_remove_legacy_partner_and_tenant_tables.py) |
@@ -1928,6 +1928,10 @@ Full chronological list, in dependency order:
 | 58 | `bc01_payment_txn_unique` | `dm05_run_indexes` | A Razorpay order or payment is recorded once (BC-01) |
 | 59 | `dm04_billing_event_unique` | `bc01_payment_txn_unique` | Merges duplicate `billing_events` rows, then `uq_billing_events_period_grouping` (DM-04) |
 
+Revisions after 59 (billing's `bc03`, `bc06`, `bc07`; auth's `au10`, `au05`, `au08`; data
+model's `dm08`, `dm10`, …) follow one chain — `alembic history` lists them; each revision's
+docstring says what it does and which defect it closes.
+
 Revisions 53 and 54 run their `.sql` file through `migrations/sql_script.py`. Until
 2026-09-30 they passed the whole file to `op.execute`, which asyncpg rejects (*cannot insert
 multiple commands into a prepared statement*), so `alembic upgrade head` on a fresh database
@@ -2102,8 +2106,6 @@ flowchart LR
 - **`call_logs.voice_session_id` deliberately has no FK** because the two tables belong
   to different modules; the same is true of `conversation_history.session_id`, which is
   polymorphic across `voice_sessions` and `whatsapp_sessions`.
-- **The legacy `assets` table was never dropped.** The artifacts migration says it will
-  be "dropped last after verification"; that follow-up migration does not exist.
 - **`feature_flags` has no ORM model** and is queried with raw SQL. It is also optional —
   the flag service falls through to env vars and defaults if the table is absent.
 - **Two migration files share the `a1b2c3d4e5f6_` filename prefix** with different

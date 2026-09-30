@@ -397,7 +397,7 @@ instead of a cross-tenant leak.
 
 | ID | Problem | Why it matters | Status |
 |---|---|---|---|
-| **DM-10** | The legacy `assets` table was never dropped | The artifacts migration says it "leaves `assets` in place (dropped last after verification)". That follow-up migration does not exist. `op.drop_table('assets')` appears only in the **downgrade** path of the migration that created it | ✅ Verified |
+| **DM-10** | The legacy `assets` table was never dropped | The artifacts migration says it "leaves `assets` in place (dropped last after verification)". That follow-up migration does not exist. `op.drop_table('assets')` appears only in the **downgrade** path of the migration that created it | ✅ Verified · **fixed (2026-10-01)** — revision `dm10_drop_legacy_assets` drops `assets` and `call_content.audio_asset_id` (kept by the same migration "for one release"; nothing maps either). It first carries over any `call_content` reference not yet on `audio_artifact_id`, and **refuses** to run if an `assets` row has no `artifacts` row with its id, rather than lose it — checked on a scratch database seeded with one uncopied row (the upgrade stopped, the row stayed). The schema census no longer needs either exception |
 | **DM-11** | ~~Four~~ Two numeric values are stored as text | `documents.file_size` is `String` and `companies.default_daily_credits` is `String`. Summing or sorting means casting in every query. *(2026-09-28: the other two, `episodic_memories.total_cost_usd` and `document_chunks.chunk_index`, went with their tables in `a30bb85`.)* | ✅ Verified · partly invalid |
 | **DM-12** | Every `DateTime` column is naive | No `timezone=True` anywhere. UTC is a convention held up only by `datetime.utcnow` defaults. One `datetime.now()` slipping in anywhere produces silently wrong timestamps | ✅ Verified |
 | **DM-13** | `JSON` on old tables, `JSONB` on new ones | `JSON` cannot be indexed usefully and re-parses on every read. The split runs right through the entity table — the nine config columns are plain `JSON` | ✅ Verified |
@@ -522,8 +522,8 @@ database. It is the second of the four guardrails named in the platform register
 runs `alembic upgrade head` into it, and checks every ORM table exists, every ORM column
 exists with the same type (`FLOAT` and `DOUBLE PRECISION` are the same type), every declared
 index exists, and every database table and column is mapped — or listed with the defect id
-that explains it (today: `assets` and `call_content.audio_asset_id` for DM-10,
-`feature_flags` for DM-03). A stale entry in that list fails too. It takes about five
+that explains it (at first `assets` and `call_content.audio_asset_id` for DM-10 —
+dropped since — and `feature_flags` for DM-03). A stale entry in that list fails too. It takes about five
 seconds. Nullability is not compared: six columns differ harmlessly (the database is
 stricter on five CORTEX/entity flags, the ORM on `source_trust_scores.updated_at`).
 

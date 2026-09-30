@@ -440,7 +440,7 @@ no reason to defer any of it.
 | **D-25** | The `video_generation` tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ fixed (2026-09-29, `a8fb38e`) — deleted (PO-17) |
 | **D-26** | `ai/lead_queue_worker.py` | Or wire it up — see [D-21](#d-21--the-lead-queue-is-never-drained) | ✅ fixed (2026-09-30) — deleted with `lead_queue_service.py` (SA-08) |
 | **D-27** | `gateway/main.py` | Dead; only `gateway/app.py` is served | ✅ fixed (2026-09-30) — deleted; `gateway/app.py` too, merged into the API (SA-11) |
-| **D-28** | The legacy `assets` table + its two redirect shims | The artifacts migration said it would drop `assets` and never did | 📄 Doc-reported |
+| **D-28** | The legacy `assets` table + its two redirect shims | The artifacts migration said it would drop `assets` and never did | 📄 Doc-reported · table dropped 2026-10-01 (DM-10); the shims are PO-13's |
 | **D-29** | Duplicate `"meta_agent.board_routing"` key | Declared twice at [`feature_flags.py:53`](../../backend/src/ai/core/feature_flags.py:53) and [`:71`](../../backend/src/ai/core/feature_flags.py:71). Harmless — second wins — but it makes the file look unreviewed | ✅ Verified |
 | **D-30** | Unused frontend deps + stale READMEs | `react-hook-form`, `zod`, `date-fns` installed and unused. `core/README.md` documents the deleted `execution_engine.py` | 📄 Doc-reported |
 

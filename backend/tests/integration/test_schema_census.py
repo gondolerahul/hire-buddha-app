@@ -28,13 +28,10 @@ BACKEND = Path(__file__).resolve().parents[2]
 # Tables the database may hold without an ORM model, and why.
 DB_ONLY_TABLES: dict[str, str] = {
     "alembic_version": "Alembic's own bookkeeping",
-    "assets": "DM-10 — legacy table, superseded by artifacts",
     "feature_flags": "DM-03 — read with raw SQL, no model yet",
 }
 # Columns the database may hold without an ORM attribute, and why.
-DB_ONLY_COLUMNS: dict[tuple[str, str], str] = {
-    ("call_content", "audio_asset_id"): "DM-10 — points at the legacy assets table",
-}
+DB_ONLY_COLUMNS: dict[tuple[str, str], str] = {}
 # Type names that are the same Postgres type.
 _SAME_TYPE = {"FLOAT": "DOUBLE PRECISION"}
 
