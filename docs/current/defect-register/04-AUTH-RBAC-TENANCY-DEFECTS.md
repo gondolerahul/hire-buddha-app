@@ -161,7 +161,7 @@ request with no `Authorization` header straight through.
 
 ### AU-03 — Any user can suspend their own company
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — with AU-15.
 
 `PATCH /api/v1/companies/{company_id}` guards on company match only:
 
@@ -181,6 +181,29 @@ tenants?`) shows this was known to be unfinished.
 - [`auth/company_router.py:110`](../../../backend/src/auth/company_router.py:110) — `update_company`
 
 **Fix:** add a role check. `status` in particular should be `app_admin` only.
+
+**Done (2026-09-30), with [AU-15](#au-15--partner-admins-cannot-manage-the-tenants-they-create).**
+`update_company` now separates the two changes it allows:
+
+| Change | `app_admin` | `partner_admin` | `tenant_admin` | everyone else |
+|---|---|---|---|---|
+| `name` | any company | its own company and its tenants | its own company | — |
+| `status` | any company **but its own** | its own tenants | — | — |
+
+Nobody changes the status of their own company — an `app_admin` suspending the APP company
+would lock out every platform admin. Resending the current status is not a change, so an
+edit form that sends it back still saves. `CompanyUpdate.status` is
+`Literal["active", "suspended"]`; anything else is a 422.
+
+**Evidence:** `tests/unit/test_company_update_access.py` — 16 cases through the router: all
+six roles are refused suspending their own company and nothing is committed; the three
+plain roles cannot rename it; both admin roles rename it while resending its status; a
+partner admin renames and suspends its own tenant but not another partner's; a tenant
+admin cannot touch another company; an `app_admin` suspends a partner; `"deleted"` is a
+422. 11 fail on the old code. Live on the local API: a partner admin (created by the
+`app_admin`) created a tenant, renamed and suspended it (200), and got 403 suspending its
+own partner company; a registered tenant admin got 403 suspending its own company, 200
+renaming it, 403 renaming the partner's tenant, and could still use the API afterwards.
 
 ---
 
@@ -405,7 +428,11 @@ full login token.
 
 ### AU-15 — Partner admins cannot manage the tenants they create
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — with
+[AU-03](#au-03--any-user-can-suspend-their-own-company). Product decision: a partner admin
+may rename, suspend and reactivate its own tenants. The Tenants tab's status toggle in
+Platform Management, which returned 403 for a partner admin, now works. The `/partner/*`
+router stays read-only; `PATCH /companies/{id}` is the write path.
 
 The same missing role logic as [AU-03](#au-03--any-user-can-suspend-their-own-company),
 seen from the other side. `update_company` allows `app_admin` or "your own company"

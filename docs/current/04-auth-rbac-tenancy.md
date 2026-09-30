@@ -656,7 +656,8 @@ Derived from the actual guard code, not from intent. Legend: **Y** = allowed, **
 | List partner companies | [company_router.py:38](../../backend/src/auth/company_router.py:38) | Y | — | — | — | — | — |
 | List tenant companies | [company_router.py:46](../../backend/src/auth/company_router.py:46) | all | — | own children | — | — | — |
 | Create company | [company_router.py:61](../../backend/src/auth/company_router.py:61) | any type | — | `TENANT` only, forced `parent_id` | — | — | — |
-| Update company / suspend | [company_router.py:110](../../backend/src/auth/company_router.py:110) | any | own | own only | own only | own | **own** |
+| Rename company (AU-03, AU-15) | [company_router.py](../../backend/src/auth/company_router.py) `update_company` | any | — | own+children | — | own | — |
+| Suspend / reactivate company (AU-03, AU-15) | same | any but own | — | children only | — | — | — |
 | List users | [user_router.py:14](../../backend/src/auth/user_router.py:14) | all | — | own+children | — | own | — |
 | Create user | [service.py:52](../../backend/src/auth/service.py:52) | any role, any company | — | 4 non-app roles, own+children | — | `tenant_*` in own company | — |
 | Update user (`service.update_user_as_admin`, AU-01) | [service.py](../../backend/src/auth/service.py) | any role but own | own name only | own+children, 4 non-app roles, not own role | own name only | own company, `tenant_*`, not own role | own name only |
@@ -680,14 +681,9 @@ Being blunt about the weak spots:
 
 1. **`app_user` is a role with almost no meaning.** It appears in only three backend lines, all in `reports_router.py`. It is absent from every `RoleChecker` list, so an `app_user` is rejected from `/companies/partners`, `/companies/tenants`, `POST /companies`, `POST /users` and the whole `/partner/*` tree — but `GET /companies` falls into the `else` branch and returns "own company only", the same as a tenant user. In practice `app_user` behaves like a tenant user with two extra report pages.
 
-2. **`tenant_user` can suspend its own company.** [company_router.py:118](../../backend/src/auth/company_router.py:118) guards only on `current_user.company_id != company_id`:
-   ```python
-   if current_user.role != "app_admin" and current_user.company_id != company_id:
-       raise HTTPException(status_code=403, detail="Not authorized to update this company")
-   ```
-   There is no role check at all. Any authenticated user can `PATCH /companies/{their_own_id}` with `{"status": "suspended"}` and lock their entire company out of the platform, including its admins. The inline comment on line 119 (`Also allow partner admins to update their own tenants?`) shows this was known to be unfinished.
+2. ~~**`tenant_user` can suspend its own company.**~~ **Fixed 2026-09-30 (AU-03).** `update_company` guarded only on company match, so any user could `PATCH /companies/{their_own_id}` with `{"status": "suspended"}` and lock out the whole company. It now separates renaming (`app_admin` any; `partner_admin` its own company and tenants; `tenant_admin` its own company) from status changes (`app_admin` any company but its own; `partner_admin` its own tenants). `CompanyUpdate.status` is `Literal["active", "suspended"]`.
 
-3. **Partner admins cannot update their own tenants.** The same check means a `partner_admin` can create a tenant but then cannot rename or suspend it — only `app_admin` can. The `/partner/*` router is read-only.
+3. ~~**Partner admins cannot update their own tenants.**~~ **Fixed 2026-09-30 (AU-15).** A `partner_admin` can rename, suspend and reactivate the tenants whose `parent_id` is its company — the Tenants tab's toggle in Platform Management, which used to fail with 403. The `/partner/*` router itself is still read-only.
 
 4. ~~**`update_user` lets any admin change any role in their company.**~~ **Fixed 2026-09-30 (AU-01).** The handler applied every field of `UserUpdate` once the caller was an admin of the same company — *or the row's owner* — and `role` was an unchecked string, so any user could PATCH `{"role": "app_admin"}` onto their own row. `PATCH /users/{id}` now goes through `service.update_user_as_admin`: anyone may change their own `full_name`; everything else needs a user admin of the target's company (partner admins: their own company and its tenants), the target's current role and any new role must both be ones the caller could assign (`roles.assignable_roles`, the same table `create_user_as_admin` uses), and nobody changes their own role or active status. `role` is typed `Role`, so an unknown string is a 422.
 
@@ -990,7 +986,7 @@ const newStatus = company.status === 'active' ? 'suspended' : 'active';
 await companyService.updateCompany(company.id, { status: newStatus });
 ```
 
-Nothing else — no billing job, no dunning process, no cron — ever sets `status = "suspended"`. Suspension is entirely a manual admin action today. And, per section 7.6, the endpoint's permission check is weak enough that a `tenant_user` can suspend their own company.
+Nothing else — no billing job, no dunning process, no cron — ever sets `status = "suspended"`. Suspension is entirely a manual admin action today. Since 2026-09-30 (AU-03, AU-15) only an `app_admin` (any other company) or a `partner_admin` (its own tenants) may change `status`, never on the caller's own company; `status` must be `active` or `suspended`. Before, any user could suspend their own company.
 
 ---
 
@@ -1420,7 +1416,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | 1 | **`/api/v1/email/*` has no authentication whatsoever.** Read, create, delete, and validate another tenant's mailbox credentials by passing their `company_id` or `connection_id`. `validate` decrypts the stored app password and logs into the mailbox. | [email_router.py:94](../../backend/src/ai/email_router.py:94), [:159](../../backend/src/ai/email_router.py:159), [:179](../../backend/src/ai/email_router.py:179), [:204](../../backend/src/ai/email_router.py:204) |
 | 2 | ~~**Privilege escalation via `PATCH /users/{id}`.**~~ **Fixed (AU-01):** role changes are checked against the caller's assignable roles and refused on the caller's own row; see §7.6 item 4. | [service.py](../../backend/src/auth/service.py) `update_user_as_admin` |
 | 3 | **Production secrets are the committed defaults.** `SECRET_KEY=dev_secret_key_change_in_production` in `backend/.env`; anyone with it mints tokens for any user. (`INTERNAL_TOKEN=change-me-in-production` no longer opens `/internal/event` — a placeholder disables it, SA-20.) | `backend/.env`, [config.py](../../backend/src/common/config.py) |
-| 4 | **Any authenticated user can suspend their own company**, locking out its admins. No role check on `PATCH /companies/{id}`. | [company_router.py:118](../../backend/src/auth/company_router.py:118) |
+| 4 | ~~**Any authenticated user can suspend their own company**~~ **Fixed (AU-03):** status is `app_admin` (other companies) or `partner_admin` (its tenants) only, never the caller's own company. | [company_router.py](../../backend/src/auth/company_router.py) `update_company` |
 
 ### High
 
