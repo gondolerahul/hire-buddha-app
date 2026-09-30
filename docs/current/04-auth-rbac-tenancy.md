@@ -868,20 +868,29 @@ flowchart LR
     C --> R3["own rows only"]
 ```
 
-The partner pattern appears verbatim in several places, e.g. [user_router.py:25](../../backend/src/auth/user_router.py:25):
+The rule lives in one place, [auth/visibility.py](../../backend/src/auth/visibility.py)
+(AU-20, 2026-09-30):
 
 ```python
-# backend/src/auth/user_router.py
-comp_result = await db.execute(
-    select(Company.id).where(
-        (Company.id == current_user.company_id) | (Company.parent_id == current_user.company_id)
-    )
-)
-company_ids = comp_result.scalars().all()
-result = await db.execute(select(User).where(User.company_id.in_(company_ids)))
+# backend/src/auth/visibility.py
+async def company_scope(db, company_id, role) -> frozenset[UUID] | None:
+    if role == Role.APP_ADMIN:
+        return None                                   # every company
+    if role in PARTNER_ROLES:                         # partner_admin, partner_user
+        children = (await db.execute(select(Company.id).where(Company.parent_id == company_id))).scalars().all()
+        return frozenset({company_id, *children})
+    return frozenset({company_id})
+
+async def visible_company_ids(db, user): ...          # company_scope for a signed-in user
 ```
 
-Note it is copy-pasted rather than factored into a shared helper. There is no `visible_company_ids(user)` utility, so each new endpoint re-implements the cascade — and some get it wrong (see `partner_user` in the table above, which is excluded from `list_users` entirely but included in `list_companies`).
+A scoped query adds `WHERE company_id IN (scope)` unless the scope is `None`. Users, companies,
+entity create/list/read and phone-number agent assignment all use it; before, each wrote the
+rule out itself, and the entity list ran one query per child tenant (now one `IN` query).
+
+Visibility is not permission. A `partner_user` *sees* its tenants' companies and entities,
+but listing users is still a user-admin action, so `GET /users` refuses it — that is the
+route's role check, not a different visibility rule.
 
 ---
 
@@ -989,7 +998,7 @@ select(SocialConnection).where(
 | ~~**Email connections have no auth at all**~~ **Fixed 2026-09-30 (AU-02)** | [ai/email_router.py](../../backend/src/ai/email_router.py) | Every route now depends on `get_current_user_and_company`; list and create use the caller's company (a `company_id` in the query string is ignored), and delete/validate look a connection up by id **and** company, 404 otherwise. Before, all five routes were anonymous and delete/validate looked up by id alone — `validate` decrypted another tenant's app password and logged into the mailbox. |
 | Templates are global | [ai/service.py:57](../../backend/src/ai/service.py:57) | `is_template == True` rows have `company_id = NULL` and are visible to everyone by design. Anything put in a template is public to all tenants. |
 | `app_admin` short-circuits | throughout | `if user_role != "app_admin"` skips the filter entirely. Correct, but it means a role-escalation bug (7.6 item 4) becomes a full-database read. |
-| Copy-pasted cascade logic | `user_router`, `company_router`, `ai/router`, `ai/service`, `phone_number_router` | Five independent implementations of "own + children". They already disagree about `partner_user`. |
+| ~~Copy-pasted cascade logic~~ **Fixed (AU-20)** | [auth/visibility.py](../../backend/src/auth/visibility.py) | The five copies of "own + children" are one helper, `visible_company_ids(user)`. |
 | Webhooks derive tenancy from provider data | [voice/webhook_router.py](../../backend/src/voice/webhook_router.py) | `company_id` comes from the phone-number assignment row, not from a token. Correct approach, but the trust boundary is the telephony provider's signature, not a HireBuddha credential. |
 
 Until 2026-09-30 the email router was the standout: its create route took `company_id` from the query string with a comment saying *"current_user will be injected by auth middleware in production"* — there was no such middleware, so the client picked its own tenant. It now follows `social_router.py`: `get_current_user_and_company` on every route, and the frontend no longer sends a company id (AU-02).
@@ -1508,7 +1517,6 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 
 - No CSRF token anywhere, mitigated by the fact that auth is a header, not a cookie.
 - `users.role` has no database constraint (the API validates it against `Role`).
-- Five copy-pasted implementations of the "own + children" cascade that already disagree about `partner_user`.
 - `GET /auth/admin-only` ([router.py:76](../../backend/src/auth/router.py:76)) is a leftover smoke-test endpoint that ships in production.
 - `test_register_new_user` in [test_01_auth.py:15](../../backend/tests/e2e/test_01_auth.py:15) asserts `data["email"]` — true again since AU-08, when `/auth/register` stopped returning a `Token` and returns `{email, message}`.
 

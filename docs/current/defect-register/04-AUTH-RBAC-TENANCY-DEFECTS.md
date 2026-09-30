@@ -708,7 +708,8 @@ despite being documented as a platform operations role.
 
 ### AU-20 — Five independent copies of "own company plus children"
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-09-30)** — with [AU-I5](#au-i5--one-visible_company_idsuser-helper)
+and [PO-I6](01-PRODUCT-OVERVIEW-DEFECTS.md#po-i6--cache-the-partner-entity-fan-out).
 
 The cascade logic appears separately in `user_router`, `company_router`, `ai/router`,
 `ai/service` and `phone_number_router`. They already disagree about what `partner_user`
@@ -718,6 +719,28 @@ Five copies means five places to fix when the rule changes, and five places for 
 tenant-boundary bug to hide.
 
 **Fix:** one `visible_company_ids(user)` helper. Every scoped query takes its result.
+
+**Done (2026-09-30).** `auth/visibility.py`: `company_scope(db, company_id, role)` and
+`visible_company_ids(db, user)` return the companies a user can see — `None` for `app_admin`
+(every company), own + tenants for `partner_admin` / `partner_user`, own for everyone else —
+and `in_scope(scope, company_id)`. The five copies use it: `list_users`, `list_companies`,
+`create_entity` (a `target_company_id` must be in scope), `list_entities` and
+`AIService.get_entity`, and phone-number agent assignment for partners. `get_entities` now
+takes a set of company ids, so a partner's entity list is **one** query with `company_id IN
+(...)` instead of one per tenant (PO-I6).
+
+The "disagreement about `partner_user`" was not one: every copy let partners see their
+tenants; `list_users` refuses `partner_user` because listing users is an admin action. That
+stays a role check in the route. Small change: a tenant passing its **own** id as
+`target_company_id` to `POST /ai/entities` used to be refused; it is in scope now.
+
+**Evidence:** `tests/integration/test_company_visibility.py` (real Postgres, rolled back; a
+partner, its tenant and an unrelated tenant), 9 cases — the rule for four roles; a partner's
+entity list returns its own and its tenant's entities, not the other tenant's, **in one entity
+query**; a partner reads its tenant's entity and gets 404 for the other's; a partner admin lists
+its and its tenant's users only; a partner user sees both companies but gets 403 listing users;
+entity creation is allowed for the tenant and refused for the other company. 5 fail on the old
+code.
 
 ---
 
@@ -820,6 +843,8 @@ database round trip on every authenticated request and is strictly weaker than t
 that already runs in the dependency.
 
 ### AU-I5 — One `visible_company_ids(user)` helper
+
+**Status: done (2026-09-30)** — AU-20.
 
 **Effect: medium.** Replaces the five copies in
 [AU-20](#au-20--five-independent-copies-of-own-company-plus-children). Every scoped

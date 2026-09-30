@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, or_
 from fastapi import HTTPException
+from typing import Collection, Optional
 from uuid import UUID, uuid4
 import re
 import logging
@@ -46,20 +47,20 @@ class AIService:
         )
         return result.scalar_one()
 
-    async def get_entities(self, company_id: UUID, type: EntityType = None, user_role: str = None, is_template: bool = None, voice_enabled: bool = None, status_filter: str = None) -> list[HierarchicalEntity]:
+    async def get_entities(self, company_ids: Optional[Collection[UUID]], type: EntityType = None, is_template: bool = None, voice_enabled: bool = None, status_filter: str = None) -> list[HierarchicalEntity]:
+        """Entities of ``company_ids`` (``None``: every company) — see ``auth.visibility``."""
         from sqlalchemy.orm import selectinload
         query = select(HierarchicalEntity)
-        
+
         # ── Always exclude soft-deleted entities from listings ──
         query = query.where(HierarchicalEntity.status != "DELETED")
-        
+
         # Templates are public (company_id=NULL) — visible to everyone
         if is_template is True:
             query = query.where(HierarchicalEntity.is_template == True)
         else:
-            # For regular entities, scope by company (app_admin sees all)
-            if user_role != "app_admin":
-                query = query.where(HierarchicalEntity.company_id == company_id)
+            if company_ids is not None:
+                query = query.where(HierarchicalEntity.company_id.in_(company_ids))
             # Filter by template flag (None = show all, False = entities only)
             if is_template is not None:
                 query = query.where(HierarchicalEntity.is_template == is_template)
@@ -82,32 +83,15 @@ class AIService:
             HierarchicalEntity.status != "DELETED",  # Hide soft-deleted entities
         )
         
-        # Access control:
-        #   app_admin        → can access any entity
-        #   partner_admin/user → own company + child tenant companies + templates
-        #   tenant_admin/user  → own company + templates
-        if user_role == "app_admin":
-            pass  # No company filter
-        elif user_role in ("partner_admin", "partner_user"):
-            from sqlalchemy import or_
-            from src.auth.models import Company
-            # Fetch child tenant company IDs for this partner
-            child_result = await self.db.execute(
-                select(Company.id).where(Company.parent_id == company_id)
-            )
-            child_ids = [row[0] for row in child_result.fetchall()]
-            allowed_ids = [company_id] + child_ids
-            query = query.where(
-                or_(
-                    HierarchicalEntity.company_id.in_(allowed_ids),
-                    HierarchicalEntity.is_template == True,
-                )
-            )
-        else:
+        # Access control: the companies the caller can see (auth.visibility —
+        # app_admin all, partners own + tenants, others own), plus templates.
+        from src.auth.visibility import company_scope
+        scope = await company_scope(self.db, company_id, user_role)
+        if scope is not None:
             from sqlalchemy import or_
             query = query.where(
                 or_(
-                    HierarchicalEntity.company_id == company_id,
+                    HierarchicalEntity.company_id.in_(scope),
                     HierarchicalEntity.is_template == True,
                 )
             )

@@ -74,7 +74,7 @@ cross-referenced here.
 | PO-17 | The deprecated `video_generation` tool | ✅ fixed `a8fb38e` |
 | PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `ba5e6ec` (by PO-15) |
 | PO-19 – PO-22 | Rough edges | ⏸ deferred |
-| PO-I1 – PO-I12 | Improvements | ⏸ deferred, except PO-I9 — done by PO-10 |
+| PO-I1 – PO-I12 | Improvements | ⏸ deferred, except PO-I9 — done by PO-10 — and PO-I6, done by AU-20 |
 
 The three worth reading first:
 
@@ -682,6 +682,9 @@ run's Redis channel. Reusing it removes a constant background query and makes
 approvals appear instantly.
 
 ### PO-I6 — Cache the partner entity fan-out
+
+**Status: done (2026-09-30)** — with [AU-20](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-20--five-independent-copies-of-own-company-plus-children):
+the partner entity list is one `company_id IN (...)` query.
 
 **Effect: medium.** `GET /ai/entities` runs one extra query **per child tenant** for
 `partner_admin` and `partner_user`, then merges and de-duplicates in Python. A partner

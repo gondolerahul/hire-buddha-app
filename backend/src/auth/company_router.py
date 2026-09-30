@@ -8,6 +8,7 @@ from src.auth.models import Company, User
 from src.auth.schemas import CompanyCreate, CompanyResponse, CompanyUpdate
 from src.auth.dependencies import get_current_user, RoleChecker
 from src.auth.roles import Role
+from src.auth.visibility import visible_company_ids
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -16,24 +17,12 @@ async def list_companies(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List all companies. app_admin sees all; partner_admin sees own + children."""
-    if current_user.role == "app_admin":
-        result = await db.execute(select(Company).order_by(Company.name))
-    elif current_user.role in ("partner_admin", "partner_user"):
-        from sqlalchemy import or_
-        result = await db.execute(
-            select(Company).where(
-                or_(
-                    Company.id == current_user.company_id,
-                    Company.parent_id == current_user.company_id,
-                )
-            ).order_by(Company.name)
-        )
-    else:
-        # Tenants only see their own company
-        result = await db.execute(
-            select(Company).where(Company.id == current_user.company_id)
-        )
+    """The companies the caller can see: all (app_admin), own + tenants (partners), or own."""
+    query = select(Company).order_by(Company.name)
+    scope = await visible_company_ids(db, current_user)
+    if scope is not None:
+        query = query.where(Company.id.in_(scope))
+    result = await db.execute(query)
     return result.scalars().all()
 
 @router.get("/partners", response_model=List[CompanyResponse])

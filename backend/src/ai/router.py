@@ -5,6 +5,7 @@ from uuid import UUID
 from typing import List, Optional
 from src.common.database import get_db
 from src.auth.dependencies import get_current_user, get_current_user_from_query, RoleChecker
+from src.auth.visibility import in_scope, visible_company_ids
 from src.auth.models import User
 from src.ai.schemas import (
     HierarchicalEntityCreateRequest, HierarchicalEntityUpdateRequest, HierarchicalEntityResponse,
@@ -25,26 +26,13 @@ async def create_entity(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Determine the effective company for this entity
+    # Determine the effective company for this entity: any company the caller
+    # can see (partners: their tenants too; app_admin: any).
     effective_company_id = current_user.company_id
     if target_company_id:
-        if current_user.role == "app_admin":
-            effective_company_id = target_company_id
-        elif current_user.role in ("partner_admin", "partner_user"):
-            # Partners can create entities for their managed tenants
-            from src.auth.models import Company
-            result = await db.execute(
-                select(Company).where(
-                    Company.id == target_company_id,
-                    Company.parent_id == current_user.company_id,
-                )
-            )
-            if result.scalar_one_or_none():
-                effective_company_id = target_company_id
-            else:
-                raise HTTPException(status_code=403, detail="Not authorized to create entities for this company")
-        else:
-            raise HTTPException(status_code=403, detail="Cannot create entities for another company")
+        if not in_scope(await visible_company_ids(db, current_user), target_company_id):
+            raise HTTPException(status_code=403, detail="Not authorized to create entities for this company")
+        effective_company_id = target_company_id
 
     service = AIService(db)
     return await service.create_entity(entity_in, effective_company_id, current_user.id)
@@ -58,33 +46,17 @@ async def list_entities(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Allow app_admin to filter by specific company
-    effective_company_id = current_user.company_id
+    # Every company the caller can see — partners include their tenants, in one
+    # query (it was one query per tenant). app_admin sees all, or one company
+    # with ?company_id=.
+    scope = await visible_company_ids(db, current_user)
     if company_id and current_user.role == "app_admin":
-        effective_company_id = company_id
+        scope = frozenset({company_id})
 
     service = AIService(db)
     entities = list(await service.get_entities(
-        effective_company_id, type, current_user.role,
-        is_template=False, status_filter=status,
+        scope, type, is_template=False, status_filter=status,
     ))
-
-    # For partner_admin/partner_user, also include entities from child tenants
-    if current_user.role in ("partner_admin", "partner_user"):
-        from src.auth.models import Company
-        child_result = await db.execute(
-            select(Company.id).where(Company.parent_id == current_user.company_id)
-        )
-        seen_ids = {e.id for e in entities}
-        for (child_id,) in child_result.fetchall():
-            child_entities = await service.get_entities(
-                child_id, type, "app_admin",
-                is_template=False, status_filter=status,
-            )
-            for ce in child_entities:
-                if ce.id not in seen_ids:
-                    entities.append(ce)
-                    seen_ids.add(ce.id)
 
     # Client-requested voice filter: only return agents with voice config
     if voice_enabled:
@@ -743,7 +715,7 @@ async def list_templates(
 ):
     service = AIService(db)
     # Templates are public — no company_id scoping
-    return await service.get_entities(current_user.company_id, type, current_user.role, is_template=True)
+    return await service.get_entities(None, type, is_template=True)
 
 @router.get("/templates/{template_id}", response_model=HierarchicalEntityResponse)
 async def get_template(

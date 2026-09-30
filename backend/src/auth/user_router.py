@@ -7,7 +7,9 @@ from src.common.database import get_db
 from src.auth.models import User, Company
 from src.auth.schemas import UserCreateAdmin, UserResponse, UserUpdate
 from src.auth.dependencies import get_current_user, RoleChecker
+from src.auth.roles import USER_ADMIN_ROLES
 from src.auth.service import create_user_as_admin, update_user_as_admin
+from src.auth.visibility import visible_company_ids
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -16,25 +18,14 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # App Admin can see all users
-    if current_user.role == "app_admin":
-        result = await db.execute(select(User))
-    # Partner Admin can see their users and their tenants' users
-    elif current_user.role == "partner_admin":
-        # Get all companies that are either the partner's company or have the partner's company as parent
-        comp_result = await db.execute(
-            select(Company.id).where(
-                (Company.id == current_user.company_id) | (Company.parent_id == current_user.company_id)
-            )
-        )
-        company_ids = comp_result.scalars().all()
-        result = await db.execute(select(User).where(User.company_id.in_(company_ids)))
-    # Tenant Admin can only see their own users
-    elif current_user.role == "tenant_admin":
-        result = await db.execute(select(User).where(User.company_id == current_user.company_id))
-    else:
+    # Only user admins list users; each sees the users of the companies it can see.
+    if current_user.role not in USER_ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
+    query = select(User)
+    scope = await visible_company_ids(db, current_user)
+    if scope is not None:
+        query = query.where(User.company_id.in_(scope))
+    result = await db.execute(query)
     return result.scalars().all()
 
 @router.post("", response_model=UserResponse)

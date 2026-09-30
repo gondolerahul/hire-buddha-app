@@ -32,6 +32,7 @@ from sqlalchemy import or_, and_
 from src.common.database import get_db
 from src.auth.models import User
 from src.auth.dependencies import get_current_user, RoleChecker
+from src.auth.visibility import PARTNER_ROLES, in_scope, visible_company_ids
 from src.voice.phone_pool_models import PhoneNumber
 from src.config.models import IntegrationRegistry
 from src.common.security import decrypt_api_key
@@ -713,14 +714,9 @@ async def assign_agent(
     # Company matching — app_admin can assign any agent to any number
     if current_user.role == "app_admin":
         pass  # No restriction
-    elif current_user.role in ("partner_admin", "partner_user"):
-        # Partner admins can assign agents from their own company or child tenants
-        from src.auth.models import Company as CompanyModel
-        child_result = await db.execute(
-            select(CompanyModel.id).where(CompanyModel.parent_id == current_user.company_id)
-        )
-        allowed_companies = {current_user.company_id} | {r[0] for r in child_result.fetchall()}
-        if agent.company_id not in allowed_companies:
+    elif current_user.role in PARTNER_ROLES:
+        # Partners can assign agents from any company they can see: their own or a tenant's
+        if not in_scope(await visible_company_ids(db, current_user), agent.company_id):
             raise HTTPException(
                 status_code=403,
                 detail="Agent must belong to your company or one of your tenants"
