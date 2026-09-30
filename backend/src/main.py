@@ -38,13 +38,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="HireBuddha Platform", version="0.2.0", lifespan=lifespan)
 
 # Middleware runs outermost-last-added: CORS answers preflights and decorates
-# every response (a 429 or 403 included) before the limiter and the rest see it.
+# every response (a 429 included) before the limiter sees it. A suspended
+# company is refused by get_current_user (auth/dependencies.py), not here (SA-18).
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
-
-from src.common.middleware import CompanySuspensionMiddleware
-app.add_middleware(CompanySuspensionMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

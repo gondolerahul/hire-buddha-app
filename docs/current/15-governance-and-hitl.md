@@ -86,8 +86,8 @@ Ordered by when they fire in a request's life:
 
 | # | Gate | Where enforced | Scope | Failure mode |
 |---|---|---|---|---|
-| 1 | Company suspension | `CompanySuspensionMiddleware` | Every HTTP request | 403 |
-| 2 | Authentication + RBAC | Auth dependencies | Every protected route | 401 / 403 |
+| 1 | Authentication + company suspension + RBAC | Auth dependencies (`_authenticate_user`, `RoleChecker`) | Every protected route | 401 / 403 |
+| 2 | Rate limit | `SlowAPIMiddleware` | Every REST route, per client IP | 429 |
 | 3 | Pre-execution credit gate | `GovernanceService.check_credit_gate` | Run start | `InsufficientCreditsError` |
 | 4 | Feature flags | `FeatureFlags.is_on` | Code path | Path disabled |
 | 5 | HITL `BEFORE` checkpoints | `GovernanceService.evaluate_hitl` | Per step | Exception, run fails |
@@ -106,73 +106,32 @@ started can drain the wallet halfway through.
 
 ## 3. Company suspension
 
-The outermost gate, registered in
-[main.py:27](../../backend/src/main.py:27) as the first middleware after CORS.
+Checked by the auth dependency: `_authenticate_user`
+([auth/dependencies.py](../../backend/src/auth/dependencies.py)), which every
+`get_current_user*` variant uses, loads the user with its company and refuses a
+suspended one.
 
 ```python
-# backend/src/common/middleware.py
-class CompanySuspensionMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Skip for public endpoints or if no auth header
-        if request.url.path.startswith("/api/v1/auth") or request.url.path == "/" \
-           or request.url.path.startswith("/docs") \
-           or request.url.path.startswith("/openapi.json"):
-            return await call_next(request)
+# backend/src/auth/dependencies.py — inside _authenticate_user
+if user.company and user.company.status == "suspended":
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Company account is suspended. Please contact support."
+    )
 ```
-
-```mermaid
-flowchart TD
-    REQ["Incoming request"] --> PUB{"Path is public?<br/>/api/v1/auth, /, /docs, /openapi.json"}
-    PUB -->|yes| PASS["Pass through"]
-    PUB -->|no| HDR{"Authorization: Bearer present?"}
-    HDR -->|no| PASS
-    HDR -->|yes| DEC["decode_access_token"]
-    DEC --> CID{"company_id in payload?"}
-    CID -->|no| PASS
-    CID -->|yes| DB["SELECT company"]
-    DB --> ST{"status == 'suspended'?"}
-    ST -->|yes| BLOCK["403 - Company is suspended.<br/>Please contact support."]
-    ST -->|no| PASS
-    DEC -.exception.-> LOGPASS["Log error, pass through"]
-```
-
-### 3.1 Why it is middleware, and why that is awkward
-
-The source comments are unusually candid about the design tension:
-
-```python
-# backend/src/common/middleware.py
-# We need to extract company_id from the token or request state
-# Since the auth dependency runs *after* middleware in FastAPI, we have to
-# manually check the token here
-# ...
-# A better approach for FastAPI is to use a dependency that checks this,
-# but the requirement specifically asked for Middleware.
-```
-
-Because FastAPI middleware runs **before** dependencies, this middleware cannot
-reuse `get_current_user`. It re-implements a simplified token decode and opens
-**its own database session** on every non-public authenticated request.
-
-Practical consequences:
-
-- **One extra DB round-trip per request.** `AsyncSessionLocal()` plus a
-  `SELECT` on `companies` for every authenticated call. This is a real
-  per-request cost.
-- **It fails open.** Any exception is logged and the request proceeds:
-  ```python
-  except Exception as e:
-      logger.error(f"Middleware error checking tenant status: {e}")
-      # Don't block request on error, let the actual auth dependency handle invalid tokens
-      pass
-  ```
-  A database blip means suspended companies are served normally.
-- **It only guards the backend API (port 8000).** The gateway and voice services
-  do not mount this middleware — see
-  [02 — System architecture](02-system-architecture.md).
 
 Only `status == "suspended"` is checked. `Company.status` defaults to `"active"`
-([auth/models.py:17](../../backend/src/auth/models.py:17)).
+([auth/models.py:17](../../backend/src/auth/models.py:17)). Login does not go
+through the dependency, so a suspended company's users can still obtain a token;
+every authenticated call after that is a 403. A database error fails the
+request — the check fails closed.
+
+Until 2026-09-30 (SA-18) a `CompanySuspensionMiddleware` ran the same check first on
+every request carrying a bearer token. It opened its own database session (one
+extra round trip per request, even for a 404), trusted the token's `company_id`
+claim, and swallowed every exception — so a database blip served suspended
+companies normally (GH-04). It was deleted; the dependency was already the
+stronger check.
 
 ---
 
@@ -1221,7 +1180,6 @@ redis-cli DEL "tool:search:company_<uuid>"
 | [governance/governance_service.py](../../backend/src/ai/governance/governance_service.py) | 436 | Credit gates, circuit breaker, HITL evaluation and wait, billing settlement |
 | [governance/tool_cost_resolver.py](../../backend/src/ai/governance/tool_cost_resolver.py) | 206 | Single source of truth for tool cost; `TOOL_SKU_MAP`, `TOOL_FIXED_COST` |
 | [governance/rate_limiter.py](../../backend/src/ai/governance/rate_limiter.py) | 111 | Redis sorted-set sliding window |
-| [common/middleware.py](../../backend/src/common/middleware.py) | 57 | `CompanySuspensionMiddleware` |
 | [schemas/governance.py](../../backend/src/ai/schemas/governance.py) | — | `Governance`, `HITLCheckpoint`, `ExecutionLimits` |
 | [schemas/enums.py](../../backend/src/ai/schemas/enums.py) | — | `HITLTriggerType`, `StepType`, `ExecutionMode` |
 | [orm/execution.py](../../backend/src/ai/orm/execution.py) | 138 | `HumanApproval` table |
@@ -1281,8 +1239,8 @@ redis-cli DEL "tool:search:company_<uuid>"
 
 14. **`ToolCostResolver` is cached per process.** Rate changes need a restart.
 
-15. **`CompanySuspensionMiddleware` opens its own DB session per request** — a
-    real per-request cost, and it only protects the backend API on port 8000.
+15. **Suspension is enforced by the auth dependency only.** An endpoint that does
+    not depend on `get_current_user` (or a sibling) is not covered.
 
 16. **Budget lives on the entity, not the company.** Raising "a tenant's budget"
     means editing entity `governance` blocks.

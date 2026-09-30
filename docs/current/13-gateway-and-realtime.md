@@ -73,7 +73,7 @@ graph TB
     end
 
     subgraph API["API - uvicorn 8000"]
-        MW["CORS -> suspension check -> rate limit"]
+        MW["CORS -> rate limit"]
         REST["/api/v1 routers"]
         SSE["GET /ai/executions/id/stream"]
         R2["POST /webhook/inbound"]
@@ -135,7 +135,6 @@ app = FastAPI(title="HireBuddha Platform", version="0.2.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
-app.add_middleware(CompanySuspensionMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, ...)
 ...
 app.include_router(mobile_push_router)                    # WS /mobile/ws
@@ -156,14 +155,15 @@ fails to import, the API still boots, that router's paths answer 404, and
 ### 2.2 Middleware
 
 Starlette's `add_middleware` **prepends**: the middleware added *last* runs
-*first*. So a request meets `CORSMiddleware`, then `CompanySuspensionMiddleware`,
-then `SlowAPIMiddleware`, then the route. CORS is outermost on purpose — it
-answers preflights before anything else and decorates every response, so a 401,
-403 or 429 reaches a browser as itself rather than as an opaque CORS failure. (On
+*first*. So a request meets `CORSMiddleware`, then `SlowAPIMiddleware`, then the
+route. CORS is outermost on purpose — it answers preflights before anything else
+and decorates every response, so a 401, 403 or 429 reaches a browser as itself
+rather than as an opaque CORS failure. (Company suspension is checked by the
+auth dependency, not middleware — SA-18.) (On
 the gateway the auth middleware ran before CORS and its 401s carried no CORS
 headers.)
 
-All three are HTTP-only: WebSocket connections pass straight through — see
+Both are HTTP-only: WebSocket connections pass straight through — see
 [section 4.3](#43-the-websocket-blind-spot).
 
 ### 2.3 Startup and shutdown lifecycle

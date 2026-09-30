@@ -348,7 +348,13 @@ read timeout and hands the client a 503.
 
 ### SA-18 — Suspension middleware costs a database round trip on every request
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — the middleware is deleted, not
+cached. `_authenticate_user`, which every `get_current_user*` dependency uses, already
+loads the user's company and refuses a suspended one with the same 403 — so the
+middleware's lookup was pure duplication (and weaker: it trusted the token's
+`company_id` claim and failed open on a DB error). On the local stack one authenticated
+`GET /api/v1/users` went from 4 SQL statements to 3; the middleware ran its query even
+for a request that would 404. No Redis cache was needed.
 
 `CompanySuspensionMiddleware` decodes the bearer token itself, opens **its own**
 `AsyncSessionLocal`, and looks up the company — on every authenticated request, before
@@ -357,7 +363,7 @@ the route runs. Its own docstring admits it should probably be a dependency.
 At current traffic this is invisible. It is a fixed tax on every request and the first
 thing to look at when p50 latency matters.
 
-- [`common/middleware.py`](../../../backend/src/common/middleware.py)
+- `common/middleware.py`
 
 **Fix:** make it a dependency, and cache the suspension flag in Redis with a short TTL.
 A suspended company does not need to be detected within one request.
@@ -468,6 +474,8 @@ visible alarm. A "runs stuck in PENDING for more than N minutes" count would be 
 better.
 
 ### SA-I5 — Cache the suspension check
+
+**Status: moot (2026-09-30)** — there is no separate check to cache; see SA-18.
 
 **Effect: medium.** See [SA-18](#sa-18--suspension-middleware-costs-a-database-round-trip-on-every-request).
 One Redis lookup with a 60-second TTL replaces one Postgres round trip per request.

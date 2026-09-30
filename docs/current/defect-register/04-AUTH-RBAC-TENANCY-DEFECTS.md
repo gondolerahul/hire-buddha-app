@@ -489,7 +489,8 @@ possible: with no enum there is nothing to validate an incoming role string agai
 
 ### AU-22 — Suspension is checked twice, in two different ways
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-09-30)** — the middleware is deleted (SA-18); the
+dependency's check is the only one.
 
 `CompanySuspensionMiddleware` reads `company_id` from the **JWT claim** and runs its own
 `SELECT` on its own session. `_authenticate_user` reads it from the **eager-loaded
@@ -502,7 +503,7 @@ every exception and continues, so a database blip silently disables it.
 The dependency-level check is correct and free. The middleware's own docstring says it
 exists only because "the requirement specifically asked for Middleware".
 
-- [`common/middleware.py`](../../../backend/src/common/middleware.py)
+- `common/middleware.py`
 - [`auth/dependencies.py`](../../../backend/src/auth/dependencies.py)
 
 **Fix:** delete the middleware. It costs a DB round trip per request and adds nothing
@@ -550,6 +551,8 @@ comparison in `_authenticate_user`. It gives the platform:
 Four defects, one column.
 
 ### AU-I4 — Delete `CompanySuspensionMiddleware`
+
+**Status: done (2026-09-30)** — SA-18.
 
 **Effect: medium, and it is a deletion.** See
 [AU-22](#au-22--suspension-is-checked-twice-in-two-different-ways). It costs one extra

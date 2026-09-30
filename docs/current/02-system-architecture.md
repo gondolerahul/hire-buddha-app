@@ -123,8 +123,7 @@ seconds with `wait_for_service`. The Arq worker has no port, so it is detected b
   # backend/src/main.py
   app = FastAPI(title="HireBuddha Platform", version="0.2.0", lifespan=lifespan)
   app.state.limiter = limiter
-  app.add_middleware(SlowAPIMiddleware)                 # innermost
-  app.add_middleware(CompanySuspensionMiddleware)
+  app.add_middleware(SlowAPIMiddleware)                 # inner
   app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, ...)
   app.include_router(auth_router, prefix="/api/v1")
   ...
@@ -601,7 +600,7 @@ Run it manually with `python backend/scripts/lint_ai_layout.py`.
 
 | Package | Purpose | Key files |
 |---------|---------|-----------|
-| `common/` | Cross-cutting infrastructure shared by the API and the worker. | [`config.py`](../../backend/src/common/config.py) (the one `Settings` object), [`database.py`](../../backend/src/common/database.py) (`engine`, `AsyncSessionLocal`, `get_db`), [`job_queue.py`](../../backend/src/common/job_queue.py) (arq connection + `enqueue_job`), [`rate_limit.py`](../../backend/src/common/rate_limit.py), [`router_mounts.py`](../../backend/src/common/router_mounts.py), [`security.py`](../../backend/src/common/security.py), [`middleware.py`](../../backend/src/common/middleware.py), [`telemetry.py`](../../backend/src/common/telemetry.py), `email.py`, `genai_factory.py` |
+| `common/` | Cross-cutting infrastructure shared by the API and the worker. | [`config.py`](../../backend/src/common/config.py) (the one `Settings` object), [`database.py`](../../backend/src/common/database.py) (`engine`, `AsyncSessionLocal`, `get_db`), [`job_queue.py`](../../backend/src/common/job_queue.py) (arq connection + `enqueue_job`), [`rate_limit.py`](../../backend/src/common/rate_limit.py), [`router_mounts.py`](../../backend/src/common/router_mounts.py), [`security.py`](../../backend/src/common/security.py), [`telemetry.py`](../../backend/src/common/telemetry.py), `email.py`, `genai_factory.py` |
 | `auth/` | Users, companies, partners, RBAC dependencies, onboarding wizard. | `models.py`, `router.py`, `dependencies.py`, `company_router.py`, `partner_router.py`, `user_router.py`, `profile_router.py`, `onboarding_router.py` |
 | `billing/` | SKU costing, credit wallets, admin cron endpoints. | `billing_models.py`, `billing_service.py`, `credit_service.py`, `credits_router.py`, `cron_router.py` (`/api/v1/cron/*`, `app_admin` only), `cron_service.py` |
 | `config/` | Admin-managed integration registry and per-task model defaults. | `models.py` (`ModelTaskDefault`, `TASK_TYPES`), `service.py`, `router.py`, `schemas.py` |
@@ -665,9 +664,9 @@ sequenceDiagram
 
     B->>A: "POST /api/v1/execute  Bearer JWT"
     A->>API: proxy to localhost:8000
-    API->>API: "CORSMiddleware, CompanySuspensionMiddleware"
+    API->>API: "CORSMiddleware"
     API->>R: "slowapi rate-limit count per client IP"
-    API->>API: "get_current_user dependency"
+    API->>API: "get_current_user - user, company, 403 if suspended"
     API->>PG: "INSERT execution_runs status=PENDING"
     API->>R: "enqueue_job run_execution_recursive run_id"
     API-->>B: "200 - run created, still PENDING"
@@ -1234,31 +1233,31 @@ in process memory until Redis recovers.
 flowchart TD
     REQ["Incoming request"] --> AP["Apache: TLS, security headers, IP blocklist, path blocks, mod_evasive, 10MB body cap"]
     AP --> CORS["CORSMiddleware - settings.cors_origins_list"]
-    CORS --> SUSP["CompanySuspensionMiddleware - 403 if company suspended"]
-    SUSP --> RL["SlowAPIMiddleware - RATE_LIMIT per client IP, Redis backed"]
+    CORS --> RL["SlowAPIMiddleware - RATE_LIMIT per client IP, Redis backed"]
     RL --> ROUTE{"route"}
     ROUTE -->|"/internal/event"| INT["require_internal - X-Internal-Token"]
     ROUTE -->|"/webhook/inbound, WebSockets"| NATIVE["handler - own checks, not rate limited"]
-    ROUTE -->|"REST"| DEP["Route dependencies - get_current_user, RoleChecker"]
+    ROUTE -->|"REST"| DEP["Route dependencies - get_current_user incl. suspension 403, RoleChecker"]
     DEP --> SVC["Service layer"]
 ```
 
 ### The middleware chain, in execution order
 
 Starlette runs middleware in **reverse** order of `add_middleware` calls. `main.py`
-adds `SlowAPIMiddleware`, then `CompanySuspensionMiddleware`, then
-`CORSMiddleware`, so CORS runs first: it answers preflights before anything else
-and puts its headers on every response, a 429 or 403 included. All three pass
-WebSocket connections straight through.
+adds `SlowAPIMiddleware`, then `CORSMiddleware`, so CORS runs first: it answers
+preflights before anything else and puts its headers on every response, a 429
+included. Both pass WebSocket connections straight through.
 
-`CompanySuspensionMiddleware`
-([`common/middleware.py`](../../backend/src/common/middleware.py)) skips
-`/api/v1/auth*`, `/`, `/docs*` and `/openapi.json`; otherwise it decodes the
-bearer token itself, opens **its own `AsyncSessionLocal`**, looks up the company
-and returns 403 if `status == "suspended"`. Its own docstring admits this should
-probably be a dependency rather than middleware, and it explicitly does **not**
-block on error — invalid tokens fall through to the real auth dependency. The
-cost is one extra DB round trip per authenticated request.
+**Company suspension** is enforced once, by the auth dependency: every
+`get_current_user*` variant goes through `_authenticate_user`
+([`auth/dependencies.py`](../../backend/src/auth/dependencies.py)), which loads the
+user with its company and answers 403 if the company is suspended. Until SA-18
+(2026-09-30) a `CompanySuspensionMiddleware` did the same check first, on every request
+carrying a bearer token — decoding the token itself, opening its own session and
+loading the company (even for a 404), then letting the dependency load it again.
+It also failed open on a database error and trusted the token's `company_id`
+claim rather than the user's current company. Deleting it took one authenticated
+request from 4 SQL statements to 3.
 
 `SlowAPIMiddleware` applies `RATE_LIMIT` to every HTTP route except those marked
 `@limiter.exempt` — `POST /webhook/inbound` and `POST /internal/event`, which the
@@ -1411,8 +1410,9 @@ process-wide list**; per-company allow-lists are listed as remaining work.
   in-memory queue, covers a Redis outage.
 * **Terminal SSE detection is a substring match** on `"status": "COMPLETED"` in
   the raw JSON. That is why `agent_loop_sse` copies `outcome` into `status`.
-* **`CompanySuspensionMiddleware` opens its own DB session** on every
-  authenticated request — an extra round trip before your route runs.
+* **Suspension is checked in `_authenticate_user`, not in middleware.** A route
+  that does not depend on `get_current_user` (or a sibling) is not protected
+  against suspended companies — or against anyone.
 * **`app.hirebuddha.com` has two competing port-80 vhosts.** `app.hirebuddha.com.conf`
   redirects to HTTPS; `app.hirebuddha.com-le-ssl.conf` also declares a `*:80`
   vhost with the redirect commented out. Whichever Apache loads first wins.

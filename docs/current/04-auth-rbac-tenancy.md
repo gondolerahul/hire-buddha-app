@@ -17,7 +17,7 @@
 7. [The RBAC model](#7-the-rbac-model)
 8. [The company hierarchy: APP, PARTNER, TENANT](#8-the-company-hierarchy-app-partner-tenant)
 9. [Tenant isolation: how queries get scoped](#9-tenant-isolation-how-queries-get-scoped)
-10. [CompanySuspensionMiddleware](#10-companysuspensionmiddleware)
+10. [Company suspension](#10-company-suspension)
 11. [Internal service-to-service auth](#11-internal-service-to-service-auth)
 12. [OAuth: login, social connections, email connections](#12-oauth-login-social-connections-email-connections)
 13. [Onboarding and the company state machine](#13-onboarding-and-the-company-state-machine)
@@ -44,7 +44,7 @@ flowchart TD
     LS["localStorage - access_token and refresh_token"]
     GW["Apache - gateway.hirebuddha.com"]
     BE["API :8000 - FastAPI"]
-    SUSP["CompanySuspensionMiddleware"]
+    SUSP["suspension check - inside get_current_user"]
     DEP["get_current_user dependency"]
     ROLE["RoleChecker guard - optional"]
     HANDLER["Route handler"]
@@ -251,7 +251,7 @@ create_access_token(data={"sub": user.email, "company_id": str(user.company_id)}
 | Claim | Type | Source | Notes |
 |---|---|---|---|
 | `sub` | string | `user.email` | The **only** claim the validator reads. Not the user UUID — the email. |
-| `company_id` | string | `str(user.company_id)` | Read by `CompanySuspensionMiddleware`. **Ignored** by `get_current_user`. |
+| `company_id` | string | `str(user.company_id)` | **Ignored** by `get_current_user`, which loads the user's current company. (It was read by the deleted `CompanySuspensionMiddleware`.) |
 | `exp` | int | `utcnow() + ACCESS_TOKEN_EXPIRE_MINUTES` | Added by `create_access_token`. Verified by `jose`. |
 | `type` | string | *only* on email-verification tokens | Set by the verification-email path; checked at [service.py:286](../../backend/src/auth/service.py:286). |
 
@@ -829,8 +829,8 @@ graph TB
         G3["ENFORCES NOTHING else on REST"]
     end
     subgraph L2["Layer 2 - Backend middleware"]
-        M1["CompanySuspensionMiddleware"]
-        M2["Blocks suspended companies"]
+        M1["CORS and rate limit only"]
+        M2["No auth, no suspension check"]
         M3["Does NOT scope queries"]
     end
     subgraph L3["Layer 3 - FastAPI dependency"]
@@ -939,53 +939,14 @@ async def create_email_connection(
     # For now, use a placeholder company_id (auth middleware will provide real one)
 ```
 
-There is no such middleware. `CompanySuspensionMiddleware` does not inject anything, and it lets a request with no `Authorization` header straight through. The frontend passes `companyId` explicitly from [EmailConnectionWizard.tsx:86](../../frontend/src/components/EmailConnectionWizard.tsx:86), which is why it works in the UI — but that also means the client picks its own tenant. Compare with `social_router.py`, which took the same feature and did it correctly with `get_current_user_and_company`.
+There is no such middleware — nothing in front of the routes injects a company. The frontend passes `companyId` explicitly from [EmailConnectionWizard.tsx:86](../../frontend/src/components/EmailConnectionWizard.tsx:86), which is why it works in the UI — but that also means the client picks its own tenant. Compare with `social_router.py`, which took the same feature and did it correctly with `get_current_user_and_company`.
 
 ---
 
-## 10. CompanySuspensionMiddleware
+## 10. Company suspension
 
-Registered once, on the **main backend only** ([main.py:26-27](../../backend/src/main.py:26)) — not on the gateway.
-
-```python
-# backend/src/main.py
-from src.common.middleware import CompanySuspensionMiddleware
-app.add_middleware(CompanySuspensionMiddleware)
-```
-
-### 10.1 What it does
-
-```mermaid
-flowchart TD
-    REQ["Incoming request"] --> P{"path starts with /api/v1/auth or is / or /docs or /openapi.json"}
-    P -->|"yes"| PASS["call_next - allowed"]
-    P -->|"no"| H{"Authorization header starts with Bearer"}
-    H -->|"no"| PASS
-    H -->|"yes"| DEC["open new AsyncSessionLocal - decode_access_token"]
-    DEC --> V{"payload valid"}
-    V -->|"no"| PASS
-    V -->|"yes"| CID{"company_id claim present"}
-    CID -->|"no"| PASS
-    CID -->|"yes"| Q["SELECT companies WHERE id = company_id"]
-    Q --> S{"company.status == suspended"}
-    S -->|"yes"| BLOCK["403 JSON - Company is suspended. Please contact support."]
-    S -->|"no"| PASS
-    DEC -.->|"any exception"| SWALLOW["log error, PASS"]
-```
-
-Key behaviours:
-
-| Behaviour | Consequence |
-|---|---|
-| Skips all `/api/v1/auth*` paths | A suspended company's users can still **log in** and get tokens. They are blocked on the next business request. |
-| Passes through when there is no `Authorization` header | Unauthenticated endpoints are untouched. Also means it provides zero protection for the unauthenticated email router. |
-| Opens a **fresh `AsyncSessionLocal`** and runs one extra `SELECT` per request | An additional DB round trip on every authenticated API call, outside the request's own session. |
-| Reads `company_id` **from the JWT claim** | If a user is moved between companies, the middleware checks the *old* company until the token expires, while `get_current_user` checks the new one. |
-| Swallows every exception and continues | A DB outage silently disables suspension enforcement rather than failing closed. |
-
-### 10.2 Double enforcement
-
-Suspension is checked in two independent places, which is why the middleware's gaps are mostly benign:
+Checked in one place: `_authenticate_user`, which every `get_current_user*`
+dependency (header, query-string and the mobile push socket) goes through.
 
 ```python
 # backend/src/auth/dependencies.py — inside _authenticate_user
@@ -996,7 +957,16 @@ if user.company and user.company.status == "suspended":
     )
 ```
 
-That dependency-level check uses the eager-loaded `user.company`, so it is correct even after a company move, and it costs no extra query. It is the stronger of the two. The middleware's own docstring admits it exists only because "the requirement specifically asked for Middleware".
+It uses the eager-loaded `user.company`, so it is correct even after a company
+move, and it costs no extra query. A database error fails the request rather
+than skipping the check.
+
+Until 2026-09-30 (SA-18) a `CompanySuspensionMiddleware` ran the same check first, on
+every request with a bearer token outside `/api/v1/auth*`: it decoded the token
+itself, opened its **own** `AsyncSessionLocal`, loaded the company named by the
+token's `company_id` **claim** (stale after a company move), swallowed every
+exception (failing open), and did all this even for a request that would 404. It
+was deleted; one authenticated request went from 4 SQL statements to 3.
 
 ### 10.3 How a company gets suspended
 
@@ -1007,8 +977,8 @@ stateDiagram-v2
     suspended --> active: "PATCH /api/v1/companies/{id} status=active"
 
     state suspended {
-        [*] --> CanStillLogin: "/api/v1/auth/* is skipped"
-        CanStillLogin --> Blocked403: any other API call
+        [*] --> CanStillLogin: "login does not use get_current_user"
+        CanStillLogin --> Blocked403: any authenticated API call
     }
 ```
 
@@ -1081,7 +1051,7 @@ graph TB
 
     subgraph APP["Zone 2 - API :8000 - real authorisation"]
         DEPS["get_current_user + RoleChecker"]
-        SUSPM["CompanySuspensionMiddleware"]
+        SUSPM["suspension 403 inside get_current_user"]
         HANDLERS["Route handlers with company_id scoping"]
     end
 
@@ -1103,7 +1073,7 @@ graph TB
     VDB -->|"X-Internal-Token"| INTEP
     AGENTS -->|"in-process emit_internal_event, no token"| APP
 
-    RESTP --> SUSPM --> DEPS --> HANDLERS --> PG
+    RESTP --> DEPS --> SUSPM --> HANDLERS --> PG
     INTEP --> AGENTS
     WH --> HANDLERS
     STREAM --> AGENTS
@@ -1473,7 +1443,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | 14 | ~~`INTERNAL_TOKEN` compared with `!=`, not a constant-time compare.~~ Fixed 2026-09-30: `hmac.compare_digest` in `require_internal`. | [internal_event.py](../../backend/src/gateway/internal_event.py) |
 | 15 | `social_connections.oauth_metadata` holds each platform's `client_secret` **unencrypted** in JSONB, while the tokens beside it are AES-GCM encrypted. | [social_connection_service.py:174](../../backend/src/ai/social_connection_service.py:174) |
 | 16 | `ENCRYPTION_MASTER_KEY` has a hard-coded 37-char default that is silently truncated to 32 bytes. | [config.py:9](../../backend/src/common/config.py:9), [security.py:40-44](../../backend/src/common/security.py:40) |
-| 17 | `CompanySuspensionMiddleware` swallows all exceptions — fails open on a DB error. | [middleware.py:49](../../backend/src/common/middleware.py:49) |
+| 17 | ~~`CompanySuspensionMiddleware` swallows all exceptions — fails open on a DB error.~~ Gone 2026-09-30: the middleware is deleted (SA-18); the dependency's check fails closed. | [dependencies.py](../../backend/src/auth/dependencies.py) |
 | 18 | SSE stream takes the JWT as a **query parameter**, so it lands in access logs and browser history. | [ai/router.py:328](../../backend/src/ai/router.py:328), [dependencies.py:72](../../backend/src/auth/dependencies.py:72) |
 | 19 | `print()` debug statements in the auth path leak user emails to stdout. | [dependencies.py:18](../../backend/src/auth/dependencies.py:18), `:34`, `:44`, `:48` |
 | 20 | ~~Gateway `JWT_SECRET` ≠ backend `SECRET_KEY`, so gateway JWT decode always fails silently.~~ Gone 2026-09-30 with the gateway and its `JWT_SECRET`. | — |
@@ -1508,7 +1478,6 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | [backend/src/auth/partner_router.py](../../backend/src/auth/partner_router.py) | 354 | Read-only partner console — tenant health scores and portfolio analytics |
 | [backend/src/auth/onboarding_router.py](../../backend/src/auth/onboarding_router.py) | 171 | The 5-step wizard state machine on `companies.onboarding_*` |
 | [backend/src/common/security.py](../../backend/src/common/security.py) | 66 | Argon2 hashing, JWT mint/decode, AES-256-GCM key encryption |
-| [backend/src/common/middleware.py](../../backend/src/common/middleware.py) | 56 | `CompanySuspensionMiddleware` |
 | [backend/src/common/config.py](../../backend/src/common/config.py) | 180 | `Settings` — `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `ENCRYPTION_MASTER_KEY`, `INTERNAL_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT` |
 | [backend/src/gateway/internal_event.py](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, and the in-process `emit_internal_event` helper |
 | [backend/src/common/rate_limit.py](../../backend/src/common/rate_limit.py) | 22 | The API-wide per-IP rate limit |

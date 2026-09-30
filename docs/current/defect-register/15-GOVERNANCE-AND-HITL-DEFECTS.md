@@ -139,7 +139,9 @@ There is no per-tenant quota anywhere in the platform.
 
 ### GH-04 — The suspension middleware fails open and only covers one process
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — the middleware is deleted (SA-18). The
+remaining check, in `_authenticate_user`, fails closed on a database error, and since the
+single-port merge there is only one process to cover.
 
 `CompanySuspensionMiddleware` swallows every exception and continues. A database blip
 therefore silently disables suspension enforcement rather than failing closed.
@@ -150,7 +152,7 @@ receives external traffic.
 
 It costs one extra database round trip on every authenticated request to do this.
 
-- [`common/middleware.py`](../../../backend/src/common/middleware.py)
+- `common/middleware.py`
 
 The dependency-level check in `_authenticate_user` is correct and free, and is what
 actually enforces suspension. See
@@ -495,8 +497,8 @@ Collected in one place, because individually each looks defensible:
 |---|---|
 | HITL pub/sub | ~~continues unapproved~~ — fails closed since 2026-09-29 (GH-01, GH-22) |
 | `RedisRateLimiter` | returns allowed |
-| Gateway slowapi limit | not attached to most routes at all |
-| `CompanySuspensionMiddleware` | continues |
+| API slowapi limit | ~~not attached to most routes~~ — every REST route since 2026-09-30; counts in memory if Redis is down |
+| ~~`CompanySuspensionMiddleware`~~ | ~~continues~~ — deleted 2026-09-30 (SA-18); the dependency check fails closed |
 | `check_semantic_duplicate` | returns "not a duplicate" |
 | Webhook signature validation | logs and processes |
 | Anti-sprawl in the Curator | `except Exception: pass` |
