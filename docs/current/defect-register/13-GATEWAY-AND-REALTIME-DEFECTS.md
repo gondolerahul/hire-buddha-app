@@ -130,9 +130,9 @@ Unlimited, therefore:
 
 The two endpoints that can spend a tenant's money without a login are both in that list.
 
-- [`gateway/app.py:80`](../../../backend/src/gateway/app.py:80) — the limiter
-- [`gateway/app.py:104`](../../../backend/src/gateway/app.py:104) — `app.state.limiter`, no middleware
-- [`gateway/app.py:341`](../../../backend/src/gateway/app.py:341) — the one decorated route
+- `gateway/app.py:80` — the limiter
+- `gateway/app.py:104` — `app.state.limiter`, no middleware
+- `gateway/app.py:341` — the one decorated route
 
 **Fix:** `app.add_middleware(SlowAPIMiddleware)`. One line, and it makes the configured
 limit mean what everyone assumes it means.
@@ -174,8 +174,8 @@ anywhere.
 
 Live audio sessions are therefore opened without any credential check at the gateway.
 
-- [`gateway/auth_middleware.py:20`](../../../backend/src/gateway/auth_middleware.py:20) — `BaseHTTPMiddleware`
-- [`gateway/auth_middleware.py:55`](../../../backend/src/gateway/auth_middleware.py:55) — `GatewayAuthMiddleware`
+- `gateway/auth_middleware.py:20` — `BaseHTTPMiddleware`
+- `gateway/auth_middleware.py:55` — `GatewayAuthMiddleware`
 
 **Fix:** validate the token inside the WebSocket endpoint itself, where the scope is
 available. Middleware is the wrong layer for this.
@@ -193,7 +193,7 @@ and the remote address is always `127.0.0.1`.
 Every caller in the world therefore shares one bucket. The limit is effectively a global
 cap, and one noisy client exhausts it for everyone.
 
-- [`gateway/app.py:80`](../../../backend/src/gateway/app.py:80) — `get_remote_address`
+- `gateway/app.py:80` — `get_remote_address`
 - [`deploy/apache/`](../../../deploy/apache/) — no `RemoteIPHeader` in any vhost
 - Also recorded as **D-32** in the platform register
 
@@ -331,7 +331,7 @@ Harmless today only because the backend has no `GZipMiddleware`. Adding one — 
 performance change — silently breaks every proxied response, because the client is told
 the body is gzipped and it is not.
 
-- [`gateway/app.py`](../../../backend/src/gateway/app.py) — the catch-all proxy
+- `gateway/app.py` — the catch-all proxy
 
 **Fix:** strip `content-encoding` and `content-length` from the copied headers.
 

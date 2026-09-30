@@ -388,9 +388,7 @@ flowchart TD
     ASY --> ARQ{"arq pool created and job enqueued"}
     ARQ -->|success| JOB["job_id returned - worker picks it up"]
     ARQ -->|exception| FB["_execute_in_process fire and forget"]
-    FB --> LEAD{"event_type is lead.created or lead_created"}
-    LEAD -->|yes| LQ["LeadQueueService.enqueue_lead"]
-    LEAD -->|no| RUN["Create ExecutionRun then AgentLoop.run in this process"]
+    FB --> RUN["Create ExecutionRun then AgentLoop.run in this process"]
 ```
 
 ### 6.2 The arq handoff and its fallback
@@ -712,11 +710,9 @@ delivery-id header check, no `SETNX` in Redis, no dedup table. A provider that
 retries (all of them do) produces a second envelope, a second arq job and a
 second `ExecutionRun`.
 
-The one partial exception: CRM `lead.created` events routed through
-`_enqueue_lead` go into `LeadQueueService.enqueue_lead`, whose docstring promises
-deduplication at the lead-queue layer — see
-[`lead_queue_service.py`](../../backend/src/ai/lead_queue_service.py). That
-protects lead calls, not generic executions.
+(The in-process fallback once routed CRM `lead.created` events into a
+deduplicated `lead_queue`; that path was deleted with the undrained lead queue,
+SA-08.)
 
 ### 8.4 Sequence — a HubSpot lead webhook end to end
 

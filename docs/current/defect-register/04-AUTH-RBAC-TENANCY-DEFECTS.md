@@ -318,8 +318,8 @@ different settings, and in the checked-in `.env` they hold different values.
 `request.state.tenant.company_id` is always `None`, and gateway-level tenant metrics are
 permanently empty. Nothing errors; the data is just blank.
 
-- [`gateway/gateway_config.py:35`](../../../backend/src/gateway/gateway_config.py:35)
-- [`gateway/auth_middleware.py`](../../../backend/src/gateway/auth_middleware.py)
+- `gateway/gateway_config.py:35`
+- `gateway/auth_middleware.py`
 
 **Fix:** have the gateway read `SECRET_KEY` from the shared settings object. See also
 [SA-20](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-20--both-shared-secrets-ship-as-change-me-in-production).
@@ -353,7 +353,7 @@ endpoint capable of creating executions.
 Combined with the default value still being `change-me-in-production` in the checked-in
 `.env`, the timing channel is currently the smaller problem.
 
-- [`gateway/auth_middleware.py`](../../../backend/src/gateway/auth_middleware.py)
+- `gateway/auth_middleware.py`
 
 ---
 

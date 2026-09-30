@@ -61,8 +61,6 @@ TRANSITIONAL_TOPLEVEL: set[str] = {
     "email_models.py",
     "email_router.py",
     "lead_queue_model.py",
-    "lead_queue_service.py",
-    "lead_queue_worker.py",
     "reports_router.py",
     "reports_service.py",
     "social_connection_service.py",

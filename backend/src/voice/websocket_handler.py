@@ -1606,13 +1606,6 @@ class BaseStreamHandler:
                         except Exception as be:
                             logger.warning(f"Billing event recording failed: {be}")
 
-                # --- Post-call: update lead queue if this was a CRM-driven call ---
-                try:
-                    if self.voice_session and self.session_id:
-                        await self._update_lead_queue_post_call(session, duration)
-                except Exception as lq_err:
-                    logger.warning(f"Lead queue post-call update failed: {lq_err}")
-
                 # --- Post-call: update CampaignCall if this was a campaign call ---
                 try:
                     if self.voice_session and self.session_id:
@@ -1635,50 +1628,6 @@ class BaseStreamHandler:
             await self.websocket.close()
         except Exception:
             pass
-
-    async def _update_lead_queue_post_call(self, db_session, duration: int) -> None:
-        """
-        Update the lead_queue entry linked to this voice session.
-
-        Called after call cleanup. Marks the lead as completed with
-        call outcome data so the CRM can be updated.
-        """
-        try:
-            from src.ai.lead_queue_service import LeadQueueService
-
-            queue_svc = LeadQueueService(db_session)
-            entry = await queue_svc.get_by_voice_session(self.session_id)
-
-            if not entry:
-                return  # Not a CRM-driven call, nothing to do
-
-            # Build call outcome from session data
-            call_outcome = {
-                "status": "completed",
-                "duration_seconds": duration,
-                "turn_count": self.turn_number,
-                "phone": self.voice_session.phone_number if self.voice_session else "",
-            }
-
-            # Extract transcript if available
-            if hasattr(self, 'conversation_logger') and self.conversation_logger:
-                try:
-                    transcript = self.conversation_logger.get_transcript_text()
-                    if transcript:
-                        call_outcome["transcript_preview"] = transcript[:2000]
-                except Exception:
-                    pass
-
-            await queue_svc.mark_completed(entry.id, call_outcome)
-            logger.info(
-                f"[LeadQueue] Post-call update: lead {entry.lead_id} "
-                f"completed (duration={duration}s, turns={self.turn_number})"
-            )
-
-        except ImportError:
-            pass  # lead_queue_model not available — skip silently
-        except Exception as e:
-            logger.warning(f"[LeadQueue] Post-call update error: {e}")
 
     async def _update_campaign_call_post_cleanup(self, db_session, duration: int) -> None:
         """

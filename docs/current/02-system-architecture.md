@@ -250,15 +250,19 @@ If Postgres dies: everything fails, loudly. If Redis dies: job enqueue fails
 [§7](#7-cross-process-communication)), SSE streams go silent, and the rate
 limiter falls back to counting in process memory.
 
-### 2.6 Two more "workers" that are not processes
+### 2.6 One more "worker" that is not a process
 
-| Module | Reality |
-|--------|---------|
-| [`ai/campaign_worker.py`](../../backend/src/ai/campaign_worker.py) | **Not** a separate process. It defines three coroutines (`execute_campaign_task`, `pause_campaign_task`, `stop_campaign_task`) that are imported into `WorkerSettings.functions` and run inside the same Arq worker. |
-| [`ai/lead_queue_worker.py`](../../backend/src/ai/lead_queue_worker.py) | **Orphaned.** It exposes `run_lead_queue_loop()` (a 5-second polling loop) and `poll_lead_queue_task(ctx)` (an Arq wrapper). Grepping `backend/src` finds **zero** importers of either. It is registered in no `WorkerSettings.functions`, started by no script, and awaited from no app startup hook. Leads written to `lead_queue` by [`dispatcher._enqueue_lead`](../../backend/src/gateway/dispatcher.py) are therefore never dialled today. |
+[`ai/campaign_worker.py`](../../backend/src/ai/campaign_worker.py) is **not** a
+separate process. It defines three coroutines (`execute_campaign_task`,
+`pause_campaign_task`, `stop_campaign_task`) that are imported into
+`WorkerSettings.functions` and run inside the same Arq worker.
 
-Its docstring says it "runs as an arq background task or standalone asyncio
-loop" — that is intent, not current state.
+There used to be a second, `ai/lead_queue_worker.py` — a 5-second poller meant to
+dial CRM leads from the `lead_queue` table. Nothing ever started or registered
+it, and the only producer was the dispatcher's in-process fallback (when arq was
+unreachable); outbound calls from CRM/Sheets rows go through campaigns. It was
+deleted with `lead_queue_service.py` on 2026-09-30 (SA-08). The `lead_queue`
+table and its model remain.
 
 ---
 
@@ -616,7 +620,7 @@ Run it manually with `python backend/scripts/lint_ai_layout.py`.
 | `ai/services/` | Extracted service modules (post-restructure landing zone). | `cost_attribution.py`, `attributed_usage.py` |
 | `ai/shared/` | Tiny cross-package helpers. | `json_utils.py`, `text_utils.py` |
 | `ai/api/` | Kernel admin/debug HTTP surface. | `admin.py` — everything under `/api/v1/ai/admin/*` |
-| `ai/` (top level) | The 32 transitional modules the lint tolerates. | `service.py` (60 kB `AIService`), `router.py`, `step_executor.py`, `tool_executor.py`, `campaign_*`, `artifact_*`, `reports_*`, `social_*`, `email_*`, `lead_queue_*` |
+| `ai/` (top level) | The 32 transitional modules the lint tolerates. | `service.py` (60 kB `AIService`), `router.py`, `step_executor.py`, `tool_executor.py`, `campaign_*`, `artifact_*`, `reports_*`, `social_*`, `email_*`, `lead_queue_model.py` |
 
 ---
 
@@ -1368,7 +1372,7 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 | [`backend/src/common/router_mounts.py`](../../backend/src/common/router_mounts.py) | 52 | `mount_optional` — mounts a router or records why its import failed; `GET /api/v1/health` and `GET /health` report the failures |
 | [`backend/src/common/rate_limit.py`](../../backend/src/common/rate_limit.py) | 22 | The slowapi `limiter`: `RATE_LIMIT` per client IP, Redis storage with in-memory fallback |
 | [`backend/src/common/job_queue.py`](../../backend/src/common/job_queue.py) | 37 | `arq_redis_settings`, `arq_pool`, `enqueue_job` — every arq connection, from all of `REDIS_URL` |
-| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 416 | Drains the event bus, enqueues `process_gateway_event`, in-process fallback, lead-queue routing, agent resolution for audio/video |
+| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 416 | Drains the event bus, enqueues `process_gateway_event`, in-process fallback, agent resolution for audio/video |
 | [`backend/src/gateway/event_bus.py`](../../backend/src/gateway/event_bus.py) | 186 | `EventEnvelope` dataclass + in-process `asyncio.Queue` fan-out bus |
 | [`backend/src/gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, `WellKnownEvents`, `emit_internal_event` helper |
 | [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 600 | Twelve webhook adapters + `detect_strategy` + `POST /webhook/inbound` |
@@ -1400,8 +1404,6 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 * **`STREAMING_HOST` must be the public hostname in production.** The default,
   `localhost:8000`, is right only for a local stack; Twilio and Tata need
   `gateway.hirebuddha.com` with `STREAMING_PROTOCOL=wss`.
-* **The lead queue is never drained.** `lead_queue_worker.py` has zero importers.
-  Leads written by the dispatcher's `lead.created` path just accumulate.
 * **Enqueue through `common/job_queue.py`.** A hand-built `RedisSettings(...)`
   is what SA-04/SA-05 removed; a test fails if one reappears.
 * **The event bus is in-process.** `InMemoryEventBus` is an `asyncio.Queue`. It

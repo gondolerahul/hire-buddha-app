@@ -176,8 +176,8 @@ proxies to `http://localhost:8002/`, and `STREAMING_HOST` still defaults to
 
 So an unconfigured deployment hands telephony a `wss://` URL pointing at nothing.
 
-- [`voice/main.py`](../../../backend/src/voice/main.py)
-- [`deploy/apache/streaming.hirebuddha.com-le-ssl.conf`](../../../deploy/apache/streaming.hirebuddha.com-le-ssl.conf)
+- `voice/main.py`
+- `deploy/apache/streaming.hirebuddha.com-le-ssl.conf`
 - [`common/config.py:10`](../../../backend/src/common/config.py:10)
 - Same as [SA-01](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-01--streaming_host-defaults-to-a-service-that-does-not-run)
   and **W-1** in the platform register
@@ -267,7 +267,7 @@ all**, at either checkpoint.
 
 ### VT-14 — The lead queue is written and never drained
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — deleted (SA-08); the table is kept.
 
 `lead_queue_worker.py` has zero importers, is in no `WorkerSettings.functions`, and is
 started by no script. The docs add that its call signature is wrong.
@@ -275,7 +275,7 @@ started by no script. The docs add that its call signature is wrong.
 The gateway dispatcher writes leads into `lead_queue`. They accumulate and are never
 dialled.
 
-- [`ai/lead_queue_worker.py`](../../../backend/src/ai/lead_queue_worker.py)
+- `ai/lead_queue_worker.py`
 - Also [SA-08](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-08--the-lead-queue-fills-up-and-is-never-drained) and **D-21/D-26**
 
 ---

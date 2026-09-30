@@ -131,8 +131,8 @@ It is the one route hard-blocked at the gateway middleware, and it is protected 
 
 It can create executions.
 
-- [`gateway/auth_middleware.py`](../../../backend/src/gateway/auth_middleware.py)
-- [`gateway/gateway_config.py:32`](../../../backend/src/gateway/gateway_config.py:32)
+- `gateway/auth_middleware.py`
+- `gateway/gateway_config.py:32`
 
 ---
 
@@ -180,7 +180,7 @@ describes as retired.
 
 The call-detail UI that consumes them is therefore broken.
 
-- [`voice/transcript_api.py:21`](../../../backend/src/voice/transcript_api.py:21)
+- `voice/transcript_api.py:21`
 - Also **D-15**; the decided fix is **W-1** — move the router onto the gateway
 
 Note the paths have **no `/v1` segment**. Decide whether to normalise `/api/calls` →

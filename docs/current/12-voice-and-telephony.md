@@ -24,7 +24,7 @@
 14. [Voice usage and billing](#14-voice-usage-and-billing)
 15. [Voice agents vs text agents](#15-voice-agents-vs-text-agents)
 16. [Campaigns and the auto-dialer](#16-campaigns-and-the-auto-dialer)
-17. [The CRM lead queue](#17-the-crm-lead-queue)
+17. [The CRM lead queue (removed)](#17-the-crm-lead-queue-removed)
 18. [WhatsApp](#18-whatsapp)
 19. [Frontend surfaces](#19-frontend-surfaces)
 20. [Operational runbook](#20-operational-runbook)
@@ -988,7 +988,7 @@ stateDiagram-v2
         _cleanup also writes:
         recording artifact, AI summary,
         UsageLog rows, credit deduction,
-        CampaignCall / LeadQueue updates.
+        CampaignCall updates.
     end note
 ```
 
@@ -1412,41 +1412,20 @@ Real-time monitoring is **polling, not push**: `CampaignsPage` and `CampaignDeta
 
 ---
 
-## 17. The CRM lead queue
+## 17. The CRM lead queue (removed)
 
-A second, simpler dialer path for leads arriving from a CRM webhook.
+A second dialer path for CRM leads — `lead_queue_service.py` (atomic queue
+operations with `FOR UPDATE SKIP LOCKED`) and `lead_queue_worker.py` (a 5-second
+poller) — was **deleted on 2026-09-30** (SA-08). It was never wired up: nothing
+registered or started the poller, its call to `_place_tata_call` used the wrong
+keyword arguments, and the only thing that wrote leads was the gateway
+dispatcher's in-process fallback, which ran only when the arq enqueue failed.
+The stream handler's post-call update of `lead_queue` rows went with it.
 
-```mermaid
-stateDiagram-v2
-    [*] --> pending : "enqueue_lead - INSERT ON CONFLICT DO NOTHING on (company_id, lead_id)"
-    pending --> queued : "pick_next_lead - UPDATE ... FOR UPDATE SKIP LOCKED, attempt_count + 1"
-    queued --> calling : "mark_calling - links voice_session_id"
-    calling --> completed : "mark_completed from _update_lead_queue_post_call"
-    calling --> pending : "mark_failed with attempts remaining"
-    calling --> failed : "mark_failed with attempt_count >= max_attempts (3)"
-    completed --> [*]
-    failed --> [*]
-```
-
-`pick_next_lead` is the interesting bit — a single atomic statement so multiple workers can't grab the same lead:
-
-```sql
--- backend/src/ai/lead_queue_service.py
-UPDATE lead_queue
-SET status = 'queued', updated_at = NOW(), attempt_count = attempt_count + 1
-WHERE id = (
-    SELECT id FROM lead_queue
-    WHERE status = 'pending'
-    ORDER BY priority ASC, created_at ASC
-    LIMIT 1
-    FOR UPDATE SKIP LOCKED
-)
-RETURNING id
-```
-
-Ordering is `priority ASC` (1 = highest, default 5) then FIFO. Retries are bounded by `max_attempts` (default 3).
-
-> **This subsystem is not wired up and is broken.** `run_lead_queue_loop` / `poll_lead_queue_task` are referenced nowhere outside `lead_queue_worker.py` — no Arq registration, no startup task. And [`process_lead`](../../backend/src/ai/lead_queue_worker.py:85) calls `campaign_exec._place_tata_call(company_id=…, phone_number=…, agent_id=…, session_id=…, contact_name=…)`, but the underlying `_place_tata_call_static` signature is `(db, to, from_, voice_session_id, agent_id, company_id)` — every keyword is wrong, so it would `TypeError` straight into `mark_failed`. The **read** side does work: `_update_lead_queue_post_call` in the stream handler looks the entry up by `voice_session_id` and marks it completed, so a lead queue populated by other means still gets its outcome. (That path has its own bug: it calls `self.conversation_logger.get_transcript_text()`, a method `ConversationLogger` does not define.)
+CRM and Google-Sheets-driven outbound calls go through campaigns
+(`process_gateway_event` → `sheet.row_inserted` → a single-contact campaign). The
+`lead_queue` table and `lead_queue_model.py` remain; see
+[03 — Data model §8.7](03-data-model.md#87-lead_queue).
 
 ---
 
@@ -1634,11 +1613,9 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 | [`ai/campaign_router.py`](../../backend/src/ai/campaign_router.py) | 933 | Campaign API incl. CSV upload and Excel export. |
 | [`ai/campaign_executor.py`](../../backend/src/ai/campaign_executor.py) | 800 | The auto-dialer control loop and provider call placement. |
 | [`ai/campaign_service.py`](../../backend/src/ai/campaign_service.py) | 370 | Campaign CRUD, CSV parsing/validation, status metrics. |
-| [`ai/lead_queue_service.py`](../../backend/src/ai/lead_queue_service.py) | 210 | Atomic queue ops with `FOR UPDATE SKIP LOCKED`. |
-| [`ai/lead_queue_worker.py`](../../backend/src/ai/lead_queue_worker.py) | 153 | Poller. Not registered; call signature is wrong. |
 | [`ai/campaign_models.py`](../../backend/src/ai/campaign_models.py) | 147 | `Campaign`, `CampaignCall`, disposition ordering. |
 | [`ai/campaign_worker.py`](../../backend/src/ai/campaign_worker.py) | 81 | Arq task wrappers. |
-| [`ai/lead_queue_model.py`](../../backend/src/ai/lead_queue_model.py) | 81 | `lead_queue` table. |
+| [`ai/lead_queue_model.py`](../../backend/src/ai/lead_queue_model.py) | 81 | `lead_queue` table. Nothing reads or writes it since SA-08. |
 | [`gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) | 244 | Unified `WS /stream/audio` with a `connect` handshake; delegates to the same handlers. |
 | [`gateway/web_audio_adapter.py`](../../backend/src/gateway/web_audio_adapter.py) | 255 | Browser PCM16 adapter for `provider: "web"`. |
 
@@ -1650,7 +1627,6 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - **The inbound credit gate never fires.** Both `CreditService(db)` calls in `webhook_router.py` reference an undefined `db`; the `NameError` is swallowed by a broad `except`.
 - **Azure Realtime does not work.** The handler stores the *client* where the *session* belongs. Same in `web_audio_adapter.py`, which additionally calls a nonexistent `AudioProcessor.pcm24_to_pcm16`.
 - **WhatsApp AI replies always fail.** `GeminiTextServiceFactory.get_service` is called with the wrong keyword arguments; every customer gets the fallback apology string.
-- **The lead queue worker is unreachable and its call signature is wrong.**
 - **`"sucess"` is a real key on the wire** in both Tata voice webhook responses.
 - **`speaking_rate` and `pitch` are read but never sent.** `GeminiLiveClient` parses them off `VoiceConfig` and then builds a `speech_config` containing only `voice_name`.
 - **`_create_native_audio_config` and `_create_standard_config` return the same dict.** The capability registry currently changes nothing.

@@ -334,7 +334,7 @@ unreachable and the call-detail UI that consumes them is broken.
 **Decided: move onto the gateway and delete the service** — see
 [§8 W-1](#8-w-1--retire-port-8002).
 
-- [`voice/transcript_api.py:21`](../../backend/src/voice/transcript_api.py:21)
+- `voice/transcript_api.py:21`
 
 ---
 
@@ -406,13 +406,14 @@ execution. Both controls appear functional in the interface.
 
 ### D-21 — The lead queue is never drained
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — deleted (SA-08); the `lead_queue` table
+is kept.
 
 `lead_queue_worker.py` exists and has **zero importers** anywhere in `backend/src`.
 The docs add that its call signature is wrong. Rows accumulate in `lead_queue` and
 nothing consumes them.
 
-- [`ai/lead_queue_worker.py`](../../backend/src/ai/lead_queue_worker.py)
+- `ai/lead_queue_worker.py`
 
 **Fix:** decide — wire it into `WorkerSettings` and fix the signature, or delete it
 ([D-26](#4-t2--delete)). Leaving it is the only wrong answer.
@@ -432,7 +433,7 @@ no reason to defer any of it.
 | **D-23** | `voice/main.py` + both `streaming.hirebuddha.com` vhosts + the `STREAMING_HOST` default | Blocked on [W-1](#8-w-1--retire-port-8002) only | ✅ fixed (2026-09-30) — all three (SA-01, SA-12, SA-13) |
 | **D-24** | The `/api/v1/ai/phase11/*` redirect shim | Carries an explicit *"Remove after 2026-09-01"* comment at [`main.py:105`](../../backend/src/main.py:105). Remove the five matching legacy routes from the frontend router in the same change | ✅ fixed (2026-09-29, `6d90428`) — deleted with the SPA routes (PO-16) |
 | **D-25** | The `video_generation` tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ fixed (2026-09-29, `a8fb38e`) — deleted (PO-17) |
-| **D-26** | [`ai/lead_queue_worker.py`](../../backend/src/ai/lead_queue_worker.py) | Or wire it up — see [D-21](#d-21--the-lead-queue-is-never-drained) | ✅ Verified |
+| **D-26** | `ai/lead_queue_worker.py` | Or wire it up — see [D-21](#d-21--the-lead-queue-is-never-drained) | ✅ fixed (2026-09-30) — deleted with `lead_queue_service.py` (SA-08) |
 | **D-27** | `gateway/main.py` | Dead; only `gateway/app.py` is served | ✅ fixed (2026-09-30) — deleted; `gateway/app.py` too, merged into the API (SA-11) |
 | **D-28** | The legacy `assets` table + its two redirect shims | The artifacts migration said it would drop `assets` and never did | 📄 Doc-reported |
 | **D-29** | Duplicate `"meta_agent.board_routing"` key | Declared twice at [`feature_flags.py:53`](../../backend/src/ai/core/feature_flags.py:53) and [`:71`](../../backend/src/ai/core/feature_flags.py:71). Harmless — second wins — but it makes the file look unreviewed | ✅ Verified |
@@ -520,14 +521,14 @@ authenticated `GET /api/v1/streaming/voice-sessions/{id}` already returns transc
 **Decision taken:** move `transcript_api` onto the gateway and delete the voice
 service.
 
-**Why it is cheap:** [`transcript_api.py`](../../backend/src/voice/transcript_api.py)
+**Why it is cheap:** `transcript_api.py`
 imports only `get_db`, `ConversationLogger` and `SessionManager` — all already
 reachable from the gateway process — and declares its own full `/api/calls` prefix, so
 nothing needs re-prefixing.
 
 | Step | Action | Watch out for |
 |---|---|---|
-| 1 | Add `include_router(transcript_router)` to [`gateway/app.py`](../../backend/src/gateway/app.py) | Must sit **above** the catch-all proxy. Ordering is load-bearing — a route added below it is unreachable |
+| 1 | Add `include_router(transcript_router)` to `gateway/app.py` | Must sit **above** the catch-all proxy. Ordering is load-bearing — a route added below it is unreachable |
 | 2 | Repoint the call-detail UI from the streaming host to the gateway | These paths have **no `/v1`** segment. Decide now whether to normalise `/api/calls` → `/api/v1/calls`; doing it later is a second breaking change |
 | 3 | Delete `voice/main.py`, both `streaming.hirebuddha.com` vhosts, and the `STREAMING_HOST` default pointing at 8002 | The other two routers it mounted — `webhook_router` and `messaging_router` — are already mounted by the backend, so nothing else is lost |
 | 4 | Verify | Four endpoints answer on the gateway; no vhost references 8002; the three WebSocket paths previously duplicated across both apps still resolve on the gateway |

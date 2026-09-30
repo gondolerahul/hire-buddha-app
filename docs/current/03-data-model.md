@@ -1094,6 +1094,11 @@ responses first, in-flight calls last.
 ### 8.7 `lead_queue`
 
 Purpose: a durable queue of CRM leads awaiting an outbound call.
+
+> **Update 2026-09-30:** nothing reads or writes this table any more. Its service and
+> poller were deleted (SA-08) — the poller was never started and the only writer
+> was a fallback path. The table and model are kept; dropping them is a migration
+> for later.
 Defined at [lead_queue_model.py:22](../../backend/src/ai/lead_queue_model.py:22).
 
 | Column | Type | Nullable | Default | Meaning |

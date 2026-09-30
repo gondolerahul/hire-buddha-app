@@ -182,11 +182,8 @@ class CentralDispatcher:
 
     async def _execute_in_process(self, envelope) -> None:
         """
-        In-process fallback execution when arq is unavailable.
-
-        For 'lead.created' events from CRM webhooks, routes directly
-        to the persistent lead_queue instead of generic execution.
-        For all other events, creates an ExecutionRun as before.
+        In-process fallback execution when arq is unavailable: creates an
+        ExecutionRun and drives the AgentLoop in this process.
         """
         try:
             from src.common.database import AsyncSessionLocal
@@ -196,12 +193,6 @@ class CentralDispatcher:
             async with AsyncSessionLocal() as db:
                 company_id = UUID(envelope.client_id)
 
-                # --- Lead Queue path (CRM lead.created events) ---
-                if envelope.event_type in ("lead.created", "lead_created"):
-                    await self._enqueue_lead(db, envelope, company_id)
-                    return
-
-                # --- Standard execution path (all other events) ---
                 # Check for entity_id targeting a specific agent
                 raw_data = envelope.raw_data or {}
                 entity_id = raw_data.get("entity_id", "")
@@ -269,76 +260,6 @@ class CentralDispatcher:
                 f"[Dispatcher] In-process execution failed for event {envelope.id}: {exc}",
                 exc_info=True,
             )
-
-    async def _enqueue_lead(self, db, envelope, company_id: UUID) -> None:
-        """
-        Route a CRM lead.created event to the persistent lead queue.
-
-        Extracts lead data from the envelope and inserts into lead_queue
-        with deduplication. The LeadQueueWorker will later pick up the
-        entry and place the outbound call.
-        """
-        from src.ai.lead_queue_service import LeadQueueService
-        from src.ai.models import HierarchicalEntity
-        from sqlalchemy import select
-
-        raw_data = envelope.raw_data or {}
-        properties = raw_data.get("properties", {})
-        phone = raw_data.get("phone", "") or properties.get("phone", "")
-        lead_id = raw_data.get("lead_id", "") or raw_data.get("object_id", "")
-
-        if not phone:
-            logger.warning(
-                f"[Dispatcher] lead.created event missing phone number — "
-                f"skipping lead {lead_id}"
-            )
-            return
-
-        # Resolve target agent
-        entity_id = raw_data.get("entity_id", "")
-        if entity_id:
-            try:
-                result = await db.execute(
-                    select(HierarchicalEntity).where(
-                        HierarchicalEntity.id == UUID(entity_id),
-                        HierarchicalEntity.company_id == company_id,
-                        HierarchicalEntity.status != 'ARCHIVED',
-                    )
-                )
-                agent = result.scalar_one_or_none()
-            except Exception:
-                agent = None
-        else:
-            agent = None
-
-        if not agent:
-            result = await db.execute(
-                select(HierarchicalEntity).where(
-                    HierarchicalEntity.company_id == company_id,
-                    HierarchicalEntity.status != 'ARCHIVED',
-                ).limit(1)
-            )
-            agent = result.scalar_one_or_none()
-
-        if not agent:
-            logger.warning(f"[Dispatcher] No agent for company {company_id} — cannot enqueue lead")
-            return
-
-        queue_svc = LeadQueueService(db)
-        await queue_svc.enqueue_lead(
-            company_id=company_id,
-            agent_id=agent.id,
-            lead_id=lead_id or str(envelope.id),
-            phone=phone,
-            lead_data=raw_data.get("raw", raw_data),
-            ad_source=raw_data.get("ad_source", "") or properties.get("ad_source", ""),
-            project_id=raw_data.get("project_id", "") or properties.get("project_id", ""),
-            correlation_id=envelope.id,
-        )
-        logger.info(
-            f"[Dispatcher] Lead {lead_id} enqueued for company {company_id} "
-            f"(agent={agent.id})"
-        )
 
     # -------------------------------------------------------------------------
     # Agent / session resolution helpers (used by WebSocket handlers)

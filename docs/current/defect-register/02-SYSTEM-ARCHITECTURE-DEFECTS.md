@@ -101,7 +101,7 @@ This is the other half of [SA-01](#sa-01--streaming_host-defaults-to-a-service-t
 even with the setting fixed, any client that has cached the old host keeps hitting a
 dead vhost, and the failure looks like a network problem rather than a config one.
 
-- [`deploy/apache/streaming.hirebuddha.com-le-ssl.conf:12`](../../../deploy/apache/streaming.hirebuddha.com-le-ssl.conf:12), [`:19`](../../../deploy/apache/streaming.hirebuddha.com-le-ssl.conf:19)
+- `deploy/apache/streaming.hirebuddha.com-le-ssl.conf:12`, `:19`
 
 **Fix:** repoint both vhosts at 8001, or delete them. This is step 3 of **W-1** in the
 platform register.
@@ -121,7 +121,7 @@ Postgres to host port **5433**, not 5432. Every other config in the tree uses 54
 The gateway needs the database for the dispatcher and `SessionManager`. With the
 default in play it cannot connect at all.
 
-- [`gateway/gateway_config.py:28`](../../../backend/src/gateway/gateway_config.py:28)
+- `gateway/gateway_config.py:28`
 
 **Fix:** change the default to 5433 so it matches the compose file it ships with.
 
@@ -223,7 +223,12 @@ neither one is active.
 
 ### SA-08 — The lead queue fills up and is never drained
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — deleted, by product decision.
+`lead_queue_worker.py` and `lead_queue_service.py` are gone, with the dispatcher's
+`_enqueue_lead` and the stream handler's post-call `lead_queue` update. The one producer
+was narrower than described below: the normal `process_gateway_event` job never wrote to
+the queue — only the dispatcher's in-process fallback did, when the arq enqueue failed.
+The `lead_queue` table and model are kept (dropping them is a migration).
 
 `ai/lead_queue_worker.py` defines a 5-second polling loop and an arq wrapper. Neither
 appears in `WorkerSettings.functions`, no script starts it, and no startup hook awaits
@@ -232,7 +237,7 @@ it. Grepping `backend/src` finds zero importers.
 The gateway dispatcher writes leads into `lead_queue` on the `lead.created` path.
 Those rows accumulate and are never dialled.
 
-- [`ai/lead_queue_worker.py`](../../../backend/src/ai/lead_queue_worker.py)
+- `ai/lead_queue_worker.py`
 - [`gateway/dispatcher.py:282`](../../../backend/src/gateway/dispatcher.py:282) — the producer
 
 Also recorded as D-21 / D-26 in the platform register. **Decide: wire it up or delete
@@ -307,7 +312,7 @@ matches in declaration order, so **any endpoint added below that line is unreach
 
 Nothing enforces the ordering. It is a comment and a convention.
 
-- [`gateway/app.py`](../../../backend/src/gateway/app.py) — the catch-all, declared last
+- `gateway/app.py` — the catch-all, declared last
 
 **Fix:** move the catch-all into a small `register_proxy(app)` function called at the
 very end of the module, so adding a route in the wrong place is impossible rather than
@@ -331,7 +336,7 @@ Any streaming endpoint whose path does not end in `/stream`, from a client that 
 not set the `Accept` header, gets the buffered proxy path: it blocks until the 60-second
 read timeout and hands the client a 503.
 
-- [`gateway/app.py`](../../../backend/src/gateway/app.py) — the `wants_sse` check
+- `gateway/app.py` — the `wants_sse` check
 
 ---
 
@@ -365,7 +370,7 @@ The Backend API has a hardcoded Python list in `main.py`. The gateway has
 produces a browser-only failure that does not appear in any server log.
 
 - [`backend/src/main.py:11`](../../../backend/src/main.py:11)
-- [`gateway/gateway_config.py`](../../../backend/src/gateway/gateway_config.py) — `CORS_ORIGINS`
+- `gateway/gateway_config.py` — `CORS_ORIGINS`
 
 ---
 
@@ -381,7 +386,7 @@ executions. `JWT_SECRET` mismatching the API's `SECRET_KEY` does not fail loudly
 JWT decode returns `None`, `TenantContext` is left empty, requests still work, and
 gateway-side tenant logging is silently blank.
 
-- [`gateway/gateway_config.py:32`](../../../backend/src/gateway/gateway_config.py:32) and [`:35`](../../../backend/src/gateway/gateway_config.py:35)
+- `gateway/gateway_config.py:32` and `:35`
 
 **Fix:** refuse to start when either still holds the default value. A failed boot is
 much better than a silently unauthenticated internal endpoint.
