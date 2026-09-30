@@ -38,10 +38,10 @@
 |---|---|---|---|
 | [T0](#2-t0--data-loss-and-recovery) | Data loss and recovery | 4 | **Now** |
 | [T1](#3-t1--not-production-ready-as-configured) | Not production-ready as configured | 6 | Before the next deployment |
-| [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 6 | Now — all cheap |
+| [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 7 | Now — all cheap |
 | [T3](#5-t3--operability) | Operability | 5 | Before the first on-call rotation |
 
-**Total: 21 defects, 10 improvements.**
+**Total: 22 defects, 10 improvements.**
 
 The three to read first:
 
@@ -268,6 +268,7 @@ things.
 | **IN-14** | `npm install` requires `--legacy-peer-deps` | Without it, installation fails on React Three Fiber peer conflicts — for a dependency that powers a decorative background ([FE-17](16-FRONTEND-DEFECTS.md#fe-17--the-webgl-background-never-sleeps)) | 📄 Doc-reported |
 | **IN-15** | `streaming.hirebuddha.com` reuses the gateway certificate | So does `api.hirebuddha.com`. Renewing one certificate affects three hostnames, and a missing SAN entry produces a hostname mismatch. Also **D-43** context | 📄 Doc-reported · partly fixed (2026-09-30) — the streaming vhosts are deleted; `api.` still reuses the gateway certificate |
 | **IN-16** | Two competing `*:80` vhosts for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares one; `app.hirebuddha.com-le-ssl.conf` declares a **second** at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins | ✅ fixed (2026-09-30, SA-14) — the second block is deleted; the redirecting `app.hirebuddha.com.conf` is the only port-80 vhost |
+| **IN-22** | The backend image has no `.dockerignore` | `backend/Dockerfile` ends with `COPY . .`, so the whole build context goes into the runtime image: `backend/.env` with its secrets, and any host `.venv` — which lands on `/app/.venv` over the Linux virtualenv the builder stage just copied in (a Windows one breaks the image). Found 2026-09-30 while verifying SA-21; the check built only the builder stage from a clean context for this reason. Pairs with IN-06 / IN-I4 | ✅ Verified · open |
 
 ---
 

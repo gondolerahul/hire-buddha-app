@@ -35,7 +35,7 @@ something that works but costs more than it should.
 | # | Register | Source document | Defects | Improvements |
 |---|---|---|---:|---:|
 | 01 | [Product & functional overview](01-PRODUCT-OVERVIEW-DEFECTS.md) | [01](../01-product-overview.md) | 22 (1 open, 14 resolved, 6 deferred, 1 won't fix) | 12 (deferred) |
-| 02 | [System architecture & topology](02-SYSTEM-ARCHITECTURE-DEFECTS.md) | [02](../02-system-architecture.md) | 21 | 10 |
+| 02 | [System architecture & topology](02-SYSTEM-ARCHITECTURE-DEFECTS.md) | [02](../02-system-architecture.md) | 21 (21 fixed) | 10 (3 done, 1 moot, 1 partly, 5 open) |
 | 03 | [Database & data model](03-DATA-MODEL-DEFECTS.md) | [03](../03-data-model.md) | 20 | 10 |
 | 04 | [Auth, RBAC & multi-tenancy](04-AUTH-RBAC-TENANCY-DEFECTS.md) | [04](../04-auth-rbac-tenancy.md) | 22 | 10 |
 | 05 | [The agent kernel](05-AGENT-KERNEL-DEFECTS.md) | [05](../05-agent-kernel.md) | 21 | 10 |
@@ -51,13 +51,13 @@ something that works but costs more than it should.
 | 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 | 10 |
 | 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 25 | 10 |
 | 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 | 10 |
-| 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 21 | 10 |
+| 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 22 | 10 |
 | 19 | [Testing & quality gates](19-TESTING-DEFECTS.md) | [19](../19-testing.md) | 19 | 10 |
 | 20 | [Developer onboarding & glossary](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md) | [20](../20-onboarding-and-glossary.md) | 18 | 10 |
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 | — |
 | — | [**Tool stack audit (PO-06)**](PO-06-TOOL-STACK-AUDIT.md) | [09](../09-tools.md) | 18 (TL-50…TL-67) | — |
 
-**484 defects, 202 improvements.**
+**485 defects, 202 improvements.**
 
 Related: [`../DEFECT-REGISTER.md`](../DEFECT-REGISTER.md) is the earlier platform-wide list
 (45 items, `D-nn`). Every one of its entries reappears in the module register that owns it,

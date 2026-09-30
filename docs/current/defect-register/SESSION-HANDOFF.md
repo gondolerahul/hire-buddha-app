@@ -2,17 +2,23 @@
 
 > **What this document is:** the state of the defect-fixing work on branch
 > `roadmap-development-defect-fixes`. It covers what was fixed, what became invalid, and
-> how to pick the work up in a new session. It spans two sessions: the 2026-09-28 →
-> 2026-09-29 memory/planner session, and the 2026-09-29 → 2026-09-30 session that added
-> the HITL, entity-config and health-endpoint fixes and the PO-06 tool-stack audit.
+> how to pick the work up in a new session. It spans three sessions: the 2026-09-28 →
+> 2026-09-29 memory/planner session; the 2026-09-29 → 2026-09-30 session that added
+> the HITL, entity-config and health-endpoint fixes and the PO-06 tool-stack audit; and
+> the 2026-09-30 session that worked register 02 (System Architecture) and merged every
+> endpoint onto port 8000.
 > **It does not choose what to fix next.** Defects are fixed one at a time, as the
 > product owner names them. The registers in this folder are the backlog.
 >
-> **Where the work is paused (2026-09-30):** register 01 has **one** open defect left,
-> **PO-07** (social connections); PO-06 delivered its audit rather than a code change.
-> Work is paused for the product owner's review of register 02 (System Architecture);
-> resume on their comments, or on PO-07. The `-alt` dev servers (:8010 API, :3010
-> frontend) and the Arq worker are left running for live verification.
+> **Where the work is paused (2026-09-30, end of the third session):** register 02 is
+> done — all 21 defects fixed; improvements SA-I2, SA-I4, SA-I10 done, SA-I5 moot, SA-I6
+> partly done, SA-I1/I3/I7/I8/I9 open. Register 01 still has **PO-07** open. Resume on
+> the product owner's next pick. Left running locally: the `backend-api` preview (:8000),
+> one main Arq worker and one child-run worker (logs `logs/arq_worker_sa10.log`,
+> `logs/arq_child_worker.log`); nothing listens on :4317, so both log trace-export
+> retries (see §9 for a throwaway receiver). Another
+> session's `-alt` servers (:8010, :3010) and its own Arq worker also run — that worker
+> predates SA-I4, sends no heartbeat, and should be restarted.
 
 ---
 
@@ -38,7 +44,7 @@
 | Branch | `roadmap-development-defect-fixes`, cut from `main` at `9896b8b` |
 | Commits on the branch | Listed below, **none pushed** |
 | Working tree | Clean, apart from two spreadsheets the product owner is editing: `Consolidated-Defect-Register.xlsx` and `HireBuddha-Roadmap-Backlog.xlsx`. Leave them uncommitted |
-| Host tests | 1059 passed, 7 known failures (see [§8](#8-testing)) |
+| Host tests | 1126 passed, 7 known failures (see [§8](#8-testing)) |
 | CORTEX package tests | 49 passed |
 | Type check, layout lint | Pass |
 
@@ -77,6 +83,23 @@ headline commits since:
 Docs-only follow-ups record each commit id in the registers (`3e20b89`, `396e84a`,
 `5101339`, `6624778`).
 
+The third session (register 02 — System Architecture — plus the single-port merge),
+oldest first:
+
+| Commit | Change |
+|---|---|
+| `6d8de1c` | SA-04, SA-05, SA-15 — every arq connection uses all of `REDIS_URL` (`common/job_queue.py`) |
+| `19f57bb` | Every endpoint on one port, 8000: the Unified Gateway (:8001) and voice service (:8002) folded into the API. Closes SA-01…03, SA-11…13, SA-16, SA-17, SA-19, SA-I2 and the gateway half of SA-10 |
+| `24650e7` | SA-08 — the lead queue nothing drained is deleted (and the unauthenticated `transcript_api`) |
+| `610aeeb` | SA-09 — a webhook is acknowledged only once its job is in Redis |
+| `8163907` | SA-20 — a placeholder `INTERNAL_TOKEN` disables `/internal/event` |
+| `15191e5` | SA-18 — suspension is checked once, by the auth dependency (SA-I5 moot) |
+| `f4e3abd` | SA-14 — `app.hirebuddha.com` has one port-80 vhost |
+| `c0863a6` | SA-21 — Python 3.12 everywhere |
+| `4f708bc` | SA-10 — every worker job is a span in the trace of the request that queued it |
+| `702d772` | SA-I4 — `/api/v1/health` reports whether a worker is consuming |
+| `5fe35fd` | SA-07 — child runs have their own queue and worker |
+
 ---
 
 ## 2. Defects fixed in this session
@@ -113,6 +136,21 @@ that fails on the old code, plus live verification where observable.
 | **PO-09 / EP-11 / PC-16** | [01](01-PRODUCT-OVERVIEW-DEFECTS.md), [06](06-EXECUTION-PIPELINE-DEFECTS.md), [07](07-PLANNING-AND-CRITICS-DEFECTS.md) | A mistyped entity-config key was dropped silently; runtime knobs undeclared | `3fadd76` | A `PUT` with `meta_review_intreval` → 422 naming the key; `meta_review_interval: 5` stored; the builder and every seed still save |
 | **PO-10 / SA-I10 / PO-I9 / API-09 / API-I2** | 01, [02](02-SYSTEM-ARCHITECTURE-DEFECTS.md), [17](17-API-REFERENCE-DEFECTS.md) | A broken router import turned a feature area into silent 404s | `0fd3b29` | `GET /api/v1/health` → `ok`; the real app booted with `social_router` broken → `degraded` naming it, its routes 404, other routers up |
 | **PO-06** | 01 | Audit of the whole tools stack (deliverable, not a code change) | `579c14f` | [`PO-06-TOOL-STACK-AUDIT.md`](PO-06-TOOL-STACK-AUDIT.md) — 55 entries re-verified, 18 new (TL-50…TL-67), fix list; dev-DB evidence in its §4 |
+
+**Third session (register 02 and the single-port merge).** Same discipline.
+
+| ID | Defect | Commit | Live evidence |
+|---|---|---|---|
+| *merge* | Three HTTP processes on 8000/8001/8002 | `19f57bb` | Every HTTP route and WebSocket handshake answered on :8000; a webhook and an internal event reached the worker |
+| **SA-04 / SA-05** | Enqueues and the worker ignored parts of `REDIS_URL` | `6d8de1c` | Worker reloaded against `rediss://:secret@…:6380/2` keeps password, TLS and db index (unit); jobs flow on the local stack |
+| **SA-09** | Events were acknowledged before they were durable | `610aeeb` | 202 with Redis up; 503 with Redis stopped; a job queued while the worker was down ran after restart |
+| **SA-20** | `/internal/event` guarded by a published placeholder | `8163907` | Placeholder token → 503, health `internal_events: disabled`, boot warning |
+| **SA-18** | Suspension checked twice per request | `15191e5` | One authenticated `GET /api/v1/users`: 4 SQL statements → 3 |
+| **SA-14** | Two port-80 vhosts for one name | `f4e3abd` | Config test only (no Apache locally) |
+| **SA-21** | Three Python versions | `c0863a6` | Docker builder stage on 3.12 installed 144 packages; `poetry install --dry-run` changes nothing |
+| **SA-10** | The worker exported no traces | `4f708bc` | Local OTLP receiver: four webhooks → four `arq process_gateway_event` spans, each a child of its request span |
+| **SA-I4** | A dead worker was invisible | `702d772` | Hard-killed worker → health `degraded` / worker `down` 32 s later |
+| **SA-07** | Child runs shared the default queue | `5fe35fd` | A child run waited on `children` with no child worker (health `down`, `due_jobs: 1`); the child worker ran it on start |
 
 **Package changes to port.** MC-21 and MC-22 changed the CORTEX package itself:
 `backend/cortex_memory/dreaming.py`, `episodic_tree.py` and
@@ -163,6 +201,16 @@ Recorded in the second session while fixing/auditing, not yet scheduled:
 | FE-25 | 16 | Saving the entity builder with no change rewrites config it does not show |
 | BC-26 | [14](14-BILLING-AND-CREDITS-DEFECTS.md) | Any user can read the billing multiplier and base costs |
 | TL-50…TL-67 | [PO-06 audit](PO-06-TOOL-STACK-AUDIT.md) | 18 tool-layer defects; the biggest is TL-50 (execution is not restricted to an entity's granted tools) |
+
+Found in the third session:
+
+| What | Where recorded / done |
+|---|---|
+| The CORTEX RECURSE child enqueue had never worked (`ArqRedis(self.redis.client)` raised every call); its child runs stayed `PENDING` | Fixed with SA-07; MC-09's note in [08](08-MEMORY-AND-CORTEX-DEFECTS.md) corrected. **Behaviour change:** those child runs now run |
+| Runbook said `redis-cli LLEN arq:queue`; the queue is a sorted set | Corrected in `18-infrastructure-and-deployment.md` §16.4 (with SA-I4) |
+| The backend image has no `.dockerignore`: `COPY . .` would copy `.env` and a host `.venv` into it | Recorded as **IN-22** in [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) (open) |
+| The Dockerfile's Poetry 1.7.1 warns that the Poetry 2.x lock "might not be compatible" (it installed correctly) | Noted in the SA-21 commit |
+| `cortex_resume_scheduled` wraps `ctx['redis']` in `ArqRedis` again (MC-24, deferred) | Unchanged |
 
 On 2026-09-29 the memory register (08) was reviewed with the product owner.
 - MC-04, MC-08, MC-17 and MC-20 were removed by product decision; MC-20's facts moved into
@@ -235,7 +283,8 @@ Windows 11, Git Bash and PowerShell. All paths below are relative to the repo ro
 | Postgres (pgvector) + Redis | `docker compose up -d db redis` in `backend/`. Containers `hirebuddha-db` (**port 5433**) and `hirebuddha-redis` (6379) |
 | Backend venv | `backend/.venv` — Python 3.12 via uv, dependencies from `poetry.lock` |
 | API + frontend | `.claude/launch.json`: `backend-api` (uvicorn :8000) and `frontend` (vite :3000) |
-| Arq worker | `cd backend && PYTHONUTF8=1 .venv/Scripts/python.exe -m arq src.ai.worker.WorkerSettings > ../logs/arq_worker.log 2>&1`. **Restart it after any backend change** — it does not reload |
+| Arq workers | Two since SA-07. `cd backend && PYTHONUTF8=1 .venv/Scripts/python.exe -m arq src.ai.worker.WorkerSettings > ../logs/arq_worker.log 2>&1`, and the same with `ChildWorkerSettings` > `../logs/arq_child_worker.log`. **Restart both after any backend change** — they do not reload. `curl -s localhost:8000/api/v1/health` shows each queue's live workers |
+| One port | Everything — REST, webhooks, `/internal/event`, media-stream WebSockets — is on :8000 since `19f57bb`. `backend/.env` has `STREAMING_HOST=localhost:8000`; its `INTERNAL_TOKEN` is still the placeholder, so `/internal/event` answers 503 locally |
 | Vertex AI | Application Default Credentials: `gcloud auth application-default login`. Project `hirebuddha-production`, region `us-central1` (`backend/.env`) |
 | Seeds | `db-scripts/seed_admin_user.py` (admin@hirebuddha.com), `db-scripts/seed_integration_registry.py` (gemini-2.5-flash and text-embedding-005 SKUs + task defaults). Deep-research entities: `scripts/seeds/deep_research/DeepResearchSetup/create_v2.py` |
 
@@ -272,8 +321,10 @@ From `backend/`:
 PYTHONUTF8=1 .venv/Scripts/python.exe -m pytest tests -q -p no:cacheprovider --ignore=tests/integration --ignore=tests/e2e
 ```
 
-Expected: **1059 passed, 7 failed** (1017 at the first handoff; the second session added
-the HITL-wait, entity-strict-key and router-mount tests). The 7 fail identically on `main`
+Expected: **1126 passed, 7 failed** (1017 at the first handoff, 1059 at the second; the
+third added the single-port, ingress, internal-token, suspension, Apache, Python-version,
+tracing, heartbeat and child-queue tests). Add `OTEL_SDK_DISABLED=true` to silence the
+trace exporter's retries when nothing listens on :4317. The 7 fail identically on `main`
 and are not regressions:
 
 - `tests/ai/core/test_meta_review.py::TestMetaReviewerDefaults::test_graceful_fallback_on_error`
@@ -347,6 +398,11 @@ order by seq;
 The worker log (`logs/arq_worker.log`) warns on truncated Gemini answers
 (`answer truncated at max_tokens=…`), failed usage writes, and plan-reconcile fallbacks.
 
+To see OpenTelemetry spans without Jaeger, run a throwaway OTLP/gRPC receiver on
+127.0.0.1:4317 — `grpcio` and `opentelemetry-proto` are already in the venv, and a
+`TraceServiceServicer` whose `Export` prints each span's service, name, trace id and
+parent is about 30 lines. Start it before the API and workers.
+
 A deep-research run spends real Vertex money — a few cents to tens of cents. Cancel a
 run that is looping.
 
@@ -364,7 +420,16 @@ run that is looping.
   targets. `load_entity_children` is the single source for the first two.
 - **`import cortex_memory` resolves to `backend/cortex_memory/`,** not the installed
   wheel, when run from `backend/`.
-- **Arq context:** `ctx['redis']` is already an `ArqRedis`; wrapping it again raises.
+- **Arq context:** `ctx['redis']` is already an `ArqRedis`; wrapping it again raises. In
+  the child-run worker its default queue is `children`, so name `_queue_name` when a
+  job there enqueues anything else. Enqueue child runs with
+  `common.job_queue.enqueue_child_run`, everything else with `enqueue_job` /
+  `enqueue_on` — they carry the trace context.
+- **`@limiter.exempt` and `from __future__ import annotations` do not mix.** FastAPI
+  resolves the string annotations against slowapi's wrapper module and the endpoint
+  422s. The webhook and internal-event modules leave the future import out on purpose.
+- **Health is always 200.** `status: degraded` is the signal — a missing router, no
+  live worker on `arq:queue` or `children`, or a due job waiting over 600 s.
 - **Unknown entity-config keys are a 422 since PO-09** (API create/update only); before,
   Pydantic dropped them silently — a mistyped setting was a
   no-op that returns `200 OK`.

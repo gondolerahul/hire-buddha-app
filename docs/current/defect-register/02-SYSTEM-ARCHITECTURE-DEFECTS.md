@@ -14,6 +14,8 @@
 
 - **✅ Verified** — the code or config file was read on 2026-09-01 and the claim held.
 - **📄 Doc-reported** — taken from `02-system-architecture.md` without a re-check.
+- **Status** — `fixed` with its commit, on the line under each heading (or in the last
+  column of a table row). Every defect here was fixed on 2026-09-28 → 2026-09-30.
 - The defects are grouped by how bad the outcome is, not by which file they live in.
 - Improvements are separate. They are not bugs; they are places where the current
   shape costs more than it needs to.
@@ -34,14 +36,70 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--wrong-by-default) | Wrong by default | 5 | Before the next deployment |
-| [T1](#3-t1--silently-does-nothing) | Silently does nothing | 5 | Before relying on the feature |
-| [T2](#4-t2--delete) | Delete | 5 | **Now** — free |
-| [T3](#5-t3--fragile) | Fragile | 6 | When the area is next touched |
+| Tier | Theme | Count | Fixed | Open |
+|---|---|---|---|---|
+| [T0](#2-t0--wrong-by-default) | Wrong by default | 5 | 5 | 0 |
+| [T1](#3-t1--silently-does-nothing) | Silently does nothing | 5 | 5 | 0 |
+| [T2](#4-t2--delete) | Delete | 5 | 5 | 0 |
+| [T3](#5-t3--fragile) | Fragile | 6 | 6 | 0 |
 
-**Total: 21 defects, 10 improvements.**
+**Total: 21 defects (21 fixed), 10 improvements (3 done, 1 moot, 1 partly done, 5 open).**
+
+| ID | Defect | Status |
+|---|---|---|
+| SA-01 | `STREAMING_HOST` defaults to a service that does not run | ✅ fixed `19f57bb` (single-port merge) |
+| SA-02 | Apache still proxies `streaming.hirebuddha.com` to the dead port | ✅ fixed `19f57bb` (single-port merge) |
+| SA-03 | The gateway's default database port is wrong | ✅ fixed `19f57bb` (single-port merge) |
+| SA-04 | Five enqueue calls ignore `REDIS_URL` and hardcode localhost | ✅ fixed `6d8de1c` |
+| SA-05 | The worker's Redis parser throws away password, TLS and database index | ✅ fixed `6d8de1c` |
+| SA-06 | The 6-hourly dreaming cron enqueues a job the worker cannot run | ✅ fixed `bb4f01e` (with MC-02) |
+| SA-07 | The child-run queue is declared and not used | ✅ fixed `5fe35fd` |
+| SA-08 | The lead queue fills up and is never drained | ✅ fixed `24650e7` (deleted) |
+| SA-09 | The event bus loses everything on a gateway restart | ✅ fixed `610aeeb` |
+| SA-10 | Neither the gateway nor the worker reports traces | ✅ fixed `19f57bb`, `4f708bc` |
+| SA-11 | `gateway/main.py` + `gateway/config.py` | ✅ fixed `19f57bb` (single-port merge) |
+| SA-12 | `voice/main.py` | ✅ fixed `19f57bb` (single-port merge) |
+| SA-13 | Both `streaming.hirebuddha.com` vhosts | ✅ fixed `19f57bb` (single-port merge) |
+| SA-14 | The duplicate `*:80` vhost for `app.hirebuddha.com` | ✅ fixed `f4e3abd` |
+| SA-15 | The stale `worker.py` docstring | ✅ fixed `6d8de1c` |
+| SA-16 | Route order in the gateway is load-bearing and unguarded | ✅ fixed `19f57bb` (single-port merge) |
+| SA-17 | SSE only works if the path ends in `/stream` | ✅ fixed `19f57bb` (single-port merge) |
+| SA-18 | Suspension middleware costs a database round trip on every request | ✅ fixed `15191e5` |
+| SA-19 | Two CORS lists that must be kept in sync by hand | ✅ fixed `19f57bb` (single-port merge) |
+| SA-20 | Both shared secrets ship as `change-me-in-production` | ✅ fixed `8163907` |
+| SA-21 | Three different Python versions across the deployment path | ✅ fixed `c0863a6` |
+
+| ID | Improvement | Status |
+|---|---|---|
+| SA-I1 | Serve the frontend as a build, not a dev server | open |
+| SA-I2 | One config object, one source of truth | ✅ done `19f57bb` (single-port merge) |
+| SA-I3 | Validate config at boot instead of at first use | open |
+| SA-I4 | Give the worker a health signal | ✅ done `702d772` |
+| SA-I5 | Cache the suspension check | moot — no separate check left (`15191e5`) |
+| SA-I6 | Split the worker pool by job type | ◐ partly — child runs have their own pool (`5fe35fd`) |
+| SA-I7 | Make the layout lint part of the merge gate | open |
+| SA-I8 | Make the SSE terminal signal a field, not a substring | open |
+| SA-I9 | Fix the observability compose file before anyone needs it | open |
+| SA-I10 | Record why a router failed to mount | ✅ done `0fd3b29` |
+
+The single-port merge (`19f57bb`) was an extra piece of work, not a register entry: the
+Unified Gateway (:8001) and the voice service (:8002) were folded into the API on 8000.
+It closed SA-01…03, SA-11…13, SA-16, SA-17, SA-19 and the gateway half of SA-10.
+
+Deployment notes for the fixes above:
+
+- On the VM, set `STREAMING_HOST=gateway.hirebuddha.com` and `STREAMING_PROTOCOL=wss`
+  in `backend/.env`, copy the updated Apache vhosts, disable the `streaming.` site
+  (`a2dissite`), `apache2ctl configtest && systemctl reload apache2`, and stop the old
+  gateway on 8001.
+- `POST /internal/event` answers 503 until `INTERNAL_TOKEN` is set to a real secret
+  (SA-20).
+- Start the stack with `start_services.sh`: it now starts **two** Arq workers. Without
+  the child-run worker, child runs wait forever — `/api/v1/health` shows `down` (SA-07).
+- A worker started before SA-10 still runs jobs queued after it (the trace context
+  travels out of band), but restart both workers after pulling.
+
+The original summary, for reference:
 
 The three worth reading first:
 
@@ -565,6 +623,11 @@ about a dozen routers are mounted inside `try/except ImportError` with a
 ---
 
 ## 7. Suggested order of work
+
+> **2026-09-30:** steps 1–5 are done. Step 2 was done differently by product decision: a
+> placeholder `INTERNAL_TOKEN` disables `/internal/event` (503) instead of refusing to
+> boot. In step 4 SA-08 was deleted, not wired up. Step 6 is open, except that child
+> runs now have their own worker pool (SA-07).
 
 | Step | Work | Why here |
 |---|---|---|
