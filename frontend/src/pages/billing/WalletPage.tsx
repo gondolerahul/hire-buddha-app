@@ -91,7 +91,6 @@ export const WalletPage: React.FC = () => {
                                 razorpay_order_id: order.order_id,
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature,
-                                amount: amt,
                             });
                             setSuccess(`Successfully added $${result.credits_added.toFixed(2)} to your wallet!`);
                             fetchData();

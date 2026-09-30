@@ -18,6 +18,7 @@ from src.common.database import get_db
 from src.auth.router import get_current_user
 from src.auth.models import User
 from src.billing.credit_service import CreditService
+from src.billing.payment_service import PaymentNotFound, PaymentService, razorpay_signature_valid
 from src.billing.billing_models import Subscription, PaymentTransaction, SubscriptionTier
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,6 @@ class TopUpVerify(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
-    amount: Decimal
 
 
 class SubscriptionCreate(BaseModel):
@@ -153,43 +153,26 @@ async def verify_topup(
     if not creds:
         raise HTTPException(status_code=503, detail="Payment gateway not configured")
 
-    # Verify Razorpay signature
+    # Razorpay signs order_id|payment_id: proof this payment paid this order.
     body = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-    expected_sig = hmac.new(
-        creds["key_secret"].encode("utf-8"),
-        body.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-    if not hmac.compare_digest(expected_sig, payload.razorpay_signature):
+    if not razorpay_signature_valid(creds["key_secret"], body, payload.razorpay_signature):
         raise HTTPException(status_code=400, detail="Invalid payment signature")
 
-    # Update transaction record
-    result = await db.execute(
-        select(PaymentTransaction).where(
-            PaymentTransaction.razorpay_order_id == payload.razorpay_order_id,
-            PaymentTransaction.company_id == current_user.company_id,
+    # The amount credited is the order's, stored when it was created (BC-01);
+    # an order already credited is not credited again.
+    try:
+        txn, wallet, credited = await PaymentService(db).credit_topup(
+            order_id=payload.razorpay_order_id,
+            payment_id=payload.razorpay_payment_id,
+            signature=payload.razorpay_signature,
+            company_id=current_user.company_id,
         )
-    )
-    txn = result.scalar_one_or_none()
-    if txn:
-        txn.razorpay_payment_id = payload.razorpay_payment_id
-        txn.razorpay_signature = payload.razorpay_signature
-        txn.status = "success"
-        txn.credits_awarded = payload.amount
-
-    # Credit the wallet
-    credit_svc = CreditService(db)
-    wallet = await credit_svc.add_wallet_credits(
-        company_id=current_user.company_id,
-        amount=payload.amount,
-    )
-    await db.commit()
+    except PaymentNotFound:
+        raise HTTPException(status_code=404, detail="Top-up order not found")
 
     return {
-        "message": "Payment verified and wallet credited",
-        "message": "Payment verified and wallet credited",
-        "credits_added": float(payload.amount),
+        "message": "Payment verified and wallet credited" if credited else "Payment already credited",
+        "credits_added": float(txn.amount) if credited else 0.0,
         "new_balance": float(wallet.wallet_balance),
     }
 

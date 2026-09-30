@@ -261,10 +261,10 @@ Every Razorpay interaction, successful or not. [billing_models.py:123](../../bac
 | Column | Type | Notes |
 |---|---|---|
 | `company_id` | UUID FK | |
-| `razorpay_order_id` | String(200) | Indexed (`idx_payment_transactions_razorpay_order`) — **not unique** |
-| `razorpay_payment_id` | String(200) | Filled on verify |
+| `razorpay_order_id` | String(200) | Unique where not null (`uq_payment_transactions_razorpay_order`, BC-01) |
+| `razorpay_payment_id` | String(200) | Filled on verify; unique where not null (`uq_payment_transactions_razorpay_payment`) |
 | `razorpay_signature` | String(500) | Filled on verify, stored verbatim |
-| `amount` | Numeric(10,2) | USD |
+| `amount` | Numeric(10,2) | USD — fixed when the order is created; the amount a top-up credits |
 | `currency` | String(10) | Always `"USD"` in code |
 | `transaction_type` | String(30) | `topup` \| `subscription_charge` |
 | `status` | String(20) | `pending` \| `success` \| `failed` |
@@ -1040,30 +1040,34 @@ sequenceDiagram
     BE-->>FE: "{order_id, amount, currency, key_id}"
     FE->>RZ: window.Razorpay checkout opens
     RZ-->>FE: handler - razorpay_payment_id plus razorpay_signature
-    FE->>BE: "POST /credits/topup/verify"
+    FE->>BE: "POST /credits/topup/verify - order_id, payment_id, signature"
     BE->>BE: HMAC-SHA256 over "order_id|payment_id" with key_secret
     alt signature mismatch
         BE-->>FE: 400 Invalid payment signature
     end
-    BE->>PT: UPDATE status success, credits_awarded amount
-    BE->>CW: add_wallet_credits - amount, 365 days
+    BE->>PT: SELECT the caller's topup row FOR UPDATE
+    alt no such order for this company
+        BE-->>FE: 404 Top-up order not found
+    else already success
+        BE-->>FE: "Payment already credited, credits_added 0"
+    end
+    BE->>PT: UPDATE status success, credits_awarded = stored amount
+    BE->>CW: wallet row FOR UPDATE, balance += stored amount, 365 days
     BE-->>FE: "{credits_added, new_balance}"
 ```
 
-The signature check is a textbook constant-time comparison — [credits_router.py:157](../../backend/src/billing/credits_router.py:157):
+The signature check is a constant-time comparison (`payment_service.razorpay_signature_valid`).
+Razorpay signs `order_id|payment_id` with the key secret, so a valid signature proves that
+this payment paid this order — and the order's amount was fixed by the server when it was
+created. So the amount credited is `payment_transactions.amount`, never a number from the
+request (BC-01): the verify payload no longer has an `amount` field.
 
-```python
-# backend/src/billing/credits_router.py
-body = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-expected_sig = hmac.new(
-    creds["key_secret"].encode("utf-8"),
-    body.encode("utf-8"),
-    hashlib.sha256,
-).hexdigest()
-
-if not hmac.compare_digest(expected_sig, payload.razorpay_signature):
-    raise HTTPException(status_code=400, detail="Invalid payment signature")
-```
+`PaymentService.credit_topup` does the crediting, for both this route and the webhook
+(§9.4). It locks the transaction row, returns without crediting when the row is already
+`success`, and otherwise marks it and adds to the wallet in one commit. Two partial unique
+indexes — on `razorpay_order_id` and `razorpay_payment_id` — mean a second row for the same
+order or payment cannot exist. A top-up does not revive a balance that has already expired:
+the expired balance is dropped and the new money starts a fresh 365 days.
 
 ### 9.3 Subscription flow
 
@@ -1099,9 +1103,9 @@ sequenceDiagram
 | Property | Status |
 |---|---|
 | Webhook endpoint | ❌ **None exists.** Verification is a client-initiated callback from the browser, not a server-to-server webhook. `/webhooks/*` in `main.py` are voice webhooks only. |
-| Replay protection | ❌ `POST /credits/topup/verify` can be called repeatedly with the same valid `(order_id, payment_id, signature)`. Each call runs `add_wallet_credits` again. |
-| Amount validation | ❌ The client sends `amount` in the verify payload; the server credits **that** number, never re-reading `payment_transactions.amount` or asking Razorpay. A client can verify a $1 payment and claim $1000. |
-| Unique constraint on `razorpay_order_id` | ❌ Indexed but not unique |
+| Replay protection | ✅ A top-up order is credited once; a repeated verify returns `credits_added: 0` (BC-01) |
+| Amount validation | ✅ The stored `payment_transactions.amount` is credited; the request carries no amount (BC-01) |
+| Unique constraint on `razorpay_order_id` | ✅ Partial unique indexes on `razorpay_order_id` and `razorpay_payment_id` (BC-01) |
 | Abandoned checkout | Row stays `pending` forever; nothing reaps it |
 | Orphaned subscription | A `pending_payment` row with no matching payment stays forever |
 | Failed payment | Not recorded — the `failed` status is only ever written by the monthly cron |

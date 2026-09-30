@@ -186,6 +186,36 @@ class CreditService:
         await self.db.commit()
         return deductions
 
+    async def lock_wallet(self, company_id: UUID) -> CreditWallet:
+        """The company's wallet, row-locked until the transaction ends.
+
+        Re-read under the lock, so a balance changed by a concurrent
+        transaction is not overwritten. The wallet must exist.
+        """
+        stmt = (
+            select(CreditWallet)
+            .where(CreditWallet.company_id == company_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return (await self.db.execute(stmt)).scalar_one()
+
+    @staticmethod
+    def add_to_wallet_balance(
+        wallet: CreditWallet, amount: Decimal, validity_days: int = 365,
+    ) -> None:
+        """Add a top-up to the balance bucket and restart its validity.
+
+        An expired balance is gone; the top-up does not revive it.
+        """
+        now = datetime.utcnow()
+        current = Decimal(str(wallet.wallet_balance))
+        if wallet.wallet_expires_at and wallet.wallet_expires_at < now:
+            current = Decimal("0")
+        wallet.wallet_balance = current + amount
+        wallet.wallet_expires_at = now + timedelta(days=validity_days)
+        wallet.updated_at = now
+
     async def add_wallet_credits(
         self,
         company_id: UUID,
@@ -193,10 +223,9 @@ class CreditService:
         validity_days: int = 365,
     ) -> CreditWallet:
         """Credit the wallet balance bucket (PAYG top-up)."""
-        wallet = await self.get_or_create_wallet(company_id)
-        wallet.wallet_balance = Decimal(str(wallet.wallet_balance)) + amount
-        wallet.wallet_expires_at = datetime.utcnow() + timedelta(days=validity_days)
-        wallet.updated_at = datetime.utcnow()
+        await self.get_or_create_wallet(company_id)
+        wallet = await self.lock_wallet(company_id)
+        self.add_to_wallet_balance(wallet, amount, validity_days)
         await self.db.commit()
         await self.db.refresh(wallet)
         return wallet

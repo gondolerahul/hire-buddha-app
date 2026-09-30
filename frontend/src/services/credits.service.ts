@@ -54,7 +54,6 @@ export const creditsService = {
         razorpay_order_id: string;
         razorpay_payment_id: string;
         razorpay_signature: string;
-        amount: number;
     }): Promise<{ message: string; credits_added: number; new_balance: number }> => {
         const { data } = await apiClient.post('/credits/topup/verify', payload);
         return data;

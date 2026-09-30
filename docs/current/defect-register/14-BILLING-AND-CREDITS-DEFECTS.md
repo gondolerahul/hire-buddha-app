@@ -61,7 +61,8 @@ The three to read first:
 
 ### BC-01 — The client chooses how much to credit its own wallet
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — the stored order amount is
+credited, once; the verify request has no amount.
 
 The Razorpay signature check is correct — HMAC-SHA256 over `order_id|payment_id`, compared
 with `hmac.compare_digest`. What happens after it is not.
@@ -93,6 +94,31 @@ so the client is the only participant in the trust chain.
 
 **Fix:** credit `txn.amount`, reject when `txn.status == "success"`, and add a unique
 constraint on `razorpay_order_id`. Then add the server-side webhook.
+
+**Done (2026-09-30).** `billing/payment_service.py` — `PaymentService.credit_topup` — is the
+one place a top-up turns into credit; the webhook (BC-I5) will use it too.
+
+- It finds the **caller's** `topup` transaction by order id (404 if there is none — before,
+  an order that was never created was credited anyway, as was another company's), locks the
+  row, and credits `txn.amount`. A row already `success` is not credited again: the response
+  says *Payment already credited* with `credits_added: 0`.
+- `TopUpVerify` has no `amount`; the wallet page no longer sends one.
+- Migration `bc01_payment_txn_unique`: partial unique indexes on `razorpay_order_id` and
+  `razorpay_payment_id` (where not null), replacing the plain order-id index.
+- The wallet row is updated under a row lock (`CreditService.lock_wallet`), and a top-up no
+  longer revives a balance that had already expired — it used to add to the stale balance
+  and restart its 365 days.
+- The duplicate `"message"` key in the response is gone (half of BC-25).
+
+The server-to-server webhook is [BC-I5](#bc-i5--add-the-razorpay-webhook).
+
+**Evidence:** `tests/integration/test_topup_verify.py`, 6 cases against the real Postgres in
+a rolled-back transaction: a $10 order verified with `amount: 1000` credits 10; three
+verifies of one payment credit it once; a bad signature is 400; an invented order and
+another company's order are 404 and credit nothing; an expired $40 balance plus a $10
+top-up is $10. Five fail on the old code for the reason each describes (1000 credited, the
+replay credited again, both foreign orders credited, the expired balance revived); the
+signature case passes on both.
 
 ---
 
@@ -445,6 +471,8 @@ artefact and it is a monthly aggregate.
 
 Separately, `verify_topup`'s return dict contains the key `"message"` **twice**. Harmless,
 and a fair indicator of how much of that file has been reviewed.
+
+> **Update 2026-09-30:** the duplicate key went with the BC-01 rewrite of `verify_topup`.
 
 - [`backend/pyproject.toml:32`](../../../backend/pyproject.toml:32)
 - [`billing/credits_router.py`](../../../backend/src/billing/credits_router.py) — the duplicate key

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Integer, Boolean, DateTime, Date,
-    ForeignKey, Numeric, JSON
+    ForeignKey, Numeric, JSON, Index, text
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -140,6 +140,15 @@ class PaymentTransaction(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        # One transaction per Razorpay order and per payment, so a replayed
+        # verification or webhook cannot credit a payment twice (BC-01).
+        Index("uq_payment_transactions_razorpay_order", "razorpay_order_id", unique=True,
+              postgresql_where=text("razorpay_order_id IS NOT NULL")),
+        Index("uq_payment_transactions_razorpay_payment", "razorpay_payment_id", unique=True,
+              postgresql_where=text("razorpay_payment_id IS NOT NULL")),
+    )
 
     company = relationship("Company", overlaps="transactions")
     wallet = relationship(
