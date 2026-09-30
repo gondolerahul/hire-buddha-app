@@ -363,7 +363,13 @@ async def stream_execution(
             await pubsub.unsubscribe(channel)
             await r.close()
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    # The headers the gateway's SSE relay used to add: never cache the stream,
+    # and ask a buffering proxy (nginx) not to hold frames back.
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 # --- Cancel ---
 @router.post("/executions/{execution_id}/cancel", response_model=ExecutionRunResponse)

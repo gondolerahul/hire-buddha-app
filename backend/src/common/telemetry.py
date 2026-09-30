@@ -8,6 +8,9 @@ from prometheus_client import make_asgi_app
 from fastapi import FastAPI
 import os
 
+# OpenTelemetry exclusion pattern matching every WebSocket scope's URL.
+WEBSOCKET_URLS = "^wss?://"
+
 def setup_telemetry(app: FastAPI):
     # Service name resource
     resource = Resource.create(attributes={
@@ -24,8 +27,10 @@ def setup_telemetry(app: FastAPI):
     
     trace.set_tracer_provider(provider)
 
-    # Instrument FastAPI
-    FastAPIInstrumentor.instrument_app(app)
+    # Instrument FastAPI — HTTP only. WebSocket scopes (ws:// / wss:// URLs)
+    # are excluded: the ASGI instrumentation opens a child span per message,
+    # which on a call's audio stream is ~100 spans a second for its whole length.
+    FastAPIInstrumentor.instrument_app(app, excluded_urls=WEBSOCKET_URLS)
 
     # Add Prometheus metrics endpoint
     metrics_app = make_asgi_app()

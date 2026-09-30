@@ -121,7 +121,9 @@ should say plainly that it is unauthenticated.
 
 ### API-04 — `POST /internal/event` is protected by a default secret
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open, changed (2026-09-30)** — the check is now the
+`require_internal` dependency on the API, compared in constant time; the default secret is
+unchanged. See SA-20.
 
 It is the one route hard-blocked at the gateway middleware, and it is protected by
 `X-Internal-Token` compared with `!=` against `INTERNAL_TOKEN`, which defaults to
@@ -166,7 +168,11 @@ Same as [AU-06](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-06--password-reset-works-in-t
 
 ### API-07 — Transcript endpoints exist only on a service nobody starts
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — by deletion, not by the move W-1
+decided. `transcript_api.py` had no authentication and no company check (any caller with a
+session UUID read any transcript), and nothing called `/api/calls/*`; the product owner
+chose to delete it with `voice/main.py`. Transcripts are served, authenticated and
+company-scoped, by `GET /api/v1/streaming/voice-sessions/{id}`.
 
 `transcript_api.py` declares four endpoints under `/api/calls/*` and is mounted **only** by
 `voice/main.py` on port 8002, which `start_services.sh` does not launch and the gateway

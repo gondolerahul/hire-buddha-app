@@ -1,11 +1,12 @@
 """
-E2E Tests: Unified AI Gateway Interfaces
+E2E Tests: the webhook, internal-event and streaming interfaces.
 
-Tests all 5 gateway interfaces using the FastAPI ASGI test transport.
-The gateway app is tested directly (no actual port binding required).
+These were the Unified Gateway's (:8001); the gateway is merged into the API,
+so they are exercised on the API app (port 8000) through the ASGI transport
+(no actual port binding required).
 
 Run:
-    cd /home/rahul/workspace/dev-hb-codebase/hb-proto-3/backend
+    cd backend
     python -m pytest tests/e2e/test_12_unified_gateway.py -v
 """
 import json
@@ -18,56 +19,37 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from src.gateway.app import app
+from src.main import app
 from src.gateway.event_bus import EventEnvelope, get_event_bus, _bus
-from src.gateway.gateway_config import settings
+from src.common.config import settings
 
 
 # ---------------------------------------------------------------------------
-# Test client fixture (Gateway app, not the main app)
+# Test client fixture
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture(scope="module")
 async def gateway_client():
-    """Async HTTP client bound to the Unified Gateway FastAPI app."""
-    # Mock dispatcher.start() to avoid Redis/DB requirements
-    with patch("src.gateway.dispatcher.CentralDispatcher.start", new_callable=AsyncMock), \
-         patch("src.gateway.dispatcher.CentralDispatcher.stop", new_callable=AsyncMock):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://test",
-        ) as c:
-            yield c
+    """Async HTTP client bound to the API app."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as c:
+        yield c
 
 
 # ===========================================================================
-# Health and Root Endpoints
+# Health Endpoints
 # ===========================================================================
-
-@pytest.mark.asyncio
-async def test_gateway_root(gateway_client):
-    """GET / returns service metadata."""
-    resp = await gateway_client.get("/")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["service"] == "HireBuddha Unified AI Gateway"
-    assert "interfaces" in data
-    assert "webhook" in data["interfaces"]
-
 
 @pytest.mark.asyncio
 async def test_gateway_health(gateway_client):
-    """GET /health returns healthy status with all 5 interfaces listed."""
+    """GET /health answers like GET /api/v1/health."""
     resp = await gateway_client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "healthy"
-    interfaces = data.get("interfaces", [])
-    assert "webhook" in interfaces
-    assert "internal_event" in interfaces
-    assert "audio" in interfaces
-    assert "video" in interfaces
-    assert "rest" in interfaces
+    assert data["status"] == "ok"
+    assert data["unmounted_routers"] == []
 
 
 @pytest.mark.asyncio

@@ -308,7 +308,8 @@ no salt or slow hash is needed.
 
 ### AU-11 — The gateway's JWT secret does not match the API's
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — `JWT_SECRET` and the middleware that
+decoded with it are deleted with the gateway; only `SECRET_KEY` exists.
 
 The backend signs with `SECRET_KEY`. The gateway decodes with `JWT_SECRET`. They are
 different settings, and in the checked-in `.env` they hold different values.
@@ -342,7 +343,8 @@ the service that already exists.
 
 ### AU-13 — The internal token is compared with `!=`
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-09-30)** — `require_internal` compares with
+`hmac.compare_digest`.
 
 `X-Internal-Token` is checked with a plain `token != settings.INTERNAL_TOKEN`, not
 `hmac.compare_digest`. That is a timing side channel on a shared secret that guards an

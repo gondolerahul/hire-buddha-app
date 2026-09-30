@@ -23,8 +23,8 @@
 13. [Billing, credits and reports](#13-billing-credits-and-reports)
 14. [Voice, phone numbers and campaigns](#14-voice-phone-numbers-and-campaigns)
 15. [Kernel admin](#15-kernel-admin)
-16. [The gateway surface (port 8001)](#16-the-gateway-surface-port-8001)
-17. [The voice surface (port 8002)](#17-the-voice-surface-port-8002)
+16. [The webhook and streaming edge](#16-the-webhook-and-streaming-edge)
+17. [The retired voice surface](#17-the-retired-voice-surface)
 18. [Webhooks](#18-webhooks)
 19. [WebSocket endpoints](#19-websocket-endpoints)
 20. [Server-Sent Events](#20-server-sent-events)
@@ -44,40 +44,23 @@ graph TB
     B["Browser / API client"]
     T["Twilio / Tata Tele / Razorpay"]
 
-    B -->|REST + SSE| BE["Backend API - 8000<br/>src.main:app<br/>~200 routes"]
-    B -->|audio WebSocket| GW["Unified Gateway - 8001<br/>src.gateway.app:app<br/>10 routes"]
-    T -->|webhooks| BE
-    T -->|media stream WS| GW
-    GW -->|proxy| BE
-    B -.->|retired?| VO["Voice service - 8002<br/>src.voice.main:app<br/>22 routes served"]
-
-    style VO stroke-dasharray: 5 5
+    B -->|REST + SSE + WebSockets| BE["API - 8000<br/>src.main:app"]
+    T -->|webhooks + media stream WS| BE
 ```
 
 | Surface | Process | Port | Docs | What lives there |
 |---|---|---|---|---|
-| Backend API | `src.main:app` | 8000 | `/docs`, `/redoc` | Everything business-facing |
-| Unified Gateway | `src.gateway.app:app` | 8001 | `/docs`, `/redoc` | Streaming, webhooks, internal events |
-| Voice service | `src.voice.main:app` | 8002 | — | Telephony WebSockets, transcripts |
+| API | `src.main:app` | 8000 | `/docs`, `/redoc` | Everything: REST, SSE, inbound webhooks, internal events, the audio/video/telephony/mobile WebSockets |
 
-Behind Apache, **both `api.hirebuddha.com` and `gateway.hirebuddha.com` proxy to
-8001** (the gateway); `streaming.hirebuddha.com` proxies to 8002. **No vhost
-points at 8000** — the backend API is reachable only from inside the VM, via the
-gateway's proxy. See
-[18 §8](18-infrastructure-and-deployment.md#8-apache--reverse-proxy-and-tls).
+Behind Apache, both `api.hirebuddha.com` and `gateway.hirebuddha.com` proxy to
+8000. See [18 §8](18-infrastructure-and-deployment.md#8-apache--reverse-proxy-and-tls).
 
-> ⚠️ **The voice service may be retired.** A comment in
-> [gateway/app.py:138](../../backend/src/gateway/app.py:138) states:
-> *"The standalone streaming service (port 8002) has been retired. All
-> audio/video streaming is served natively by this gateway."* But
-> `src/voice/main.py` still exists — it declares 7 routes of its own and serves
-> 22 in total once the routers it mounts are counted — and Apache still has a
-> `streaming.hirebuddha.com` vhost pointing at 8002. `start_services.sh` does
-> **not** start it. Treat port 8002 as deprecated and prefer the gateway.
-
-The two applications duplicate three WebSocket paths
-(`/webhooks/voice/tata/incoming`, `/stream/twilio/{session_id}`,
-`/stream/tata/{session_id}`) — the same handlers exist on both.
+> Until 2026-09-30 there were three surfaces: this API, a **Unified Gateway** on
+> 8001 (`src.gateway.app:app`, the public front door, which served the
+> streaming/webhook/internal-event routes and reverse-proxied everything else to
+> 8000) and a retired **voice service** on 8002 (`src.voice.main:app`, started by
+> nothing). The gateway is merged into the API and the voice service deleted —
+> see [02 §2.2](02-system-architecture.md#22-the-former-unified-gateway--merged-into-the-api).
 
 ---
 
@@ -162,7 +145,8 @@ open http://localhost:8000/docs
 ```
 
 Swagger UI at `/docs`, ReDoc at `/redoc`, OpenAPI JSON at `/openapi.json`. The
-gateway exposes the same three on port 8001.
+webhook, internal-event and health routes appear there too; WebSocket routes are
+not part of OpenAPI.
 
 ---
 
@@ -900,108 +884,56 @@ Prefer `PUT` over direct SQL — it publishes the Redis invalidation event. See
 
 ---
 
-## 16. The gateway surface (port 8001)
+## 16. The webhook and streaming edge
 
-Ten routes. Full semantics in
-[13 — Gateway and realtime](13-gateway-and-realtime.md).
+Served by the API on 8000 (the `src/gateway/` routers). Full semantics in
+[13 — Webhook and real-time edge](13-gateway-and-realtime.md).
 
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| GET | `/` | none | Service banner |
-| GET | `/health` | none | Health check |
-| GET | `/metrics/gateway` | none | Gateway metrics |
-| POST | `/webhook/inbound` | `?client_id=` | Unified inbound webhook |
-| POST | `/internal/event` | `X-Internal-Token` | Internal event ingress |
-| WS | `/stream/audio` | `?client_id=` | Browser + telephony audio |
-| WS | `/stream/video` | `?client_id=` | WebRTC video |
-| WS | `/webhooks/voice/tata/incoming` | — | Tata Tele media |
-| WS | `/stream/twilio/{session_id}` | — | Twilio Media Streams |
-| WS | `/stream/tata/{session_id}` | — | Tata Tele stream |
+| Method | Path | Auth | Rate limited | Purpose |
+|---|---|---|---|---|
+| GET | `/health`, `/api/v1/health` | none | yes | Liveness + routers that failed to mount |
+| GET | `/metrics/gateway` | none | yes | Event bus and video-session counters |
+| POST | `/webhook/inbound` | `?client_id=` | **no** | Unified inbound webhook |
+| POST | `/internal/event` | `X-Internal-Token` | **no** | Internal event ingress |
+| WS | `/stream/audio` | handshake `client_id` | — | Browser + telephony audio |
+| WS | `/stream/video` | handshake `client_id` | — | WebRTC video |
+| WS | `/webhooks/voice/tata/incoming` | — | — | Tata Tele media |
+| WS | `/stream/twilio/{session_id}` | — | — | Twilio Media Streams |
+| WS | `/stream/tata/{session_id}` | — | — | Tata Tele stream |
+| WS | `/mobile/ws` | access token in the first message | — | Mobile dialer push socket |
 
-Plus a catch-all proxy in [gateway/main.py](../../backend/src/gateway/main.py):
+There is no catch-all route any more; until 2026-09-30 the gateway's
+`/{path:path}` proxy forwarded everything else to 8000.
 
-| Method | Path | Purpose |
-|---|---|---|
-| ANY | `/{path:path}` | Proxy everything else to the backend |
+### 16.1 Edge auth rules
 
-### 16.1 Gateway auth rules
+| Path | Rule |
+|---|---|
+| `/internal/event` | `require_internal`: `X-Internal-Token` compared with `INTERNAL_TOKEN` in constant time; **401** otherwise, before the body is validated |
+| `/webhook/inbound` | Tenant taken from `?client_id=`; signature validation is best-effort and never blocks |
+| `/stream/audio`, `/stream/video` | Tenant taken from the handshake's `client_id`; the handshake `token` is never checked |
+| `/api/v1/*` | The route's own dependencies — see [§4](#4-authentication) |
 
-```python
-# backend/src/gateway/auth_middleware.py
-"""
-    ① Internal paths (/internal/event):  verified via X-Internal-Token header
-    ② Webhook paths (/webhook/inbound):  extracted from ?client_id= query param
-    ③ Audio/Video WebSocket paths:       extracted from ?client_id= query param
-    ④ REST API paths (/api/v1/*):        JWT bearer or X-API-Key (passed through
-...
-    Missing / invalid credentials are NOT blocked here for REST / Webhook paths —
-"""
-```
-
-```mermaid
-flowchart TD
-    REQ["Request to gateway"] --> P{"path"}
-    P -->|/internal/event| I{"X-Internal-Token == INTERNAL_TOKEN?"}
-    I -->|no| B403["403"]
-    I -->|yes| OK["Proceed"]
-    P -->|/webhook/inbound| W["Extract tenant from ?client_id"]
-    P -->|/stream/audio or /stream/video| S["Extract tenant from ?client_id<br/>set source_channel"]
-    W --> OK
-    S --> OK
-    P -->|/api/v1/*| R["Bearer or X-API-Key passed through"]
-    R --> OK
-```
-
-**Only `/internal/event` is hard-blocked at the gateway.** REST and webhook
-paths pass through with credentials attached; the backend enforces. The gateway
-also applies its own rate limiter (`RATE_LIMIT=200/minute` in compose) and CORS.
+Every HTTP route except the two ingress endpoints is rate limited at
+`RATE_LIMIT` (200/minute) per client IP; CORS uses the one `CORS_ORIGINS` list.
 
 ---
 
-## 17. The voice surface (port 8002)
+## 17. The retired voice surface
 
-Seven routes declared in [voice/main.py](../../backend/src/voice/main.py)
-itself, plus 15 more from the three routers it mounts — **22 routes served in
-total**.
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/` | Banner |
-| GET | `/health` | Health |
-| GET | `/metrics` | Metrics |
-| GET | `/stream/twilio/{session_id}` | Diagnostic (HTTP) |
-| WS | `/stream/twilio/{session_id}` | Twilio media stream |
-| WS | `/stream/tata/{session_id}` | Tata media stream |
-| WS | `/webhooks/voice/tata/incoming` | Tata inbound media |
-
-It additionally mounts `webhook_router` (9 routes), `transcript_router` (4) and
-`messaging_router` (2). All three are mounted conditionally inside `try/except`
-blocks ([voice/main.py:44-62](../../backend/src/voice/main.py:44)), so an import
-error degrades to a warning and the app still starts — with those routes
-missing. Only `transcript_router` is unique to this process; the backend on 8000
-mounts the other two as well.
-
-### Transcripts — only on port 8002
-
-[transcript_api.py](../../backend/src/voice/transcript_api.py) is mounted **only**
-by the voice service, not the backend:
-
-| Method | Path |
-|---|---|
-| GET | `/api/calls/{call_id}/transcript` |
-| GET | `/api/calls/{call_id}/transcript/text` |
-| GET | `/api/calls/{call_id}/summary` |
-| GET | `/api/calls/{call_id}/export` |
-
-> ⚠️ If the voice service is genuinely retired, **these four endpoints are
-> unreachable**, and the call-detail UI that consumes them is broken. Verify
-> before relying on them. Note also they use `/api/calls/...` with no `/v1`.
+The standalone voice service (`src/voice/main.py`, port 8002) was started by
+nothing; its three WebSocket routes duplicated the gateway's. It was deleted on
+2026-09-30 with `src/voice/transcript_api.py`, which only it mounted — four
+`GET /api/calls/{call_id}/...` routes (transcript, text, summary, export) with
+**no authentication or company check**. Nothing called them. A call's transcript
+is served, authenticated and company-scoped, by
+`GET /api/v1/streaming/voice-sessions/{id}` ([§14](#streaming-sessions-and-messaging)).
 
 ---
 
 ## 18. Webhooks
 
-Nine inbound webhooks under `/webhooks/voice` on the **backend** (port 8000).
+Nine inbound webhooks under `/webhooks/voice` on the API (port 8000).
 
 | Method | Path | Provider | Purpose |
 |---|---|---|---|
@@ -1019,26 +951,25 @@ Plus the generic gateway webhook:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/webhook/inbound` (port 8001) | Unified inbound, tenant from `?client_id=` |
+| POST | `/webhook/inbound` | Unified inbound, tenant from `?client_id=` |
 
 ```mermaid
 sequenceDiagram
     participant P as Twilio / Tata
     participant AP as Apache
-    participant BE as Backend 8000
-    participant GW as Gateway 8001
+    participant BE as API 8000
 
     P->>AP: POST /webhooks/voice/twilio/incoming
     AP->>BE: proxy (HTTP)
     BE-->>P: TwiML with wss:// stream URL
     P->>AP: WS upgrade to /stream/twilio/{session_id}
     Note over AP: RewriteCond Upgrade=websocket<br/>matches BEFORE ProxyPass
-    AP->>GW: ws://127.0.0.1:8001/stream/...
-    GW-->>P: audio frames
+    AP->>BE: ws://127.0.0.1:8000/stream/...
+    BE-->>P: audio frames
 ```
 
-Note the split: **HTTP webhooks go to the backend, media WebSockets go to the
-gateway.** The Apache rewrite rules are what route them apart — see
+HTTP webhooks and media WebSockets reach the same process; the Apache rewrite
+rules only decide whether the connection is upgraded — see
 [18 §8.1](18-infrastructure-and-deployment.md#81-the-websocket-upgrade-pattern).
 
 Tata Tele needs **both** GET and POST on `/tata/incoming` and `/tata/status` —
@@ -1050,16 +981,17 @@ GET for endpoint verification at registration time, POST for real events.
 
 | URL | Process | Auth | Carries |
 |---|---|---|---|
-| `wss://gateway.hirebuddha.com/stream/audio?client_id=<id>` | 8001 | `client_id` query | Browser mic + telephony audio |
-| `wss://gateway.hirebuddha.com/stream/video?client_id=<id>` | 8001 | `client_id` query | WebRTC signalling |
-| `wss://gateway.hirebuddha.com/stream/twilio/{session_id}` | 8001 | session id | Twilio Media Streams |
-| `wss://gateway.hirebuddha.com/stream/tata/{session_id}` | 8001 | session id | Tata media |
-| `wss://gateway.hirebuddha.com/webhooks/voice/tata/incoming` | 8001 | — | Tata inbound media |
+| `wss://gateway.hirebuddha.com/stream/audio?client_id=<id>` | 8000 | `client_id` query | Browser mic + telephony audio |
+| `wss://gateway.hirebuddha.com/stream/video?client_id=<id>` | 8000 | `client_id` query | WebRTC signalling |
+| `wss://gateway.hirebuddha.com/stream/twilio/{session_id}` | 8000 | session id | Twilio Media Streams |
+| `wss://gateway.hirebuddha.com/stream/tata/{session_id}` | 8000 | session id | Tata media |
+| `wss://gateway.hirebuddha.com/webhooks/voice/tata/incoming` | 8000 | — | Tata inbound media |
+| `wss://gateway.hirebuddha.com/mobile/ws` | 8000 | access token, first message | Mobile dialer push |
 
 Test locally:
 
 ```bash
-websocat "ws://localhost:8001/stream/audio?client_id=test-tenant"
+websocat "ws://localhost:8000/stream/audio?client_id=test-tenant"
 ```
 
 Apache proxies these via `RewriteCond %{HTTP:Upgrade} =websocket` with
@@ -1223,11 +1155,12 @@ the `/api/v1/phone-numbers/*` routes. The file was deleted on 2026-09-29 (PO-12)
 5. **There is no `/api/v1/phone-pool/*`.** Its unmounted router was deleted
    (PO-12). Use `/api/v1/phone-numbers/*`.
 
-6. **Transcript endpoints are only on port 8002**, which `start_services.sh`
-   never starts and the gateway claims is retired.
+6. **There are no `/api/calls/*` transcript endpoints.** They lived on the retired
+   port-8002 service, unauthenticated, and were deleted with it. Use
+   `GET /api/v1/streaming/voice-sessions/{id}`.
 
-7. **HTTP webhooks hit the backend; media WebSockets hit the gateway.** Apache
-   rewrite rules split them.
+7. **Everything is on port 8000.** HTTP webhooks and media WebSockets reach the
+   same API process; Apache's rewrite rules only handle the upgrade.
 
 8. **Tata Tele needs both GET and POST** on `/tata/incoming` and `/tata/status`.
 

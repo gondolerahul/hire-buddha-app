@@ -42,9 +42,7 @@ graph TB
     NET["Internet"] --> AP["Apache 2.4 - ports 80/443<br/>mod_ssl, mod_proxy, mod_rewrite"]
 
     AP -->|app / dev .hirebuddha.com| FE["Vite dev server - 3000"]
-    AP -->|api.hirebuddha.com| BE["Backend API - 8000<br/>src.main:app"]
-    AP -->|gateway.hirebuddha.com| GW["Unified Gateway - 8001<br/>src.gateway.app:app"]
-    AP -->|streaming.hirebuddha.com| VO["Voice service - 8002"]
+    AP -->|gateway / api .hirebuddha.com| BE["API - 8000<br/>src.main:app<br/>REST, webhooks, WebSockets"]
 
     subgraph Docker["Docker containers"]
         PG[("PostgreSQL 15 + pgvector<br/>host 5433 - container 5432")]
@@ -57,29 +55,24 @@ graph TB
 
     BE --> PG
     BE --> RD
-    GW --> BE
-    GW --> RD
-    VO --> PG
     RD --> WK
     WK --> PG
 ```
 
 | Process | Port | Entrypoint | Log | PID file |
 |---|---|---|---|---|
-| Backend API | 8000 | `uvicorn src.main:app` | `logs/backend_api.log` | `logs/backend_api.pid` |
-| Unified Gateway | 8001 | `uvicorn src.gateway.app:app` | `logs/unified_gateway.log` | `logs/unified_gateway.pid` |
-| Voice service | 8002 | `uvicorn src.voice.main:app` | — | — |
+| API | 8000 | `uvicorn src.main:app` | `logs/backend_api.log` | `logs/backend_api.pid` |
 | Arq worker | — | `python -m arq src.ai.worker.WorkerSettings` | `logs/arq_worker.log` | `logs/arq_worker.pid` |
 | Frontend | 3000 | `npm run dev` | `logs/frontend.log` | `logs/frontend.pid` |
 | PostgreSQL | 5433 | `docker compose up db` | docker | — |
 | Redis | 6379 | `docker compose up redis` | docker | — |
 
-> ⚠️ **`start_services.sh` does not start the voice service.** It starts five
-> things (Docker, backend, gateway, worker, frontend) and its own banner says
-> `[1/5]`…`[5/5]`. Port 8002 has an Apache VirtualHost
-> (`streaming.hirebuddha.com`) and the README lists it, but nothing in the start
-> script launches it. If you need voice, start it by hand — see
-> [§6.3](#63-starting-the-voice-service).
+> **One API port.** Since 2026-09-30 the API on 8000 serves every endpoint:
+> REST, the inbound webhook and internal-event endpoints, and the audio, video,
+> telephony and mobile WebSockets. The Unified Gateway that used to run on 8001
+> (and reverse-proxy REST to 8000) is merged into it, and the voice service that
+> once ran on 8002 is deleted. See
+> [02 §2.2](02-system-architecture.md#22-the-former-unified-gateway--merged-into-the-api).
 
 ---
 
@@ -181,7 +174,7 @@ Verify each service:
 |---|---|
 | Backend API | `curl -s localhost:8000/` → `{"message":"Welcome to HireBuddha Platform v2.0"}` |
 | Swagger | open `http://localhost:8000/docs` |
-| Gateway | `curl -s localhost:8001/` |
+| Health | `curl -s localhost:8000/api/v1/health` → `{"status":"ok","unmounted_routers":[]}` |
 | Frontend | open `http://localhost:3000` |
 | Worker booted | `.venv/bin/python -c "from src.ai.worker import WorkerSettings; print(len(WorkerSettings.functions), 'jobs;', len(WorkerSettings.cron_jobs), 'crons')"` |
 | Redis | `redis-cli ping` → `PONG` |
@@ -207,29 +200,25 @@ prints those as "next steps".
 
 ## 3. docker-compose
 
-[backend/docker-compose.yml](../../backend/docker-compose.yml) defines **four**
+[backend/docker-compose.yml](../../backend/docker-compose.yml) defines **three**
 services, but day-to-day you only start two of them.
 
 ```mermaid
 graph TB
     subgraph Compose["docker-compose.yml"]
-        GW["gateway - 8001<br/>build from Dockerfile"]
         APP["app - 8000<br/>build from Dockerfile"]
         DB[("db - pgvector/pgvector:pg15<br/>5433 to 5432")]
         RD[("redis - redis:7-alpine<br/>6379")]
     end
-    GW -->|depends_on| APP
-    GW -->|depends_on| RD
     APP -->|depends_on| DB
     APP -->|depends_on| RD
     DB --- V1[("postgres_data volume")]
     RD --- V2[("redis_data volume")]
 
-    style GW stroke-dasharray: 5 5
     style APP stroke-dasharray: 5 5
 ```
 
-Dashed services are defined but **not used in the normal workflow** — both
+The dashed service is defined but **not used in the normal workflow** — both
 `start_services.sh` and the setup script run the Python processes natively and
 bring up only `db` and `redis`:
 
@@ -241,7 +230,6 @@ docker compose up -d db redis
 
 | Service | Image / build | Ports | Volumes | Notes |
 |---|---|---|---|---|
-| `gateway` | build `.` / `Dockerfile` | `8001:8001` | — | `container_name: hirebuddha-unified-gateway` |
 | `app` | build `.` | `8000:8000` | `.:/app` (live mount) | `container_name: hirebuddha-backend` |
 | `db` | `pgvector/pgvector:pg15` | **`5433:5432`** | `postgres_data` | `container_name: hirebuddha-db` |
 | `redis` | `redis:7-alpine` | `6379:6379` | `redis_data` | `container_name: hirebuddha-redis` |
@@ -252,21 +240,21 @@ docker compose up -d db redis
 - From the host: `postgresql://postgres:postgres@localhost:5433/hirebuddha`
 - From inside a compose container: `postgresql://postgres:postgres@db:5432/hirebuddha`
 
-`.env.example` ships with `DATABASE_URL=...@localhost:5432/hirebuddha` — **port
-5432, which is wrong for host-based development.** Change it to `5433` or your
-migrations will hang trying to reach a non-existent local Postgres.
+`.env.example` ships with `DATABASE_URL=...@localhost:5433/hirebuddha`. (Until
+2026-09-30 it said 5432, which is wrong for host-based development — ON-02.)
 
-### 3.2 Gateway environment in compose
+### 3.2 API environment in compose
 
 ```yaml
-# backend/docker-compose.yml
+# backend/docker-compose.yml — the app service
 environment:
-  - BACKEND_URL=http://app:8000
-  - REDIS_URL=redis://redis:6379
-  - RATE_LIMIT=200/minute
   - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/hirebuddha
+  - REDIS_URL=redis://redis:6379
+  - SECRET_KEY=dev_secret_key_change_in_production
+  - ALGORITHM=HS256
+  - ACCESS_TOKEN_EXPIRE_MINUTES=30
+  - RATE_LIMIT=200/minute
   - INTERNAL_TOKEN=${INTERNAL_TOKEN:-change-me-in-production}
-  - JWT_SECRET=${SECRET_KEY:-change-me-in-production}
   - STREAMING_HOST=gateway.hirebuddha.com
   - STREAMING_PROTOCOL=wss
   - VIDEO_STREAMING_ENABLED=true
@@ -385,16 +373,14 @@ From [backend/.env.example](../../backend/.env.example):
 
 | Variable | Example value | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/hirebuddha` | Postgres DSN. ⚠️ **Change 5432 → 5433** for host dev |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5433/hirebuddha` | Postgres DSN (host port 5433) |
 | `REDIS_URL` | `redis://localhost:6379` | Redis DSN |
 | `SECRET_KEY` | `dev_secret_key_change_in_production` | JWT signing key |
 | `ALGORITHM` | `HS256` | JWT algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access-token lifetime |
-| `GATEWAY_PORT` | `8001` | Gateway bind port |
-| `BACKEND_URL` | `http://localhost:8000` | Where the gateway proxies REST |
+| `RATE_LIMIT` | `200/minute` | Per-client-IP limit on REST routes |
 | `INTERNAL_TOKEN` | `change-me-in-production` | Shared secret for `POST /internal/event` |
-| `JWT_SECRET` | `change-me-in-production` | Gateway-level auth for audio/video WS handshake |
-| `STREAMING_HOST` | `localhost:8001` | Public hostname used to build WS URLs for telephony |
+| `STREAMING_HOST` | `localhost:8000` | Host telephony reaches the API on; stream and callback URLs are built from it. `gateway.hirebuddha.com` in production |
 | `STREAMING_PROTOCOL` | `ws` | `ws` locally, `wss` in production |
 | `VIDEO_STREAMING_ENABLED` | `true` | WebRTC on/off |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | ICE servers |
@@ -435,23 +421,19 @@ requires a code change there, not just an env edit.
 ```mermaid
 flowchart TD
     A["Check backend/.env exists"] -->|missing| FAIL["Exit 1"]
-    A -->|present| B["1/5 docker compose up -d db redis"]
+    A -->|present| B["1/4 docker compose up -d db redis"]
     B --> C{"Port 8000 in use?"}
     C -->|yes| CS["Skip"]
-    C -->|no| C1["2/5 nohup uvicorn src.main:app --reload"]
+    C -->|no| C1["2/4 nohup uvicorn src.main:app --reload"]
     C1 --> C2["Write backend_api.pid, wait_for_service"]
-    CS --> D{"Port 8001 in use?"}
-    C2 --> D
-    D -->|yes| DS["Skip"]
-    D -->|no| D1["3/5 nohup uvicorn src.gateway.app:app --reload"]
-    DS --> E{"pgrep arq worker?"}
-    D1 --> E
+    CS --> E{"pgrep arq worker?"}
+    C2 --> E
     E -->|running| ES["Skip"]
-    E -->|no| E1["4/5 nohup python -m arq src.ai.worker.WorkerSettings"]
+    E -->|no| E1["3/4 nohup python -m arq src.ai.worker.WorkerSettings"]
     ES --> F{"Port 3000 in use?"}
     E1 --> F
     F -->|yes| FS["Skip"]
-    F -->|no| F1["5/5 nohup npm run dev -- --host 0.0.0.0"]
+    F -->|no| F1["4/4 nohup npm run dev -- --host 0.0.0.0"]
     FS --> G["Print summary"]
     F1 --> G
 ```
@@ -497,30 +479,24 @@ Docker — using a belt-and-braces approach per service:
 
 ```mermaid
 flowchart LR
-    S1["1/5 Frontend 3000"] --> S2["2/5 Arq worker"]
-    S2 --> S3["3/5 Backend 8000"]
-    S3 --> S4["4/5 Gateway 8001"]
-    S4 --> S5["5/5 docker compose down"]
+    S1["1/4 Frontend 3000"] --> S2["2/4 Arq worker"]
+    S2 --> S3["3/4 API 8000"]
+    S3 --> S5["4/4 docker compose down"]
 ```
 
 > ⚠️ It runs a blanket `pkill -f "uvicorn"`. If you have **any other uvicorn
-> application running on this machine**, it will be killed too. It also does not
-> stop the voice service explicitly — only the blanket `pkill` catches it.
+> application running on this machine**, it will be killed too — including a
+> gateway an older start script left on port 8001, which is the one time that
+> helps.
 
 `docker compose down` stops the containers but keeps the named volumes, so your
 data survives a stop/start cycle.
 
-### 6.3 Starting the voice service
+### 6.3 The voice service
 
-Not covered by the scripts. By hand:
-
-```bash
-cd backend && .venv/bin/python -m uvicorn src.voice.main:app --host 0.0.0.0 --port 8002 --reload
-```
-
-See [12 — Voice and telephony](12-voice-and-telephony.md).
-
----
+There is no separate voice process. The telephony webhooks and media-stream
+WebSockets are served by the API on 8000; the retired port-8002 service
+(`voice/main.py`) is deleted. See [12 — Voice and telephony](12-voice-and-telephony.md).
 
 ## 7. Production VM provisioning
 
@@ -577,56 +553,56 @@ commands work without `sudo`. The script warns about this.
 
 ## 8. Apache — reverse proxy and TLS
 
-Five subdomains, each with an HTTP and an HTTPS (`-le-ssl`) config, installed by
+Four subdomains, each with an HTTP and an HTTPS (`-le-ssl`) config, installed by
 [deploy/apache/setup_apache.sh](../../deploy/apache/setup_apache.sh).
 
 | Subdomain | Proxies to | Config |
 |---|---|---|
 | `app.hirebuddha.com` | `localhost:3000` | [app.hirebuddha.com-le-ssl.conf](../../deploy/apache/app.hirebuddha.com-le-ssl.conf) |
 | `dev.hirebuddha.com` | `localhost:3000` | [dev.hirebuddha.com-le-ssl.conf](../../deploy/apache/dev.hirebuddha.com-le-ssl.conf) |
-| `api.hirebuddha.com` | `localhost:8001` | [api.hirebuddha.com-le-ssl.conf](../../deploy/apache/api.hirebuddha.com-le-ssl.conf) |
-| `gateway.hirebuddha.com` | `localhost:8001` | [gateway.hirebuddha.com-le-ssl.conf](../../deploy/apache/gateway.hirebuddha.com-le-ssl.conf) |
-| `streaming.hirebuddha.com` | `localhost:8002` | [streaming.hirebuddha.com-le-ssl.conf](../../deploy/apache/streaming.hirebuddha.com-le-ssl.conf) |
+| `api.hirebuddha.com` | `localhost:8000` | [api.hirebuddha.com-le-ssl.conf](../../deploy/apache/api.hirebuddha.com-le-ssl.conf) |
+| `gateway.hirebuddha.com` | `localhost:8000` | [gateway.hirebuddha.com-le-ssl.conf](../../deploy/apache/gateway.hirebuddha.com-le-ssl.conf) |
 
-> ⚠️ **`api` and `gateway` both point at 8001. Nothing proxies to port 8000.**
-> Both vhosts `ProxyPass / http://localhost:8001/`
-> ([api.hirebuddha.com.conf:7](../../deploy/apache/api.hirebuddha.com.conf:7),
-> [gateway.hirebuddha.com.conf:7](../../deploy/apache/gateway.hirebuddha.com.conf:7)),
-> so `api.hirebuddha.com` and `gateway.hirebuddha.com` are two names for the
-> same Unified Gateway. The backend API on 8000 has **no public vhost** — it is
-> reachable only from inside the VM, which is exactly what
-> [02 §1](02-system-architecture.md#1-the-60-second-version) means by "nothing
-> external talks to port 8000 directly".
+> **`api` and `gateway` are two names for the API on 8000.** Until 2026-09-30
+> both pointed at the Unified Gateway on 8001, which proxied REST to 8000;
+> `streaming.hirebuddha.com` pointed at the retired voice service on 8002, where
+> nothing listened. The streaming vhosts are deleted. Both SSL API vhosts set
+> `RequestHeader set X-Forwarded-Proto "https"` so redirects the API builds stay
+> on `https` — the gateway used to follow redirects server-side, so browsers
+> never saw one.
 >
-> Two other places in the tree disagree and are **wrong about the `gateway`
-> row**: the root [README.md:46](../../README.md:46) routing table and the
-> [setup_apache.sh:156](../../deploy/apache/setup_apache.sh:156) banner both
-> claim `gateway.hirebuddha.com` → 8000 (Backend API). Both are right that
-> `api.hirebuddha.com` → 8001. Trust the `.conf` files — they are what Apache
-> actually loads.
+> **Deploying this change:** confirm `STREAMING_HOST=gateway.hirebuddha.com` and
+> `STREAMING_PROTOCOL=wss` in the VM's `backend/.env` *before* disabling the
+> `streaming.hirebuddha.com` site (`a2dissite`), in case any telephony URL still
+> names that host; stop the old gateway (`kill_port 8001` or `stop_services.sh`);
+> copy the updated vhosts; `apache2ctl configtest && systemctl reload apache2`.
 
 ### 8.1 The WebSocket upgrade pattern
 
-Every streaming vhost uses the same structure, and **order matters**:
+The `gateway.` vhost carries the WebSocket rules, and **order matters**:
 
 ```apache
 # deploy/apache/gateway.hirebuddha.com-le-ssl.conf
 ProxyPreserveHost On
 ProxyRequests Off
+RequestHeader set X-Forwarded-Proto "https"
 
 # ===== WebSocket Proxy (MUST come before regular proxy) =====
 RewriteEngine On
 RewriteCond %{HTTP:Upgrade} =websocket [NC]
-RewriteRule /stream/(.*) ws://127.0.0.1:8001/stream/$1 [P,L]
+RewriteRule /stream/(.*) ws://127.0.0.1:8000/stream/$1 [P,L]
 
 RewriteCond %{HTTP:Upgrade} =websocket [NC]
-RewriteRule /webhooks/voice/tata/(.*) ws://127.0.0.1:8001/webhooks/voice/tata/$1 [P,L]
+RewriteRule /webhooks/voice/tata/(.*) ws://127.0.0.1:8000/webhooks/voice/tata/$1 [P,L]
+
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteRule /mobile/ws$ ws://127.0.0.1:8000/mobile/ws [P,L]
 
 ProxyTimeout 86400
 
 # ===== Regular HTTP Proxy =====
-ProxyPass / http://localhost:8001/
-ProxyPassReverse / http://localhost:8001/
+ProxyPass / http://localhost:8000/
+ProxyPassReverse / http://localhost:8000/
 ```
 
 ```mermaid
@@ -647,9 +623,9 @@ Three things to remember:
   degrade to failed HTTP requests.
 - **`ProxyTimeout 86400`** (24 hours) keeps long-lived voice calls from being cut
   by the proxy.
-- **Two upgrade paths** are needed: the generic `/stream/*` and the Tata Tele
-  telephony path `/webhooks/voice/tata/*`, which starts as an HTTP webhook and
-  then upgrades on the same path prefix.
+- **Three upgrade paths** are needed: the generic `/stream/*`, the Tata Tele
+  telephony path `/webhooks/voice/tata/*` (which starts as an HTTP webhook and
+  then upgrades on the same path prefix), and the mobile push socket `/mobile/ws`.
 
 The `RewriteRule` targets use `127.0.0.1` while `ProxyPass` uses `localhost` —
 functionally the same here, just inconsistent.
@@ -664,18 +640,17 @@ SSLCertificateKeyFile /etc/letsencrypt/live/<domain>/privkey.pem
 Include /etc/letsencrypt/options-ssl-apache.conf
 ```
 
-> ⚠️ **`streaming.hirebuddha.com` uses `gateway.hirebuddha.com`'s certificate.**
-> Both `SSLCertificateFile` lines point at
-> `/etc/letsencrypt/live/gateway.hirebuddha.com/`. That will produce a hostname
-> mismatch unless the gateway certificate carries `streaming.hirebuddha.com` as
-> a SAN. Verify with:
+> ⚠️ **`api.hirebuddha.com` uses `gateway.hirebuddha.com`'s certificate.**
+> Its `SSLCertificateFile` points at `/etc/letsencrypt/live/gateway.hirebuddha.com/`.
+> That will produce a hostname mismatch unless the gateway certificate carries
+> `api.hirebuddha.com` as a SAN. Verify with:
 > ```bash
-> openssl s_client -connect streaming.hirebuddha.com:443 -servername streaming.hirebuddha.com < /dev/null 2>/dev/null | openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
+> openssl s_client -connect api.hirebuddha.com:443 -servername api.hirebuddha.com < /dev/null 2>/dev/null | openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
 > ```
 
-Both streaming vhosts also log to `example-error.log` / `example-access.log` —
-placeholder names that were never customised, so gateway and streaming traffic
-land in the same files.
+The `api.`, `gateway.` and `dev.` vhosts log to `example-error.log` /
+`example-access.log` — placeholder names that were never customised, so their
+traffic lands in the same files.
 
 Renewal is Certbot's own systemd timer. Verify with:
 
@@ -1188,7 +1163,7 @@ restarts only the one you killed.
 ### 16.3 Tail logs
 
 ```bash
-tail -f logs/backend_api.log logs/unified_gateway.log logs/arq_worker.log logs/frontend.log
+tail -f logs/backend_api.log logs/arq_worker.log logs/frontend.log
 ```
 
 ### 16.4 Inspect the Arq queue
@@ -1351,20 +1326,19 @@ a Redis-backed event bus, then moving artifacts to object storage.
 
 ## 19. Gotchas
 
-1. **PostgreSQL is on host port 5433, not 5432**, and `.env.example` ships with
-   5432. Fix it or nothing connects.
+1. **PostgreSQL is on host port 5433, not 5432.** `.env.example` says 5433; an
+   older `.env` copied from it may still say 5432.
 
-2. **`start_services.sh` does not start the voice service** despite the vhost and
-   README implying otherwise. Start port 8002 manually.
+2. **One API port.** Everything backend-facing — REST, webhooks, WebSockets — is
+   the API on 8000. Ports 8001 (gateway) and 8002 (voice) are gone.
 
 3. **`stop_services.sh` runs a blanket `pkill -f "uvicorn"`** — it will kill
    unrelated uvicorn apps on the same machine.
 
-4. **The README's `api`/`gateway` port mapping contradicts the Apache configs.**
-   The configs are right: `api` → 8000, `gateway` → 8001.
+4. **`api` and `gateway` both proxy to 8000.** They are two names for the API.
 
-5. **`streaming.hirebuddha.com` uses the gateway's TLS certificate.** Verify the
-   SAN list or expect hostname mismatches.
+5. **`api.hirebuddha.com` uses the gateway's TLS certificate.** Verify the SAN
+   list or expect hostname mismatches.
 
 6. **The Apache security config blocks `/uploads`**, which is a real static mount
    in `main.py`. Profile pictures will 403 in production.
@@ -1405,7 +1379,7 @@ a Redis-backed event bus, then moving artifacts to object storage.
 19. **`docker compose down -v` deletes your database.** Omit `-v`.
 
 20. **No firewall configuration exists in the repo.** Nothing restricts direct
-    access to ports 3000/8000/8001/8002/5433/6379 if the VM is internet-facing.
+    access to ports 3000/8000/5433/6379 if the VM is internet-facing.
     Confirm your cloud security groups do that job.
 
 ---

@@ -161,7 +161,10 @@ carries what is needed.
 
 ### VT-04 — Port 8002 is a ghost that Apache still points at
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `voice/main.py` and both
+`streaming.hirebuddha.com` vhosts are deleted; `STREAMING_HOST` defaults to the API
+(`localhost:8000`), and every provider URL is built by `voice/public_urls.py`. The media
+streams moved from the gateway into the API on 8000. Same fix as SA-01/SA-02/SA-12.
 
 `voice/main.py` is a complete FastAPI app with the three streaming WebSocket endpoints and
 even a helpful HTTP 426 diagnostic for a missing `mod_proxy_wstunnel`. Nothing starts it.

@@ -215,8 +215,9 @@ which is where new files already go.
 
 **📄 Doc-reported · High**
 
-Nothing restricts direct access to ports 3000, 8000, 8001, 5433 or 6379 if the VM is
-internet-facing. Redis in particular has no password
+Nothing restricts direct access to ports 3000, 8000, 5433 or 6379 if the VM is
+internet-facing. (Port 8001 no longer exists — the gateway was merged into the API on
+2026-09-30.) Redis in particular has no password
 ([SA-05](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-05--the-workers-redis-parser-throws-away-password-tls-and-database-index)
 notes the URL parser would discard one anyway).
 
@@ -261,10 +262,10 @@ things.
 | ID | Trap | Notes | Status |
 |---|---|---|---|
 | **IN-11** | `stop_services.sh` runs a blanket `pkill -f "uvicorn"` | Line 78. It kills **any** uvicorn process on the machine, not just this platform's. Dangerous on a shared or multi-app host | ✅ Verified |
-| **IN-12** | `.env.example` ships with port 5432 | Postgres is on host port **5433**. Nothing connects until it is fixed, and the error is a generic connection refusal. Also **D-45** | 📄 Doc-reported |
+| **IN-12** | `.env.example` ships with port 5432 | Postgres is on host port **5433**. Nothing connects until it is fixed, and the error is a generic connection refusal. Also **D-45** | ✅ fixed (2026-09-30) — `.env.example` says 5433 (rewritten with the single-port merge) |
 | **IN-13** | `backend/.env` exists in the working tree | It is `.gitignore`d (confirmed) and currently matches `.env.example` byte-for-byte. Safe today; the risk is someone adding real secrets to a file that already exists locally and assuming it is tracked | ✅ Verified |
 | **IN-14** | `npm install` requires `--legacy-peer-deps` | Without it, installation fails on React Three Fiber peer conflicts — for a dependency that powers a decorative background ([FE-17](16-FRONTEND-DEFECTS.md#fe-17--the-webgl-background-never-sleeps)) | 📄 Doc-reported |
-| **IN-15** | `streaming.hirebuddha.com` reuses the gateway certificate | So does `api.hirebuddha.com`. Renewing one certificate affects three hostnames, and a missing SAN entry produces a hostname mismatch. Also **D-43** context | 📄 Doc-reported |
+| **IN-15** | `streaming.hirebuddha.com` reuses the gateway certificate | So does `api.hirebuddha.com`. Renewing one certificate affects three hostnames, and a missing SAN entry produces a hostname mismatch. Also **D-43** context | 📄 Doc-reported · partly fixed (2026-09-30) — the streaming vhosts are deleted; `api.` still reuses the gateway certificate |
 | **IN-16** | Two competing `*:80` vhosts for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares one; `app.hirebuddha.com-le-ssl.conf` declares a **second** at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins | ✅ Verified |
 
 ---

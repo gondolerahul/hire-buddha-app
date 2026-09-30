@@ -557,19 +557,15 @@ class CampaignExecutor:
         # When Twilio connects the call, it will request this URL.
         # The webhook returns TwiML with <Connect><Stream> to establish
         # a WebSocket for bidirectional audio with our streaming service.
-        streaming_host = settings.STREAMING_HOST or "localhost:8002"
-        # Use HTTPS for production domains, HTTP only for localhost
-        protocol = "http" if streaming_host.startswith("localhost") else "https"
-        ws_protocol = "ws" if streaming_host.startswith("localhost") else "wss"
+        from src.voice.public_urls import callback_url
 
         # The TwiML URL that Twilio will fetch when the call connects
-        twiml_url = (
-            f"{protocol}://{streaming_host}/webhooks/voice/twilio/outbound-twiml"
-            f"?session_id={voice_session_id}"
+        twiml_url = callback_url(
+            f"/webhooks/voice/twilio/outbound-twiml?session_id={voice_session_id}"
         )
 
         # Status callback URL for call completion events
-        status_callback_url = f"{protocol}://{streaming_host}/webhooks/voice/twilio/status"
+        status_callback_url = callback_url("/webhooks/voice/twilio/status")
 
         # 3. Build request payload for Twilio REST API
         payload = {

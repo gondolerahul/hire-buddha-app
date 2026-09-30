@@ -409,7 +409,7 @@ async def unified_video_streaming(websocket: WebSocket):
             return
 
         # ── Step 3: Check aiortc availability ─────────────────────────────────
-        from src.gateway.gateway_config import settings
+        from src.common.config import settings
         webrtc_enabled = AIORTC_AVAILABLE and settings.VIDEO_STREAMING_ENABLED
 
         await websocket.send_text(json.dumps({

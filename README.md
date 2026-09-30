@@ -10,24 +10,25 @@
                           Internet
                              │
                      ┌───────▼───────┐
-                     │    Apache     │  SSL termination, reverse proxy
-                     │  (ports 80/443) │
-                     └──┬────┬────┬──┘
-                        │    │    │
-         ┌──────────────┘    │    └──────────────┐
-         ▼                   ▼                   ▼
-┌─────────────────┐ ┌────────────────┐ ┌─────────────────┐
-│ Unified Gateway │ │  Backend API   │ │    Frontend      │
-│  (Port 8001)    │ │  (Port 8000)   │ │   (Port 3000)   │
-│                 │ │                │ │                  │
-│ • REST proxy    │ │ • Auth & RBAC  │ │ • React 18 + TS  │
-│ • Webhooks      │ │ • AI Engine    │ │ • Entity Builder  │
-│ • Audio WS      │ │ • Billing      │ │ • Voice Campaigns │
-│ • Video WebRTC  │ │ • Tenant Mgmt  │ │ • Dashboard       │
-│ • Voice routing │ │ • Config       │ │ • 3D Animations   │
-└────────┬────────┘ └───────┬────────┘ └──────────────────┘
-         │                  │
-    ┌────┴──────────────────┴────┐
+                     │    Apache     │  SSL termination, reverse proxy,
+                     │ (ports 80/443)│  WebSocket upgrade
+                     └───┬───────┬───┘
+                         │       │
+          ┌──────────────┘       └──────────────┐
+          ▼                                     ▼
+┌──────────────────────┐              ┌──────────────────┐
+│        API           │              │    Frontend      │
+│    (Port 8000)       │              │   (Port 3000)    │
+│                      │              │                  │
+│ • REST /api/v1/*     │              │ • React 18 + TS  │
+│ • Auth, RBAC, Billing│              │ • Entity Builder │
+│ • AI Engine routers  │              │ • Voice Campaigns│
+│ • Webhooks, events   │              │ • Dashboard      │
+│ • Audio/Video/Voice  │              │ • 3D Animations  │
+│   WebSockets         │              │                  │
+└──────────┬───────────┘              └──────────────────┘
+           │
+    ┌──────┴─────────────────────┐
     │                            │
 ┌───▼────┐  ┌───────┐  ┌────────▼────────┐
 │ Redis  │  │  Arq  │  │  PostgreSQL     │
@@ -36,15 +37,19 @@
 └────────┘  └───────┘  └─────────────────┘
 ```
 
+Every backend endpoint — REST, inbound webhooks, internal events and the
+audio/video/telephony WebSockets — is served by the API on **one port, 8000**.
+(Until September 2026 a separate Unified Gateway ran on 8001 and proxied REST to
+8000; it is merged into the API.)
+
 ### Subdomain Routing
 
 | Subdomain | Target | Purpose |
 |-----------|--------|---------|
 | `app.hirebuddha.com` | localhost:3000 | Production frontend |
 | `dev.hirebuddha.com` | localhost:3000 | Development frontend |
-| `api.hirebuddha.com` | localhost:8001 | Unified AI Gateway |
-| `gateway.hirebuddha.com` | localhost:8000 | Backend API |
-| `streaming.hirebuddha.com` | localhost:8002 | Voice WebSocket streaming |
+| `gateway.hirebuddha.com` | localhost:8000 | API — REST, webhooks, WebSockets (the public API hostname) |
+| `api.hirebuddha.com` | localhost:8000 | API (alias; no WebSocket rules) |
 
 ---
 
@@ -124,9 +129,9 @@ hb-proto-3/
 │   │   ├── billing/       # Rates, ledger, credits, subscriptions
 │   │   ├── common/        # Shared utilities, middleware, security
 │   │   ├── config/        # Integration registry, task defaults
-│   │   ├── gateway/       # Unified AI Gateway (REST, WebSocket, webhooks)
+│   │   ├── gateway/       # Webhook, internal-event and streaming endpoints (mounted by main.py)
 │   │   ├── voice/         # Voice streaming, campaign executor
-│   │   ├── main.py        # Backend FastAPI app
+│   │   ├── main.py        # The API app — every endpoint, port 8000
 │   │   └── database.py    # DB connection
 │   ├── migrations/        # Alembic DB migrations
 │   ├── db-scripts/        # seed_admin_user.py, clean_db.sql
@@ -179,7 +184,7 @@ See `backend/.env.example` for the complete list of core settings:
 | `REDIS_URL` | Redis connection string |
 | `SECRET_KEY` | JWT signing key |
 | `CORS_ORIGINS` | Allowed CORS origins |
-| `STREAMING_HOST` | Public hostname for WebSocket URLs |
+| `STREAMING_HOST` | Public hostname telephony reaches the API on (stream and callback URLs) |
 | `INTERNAL_TOKEN` | Microservice auth token |
 
 ---

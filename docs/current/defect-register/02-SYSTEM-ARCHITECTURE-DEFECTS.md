@@ -62,7 +62,13 @@ someone remembered to override it.
 
 ### SA-01 — `STREAMING_HOST` defaults to a service that does not run
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — with the single-port merge. The default is
+`localhost:8000`, the one API that now serves the media streams; production sets
+`gateway.hirebuddha.com` / `wss`. The seven places that built a provider URL (six in
+`voice/webhook_router.py`, one in `campaign_executor.py`, each with its own
+`or "localhost:8002"` fallback, one hardcoding `wss://`, one ignoring
+`STREAMING_PROTOCOL`) now call `voice/public_urls.py` — `stream_url` and `callback_url`.
+Local `.env` said `localhost:8001` and was updated.
 
 `common/config.py` sets `STREAMING_HOST = "localhost:8002"` and
 `STREAMING_PROTOCOL = "ws"`. Port 8002 is the retired voice service. No script starts
@@ -82,7 +88,10 @@ telephony at a dead port, and the call fails at the WebSocket handshake.
 
 ### SA-02 — Apache still proxies `streaming.hirebuddha.com` to the dead port
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — both `streaming.hirebuddha.com`
+vhosts are deleted (W-1's decision) and dropped from `setup_apache.sh`; `gateway.` and
+`api.` now proxy to 8000. On the VM: confirm `STREAMING_HOST=gateway.hirebuddha.com`
+before `a2dissite` of the streaming site.
 
 `streaming.hirebuddha.com-le-ssl.conf` still has
 `ProxyPass / http://localhost:8002/` and two `RewriteRule`s pointing WebSocket
@@ -101,7 +110,9 @@ platform register.
 
 ### SA-03 — The gateway's default database port is wrong
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `UnifiedGatewaySettings` is deleted
+with the gateway; there is one settings class, whose `DATABASE_URL` has no default.
+`.env.example` now says 5433 too (ON-02, IN-12).
 
 `UnifiedGatewaySettings.DATABASE_URL` defaults to
 `postgresql+asyncpg://postgres:postgres@localhost:5432/hirebuddha`. Docker maps
@@ -253,7 +264,9 @@ returning 200.
 
 ### SA-10 — Neither the gateway nor the worker reports traces
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open — gateway half resolved (2026-09-30)** by the single-port merge:
+the webhook and streaming endpoints are now instrumented with the rest of the API
+(WebSocket scopes excluded — a span per audio frame). The worker still has no tracing.
 
 `setup_telemetry` is called on the last line of `main.py` — the Backend API only. The
 gateway has no OpenTelemetry instrumentation at all (it has a hand-rolled
@@ -271,9 +284,9 @@ the expensive work is the one with no distributed tracing.
 
 | ID | Delete | Why | Status |
 |---|---|---|---|
-| **SA-11** | [`gateway/main.py`](../../../backend/src/gateway/main.py) + [`gateway/config.py`](../../../backend/src/gateway/config.py) | 73 lines of superseded pure-proxy gateway plus its 10-line settings class. Nothing starts either. `config.py` is imported only by `main.py` | ✅ Verified |
-| **SA-12** | [`voice/main.py`](../../../backend/src/voice/main.py) | The retired port-8002 app. Blocked only on **W-1** in the platform register. The two routers it mounts (`webhook_router`, `messaging_router`) are already mounted by the backend | ✅ Verified |
-| **SA-13** | Both `streaming.hirebuddha.com` vhosts | See [SA-02](#sa-02--apache-still-proxies-streaminghirebuddhacom-to-the-dead-port) | ✅ Verified |
+| **SA-11** | `gateway/main.py` + `gateway/config.py` | 73 lines of superseded pure-proxy gateway plus its 10-line settings class. Nothing starts either. `config.py` is imported only by `main.py` | ✅ fixed (2026-09-30) — deleted with the single-port merge, together with the live gateway app (`gateway/app.py`), `gateway_config.py` and `auth_middleware.py` |
+| **SA-12** | `voice/main.py` | The retired port-8002 app. Blocked only on **W-1** in the platform register. The two routers it mounts (`webhook_router`, `messaging_router`) are already mounted by the backend | ✅ fixed (2026-09-30) — deleted. W-1 said to move its third router, `transcript_api` (`/api/calls/*`), onto the gateway; it had no authentication or company check and nothing called it, so by product decision it was deleted instead — transcripts are served by `GET /api/v1/streaming/voice-sessions/{id}` |
+| **SA-13** | Both `streaming.hirebuddha.com` vhosts | See [SA-02](#sa-02--apache-still-proxies-streaminghirebuddhacom-to-the-dead-port) | ✅ fixed (2026-09-30) — deleted |
 | **SA-14** | The duplicate `*:80` vhost for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares a port-80 vhost, and `app.hirebuddha.com-le-ssl.conf` declares a **second** one at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins, and it is not obvious which | ✅ Verified |
 | **SA-15** | The stale `worker.py` docstring | It says execution logic lives in `ai.core.execution_engine`. That module does not exist — `core/` has no `execution_engine.py`. The docstring sends every new reader to a file that was deleted | ✅ fixed (2026-09-30) — the docstring names `arq_jobs`, `campaign_worker`, `mobile.reconciler` and `AgentLoop` |
 
@@ -283,7 +296,9 @@ the expensive work is the one with no distributed tracing.
 
 ### SA-16 — Route order in the gateway is load-bearing and unguarded
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — by the single-port merge: there is no catch-all
+proxy any more. `tests/unit/test_single_port_app.py` fails if a `/{path:path}` route
+reappears.
 
 `gateway/app.py` ends with a catch-all `@app.api_route("/{path:path}")`. FastAPI
 matches in declaration order, so **any endpoint added below that line is unreachable**
@@ -302,7 +317,9 @@ merely discouraged.
 
 ### SA-17 — SSE only works if the path ends in `/stream`
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — by the single-port merge: the API streams SSE
+itself, with no relay to guess at. It sends the `Cache-Control: no-cache` and
+`X-Accel-Buffering: no` headers the relay used to add.
 
 The gateway decides whether to use the no-read-timeout relay path with:
 
@@ -338,7 +355,9 @@ A suspended company does not need to be detected within one request.
 
 ### SA-19 — Two CORS lists that must be kept in sync by hand
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-09-30)** — one list, `settings.CORS_ORIGINS`
+(default: the union of the two old lists, minus the API's own origin). `CORSMiddleware`
+is outermost, so 401/403/429 responses carry CORS headers.
 
 The Backend API has a hardcoded Python list in `main.py`. The gateway has
 `CORS_ORIGINS` from the environment. Both use `allow_credentials=True` with
@@ -397,6 +416,9 @@ Switching to `npm run build` plus an Apache `DocumentRoot` removes a whole proce
 the box.
 
 ### SA-I2 — One config object, one source of truth
+
+**Status: done (2026-09-30)** — `common.config.Settings` is the only settings class; the
+gateway's two are deleted.
 
 **Effect: medium.** There are three settings classes today: `common.config.Settings`,
 `gateway.gateway_config.UnifiedGatewaySettings`, and the legacy

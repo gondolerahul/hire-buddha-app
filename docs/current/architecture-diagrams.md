@@ -4,6 +4,8 @@
 > **Author:** Buddha Cognitive Lab  
 > **Last Updated:** July 2026  
 > **Status:** Architecture Reference — Visual Atlas
+>
+> **Update 2026-09-30:** the Unified Gateway (port 8001) was merged into the API on port 8000, and the voice service (port 8002) and the `streaming.hirebuddha.com` vhosts were deleted. Every endpoint — REST, webhooks, internal events and the audio/video/telephony WebSockets — is on port 8000. Port references to 8001 and 8002 below predate that; see [02 — System architecture §2.2](02-system-architecture.md#22-the-former-unified-gateway--merged-into-the-api).
 
 ---
 
@@ -44,9 +46,8 @@ graph TB
 
     subgraph Application["Application Layer"]
         REACT["⚛️ React Frontend<br/>localhost:3000<br/>app.hirebuddha.com"]
-        FASTAPI["⚡ FastAPI Backend<br/>localhost:8000<br/>Internal API"]
-        GATEWAY["🔌 Unified AI Gateway<br/>localhost:8001<br/>api.hirebuddha.com"]
-        VOICE["🎙️ Voice Server<br/>localhost:8002<br/>Audio Processing"]
+        FASTAPI["⚡ FastAPI API<br/>localhost:8000<br/>gateway / api.hirebuddha.com<br/>REST · webhooks · WebSockets"]
+        VOICE["🎙️ Voice pipeline<br/>in the API process<br/>Audio Processing"]
     end
 
     subgraph Data["Data & Queue Layer"]
@@ -64,9 +65,8 @@ graph TB
     CLIENT --> APACHE
     TWILIO --> APACHE
     APACHE -->|"ProxyPass /"| REACT
-    APACHE -->|"ProxyPass /api"| FASTAPI
-    APACHE -->|"ProxyPass ws://"| GATEWAY
-    GATEWAY --> VOICE
+    APACHE -->|"ProxyPass / and ws:// upgrades"| FASTAPI
+    FASTAPI --> VOICE
     FASTAPI --> PG
     FASTAPI --> REDIS
     REDIS --> ARQ

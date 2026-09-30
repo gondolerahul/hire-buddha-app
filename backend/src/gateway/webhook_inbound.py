@@ -12,8 +12,9 @@ Uses the Strategy Pattern to:
 
 Adding a new webhook source = add a new WebhookStrategy subclass.
 """
-from __future__ import annotations
-
+# No ``from __future__ import annotations``: the endpoint is wrapped by
+# ``limiter.exempt``, and FastAPI would resolve string annotations against the
+# wrapper's module (slowapi), turning ``request: Request`` into a query param.
 import hashlib
 import hmac
 import json
@@ -25,6 +26,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
+from src.common.rate_limit import limiter
 from src.gateway.event_bus import EventEnvelope, get_event_bus
 
 logger = logging.getLogger(__name__)
@@ -520,6 +522,7 @@ def detect_strategy(headers: dict, payload: dict) -> WebhookStrategy:
 # ===========================================================================
 
 @router.post("/webhook/inbound", status_code=202)
+@limiter.exempt
 async def unified_webhook_inbound(request: Request, background_tasks: BackgroundTasks):
     """
     Unified Webhook Receiver — Interface 2.

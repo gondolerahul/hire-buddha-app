@@ -42,8 +42,8 @@ Authentication is deliberately simple:
 flowchart TD
     Browser["Browser - React SPA"]
     LS["localStorage - access_token and refresh_token"]
-    GW["Gateway :8001 - GatewayAuthMiddleware"]
-    BE["Backend :8000 - FastAPI"]
+    GW["Apache - gateway.hirebuddha.com"]
+    BE["API :8000 - FastAPI"]
     SUSP["CompanySuspensionMiddleware"]
     DEP["get_current_user dependency"]
     ROLE["RoleChecker guard - optional"]
@@ -53,7 +53,7 @@ flowchart TD
 
     Browser -->|"Authorization: Bearer JWT"| GW
     LS -.->|"axios request interceptor"| Browser
-    GW -->|"transparent reverse proxy"| BE
+    GW -->|"reverse proxy"| BE
     BE --> SUSP
     SUSP -->|"not suspended"| DEP
     SUSP -->|"suspended"| Blocked403["403 Company is suspended"]
@@ -251,7 +251,7 @@ create_access_token(data={"sub": user.email, "company_id": str(user.company_id)}
 | Claim | Type | Source | Notes |
 |---|---|---|---|
 | `sub` | string | `user.email` | The **only** claim the validator reads. Not the user UUID — the email. |
-| `company_id` | string | `str(user.company_id)` | Read by `CompanySuspensionMiddleware` and by `GatewayAuthMiddleware`. **Ignored** by `get_current_user`. |
+| `company_id` | string | `str(user.company_id)` | Read by `CompanySuspensionMiddleware`. **Ignored** by `get_current_user`. |
 | `exp` | int | `utcnow() + ACCESS_TOKEN_EXPIRE_MINUTES` | Added by `create_access_token`. Verified by `jose`. |
 | `type` | string | *only* on email-verification tokens | Set by the verification-email path; checked at [service.py:286](../../backend/src/auth/service.py:286). |
 
@@ -267,11 +267,11 @@ There is **no** `iat`, `nbf`, `iss`, `aud`, `jti`, `role`, or `user_id` claim. T
 | `SECRET_KEY` | *required, no default* | [config.py:6](../../backend/src/common/config.py:6) | `dev_secret_key_change_in_production` |
 | `ALGORITHM` | `HS256` | [config.py:7](../../backend/src/common/config.py:7) | `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | [config.py:8](../../backend/src/common/config.py:8) | `30` |
-| `JWT_SECRET` (gateway only) | `change-me-in-production` | [gateway_config.py:35](../../backend/src/gateway/gateway_config.py:35) | `change-me-in-production` |
 
 `SECRET_KEY` is a symmetric HMAC secret — anyone who has it can mint tokens for any user.
+(The gateway on port 8001 used to decode tokens with its own `JWT_SECRET`, for
+logging only; it was merged into the API on 2026-09-30 and that setting is gone.)
 
-**Trap:** the backend signs with `SECRET_KEY` but the gateway decodes with a *different* variable, `JWT_SECRET`. In the checked-in `backend/.env` these two hold different values, so `GatewayAuthMiddleware._decode_jwt` always fails silently and `request.state.tenant.company_id` is always `None` on the REST path. That is harmless today (the gateway only uses it for logging) but it means gateway-level tenant metrics are empty.
 
 ### 4.4 Validation
 
@@ -823,10 +823,10 @@ Note it is copy-pasted rather than factored into a shared helper. There is no `v
 
 ```mermaid
 graph TB
-    subgraph L1["Layer 1 - Gateway :8001"]
-        G1["GatewayAuthMiddleware"]
-        G2["Extracts company_id for logging only"]
-        G3["ENFORCES NOTHING on REST"]
+    subgraph L1["Layer 1 - Apache and the API edge"]
+        G1["CORS, rate limit per client IP"]
+        G2["X-Internal-Token on /internal/event only"]
+        G3["ENFORCES NOTHING else on REST"]
     end
     subgraph L2["Layer 2 - Backend middleware"]
         M1["CompanySuspensionMiddleware"]
@@ -1030,34 +1030,29 @@ Nothing else — no billing job, no dunning process, no cron — ever sets `stat
 
 | Property | Value |
 |---|---|
-| Setting | `INTERNAL_TOKEN` on [gateway_config.py:32](../../backend/src/gateway/gateway_config.py:32) |
+| Setting | `INTERNAL_TOKEN` on [config.py](../../backend/src/common/config.py) |
 | Default | `"change-me-in-production"` — and `backend/.env` still holds exactly that |
 | Header | `X-Internal-Token` |
-| Comparison | `token != settings.INTERNAL_TOKEN` — a plain `!=`, not `hmac.compare_digest` |
-| Scope | Only paths starting with `/internal/event` |
-
-```python
-# backend/src/gateway/auth_middleware.py
-if path.startswith("/internal/event"):
-    token = request.headers.get("X-Internal-Token", "")
-    if token != settings.INTERNAL_TOKEN:
-        return _unauthorized("Invalid or missing X-Internal-Token")
-    tenant.is_internal = True
-    tenant.source_channel = "internal"
-```
-
-There is a second, belt-and-braces check as a dependency — `require_internal` at [auth_middleware.py:135](../../backend/src/gateway/auth_middleware.py:135) — which the endpoint uses:
+| Comparison | `hmac.compare_digest` — constant time |
+| Scope | `POST /internal/event` only |
 
 ```python
 # backend/src/gateway/internal_event.py
+def require_internal(x_internal_token: str = Header(default="")) -> None:
+    if not hmac.compare_digest(x_internal_token.encode(), settings.INTERNAL_TOKEN.encode()):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Internal-Token")
+
 async def unified_internal_event(
     event: InternalEvent,
     background_tasks: BackgroundTasks,
-    tenant: TenantContext = Depends(require_internal),
+    _: None = Depends(require_internal),
 ):
 ```
 
-`require_internal` does not re-check the secret; it only asserts that `request.state.tenant.is_internal` is `True`, which the middleware set. So the real gate is the middleware.
+Until 2026-09-30 the check lived in the gateway's `GatewayAuthMiddleware`, with a
+plain `!=` comparison, and `require_internal` only re-read a flag the middleware
+had set. The gateway was merged into the API and the middleware deleted; the
+dependency is now the gate, and FastAPI runs it before validating the body.
 
 ### 11.2 What the internal channel can do
 
@@ -1077,14 +1072,14 @@ graph TB
         ATTACKER["Anyone"]
     end
 
-    subgraph EDGE["Zone 1 - Gateway :8001 - GatewayAuthMiddleware"]
-        RESTP["/api/v1/* - passthrough, NOT enforced here"]
+    subgraph EDGE["Zone 1 - API edge :8000 - no user auth here"]
+        RESTP["/api/v1/* - enforced by route dependencies"]
         WH["/webhook/inbound - client_id query param"]
         STREAM["/stream/audio and /stream/video - client_id query param"]
         INTEP["/internal/event - X-Internal-Token ENFORCED"]
     end
 
-    subgraph APP["Zone 2 - Backend :8000 - real authorisation"]
+    subgraph APP["Zone 2 - API :8000 - real authorisation"]
         DEPS["get_current_user + RoleChecker"]
         SUSPM["CompanySuspensionMiddleware"]
         HANDLERS["Route handlers with company_id scoping"]
@@ -1117,8 +1112,8 @@ graph TB
 
 Boundary notes:
 
-- **Zone 1 does not authorise REST.** The middleware's own docstring says so: *"Missing / invalid credentials are NOT blocked here for REST / Webhook paths — the internal handlers enforce auth. Only /internal/event is blocked at middleware."* If the backend on port 8000 is reachable directly, bypassing the gateway changes nothing security-wise — which is good design, but it also means the gateway is not a security control.
-- **`/webhook/inbound` and `/stream/*` take `client_id` straight from a query parameter** with no verification at all ([auth_middleware.py:86-96](../../backend/src/gateway/auth_middleware.py:86)). The comment in the class docstring mentions "signature validation" for webhooks, but the middleware performs none — any signature checking has to happen inside the webhook handler.
+- **Zone 1 does not authorise REST.** Zones 1 and 2 are one process since the gateway merge; nothing in front of the routes checks a user. That was true of the gateway too (its middleware *"NOT blocked here for REST / Webhook paths"*) — the edge was never a security control.
+- **`/webhook/inbound` and `/stream/*` take `client_id` straight from the request** (a query parameter, or the WebSocket handshake) with no verification at all ([webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py), [audio_gateway.py](../../backend/src/gateway/audio_gateway.py)). Webhook signature validation is best-effort and never blocks.
 - **There is no mTLS, no service mesh, no network policy in this code.** The only thing separating zone 3 from zone 0 is the shared secret and whatever the deployment's firewall does.
 
 ---
@@ -1454,7 +1449,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 |---|---|---|
 | 1 | **`/api/v1/email/*` has no authentication whatsoever.** Read, create, delete, and validate another tenant's mailbox credentials by passing their `company_id` or `connection_id`. `validate` decrypts the stored app password and logs into the mailbox. | [email_router.py:94](../../backend/src/ai/email_router.py:94), [:159](../../backend/src/ai/email_router.py:159), [:179](../../backend/src/ai/email_router.py:179), [:204](../../backend/src/ai/email_router.py:204) |
 | 2 | **Privilege escalation via `PATCH /users/{id}`.** `UserUpdate` includes `role`, and the handler applies it after only a company-match check. A `tenant_admin` can promote themselves to `app_admin`. | [user_router.py:48-72](../../backend/src/auth/user_router.py:48), [schemas.py:70](../../backend/src/auth/schemas.py:70) |
-| 3 | **Production secrets are the committed defaults.** `SECRET_KEY=dev_secret_key_change_in_production`, `INTERNAL_TOKEN=change-me-in-production`, `JWT_SECRET=change-me-in-production` in `backend/.env`. Anyone with these mints tokens for any user and impersonates any tenant on `/internal/event`. | `backend/.env`, [gateway_config.py:32](../../backend/src/gateway/gateway_config.py:32) |
+| 3 | **Production secrets are the committed defaults.** `SECRET_KEY=dev_secret_key_change_in_production` and `INTERNAL_TOKEN=change-me-in-production` in `backend/.env`. Anyone with these mints tokens for any user and impersonates any tenant on `/internal/event`. | `backend/.env`, [config.py](../../backend/src/common/config.py) |
 | 4 | **Any authenticated user can suspend their own company**, locking out its admins. No role check on `PATCH /companies/{id}`. | [company_router.py:118](../../backend/src/auth/company_router.py:118) |
 
 ### High
@@ -1467,7 +1462,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | 8 | Access tokens cannot be revoked — no `jti`, no denylist. Valid until `exp`. | [security.py:18](../../backend/src/common/security.py:18) |
 | 9 | Password reset is frontend-only; the two endpoints do not exist. | [PasswordReset.tsx:23](../../frontend/src/pages/auth/PasswordReset.tsx:23) vs. empty backend grep |
 | 10 | No password policy server-side. `password: str`, no length or complexity rule. | [schemas.py:5](../../backend/src/auth/schemas.py:5) |
-| 11 | No rate limiting on `/auth/login`. The gateway's `200/minute` limiter is per remote IP and global, not per account, and the backend has none. | [app.py:79](../../backend/src/gateway/app.py:79) |
+| 11 | No rate limiting on `/auth/login` beyond the API-wide `200/minute` per client IP — nothing per account. | [rate_limit.py](../../backend/src/common/rate_limit.py) |
 | 12 | `is_active` and `is_verified` are never enforced at login. | [dependencies.py:16](../../backend/src/auth/dependencies.py:16) |
 | 13 | OAuth `state` is the provider name, not a CSRF nonce; account linking is by unverified email. | [oauth.service.ts:17](../../frontend/src/services/oauth.service.ts:17), [service.py:221](../../backend/src/auth/service.py:221) |
 
@@ -1475,16 +1470,16 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 
 | # | Gap | Evidence |
 |---|---|---|
-| 14 | `INTERNAL_TOKEN` compared with `!=`, not a constant-time compare. | [auth_middleware.py:80](../../backend/src/gateway/auth_middleware.py:80) |
+| 14 | ~~`INTERNAL_TOKEN` compared with `!=`, not a constant-time compare.~~ Fixed 2026-09-30: `hmac.compare_digest` in `require_internal`. | [internal_event.py](../../backend/src/gateway/internal_event.py) |
 | 15 | `social_connections.oauth_metadata` holds each platform's `client_secret` **unencrypted** in JSONB, while the tokens beside it are AES-GCM encrypted. | [social_connection_service.py:174](../../backend/src/ai/social_connection_service.py:174) |
 | 16 | `ENCRYPTION_MASTER_KEY` has a hard-coded 37-char default that is silently truncated to 32 bytes. | [config.py:9](../../backend/src/common/config.py:9), [security.py:40-44](../../backend/src/common/security.py:40) |
 | 17 | `CompanySuspensionMiddleware` swallows all exceptions — fails open on a DB error. | [middleware.py:49](../../backend/src/common/middleware.py:49) |
 | 18 | SSE stream takes the JWT as a **query parameter**, so it lands in access logs and browser history. | [ai/router.py:328](../../backend/src/ai/router.py:328), [dependencies.py:72](../../backend/src/auth/dependencies.py:72) |
 | 19 | `print()` debug statements in the auth path leak user emails to stdout. | [dependencies.py:18](../../backend/src/auth/dependencies.py:18), `:34`, `:44`, `:48` |
-| 20 | Gateway `JWT_SECRET` ≠ backend `SECRET_KEY`, so gateway JWT decode always fails silently. | `backend/.env` lines 6 and 18 |
+| 20 | ~~Gateway `JWT_SECRET` ≠ backend `SECRET_KEY`, so gateway JWT decode always fails silently.~~ Gone 2026-09-30 with the gateway and its `JWT_SECRET`. | — |
 | 21 | Tokens in `localStorage` — XSS-exposed. The `HttpOnly` refresh cookie already exists but is unused. | [api.client.ts:19](../../frontend/src/services/api.client.ts:19) |
 | 22 | Concurrent 401s each trigger their own refresh; rotation makes all but the first fail and force a logout. | [api.client.ts:35](../../frontend/src/services/api.client.ts:35) |
-| 23 | `/webhook/inbound` and `/stream/*` take `client_id` from an unverified query param despite the docstring promising signature validation. | [auth_middleware.py:86](../../backend/src/gateway/auth_middleware.py:86) |
+| 23 | `/webhook/inbound` and `/stream/*` take `client_id` from an unverified query param or handshake field; webhook signature validation never blocks. | [webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py) |
 
 ### Low / hygiene
 
@@ -1514,10 +1509,9 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | [backend/src/auth/onboarding_router.py](../../backend/src/auth/onboarding_router.py) | 171 | The 5-step wizard state machine on `companies.onboarding_*` |
 | [backend/src/common/security.py](../../backend/src/common/security.py) | 66 | Argon2 hashing, JWT mint/decode, AES-256-GCM key encryption |
 | [backend/src/common/middleware.py](../../backend/src/common/middleware.py) | 56 | `CompanySuspensionMiddleware` |
-| [backend/src/common/config.py](../../backend/src/common/config.py) | 95 | `Settings` — `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `ENCRYPTION_MASTER_KEY` |
-| [backend/src/gateway/auth_middleware.py](../../backend/src/gateway/auth_middleware.py) | 148 | `TenantContext`, `GatewayAuthMiddleware`, `require_internal`, `get_tenant` |
-| [backend/src/gateway/internal_event.py](../../backend/src/gateway/internal_event.py) | 192 | `POST /internal/event` and the in-process `emit_internal_event` helper |
-| [backend/src/gateway/gateway_config.py](../../backend/src/gateway/gateway_config.py) | 73 | `INTERNAL_TOKEN`, `JWT_SECRET`, CORS, rate limit |
+| [backend/src/common/config.py](../../backend/src/common/config.py) | 180 | `Settings` — `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `ENCRYPTION_MASTER_KEY`, `INTERNAL_TOKEN`, `CORS_ORIGINS`, `RATE_LIMIT` |
+| [backend/src/gateway/internal_event.py](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, and the in-process `emit_internal_event` helper |
+| [backend/src/common/rate_limit.py](../../backend/src/common/rate_limit.py) | 22 | The API-wide per-IP rate limit |
 | [backend/src/main.py](../../backend/src/main.py) | 141 | Router mounting and middleware registration order |
 | [frontend/src/hooks/useAuth.tsx](../../frontend/src/hooks/useAuth.tsx) | 123 | `AuthProvider` — session bootstrap, login, register, logout, onboarding redirect |
 | [frontend/src/services/api.client.ts](../../frontend/src/services/api.client.ts) | 71 | Axios instance with the bearer-token and 401-refresh interceptors |
@@ -1546,7 +1540,6 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 - **The OAuth buttons on the login page have no `onClick`.** The backend flow works; the UI never triggers it.
 - **`/api/v1/email/*` is completely unauthenticated.** Do not copy that router as a template — copy `social_router.py` instead.
 - **The gateway is not a security boundary for REST.** Its own docstring says the backend enforces auth. Only `/internal/event` is blocked at the gateway.
-- **`SECRET_KEY` and `JWT_SECRET` are different variables** that must hold the same value for gateway JWT parsing to work. Today they do not.
 - **Onboarding is enforced only at login, only for tenant roles.** Deep-linking to `/dashboard` skips it.
 
 ---

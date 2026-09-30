@@ -84,7 +84,8 @@ references, and discovers it only when a phone-numbers page 500s.
 
 ### ON-02 — Step 4 is "edit a file to fix a shipped default"
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `.env.example` ships with 5433 and the
+onboarding step now says the defaults work; `UnifiedGatewaySettings` is gone (SA-03).
 
 The setup diagram has a highlighted step: **"4. EDIT .env — change 5432 to 5433"**, and the
 prose calls it "the single most common day-one failure".
@@ -119,7 +120,8 @@ so the knowledge exists — it just is not part of the verification.
 
 ### ON-04 — The five-process table lists a process nothing starts
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — the table now lists four processes;
+the voice service is deleted and the gateway merged into the API on 8000.
 
 §1 states: *"Five processes on one VM — Backend 8000, Gateway 8001, **Voice 8002**, Arq
 worker, Vite 3000."*

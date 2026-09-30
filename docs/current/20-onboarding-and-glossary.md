@@ -51,7 +51,7 @@ Five facts that orient everything else:
 | Fact | Why it matters |
 |---|---|
 | ~75,000 lines of Python, ~25,000 lines of TypeScript | Large but navigable — see [§7](#7-how-to-find-things) |
-| Five processes on one VM | Backend 8000, Gateway 8001, Voice 8002, Arq worker, Vite 3000 |
+| Four processes on one VM | API 8000 (REST, webhooks, WebSockets), Arq worker, Vite 3000, Docker (Postgres 5433, Redis 6379) |
 | Everything is tenant-scoped by `company_id` | Get this wrong and you leak customer data |
 | Third-party credentials live **in the database**, not `.env` | Encrypted, per-company, no redeploy to change |
 | The AI kernel is heavily feature-flagged | 42 boolean + 5 numeric flags change behaviour at runtime |
@@ -67,7 +67,7 @@ is the condensed path.
 flowchart TD
     A["1. Clone"] --> B["2. cd backend && poetry install"]
     B --> C["3. cp .env.example .env"]
-    C --> C2["4. EDIT .env - change 5432 to 5433"]
+    C --> C2["4. review .env - defaults work locally"]
     C2 --> D["5. docker compose up -d db redis"]
     D --> E["6. alembic upgrade head"]
     E --> F["7. seed_admin_user.py"]
@@ -86,9 +86,9 @@ cd backend && python3 -m venv .venv && poetry install --no-interaction
 cp backend/.env.example backend/.env
 ```
 
-**Now edit `backend/.env` and change `DATABASE_URL` from port 5432 to 5433.**
-This is the single most common day-one failure — docker-compose maps Postgres to
-host port **5433**, but the example file says 5432.
+`DATABASE_URL` in the example already says port **5433**, which is where
+docker-compose maps Postgres on the host. (It said 5432 until 2026-09-30, the
+most common day-one failure — ON-02.)
 
 ```bash
 cd backend && docker compose up -d db redis
@@ -113,7 +113,7 @@ cd frontend && npm install --legacy-peer-deps
 ### 2.1 Verify
 
 ```bash
-curl -s localhost:8000/ && echo && curl -s localhost:8001/health && echo && redis-cli ping
+curl -s localhost:8000/ && echo && curl -s localhost:8000/api/v1/health && echo && redis-cli ping
 ```
 
 ```bash
@@ -133,7 +133,7 @@ Then open `http://localhost:3000` and `http://localhost:8000/docs`.
 
 | Symptom | Cause |
 |---|---|
-| Migrations hang | `DATABASE_URL` port is 5432, should be 5433 |
+| Migrations hang | `DATABASE_URL` port is 5432 (an old `.env`), should be 5433 |
 | `npm install` fails on peer deps | Missing `--legacy-peer-deps` |
 | `start_services.sh` exits immediately | `backend/.env` does not exist |
 | Port already in use | The script skips occupied ports — check `lsof -i :8000` |
@@ -445,7 +445,7 @@ in [15 §13](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue)
 
 ## 9. The ten things that surprise everyone
 
-1. **Postgres is on host port 5433**, and `.env.example` says 5432.
+1. **Postgres is on host port 5433**, not the default 5432.
 
 2. **Most gates fail open.** Credit checks, rate limiting, suspension
    middleware and duplicate detection all swallow non-fatal errors
@@ -474,9 +474,9 @@ in [15 §13](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue)
 8. **The frontend has two test files and no test runner** configured to execute
    them.
 
-9. **`start_services.sh` does not start the voice service**, and the gateway
-   claims the voice service is retired — but Apache still routes to it and 11
-   routes still exist there. Port 8002 is in an ambiguous state.
+9. **There is one backend port.** The API on 8000 serves REST, webhooks and every
+   WebSocket; the gateway (8001) was merged into it and the voice service (8002)
+   deleted on 2026-09-30.
 
 10. **Nine admin routes have a doubled path segment** — `/api/v1/ai/admin/admin/kpi/runs`
     is the real URL, not a typo.
@@ -578,7 +578,7 @@ Terms this codebase invents or uses in a specific way.
 | **APP / PARTNER / TENANT** | The three company types. |
 | **Integration Registry** | The encrypted per-company credential and pricing store. |
 | **Task default** | The mapping from a logical task type to a concrete model. |
-| **Gateway** | The port-8001 process handling streaming, webhooks and internal events. |
+| **Gateway** | The webhook, internal-event and streaming endpoints (`src/gateway/`), served by the API on 8000. Until 2026-09-30, a separate process on 8001 that also proxied REST. `gateway.hirebuddha.com` is the API's public hostname. |
 | **Internal token** | Shared secret for service-to-service calls to `/internal/event`. |
 | **Arq** | The Redis-backed async job queue. |
 | **Artifact** | A file the platform stores — user-uploaded or system-generated. |

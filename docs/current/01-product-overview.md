@@ -1826,7 +1826,6 @@ Honest boundaries, all verifiable by grep.
 | Database records as an agent context source | `ContextSourceType.DB_RECORDS` exists in the enum, and the UI panel is disabled with a **Coming Soon** badge |
 | Inbound webhook signature verification | Three `TODO`s in [webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py) — LinkedIn client secret, GitHub HMAC-SHA256, Facebook app secret are all unvalidated |
 | WhatsApp default sender lookup | `POST /messaging/send` has `# Use company's default number for provider (TODO: lookup from DB)` — you must supply `from_number` |
-| Voice service metrics | `backend/src/voice/main.py:105` — `# TODO: Implement actual metrics collection` |
 
 **Dead or superseded code still in the tree:**
 

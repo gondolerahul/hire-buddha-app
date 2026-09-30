@@ -4,7 +4,7 @@ Interface 3: Unified Internal Event Endpoint.
 Single endpoint: POST /internal/event
 
 Strictly for internal microservices (agents, cron jobs, vector DB, etc.).
-Authentication: X-Internal-Token shared secret (enforced by middleware).
+Authentication: X-Internal-Token shared secret (``require_internal``).
 
 Event types (examples):
   doc_indexed   — vector DB finished indexing a document
@@ -13,21 +13,31 @@ Event types (examples):
   build.done    — CI/CD or code pipeline completed
   custom.*      — any custom internal event
 """
-from __future__ import annotations
-
+# No ``from __future__ import annotations`` — see webhook_inbound.py.
+import hmac
 import logging
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.gateway.auth_middleware import require_internal, TenantContext
+from src.common.config import settings
+from src.common.rate_limit import limiter
 from src.gateway.event_bus import EventEnvelope, get_event_bus
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Internal Events"])
+
+
+def require_internal(x_internal_token: str = Header(default="")) -> None:
+    """Only a caller holding ``INTERNAL_TOKEN`` may post an internal event."""
+    if not hmac.compare_digest(x_internal_token.encode(), settings.INTERNAL_TOKEN.encode()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing X-Internal-Token",
+        )
 
 
 # ===========================================================================
@@ -92,16 +102,17 @@ class InternalEventResponse(BaseModel):
         "Returns 202 immediately; processing is async."
     ),
 )
+@limiter.exempt
 async def unified_internal_event(
     event: InternalEvent,
     background_tasks: BackgroundTasks,
-    tenant: TenantContext = Depends(require_internal),
+    _: None = Depends(require_internal),
 ):
     """
     Unified Internal Event Receiver — Interface 3.
 
     Receives typed events from internal systems (DB, cron, agents).
-    Authentication enforced via X-Internal-Token (checked by middleware).
+    Authentication enforced via X-Internal-Token (``require_internal``).
     """
     correlation_id = event.correlation_id or str(uuid.uuid4())
 

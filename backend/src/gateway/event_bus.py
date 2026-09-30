@@ -180,7 +180,7 @@ def get_event_bus() -> InMemoryEventBus:
     """Return (and lazily create) the global event bus instance."""
     global _bus
     if _bus is None:
-        from src.gateway.gateway_config import settings
+        from src.common.config import settings
         _bus = InMemoryEventBus(maxsize=settings.EVENT_BUS_MAXSIZE)
         logger.info("[EventBus] In-memory event bus initialized")
     return _bus

@@ -1,18 +1,18 @@
-# 13. The Unified Gateway & Real-Time Transport
+# 13. The Webhook & Real-Time Edge (formerly the Unified Gateway)
 
-> **What this document covers:** the separate gateway process on port 8001 — how it routes REST, webhooks, internal events, WebSocket audio, WebRTC video and Server-Sent Events, and how each transport behaves end to end.
+> **What this document covers:** the inbound-event and real-time endpoints of the API on port 8000 — webhooks, internal events, WebSocket audio, WebRTC video, the telephony media streams and Server-Sent Events — and how each transport behaves end to end. Until 2026-09-30 these ran in a separate gateway process on port 8001 that also reverse-proxied REST to the API; that process is merged into the API ([§5](#5-the-former-rest-proxy)).
 > **Who should read it:** anyone touching an endpoint the browser or an external system talks to, anyone debugging "the stream died", and anyone adding a new webhook provider or real-time channel.
-> **Prerequisites:** [02 — System architecture](02-system-architecture.md) for the process topology, [04 — Auth, RBAC & tenancy](04-auth-rbac-tenancy.md) for how the *backend* authenticates. Voice semantics (what happens to the audio once it arrives) live in [12 — Voice & telephony](12-voice-and-telephony.md).
+> **Prerequisites:** [02 — System architecture](02-system-architecture.md) for the process topology, [04 — Auth, RBAC & tenancy](04-auth-rbac-tenancy.md) for how the API authenticates. Voice semantics (what happens to the audio once it arrives) live in [12 — Voice & telephony](12-voice-and-telephony.md).
 
 ---
 
 ## Table of contents
 
 1. [The 60-second version](#1-the-60-second-version)
-2. [The gateway FastAPI app](#2-the-gateway-fastapi-app)
+2. [How the edge is mounted](#2-how-the-edge-is-mounted)
 3. [Configuration](#3-configuration)
-4. [Auth middleware — who gets in](#4-auth-middleware--who-gets-in)
-5. [The REST passthrough proxy](#5-the-rest-passthrough-proxy)
+4. [Auth at the edge — who gets in](#4-auth-at-the-edge--who-gets-in)
+5. [The former REST proxy](#5-the-former-rest-proxy)
 6. [The dispatcher](#6-the-dispatcher)
 7. [The event bus and internal events](#7-the-event-bus-and-internal-events)
 8. [Inbound webhooks](#8-inbound-webhooks)
@@ -23,45 +23,41 @@
 13. [Reverse proxy — Apache](#13-reverse-proxy--apache)
 14. [Scaling and state](#14-scaling-and-state)
 15. [Operational runbook](#15-operational-runbook)
+16. [Key files reference](#key-files-reference)
+17. [Gotchas and things that surprise newcomers](#gotchas-and-things-that-surprise-newcomers)
 
 ---
 
 ## 1. The 60-second version
 
-There are two FastAPI processes. The **backend** ([`src/main.py`](../../backend/src/main.py)) on
-port 8000 holds all the business logic, the database session, auth, RBAC and
-every `/api/v1/*` route. The **gateway** ([`src/gateway/app.py`](../../backend/src/gateway/app.py))
-on port 8001 sits in front of it and is the only thing the outside world talks to.
+There is one FastAPI process, the **API** ([`src/main.py`](../../backend/src/main.py)) on
+port 8000. It holds the business logic, the database session, auth, RBAC and every
+`/api/v1/*` route — and it is also the "edge": the endpoints external systems and
+real-time clients talk to. Those live in the `src/gateway/` package, which is now
+a set of routers the API mounts, not an app of its own:
 
-Why split them at all? Three reasons that show up in the code:
+| # | Interface | Path | Module |
+|---|-----------|------|--------|
+| 1 | Domain REST API | `/api/v1/*` | the API's own routers |
+| 2 | Unified webhook receiver | `POST /webhook/inbound` | [`webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) |
+| 3 | Internal event endpoint | `POST /internal/event` | [`internal_event.py`](../../backend/src/gateway/internal_event.py) |
+| 4 | Bidirectional audio | `WS /stream/audio` | [`audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) |
+| 5 | Bidirectional video (WebRTC signalling) | `WS /stream/video` | [`video_gateway.py`](../../backend/src/gateway/video_gateway.py) |
+| — | Telephony media streams | `WS /stream/twilio/{id}`, `WS /stream/tata/{id}`, `WS /webhooks/voice/tata/incoming` | [`telephony_streams.py`](../../backend/src/gateway/telephony_streams.py) |
+| — | Mobile push socket | `WS /mobile/ws` | [`mobile/push_gateway.py`](../../backend/src/mobile/push_gateway.py) |
+| — | Execution traces (SSE) | `GET /api/v1/ai/executions/{id}/stream` | [`ai/router.py`](../../backend/src/ai/router.py) |
 
-1. **Long-lived connections do not mix well with a request/response app.** Twilio
-   media streams, browser microphone streams and WebRTC signalling hold a socket
-   open for the length of a phone call. Keeping them in a separate process means a
-   backend deploy or a slow database query does not drop live calls.
-2. **One public surface, many protocols.** External systems (Twilio, HubSpot,
-   GitHub, Mailgun) need a stable public hostname. Everything lands on
-   `gateway.hirebuddha.com` and the gateway decides whether it is a proxied REST
-   call, a webhook, an internal event or a stream.
-3. **Rate limiting and CORS at the edge.** The gateway owns the shared Redis-backed
-   rate limiter so limits are enforced before a request costs the backend anything.
+Why was there a separate gateway at all? Its design argued three things: that
+long-lived sockets should not share a process with request/response traffic, that
+one public surface should front many protocols, and that CORS and rate limiting
+belonged at the edge. In practice the gateway imported the voice handlers and
+opened its own database sessions — it needed the whole codebase anyway — and the
+split added a proxy hop, a second settings class with drifting defaults, two CORS
+lists, and a catch-all route that swallowed anything declared after it. One
+public hostname (`gateway.hirebuddha.com`) still fronts every protocol; it now
+points at port 8000.
 
-The gateway's own docstring calls these "the 5 interfaces":
-
-```python
-# backend/src/gateway/app.py
-"""
-Unified AI Gateway — Main Application.
-...
-  1. /api/v1/*            Domain REST API (proxied to backend:8000)
-  2. /webhook/inbound     Unified Webhook Receiver (all external systems)
-  3. /internal/event      Internal Event Endpoint (microservices)
-  4. /stream/audio        Bidirectional Audio Streaming (Twilio/Tata/Exotel/Web)
-  5. /stream/video        Bidirectional Video Streaming (WebRTC SFU)
-"""
-```
-
-### Master diagram — everything that flows through the gateway
+### Master diagram — everything that flows through the edge
 
 ```mermaid
 graph TB
@@ -76,9 +72,10 @@ graph TB
         AP["mod_proxy + mod_proxy_wstunnel"]
     end
 
-    subgraph GW["Unified Gateway - uvicorn 8001"]
-        MW["GatewayAuthMiddleware -> CORS"]
-        R1["Catch-all REST proxy"]
+    subgraph API["API - uvicorn 8000"]
+        MW["CORS -> suspension check -> rate limit"]
+        REST["/api/v1 routers"]
+        SSE["GET /ai/executions/id/stream"]
         R2["POST /webhook/inbound"]
         R3["POST /internal/event"]
         R4["WS /stream/audio"]
@@ -86,11 +83,6 @@ graph TB
         R6["WS /stream/twilio and /stream/tata"]
         BUS["InMemoryEventBus - asyncio.Queue"]
         DISP["CentralDispatcher"]
-    end
-
-    subgraph Back["Backend - uvicorn 8000"]
-        API["FastAPI /api/v1 routers"]
-        SSE["GET /ai/executions/id/stream"]
     end
 
     subgraph State["Shared state"]
@@ -105,15 +97,14 @@ graph TB
     EXT --> AP
     SVC --> AP
     AP --> MW
-    MW --> R1
+    MW --> REST
+    MW --> SSE
     MW --> R2
     MW --> R3
     AP -.websocket upgrade.-> R4
     AP -.websocket upgrade.-> R5
     AP -.websocket upgrade.-> R6
 
-    R1 --> API
-    R1 -.SSE relay.-> SSE
     R2 --> BUS
     R3 --> BUS
     BUS --> DISP
@@ -122,127 +113,81 @@ graph TB
     WK --> PG
     WK -->|publish execution:run_id| RD
     RD --> SSE
-    SSE -.text/event-stream.-> R1
-    API --> PG
+    REST --> PG
     R4 --> PG
     R5 --> PG
 ```
 
-Read that diagram twice. The single most important thing it shows is that the
-gateway is a **fan-in point, not a brain**. Business logic is elsewhere. The
-gateway normalises, authenticates lightly, and hands off.
+The edge modules are a **fan-in point, not a brain**. Business logic is
+elsewhere. They normalise, authenticate lightly, and hand off.
 
 ---
 
-## 2. The gateway FastAPI app
+## 2. How the edge is mounted
 
-### 2.1 Two apps named "gateway"
-
-There are two gateway modules and only one of them runs:
-
-| Module | Lines | Status |
-|--------|-------|--------|
-| [`src/gateway/main.py`](../../backend/src/gateway/main.py) | 73 | **Legacy.** The original thin HTTP proxy. Nothing starts it. Kept for reference. |
-| [`src/gateway/app.py`](../../backend/src/gateway/app.py) | 436 | **Live.** The unified multi-protocol gateway. This is what `uvicorn src.gateway.app:app` serves. |
-
-Both are launched the same way in principle, but only `app.py` appears in
-[`start_services.sh:108`](../../start_services.sh:108) and
-[`backend/docker-compose.yml`](../../backend/docker-compose.yml):
-
-```bash
-# start_services.sh:108
-nohup "$BACKEND_DIR/.venv/bin/python" -m uvicorn src.gateway.app:app \
-    --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/unified_gateway.log" 2>&1 &
-```
-
-If you find yourself editing `main.py`, stop — you are editing dead code.
-
-### 2.2 App assembly, in order
-
-The order below is exactly the order the statements appear in `app.py`, and the
-order matters for middleware.
+### 2.1 In `main.py`
 
 ```python
-# backend/src/gateway/app.py:80-134
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=[settings.RATE_LIMIT],
-    storage_uri=settings.REDIS_URL,
-)
-
-app = FastAPI(
-    title="HireBuddha Unified AI Gateway",
-    version="2.0.0",
-    lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
+# backend/src/main.py
+app = FastAPI(title="HireBuddha Platform", version="0.2.0", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(CompanySuspensionMiddleware)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, ...)
-app.add_middleware(GatewayAuthMiddleware)
-
-app.include_router(webhook_router)         # Interface 2
-app.include_router(internal_event_router)  # Interface 3
-app.include_router(audio_router)           # Interface 4
-app.include_router(video_router)           # Interface 5
+...
+app.include_router(mobile_push_router)                    # WS /mobile/ws
+...
+mount_optional(app, "src.gateway.webhook_inbound")        # POST /webhook/inbound
+mount_optional(app, "src.gateway.internal_event")         # POST /internal/event
+mount_optional(app, "src.gateway.telephony_streams")      # WS /stream/twilio|tata/{id}, ...
+mount_optional(app, "src.gateway.audio_gateway")          # WS /stream/audio
+mount_optional(app, "src.gateway.video_gateway")          # WS /stream/video
+mount_optional(app, "src.gateway.status")                 # GET /metrics/gateway
 ```
 
-### 2.3 Middleware stack — the ordering trap
+The edge routers go through `mount_optional`
+([`common/router_mounts.py`](../../backend/src/common/router_mounts.py)): if one
+fails to import, the API still boots, that router's paths answer 404, and
+`GET /api/v1/health` names it under `unmounted_routers`.
 
-Starlette's `add_middleware` **prepends**. The middleware added *last* is the
-*outermost* layer and runs *first*. So the effective request path is:
+### 2.2 Middleware
 
-```mermaid
-flowchart LR
-    REQ["Incoming HTTP request"] --> AUTH["GatewayAuthMiddleware - added last, runs first"]
-    AUTH --> CORS["CORSMiddleware"]
-    CORS --> RL["slowapi limiter - decorator only, proxy route"]
-    RL --> ROUTE["Matched route handler"]
-    ROUTE --> RESP["Response"]
-    AUTH -->|401 short-circuit| RESP401["JSONResponse 401 - no CORS headers"]
-```
+Starlette's `add_middleware` **prepends**: the middleware added *last* runs
+*first*. So a request meets `CORSMiddleware`, then `CompanySuspensionMiddleware`,
+then `SlowAPIMiddleware`, then the route. CORS is outermost on purpose — it
+answers preflights before anything else and decorates every response, so a 401,
+403 or 429 reaches a browser as itself rather than as an opaque CORS failure. (On
+the gateway the auth middleware ran before CORS and its 401s carried no CORS
+headers.)
 
-That short-circuit branch is a real trap: when `GatewayAuthMiddleware` rejects a
-request to `/internal/event`, it returns a `JSONResponse` *before*
-`CORSMiddleware` ever sees it, so the 401 carries no `Access-Control-Allow-Origin`
-header. A browser calling that endpoint sees an opaque CORS failure rather than a
-clean 401. Server-to-server callers (the actual intended users of that endpoint)
-are unaffected.
+All three are HTTP-only: WebSocket connections pass straight through — see
+[section 4.3](#43-the-websocket-blind-spot).
 
-WebSocket connections skip the stack entirely — see [section 4.3](#43-the-websocket-blind-spot).
-
-### 2.4 Startup and shutdown lifecycle
+### 2.3 Startup and shutdown lifecycle
 
 ```python
-# backend/src/gateway/app.py:54-73
+# backend/src/main.py
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Unified Gateway starting up...")
-    bus = get_event_bus()
-    logger.info(f"[Startup] Event bus ready (type=memory, maxsize={bus._maxsize})")
+    from src.gateway.dispatcher import get_dispatcher
+
     dispatcher = get_dispatcher()
     await dispatcher.start()
-    logger.info("[Startup] Central AI Dispatcher ready")
-    yield  # App is running
-    logger.info("Unified Gateway shutting down...")
+    yield
     await dispatcher.stop()
-    logger.info("[Shutdown] Dispatcher stopped")
 ```
 
 ```mermaid
 sequenceDiagram
     participant U as uvicorn
-    participant A as gateway app
+    participant A as API app
     participant B as InMemoryEventBus
     participant D as CentralDispatcher
     participant R as Redis
 
     U->>A: ASGI lifespan startup
-    A->>B: get_event_bus - lazily construct singleton
-    B-->>A: bus with maxsize from EVENT_BUS_MAXSIZE
     A->>D: get_dispatcher then start
     D->>R: aioredis.from_url REDIS_URL
     alt Redis reachable
@@ -251,7 +196,7 @@ sequenceDiagram
     else Redis down
         D->>D: log warning, session cache disabled, keep going
     end
-    D->>B: subscribe and spawn dispatcher-event-consumer task
+    D->>B: get_event_bus, subscribe, spawn dispatcher-event-consumer task
     A-->>U: ready, serving traffic
 
     Note over U,R: ... requests served ...
@@ -262,47 +207,37 @@ sequenceDiagram
     D->>R: aclose
 ```
 
-Two details worth knowing:
+**Redis is optional at startup.** [`dispatcher.py`](../../backend/src/gateway/dispatcher.py)
+swallows the connection error and logs a warning. The API boots without Redis;
+you only discover the problem when the agent cache and arq enqueue fail later.
 
-- **Redis is optional at startup.** [`dispatcher.py:79`](../../backend/src/gateway/dispatcher.py:79)
-  swallows the connection error and logs a warning. The gateway boots without
-  Redis; you only discover the problem when the agent cache and arq enqueue fail
-  later.
-- **`@app.on_event("shutdown")` is silently ignored.** [`app.py:330`](../../backend/src/gateway/app.py:330)
-  registers `close_proxy_client` with the deprecated decorator, but because a
-  custom `lifespan` was passed to `FastAPI(...)`, Starlette 0.36 never calls
-  `Router.shutdown()`. The proxy `httpx.AsyncClient` is therefore never closed.
-  Harmless at process exit, but do not add cleanup logic there expecting it to run.
-
-### 2.5 Route table
-
-Routes are matched in registration order, and the catch-all proxy is registered
-**last** on purpose.
+### 2.4 Route table
 
 | Method | Path | Handler | Purpose |
 |--------|------|---------|---------|
-| `GET` | `/` | [`root`](../../backend/src/gateway/app.py:151) | Service banner listing the five interfaces. |
-| `GET` | `/health` | [`health_check`](../../backend/src/gateway/app.py:166) | Liveness + event bus stats. |
-| `GET` | `/metrics/gateway` | [`gateway_metrics`](../../backend/src/gateway/app.py:179) | Event bus stats + active video sessions. |
-| `GET` | `/docs`, `/redoc`, `/openapi.json` | FastAPI built-ins | Gateway's own OpenAPI (not the backend's). |
-| `POST` | `/webhook/inbound` | [`unified_webhook_inbound`](../../backend/src/gateway/webhook_inbound.py:522) | Interface 2. |
-| `POST` | `/internal/event` | [`unified_internal_event`](../../backend/src/gateway/internal_event.py:95) | Interface 3. |
-| `WS` | `/stream/audio` | [`unified_audio_streaming`](../../backend/src/gateway/audio_gateway.py:55) | Interface 4. |
-| `WS` | `/stream/video` | [`unified_video_streaming`](../../backend/src/gateway/video_gateway.py:348) | Interface 5. |
-| `WS` | `/webhooks/voice/tata/incoming` | [`tata_websocket_incoming`](../../backend/src/gateway/app.py:200) | Tata Tele direct media stream. |
-| `WS` | `/stream/twilio/{session_id}` | [`twilio_stream_websocket`](../../backend/src/gateway/app.py:237) | Back-compat Twilio media stream. |
-| `WS` | `/stream/tata/{session_id}` | [`tata_stream_websocket`](../../backend/src/gateway/app.py:273) | Back-compat Tata media stream. |
-| `*` | `/{path:path}` | [`proxy_to_backend`](../../backend/src/gateway/app.py:342) | Interface 1. Everything else → backend:8000. |
+| `GET` | `/health`, `/api/v1/health` | [`health`](../../backend/src/common/router_mounts.py) | Liveness + routers that failed to mount. |
+| `GET` | `/metrics/gateway` | [`gateway_metrics`](../../backend/src/gateway/status.py) | Event bus stats + active video sessions. |
+| `POST` | `/webhook/inbound` | [`unified_webhook_inbound`](../../backend/src/gateway/webhook_inbound.py) | Interface 2. |
+| `POST` | `/internal/event` | [`unified_internal_event`](../../backend/src/gateway/internal_event.py) | Interface 3. |
+| `WS` | `/stream/audio` | [`unified_audio_streaming`](../../backend/src/gateway/audio_gateway.py) | Interface 4. |
+| `WS` | `/stream/video` | [`unified_video_streaming`](../../backend/src/gateway/video_gateway.py) | Interface 5. |
+| `WS` | `/webhooks/voice/tata/incoming` | [`tata_websocket_incoming`](../../backend/src/gateway/telephony_streams.py) | Tata Tele direct media stream (the HTTP webhook on the same path is `voice/webhook_router.py`). |
+| `WS` | `/stream/twilio/{session_id}` | [`twilio_stream_websocket`](../../backend/src/gateway/telephony_streams.py) | Twilio media stream. |
+| `WS` | `/stream/tata/{session_id}` | [`tata_stream_websocket`](../../backend/src/gateway/telephony_streams.py) | Tata media stream. |
+| `WS` | `/mobile/ws` | [`mobile_push_socket`](../../backend/src/mobile/push_gateway.py) | Mobile dialer push socket. |
 
-The `/health` response is worth memorising because it is the first thing you curl:
+There is no catch-all route. `GET /metrics/gateway` is declared before the
+Prometheus `/metrics` mount that `setup_telemetry` adds last, which would
+otherwise match it.
+
+`/metrics/gateway` is worth memorising because it is the first thing you curl
+when webhooks go missing:
 
 ```json
 {
-  "status": "healthy",
-  "service": "unified-gateway",
-  "version": "2.0.0",
-  "interfaces": ["rest", "webhook", "internal_event", "audio", "video"],
-  "event_bus": {"consumer_count": 1, "total_published": 12, "total_dropped": 0}
+  "event_bus": {"consumer_count": 1, "total_published": 12, "total_dropped": 0},
+  "active_video_sessions": 0,
+  "video_sessions": {}
 }
 ```
 
@@ -313,176 +248,78 @@ consumer task died and every webhook you receive will be dropped.
 
 ## 3. Configuration
 
-### 3.1 `config.py` versus `gateway_config.py`
-
-| File | Class | Used by | Notes |
-|------|-------|---------|-------|
-| [`config.py`](../../backend/src/gateway/config.py) | `GatewaySettings` | Only the legacy [`main.py`](../../backend/src/gateway/main.py) | 3 settings. Dead alongside `main.py`. |
-| [`gateway_config.py`](../../backend/src/gateway/gateway_config.py) | `UnifiedGatewaySettings` | The live app and every gateway module | 17 settings. **This is the one you edit.** |
-
-Both are pydantic-settings classes reading from the process environment and
-`backend/.env`, with `extra="ignore"` so unrelated backend variables do not
-break startup.
-
-### 3.2 Every setting in `UnifiedGatewaySettings`
+The edge reads the one settings class, `common.config.Settings`. Until the merge
+the gateway had its own `UnifiedGatewaySettings` (and a legacy `GatewaySettings`),
+which redeclared `DATABASE_URL`, `REDIS_URL` and `STREAMING_HOST` with different
+defaults — its `DATABASE_URL` pointed at port 5432, not the compose file's 5433.
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `BACKEND_URL` | `http://localhost:8000` | Base URL of the main FastAPI app. The REST proxy's `httpx` base_url. In Docker this becomes `http://app:8000`. |
-| `REDIS_URL` | `redis://localhost:6379` | Three jobs: slowapi rate-limit storage, the dispatcher's agent cache, and the arq queue DSN. |
-| `RATE_LIMIT` | `200/minute` | slowapi limit string. Applied per client IP on the REST proxy route only. |
-| `GATEWAY_PORT` | `8001` | Only read by the `__main__` block at [`app.py:433`](../../backend/src/gateway/app.py:433). uvicorn is normally given `--port` explicitly. |
-| `STREAMING_HOST` | `localhost:8001` | Public host used to build `wss://` URLs handed to telephony providers. Set to `gateway.hirebuddha.com` in production. |
-| `STREAMING_PROTOCOL` | `wss` | Scheme for those URLs. |
-| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/hirebuddha` | Needed because the audio/video handlers open real DB sessions in-process. |
+| `REDIS_URL` | **required** | Rate-limit storage, the dispatcher's agent cache, the arq queue (via [`common/job_queue.py`](../../backend/src/common/job_queue.py)). |
+| `RATE_LIMIT` | `200/minute` | slowapi limit per client IP, every REST route; `/webhook/inbound` and `/internal/event` are exempt. |
+| `CORS_ORIGINS` | 6 origins incl. `localhost:3000`, `dev/app/gateway.hirebuddha.com` | Comma-separated; exposed as `cors_origins_list`. |
+| `STREAMING_HOST` | `localhost:8000` | Public host used to build the `ws(s)://` URLs handed to telephony providers ([`voice/public_urls.py`](../../backend/src/voice/public_urls.py)). Set to `gateway.hirebuddha.com` in production. |
+| `STREAMING_PROTOCOL` | `ws` | Scheme for those URLs; `wss` in production (then HTTP callbacks are `https`). |
 | `INTERNAL_TOKEN` | `change-me-in-production` | Shared secret for `X-Internal-Token` on `/internal/event`. |
-| `JWT_SECRET` | `change-me-in-production` | Used to *decode* (not enforce) bearer tokens for logging. Must equal the backend's `SECRET_KEY` for decoding to succeed. |
-| `JWT_ALGORITHM` | `HS256` | Matches the backend. |
-| `EVENT_BUS_TYPE` | `memory` | Declared but **never read anywhere**. `get_event_bus()` always builds `InMemoryEventBus`. Kafka is aspirational. |
 | `EVENT_BUS_MAXSIZE` | `1000` | Per-consumer `asyncio.Queue` bound. Beyond it, events are dropped with a warning. |
 | `VIDEO_STREAMING_ENABLED` | `True` | Kill switch for `/stream/video` media (signalling still answers). |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
 | `TURN_SERVER_URL` | `""` | Appended to the ICE server list when set. |
 | `TURN_USERNAME` | `""` | Declared but **never used** — `RTCIceServer` is built with `urls` only. |
 | `TURN_CREDENTIAL` | `""` | Same: declared, never used. Authenticated TURN will not work as written. |
-| `CORS_ORIGINS` | 6 origins incl. `localhost:3000`, `dev/app/gateway.hirebuddha.com` | Comma-separated; exposed as `cors_origins_list`. |
 
-Two derived properties do the splitting:
+Gone with the gateway: `BACKEND_URL` (the proxy target), `GATEWAY_PORT`,
+`JWT_SECRET` / `JWT_ALGORITHM` (a second copy of the JWT key, used only to decode
+tokens for logging) and `EVENT_BUS_TYPE` (never read). A `.env` that still sets
+them is harmless — `extra="ignore"`.
 
-```python
-# backend/src/gateway/gateway_config.py:64-70
-@property
-def cors_origins_list(self) -> list[str]:
-    return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
-
-@property
-def stun_servers_list(self) -> list[str]:
-    return [s.strip() for s in self.STUN_SERVERS.split(",") if s.strip()]
-```
-
-### 3.3 How the gateway learns about its neighbours
-
-```mermaid
-flowchart TD
-    ENV["Process env + backend/.env"] --> S["UnifiedGatewaySettings"]
-    S -->|BACKEND_URL| P["httpx.AsyncClient base_url -> backend 8000"]
-    S -->|REDIS_URL| RL["slowapi storage"]
-    S -->|REDIS_URL| AC["Dispatcher agent cache - gateway:agent:client:channel"]
-    S -->|REDIS_URL| ARQ["arq RedisSettings.from_dsn -> job queue"]
-    S -->|DATABASE_URL| DB["Audio and video handlers open AsyncSessionLocal"]
-    S -->|INTERNAL_TOKEN| AUTH["GatewayAuthMiddleware internal check"]
-    S -->|JWT_SECRET| DEC["Best-effort JWT decode for logging"]
-    S -->|CORS_ORIGINS| CORS["CORSMiddleware allow_origins"]
-    S -->|STUN and TURN| ICE["RTCConfiguration iceServers"]
-```
-
-Notice what is **not** there: there is no service registry and no health probe of
-the backend. The gateway discovers the backend purely through `BACKEND_URL` and
-finds out it is down only when a proxied request raises `httpx.RequestError`,
-at which point it returns `503`.
-
-Note also that the gateway reaches the *voice* subsystem by importing it directly
+The edge reaches the *voice* subsystem by importing it directly
 ([`src.voice.websocket_handler`](../../backend/src/voice/websocket_handler.py),
-[`src.voice.session_manager`](../../backend/src/voice/session_manager.py)) rather
-than over the network. The gateway process therefore needs the full backend
-codebase and database access, not just a URL. See [12 — Voice & telephony](12-voice-and-telephony.md).
+[`src.voice.session_manager`](../../backend/src/voice/session_manager.py)); see
+[12 — Voice & telephony](12-voice-and-telephony.md).
 
 ---
 
-## 4. Auth middleware — who gets in
-
-[`auth_middleware.py`](../../backend/src/gateway/auth_middleware.py) is 148 lines
-and does much less than the name suggests. Its own docstring is honest about it:
-
-```python
-# backend/src/gateway/auth_middleware.py:66-69
-"""
-Missing / invalid credentials are NOT blocked here for REST / Webhook paths —
-the internal handlers enforce auth. Only /internal/event is blocked at middleware.
-"""
-```
+## 4. Auth at the edge — who gets in
 
 ### 4.1 The rules, exactly
 
-| Path prefix | Credential checked | Blocked on failure? | `TenantContext` populated |
-|-------------|--------------------|---------------------|---------------------------|
-| `/internal/event` | `X-Internal-Token` header must equal `settings.INTERNAL_TOKEN` (exact string compare) | **Yes — 401** | `is_internal=True`, `source_channel="internal"` |
-| `/webhook/inbound` | None. `?client_id=` query param is read as-is | No | `company_id=<client_id>`, `is_webhook=True`, `source_channel="webhook"` |
-| `/stream/audio`, `/stream/video` | None. `?client_id=` query param read | No | `company_id`, `source_channel="audio"`/`"video"` — **but see 4.3** |
-| everything else (`/api/v1/*`, `/health`, `/webhooks/voice/*`, …) | `Authorization: Bearer <jwt>` decoded best-effort, or `X-API-Key` recorded | No | `user_id` and `company_id` from JWT claims if decode succeeds; `source_channel="rest"` |
+| Path | Credential checked | Blocked on failure? |
+|------|--------------------|---------------------|
+| `/internal/event` | `X-Internal-Token` header compared with `settings.INTERNAL_TOKEN` in constant time (`require_internal`) | **Yes — 401** |
+| `/webhook/inbound` | None. `?client_id=` query param is read as-is | No |
+| `/stream/audio`, `/stream/video` | None beyond the handshake's `client_id` — **see 4.3** | No |
+| `/api/v1/*` and everything else | The route's own dependencies (`get_current_user`, `RoleChecker`) — see [04](04-auth-rbac-tenancy.md) | Per route |
 
-`TenantContext` is a plain dataclass attached to `request.state.tenant`:
-
-```mermaid
-classDiagram
-    class TenantContext {
-        +str company_id
-        +str user_id
-        +bool is_internal
-        +bool is_webhook
-        +str source_channel
-        +str raw_token
-    }
+```python
+# backend/src/gateway/internal_event.py
+def require_internal(x_internal_token: str = Header(default="")) -> None:
+    if not hmac.compare_digest(x_internal_token.encode(), settings.INTERNAL_TOKEN.encode()):
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Internal-Token")
 ```
 
-### 4.2 The decision flow
+FastAPI resolves this dependency before it validates the body, so an
+unauthenticated caller gets a 401, not a schema error.
 
-```mermaid
-flowchart TD
-    START(["Request arrives"]) --> P{"path startswith"}
-    P -->|/internal/event| I1{"X-Internal-Token == INTERNAL_TOKEN"}
-    I1 -->|no| R401["401 JSONResponse - Unauthorized"]
-    I1 -->|yes| ICTX["tenant.is_internal = true"]
+### 4.2 What the gateway's middleware used to do
 
-    P -->|/webhook/inbound| W1["tenant.company_id = query client_id"]
-    W1 --> WCTX["tenant.is_webhook = true - no rejection possible"]
-
-    P -->|/stream/audio or /stream/video| S1["tenant.company_id = query client_id"]
-    S1 --> SCTX["source_channel = audio or video"]
-
-    P -->|anything else| A1{"Authorization header"}
-    A1 -->|Bearer token| A2["_decode_jwt with JWT_SECRET"]
-    A2 -->|decoded| A3["user_id = sub, company_id = claim"]
-    A2 -->|failed| A4["leave context empty - still allowed"]
-    A1 -->|X-API-Key| A5["record raw_token only"]
-    A1 -->|neither| A4
-
-    ICTX --> NEXT["call_next -> route handler"]
-    WCTX --> NEXT
-    SCTX --> NEXT
-    A3 --> NEXT
-    A4 --> NEXT
-    A5 --> NEXT
-```
-
-The only hard gate is the internal token. Everything else is *observability*:
-the middleware is extracting a tenant id so logs and future rate limits can be
-keyed on it. Real authentication for `/api/v1/*` happens after the proxy hop, in
-the backend's own dependencies — see [04 — Auth, RBAC & tenancy](04-auth-rbac-tenancy.md).
-
-Two FastAPI dependencies re-expose the context to route handlers:
-
-| Dependency | Behaviour |
-|------------|-----------|
-| [`require_internal`](../../backend/src/gateway/auth_middleware.py:135) | Raises 401 unless `tenant.is_internal`. Used by `/internal/event`. Belt-and-braces on top of the middleware. |
-| [`get_tenant`](../../backend/src/gateway/auth_middleware.py:146) | Returns the context or an empty one. Currently unused by any route. |
+`GatewayAuthMiddleware` classified every request into a channel (`internal`,
+`webhook`, `audio`/`video`, `rest`), blocked `/internal/event` without the token,
+and JWT-decoded every other bearer token with a separate `JWT_SECRET` to fill a
+`TenantContext` that no route read. It is deleted; the token check is the
+`require_internal` dependency above.
 
 ### 4.3 The WebSocket blind spot
 
-`GatewayAuthMiddleware` extends `BaseHTTPMiddleware`, and Starlette's
-`BaseHTTPMiddleware.__call__` passes any scope whose type is not `"http"`
-straight through to the inner app. WebSocket handshakes have
-`scope["type"] == "websocket"`.
-
-**Therefore the `/stream/audio` and `/stream/video` branch of the middleware
-never executes for an actual WebSocket connection.** It would only fire if
-something made a plain HTTP request to those paths.
-
-The stream handlers do not compensate. [`audio_gateway.py:98`](../../backend/src/gateway/audio_gateway.py:98)
-reads `token = handshake.get("token", "")` from the handshake JSON and then
-**never uses the variable**. [`video_gateway.py`](../../backend/src/gateway/video_gateway.py:391)
-does not even read it. The only gate on opening an audio or video session is
-that `client_id` resolves to some non-archived entity for that company:
+The HTTP middleware (`BaseHTTPMiddleware` subclasses and CORS) passes any scope
+whose type is not `"http"` straight through; WebSocket handshakes have
+`scope["type"] == "websocket"`. So nothing in front of the stream handlers checks
+anything, and the handlers do not compensate.
+[`audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) reads
+`token = handshake.get("token", "")` from the handshake JSON and then **never
+uses the variable**. [`video_gateway.py`](../../backend/src/gateway/video_gateway.py)
+does not even read it. The only gate on opening an audio or video session is that
+`client_id` resolves to some non-archived entity for that company:
 
 ```mermaid
 flowchart LR
@@ -497,133 +334,27 @@ flowchart LR
 Anyone who knows a company UUID can open a streaming session. Treat this as a
 known gap, not a design; do not build on the assumption that the token is checked.
 CORS also does not apply to WebSockets, so browser origin is not restricted either.
+(`/mobile/ws` is different: it authenticates the access token in its first
+message and closes with 4001 otherwise.)
 
 ---
 
-## 5. The REST passthrough proxy
+## 5. The former REST proxy
 
-Interface 1 is a catch-all reverse proxy. It is deliberately the last route
-registered so that every specific gateway route wins first.
+Interface 1 used to be a catch-all reverse proxy in the gateway,
+`@app.api_route("/{path:path}")`, forwarding everything the gateway did not serve
+itself to `BACKEND_URL` (port 8000) over httpx. It is gone; the SPA's REST calls
+reach the API's routers directly. What it did, and what its removal changed:
 
-### 5.1 Request transformation
-
-```python
-# backend/src/gateway/app.py:342-357
-async def proxy_to_backend(request: Request, path: str):
-    url = f"/{path}"
-    if request.query_params:
-        url += f"?{request.query_params}"
-
-    headers = dict(request.headers)
-    headers.pop("host", None)            # let httpx set Host for backend
-    headers.pop("content-length", None)  # let httpx recompute
-    content = await request.body()
-```
-
-| Step | What happens |
-|------|--------------|
-| Path | Rebuilt verbatim as `/{path}`; the gateway strips nothing. `/api/v1/x` reaches the backend as `/api/v1/x`. |
-| Query string | Re-appended verbatim, including `?token=…` used by SSE. |
-| Headers | All forwarded except `host` and `content-length`. `Authorization`, cookies and `X-API-Key` pass straight through — the backend does the real auth. |
-| Body | Read fully into memory (`await request.body()`), then re-sent. Large uploads are buffered twice. |
-| Redirects | `follow_redirects=True` on the client, so 3xx from the backend is chased server-side. |
-| Timeout | 60 s read, 10 s connect (`httpx.Timeout(60.0, connect=10.0)`) — except for SSE, see below. |
-| Failure | `httpx.RequestError` → `503` with `{"error": "Backend unavailable", "detail": "..."}`. |
-
-The client is created lazily so ASGI tests can import the app without opening
-sockets:
-
-```python
-# backend/src/gateway/app.py:317-327
-def _get_proxy_client() -> httpx.AsyncClient:
-    global _proxy_client
-    if _proxy_client is None:
-        _proxy_client = httpx.AsyncClient(
-            base_url=settings.BACKEND_URL,
-            timeout=httpx.Timeout(60.0, connect=10.0),
-            follow_redirects=True,
-        )
-    return _proxy_client
-```
-
-### 5.2 Sequence — a normal proxied REST call
-
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant AP as Apache 443
-    participant GW as Gateway 8001
-    participant MW as GatewayAuthMiddleware
-    participant HX as httpx AsyncClient
-    participant BE as Backend 8000
-    participant PG as PostgreSQL
-
-    B->>AP: GET /api/v1/ai/entities with Bearer JWT
-    AP->>GW: proxied HTTP, ProxyPreserveHost On
-    GW->>MW: dispatch
-    MW->>MW: decode JWT best-effort, set request.state.tenant
-    MW->>GW: call_next
-    GW->>GW: slowapi limiter check against Redis
-    Note over GW: no specific route matches -> catch-all
-    GW->>HX: request GET /api/v1/ai/entities, headers minus host
-    HX->>BE: HTTP/1.1
-    BE->>BE: get_current_user, RBAC, tenant scoping
-    BE->>PG: SELECT ... WHERE company_id = ...
-    PG-->>BE: rows
-    BE-->>HX: 200 application/json
-    HX-->>GW: Response object
-    GW-->>AP: Response content, status, headers copied verbatim
-    AP-->>B: 200 with CORS headers
-```
-
-### 5.3 The SSE special case
-
-A normal `proxy.request()` buffers the whole response. An SSE stream never
-completes, so buffering it means the read timeout fires after 60 s and the
-browser gets a 503. The proxy detects SSE and switches to a live relay:
-
-```python
-# backend/src/gateway/app.py:364-405
-wants_sse = (
-    path.endswith("/stream")
-    or "text/event-stream" in headers.get("accept", "")
-)
-if wants_sse:
-    req = proxy.build_request(
-        method=request.method, url=url, headers=headers, content=content,
-        timeout=httpx.Timeout(None, connect=10.0),  # no read timeout for SSE
-    )
-    upstream = await proxy.send(req, stream=True)
-    ...
-    return StreamingResponse(
-        _relay_sse(), status_code=200, media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # disable proxy buffering (nginx/apache)
-        },
-    )
-```
-
-```mermaid
-flowchart TD
-    REQ["Proxied request"] --> D{"path ends with /stream OR Accept contains text/event-stream"}
-    D -->|no| BUF["proxy.request - buffered - 60s read timeout"]
-    BUF --> RESP["Response with upstream body, status, headers"]
-    D -->|yes| BR["build_request with timeout read=None"]
-    BR --> SEND["proxy.send stream=True"]
-    SEND --> ST{"upstream status == 200"}
-    ST -->|no| PASS["read body, close, return upstream status verbatim"]
-    ST -->|yes| RELAY["StreamingResponse over aiter_raw"]
-    RELAY --> HDR["adds Cache-Control no-cache, Connection keep-alive, X-Accel-Buffering no"]
-```
-
-Two caveats:
-
-- The detection is a heuristic. Any future backend route ending in `/stream`
-  that is *not* SSE will also be relayed unbuffered.
-- `X-Accel-Buffering: no` is an **nginx** convention. Apache ignores it. The
-  reason SSE works behind Apache anyway is discussed in [section 13](#13-reverse-proxy--apache).
+| Proxy behaviour | Now |
+|-----------------|-----|
+| Declared last because FastAPI matches in order — any route added below it was silently proxied and 404'd (SA-16) | No catch-all; route order does not matter |
+| SSE relayed unbuffered only when the path ended in `/stream` or the client sent `Accept: text/event-stream`; otherwise buffered until a 60 s read timeout and answered 503 (SA-17) | The API streams the response itself. It sends the `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers the relay used to add |
+| 60 s read timeout on every other request | No application timeout; Apache's applies |
+| Followed backend redirects server-side (`follow_redirects=True`), so the browser never saw one | The browser receives the redirect. Apache sets `X-Forwarded-Proto: https` on the SSL vhosts so it keeps the `https` scheme |
+| Read the whole body into memory and re-sent it; copied upstream headers verbatim | Nothing in between |
+| `503 {"error": "Backend unavailable"}` when port 8000 was down | Apache's 503 when the API is down |
+| slowapi limit on the proxy route only | The same limit on every REST route via `SlowAPIMiddleware` |
 
 ---
 
@@ -677,7 +408,7 @@ job_id = job.job_id if job else "queued"
 
 Creating a pool per event is wasteful but simple. If *anything* in that block
 throws — Redis down, arq missing — the dispatcher falls back to running the work
-**inside the gateway process**:
+**inside the API process**:
 
 ```python
 # backend/src/gateway/dispatcher.py:184-190
@@ -690,9 +421,10 @@ except Exception as exc:
 ```
 
 That fallback runs a full `AgentLoop` — LLM calls, tool calls, database writes —
-on the gateway's event loop. It is a safety valve, not a mode you want in
-production: a busy fallback will starve live audio sessions sharing the same loop.
-Grep for `job_id="in_process"` / the warning line when the gateway feels slow.
+on the API's event loop. It is a safety valve, not a mode you want in
+production: a busy fallback will starve live audio sessions and REST requests
+sharing the same loop. Grep for `job_id="in_process"` / the warning line when the
+API feels slow.
 
 The worker-side job is
 [`process_gateway_event`](../../backend/src/ai/core/arq_jobs.py:163), registered in
@@ -756,11 +488,11 @@ stateDiagram-v2
 
 ### 7.1 It is in-process, not Redis
 
-This is the single most misread part of the gateway. The docstring for
+This is the single most misread part of the edge. The docstring for
 [`event_bus.py`](../../backend/src/gateway/event_bus.py) says "Async Event Bus —
 In-process implementation using `asyncio.Queue`", and that is literally all it is.
-`EVENT_BUS_TYPE` exists in config but is never read; `get_event_bus()`
-unconditionally returns an `InMemoryEventBus`.
+`get_event_bus()` unconditionally returns an `InMemoryEventBus` (the gateway's
+`EVENT_BUS_TYPE` setting, never read, went with it).
 
 | Property | Value |
 |----------|-------|
@@ -789,7 +521,7 @@ flowchart TB
     DISP -->|arq enqueue_job| RQ[("Redis - arq queue")]
     RQ --> WORK["Arq worker process - process_gateway_event"]
     WORK --> DB[("PostgreSQL")]
-    DISP -.fallback when arq fails.-> INPROC["AgentLoop inside gateway process"]
+    DISP -.fallback when arq fails.-> INPROC["AgentLoop inside the API process"]
 ```
 
 The dropped-event counter is exposed on `/health` and `/metrics/gateway`:
@@ -891,10 +623,10 @@ sequenceDiagram
 
 There is also a direct in-process helper,
 [`emit_internal_event`](../../backend/src/gateway/internal_event.py:157), that
-skips HTTP. **Nothing calls it.** Worse, if you call it from the backend or the
-arq worker it will publish into *that* process's bus, which has no dispatcher
-subscribed, so the event is silently counted as dropped. From outside the gateway
-process, use the HTTP endpoint.
+skips HTTP. **Nothing calls it.** Worse, if you call it from the arq worker it
+will publish into *that* process's bus, which has no dispatcher subscribed, so the
+event is silently counted as dropped. From outside the API process, use the HTTP
+endpoint.
 
 ---
 
@@ -1116,7 +848,7 @@ sequenceDiagram
     participant PG as PostgreSQL
 
     BR->>AP: WS upgrade /stream/audio
-    AP->>AG: ws://127.0.0.1:8001/stream/audio
+    AP->>AG: ws://127.0.0.1:8000/stream/audio
     AG->>AG: accept
     BR->>AG: text connect with provider=web, client_id
     AG->>D: resolve_agent_for_client
@@ -1297,10 +1029,10 @@ This is how the Execution Detail page shows an agent run unfolding live.
 
 ### 11.1 Endpoint and stream format
 
-The producer lives on the **backend**, not the gateway:
+The producer is an ordinary API route:
 [`GET /api/v1/ai/executions/{execution_id}/stream`](../../backend/src/ai/router.py:324).
-The browser reaches it through the gateway's SSE relay path
-([section 5.3](#53-the-sse-special-case)).
+The browser reaches it through Apache directly; until the merge it went through
+the gateway's SSE relay ([section 5](#5-the-former-rest-proxy)).
 
 ```python
 # backend/src/ai/router.py:324-364
@@ -1368,8 +1100,8 @@ data: {"type": "run_end", "outcome": "COMPLETED", "iters": 4, "total_cost_usd": 
 ### 11.2 Who publishes to `execution:{run_id}`
 
 Every producer writes JSON to the same Redis channel. This is genuine Redis
-pub/sub — unlike the gateway's in-process event bus — which is why a run
-executing in the arq worker can stream to a browser attached to the backend.
+pub/sub — unlike the edge's in-process event bus — which is why a run
+executing in the arq worker can stream to a browser attached to the API.
 
 | Publisher | File | Payload `type` values |
 |-----------|------|----------------------|
@@ -1489,8 +1221,7 @@ const streamUrl = `${_API_BASE}/ai/executions/${run.id}/stream`;
 ```
 
 with `_API_BASE` defaulting to `https://gateway.hirebuddha.com/api/v1`. So the
-browser talks to the gateway, the gateway relays from the backend, the backend
-relays from Redis.
+browser talks to the API (through Apache), and the API relays from Redis.
 
 ```mermaid
 flowchart LR
@@ -1498,9 +1229,8 @@ flowchart LR
     G["GovernanceService HITL"] -->|publish| RD
     T["TraceRecorder spans"] -->|publish| RD
     S["AIService cancel"] -->|publish| RD
-    RD -->|pubsub.listen| BE["Backend GET /ai/executions/id/stream"]
-    BE -->|text/event-stream| GW["Gateway SSE relay, no read timeout"]
-    GW -->|text/event-stream| ES["Browser EventSource"]
+    RD -->|pubsub.listen| BE["API GET /ai/executions/id/stream"]
+    BE -->|text/event-stream via Apache| ES["Browser EventSource"]
     ES --> HK["useAgentEvents parse"]
     HK --> RED["executionEventReducer"]
     RED --> UI["Iteration timeline, span tree, cost panel"]
@@ -1512,9 +1242,9 @@ flowchart LR
 
 | Transport | Where | Direction | Used for | Why this one |
 |-----------|-------|-----------|----------|--------------|
-| **REST** (proxied HTTP) | `/{path:path}` → backend:8000 | request/response | Every `/api/v1/*` call: CRUD on entities, runs, billing, config | Cacheable, debuggable, the backend already speaks it. Zero state in the gateway. |
+| **REST** | `/api/v1/*` on the API | request/response | Every `/api/v1/*` call: CRUD on entities, runs, billing, config | Cacheable, debuggable, stateless. |
 | **HTTP POST, fire-and-forget** | `/webhook/inbound`, `/internal/event` | inbound only, `202` | External systems and internal services triggering agents | Providers demand fast ACKs. Work is deferred to the bus and arq. |
-| **SSE** | `/api/v1/ai/executions/{id}/stream` relayed | server → browser | Live execution traces, iteration timeline, HITL prompts | One-way, text-only, survives plain HTTP proxies, auto-reconnects in the browser, no extra client library. |
+| **SSE** | `/api/v1/ai/executions/{id}/stream` | server → browser | Live execution traces, iteration timeline, HITL prompts | One-way, text-only, survives plain HTTP proxies, auto-reconnects in the browser, no extra client library. |
 | **WebSocket, JSON frames** | `/stream/twilio/*`, `/stream/tata/*`, `/webhooks/voice/tata/incoming`, `/stream/audio` with telephony providers | bidirectional | Telephony media (base64 mulaw in JSON) | The wire format is dictated by Twilio and its clones. |
 | **WebSocket, binary frames** | `/stream/audio` with `provider=web` | bidirectional | Browser microphone in, TTS out | Raw PCM16 avoids base64's 33% overhead on a latency-critical path. |
 | **WebSocket, signalling only** | `/stream/video` | bidirectional JSON | SDP/ICE exchange | WebRTC needs an out-of-band signalling channel; WS is the standard choice. |
@@ -1544,10 +1274,14 @@ Configs live in [`deploy/apache/`](../../deploy/apache) and are installed by
 | Hostname | Upstream | Notes |
 |----------|----------|-------|
 | `app.hirebuddha.com` | `localhost:3000` | The React app. |
-| `gateway.hirebuddha.com` | `localhost:8001` | The gateway. **The only vhost with WebSocket rewrite rules.** |
-| `api.hirebuddha.com` | `localhost:8001` | Alias onto the gateway. No WS rules — WebSockets fail here. |
-| `dev.hirebuddha.com` | see config | Dev environment. |
-| `streaming.hirebuddha.com` | `localhost:8002` | Points at the **retired** port-8002 streaming service. Nothing listens there any more (`start_services.sh` starts 8000, 8001, 3000 and the arq worker only). Stale config. |
+| `gateway.hirebuddha.com` | `localhost:8000` | The API. **The only vhost with WebSocket rewrite rules.** |
+| `api.hirebuddha.com` | `localhost:8000` | Alias onto the API. No WS rules — WebSockets fail here. |
+| `dev.hirebuddha.com` | `localhost:3000` | Dev environment. |
+
+`streaming.hirebuddha.com` pointed at the retired port-8002 voice service, where
+nothing listened; its vhosts are deleted. Both API vhosts' SSL configs set
+`RequestHeader set X-Forwarded-Proto "https"`, so redirects the API builds keep
+the `https` scheme (uvicorn trusts forwarded headers from `127.0.0.1`).
 
 ```mermaid
 graph TB
@@ -1557,24 +1291,17 @@ graph TB
     subgraph VM["Production VM"]
         AP["Apache 80 and 443"]
         FE["Vite dev/static 3000"]
-        GW["Gateway 8001"]
-        BE["Backend 8000"]
+        BE["API 8000"]
         WK["Arq worker"]
         RD["Redis 6379"]
         PG["Postgres 5433"]
-        X8002["port 8002 - nothing listening"]
     end
 
     U -->|app.hirebuddha.com| AP
     U -->|gateway.hirebuddha.com| AP
     U -->|api.hirebuddha.com| AP
-    U -->|streaming.hirebuddha.com| AP
     AP --> FE
-    AP --> GW
-    AP -.stale vhost.-> X8002
-    GW --> BE
-    GW --> RD
-    GW --> PG
+    AP --> BE
     BE --> PG
     BE --> RD
     RD --> WK
@@ -1586,20 +1313,24 @@ graph TB
 # deploy/apache/gateway.hirebuddha.com-le-ssl.conf
 ProxyPreserveHost On
 ProxyRequests Off
+RequestHeader set X-Forwarded-Proto "https"
 
 # ===== WebSocket Proxy (MUST come before regular proxy) =====
 RewriteEngine On
 RewriteCond %{HTTP:Upgrade} =websocket [NC]
-RewriteRule /stream/(.*) ws://127.0.0.1:8001/stream/$1 [P,L]
+RewriteRule /stream/(.*) ws://127.0.0.1:8000/stream/$1 [P,L]
 
 RewriteCond %{HTTP:Upgrade} =websocket [NC]
-RewriteRule /webhooks/voice/tata/(.*) ws://127.0.0.1:8001/webhooks/voice/tata/$1 [P,L]
+RewriteRule /webhooks/voice/tata/(.*) ws://127.0.0.1:8000/webhooks/voice/tata/$1 [P,L]
+
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteRule /mobile/ws$ ws://127.0.0.1:8000/mobile/ws [P,L]
 
 ProxyTimeout 86400
 
 # ===== Regular HTTP Proxy =====
-ProxyPass / http://localhost:8001/
-ProxyPassReverse / http://localhost:8001/
+ProxyPass / http://localhost:8000/
+ProxyPassReverse / http://localhost:8000/
 ```
 
 Required modules, enabled by `setup_apache.sh`:
@@ -1608,10 +1339,10 @@ Required modules, enabled by `setup_apache.sh`:
 ```mermaid
 flowchart TD
     REQ["Request to gateway.hirebuddha.com"] --> UPG{"Upgrade header == websocket"}
-    UPG -->|yes| PATH{"path matches /stream/ or /webhooks/voice/tata/"}
-    PATH -->|yes| WS["RewriteRule with P flag -> mod_proxy_wstunnel -> ws://127.0.0.1:8001"]
+    UPG -->|yes| PATH{"path matches /stream/, /webhooks/voice/tata/ or /mobile/ws"}
+    PATH -->|yes| WS["RewriteRule with P flag -> mod_proxy_wstunnel -> ws://127.0.0.1:8000"]
     PATH -->|no| HTTP["falls through to ProxyPass, upgrade fails"]
-    UPG -->|no| HTTP2["ProxyPass / -> http://localhost:8001/"]
+    UPG -->|no| HTTP2["ProxyPass / -> http://localhost:8000/"]
     WS --> LIVE["Connection held up to ProxyTimeout 86400s"]
     HTTP2 --> RESP["Normal HTTP response"]
 ```
@@ -1619,15 +1350,15 @@ flowchart TD
 ### 13.3 Pitfalls
 
 - **`ProxyTimeout 86400`** (24 h) is the reason long calls and long SSE streams
-  survive. It is set on `gateway.*` and `streaming.*` only. The `api.*` vhost has
+  survive. It is set on `gateway.*` only. The `api.*` vhost has
   **no** `ProxyTimeout` and **no** WS rules — it inherits the default 60 s and will
   cut a quiet SSE stream. Use `gateway.hirebuddha.com` for anything long-lived.
-- **`X-Accel-Buffering: no` does nothing here.** The gateway sets it
-  ([`app.py:403`](../../backend/src/gateway/app.py:403)) but that is an nginx
+- **`X-Accel-Buffering: no` does nothing here.** The SSE endpoint sets it
+  ([`ai/router.py`](../../backend/src/ai/router.py)) but that is an nginx
   directive. Apache's `mod_proxy_http` streams a chunked response without
   content-length reasonably promptly, which is why SSE works; if you ever see
   events arriving in bursts, the Apache-native fix is
-  `ProxyPass / http://localhost:8001/ flushpackets=on`.
+  `ProxyPass / http://localhost:8000/ flushpackets=on`.
 - **`mod_deflate` is enabled.** If a future config compresses `text/event-stream`,
   frames will be buffered until the compression window fills and SSE will appear
   to hang. Exclude `text/event-stream` from `AddOutputFilterByType` if you touch
@@ -1638,8 +1369,8 @@ flowchart TD
   the setup script but **no vhost configures `RemoteIPHeader`**, so today the
   200/minute limit is effectively a single global bucket for all users.
 - **New WebSocket path?** Add a matching `RewriteCond`/`RewriteRule` pair. A path
-  outside `/stream/` and `/webhooks/voice/tata/` will be proxied as plain HTTP and
-  the upgrade will fail with a confusing 200 or 400.
+  outside `/stream/`, `/webhooks/voice/tata/` and `/mobile/ws` will be proxied as
+  plain HTTP and the upgrade will fail with a confusing 200 or 400.
 - **`ProxyPreserveHost On`** means the backend sees the public hostname. Anything
   the backend builds from `request.url` will contain the public host, which is
   what you want for callback URLs.
@@ -1648,9 +1379,9 @@ flowchart TD
 
 ## 14. Scaling and state
 
-### 14.1 Is the gateway stateless?
+### 14.1 Is the edge stateless?
 
-Mostly, but not entirely. Four things live in process memory:
+Mostly, but not entirely. Four things live in the API process's memory:
 
 | State | Where | Consequence with more than one instance |
 |-------|-------|-----------------------------------------|
@@ -1671,8 +1402,8 @@ Shared, therefore safe to scale:
 
 ```mermaid
 graph TB
-    LB["Load balancer"] --> G1["Gateway instance A"]
-    LB --> G2["Gateway instance B"]
+    LB["Load balancer"] --> G1["API instance A"]
+    LB --> G2["API instance B"]
 
     subgraph SharedOK["Shared - scales cleanly"]
         RD[("Redis - rate limits, agent cache, arq, pubsub")]
@@ -1707,17 +1438,19 @@ graph TB
    not transfer. WebRTC cannot resume at all.
 2. **`/metrics/gateway` and `/health` become sampled, not total.** Scrape all
    instances and sum, or the numbers lie.
-3. **Nothing else.** Webhooks, internal events and the REST proxy are genuinely
-   stateless because the handoff point is Redis.
+3. **Nothing else.** Webhooks, internal events and REST are genuinely stateless
+   because the handoff point is Redis or Postgres.
 
 Today there is exactly one instance: `start_services.sh` binds a single uvicorn to
-8001 and `docker-compose.yml` declares one `gateway` service with no `deploy.replicas`.
+8000 and `docker-compose.yml` declares one `app` service with no `deploy.replicas`.
+Running uvicorn with `--workers N` has the same effect as N instances behind one
+port: a WebSocket stays on the worker that accepted it, which is fine.
 
 ### 14.3 Where affinity is required
 
 | Path | Affinity | Why |
 |------|----------|-----|
-| `/api/v1/*` | none | Pure proxy. |
+| `/api/v1/*` | none | Request/response. |
 | `/webhook/inbound`, `/internal/event` | none | Handoff to Redis. |
 | `/api/v1/ai/executions/{id}/stream` | none | Redis pub/sub is shared; any instance can relay. |
 | `/stream/audio`, `/stream/twilio/*`, `/stream/tata/*`, `/webhooks/voice/tata/incoming` | **required for connection lifetime** | In-memory session + live LLM socket. |
@@ -1731,12 +1464,12 @@ Today there is exactly one instance: `start_services.sh` binds a single uvicorn 
 
 ```bash
 # from repo root
-./start_services.sh            # backend 8000, gateway 8001, arq worker, frontend 3000
-tail -f logs/unified_gateway.log
+./start_services.sh            # API 8000, arq worker, frontend 3000
+tail -f logs/backend_api.log
 
-# or just the gateway
+# or just the API
 cd backend
-.venv/bin/python -m uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 --reload
+.venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 15.2 Test each transport
@@ -1744,22 +1477,21 @@ cd backend
 **Health and metrics**
 
 ```bash
-curl -s localhost:8001/health | jq
-curl -s localhost:8001/metrics/gateway | jq
-curl -s localhost:8001/ | jq .interfaces
+curl -s localhost:8000/health | jq
+curl -s localhost:8000/metrics/gateway | jq
 ```
 
-**REST proxy** — should return whatever the backend returns, including its 401:
+**REST** — a 401 without a token:
 
 ```bash
-curl -i localhost:8001/api/v1/ai/entities
-curl -i -H "Authorization: Bearer $TOKEN" localhost:8001/api/v1/ai/entities
+curl -i localhost:8000/api/v1/ai/entities
+curl -i -H "Authorization: Bearer $TOKEN" localhost:8000/api/v1/ai/entities
 ```
 
 **Webhook** — expect `202` and a `correlation_id`:
 
 ```bash
-curl -i -X POST "localhost:8001/webhook/inbound?client_id=$COMPANY_UUID" \
+curl -i -X POST "localhost:8000/webhook/inbound?client_id=$COMPANY_UUID" \
   -H 'Content-Type: application/json' \
   -H 'X-GitHub-Event: push' \
   -d '{"repository":{"full_name":"acme/widgets"},"sender":{"login":"dev"}}'
@@ -1769,12 +1501,12 @@ curl -i -X POST "localhost:8001/webhook/inbound?client_id=$COMPANY_UUID" \
 **Internal event** — check both the 401 and the 202:
 
 ```bash
-curl -i -X POST localhost:8001/internal/event \
+curl -i -X POST localhost:8000/internal/event \
   -H 'Content-Type: application/json' \
   -d '{"event_type":"doc_indexed","client_id":"'$COMPANY_UUID'","source":"vector_db","payload":{}}'
-# -> 401 {"error":"Unauthorized","detail":"Invalid or missing X-Internal-Token"}
+# -> 401 {"detail":"Invalid or missing X-Internal-Token"}
 
-curl -i -X POST localhost:8001/internal/event \
+curl -i -X POST localhost:8000/internal/event \
   -H "X-Internal-Token: $INTERNAL_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"event_type":"doc_indexed","client_id":"'$COMPANY_UUID'","source":"vector_db","payload":{"document_id":"d1"}}'
@@ -1784,7 +1516,7 @@ curl -i -X POST localhost:8001/internal/event \
 **SSE** — `-N` disables curl's own buffering:
 
 ```bash
-curl -N "localhost:8001/api/v1/ai/executions/$RUN_ID/stream?token=$TOKEN"
+curl -N "localhost:8000/api/v1/ai/executions/$RUN_ID/stream?token=$TOKEN"
 # data: {"status": "connected"}
 # data: {"type": "iteration_start", ...}
 ```
@@ -1799,7 +1531,7 @@ redis-cli PUBLISH "execution:$RUN_ID" '{"type":"run_end","outcome":"COMPLETED","
 **WebSocket audio** — with `websocat`:
 
 ```bash
-websocat ws://localhost:8001/stream/audio
+websocat ws://localhost:8000/stream/audio
 # then paste:
 {"event":"connect","provider":"web","client_id":"<company-uuid>","token":"x","metadata":{"direction":"inbound"}}
 # expect: {"event":"connected","session_id":"...","status":"ready","provider":"web","agent_id":"..."}
@@ -1810,7 +1542,7 @@ websocat ws://localhost:8001/stream/audio
 **WebSocket video**:
 
 ```bash
-websocat ws://localhost:8001/stream/video
+websocat ws://localhost:8000/stream/video
 {"event":"connect","provider":"web","client_id":"<company-uuid>"}
 # expect: {"event":"connected",...,"webrtc_enabled":false}
 # then:   {"event":"info","message":"WebRTC media disabled. Install aiortc: pip install aiortc aiohttp"}
@@ -1833,7 +1565,6 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 
 | Log line | Meaning |
 |----------|---------|
-| `[Startup] Event bus ready (type=memory, maxsize=1000)` | Normal boot. |
 | `[Dispatcher] Redis connection established` | Normal boot. |
 | `[Dispatcher] Redis unavailable, session cache disabled` | Redis down; agent cache off and arq enqueue will fail into the in-process fallback. |
 | `[EventBus] Consumer registered (1 total)` | Dispatcher subscribed. Should appear once per boot. |
@@ -1842,10 +1573,8 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | `[WebhookRouter] Received <type> from source=<s> client=<id> correlation=<uuid>` | Webhook accepted. |
 | `[WebhookRouter] <provider> signature validation not yet configured` | Expected today; see [8.2](#82-signature-verification--what-is-actually-implemented). |
 | `[Dispatcher] Envelope <id> has no client_id — dropping` | Caller forgot `?client_id=`. |
-| `[Dispatcher] arq enqueue failed (...); falling back to in-process dispatch` | Redis/arq problem. Agent runs are now executing inside the gateway. |
+| `[Dispatcher] arq enqueue failed (...); falling back to in-process dispatch` | Redis/arq problem. Agent runs are now executing inside the API process. |
 | `[Dispatcher] No active agent for company <id>` | Tenant has no non-archived `HierarchicalEntity`. |
-| `[Proxy] Backend unreachable: ...` | Backend 8000 down → client got 503. |
-| `[Proxy] SSE backend unreachable: ...` | Same, on the streaming path. |
 | `[AudioGateway] Session <id> ready (web, agent=<id>)` | Browser audio session established. |
 | `[VideoGateway] Session <id> connected (provider=web, ..., webrtc=False)` | aiortc missing or video disabled. |
 | `[VideoSession] Audio track error: ...` | Almost certainly the `__mro__` bug in [10.1](#101-implemented-versus-stubbed--read-this-first). |
@@ -1856,15 +1585,13 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | Symptom | Likely cause | Check |
 |---------|--------------|-------|
 | SSE connects then hangs forever with no events | Nothing is publishing to `execution:{run_id}` — the run finished before you subscribed, or `set_sse_redis` was never called | `redis-cli PUBLISH execution:$RUN_ID '{"type":"x"}'` and see if the curl prints it |
-| SSE returns 503 after ~60 s | The relay path was not taken (URL does not end in `/stream` and no `Accept: text/event-stream`) | Confirm the exact request URL in the gateway log |
 | SSE works on `gateway.*` but dies on `api.*` | `api.hirebuddha.com` vhost has no `ProxyTimeout` | Use the gateway hostname |
 | WebSocket returns 200 HTML or 400 instead of upgrading | Path not covered by the Apache rewrite rules | `grep RewriteRule deploy/apache/gateway.hirebuddha.com-le-ssl.conf` |
 | WebSocket drops after ~60 s in production | `ProxyTimeout` missing on that vhost | Add `ProxyTimeout 86400` |
 | Audio WS closes with `1008 No agent found for client` | No non-archived entity for that company, or wrong `client_id` | Query `hierarchical_entities` for the company |
-| Webhook returns 202 but nothing runs | Missing `?client_id=`, or dispatcher consumer dead | `/health` → `event_bus.consumer_count` and `total_dropped` |
+| Webhook returns 202 but nothing runs | Missing `?client_id=`, or dispatcher consumer dead | `/metrics/gateway` → `event_bus.consumer_count` and `total_dropped` |
 | Everyone is rate limited at once | `get_remote_address` sees `127.0.0.1` for all callers behind Apache | Configure `RemoteIPHeader X-Forwarded-For` |
 | Duplicate executions from one webhook | Provider retried; no idempotency | See [8.3](#83-idempotency--there-is-none) |
-| 401 on `/internal/event` from a browser looks like a CORS error | Auth middleware short-circuits before CORS | See [2.3](#23-middleware-stack--the-ordering-trap) |
 | Video calls silent | aiortc not installed, and the `__mro__` bug | `pip list \| grep aiortc`, then fix `video_gateway.py:202` |
 
 ---
@@ -1873,14 +1600,13 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 
 | File | Lines | What it does |
 |------|-------|--------------|
-| [`backend/src/gateway/app.py`](../../backend/src/gateway/app.py) | 436 | The live gateway app: lifespan, middleware, routers, back-compat WS endpoints, catch-all REST proxy with SSE relay. |
-| [`backend/src/gateway/main.py`](../../backend/src/gateway/main.py) | 73 | Legacy thin proxy. Dead — nothing starts it. |
-| [`backend/src/gateway/gateway_config.py`](../../backend/src/gateway/gateway_config.py) | 73 | `UnifiedGatewaySettings` — the 17 settings the live gateway reads. |
-| [`backend/src/gateway/config.py`](../../backend/src/gateway/config.py) | 10 | `GatewaySettings` — 3 settings, used only by `main.py`. |
-| [`backend/src/gateway/auth_middleware.py`](../../backend/src/gateway/auth_middleware.py) | 148 | `TenantContext`, `GatewayAuthMiddleware`, `require_internal`, `get_tenant`. Only `/internal/event` is actually gated. |
+| [`backend/src/main.py`](../../backend/src/main.py) | 170 | The API app: lifespan (dispatcher), middleware, and the edge routers mounted next to the REST ones. |
+| [`backend/src/common/rate_limit.py`](../../backend/src/common/rate_limit.py) | 22 | The slowapi `limiter` (`RATE_LIMIT` per client IP). |
+| [`backend/src/gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py) | 100 | The Twilio/Tata media-stream WebSockets. |
+| [`backend/src/gateway/status.py`](../../backend/src/gateway/status.py) | 18 | `GET /metrics/gateway`. |
 | [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 425 | `CentralDispatcher`: consumes the bus, enqueues arq jobs, resolves agents, in-process fallback, lead-queue path. |
 | [`backend/src/gateway/event_bus.py`](../../backend/src/gateway/event_bus.py) | 186 | `EventEnvelope`, `InMemoryEventBus`, `EventBusSubscription`, `get_event_bus`. In-process only. |
-| [`backend/src/gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) | 192 | `POST /internal/event`, `InternalEvent` schema, `WellKnownEvents`, unused `emit_internal_event` helper. |
+| [`backend/src/gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, `InternalEvent` schema, `WellKnownEvents`, unused `emit_internal_event` helper. |
 | [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 598 | 12 webhook strategies, `detect_strategy`, `POST /webhook/inbound`. No working signature verification. |
 | [`backend/src/gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) | 244 | `WS /stream/audio` handshake and provider routing. |
 | [`backend/src/gateway/web_audio_adapter.py`](../../backend/src/gateway/web_audio_adapter.py) | 255 | Browser PCM16 ↔ live LLM bridge, four concurrent tasks, transcript logging. |
@@ -1892,47 +1618,45 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | [`frontend/src/hooks/useExecutionEvents.ts`](../../frontend/src/hooks/useExecutionEvents.ts) | 288 | Reducer turning SSE events into the Execution Detail view model. |
 | [`frontend/src/hooks/useSSE.ts`](../../frontend/src/hooks/useSSE.ts) | 58 | Older generic SSE hook. No callers. |
 | [`deploy/apache/gateway.hirebuddha.com-le-ssl.conf`](../../deploy/apache/gateway.hirebuddha.com-le-ssl.conf) | 32 | The only vhost with WebSocket upgrade rules and a 24 h `ProxyTimeout`. |
-| [`backend/tests/e2e/test_12_unified_gateway.py`](../../backend/tests/e2e/test_12_unified_gateway.py) | 377 | ASGI-transport tests for health, webhooks, internal events, the bus and strategy detection. |
+| [`backend/tests/e2e/test_12_unified_gateway.py`](../../backend/tests/e2e/test_12_unified_gateway.py) | 360 | ASGI-transport tests (on the API app) for health, webhooks, internal events, the bus and strategy detection. |
+| [`backend/tests/unit/test_single_port_app.py`](../../backend/tests/unit/test_single_port_app.py) | 155 | Every edge route is on the API; no catch-all; one CORS list; WebSockets untraced; rate limit and its exemptions. |
 
 ---
 
 ## Gotchas and things that surprise newcomers
 
-- **`gateway/main.py` is dead.** Only `gateway/app.py` runs. Same for
-  `gateway/config.py` versus `gateway/gateway_config.py`.
+- **There is no gateway process.** `src/gateway/` is a package of routers the
+  API mounts; `gateway.hirebuddha.com` is the API's public name on port 8000.
 - **The "event bus" is not Redis.** It is an `asyncio.Queue` inside one process,
   with exactly one subscriber. Cross-process delivery happens later, via arq.
-- **`EVENT_BUS_TYPE` is never read.** Neither are `TURN_USERNAME` and
-  `TURN_CREDENTIAL`. `priority` on internal events is stored and ignored.
-- **Auth middleware runs before CORS**, so its 401s carry no CORS headers.
-- **The auth middleware never sees WebSockets.** `BaseHTTPMiddleware` passes
-  non-HTTP scopes straight through, so the `/stream/*` branch is dead for real WS
-  connections — and the handshake `token` is read into a variable and never
-  validated.
+- **`TURN_USERNAME` and `TURN_CREDENTIAL` are never read.** `priority` on
+  internal events is stored and ignored.
+- **Nothing authenticates `/stream/audio` or `/stream/video`.** HTTP middleware
+  passes WebSockets straight through, and the handshake `token` is read into a
+  variable and never validated.
 - **No webhook signature is verified.** Every `validate_signature` returns `True`,
   several with an explicit TODO, and a `False` would not block the request anyway.
 - **No webhook idempotency.** Provider retries create duplicate executions.
-- **`@app.on_event("shutdown")` never fires** because a custom `lifespan` was
-  supplied; `close_proxy_client` is dead code.
-- **Rate limiting covers only the REST proxy.** Without `SlowAPIMiddleware`,
-  slowapi's `default_limits` apply only to decorated routes — `/webhook/inbound`,
-  `/internal/event` and all WebSocket routes are unlimited.
+- **`@app.on_event` handlers never fire** on the API: it passes a custom
+  `lifespan`. Put startup and shutdown work in `lifespan` in `main.py`.
+- **Rate limiting covers every REST route** through `SlowAPIMiddleware`, except
+  `/webhook/inbound` and `/internal/event` (`@limiter.exempt`) and the
+  WebSockets. A module with an exempt route must not use `from __future__ import
+  annotations` — FastAPI would resolve its string annotations against slowapi's
+  wrapper and turn `request: Request` into a query parameter.
 - **Rate limits are keyed on `127.0.0.1` in production** because no vhost sets
   `RemoteIPHeader`.
 - **`X-Accel-Buffering: no` is an nginx header** and does nothing under Apache.
-- **The proxy copies upstream response headers verbatim**, including
-  `content-length` and `content-encoding`, while `httpx` has already decompressed
-  the body. Harmless today because the backend has no `GZipMiddleware` — enabling
-  one would break the proxy.
 - **Agent selection is `LIMIT 1` with no `ORDER BY`** in three separate places.
   For multi-agent tenants, pass an explicit `entity_id`.
-- **The arq fallback runs a full AgentLoop inside the gateway.** Convenient in
-  dev, dangerous under load — it shares an event loop with live audio.
+- **The arq fallback runs a full AgentLoop inside the API process.** Convenient in
+  dev, dangerous under load — it shares an event loop with live audio and every
+  REST request.
 - **SSE has no `Last-Event-ID` and no replay.** Reconnection loses everything that
   happened while disconnected; the UI's 3-second polling is what actually keeps
   the page correct.
-- **`streaming.hirebuddha.com` points at port 8002, which no longer exists.**
-  All streaming moved into the gateway on 8001.
+- **WebSockets are not traced.** The OTel ASGI instrumentation would open a span
+  per message; `setup_telemetry` excludes `ws://`/`wss://` URLs.
 - **aiortc is not installed**, so `/stream/video` currently only answers the
   handshake and closes. Even with it installed, the audio pipeline aborts on the
   `__mro__` line at `video_gateway.py:202`.
@@ -1942,11 +1666,11 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 ## Where to go next
 
 - [12 — Voice, telephony & messaging](12-voice-and-telephony.md) — what happens
-  to audio after the gateway hands it to `TwilioStreamHandler` or the live client.
+  to audio after the stream endpoint hands it to `TwilioStreamHandler` or the live client.
 - [02 — System architecture & topology](02-system-architecture.md) — the full
   process and port map this document zooms into.
 - [04 — Auth, RBAC & multi-tenancy](04-auth-rbac-tenancy.md) — the *real* auth,
-  enforced after the proxy hop.
+  enforced by the REST routes' dependencies.
 - [06 — Entities & the execution pipeline](06-execution-pipeline.md) — what
   `process_gateway_event` builds once a webhook becomes a run.
 - [15 — Governance, HITL & feature flags](15-governance-and-hitl.md) — the

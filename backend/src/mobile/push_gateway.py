@@ -1,5 +1,5 @@
 """
-WS /mobile/ws — server push to the Android app (docs 06 §5), served by the gateway.
+WS /mobile/ws — server push to the Android app (docs 06 §5), served by the API (:8000).
 
 Protocol:
   client -> {"type": "auth", "access_token": "...", "device_id": "uuid"}   (within 5 s)

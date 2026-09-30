@@ -151,8 +151,9 @@ it — and the second is undocumented in `.env.example`.
 
 - [`frontend/src/services/api.client.ts`](../../../frontend/src/services/api.client.ts)
 
-**Fix:** fall back to `http://localhost:8001` and warn on the console. A wrong local URL is
-a five-second fix; a production write is not.
+**Fix:** fall back to `http://localhost:8000/api/v1` and warn on the console. A wrong local
+URL is a five-second fix; a production write is not. *(Port corrected 2026-09-30: the gateway on
+8001 was merged into the API on 8000.)*
 
 ---
 

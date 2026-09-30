@@ -323,7 +323,9 @@ resolved.
 
 ### D-15 — Transcript endpoints are stranded on a service nobody starts
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — deleted rather than moved: the router
+had no authentication or company check and nothing called it. Transcripts come from
+`GET /api/v1/streaming/voice-sessions/{id}`. See W-1 below.
 
 `transcript_api.py` is mounted **only** by `voice/main.py` on port 8002, which
 `start_services.sh` does not launch. Four endpoints under `/api/calls/*` are
@@ -427,11 +429,11 @@ no reason to defer any of it.
 | ID | Delete | Notes | Status |
 |---|---|---|---|
 | **D-22** | `voice/phone_pool_router.py` | 701 lines, 7 routes under `/api/v1/phone-pool`, never mounted. **Keep** `phone_pool_models.py` — the live router still imports `PhoneNumber` from it | ✅ fixed (2026-09-29, `964c9ab`) — deleted (PO-12) |
-| **D-23** | [`voice/main.py`](../../backend/src/voice/main.py) + both `streaming.hirebuddha.com` vhosts + the `STREAMING_HOST` default | Blocked on [W-1](#8-w-1--retire-port-8002) only | ✅ Verified |
+| **D-23** | `voice/main.py` + both `streaming.hirebuddha.com` vhosts + the `STREAMING_HOST` default | Blocked on [W-1](#8-w-1--retire-port-8002) only | ✅ fixed (2026-09-30) — all three (SA-01, SA-12, SA-13) |
 | **D-24** | The `/api/v1/ai/phase11/*` redirect shim | Carries an explicit *"Remove after 2026-09-01"* comment at [`main.py:105`](../../backend/src/main.py:105). Remove the five matching legacy routes from the frontend router in the same change | ✅ fixed (2026-09-29, `6d90428`) — deleted with the SPA routes (PO-16) |
 | **D-25** | The `video_generation` tool | `ToolStatus.DEPRECATED`, still registered, still selectable because the visibility gate is unwired. Superseded by `video_generate` + `video_edit` | ✅ fixed (2026-09-29, `a8fb38e`) — deleted (PO-17) |
 | **D-26** | [`ai/lead_queue_worker.py`](../../backend/src/ai/lead_queue_worker.py) | Or wire it up — see [D-21](#d-21--the-lead-queue-is-never-drained) | ✅ Verified |
-| **D-27** | `gateway/main.py` | Dead; only `gateway/app.py` is served | 📄 Doc-reported |
+| **D-27** | `gateway/main.py` | Dead; only `gateway/app.py` is served | ✅ fixed (2026-09-30) — deleted; `gateway/app.py` too, merged into the API (SA-11) |
 | **D-28** | The legacy `assets` table + its two redirect shims | The artifacts migration said it would drop `assets` and never did | 📄 Doc-reported |
 | **D-29** | Duplicate `"meta_agent.board_routing"` key | Declared twice at [`feature_flags.py:53`](../../backend/src/ai/core/feature_flags.py:53) and [`:71`](../../backend/src/ai/core/feature_flags.py:71). Harmless — second wins — but it makes the file look unreviewed | ✅ Verified |
 | **D-30** | Unused frontend deps + stale READMEs | `react-hook-form`, `zod`, `date-fns` installed and unused. `core/README.md` documents the deleted `execution_engine.py` | 📄 Doc-reported |
@@ -472,7 +474,7 @@ re-litigates them.**
 | **D-42** | `"sucess"` misspelled in the Tata webhook response | It is an external contract. Correcting it is a breaking change — coordinate with the provider, or never |
 | **D-43** | Naive `DateTime` columns throughout | UTC by convention. A timezone migration touches every table and buys little today |
 | **D-44** | `JSON` on older tables, `JSONB` on newer | Migrate opportunistically when a table is being changed anyway |
-| **D-45** | Postgres on host port 5433, not 5432 | Deliberate — Docker maps `5433:5432`. Fix the stale `backend/.env` instead of the mapping |
+| **D-45** | Postgres on host port 5433, not 5432 | Deliberate — Docker maps `5433:5432`. Fix the stale `backend/.env` instead of the mapping. *`.env.example` says 5433 since 2026-09-30* |
 
 ---
 
@@ -507,6 +509,13 @@ Idempotency, credit holds, tenant scoping. These need thought; none block a laun
 ---
 
 ## 8. W-1 — Retire port 8002
+
+**Status: done (2026-09-30)**, with one change to the decision. `voice/main.py`, both
+`streaming.hirebuddha.com` vhosts and the `STREAMING_HOST` default are gone, and the
+gateway itself was merged into the API on port 8000. `transcript_api` was **deleted, not
+moved**: it had no authentication and no company check, nothing called it, and the
+authenticated `GET /api/v1/streaming/voice-sessions/{id}` already returns transcripts
+(product-owner decision, 2026-09-30). The plan below is kept as written.
 
 **Decision taken:** move `transcript_api` onto the gateway and delete the voice
 service.

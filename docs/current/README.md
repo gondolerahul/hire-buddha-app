@@ -25,9 +25,7 @@ graph TB
     end
     subgraph App["Application processes"]
         FE["Frontend - React + Vite - 3000"]
-        BE["Backend API - FastAPI - 8000"]
-        GW["Unified Gateway - 8001"]
-        VO["Voice streaming - 8002"]
+        BE["API - FastAPI - 8000 - REST, webhooks, WebSockets"]
         WK["Arq worker - background"]
     end
     subgraph Data["State"]
@@ -37,16 +35,11 @@ graph TB
 
     AP --> FE
     AP --> BE
-    AP --> GW
-    AP --> VO
     FE --> BE
-    GW --> BE
-    GW --> VO
     BE --> PG
     BE --> RD
     RD --> WK
     WK --> PG
-    VO --> PG
 ```
 
 ---

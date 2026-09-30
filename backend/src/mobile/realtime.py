@@ -1,10 +1,11 @@
 """
 Cross-process messaging for the mobile dialer (docs 04 §7).
 
-The live call handler runs in the gateway (:8001) while app events arrive at
-the backend API (:8000); both share Redis. Pub/sub is fire-and-forget — the
-durable state is always the Postgres attempt row, so every subscriber
-re-reads it after (re)subscribing.
+The live call handler (a media-stream WebSocket) and the app's HTTP events are
+both served by the API on :8000, but not necessarily by the same worker process
+or replica, so they meet in Redis. Pub/sub is fire-and-forget — the durable
+state is always the Postgres attempt row, so every subscriber re-reads it after
+(re)subscribing.
 
 Channels:
   voice:session:{session_id}:control   API -> stream handler ("merged", "abort", "rep_takeover")

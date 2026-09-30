@@ -14,6 +14,7 @@ import os
 from src.common.database import get_db
 from src.voice.session_manager import SessionManager
 from src.voice.number_router import NumberRouter
+from src.voice.public_urls import stream_url
 from src.common.config import settings
 
 logger = logging.getLogger(__name__)
@@ -63,11 +64,10 @@ async def twilio_incoming_call(
         call_sid=call_sid, provider="twilio", raw_metadata=dict(form_data),
     )
     if mobile_session:
-        streaming_host = settings.STREAMING_HOST or "localhost:8002"
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="wss://{streaming_host}/stream/twilio/{mobile_session.id}" />
+        <Stream url="{stream_url(f"/stream/twilio/{mobile_session.id}")}" />
     </Connect>
 </Response>"""
         return Response(content=twiml, media_type="application/xml")
@@ -138,11 +138,8 @@ async def twilio_incoming_call(
                 greeting_xml = f'<Say voice="alice">{greeting_text}</Say>'
 
     # 4. Generate WebSocket URL for streaming
-    streaming_host = settings.STREAMING_HOST or "localhost:8002"
-    # Use configured protocol or auto-detect
-    ws_protocol = settings.STREAMING_PROTOCOL or ("wss" if "https" in streaming_host or not streaming_host.startswith("localhost") else "ws")
-    ws_url = f"{ws_protocol}://{streaming_host}/stream/twilio/{session.id}"
-    
+    ws_url = stream_url(f"/stream/twilio/{session.id}")
+
     logger.info(f"Created session {session.id}, streaming to {ws_url}")
     
     # 5. Return TwiML with <Connect><Stream>
@@ -448,11 +445,8 @@ async def twilio_outbound_twiml(
             await session_manager.update_session_call_sid(session.id, call_sid)
         
         # Generate WebSocket URL for streaming
-        streaming_host = settings.STREAMING_HOST or "localhost:8002"
-        # Use configured protocol or auto-detect
-        ws_protocol = settings.STREAMING_PROTOCOL or ("wss" if "https" in streaming_host or not streaming_host.startswith("localhost") else "ws")
-        ws_url = f"{ws_protocol}://{streaming_host}/stream/twilio/{session.id}"
-        
+        ws_url = stream_url(f"/stream/twilio/{session.id}")
+
         logger.info(f"Outbound call connected, streaming to {ws_url}")
         
         # Determine Greeting XML
@@ -608,12 +602,7 @@ async def tata_incoming_call(
                 if session.call_sid and session.call_sid.startswith("pending_"):
                     await session_manager.update_session_call_sid(session.id, call_id)
                 
-                # Generate WebSocket URL
-                streaming_host = settings.STREAMING_HOST or "localhost:8002"
-                ws_protocol = settings.STREAMING_PROTOCOL or ("wss" if "https" in streaming_host or not streaming_host.startswith("localhost") else "ws")
-                ws_url = f"{ws_protocol}://{streaming_host}/stream/tata/{session.id}"
-                
-                return _tata_stream_response(ws_url)
+                return _tata_stream_response(stream_url(f"/stream/tata/{session.id}"))
         except ValueError:
             logger.warning(f"Invalid custom_identifier format: {custom_identifier}")
         except Exception as e:
@@ -627,9 +616,7 @@ async def tata_incoming_call(
         provider="tata_tele", raw_metadata=data,
     )
     if mobile_session:
-        streaming_host = settings.STREAMING_HOST or "localhost:8002"
-        ws_protocol = settings.STREAMING_PROTOCOL or ("wss" if "https" in streaming_host or not streaming_host.startswith("localhost") else "ws")
-        return _tata_stream_response(f"{ws_protocol}://{streaming_host}/stream/tata/{mobile_session.id}")
+        return _tata_stream_response(stream_url(f"/stream/tata/{mobile_session.id}"))
 
     # 2. Find context by phone number (Inbound)
     # Check both numbers to see which one is our DID
@@ -675,10 +662,8 @@ async def tata_incoming_call(
     )
     
     # 4. Generate WebSocket URL
-    streaming_host = settings.STREAMING_HOST or "localhost:8002"
-    ws_protocol = settings.STREAMING_PROTOCOL or ("wss" if "https" in streaming_host or not streaming_host.startswith("localhost") else "ws")
-    ws_url = f"{ws_protocol}://{streaming_host}/stream/tata/{session.id}"
-    
+    ws_url = stream_url(f"/stream/tata/{session.id}")
+
     logger.info(f"Created new Tata session {session.id}, streaming to {ws_url}")
     
     return _tata_stream_response(ws_url)

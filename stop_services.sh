@@ -1,5 +1,5 @@
 #!/bin/bash
-# HireBuddha Platform v2.0 - Unified AI Gateway Shutdown
+# HireBuddha Platform v2.0 - Shutdown
 # This script stops all backend services and the frontend
 
 # Colors for output
@@ -53,32 +53,27 @@ kill_port() {
 }
 
 # Step 1: Stop Frontend (Port 3000)
-echo -e "${BLUE}[1/5] Stopping Frontend...${NC}"
+echo -e "${BLUE}[1/4] Stopping Frontend...${NC}"
 stop_service "Frontend" "$LOG_DIR/frontend.pid"
 pkill -f "npm run dev" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
 kill_port "Frontend" 3000
 
 # Step 2: Stop Arq Worker
-echo -e "${BLUE}[2/5] Stopping Arq Worker...${NC}"
+echo -e "${BLUE}[2/4] Stopping Arq Worker...${NC}"
 stop_service "Arq Worker" "$LOG_DIR/arq_worker.pid"
 pkill -f "arq src.ai.worker.WorkerSettings" 2>/dev/null && echo -e "${GREEN}✓ Arq processes terminated${NC}"
 
-# Step 3: Stop Backend API (Port 8000)
-echo -e "${BLUE}[3/5] Stopping Backend API...${NC}"
-stop_service "Backend API" "$LOG_DIR/backend_api.pid"
-kill_port "Backend API" 8000
+# Step 3: Stop the API (Port 8000)
+echo -e "${BLUE}[3/4] Stopping API...${NC}"
+stop_service "API" "$LOG_DIR/backend_api.pid"
+kill_port "API" 8000
 
-# Step 4: Stop Unified AI Gateway (Port 8001)
-echo -e "${BLUE}[4/5] Stopping Unified AI Gateway...${NC}"
-stop_service "Unified AI Gateway" "$LOG_DIR/unified_gateway.pid"
-kill_port "Unified AI Gateway" 8001
-
-# Final cleanup of uvicorn
+# Final cleanup of uvicorn (also stops a gateway left on :8001 by an older start script)
 pkill -f "uvicorn" 2>/dev/null && echo -e "${GREEN}✓ All remaining Uvicorn processes stopped${NC}"
 
-# Step 5: Stop Docker services
-echo -e "${BLUE}[5/5] Stopping Docker services...${NC}"
+# Step 4: Stop Docker services
+echo -e "${BLUE}[4/4] Stopping Docker services...${NC}"
 cd "$BACKEND_DIR"
 if docker compose ps > /dev/null 2>&1; then
     docker compose down

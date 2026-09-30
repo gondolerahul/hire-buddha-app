@@ -64,7 +64,7 @@ echo -e "${CYAN}[3/6] Installing VirtualHost configurations...${NC}"
 
 # Copy all site configs (HTTP vhosts — SSL vhosts will be created by certbot)
 for conf in api.hirebuddha.com.conf app.hirebuddha.com.conf dev.hirebuddha.com.conf \
-            gateway.hirebuddha.com.conf streaming.hirebuddha.com.conf; do
+            gateway.hirebuddha.com.conf; do
     if [ -f "$SCRIPT_DIR/$conf" ]; then
         cp "$SCRIPT_DIR/$conf" /etc/apache2/sites-available/
         a2ensite "$conf"
@@ -124,7 +124,7 @@ echo -e "This VM's external IP: ${GREEN}${EXTERNAL_IP}${NC}"
 echo ""
 
 # Obtain certificates for each domain
-DOMAINS=("dev.hirebuddha.com" "api.hirebuddha.com" "gateway.hirebuddha.com" "app.hirebuddha.com" "streaming.hirebuddha.com")
+DOMAINS=("dev.hirebuddha.com" "api.hirebuddha.com" "gateway.hirebuddha.com" "app.hirebuddha.com")
 
 for domain in "${DOMAINS[@]}"; do
     echo -e "${CYAN}Obtaining certificate for ${domain}...${NC}"
@@ -152,9 +152,8 @@ echo ""
 echo -e "Proxy routing:"
 echo -e "  ${CYAN}app.hirebuddha.com${NC}       → localhost:3000 (Frontend)"
 echo -e "  ${CYAN}dev.hirebuddha.com${NC}       → localhost:3000 (Frontend)"
-echo -e "  ${CYAN}api.hirebuddha.com${NC}       → localhost:8001 (Unified Gateway)"
-echo -e "  ${CYAN}gateway.hirebuddha.com${NC}   → localhost:8000 (Backend API)"
-echo -e "  ${CYAN}streaming.hirebuddha.com${NC} → localhost:8002 (Streaming/WS)"
+echo -e "  ${CYAN}gateway.hirebuddha.com${NC}   → localhost:8000 (API — REST, webhooks, WebSockets)"
+echo -e "  ${CYAN}api.hirebuddha.com${NC}       → localhost:8000 (API)"
 echo ""
 echo -e "${YELLOW}Note: If DNS hasn't propagated yet, re-run certbot later:${NC}"
 echo -e "  ${CYAN}sudo certbot --apache -d DOMAIN_NAME${NC}"

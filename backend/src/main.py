@@ -1,30 +1,53 @@
+"""The HireBuddha API — every HTTP and WebSocket endpoint, on one port (8000).
+
+This process also serves what the Unified Gateway on :8001 used to: the inbound
+webhook and internal-event endpoints, the audio/video and telephony media-stream
+WebSockets, and the mobile push socket. The gateway's reverse proxy, CORS list
+and rate limit are gone or folded in here.
+"""
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 from src.auth.router import router as auth_router
+from src.common.config import settings
 from src.common.database import engine, Base
+from src.common.rate_limit import limiter
 
-app = FastAPI(title="HireBuddha Platform", version="0.2.0")
 
-# CORS middleware
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the dispatcher that drains inbound webhook and internal events."""
+    from src.gateway.dispatcher import get_dispatcher
+
+    dispatcher = get_dispatcher()
+    await dispatcher.start()
+    yield
+    await dispatcher.stop()
+
+
+app = FastAPI(title="HireBuddha Platform", version="0.2.0", lifespan=lifespan)
+
+# Middleware runs outermost-last-added: CORS answers preflights and decorates
+# every response (a 429 or 403 included) before the limiter and the rest see it.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+from src.common.middleware import CompanySuspensionMiddleware
+app.add_middleware(CompanySuspensionMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://34.100.230.121:3000",
-        "https://dev.hirebuddha.com",
-        "https://app.hirebuddha.com",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "https://gateway.hirebuddha.com"
-    ],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-from src.common.middleware import CompanySuspensionMiddleware
-app.add_middleware(CompanySuspensionMiddleware)
 
 
 
@@ -86,6 +109,9 @@ from src.mobile.router import router as mobile_router
 app.include_router(mobile_router, prefix="/api/v1")
 from src.mobile.analytics_router import router as mobile_analytics_router
 app.include_router(mobile_analytics_router, prefix="/api/v1")
+# Mobile dialer app push socket (WS /mobile/ws)
+from src.mobile.push_gateway import router as mobile_push_router
+app.include_router(mobile_push_router)
 
 # CORTEX Memory Architecture
 from src.ai.memory.cortex_router import router as cortex_router
@@ -127,10 +153,13 @@ mount_optional(app, "src.voice.phone_number_router")
 mount_optional(app, "src.voice.sessions_router")
 mount_optional(app, "src.voice.messaging_router")
 
-
-# Phone Number Pool is now unified into phone_number_router (no separate router)
-
-
+# Inbound events and real-time media (formerly the gateway on :8001)
+mount_optional(app, "src.gateway.webhook_inbound")      # POST /webhook/inbound
+mount_optional(app, "src.gateway.internal_event")       # POST /internal/event
+mount_optional(app, "src.gateway.telephony_streams")    # WS /stream/twilio|tata/{id}, /webhooks/voice/tata/incoming
+mount_optional(app, "src.gateway.audio_gateway")        # WS /stream/audio
+mount_optional(app, "src.gateway.video_gateway")        # WS /stream/video
+mount_optional(app, "src.gateway.status")               # GET /metrics/gateway
 
 
 @app.get("/")

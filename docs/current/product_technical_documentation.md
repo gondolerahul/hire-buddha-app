@@ -4,6 +4,8 @@
 > **Author:** Buddha Cognitive Lab  
 > **Last Updated:** June 2026  
 > **Status:** Architecture & Systems Manual
+>
+> **Update 2026-09-30:** the Unified Gateway (port 8001) was merged into the API on port 8000, and the voice service (port 8002) and the `streaming.hirebuddha.com` vhosts were deleted. Every endpoint — REST, webhooks, internal events and the audio/video/telephony WebSockets — is on port 8000. Port references to 8001 and 8002 below predate that; see [02 — System architecture §2.2](02-system-architecture.md#22-the-former-unified-gateway--merged-into-the-api).
 
 ---
 

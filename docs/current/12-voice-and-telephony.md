@@ -52,12 +52,12 @@ flowchart LR
         TW["Twilio Media Streams"]
         TT["Tata Tele Smartflo"]
     end
-    subgraph BE["Backend API - port 8000"]
+    subgraph BE["API - port 8000 - HTTP webhooks"]
         WH["webhook_router - HTTP"]
         NR["NumberRouter - DID to agent"]
         SM["SessionManager - voice_sessions"]
     end
-    subgraph GW["Unified gateway - port 8001"]
+    subgraph GW["API - port 8000 - media streams"]
         WS["WebSocket - stream/twilio and stream/tata"]
         BSH["BaseStreamHandler - audio pipeline"]
         AP["AudioProcessor - codec conversion"]
@@ -93,47 +93,42 @@ flowchart LR
 
 ## 2. Where the code actually runs
 
-This trips up newcomers immediately. There are **two FastAPI apps** that both contain voice code, and one of them is dead.
+One process: the API, `src.main:app`, on port 8000
+([`start_services.sh`](../../start_services.sh)). It serves both halves of a call:
 
-| App | Port | Started by | Voice responsibility |
-|-----|------|-----------|----------------------|
-| `src.main:app` — backend API | 8000 | [`start_services.sh:92`](../../start_services.sh:92) | All voice **HTTP** routes: `webhook_router`, `phone_number_router`, `sessions_router`, `messaging_router` ([`main.py:125-128`](../../backend/src/main.py:125)) |
-| `src.gateway.app:app` — unified gateway | 8001 | [`start_services.sh:108`](../../start_services.sh:108) | All voice **WebSocket** endpoints, plus a catch-all HTTP proxy to :8000 |
-| `src.voice.main:app` — standalone streaming service | 8002 | **nothing** | Retired. Duplicates the gateway's WS endpoints. |
+| Half | Paths | Module |
+|------|-------|--------|
+| Voice **HTTP** routes | `/webhooks/voice/*`, `/api/v1/phone-numbers`, `/api/v1/streaming/*`, `/api/v1/messaging/*` | `webhook_router`, `phone_number_router`, `sessions_router`, `messaging_router` (mounted in [`main.py`](../../backend/src/main.py)) |
+| Voice **WebSocket** media streams | `WS /stream/twilio/{id}`, `WS /stream/tata/{id}`, `WS /webhooks/voice/tata/incoming`, `WS /stream/audio` | [`gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py), [`gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) |
 
-[`gateway/app.py:136`](../../backend/src/gateway/app.py:136) states this explicitly:
+Until 2026-09-30 the WebSockets ran in a second process, the Unified Gateway on
+port 8001, which also proxied the HTTP webhooks through to 8000; before that, in a
+standalone streaming service on 8002 (`voice/main.py`). Both are gone — the
+gateway merged into the API, `voice/main.py` deleted. A provider needs one
+hostname, `gateway.hirebuddha.com`, and it reaches one port.
 
-```python
-# backend/src/gateway/app.py
-# NOTE: The standalone streaming service (port 8002) has been retired.
-# All audio/video streaming is served natively by this gateway via:
-#   /stream/audio   — unified audio WebSocket (twilio, tata_tele, exotel, web)
-#   /stream/video   — unified video WebSocket (WebRTC)
-# Voice HTTP webhooks (/webhooks/voice/*) are served by the main backend (port 8000).
-```
-
-`backend/.env` sets `STREAMING_HOST=localhost:8001`, so every WebSocket URL we hand to a provider points at the gateway. The gateway's catch-all `@app.api_route("/{path:path}")` ([`app.py:336`](../../backend/src/gateway/app.py:336)) forwards `/webhooks/voice/*` HTTP requests through to the backend, so a provider only ever needs one hostname.
+The WebSocket URL handed to a provider (TwiML `<Stream url>`, Tata's `wss_url`)
+and Twilio's TwiML / status callback URLs are built in one place,
+[`voice/public_urls.py`](../../backend/src/voice/public_urls.py), from
+`STREAMING_HOST` and `STREAMING_PROTOCOL`. Production sets
+`STREAMING_HOST=gateway.hirebuddha.com` and `STREAMING_PROTOCOL=wss`; the
+defaults (`localhost:8000`, `ws`) suit a local stack.
 
 ```mermaid
 graph TB
-    subgraph Edge["Apache - streaming.hirebuddha.com"]
-        RW["RewriteCond Upgrade=websocket then proxy to ws://127.0.0.1:8002"]
+    subgraph Edge["Apache - gateway.hirebuddha.com"]
+        RW["RewriteCond Upgrade=websocket then proxy to ws://127.0.0.1:8000"]
+        PP["ProxyPass / -> http://localhost:8000"]
     end
-    subgraph Live["Actually running"]
-        G["Gateway :8001 - WS /stream/twilio, /stream/tata, /stream/audio, /webhooks/voice/tata/incoming"]
-        B["Backend :8000 - HTTP /webhooks/voice/*, /api/v1/phone-numbers, /api/v1/streaming"]
+    subgraph Live["Running"]
+        A["API :8000 - HTTP /webhooks/voice/*, /api/v1/phone-numbers, /api/v1/streaming; WS /stream/twilio, /stream/tata, /stream/audio, /webhooks/voice/tata/incoming"]
         W["Arq worker - campaign dialer"]
     end
-    subgraph Dead["Present but not started"]
-        V["src.voice.main :8002"]
-    end
 
-    RW -.-> V
-    G -->|"catch-all proxy"| B
-    W --> B
+    RW --> A
+    PP --> A
+    W -->|"places calls; providers call back"| A
 ```
-
-> **Gotcha:** [`deploy/apache/streaming.hirebuddha.com-le-ssl.conf`](../../deploy/apache/streaming.hirebuddha.com-le-ssl.conf) still rewrites WebSocket upgrades to `ws://127.0.0.1:8002` — the retired port. On that vhost, media streams will fail until the config points at 8001. The `/api/v1`-facing hosts are unaffected.
 
 ---
 
@@ -611,7 +606,7 @@ sequenceDiagram
     participant TW as Twilio
     participant BE as Backend :8000
     participant NR as NumberRouter
-    participant GW as Gateway :8001
+    participant GW as API :8000 (WS)
     participant M as Gemini Live
 
     C->>TW: dials our Twilio DID
@@ -658,7 +653,7 @@ sequenceDiagram
     participant TW as Twilio REST
     participant L as Lead
     participant BE as Backend :8000
-    participant GW as Gateway :8001
+    participant GW as API :8000 (WS)
 
     EX->>EX: create VoiceSession(call_sid="pending_<uuid>", direction=outbound)
     EX->>TW: POST /2010-04-01/Accounts/{sid}/Calls.json
@@ -697,7 +692,7 @@ sequenceDiagram
     participant SF as Smartflo API
     participant L as Lead
     participant BE as Backend :8000
-    participant GW as Gateway :8001
+    participant GW as API :8000 (WS)
 
     EX->>EX: create VoiceSession(call_sid="pending_<uuid>")
     EX->>SF: POST /v1/click_to_call_support
@@ -727,7 +722,7 @@ sequenceDiagram
     participant SF as Smartflo
     participant BE as Backend :8000
     participant NR as NumberRouter
-    participant GW as Gateway :8001
+    participant GW as API :8000 (WS)
 
     SF->>BE: GET /webhooks/voice/tata/incoming (URL verification)
     BE-->>SF: {"status":"ok"}
@@ -804,7 +799,7 @@ All HTTP webhooks live on the backend (:8000) under [`webhook_router.py`](../../
 | POST | `/webhooks/voice/twilio/outbound-twiml?session_id=<uuid>` | Twilio voice | query `session_id` + form `CallSid`, `From`, `To` | TwiML `<Connect><Stream/>` |
 | GET | `/webhooks/voice/tata/incoming` | Tata | — (URL verification probe) | `{"status":"ok","message":"Tata Tele webhook endpoint active"}` |
 | POST | `/webhooks/voice/tata/incoming` | Tata | JSON **or** form **or** urlencoded body; keys tried: `callId`/`call_id`/`callSid`/`id`, `fromNumber`/`from`/`caller_id_number`/`source`, `toNumber`/`to`/`destination`/`did_number`, `custom_identifier` | `{"sucess": true, "wss_url": "..."}` or `{"sucess": false, "error": "..."}` |
-| WS | `/webhooks/voice/tata/incoming` | Tata | Media Streams events | bidirectional audio (served by the **gateway**, [`app.py:200`](../../backend/src/gateway/app.py:200)) |
+| WS | `/webhooks/voice/tata/incoming` | Tata | Media Streams events | bidirectional audio ([`gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py)) |
 | GET | `/webhooks/voice/tata/status` | Tata | query params | JSON |
 | POST | `/webhooks/voice/tata/status` | Tata | JSON/form; keys tried: `custom_identifier`/`ref_id`/`$ref_id`, `call_id`/`$call_id`, `uuid`, `call_status`, `hangup_cause_key`/`hangup_cause`, `duration`, `billsec`, `call_connected`, `recording_url` | JSON `{"status":"ok","session_id":…,"outcome":…}` |
 | POST | `/webhooks/voice/whatsapp/incoming` | Twilio WhatsApp | form: `From`, `To`, `Body`, `MediaUrl0`, `MediaContentType0`, `MessageSid` | `application/xml` TwiML `MessagingResponse` |
@@ -1024,7 +1019,7 @@ if cached:
 | GET | `/conversation-history?customer_id&agent_id&channel` | raw turns |
 | GET | `/stats?days=7` | per-channel counts, minutes, raw + billed cost, per-provider split |
 
-`/api/v1/calls` ([`transcript_api.py`](../../backend/src/voice/transcript_api.py)) — `/{call_id}/transcript`, `/transcript/text`, `/summary`, `/export` — is only mounted on the retired `voice/main.py`, so it is **not reachable in production**.
+Transcripts come from `GET /voice-sessions/{id}` above. The old `/api/calls/*` router (`voice/transcript_api.py`) was only ever mounted on the retired port-8002 service and had no authentication or company check; it was deleted with that service on 2026-09-30.
 
 ---
 
@@ -1549,14 +1544,14 @@ API surface: `POST /api/v1/messaging/send` and `POST /api/v1/messaging/send-temp
 ### 20.1 Test a call locally
 
 ```bash
-# 1. Bring the stack up (Postgres, Redis, backend :8000, gateway :8001, worker, frontend :3000)
+# 1. Bring the stack up (Postgres, Redis, API :8000, worker, frontend :3000)
 ./start_services.sh
 
-# 2. Confirm the gateway is serving the audio endpoints
-curl -s localhost:8001/health | jq .interfaces      # expects [..., "audio", "video"]
+# 2. Confirm the API is up with every router mounted
+curl -s localhost:8000/api/v1/health | jq      # expects {"status": "ok", "unmounted_routers": []}
 
-# 3. Expose the gateway so a provider can reach it
-ngrok http 8001
+# 3. Expose the API so a provider can reach it
+ngrok http 8000
 # then set in backend/.env and restart:
 #   STREAMING_HOST=<subdomain>.ngrok-free.app
 #   STREAMING_PROTOCOL=wss
@@ -1564,7 +1559,7 @@ ngrok http 8001
 
 Then in the app: register a `twilio` or `tata_tele` integration under Service Integrations, set the **speech_to_speech** task default to a Gemini Live model, add a number under `/phone-numbers`, claim it, assign it to an ACTIVE voice-enabled agent, and point the provider's inbound webhook at `https://<host>/webhooks/voice/twilio/incoming`.
 
-To simulate the media stream without a real phone, connect a WebSocket client to `ws://localhost:8001/stream/twilio/<session_uuid>` and send Twilio-shaped events:
+To simulate the media stream without a real phone, connect a WebSocket client to `ws://localhost:8000/stream/twilio/<session_uuid>` and send Twilio-shaped events:
 
 ```json
 {"event":"connected"}
@@ -1587,7 +1582,7 @@ cd backend && .venv/bin/pytest tests/unit/test_call_guards.py -v
 
 | Symptom | Log line | Cause / fix |
 |---------|----------|-------------|
-| Provider gets HTTP 426 instead of a WebSocket | `"WebSocket Upgrade Required"` from [`voice/main.py:118`](../../backend/src/voice/main.py:118) | Reverse proxy is not forwarding `Upgrade`. Enable `mod_proxy_wstunnel`. (Twilio reports this as error 31920.) |
+| Provider's WebSocket handshake fails (404 on the stream path) | none in the app — the request arrives as a plain GET | Reverse proxy is not forwarding `Upgrade`. Enable `mod_proxy_wstunnel` and check the `RewriteRule`s on the vhost. (Twilio reports this as error 31920.) |
 | Lead hears ringback then silence, call dies at ~10 s | `[GUARD] Activity watchdog action: pipeline_stall` | Model never produced audio — bad speech_to_speech task default, missing API key, or the Azure bug in §6.2 |
 | Call connects but the agent never speaks | `Greeting trigger failed (non-fatal)` then `Error receiving from Live client` | Live session object is wrong type. Almost always the Azure path. |
 | Agent talks over itself / restarts mid-sentence | `[INTERRUPT] Gemini signaled interruption` firing repeatedly | Echo tripping barge-in. Raise `VOICE_BARGE_IN_RMS_THRESHOLD` or `VOICE_ECHO_SUPPRESS_RMS`. |
@@ -1623,14 +1618,13 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 | [`voice/usage_logger.py`](../../backend/src/voice/usage_logger.py) | 334 | Three `UsageLog` rows per call; per-minute or 167-tok/s billing. |
 | [`voice/gemini_mock.py`](../../backend/src/voice/gemini_mock.py) | 314 | Mock Live session. Not wired in. |
 | [`voice/number_router.py`](../../backend/src/voice/number_router.py) | 302 | DID → company/agent/customer resolution; outbound caller-ID selection. |
-| [`voice/main.py`](../../backend/src/voice/main.py) | 278 | **Retired** standalone :8002 service. |
+| [`voice/public_urls.py`](../../backend/src/voice/public_urls.py) | 20 | `stream_url` / `callback_url` — the URLs handed to providers, from `STREAMING_HOST` / `STREAMING_PROTOCOL`. |
 | [`voice/whatsapp_handler.py`](../../backend/src/voice/whatsapp_handler.py) | 276 | Inbound WhatsApp → session → Gemini text → reply. |
 | [`voice/call_guards.py`](../../backend/src/voice/call_guards.py) | 275 | Pure guardrail decisions: voicemail phrases, AMD mapping, `evaluate_activity`, disposition parsing. |
 | [`voice/conversation_logger.py`](../../backend/src/voice/conversation_logger.py) | 266 | `conversation_history` writes and transcript export. |
 | [`voice/gemini_text.py`](../../backend/src/voice/gemini_text.py) | 228 | Vertex-only text generation for WhatsApp. |
 | [`voice/audio_processor.py`](../../backend/src/voice/audio_processor.py) | 226 | mu-law ↔ PCM conversion, chunking, ringback tone. |
 | [`voice/live_client_factory.py`](../../backend/src/voice/live_client_factory.py) | 200 | Resolves the speech_to_speech provider from task defaults. |
-| [`voice/transcript_api.py`](../../backend/src/voice/transcript_api.py) | 158 | `/api/v1/calls/*`. Only mounted on the retired service. |
 | [`voice/messaging_router.py`](../../backend/src/voice/messaging_router.py) | 135 | `/api/v1/messaging/send` and `/send-template`. |
 | [`voice/tata_auth.py`](../../backend/src/voice/tata_auth.py) | 120 | Smartflo JWT resolution + cache for account APIs. |
 | [`voice/models.py`](../../backend/src/voice/models.py) | 119 | `VoiceSession`, `WhatsAppSession`, `ConversationHistory`. |
@@ -1652,7 +1646,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 
 ## Gotchas and things that surprise newcomers
 
-- **Port 8002 is a ghost.** `voice/main.py` looks like the streaming service and even has a helpful 426 diagnostic endpoint, but nothing starts it. The gateway on 8001 serves the real WebSockets. The Apache SSL vhost for `streaming.hirebuddha.com` still rewrites to 8002.
+- **Every voice endpoint is on port 8000.** The HTTP webhooks and the media-stream WebSockets are the same process; there is no gateway on 8001 or voice service on 8002 any more.
 - **The inbound credit gate never fires.** Both `CreditService(db)` calls in `webhook_router.py` reference an undefined `db`; the `NameError` is swallowed by a broad `except`.
 - **Azure Realtime does not work.** The handler stores the *client* where the *session* belongs. Same in `web_audio_adapter.py`, which additionally calls a nonexistent `AudioProcessor.pcm24_to_pcm16`.
 - **WhatsApp AI replies always fail.** `GeminiTextServiceFactory.get_service` is called with the wrong keyword arguments; every customer gets the fallback apology string.

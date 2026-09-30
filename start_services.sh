@@ -1,6 +1,7 @@
 #!/bin/bash
-# HireBuddha Platform v2.0 - Unified AI Gateway
-# This script starts all backend services and the frontend
+# HireBuddha Platform v2.0
+# Starts Docker (Postgres, Redis), the API on port 8000 (REST, webhooks, internal
+# events and the audio/video/telephony WebSockets), the Arq worker and the frontend.
 
 set -e  # Exit on error
 
@@ -21,7 +22,7 @@ LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  HireBuddha Unified AI Gateway v2.0   ${NC}"
+echo -e "${BLUE}      HireBuddha Platform v2.0         ${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -66,7 +67,7 @@ if [ ! -f "$BACKEND_DIR/.env" ]; then
 fi
 
 # Step 1: Start Docker services (PostgreSQL and Redis)
-echo -e "${BLUE}[1/5] Starting Docker services (PostgreSQL & Redis)...${NC}"
+echo -e "${BLUE}[1/4] Starting Docker services (PostgreSQL & Redis)...${NC}"
 cd "$BACKEND_DIR"
 
 # Ensure docker is running
@@ -82,8 +83,8 @@ else
     echo -e "${GREEN}✓ Docker services started${NC}"
 fi
 
-# Step 2: Start Main Backend API (internal, port 8000)
-echo -e "${BLUE}[2/5] Starting Main Backend API (Port 8000)...${NC}"
+# Step 2: Start the API (port 8000 — every HTTP and WebSocket endpoint)
+echo -e "${BLUE}[2/4] Starting API (Port 8000)...${NC}"
 
 if check_port 8000; then
     echo -e "${YELLOW}Port 8000 already in use. Skipping Backend API startup.${NC}"
@@ -96,24 +97,8 @@ else
     wait_for_service "Backend API" 8000
 fi
 
-# Step 3: Start Unified AI Gateway (port 8001 — public-facing)
-# Includes all 5 interfaces:
-#   REST proxy, Webhook inbound, Internal events, Audio WS, Video WebRTC
-echo -e "${BLUE}[3/5] Starting Unified AI Gateway (Port 8001)...${NC}"
-
-if check_port 8001; then
-    echo -e "${YELLOW}Port 8001 already in use. Skipping Unified Gateway startup.${NC}"
-else
-    cd "$BACKEND_DIR"
-    nohup "$BACKEND_DIR/.venv/bin/python" -m uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 --reload > "$LOG_DIR/unified_gateway.log" 2>&1 &
-    GATEWAY_PID=$!
-    echo $GATEWAY_PID > "$LOG_DIR/unified_gateway.pid"
-    echo -e "${GREEN}✓ Unified AI Gateway process spawned (PID: $GATEWAY_PID)${NC}"
-    wait_for_service "Unified AI Gateway" 8001
-fi
-
-# Step 4: Start Arq Worker
-echo -e "${BLUE}[4/5] Starting Arq Worker...${NC}"
+# Step 3: Start Arq Worker
+echo -e "${BLUE}[3/4] Starting Arq Worker...${NC}"
 
 # Check if arq worker is already running by process name
 if pgrep -f "arq src.ai.worker.WorkerSettings" > /dev/null; then
@@ -127,8 +112,8 @@ else
     echo -e "${GREEN}✓ Arq Worker started (PID: $ARQ_PID)${NC}"
 fi
 
-# Step 5: Start Frontend
-echo -e "${BLUE}[5/5] Starting Frontend (Port 3000)...${NC}"
+# Step 4: Start Frontend
+echo -e "${BLUE}[4/4] Starting Frontend (Port 3000)...${NC}"
 
 if check_port 3000; then
     echo -e "${YELLOW}Port 3000 already in use. Skipping Frontend startup.${NC}"
@@ -148,14 +133,15 @@ echo -e "${GREEN}✓ All services are running!${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 echo -e "Access the application at:          ${GREEN}https://dev.hirebuddha.com${NC}"
-echo -e "Unified AI Gateway (Port 8001):    ${GREEN}https://gateway.hirebuddha.com${NC}"
-echo -e "  REST API proxy:                  ${GREEN}https://gateway.hirebuddha.com/api/v1/*${NC}"
+echo -e "API (Port 8000):                   ${GREEN}https://gateway.hirebuddha.com${NC} (also api.hirebuddha.com)"
+echo -e "  REST API:                        ${GREEN}https://gateway.hirebuddha.com/api/v1/*${NC}"
+echo -e "  Health:                          ${GREEN}https://gateway.hirebuddha.com/api/v1/health${NC}"
 echo -e "  Webhook endpoint:                ${GREEN}https://gateway.hirebuddha.com/webhook/inbound${NC}"
 echo -e "  Internal event endpoint:         ${GREEN}https://gateway.hirebuddha.com/internal/event${NC}"
+echo -e "  Telephony streams (WS):          ${GREEN}wss://gateway.hirebuddha.com/stream/twilio|tata/{id}${NC}"
 echo -e "  Audio streaming (WS):            ${GREEN}wss://gateway.hirebuddha.com/stream/audio${NC}"
 echo -e "  Video streaming (WebRTC/WS):     ${GREEN}wss://gateway.hirebuddha.com/stream/video${NC}"
-echo -e "Backend API (internal, 8000):      ${GREEN}https://api.hirebuddha.com${NC}"
-echo -e "Gateway Docs:                      ${GREEN}https://gateway.hirebuddha.com/docs${NC}"
+echo -e "API Docs:                          ${GREEN}https://gateway.hirebuddha.com/docs${NC}"
 echo ""
 echo -e "Logs available in:        ${YELLOW}$LOG_DIR/${NC}"
 echo -e "To stop services, run:    ${GREEN}./stop_services.sh${NC}"

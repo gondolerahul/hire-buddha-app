@@ -39,13 +39,14 @@ health_router = APIRouter(tags=["health"])
 
 
 @health_router.get("/api/v1/health")
+@health_router.get("/health", include_in_schema=False)
 async def health(request: Request) -> dict:
     """Liveness plus the routers that failed to mount.
 
     Always 200: every replica runs the same code, so a 503 here would pull all
     of them out of rotation for one broken feature area. ``status`` says
-    ``degraded`` instead. The path sits under ``/api/v1`` because the gateway
-    answers ``/health`` itself and only proxies other paths here.
+    ``degraded`` instead. ``/health`` is the path the gateway answered on
+    before it was merged into the API; both paths return the same body.
     """
     unmounted = getattr(request.app.state, "unmounted_routers", [])
     return {"status": "degraded" if unmounted else "ok", "unmounted_routers": unmounted}

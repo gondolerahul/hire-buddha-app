@@ -8,6 +8,12 @@
 > **Context:** everything external reaches the platform through this process. It is the
 > only thing between the internet and the API, and **several of its controls are not
 > wired**.
+>
+> **Update 2026-09-30:** the gateway (port 8001) was merged into the API on port 8000 — the
+> `src/gateway/` modules are now routers the API mounts, and the reverse proxy, its
+> settings class and its auth middleware are deleted. Entries that the merge closed or
+> changed carry a status line; the rest still hold, with "the gateway" now meaning those
+> endpoints on the API. See [02 — SA-16 et al.](02-SYSTEM-ARCHITECTURE-DEFECTS.md).
 
 ---
 
@@ -99,7 +105,11 @@ agents run, and pay for it.
 
 ### GW-02 — Rate limiting covers one route
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: partly fixed (2026-09-30)** — the API installs
+`SlowAPIMiddleware`, so every REST route is limited at `RATE_LIMIT` per client IP (GW-I1).
+`/webhook/inbound` and `/internal/event` are deliberately `@limiter.exempt` — the merge
+kept their behaviour — and WebSockets are still unlimited. The limiter now falls back to
+in-memory counts when Redis is down instead of failing the request.
 
 The limiter is constructed with `default_limits=[settings.RATE_LIMIT]`, attached to
 `app.state.limiter`, and given an exception handler. **`SlowAPIMiddleware` is never
@@ -149,7 +159,10 @@ single captured webhook body can be replayed indefinitely.
 
 ### GW-04 — The auth middleware never sees a WebSocket
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open, changed (2026-09-30)** — the auth middleware is
+deleted (the internal-token check is now a `require_internal` dependency). The gap it
+describes remains: nothing validates the `/stream/audio` or `/stream/video` handshake
+token. The fix is GW-I6.
 
 `GatewayAuthMiddleware` extends `BaseHTTPMiddleware`, which passes non-HTTP ASGI scopes
 straight through. WebSocket connections never enter it.
@@ -193,7 +206,9 @@ vhosts. `mod_remoteip` is already enabled by `setup_apache.sh`.
 
 ### GW-06 — `EVENT_BUS_TYPE` and the TURN credentials are never read
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: partly fixed (2026-09-30)** — `EVENT_BUS_TYPE` is gone
+with the gateway's settings class. `TURN_USERNAME` / `TURN_CREDENTIAL` (now in the one
+`Settings`) are still never read.
 
 Three settings are declared, documented and unused:
 
@@ -233,7 +248,9 @@ told the delivery succeeded, in-memory is the wrong durability.
 
 ### GW-08 — The arq fallback runs a full AgentLoop inside the gateway
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open, worse (2026-09-30)** — after the merge the fallback
+runs inside the API process, sharing its event loop with every REST request as well as
+live audio. The fix is GW-I5 / SA-09.
 
 When the arq pool is unreachable, `_execute_in_process` runs the whole agent loop as a
 fire-and-forget task **in the gateway process**.
@@ -291,10 +308,10 @@ upgrade rule and the STUN/TURN settings.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **GW-11** | [`gateway/main.py`](../../../backend/src/gateway/main.py) and [`gateway/config.py`](../../../backend/src/gateway/config.py) | The superseded pure-proxy gateway and its settings class. Only `app.py` and `gateway_config.py` run | ✅ Verified |
-| **GW-12** | `@app.on_event("shutdown")` / `close_proxy_client` | A custom `lifespan` was supplied at [`app.py:98`](../../../backend/src/gateway/app.py:98), so the `on_event` handler at [`:330`](../../../backend/src/gateway/app.py:330) **never fires**. The shared `httpx` client is never closed on shutdown | ✅ Verified |
-| **GW-13** | `EVENT_BUS_TYPE`, `TURN_USERNAME`, `TURN_CREDENTIAL`, event `priority` | See [GW-06](#gw-06--event_bus_type-and-the-turn-credentials-are-never-read). Delete or wire | 📄 Doc-reported |
-| **GW-14** | Both `streaming.hirebuddha.com` vhosts | They point at port 8002, which nothing serves. Part of **W-1** | ✅ Verified |
+| **GW-11** | `gateway/main.py` and `gateway/config.py` | The superseded pure-proxy gateway and its settings class. Only `app.py` and `gateway_config.py` run | ✅ fixed (2026-09-30) — deleted, with `app.py` and `gateway_config.py` (SA-11) |
+| **GW-12** | `@app.on_event("shutdown")` / `close_proxy_client` | A custom `lifespan` was supplied at `app.py:98`, so the `on_event` handler at `:330` **never fires**. The shared `httpx` client is never closed on shutdown | ✅ fixed (2026-09-30) — the proxy and its client are gone with `gateway/app.py` |
+| **GW-13** | `EVENT_BUS_TYPE`, `TURN_USERNAME`, `TURN_CREDENTIAL`, event `priority` | See [GW-06](#gw-06--event_bus_type-and-the-turn-credentials-are-never-read). Delete or wire | 📄 Doc-reported · partly fixed (2026-09-30) — `EVENT_BUS_TYPE` deleted |
+| **GW-14** | Both `streaming.hirebuddha.com` vhosts | They point at port 8002, which nothing serves. Part of **W-1** | ✅ fixed (2026-09-30) — deleted (SA-13) |
 
 > Move `close_proxy_client`'s body into the `lifespan` shutdown half rather than deleting
 > the behaviour — the client should still be closed.
@@ -305,7 +322,7 @@ upgrade rule and the STUN/TURN settings.
 
 ### GW-15 — The proxy copies response headers verbatim after decompressing
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-09-30)** — the proxy is deleted.
 
 The reverse proxy copies upstream response headers including `content-length` and
 `content-encoding`, while `httpx` has **already decompressed the body**.
@@ -322,7 +339,9 @@ the body is gzipped and it is not.
 
 ### GW-16 — Auth middleware runs before CORS, so its 401s have no CORS headers
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: fixed (2026-09-30)** — the middleware is deleted and
+`CORSMiddleware` is the API's outermost layer; a 401 from `/internal/event` (and any 403
+or 429) carries CORS headers.
 
 Starlette runs middleware in reverse registration order. `GatewayAuthMiddleware` is added
 after `CORSMiddleware` and therefore runs before it on the inbound leg — and returns its
@@ -377,7 +396,7 @@ and [SA-I8](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-i8--make-the-sse-terminal-signa
 
 ### GW-20 — The catch-all proxy must stay last, and nothing enforces it
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — no catch-all exists (SA-16).
 
 `@app.api_route("/{path:path}")` is declared last on purpose. FastAPI matches in
 declaration order, so any endpoint added below it is silently swallowed and forwarded to
@@ -409,6 +428,8 @@ incident.
 ## 6. Improvements
 
 ### GW-I1 — Add `SlowAPIMiddleware`
+
+**Status: done (2026-09-30)** — on the API, with the two ingress endpoints exempt. See GW-02.
 
 **Effect: large, one line.** [GW-02](#gw-02--rate-limiting-covers-one-route). Everything on
 the gateway is unlimited today except the REST proxy, including the two endpoints that can
@@ -458,11 +479,15 @@ poll entirely — removing a constant query per open execution page.
 
 ### GW-I8 — Reuse one `httpx` client and close it properly
 
+**Status: moot (2026-09-30)** — the proxy and its client are deleted.
+
 **Effect: small.** The shared lazily-created client is right; the shutdown that closes it
 never runs ([GW-12](#4-t2--delete)). Move the close into the `lifespan` shutdown half so
 connections are released on restart.
 
 ### GW-I9 — Make the proxy header handling explicit
+
+**Status: moot (2026-09-30)** — the proxy is deleted.
 
 **Effect: small, prevents a future outage.**
 [GW-15](#gw-15--the-proxy-copies-response-headers-verbatim-after-decompressing). Strip

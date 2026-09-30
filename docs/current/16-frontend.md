@@ -224,8 +224,7 @@ graph TB
         V["vite dev server :3000"]
     end
     subgraph Api["Python processes"]
-        G["Unified gateway :8001"]
-        BE["FastAPI backend :8000"]
+        BE["FastAPI API :8000"]
     end
 
     B -->|"HTML, JS, CSS"| A1
@@ -233,8 +232,7 @@ graph TB
     A1 --> V
     A2 --> V
     B -->|"XHR and SSE to /api/v1"| A3
-    A3 --> G
-    G --> BE
+    A3 --> BE
 ```
 
 > **This is the real surprise of the deployment.** Both

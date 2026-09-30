@@ -7,8 +7,39 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ENCRYPTION_MASTER_KEY: str = "your-default-dev-key-must-be-32-bytes" # Overridden by env
-    STREAMING_HOST: str = "localhost:8002"
+
+    # ── Public address telephony reaches this API on ──────────────────────
+    # TwiML <Stream> URLs, Tata's wss_url and campaign callbacks are built from
+    # these (voice/public_urls.py). The default is this API on a local stack;
+    # production sets the public hostname and "wss", and the HTTP callbacks
+    # follow the protocol (https for wss). SA-01: the default used to be the
+    # retired voice service on :8002.
+    STREAMING_HOST: str = "localhost:8000"
     STREAMING_PROTOCOL: str = "ws"
+
+    # ── HTTP edge — one list, one limit (the gateway on :8001 is merged in) ─
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,"
+        "http://127.0.0.1:3000,"
+        "http://34.100.230.121:3000,"
+        "https://dev.hirebuddha.com,"
+        "https://app.hirebuddha.com,"
+        "https://gateway.hirebuddha.com"
+    )
+    # Per client IP, on every REST route except the inbound webhook and
+    # internal-event endpoints. Counted in Redis; in memory if Redis is down.
+    RATE_LIMIT: str = "200/minute"
+
+    # ── Webhook / internal-event / media-stream edge ──────────────────────
+    # Shared secret for POST /internal/event (X-Internal-Token).
+    INTERNAL_TOKEN: str = "change-me-in-production"
+    EVENT_BUS_MAXSIZE: int = 1000
+    VIDEO_STREAMING_ENABLED: bool = True
+    # STUN/TURN servers for WebRTC ICE negotiation (comma-separated)
+    STUN_SERVERS: str = "stun:stun.l.google.com:19302"
+    TURN_SERVER_URL: str = ""
+    TURN_USERNAME: str = ""
+    TURN_CREDENTIAL: str = ""
 
     # Phase 12 `02` S4 — per-tenant container sandbox. OFF by default;
     # SubprocessRuntime stays the dev/CI default and the production rollback.
@@ -138,5 +169,13 @@ class Settings(BaseSettings):
     MOBILE_APP_DOWNLOAD_URL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def stun_servers_list(self) -> list[str]:
+        return [s.strip() for s in self.STUN_SERVERS.split(",") if s.strip()]
 
 settings = Settings()
