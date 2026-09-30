@@ -35,6 +35,8 @@ from src.ai.core.agent_state import (
 )
 from src.ai.core.agent_loop_sse import event_async, set_sse_redis
 from src.ai.core.budget import Budget
+from src.ai.core.credit_guard import CreditGuard
+from src.ai.core.exceptions import CreditExhaustedError
 from src.ai.core.executors import get_executor  # noqa: F401 — triggers registry side-effects
 from src.ai.core.executors.base import ActionResult
 from src.ai.core.feature_flags import FeatureFlags
@@ -140,6 +142,7 @@ class AgentLoop:
         self.cortex: Any = None
         self.memory: Any = None  # RunMemory; None when memory is off
         self._entity: Any = None
+        self.credits: Optional[CreditGuard] = None  # set once the run is loaded
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -160,6 +163,13 @@ class AgentLoop:
 
         state = self._bootstrap_state(run, entity)
         self._entity = entity
+        # Credit gate + hold, before any billable work (BC-05, BC-06).
+        self.credits = CreditGuard(self.db, self.redis, run, entity)
+        refusal = await self.credits.admit(state.entity_type.value, self._extract_plan_steps(entity, run))
+        if refusal:
+            await self._persist_final(run, state, RunStatus.FAILED.value, refusal, "")
+            return AgentLoopOutcome(run_id=str(run_id), status=RunStatus.FAILED.value, iterations=0,
+                                    total_cost_usd=0.0, output="", error=refusal).to_dict()
         await self._compose(state)
 
         # Cache redis on a transient state attribute so executor adapters can
@@ -208,6 +218,11 @@ class AgentLoop:
                 outcome_status = self._final_status(state)
                 last_output = self._final_output(state)
                 total_cost = float(state.budget.usd_used)
+        except CreditExhaustedError as exc:
+            # Out of credit mid-run: stop, keep and bill the work done (BC-05).
+            outcome_status = RunStatus.PARTIAL_COMPLETE.value
+            last_error, last_output = str(exc), self._final_output(state)
+            total_cost = float(state.budget.usd_used)
         except Exception as exc:                                           # noqa: BLE001
             last_error = f"{type(exc).__name__}: {exc}"
             logger.exception("AgentLoop crashed for run %s", run_id)
@@ -287,6 +302,7 @@ class AgentLoop:
         state = AgentState.restore(snapshot)
         state.redis_client = self.redis
         self._entity = run.entity
+        self.credits = CreditGuard(self.db, self.redis, run, run.entity)  # the hold persists
         await self._compose(state, resumed=True)
 
         # Fold terminal children; bail back to WAITING if any are still running.
@@ -384,6 +400,9 @@ class AgentLoop:
             # WAITING snapshot and returns. ``resume`` re-enters here later.
             if state.suspend_requested:
                 break
+
+            if self.credits is not None:
+                await self.credits.check(state.budget.usd_used)  # CreditExhaustedError
 
             if state.budget.exhausted():
                 await event_async(
@@ -1113,36 +1132,9 @@ class AgentLoop:
         # drives steps directly and never calls ``execute_run``, the loop owns
         # settlement. Without this, plan-driven agent_loop runs accumulate
         # per-tool/LLM cost on ``run.total_cost_usd`` but never deduct credits.
-        await self._settle_billing(fresh)
-
-    async def _settle_billing(self, run: ExecutionRun) -> None:
-        """Deduct credits for a finished top-level run (best-effort).
-
-        Mirrors ``ExecutionEngine.execute_run``'s final settlement step.
-        ``GovernanceService.settle_billing`` is a no-op for child runs
-        (``parent_run_id`` set) and for zero-cost runs, and is idempotent enough
-        for a single end-of-run call. Any failure is swallowed — a billing
-        hiccup must never crash run finalization.
-        """
-        try:
-            if getattr(run, "parent_run_id", None):
-                return  # only top-level runs settle
-            from src.ai.governance.governance_service import GovernanceService
-
-            governance = GovernanceService(self.db, self.redis)
-            entity_name = getattr(self._entity, "name", "") or ""
-            billed = await governance.settle_billing(run, entity_name)
-            await event_async(
-                "agent.loop.billing_settled",
-                run_id=str(self._run_id or getattr(run, "id", None)),
-                billed_amount=float(billed or 0),
-                total_cost_usd=float(getattr(run, "total_cost_usd", 0) or 0),
-            )
-        except Exception as exc:                                            # noqa: BLE001
-            logger.warning(
-                "AgentLoop billing settlement failed for run %s: %s",
-                self._run_id, exc,
-            )
+        # Settling also releases the run's credit hold (BC-06).
+        if self.credits is not None:
+            await self.credits.settle(fresh)
 
     async def _persist_suspended(self, run: ExecutionRun, state: AgentState) -> None:
         """Persist a resumable snapshot + WAITING_ON_CHILDREN status.

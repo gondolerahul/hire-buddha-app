@@ -284,7 +284,8 @@ renewed or created all 165 wallets on the first run and changed nothing on the s
 
 ### BC-05 — Three of the four credit gates have no callers
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — every top-level run is admitted on
+credit and stopped by a circuit breaker; triggering without free credit is a 402.
 
 `14-billing-and-credits.md` and `01-product-overview.md` both describe credit enforcement
 at four points in a run. Grepping for call sites:
@@ -310,11 +311,41 @@ All four unused methods are defined and unit-tested, which is why this survived.
 **Fix:** call `check_credit_gate` at run start and `check_credit_circuit_breaker` after each
 step, from `AgentLoop`. Both already exist and both are tested.
 
+**Done (2026-09-30), with BC-06.** `ai/core/credit_guard.py` (`CreditGuard`) is the credit
+side of an `AgentLoop` run, top-level runs only (a child spends its parent's credit):
+
+- **Admit**, in `AgentLoop.run` before any billable work (before memory assembly and
+  planning): `check_credit_gate` now places the run's hold (BC-06) with the entity type's
+  floor. Refused → the run ends `FAILED` with the reason, nothing billed. The gate no longer
+  swallows errors: a wallet that cannot be read does not let a run start.
+- **Check**, after every iteration in `AgentLoop._loop`: `check_credit_circuit_breaker`
+  compares the run's bill so far — `state.budget.usd_used`, the same cost settlement bills,
+  **through the TB formula** (the old breaker compared raw cost with the balance) — with the
+  wallet minus other runs' holds. Exhausted → `CreditExhaustedError` → the run finishes
+  `PARTIAL_COMPLETE` with *"… Partial results saved. Please top up credits and retry."*,
+  and is billed for the work done.
+- **Settle**: `AgentLoop._settle_billing` moved into the guard; settlement releases the hold.
+- `AIService.trigger_execution` calls `require_credits` with the floor: a 402 at once instead
+  of a run that fails in the worker.
+- `consume_step_cost` is deleted: with holds and the breaker the wallet is still debited
+  once, at settlement.
+
+**Evidence:** `tests/integration/test_run_credit_guard.py`, 8 cases against the real Postgres:
+an empty wallet is refused with no hold; an admitted run holds its estimate and
+`GET /balance` reports it as `held`; two runs cannot be admitted on the same $1 (the second
+is refused until the first settles and releases); a finished run's unreleased hold stops
+counting; the breaker lets a bill under $1 continue and stops one over it; another run's
+hold counts against the breaker; child runs are not gated; `trigger_execution` on an empty
+wallet is a 402 and writes no run. `tests/unit/test_governance_service.py` covers the gate's
+floor, its fail-closed error handling and the breaker's TB arithmetic. The three agent-loop
+unit modules, which drive the loop on a fake session, stub admission and the breaker.
+
 ---
 
 ### BC-06 — There are no holds, so one run can overdraw
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: fixed (2026-09-30)** — a top-level run holds its
+estimated bill from admission to settlement; the breaker (BC-05) bounds a single run.
 
 Cost accrues on the run and the wallet is debited only at settlement. With no reservation
 and — per [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) — no in-run
@@ -325,6 +356,16 @@ platform discovers it at the end.
 credit floor. So the in-loop budget will not stop it either.
 
 - Also recorded as **D-37** in the platform register
+
+**Done (2026-09-30).** Table `credit_holds` (migration `bc06_credit_holds`): one row per
+top-level run, placed at admission (`CreditService.place_hold`, under the wallet row lock so
+admissions are serialised per company) and released at settlement. The amount is the run's
+estimated bill — the larger of its plan estimate through the TB formula and the average
+`billed_amount` of the entity's last ten finished top-level runs — at least the floor and at
+most what the company can spare (wallet minus other unfinished runs' holds). A hold whose
+run has finished stops counting even if it was never released. Overdraw within one run is
+bounded by the BC-05 breaker to the cost of the iteration that crossed the line.
+**Evidence:** the BC-05 tests above — in particular two runs on one $1 balance.
 
 ---
 
@@ -475,7 +516,7 @@ So one pricing override does nothing, and the other silently deletes a real cost
 
 | ID | Item | Reality | Status |
 |---|---|---|---|
-| **BC-14** | `check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker`, `require_credits` | Defined, unit-tested, **zero callers**. See [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) | ✅ Verified |
+| **BC-14** | `check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker`, `require_credits` | Defined, unit-tested, **zero callers**. See [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) | ✅ fixed (2026-09-30) with BC-05 — the gate, breaker and `require_credits` are called; `consume_step_cost` is deleted |
 | **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ fixed (2026-09-30) with BC-04 — Arq crons at 00:00 and 01:30 UTC |
 | **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ fixed (2026-09-30) with BC-03 — set when the Razorpay subscription is created; every charge and status change is matched on it |
 | **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ Verified |
@@ -628,6 +669,8 @@ return that field alone.
 
 ### BC-I1 — Call the credit gates that already exist
 
+**Status: done (2026-09-30)** — see [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers).
+
 **Effect: the largest single change in this register, and most of the code is written.**
 [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers). Two call sites in
 `AgentLoop`: `check_credit_gate` at run start, `check_credit_circuit_breaker` after each
@@ -637,6 +680,9 @@ This restores the pre-run gate and the mid-run breaker the product already claim
 and it makes the user-facing "top up and retry" message reachable.
 
 ### BC-I2 — Credit holds instead of settle-at-the-end
+
+**Status: done (2026-09-30)** — see [BC-06](#bc-06--there-are-no-holds-so-one-run-can-overdraw).
+The wallet is still debited at settlement; the hold reserves credit until then.
 
 **Effect: large.** [BC-06](#bc-06--there-are-no-holds-so-one-run-can-overdraw). Reserve an
 estimate at dispatch, release the difference at settlement. The estimator already exists in

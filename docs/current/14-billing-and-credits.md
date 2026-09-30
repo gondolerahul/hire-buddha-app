@@ -850,15 +850,27 @@ buckets hold less than the amount.
 
 The rationale in the docstring: *"this does NOT raise when the amount exceeds the balance — it deducts as much as possible, so the wallet goes to $0 rather than allowing the balance to stay untouched while costs pile up."*
 
-### 7.4 There are no holds or reservations
+### 7.4 Holds
 
-Despite the phrasing in older design documents: **the code has no reservation, hold, escrow, or two-phase-commit mechanism.** Nothing is locked before a run. The three approximations are:
+A top-level run **holds** credit from admission until settlement (BC-06) — a row in
+`credit_holds` (`company_id`, `run_id` unique, `amount`, `released_at`). A hold is not a
+deduction: settlement still charges what the run actually cost, and releases the hold.
 
-1. `check_sufficient_for_execution` — a *threshold* check, not a hold (§8).
-2. `get_effective_balance(company_id, accumulated_cost)` — `total_available − accumulated_cost`, computed on the fly, persisted nowhere.
-3. The in-memory `Budget` object on the agent loop, which caps a run but never touches the wallet — [ai/core/budget.py](../../backend/src/ai/core/budget.py).
+- **What it holds:** the run's estimated bill — the larger of its plan's estimate
+  (`planning/cost_estimator.estimate_plan_cost` through the TB formula) and the average
+  `billed_amount` of the entity's last ten finished top-level runs — at least the entity
+  type's floor (§8.1), and never more than the company can spare.
+- **What the company can spare:** the wallet (all four buckets) minus the holds of its
+  *other* unfinished runs (`CreditService.held_by_others`). A hold whose run has reached a
+  terminal status stops counting even if nothing released it, so a worker that died
+  mid-run cannot pin the wallet.
+- **Admission is serialised per company:** `place_hold` runs under the wallet row lock, so
+  two runs cannot be admitted on the same credit.
+- `GET /credits/balance` reports `held` and `free` (= `total_available − held`) next to the
+  buckets.
 
-A tenant can therefore overspend within a single run: cost accrues on `run.total_cost_usd` and the wallet is only debited at the end.
+Before BC-06 there was no reservation of any kind: two runs started on one balance could
+both spend it, and the wallet was debited only at settlement.
 
 ### 7.5 A credit transaction, end to end
 
@@ -921,18 +933,36 @@ MINIMUM_EXECUTION_THRESHOLDS = {
 DEFAULT_MINIMUM_THRESHOLD = Decimal("0.05")
 ```
 
-This is a **floor test, not an estimate test.** It does not consult the planner's `estimate_plan_cost`. A tenant with `$0.06` may start an `AGENT` run that will cost `$4`.
+The floor is what a run must find **free** to start. What it then holds is its estimate (§7.4), and what stops it is the circuit breaker (§8.2) — so a tenant with `$0.06` may start an `AGENT` run that would cost `$4`, and it is stopped when its bill reaches `$0.06`.
 
-### 8.2 Where the gate actually fires
+### 8.2 Where the gate fires
 
 | Call site | Entity type | Behaviour on failure |
 |---|---|---|
+| **Every top-level agent run** — `AgentLoop.run` → `CreditGuard.admit` → `GovernanceService.check_credit_gate` → `CreditService.place_hold` | the run's | Refused before any billable work: the run ends `FAILED` with the reason in `error_message`, nothing billed (BC-05) |
+| **Triggering a run** — `AIService.trigger_execution` → `CreditService.require_credits` | the entity's | HTTP `402` and no run row, so the user is told at once; the worker's gate above still decides |
+| **Every iteration of a top-level run** — `AgentLoop._loop` → `CreditGuard.check` → `check_credit_circuit_breaker` | — | The run stops `PARTIAL_COMPLETE`: work done so far is kept and billed, `error_message` says *Partial results saved. Please top up credits and retry.* |
 | Voice call setup — [websocket_handler.py:238](../../backend/src/voice/websocket_handler.py:238) | `AGENT` | Outbound calls blocked; **inbound calls proceed** with a warning so users do not miss calls |
 | Campaign start — [campaign_executor.py:139](../../backend/src/ai/campaign_executor.py:139) | `AGENT` | Campaign → `failed`, all pending calls → `failed` / `insufficient_credits` |
 | Per campaign call — [campaign_executor.py:378](../../backend/src/ai/campaign_executor.py:378) | `AGENT` | That one call → `failed` / `insufficient_credits`, campaign continues |
 | Child entity spawn — [step_executor.py:236](../../backend/src/ai/step_executor.py:236) | via `check_child_credit_gate` | Raises, aborting the spawn |
 
-⚠️ **`GovernanceService.check_credit_gate` has no production caller.** Grep it: the only references are its own definition and `tests/unit/test_governance_service.py`. The same is true of `consume_step_cost`, `check_credit_circuit_breaker`, and `CreditService.require_credits`. There is consequently **no pre-execution credit gate on a normal agent run started through the API** — only voice, campaigns and child spawns are gated.
+The floor checks (`check_sufficient_for_execution`, `require_credits`) compare the floor
+with the **free** credit — the wallet minus running executions' holds. Child runs are not
+gated separately: they spend their parent's credit, which the parent's breaker watches.
+
+**The circuit breaker** (`check_credit_circuit_breaker`) takes the run's accumulated raw cost
+(`state.budget.usd_used`, synced every iteration to `run.total_cost_usd` plus critic spend —
+the same number settlement bills), puts it through the TB formula, and stops the run when
+that bill reaches the wallet minus other runs' holds. A failure to *read* the wallet there
+is logged and the run continues (settlement still charges it); a failure at admission
+refuses the run.
+
+Until BC-05 none of this ran: `check_credit_gate`, `check_credit_circuit_breaker` and
+`require_credits` had no callers, so a run started through the API on an empty wallet ran to
+completion, and *"Partial results saved"* came from a code path that never executed. The
+old per-step deduction `consume_step_cost` is deleted: with holds and the breaker, the
+wallet is still debited once, at settlement.
 
 ```mermaid
 sequenceDiagram
@@ -940,30 +970,32 @@ sequenceDiagram
     participant API as "POST /ai/executions"
     participant W as Arq worker
     participant L as AgentLoop
-    participant G as GovernanceService
+    participant G as CreditGuard / GovernanceService
     participant C as CreditService
-    participant DB as credit_wallets
+    participant DB as credit_wallets, credit_holds
 
     U->>API: run this PROCESS
+    API->>C: require_credits - floor vs free credit
+    alt below the floor
+        API-->>U: 402
+    end
     API->>W: enqueue
-    Note over API,W: no credit gate on this path today
     W->>L: run
+    L->>G: admit - estimate
+    G->>C: place_hold - under the wallet lock
+    alt free credit below the floor
+        L-->>U: run FAILED, reason recorded, nothing billed
+    end
     loop each iteration
-        L->>L: budget.consume - usd, wall_s, iter
-        L->>L: exhausted? then stop with budget_exhausted event
+        L->>L: iteration, budget synced to real cost
+        L->>G: check - bill so far vs wallet minus other holds
+        alt exhausted
+            L-->>U: run PARTIAL_COMPLETE, "Partial results saved"
+        end
     end
-    L->>G: settle_billing - run
-    G->>G: calculate_tb - total_cost_usd
+    L->>G: settle
     G->>C: consume_incremental - TB
-    C->>DB: debit daily then wallet or subscription
-    alt shortfall
-        C-->>G: exhausted true, shortfall X
-        G->>G: log BILLING SHORTFALL, wallet at zero
-    else ok
-        C-->>G: per-bucket deductions
-    end
-    G->>DB: record_billing_event
-    G-->>L: billed_amount
+    G->>DB: record_billing_event, release the hold
 ```
 
 ### 8.3 The in-run guardrail that does work: `Budget`
@@ -991,7 +1023,7 @@ flowchart TD
     I --> J
 ```
 
-Because `Budget.usd_max` defaults to `$100` and the credit floor for a `PROCESS` is `$0.50`, a misconfigured entity can burn far more than the tenant's balance before settlement notices. The shortfall is then logged and the wallet is zeroed:
+`Budget.usd_max` defaults to `$100`, far above the credit floor for a `PROCESS` (`$0.50`); the credit breaker (§8.2) is what stops a run at the wallet, so overspend is bounded by one iteration's cost. What that last iteration overspends is still charged at settlement, where the shortfall is logged and the wallet zeroed:
 
 ```python
 # backend/src/ai/governance/governance_service.py
@@ -1007,10 +1039,12 @@ if settlement["exhausted"]:
 
 | Situation | Surface | Message |
 |---|---|---|
+| Free credit below the floor, starting a run | HTTP `402` from `POST /ai/executions` | `Insufficient credits. Required: $X, Free: $Y (balance $Z, $H held by running executions).` |
+| The same, for a run queued another way | run `FAILED`, `error_message` | `Cannot start execution: $Y of credit is free (balance $Z, the rest held by running executions); at least $X is required. …` |
+| Credit used up mid-run | run `PARTIAL_COMPLETE`, `error_message` | `Execution stopped: credit balance exhausted. Billed so far: $X; credit available to this run: $Y. Partial results saved. Please top up credits and retry.` |
 | Balance below threshold, voice outbound | call setup aborts | `Cannot start execution: credit balance $X is below the minimum $Y required for entity type 'AGENT'. Please top up your wallet or wait for daily credit refresh.` |
 | Balance below threshold, campaign | `campaign_calls.outcome = "insufficient_credits"` | the same string in `outcome_notes` |
 | Child spawn refused | run fails | `Cannot spawn child entity {id}: parent run has accumulated $X cost with no remaining credits.` |
-| `require_credits` HTTP helper (unused) | would be HTTP `402` | `Insufficient credits. Required: $X, Available: $Y.` |
 | Wallet page | `WalletPage.tsx` bucket bars | each bucket's dollar amount, percentage bar capped at `$50`, and expiry date |
 
 ---
@@ -1662,8 +1696,8 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 
 **Gating**
 
-- ⚠️ `GovernanceService.check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker` and `CreditService.require_credits` are all **dead code** — defined, unit-tested, never called. A normal agent run has no pre-execution credit gate.
-- ⚠️ `Budget.usd_max` defaults to `$100`, two orders of magnitude above the `$0.50` `PROCESS` credit floor.
+- ~~⚠️ `GovernanceService.check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker` and `CreditService.require_credits` are all **dead code**.~~ Fixed 2026-09-30 (BC-05): every top-level run is admitted, holds credit and is stopped by the breaker; `require_credits` gives the early 402; `consume_step_cost` is deleted.
+- `Budget.usd_max` still defaults to `$100`; the credit breaker, not the budget, stops a run at the wallet.
 
 **Payments**
 

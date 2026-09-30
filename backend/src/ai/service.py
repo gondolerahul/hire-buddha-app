@@ -293,6 +293,11 @@ class AIService:
         if entity_type_str == "PROCESS":
             await self._validate_process_children(entity, company_id, user_role=user_role)
 
+        # 402 now rather than a run that fails in the worker: the run's own
+        # credit gate (AgentLoop, BC-05) still decides, with its hold.
+        from src.billing.credit_service import CreditService, minimum_threshold
+        await CreditService(self.db).require_credits(company_id, minimum_threshold(entity_type_str))
+
         # Create Execution Record
         execution = ExecutionRun(
             company_id=company_id,

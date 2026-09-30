@@ -14,8 +14,8 @@ from uuid import UUID
 
 from sqlalchemy import select, update
 
-from src.billing.credit_service import CreditService, InsufficientCreditsError
-from src.billing.billing_service import BillingService, calculate_tb
+from src.billing.credit_service import CreditService, InsufficientCreditsError, minimum_threshold
+from src.billing.billing_service import BillingService, calculate_tb, compute_billed_amount
 from src.ai.models import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
 from src.ai.governance.hitl_snapshot import build_hitl_snapshot
@@ -33,92 +33,59 @@ class GovernanceService:
         self.billing_service = BillingService(db)
 
     # ------------------------------------------------------------------
-    # Credit Gate
+    # Credit gate, hold and circuit breaker (BC-05, BC-06)
     # ------------------------------------------------------------------
 
     async def check_credit_gate(
-        self, company_id: UUID, entity_type: str, is_child: bool = False
-    ) -> dict[str, Any]:
+        self, run: 'ExecutionRun', entity_type: str, estimate: Decimal,
+    ) -> Decimal:
+        """Admit a top-level run and hold its estimated bill.
+
+        Raises InsufficientCreditsError when less than the entity type's
+        minimum is free (the wallet minus other runs' holds). Returns the
+        amount held. Errors reading the wallet propagate: a run whose credit
+        cannot be checked does not start (before BC-05 this gate swallowed
+        them — and had no callers at all).
         """
-        Pre-execution credit balance check.
-
-        Returns the balance dict on success. Raises InsufficientCreditsError
-        if the company cannot afford execution. Non-fatal DB errors are
-        logged and swallowed so they don't block execution.
-        """
-        try:
-            balance = await self.credit_service.check_sufficient_for_execution(
-                company_id, entity_type
-            )
-            logger.info(
-                f"Pre-execution credit check passed: ${balance['total_available']:.4f} available "
-                f"(entity_type={entity_type}, is_child={is_child})"
-            )
-            return balance
-        except InsufficientCreditsError:
-            raise  # Re-raise to be caught by the outer handler
-        except Exception as e:
-            # Non-fatal: log and continue if balance check fails (e.g. DB issue)
-            logger.warning(f"Pre-execution credit check failed: {e}")
-            return {}
-
-    # ------------------------------------------------------------------
-    # Incremental Billing
-    # ------------------------------------------------------------------
-
-    async def consume_step_cost(
-        self, run: 'ExecutionRun', step_name: str, step_cost: Decimal
-    ) -> dict[str, Any]:
-        """
-        Deduct a single step's cost from the company wallet immediately.
-
-        Returns the consume result dict. Non-fatal errors are logged.
-        """
-        if step_cost <= 0:
-            return {"deducted": Decimal("0"), "shortfall": Decimal("0"), "exhausted": False}
-
-        try:
-            result = await self.credit_service.consume_incremental(
-                run.company_id, step_cost
-            )
-            logger.debug(
-                f"Step '{step_name}' cost ${step_cost:.4f} deducted "
-                f"(shortfall: ${result['shortfall']:.4f})"
-            )
-            return result
-        except Exception as e:
-            logger.warning(f"Incremental deduction failed for step '{step_name}': {e}")
-            return {"deducted": Decimal("0"), "shortfall": step_cost, "exhausted": False}
+        held = await self.credit_service.place_hold(
+            run.company_id, run.id, estimate, minimum_threshold(entity_type)
+        )
+        logger.info(
+            f"Credit gate passed for run {run.id}: holding ${held:.4f} "
+            f"(estimate ${estimate:.4f}, entity_type={entity_type})"
+        )
+        return held
 
     async def check_credit_circuit_breaker(
-        self, run: 'ExecutionRun', step_name: str
+        self, run: 'ExecutionRun', accumulated_cost: Decimal,
     ) -> None:
-        """
-        Mid-execution credit circuit-breaker.
+        """Stop a run once its bill so far reaches the credit it may spend.
 
-        Compares effective balance against accumulated costs. Raises
-        InsufficientCreditsError if the wallet is drained.
+        The bill is ``accumulated_cost`` (raw provider cost) through the TB
+        formula — what settlement will charge. The credit it may spend is the
+        wallet minus other runs' holds. Raises InsufficientCreditsError to
+        stop; a failure to read the wallet is logged and the run continues
+        (settlement still charges it).
         """
         try:
-            accumulated = Decimal(str(run.total_cost_usd or 0))
-            effective = await self.credit_service.get_effective_balance(
-                run.company_id, accumulated
+            config = await self.billing_service.get_billing_config(run.company_id)
+            billed = compute_billed_amount(accumulated_cost, config)
+            balance = await self.credit_service.get_balance(run.company_id)
+            others = await self.credit_service.held_by_others(run.company_id, run.id)
+            spendable = Decimal(str(balance["total_available"])) - others
+        except Exception as e:
+            logger.warning(f"Credit circuit breaker could not read the wallet for run {run.id}: {e}")
+            return
+        if spendable - billed <= 0:
+            logger.warning(
+                f"Credit exhausted mid-execution for run {run.id}: billed so far "
+                f"${billed:.4f}, spendable ${spendable:.4f}. Stopping."
             )
-            if effective <= 0:
-                logger.warning(
-                    f"Credit exhausted mid-execution after step '{step_name}'. "
-                    f"Effective balance: ${effective:.4f} "
-                    f"(accumulated cost: ${accumulated:.4f}). Stopping."
-                )
-                raise InsufficientCreditsError(
-                    f"Execution stopped: credit balance exhausted after step '{step_name}'. "
-                    f"Accumulated cost: ${accumulated:.4f}. "
-                    f"Partial results saved. Please top up credits and retry."
-                )
-        except InsufficientCreditsError:
-            raise
-        except Exception:
-            pass  # Non-fatal: continue if balance check fails
+            raise InsufficientCreditsError(
+                f"Execution stopped: credit balance exhausted. Billed so far: ${billed:.4f}; "
+                f"credit available to this run: ${max(spendable, Decimal('0')):.4f}. "
+                f"Partial results saved. Please top up credits and retry."
+            )
 
     async def check_child_credit_gate(
         self, company_id: UUID, parent_accumulated_cost: 'Decimal', child_entity_id: str = ""
@@ -166,7 +133,16 @@ class GovernanceService:
         """
         if run.parent_run_id:
             return Decimal("0")  # Only top-level runs settle
+        try:
+            return await self._settle(run, entity_name)
+        finally:
+            # The run is finished: its hold stops reserving credit (BC-06).
+            try:
+                await self.credit_service.release_hold(run.id)
+            except Exception as e:
+                logger.warning(f"Could not release the credit hold of run {run.id}: {e}")
 
+    async def _settle(self, run: 'ExecutionRun', entity_name: str) -> Decimal:
         raw_cost = run.total_cost_usd
         logger.info(
             f"Final billing settlement for top-level run {run.id}. Total cost: {raw_cost}"

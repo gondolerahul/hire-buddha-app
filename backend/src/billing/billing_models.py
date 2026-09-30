@@ -216,3 +216,29 @@ class BillingEvent(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     company = relationship("Company")
+
+
+class CreditHold(Base):
+    """
+    Credit reserved for a running top-level execution (BC-06).
+
+    Placed when the run is admitted — the run's estimated bill, capped at what
+    the wallet can spare — and released at settlement. What other runs of the
+    company may start with, and when a running one is stopped, is the wallet
+    minus the holds of the company's other unfinished runs. A hold is not a
+    deduction: settlement still charges what the run actually cost.
+    """
+    __tablename__ = "credit_holds"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("execution_runs.id", ondelete="CASCADE"),
+                    nullable=False, unique=True)
+    amount = Column(Numeric(14, 6), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    released_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_credit_holds_open", "company_id",
+              postgresql_where=text("released_at IS NULL")),
+    )

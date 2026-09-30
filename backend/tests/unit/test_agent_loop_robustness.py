@@ -39,6 +39,20 @@ from src.ai.core.agent_state import AgentState, PreCriticVerdict
 from src.ai.schemas.enums import EntityType, RunStatus
 
 
+@pytest.fixture(autouse=True)
+def _no_credit_gate(monkeypatch):
+    """These tests drive the loop on a fake session. Credit admission and the
+    circuit breaker (BC-05, BC-06) need the real wallet and are covered by
+    tests/integration/test_run_credit_guard.py; settlement stays real."""
+    from src.ai.core.credit_guard import CreditGuard
+
+    async def _admitted(self, *args, **kwargs):
+        return None
+
+    monkeypatch.setattr(CreditGuard, "admit", _admitted)
+    monkeypatch.setattr(CreditGuard, "check", _admitted)
+
+
 # ---------------------------------------------------------------------------
 # Fakes (mirrors test_agent_loop_integration.py)
 # ---------------------------------------------------------------------------

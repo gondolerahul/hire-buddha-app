@@ -27,9 +27,10 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
-from src.billing.billing_models import CreditWallet
+from src.ai.orm.execution import ExecutionRun
+from src.billing.billing_models import CreditHold, CreditWallet
 from src.billing.billing_service import BillingService
 
 
@@ -43,6 +44,9 @@ MINIMUM_EXECUTION_THRESHOLDS = {
 }
 DEFAULT_MINIMUM_THRESHOLD = Decimal("0.05")
 
+# A hold on a run in one of these statuses no longer reserves anything.
+TERMINAL_RUN_STATUSES = ("COMPLETED", "FAILED", "PARTIAL_COMPLETE", "CANCELLED")
+
 # (deduction key, wallet column), in the order buckets are spent.
 SPEND_ORDER = (
     ("daily", "daily_credits"),
@@ -50,6 +54,10 @@ SPEND_ORDER = (
     ("subscription", "subscription_bonus_credits"),
     ("wallet", "wallet_balance"),
 )
+
+
+def minimum_threshold(entity_type: str) -> Decimal:
+    return MINIMUM_EXECUTION_THRESHOLDS.get((entity_type or "").upper(), DEFAULT_MINIMUM_THRESHOLD)
 
 
 class InsufficientCreditsError(Exception):
@@ -172,10 +180,12 @@ class CreditService:
         """Return current credit balance across all buckets.
 
         Expired daily credits are renewed in place (no cron needed); other
-        expired buckets read as zero.
+        expired buckets read as zero. ``held`` is what running executions
+        have reserved (BC-06); ``free`` is what a new one can start with.
         """
         wallet = await self._locked_current_wallet(company_id)
         await self.db.commit()
+        held = await self.held_by_others(company_id)
 
         daily = _dec(wallet.daily_credits)
         wallet_bal = _dec(wallet.wallet_balance)
@@ -191,6 +201,8 @@ class CreditService:
             "subscription_bonus_credits": float(sub_bonus),
             "sub_credits_expire_at": wallet.sub_credits_expire_at.isoformat() if wallet.sub_credits_expire_at else None,
             "total_available": float(daily + wallet_bal + sub_credits + sub_bonus),
+            "held": float(held),
+            "free": float(daily + wallet_bal + sub_credits + sub_bonus - held),
         }
 
     async def consume(self, company_id: UUID, amount: Decimal) -> dict:
@@ -300,6 +312,66 @@ class CreditService:
         await self.db.refresh(wallet)
         return wallet
 
+    # ── Holds (BC-06) ────────────────────────────────────────────────────
+
+    async def held_by_others(self, company_id: UUID, run_id: Optional[UUID] = None) -> Decimal:
+        """Credit held by the company's unfinished runs other than ``run_id``.
+
+        A hold whose run has already finished no longer counts even before it
+        is released, so a worker that died mid-run cannot pin the wallet.
+        """
+        stmt = (
+            select(func.coalesce(func.sum(CreditHold.amount), 0))
+            .join(ExecutionRun, ExecutionRun.id == CreditHold.run_id)
+            .where(
+                CreditHold.company_id == company_id,
+                CreditHold.released_at.is_(None),
+                ExecutionRun.status.notin_(TERMINAL_RUN_STATUSES),
+            )
+        )
+        if run_id is not None:
+            stmt = stmt.where(CreditHold.run_id != run_id)
+        return _dec((await self.db.execute(stmt)).scalar())
+
+    async def place_hold(
+        self, company_id: UUID, run_id: UUID, estimate: Decimal, floor: Decimal,
+    ) -> Decimal:
+        """Admit a run: hold up to ``estimate`` of what the wallet can spare.
+
+        What can be spared is the wallet minus other runs' holds. Below
+        ``floor`` the run is refused (InsufficientCreditsError); otherwise it
+        holds ``max(estimate, floor)``, capped at what can be spared. Runs
+        under the wallet lock, so two runs cannot be admitted on the same
+        credit. Returns the amount held.
+        """
+        wallet = await self._locked_current_wallet(company_id)
+        spare = available_credit(wallet) - await self.held_by_others(company_id, run_id)
+        if spare < floor:
+            await self.db.commit()
+            raise InsufficientCreditsError(
+                f"Cannot start execution: ${max(spare, Decimal('0')):.4f} of credit is free "
+                f"(balance ${available_credit(wallet):.4f}, the rest held by running executions); "
+                f"at least ${floor:.4f} is required. Please top up your wallet or wait for "
+                f"running executions to finish."
+            )
+        amount = min(max(estimate, floor), spare)
+        await self.db.execute(
+            pg_insert(CreditHold.__table__)
+            .values(company_id=company_id, run_id=run_id, amount=amount)
+            .on_conflict_do_update(index_elements=["run_id"],
+                                   set_={"amount": amount, "released_at": None})
+        )
+        await self.db.commit()
+        return amount
+
+    async def release_hold(self, run_id: UUID) -> None:
+        await self.db.execute(
+            update(CreditHold)
+            .where(CreditHold.run_id == run_id, CreditHold.released_at.is_(None))
+            .values(released_at=datetime.utcnow())
+        )
+        await self.db.commit()
+
     # ── New methods for credit overspend prevention ─────────────────────
 
     async def check_sufficient_for_execution(
@@ -309,14 +381,13 @@ class CreditService:
     ) -> dict:
         """
         Pre-execution gate: ensure the company has at least the minimum
-        threshold for the given entity type.  Returns the balance dict on
-        success; raises InsufficientCreditsError if below threshold.
+        threshold for the given entity type, not counting credit held by
+        running executions.  Returns the balance dict on success; raises
+        InsufficientCreditsError if below threshold.
         """
         balance = await self.get_balance(company_id)
-        threshold = MINIMUM_EXECUTION_THRESHOLDS.get(
-            entity_type.upper(), DEFAULT_MINIMUM_THRESHOLD
-        )
-        available = Decimal(str(balance["total_available"]))
+        threshold = minimum_threshold(entity_type)
+        available = Decimal(str(balance["free"]))
         if available < threshold:
             raise InsufficientCreditsError(
                 f"Cannot start execution: credit balance ${available:.4f} is below "
@@ -363,16 +434,18 @@ class CreditService:
 
     async def require_credits(self, company_id: UUID, amount: Decimal) -> None:
         """
-        Middleware helper — raises HTTP 402 if insufficient credits.
-        Use before processing billable tasks.
+        Raises HTTP 402 unless ``amount`` of credit is free (not held by
+        running executions). Used before an execution is queued.
         """
         balance = await self.get_balance(company_id)
-        if balance["total_available"] < float(amount):
+        if balance["free"] < float(amount):
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=(
                     f"Insufficient credits. Required: ${amount:.4f}, "
-                    f"Available: ${balance['total_available']:.4f}. "
+                    f"Free: ${max(balance['free'], 0):.4f} "
+                    f"(balance ${balance['total_available']:.4f}, "
+                    f"${balance['held']:.4f} held by running executions). "
                     "Please top up your wallet or check your subscription."
                 )
             )
