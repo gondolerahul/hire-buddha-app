@@ -48,5 +48,12 @@ async def health(request: Request) -> dict:
     ``degraded`` instead. ``/health`` is the path the gateway answered on
     before it was merged into the API; both paths return the same body.
     """
+    from src.common.config import settings
+
     unmounted = getattr(request.app.state, "unmounted_routers", [])
-    return {"status": "degraded" if unmounted else "ok", "unmounted_routers": unmounted}
+    return {
+        "status": "degraded" if unmounted else "ok",
+        "unmounted_routers": unmounted,
+        # Configuration, not health: disabled until INTERNAL_TOKEN is a real secret.
+        "internal_events": "enabled" if settings.internal_events_enabled else "disabled",
+    }

@@ -17,7 +17,7 @@ services:
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - RATE_LIMIT=200/minute
-      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-change-me-in-production}
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}    # empty disables POST /internal/event
       - STREAMING_HOST=gateway.hirebuddha.com     # public hostname telephony reaches this API on
       - STREAMING_PROTOCOL=wss
       - VIDEO_STREAMING_ENABLED=true

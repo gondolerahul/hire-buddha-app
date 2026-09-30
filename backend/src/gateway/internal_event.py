@@ -33,7 +33,17 @@ router = APIRouter(tags=["Internal Events"])
 
 
 def require_internal(x_internal_token: str = Header(default="")) -> None:
-    """Only a caller holding ``INTERNAL_TOKEN`` may post an internal event."""
+    """Only a caller holding ``INTERNAL_TOKEN`` may post an internal event.
+
+    With no real token configured (empty, or a placeholder such as
+    ``change-me-in-production``) the endpoint is disabled: 503 for everyone,
+    instead of accepting a secret that ships in the repository (SA-20).
+    """
+    if not settings.internal_events_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Internal events are disabled: INTERNAL_TOKEN is not set to a real secret",
+        )
     if not hmac.compare_digest(x_internal_token.encode(), settings.INTERNAL_TOKEN.encode()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

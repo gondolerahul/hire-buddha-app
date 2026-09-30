@@ -40,7 +40,8 @@ async def test_a_router_that_imports_is_mounted(monkeypatch):
     assert mount_optional(app, "po10_good_router", prefix="/api/v1") is True
 
     assert (await _get(app, "/api/v1/ping")).json() == {"pong": True}
-    assert (await _get(app, "/api/v1/health")).json() == {"status": "ok", "unmounted_routers": []}
+    body = (await _get(app, "/api/v1/health")).json()
+    assert (body["status"], body["unmounted_routers"]) == ("ok", [])
 
 
 async def test_a_missing_module_is_reported_and_the_app_still_boots():
@@ -86,4 +87,5 @@ async def test_the_platform_app_mounts_every_optional_router(monkeypatch):
 
     response = await _get(app, "/api/v1/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "unmounted_routers": []}
+    body = response.json()
+    assert (body["status"], body["unmounted_routers"]) == ("ok", [])

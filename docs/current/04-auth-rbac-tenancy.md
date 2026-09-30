@@ -1031,7 +1031,7 @@ Nothing else — no billing job, no dunning process, no cron — ever sets `stat
 | Property | Value |
 |---|---|
 | Setting | `INTERNAL_TOKEN` on [config.py](../../backend/src/common/config.py) |
-| Default | `"change-me-in-production"` — and `backend/.env` still holds exactly that |
+| Default | `""` — empty or a placeholder (`change-me-in-production`, …) **disables** the endpoint: 503 for every caller (SA-20, 2026-09-30). Before, the default was `change-me-in-production`, and `backend/.env` still holds it — so locally the endpoint is off until a real token is set |
 | Header | `X-Internal-Token` |
 | Comparison | `hmac.compare_digest` — constant time |
 | Scope | `POST /internal/event` only |
@@ -1449,7 +1449,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 |---|---|---|
 | 1 | **`/api/v1/email/*` has no authentication whatsoever.** Read, create, delete, and validate another tenant's mailbox credentials by passing their `company_id` or `connection_id`. `validate` decrypts the stored app password and logs into the mailbox. | [email_router.py:94](../../backend/src/ai/email_router.py:94), [:159](../../backend/src/ai/email_router.py:159), [:179](../../backend/src/ai/email_router.py:179), [:204](../../backend/src/ai/email_router.py:204) |
 | 2 | **Privilege escalation via `PATCH /users/{id}`.** `UserUpdate` includes `role`, and the handler applies it after only a company-match check. A `tenant_admin` can promote themselves to `app_admin`. | [user_router.py:48-72](../../backend/src/auth/user_router.py:48), [schemas.py:70](../../backend/src/auth/schemas.py:70) |
-| 3 | **Production secrets are the committed defaults.** `SECRET_KEY=dev_secret_key_change_in_production` and `INTERNAL_TOKEN=change-me-in-production` in `backend/.env`. Anyone with these mints tokens for any user and impersonates any tenant on `/internal/event`. | `backend/.env`, [config.py](../../backend/src/common/config.py) |
+| 3 | **Production secrets are the committed defaults.** `SECRET_KEY=dev_secret_key_change_in_production` in `backend/.env`; anyone with it mints tokens for any user. (`INTERNAL_TOKEN=change-me-in-production` no longer opens `/internal/event` — a placeholder disables it, SA-20.) | `backend/.env`, [config.py](../../backend/src/common/config.py) |
 | 4 | **Any authenticated user can suspend their own company**, locking out its admins. No role check on `PATCH /companies/{id}`. | [company_router.py:118](../../backend/src/auth/company_router.py:118) |
 
 ### High

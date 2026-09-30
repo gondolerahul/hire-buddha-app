@@ -121,9 +121,9 @@ should say plainly that it is unauthenticated.
 
 ### API-04 — `POST /internal/event` is protected by a default secret
 
-**✅ Verified · High** · **Status: open, changed (2026-09-30)** — the check is now the
-`require_internal` dependency on the API, compared in constant time; the default secret is
-unchanged. See SA-20.
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — with SA-20: an empty or placeholder
+`INTERNAL_TOKEN` disables the endpoint (503); the check is a constant-time
+`require_internal` dependency.
 
 It is the one route hard-blocked at the gateway middleware, and it is protected by
 `X-Internal-Token` compared with `!=` against `INTERNAL_TOKEN`, which defaults to

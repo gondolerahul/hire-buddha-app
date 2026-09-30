@@ -967,7 +967,7 @@ Loaded by the API and the Arq worker.
 | `STREAMING_PROTOCOL` | `ws` | `ws` or `wss`; HTTP callbacks use `https` when this is `wss`. Production: `wss`. |
 | `CORS_ORIGINS` | six-host comma string | The one CORS list, exposed as `cors_origins_list`. |
 | `RATE_LIMIT` | `200/minute` | slowapi limit per client IP on REST routes ([`common/rate_limit.py`](../../backend/src/common/rate_limit.py)). Webhooks and internal events are exempt. |
-| `INTERNAL_TOKEN` | `change-me-in-production` | Shared secret for `POST /internal/event`. |
+| `INTERNAL_TOKEN` | `""` | Shared secret for `POST /internal/event`. Empty or a placeholder (`change-me-in-production` …) disables the endpoint — it answers 503 — and `/api/v1/health` reports `internal_events: disabled` (SA-20). |
 | `VIDEO_STREAMING_ENABLED` | `True` | |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
 | `TURN_SERVER_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` | `""` | Optional TURN relay for WebRTC. |
@@ -1268,7 +1268,8 @@ counted.
 `POST /internal/event` depends on `require_internal`
 ([`internal_event.py`](../../backend/src/gateway/internal_event.py)), which
 compares `X-Internal-Token` with `INTERNAL_TOKEN` in constant time and returns 401
-on a mismatch. The gateway's `GatewayAuthMiddleware` used to do this for the
+on a mismatch — or 503 for everyone while `INTERNAL_TOKEN` is empty or a
+placeholder. The gateway's `GatewayAuthMiddleware` used to do this for the
 whole app and JWT-decode every other request with a separate `JWT_SECRET` for
 logging nothing read; it is gone.
 
@@ -1347,9 +1348,11 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 
 ### Secrets and other notes
 
-* `INTERNAL_TOKEN` defaults to `change-me-in-production` in code *and* in
-  `.env.example`. (`JWT_SECRET`, the gateway's copy of the JWT key, is gone with
-  the gateway.)
+* `INTERNAL_TOKEN` defaults to empty, and an empty or placeholder value disables
+  `POST /internal/event` (503) instead of guarding it with a secret published in
+  the repository (SA-20). Before, it defaulted to `change-me-in-production` in
+  code, `.env.example` and docker-compose. (`JWT_SECRET`, the gateway's copy of
+  the JWT key, is gone with the gateway.)
 * Webhook signature validation is best-effort and never blocks
   ([`webhook_inbound.py:548`](../../backend/src/gateway/webhook_inbound.py:548)).
 * `ENCRYPTION_MASTER_KEY` protects stored third-party credentials and ships with

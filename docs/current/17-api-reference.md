@@ -909,7 +909,7 @@ There is no catch-all route any more; until 2026-09-30 the gateway's
 
 | Path | Rule |
 |---|---|
-| `/internal/event` | `require_internal`: `X-Internal-Token` compared with `INTERNAL_TOKEN` in constant time; **401** otherwise, before the body is validated |
+| `/internal/event` | `require_internal`: `X-Internal-Token` compared with `INTERNAL_TOKEN` in constant time; **401** otherwise, before the body is validated. **503** while `INTERNAL_TOKEN` is empty or a placeholder (the endpoint is disabled) |
 | `/webhook/inbound` | Tenant taken from `?client_id=`; signature validation is best-effort and never blocks |
 | `/stream/audio`, `/stream/video` | Tenant taken from the handshake's `client_id`; the handshake `token` is never checked |
 | `/api/v1/*` | The route's own dependencies — see [§4](#4-authentication) |

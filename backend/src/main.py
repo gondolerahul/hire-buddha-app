@@ -5,6 +5,7 @@ webhook and internal-event endpoints, the audio/video and telephony media-stream
 WebSockets, and the mobile push socket. The gateway's reverse proxy, CORS list
 and rate limit are gone or folded in here.
 """
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -24,6 +25,10 @@ async def lifespan(app: FastAPI):
     """Start the dispatcher: the agent cache for the audio/video WebSockets."""
     from src.gateway.dispatcher import get_dispatcher
 
+    if not settings.internal_events_enabled:
+        logging.getLogger(__name__).warning(
+            "INTERNAL_TOKEN is empty or a placeholder: POST /internal/event answers 503"
+        )
     dispatcher = get_dispatcher()
     await dispatcher.start()
     yield

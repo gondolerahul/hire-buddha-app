@@ -1,5 +1,10 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Values shipped in code, .env.example or docker-compose that must never guard anything.
+PLACEHOLDER_SECRETS = frozenset({
+    "change-me-in-production", "changeme", "change-me", "secret", "dev_secret_key_change_in_production",
+})
+
 class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str
@@ -31,8 +36,10 @@ class Settings(BaseSettings):
     RATE_LIMIT: str = "200/minute"
 
     # ── Webhook / internal-event / media-stream edge ──────────────────────
-    # Shared secret for POST /internal/event (X-Internal-Token).
-    INTERNAL_TOKEN: str = "change-me-in-production"
+    # Shared secret for POST /internal/event (X-Internal-Token). Empty or a
+    # known placeholder disables the endpoint (503) rather than guarding it
+    # with a secret everyone knows (SA-20).
+    INTERNAL_TOKEN: str = ""
     VIDEO_STREAMING_ENABLED: bool = True
     # STUN/TURN servers for WebRTC ICE negotiation (comma-separated)
     STUN_SERVERS: str = "stun:stun.l.google.com:19302"
@@ -172,6 +179,12 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def internal_events_enabled(self) -> bool:
+        """True when INTERNAL_TOKEN is a real secret, not empty or a placeholder."""
+        token = self.INTERNAL_TOKEN.strip()
+        return bool(token) and token.lower() not in PLACEHOLDER_SECRETS
 
     @property
     def stun_servers_list(self) -> list[str]:

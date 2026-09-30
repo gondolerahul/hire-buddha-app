@@ -254,7 +254,7 @@ environment:
   - ALGORITHM=HS256
   - ACCESS_TOKEN_EXPIRE_MINUTES=30
   - RATE_LIMIT=200/minute
-  - INTERNAL_TOKEN=${INTERNAL_TOKEN:-change-me-in-production}
+  - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}    # empty disables POST /internal/event
   - STREAMING_HOST=gateway.hirebuddha.com
   - STREAMING_PROTOCOL=wss
   - VIDEO_STREAMING_ENABLED=true
@@ -379,7 +379,7 @@ From [backend/.env.example](../../backend/.env.example):
 | `ALGORITHM` | `HS256` | JWT algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access-token lifetime |
 | `RATE_LIMIT` | `200/minute` | Per-client-IP limit on REST routes |
-| `INTERNAL_TOKEN` | `change-me-in-production` | Shared secret for `POST /internal/event` |
+| `INTERNAL_TOKEN` | *(empty)* | Shared secret for `POST /internal/event`. Empty or a placeholder disables the endpoint (503); generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `STREAMING_HOST` | `localhost:8000` | Host telephony reaches the API on; stream and callback URLs are built from it. `gateway.hirebuddha.com` in production |
 | `STREAMING_PROTOCOL` | `ws` | `ws` locally, `wss` in production |
 | `VIDEO_STREAMING_ENABLED` | `true` | WebRTC on/off |
@@ -1233,7 +1233,7 @@ du -sh logs/ backend/artifact/ deploy/backup/dumps/ /var/log/apache2/ 2>/dev/nul
 
 ### 16.9 Rotate a secret
 
-For `SECRET_KEY` / `INTERNAL_TOKEN` / `JWT_SECRET`: edit `backend/.env`, then
+For `SECRET_KEY` / `INTERNAL_TOKEN`: edit `backend/.env`, then
 restart all services. Rotating `SECRET_KEY` invalidates every issued JWT, so all
 users are logged out.
 

@@ -382,7 +382,13 @@ produces a browser-only failure that does not appear in any server log.
 
 ### SA-20 — Both shared secrets ship as `change-me-in-production`
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — `JWT_SECRET` is gone with the gateway
+(the single-port merge). `INTERNAL_TOKEN` defaults to empty in code, `.env.example` and
+docker-compose, and an empty or placeholder value **disables** `POST /internal/event` —
+503 for every caller, logged at boot, reported as `internal_events: disabled` on
+`/api/v1/health` — rather than refusing to boot (product decision: the rest of the API
+should not go down over one unused endpoint). The comparison is constant-time. The local
+`backend/.env` still holds the placeholder, so the endpoint is off locally.
 
 `INTERNAL_TOKEN` and `JWT_SECRET` both default to the literal string
 `change-me-in-production`, in code and in `.env.example`.

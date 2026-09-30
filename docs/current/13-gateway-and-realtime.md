@@ -247,7 +247,7 @@ defaults — its `DATABASE_URL` pointed at port 5432, not the compose file's 543
 | `CORS_ORIGINS` | 6 origins incl. `localhost:3000`, `dev/app/gateway.hirebuddha.com` | Comma-separated; exposed as `cors_origins_list`. |
 | `STREAMING_HOST` | `localhost:8000` | Public host used to build the `ws(s)://` URLs handed to telephony providers ([`voice/public_urls.py`](../../backend/src/voice/public_urls.py)). Set to `gateway.hirebuddha.com` in production. |
 | `STREAMING_PROTOCOL` | `ws` | Scheme for those URLs; `wss` in production (then HTTP callbacks are `https`). |
-| `INTERNAL_TOKEN` | `change-me-in-production` | Shared secret for `X-Internal-Token` on `/internal/event`. |
+| `INTERNAL_TOKEN` | `""` | Shared secret for `X-Internal-Token` on `/internal/event`. Empty or a placeholder disables the endpoint (503). |
 | `VIDEO_STREAMING_ENABLED` | `True` | Kill switch for `/stream/video` media (signalling still answers). |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
 | `TURN_SERVER_URL` | `""` | Appended to the ICE server list when set. |
@@ -273,7 +273,7 @@ The edge reaches the *voice* subsystem by importing it directly
 
 | Path | Credential checked | Blocked on failure? |
 |------|--------------------|---------------------|
-| `/internal/event` | `X-Internal-Token` header compared with `settings.INTERNAL_TOKEN` in constant time (`require_internal`) | **Yes — 401** |
+| `/internal/event` | `X-Internal-Token` header compared with `settings.INTERNAL_TOKEN` in constant time (`require_internal`) | **Yes — 401**; **503** while `INTERNAL_TOKEN` is empty or a placeholder |
 | `/webhook/inbound` | None. `?client_id=` query param is read as-is | No |
 | `/stream/audio`, `/stream/video` | None beyond the handshake's `client_id` — **see 4.3** | No |
 | `/api/v1/*` and everything else | The route's own dependencies (`get_current_user`, `RoleChecker`) — see [04](04-auth-rbac-tenancy.md) | Per route |
