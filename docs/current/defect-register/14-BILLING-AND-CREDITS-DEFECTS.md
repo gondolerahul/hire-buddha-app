@@ -721,7 +721,10 @@ Same as [DM-04](03-DATA-MODEL-DEFECTS.md#dm-04--billing_events-has-no-unique-con
 
 ### BC-25 — Stripe is a dependency with no code, and `verify_topup` returns a duplicate key
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-09-30)** — `stripe` is removed from
+`pyproject.toml` and `poetry.lock` (re-locked with Poetry 2.5.1: only the `stripe` entry and
+the content hash change; `poetry install --dry-run` changes nothing else). The duplicate key
+went with BC-01.
 
 `stripe = "^7.0.0"` is declared in `pyproject.toml`. There is no `import stripe` anywhere
 under `backend/src/`, and the Stripe-era tables (`invoices`, `payment_methods`,
@@ -879,7 +882,9 @@ difference that is not a real difference.
 
 ### BC-I10 — Remove the Stripe dependency
 
-**Effect: small.** [BC-25](#bc-25--stripe-is-a-dependency-with-no-code-and-verify_topup-returns-a-duplicate-key).
+**Status: done (2026-09-30)** — see BC-25.
+
+**Effect: small.**[BC-25](#bc-25--stripe-is-a-dependency-with-no-code-and-verify_topup-returns-a-duplicate-key).
 A payment SDK in the dependency list with no code behind it is a maintenance and audit
 liability, and it implies a payment path that does not exist.
 

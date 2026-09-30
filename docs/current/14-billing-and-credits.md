@@ -1221,13 +1221,14 @@ on the webhook in the Razorpay dashboard.
 
 ### 9.5 Is Stripe wired up?
 
-**No.** `stripe = "^7.0.0"` appears in [pyproject.toml:32](../../backend/pyproject.toml:32), but:
+**No — and since BC-25 it is not a dependency either.** `stripe = "^7.0.0"` was declared in
+`pyproject.toml` with no code behind it; it is removed. What was found:
 
 - No `import stripe` anywhere under `backend/src/`.
 - The only `stripe_*` columns are in migration [6fdc110c5698](../../backend/migrations/versions/6fdc110c5698_add_model_name_to_ai_models.py:61), which created a `tenants`-based schema (`invoices`, `payment_methods`, `subscriptions`, `ledger_entries`).
 - Migration [a804c0db1551](../../backend/migrations/versions/a804c0db1551_refactor_costing_system.py:57) **drops** all of them and replaces the model with `integration_registry` + `usage_logs`.
 
-So `invoices` and `ledger_entries` do not exist in the live schema. Anyone looking for an invoice table will not find one — `billing_events` is the closest artefact, and it is a monthly aggregate. The Stripe dependency is dead weight and should be removed.
+So `invoices` and `ledger_entries` do not exist in the live schema. Anyone looking for an invoice table will not find one — `billing_events` is the closest artefact, and it is a monthly aggregate.
 
 ---
 
@@ -1723,7 +1724,7 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 
 - ~~⚠️ No webhook. Verification is browser-initiated and the **client supplies the amount to credit**. Replay is not prevented.~~ Fixed 2026-09-30 (BC-01, BC-I5): the stored amount is credited once, and `POST /credits/razorpay/webhook` exists.
 - ~~⚠️ `razorpay_subscription_id` is never populated, so the monthly job's "did Razorpay charge them?" branch is always skipped and everyone is granted credits regardless.~~ Fixed 2026-09-30 (BC-03, BC-04, BC-16): subscriptions are Razorpay Subscriptions and only a payment grants credits.
-- ⚠️ Stripe is a dependency in `pyproject.toml` with zero code behind it. The Stripe-era tables (`invoices`, `ledger_entries`, `payment_methods`) were dropped by migration `a804c0db1551`.
+- ~~⚠️ Stripe is a dependency in `pyproject.toml` with zero code behind it.~~ Removed 2026-09-30 (BC-25). The Stripe-era tables (`invoices`, `ledger_entries`, `payment_methods`) were dropped by migration `a804c0db1551`.
 - ~~⚠️ `verify_topup` returns a dict with the key `"message"` written twice.~~ Gone with BC-01.
 
 **Schema and access**

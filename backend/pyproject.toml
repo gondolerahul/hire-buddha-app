@@ -29,7 +29,6 @@ opentelemetry-sdk = "^1.22.0"
 opentelemetry-instrumentation-fastapi = "^0.43b0"
 opentelemetry-exporter-otlp = "^1.22.0"
 prometheus-client = "^0.19.0"
-stripe = "^7.0.0"
 slowapi = "^0.1.9"
 google-genai = "^1.71.0"  # Live API: send_realtime_input/send_tool_response +
                           # input/output_audio_transcription & realtime_input_config.
