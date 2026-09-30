@@ -6,6 +6,7 @@ from src.auth.schemas import UserCreate, UserLogin
 from src.common.security import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_TYPE, EMAIL_VERIFICATION_TOKEN_TYPE
 from src.common.email import email_service
 from datetime import datetime, timedelta
+import hashlib
 import uuid
 import secrets
 from sqlalchemy import or_
@@ -223,13 +224,28 @@ async def authenticate_user(db: AsyncSession, login_data: UserLogin):
         return None
     return require_active(user)
 
+def hash_refresh_token(token: str) -> str:
+    """The stored form of a refresh token (AU-10).
+
+    Only this SHA-256 is kept, so a leaked ``refresh_tokens`` table holds no
+    usable session. The token is 32 random bytes, so an unsalted fast hash is
+    enough — there is nothing to guess.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def _find_refresh_token(db: AsyncSession, token: str) -> RefreshToken | None:
+    result = await db.execute(select(RefreshToken).filter(RefreshToken.token_hash == hash_refresh_token(token)))
+    return result.scalars().first()
+
+
 async def create_refresh_token(db: AsyncSession, user_id: uuid.UUID) -> str:
     token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(days=7)
     
     refresh_token = RefreshToken(
         user_id=user_id,
-        token=token,
+        token_hash=hash_refresh_token(token),
         expires_at=expires_at
     )
     db.add(refresh_token)
@@ -237,8 +253,7 @@ async def create_refresh_token(db: AsyncSession, user_id: uuid.UUID) -> str:
     return token
 
 async def verify_refresh_token(db: AsyncSession, token: str) -> User:
-    result = await db.execute(select(RefreshToken).filter(RefreshToken.token == token))
-    refresh_token = result.scalars().first()
+    refresh_token = await _find_refresh_token(db, token)
     
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
@@ -264,8 +279,7 @@ async def verify_refresh_token(db: AsyncSession, token: str) -> User:
 async def rotate_refresh_token(db: AsyncSession, old_token: str) -> str:
     # Verify old token (and get user)
     # We do this manually to get the token object too
-    result = await db.execute(select(RefreshToken).filter(RefreshToken.token == old_token))
-    refresh_token = result.scalars().first()
+    refresh_token = await _find_refresh_token(db, old_token)
     
     if not refresh_token or refresh_token.revoked or refresh_token.expires_at < datetime.utcnow():
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")

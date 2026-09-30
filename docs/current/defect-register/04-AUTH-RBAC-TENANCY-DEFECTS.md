@@ -379,7 +379,7 @@ in [AU-05](#au-05--access-tokens-cannot-be-revoked).
 
 ### AU-10 — Refresh tokens are stored in plaintext
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-09-30)**
 
 `refresh_tokens.token` holds the 32-byte secret as-is, `unique=True, index=True`. Any
 read access to that table — a backup, a log, a SQL injection elsewhere — is a set of
@@ -389,6 +389,17 @@ working 7-day credentials for every active user.
 
 **Fix:** store a SHA-256 hash and look up by hash. The token is already high-entropy, so
 no salt or slow hash is needed.
+
+**Done (2026-09-30).** The column is now `refresh_tokens.token_hash` (hex SHA-256, unique);
+`service.hash_refresh_token` is the one hashing function, and create, verify and rotate all
+go through it. Revision `au10_refresh_token_hash` hashes existing rows in place with
+Postgres's `sha256()`, so nobody is signed out, then drops the plaintext column.
+
+**Evidence:** `tests/integration/test_refresh_token_hashing.py` (real Postgres, rolled
+back) — the row holds the token's SHA-256 and the table has no `token` column; the token
+verifies and its **stored hash presented as a token is refused**; rotation finds tokens by
+hash. On the local database: a live refresh token read before the migration still verified
+after it, and all 33 rows carry a 64-character hash.
 
 ---
 

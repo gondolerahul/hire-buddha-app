@@ -307,24 +307,28 @@ refused too, and lands on the login page; logging in with the right password the
 
 ## 5. Refresh tokens: storage, rotation, revocation
 
-Refresh tokens are **not** JWTs. They are 32 bytes of `secrets.token_urlsafe` stored as rows.
+Refresh tokens are **not** JWTs. They are 32 bytes of `secrets.token_urlsafe`; the row
+keeps only their SHA-256 (AU-10, 2026-09-30).
 
 ```python
 # backend/src/auth/service.py
 async def create_refresh_token(db: AsyncSession, user_id: uuid.UUID) -> str:
     token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(days=7)
-    refresh_token = RefreshToken(user_id=user_id, token=token, expires_at=expires_at)
+    refresh_token = RefreshToken(user_id=user_id, token_hash=hash_refresh_token(token), expires_at=expires_at)
     db.add(refresh_token)
     await db.commit()
-    return token
+    return token          # the only copy of the token leaves in the response
 ```
+
+Lookups hash the presented token and match `token_hash`. The token is high-entropy, so an
+unsalted fast hash is enough — there is nothing to brute-force.
 
 | Property | Value |
 |---|---|
 | Format | Opaque URL-safe random string, 32 bytes of entropy |
 | Lifetime | 7 days, hard-coded at [service.py:168](../../backend/src/auth/service.py:168) |
-| Storage | `refresh_tokens` table, **plaintext**, `unique=True, index=True` |
+| Storage | `refresh_tokens.token_hash` — hex SHA-256, unique. Plaintext until 2026-09-30 (AU-10); migration `au10_refresh_token_hash` hashed the existing rows in place, so sessions survived |
 | Rotation | Yes — every `/auth/refresh` revokes the old row and inserts a new one |
 | Reuse detection | Detected but not acted on — see below |
 | Revocation on logout | **None** — there is no logout endpoint |
@@ -1421,7 +1425,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | # | Gap | Evidence |
 |---|---|---|
 | 5 | No logout endpoint. Refresh tokens survive sign-out for up to 7 days. | [auth.service.ts:30](../../frontend/src/services/auth.service.ts:30) — client-side only |
-| 6 | Refresh tokens stored in **plaintext**. A read-only DB leak yields working sessions. | [models.py:50](../../backend/src/auth/models.py:50) |
+| 6 | ~~Refresh tokens stored in **plaintext**.~~ **Fixed (AU-10):** only a SHA-256 is stored. | [models.py](../../backend/src/auth/models.py) |
 | 7 | Refresh-token reuse detected but not acted on — no family revocation. | [service.py:186](../../backend/src/auth/service.py:186) |
 | 8 | Access tokens cannot be revoked — no `jti`, no denylist. Valid until `exp`. | [security.py:18](../../backend/src/common/security.py:18) |
 | 9 | Password reset is frontend-only; the two endpoints do not exist. | [PasswordReset.tsx:23](../../frontend/src/pages/auth/PasswordReset.tsx:23) vs. empty backend grep |

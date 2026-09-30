@@ -212,7 +212,7 @@ Defined at [auth/models.py:46](../../backend/src/auth/models.py:46).
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
 | `user_id` | UUID FK→users.id | no | — | Owner |
-| `token` | String | no | — | **Unique + indexed** (`ix_refresh_tokens_token`) |
+| `token_hash` | String(64) | no | — | Hex SHA-256 of the token; **unique** (`uq_refresh_tokens_token_hash`). The token itself is never stored — it was, as `token`, until AU-10 (2026-09-30) |
 | `expires_at` | DateTime | no | — | |
 | `revoked` | Boolean | yes | `False` | Logout sets this rather than deleting |
 | `created_at` | DateTime | yes | utcnow | |
