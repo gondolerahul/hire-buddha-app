@@ -1413,9 +1413,11 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 * **Suspension is checked in `_authenticate_user`, not in middleware.** A route
   that does not depend on `get_current_user` (or a sibling) is not protected
   against suspended companies — or against anyone.
-* **`app.hirebuddha.com` has two competing port-80 vhosts.** `app.hirebuddha.com.conf`
-  redirects to HTTPS; `app.hirebuddha.com-le-ssl.conf` also declares a `*:80`
-  vhost with the redirect commented out. Whichever Apache loads first wins.
+* **Certbot appends a `*:80` block when it rewrites a `-le-ssl.conf`.** It did
+  so for `app.hirebuddha.com`, with the HTTPS redirect commented out, so two
+  port-80 vhosts competed and whichever Apache loaded first won. The copy is
+  deleted (SA-14); `app.hirebuddha.com.conf` is the only port-80 vhost and it
+  redirects. After a certificate re-issue, check the `-le-ssl.conf` for a new one.
 * **Apache caps request bodies at 10 MB** globally. Larger uploads are rejected
   before FastAPI sees them.
 * **`api.hirebuddha.com` reuses the `gateway.hirebuddha.com` certificate.**

@@ -266,7 +266,7 @@ things.
 | **IN-13** | `backend/.env` exists in the working tree | It is `.gitignore`d (confirmed) and currently matches `.env.example` byte-for-byte. Safe today; the risk is someone adding real secrets to a file that already exists locally and assuming it is tracked | ✅ Verified |
 | **IN-14** | `npm install` requires `--legacy-peer-deps` | Without it, installation fails on React Three Fiber peer conflicts — for a dependency that powers a decorative background ([FE-17](16-FRONTEND-DEFECTS.md#fe-17--the-webgl-background-never-sleeps)) | 📄 Doc-reported |
 | **IN-15** | `streaming.hirebuddha.com` reuses the gateway certificate | So does `api.hirebuddha.com`. Renewing one certificate affects three hostnames, and a missing SAN entry produces a hostname mismatch. Also **D-43** context | 📄 Doc-reported · partly fixed (2026-09-30) — the streaming vhosts are deleted; `api.` still reuses the gateway certificate |
-| **IN-16** | Two competing `*:80` vhosts for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares one; `app.hirebuddha.com-le-ssl.conf` declares a **second** at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins | ✅ Verified |
+| **IN-16** | Two competing `*:80` vhosts for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares one; `app.hirebuddha.com-le-ssl.conf` declares a **second** at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins | ✅ fixed (2026-09-30, SA-14) — the second block is deleted; the redirecting `app.hirebuddha.com.conf` is the only port-80 vhost |
 
 ---
 
