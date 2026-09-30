@@ -25,7 +25,9 @@ class ApiClient {
             (error) => Promise.reject(error)
         );
 
-        // Response interceptor to handle 401 and refresh token
+        // Response interceptor to handle 401 and refresh token.
+        // Concurrent 401s share one refresh: a refresh token is rotated on use,
+        // and presenting a rotated token again ends every session (AU-09).
         this.client.interceptors.response.use(
             (response) => response,
             async (error) => {
@@ -36,18 +38,9 @@ class ApiClient {
                     originalRequest._retry = true;
 
                     try {
-                        const refreshToken = localStorage.getItem('refresh_token');
-                        if (refreshToken) {
-                            const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-                                refresh_token: refreshToken,
-                            });
-
-                            localStorage.setItem('access_token', data.access_token);
-                            localStorage.setItem('refresh_token', data.refresh_token);
-
-                            originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
-                            return this.client(originalRequest);
-                        }
+                        const accessToken = await this.refreshAccessToken();
+                        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+                        return this.client(originalRequest);
                     } catch (refreshError) {
                         // Refresh failed, clear tokens and redirect to login
                         localStorage.removeItem('access_token');
@@ -60,6 +53,25 @@ class ApiClient {
                 return Promise.reject(error);
             }
         );
+    }
+
+    private refreshing: Promise<string> | null = null;
+
+    private refreshAccessToken(): Promise<string> {
+        if (!this.refreshing) {
+            const refreshToken = localStorage.getItem('refresh_token');
+            this.refreshing = (refreshToken
+                ? axios.post(`${API_BASE_URL}/auth/refresh`, { refresh_token: refreshToken }).then(({ data }) => {
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('refresh_token', data.refresh_token);
+                    return data.access_token as string;
+                })
+                : Promise.reject(new Error('No refresh token'))
+            ).finally(() => {
+                this.refreshing = null;
+            });
+        }
+        return this.refreshing;
     }
 
     getInstance(): AxiosInstance {

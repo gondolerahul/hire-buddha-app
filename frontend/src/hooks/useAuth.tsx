@@ -30,7 +30,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setUser(currentUser);
                 } catch (error) {
                     console.error('Failed to fetch current user:', error);
-                    authService.logout();
+                    authService.clearSession();
                     setToken(null);
                 }
             }
@@ -91,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const logout = () => {
-        authService.logout();
+        void authService.logout();
         setUser(null);
         setToken(null);
     };

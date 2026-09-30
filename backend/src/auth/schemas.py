@@ -25,6 +25,10 @@ class Token(BaseModel):
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
+class LogoutRequest(BaseModel):
+    refresh_token: str
+    all_sessions: bool = False  # also end every other session of this user
+
 class OAuthRequest(BaseModel):
     code: str
     redirect_uri: str

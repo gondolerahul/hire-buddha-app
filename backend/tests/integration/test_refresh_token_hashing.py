@@ -63,7 +63,8 @@ async def test_rotation_finds_the_token_by_its_hash(db, test_company_id):
 
     user = await _user(db, test_company_id)
     first = await service.create_refresh_token(db, user.id)
-    second = await service.rotate_refresh_token(db, first)
+    rotated_user, second = await service.rotate_refresh_token(db, first)
+    assert rotated_user.id == user.id
     assert second != first
     assert (await service.verify_refresh_token(db, second)).id == user.id
     with pytest.raises(HTTPException):

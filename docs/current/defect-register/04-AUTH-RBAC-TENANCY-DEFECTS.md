@@ -264,7 +264,7 @@ password 403, a wrong password 401, refresh 401; after reactivation login worked
 
 ### AU-05 — Access tokens cannot be revoked
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — through [AU-I3](#au-i3--add-token_version-to-users), with AU-09 and AU-12.
 
 The JWT carries `sub`, `company_id` and `exp`. There is no `jti`, no denylist, and no
 logout endpoint. Logging out clears `localStorage` on the client and nothing else.
@@ -280,6 +280,25 @@ refresh token is valid for up to 7 days — see
 and compared on every request. Bumping it invalidates every token for that user
 instantly, which also gives [AU-09](#au-09--refresh-token-reuse-is-detected-and-ignored)
 somewhere to act.
+
+**Done (2026-09-30)** — that version. `users.token_version` (revision `au05_token_version`,
+default 0) is minted into every access token as `tv` by `issue_access_token`, and
+`_authenticate_user` refuses a token whose `tv` differs. `service.revoke_all_sessions(user)`
+bumps it and revokes every refresh token; it is what logout-everywhere (AU-12), reuse
+detection (AU-09) and password reset (AU-06) call. Revocation is per user, not per token —
+there is still no `jti`. Access tokens minted before the change carry no `tv`, so each
+browser refreshes once.
+
+**Evidence:** `tests/integration/test_session_revocation.py` (real Postgres, rolled back), 7
+cases — ending all sessions refuses an existing access token while a new login works; an
+access token without `tv` is refused; presenting a rotated refresh token again kills the
+current refresh token and the access token; logout ends only its own session; logout with
+`all_sessions` ends every refresh and access token; logging out twice does not trip reuse
+detection; the route answers 204 even for an unknown token. Live on the local API, one
+registered user with several sessions: after `POST /auth/logout` session A's refresh got
+401 while session B's still refreshed; presenting B's rotated token again got 401 and then
+B's current refresh token and access token both got 401; `all_sessions` from session C
+made session D's access token and refresh token 401, and a new login worked.
 
 ---
 
@@ -355,7 +374,13 @@ the link, lands on the dashboard, and the token is never presented to the endpoi
 
 ### AU-09 — Refresh token reuse is detected and ignored
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — a rotated refresh token presented
+again ends every session of its user (`revoke_all_sessions`: all refresh tokens revoked,
+`token_version` bumped, so the attacker's rotated token and every access token die). Logout
+deletes its token's row instead of flagging it, so a token the user logged out with never
+trips this. Two concurrent refreshes from one browser would present the same token, so the
+frontend refreshes through one shared request. Evidence under
+[AU-05](#au-05--access-tokens-cannot-be-revoked).
 
 Presenting a revoked refresh token is the classic signal that a token family has been
 stolen. The code spots it and comments on the correct response without doing it:
@@ -427,7 +452,12 @@ permanently empty. Nothing errors; the data is just blank.
 
 ### AU-12 — There is no logout endpoint
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — `POST /auth/logout
+{refresh_token, all_sessions?}` answers 204: it deletes the presented refresh token's row
+and clears the refresh cookie; `all_sessions: true` also ends every other session (refresh
+and access tokens). An unknown or already-ended token is a no-op. The frontend's sign-out
+calls it before clearing its storage. Evidence under
+[AU-05](#au-05--access-tokens-cannot-be-revoked).
 
 Logout is `localStorage.removeItem(...)` in the browser. The refresh-token row stays
 `revoked = false` and valid for up to 7 days. Signing out on a shared computer does not
@@ -653,6 +683,9 @@ closes [AU-17](#au-17--two-functions-named-_require_admin-mean-different-things)
 makes an audit of "who can call what" a grep instead of a reading exercise.
 
 ### AU-I3 — Add `token_version` to `users`
+
+**Status: done (2026-09-30)** — AU-05, AU-09 and AU-12. (AU-04's lockout did not need it:
+`is_active` is read on every request.)
 
 **Effect: large for security, small in code.** One integer column, one claim, one
 comparison in `_authenticate_user`. It gives the platform:

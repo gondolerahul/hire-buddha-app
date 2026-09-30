@@ -198,7 +198,8 @@ Purpose: one login. Defined at [auth/models.py:28](../../backend/src/auth/models
 | `hashed_password` | String | no | — | bcrypt hash via `common/security.py` |
 | `company_id` | UUID FK→companies.id | no | — | Tenant |
 | `role` | String | yes | `tenant_user` | See [§11.3](#113-user-roles) |
-| `is_active` | Boolean | yes | `True` | |
+| `is_active` | Boolean | yes | `True` | Checked on every request and at login since AU-04 |
+| `token_version` | Integer | no | `0` | Carried in access tokens as `tv`; bumping it ends every session (AU-05, 2026-09-30) |
 | `is_verified` | Boolean | yes | `False` | |
 | `profile_picture_url` | String | yes | — | |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |

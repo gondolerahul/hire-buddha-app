@@ -22,8 +22,10 @@ async def _authenticate_user(token: Optional[str], db: AsyncSession):
     """The user a login access token belongs to, or 401/403.
 
     The token must be a login token (``type == "access"``, AU-14) — not, say, an
-    email-verification token signed with the same key — and its user must exist
-    and be active (AU-04). A suspended company is a 403.
+    email-verification token signed with the same key — its user must exist and
+    be active (AU-04), and its ``tv`` must equal the user's ``token_version``, so
+    ending a user's sessions ends their access tokens too (AU-05). A suspended
+    company is a 403.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -46,6 +48,10 @@ async def _authenticate_user(token: Optional[str], db: AsyncSession):
     result = await db.execute(select(User).options(selectinload(User.company)).filter(User.email == token_data.email))
     user = result.scalars().first()
     if user is None:
+        raise credentials_exception
+    if payload.get("tv") != (user.token_version or 0):
+        # The user's sessions were ended (logout everywhere, password reset,
+        # refresh-token reuse) after this token was issued (AU-05).
         raise credentials_exception
     if not user.is_active:
         raise HTTPException(

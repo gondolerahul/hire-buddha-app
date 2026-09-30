@@ -27,9 +27,21 @@ export const authService = {
         return data;
     },
 
-    logout(): void {
+    /** Forget this browser's tokens without telling the server. */
+    clearSession(): void {
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
+    },
+
+    /** End this session on the server (its refresh token is revoked), then forget it. */
+    async logout(allSessions = false): Promise<void> {
+        const refreshToken = localStorage.getItem('refresh_token');
+        this.clearSession();
+        if (refreshToken) {
+            await apiClient
+                .post('/auth/logout', { refresh_token: refreshToken, all_sessions: allSessions })
+                .catch(() => undefined);
+        }
     },
 
     async refreshToken(refreshToken: string): Promise<AuthResponse> {

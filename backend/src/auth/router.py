@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.security import OAuth2PasswordRequestForm
 from src.common.database import get_db
-from src.auth.schemas import UserCreate, UserResponse, Token, UserLogin, RefreshTokenRequest, OAuthRequest
+from src.auth.schemas import UserCreate, UserResponse, Token, UserLogin, RefreshTokenRequest, LogoutRequest, OAuthRequest
 from src.auth import service
 import httpx
 import os
@@ -82,8 +82,7 @@ async def refresh_token(
     request: RefreshTokenRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    new_refresh_token = await service.rotate_refresh_token(db, request.refresh_token)
-    user = await service.verify_refresh_token(db, new_refresh_token)
+    user, new_refresh_token = await service.rotate_refresh_token(db, request.refresh_token)
     
     access_token = service.issue_access_token(user)
     
@@ -97,6 +96,19 @@ async def refresh_token(
     )
     
     return {"access_token": access_token, "token_type": "bearer", "refresh_token": new_refresh_token}
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: LogoutRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    """End this session — or, with ``all_sessions``, every session of its user (AU-12).
+
+    The refresh token is the credential: it is revoked, so it can no longer mint
+    access tokens. ``all_sessions`` also bumps the user's ``token_version``, which
+    ends their access tokens on every device at once.
+    """
+    await service.logout(db, request.refresh_token, all_sessions=request.all_sessions)
+    response.delete_cookie("refresh_token")
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return None
 
 @router.post("/oauth/{provider}", response_model=Token)
 async def oauth_login(

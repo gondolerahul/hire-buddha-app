@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import hashlib
 import uuid
 import secrets
-from sqlalchemy import or_
+from sqlalchemy import or_, update
 
 from src.auth.schemas import UserCreate, UserLogin, UserCreateAdmin, UserUpdate
 from src.auth.roles import Role, USER_ADMIN_ROLES, assignable_roles
@@ -202,9 +202,34 @@ async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
     return new_user
 
 def issue_access_token(user: User) -> str:
-    """A login access token for ``user`` — the only kind that authenticates requests."""
+    """A login access token for ``user`` — the only kind that authenticates requests.
+
+    ``tv`` is the user's ``token_version``; a token whose ``tv`` no longer matches
+    is refused, which is how every session is ended at once (AU-05).
+    """
     return create_access_token(
-        data={"sub": user.email, "company_id": str(user.company_id), "type": ACCESS_TOKEN_TYPE}
+        data={
+            "sub": user.email,
+            "company_id": str(user.company_id),
+            "type": ACCESS_TOKEN_TYPE,
+            "tv": user.token_version or 0,
+        }
+    )
+
+
+async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """End every session of a user: all refresh tokens, and all access tokens.
+
+    Bumps ``users.token_version`` (access tokens carry it and are refused once
+    it moves) and revokes every refresh token. The caller commits.
+    """
+    await db.execute(
+        update(User).where(User.id == user_id).values(token_version=User.token_version + 1)
+        .execution_options(synchronize_session="fetch")
+    )
+    await db.execute(
+        update(RefreshToken).where(RefreshToken.user_id == user_id, RefreshToken.revoked.is_not(True))
+        .values(revoked=True).execution_options(synchronize_session="fetch")
     )
 
 
@@ -252,46 +277,61 @@ async def create_refresh_token(db: AsyncSession, user_id: uuid.UUID) -> str:
     await db.commit()
     return token
 
-async def verify_refresh_token(db: AsyncSession, token: str) -> User:
+async def _refresh_token_user(db: AsyncSession, token: str) -> tuple[RefreshToken, User]:
+    """The live refresh token row and its active user, or 401.
+
+    A **revoked** token presented again means it was copied: whoever rotated it
+    first holds the live one. Every session of the user is ended (AU-09).
+    """
     refresh_token = await _find_refresh_token(db, token)
-    
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
-        
     if refresh_token.revoked:
-        # Security alert: Attempt to use revoked token
-        # In a real system, we might revoke all tokens for this user
+        logger.warning("Revoked refresh token reused for user %s: ending all of their sessions", refresh_token.user_id)
+        await revoke_all_sessions(db, refresh_token.user_id)
+        await db.commit()
         raise HTTPException(status_code=401, detail="Token revoked")
-        
     if refresh_token.expires_at < datetime.utcnow():
         raise HTTPException(status_code=401, detail="Token expired")
-        
-    # Get user
+
     result = await db.execute(select(User).filter(User.id == refresh_token.user_id))
     user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="This account has been deactivated")
-        
-    return user
+    return refresh_token, user
 
-async def rotate_refresh_token(db: AsyncSession, old_token: str) -> str:
-    # Verify old token (and get user)
-    # We do this manually to get the token object too
-    refresh_token = await _find_refresh_token(db, old_token)
-    
-    if not refresh_token or refresh_token.revoked or refresh_token.expires_at < datetime.utcnow():
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-    
-    # Revoke old token
+
+async def verify_refresh_token(db: AsyncSession, token: str) -> User:
+    return (await _refresh_token_user(db, token))[1]
+
+
+async def rotate_refresh_token(db: AsyncSession, old_token: str) -> tuple[User, str]:
+    """Swap a refresh token for a new one; return its user and the new token."""
+    refresh_token, user = await _refresh_token_user(db, old_token)
     refresh_token.revoked = True
-    
-    # Create new token
-    new_token = await create_refresh_token(db, refresh_token.user_id)
-    
+    new_token = await create_refresh_token(db, user.id)  # commits both
+    return user, new_token
+
+
+async def logout(db: AsyncSession, token: str, all_sessions: bool = False) -> None:
+    """End the presented refresh token's session; with ``all_sessions``, every one (AU-12).
+
+    The row is deleted, not flagged ``revoked``: a flagged token presented again
+    is treated as stolen and ends every session (reuse detection), and a token
+    the user logged out with is not evidence of theft. Unknown or already-revoked
+    tokens are a no-op.
+    """
+    refresh_token = await _find_refresh_token(db, token)
+    if refresh_token is None or refresh_token.revoked:
+        return
+    user_id = refresh_token.user_id
+    await db.delete(refresh_token)
+    if all_sessions:
+        await revoke_all_sessions(db, user_id)
     await db.commit()
-    return new_token
+
 
 async def get_or_create_oauth_user(db: AsyncSession, email: str, full_name: str) -> User:
     result = await db.execute(select(User).filter(User.email == email))

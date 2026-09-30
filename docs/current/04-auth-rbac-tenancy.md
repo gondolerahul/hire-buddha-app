@@ -258,11 +258,12 @@ def issue_access_token(user: User) -> str:
 | `company_id` | string | `str(user.company_id)` | **Ignored** by `get_current_user`, which loads the user's current company. (It was read by the deleted `CompanySuspensionMiddleware`.) |
 | `exp` | int | `utcnow() + ACCESS_TOKEN_EXPIRE_MINUTES` | Added by `create_access_token`. Verified by `jose`. |
 | `type` | string | `"access"` on login tokens, `"email_verification"` on verification tokens | `_authenticate_user` accepts only `"access"`; `verify_email_token` accepts only `"email_verification"` (AU-14). Before 2026-09-30 login tokens carried no `type` and the validator did not read it, so a verification token signed in. |
+| `tv` | int | `user.token_version` | Must equal the user's current `token_version` (AU-05). Bumping it — logout everywhere, refresh-token reuse, password reset — refuses every access token issued before |
 
 There is **no** `iat`, `nbf`, `iss`, `aud`, `jti`, `role`, or `user_id` claim. That has two consequences worth internalising:
 
 1. **Role changes take effect instantly** — because the role is fetched from the DB on every request, not read from the token. Good.
-2. **Access tokens cannot be revoked** — no `jti`, no denylist. A stolen access token is valid until `exp`. See section 15.
+2. **Access tokens are revoked per user, not per token** — there is no `jti` or denylist, but `service.revoke_all_sessions(user)` bumps `users.token_version` and every earlier access token fails its `tv` check on its next request (AU-05, 2026-09-30). Until then a stolen access token was valid until `exp`.
 
 ### 4.3 Signing configuration
 
@@ -330,8 +331,8 @@ unsalted fast hash is enough — there is nothing to brute-force.
 | Lifetime | 7 days, hard-coded at [service.py:168](../../backend/src/auth/service.py:168) |
 | Storage | `refresh_tokens.token_hash` — hex SHA-256, unique. Plaintext until 2026-09-30 (AU-10); migration `au10_refresh_token_hash` hashed the existing rows in place, so sessions survived |
 | Rotation | Yes — every `/auth/refresh` revokes the old row and inserts a new one |
-| Reuse detection | Detected but not acted on — see below |
-| Revocation on logout | **None** — there is no logout endpoint |
+| Reuse detection | A **rotated** (revoked) token presented again ends every session of the user — see §5.4 (AU-09) |
+| Revocation on logout | `POST /auth/logout {refresh_token, all_sessions?}` deletes the token's row; `all_sessions` also ends every other session (AU-12) |
 
 ### 5.1 The rotation path
 
@@ -399,28 +400,33 @@ stateDiagram-v2
     Active --> Expired: expires_at passes, 7 days
     Revoked --> [*]: 401 Token revoked
     Expired --> [*]: 401 Token expired
-    Active --> Orphaned: user clears localStorage
-    Orphaned --> Expired: still valid until expires_at
-    note right of Orphaned
-        No logout endpoint exists.
-        Rows are never deleted or
-        revoked on sign-out.
-    end note
+    Active --> [*]: POST /auth/logout deletes the row
+    Revoked --> AllRevoked: presented again (reuse)
+    AllRevoked --> [*]: every token revoked, token_version + 1
 ```
 
-### 5.4 Reuse detection is a comment, not code
+Logout **deletes** the row rather than flagging it `revoked`: a flagged token presented
+again is taken as theft (§5.4), and a token its own user logged out with is not.
 
-[service.py:186](../../backend/src/auth/service.py:186) spots the classic replay signal and then does nothing about it:
+### 5.4 Reuse detection
+
+A rotated token is kept, flagged `revoked`. Presenting it again is the classic sign that it
+was copied — whoever rotated it first holds the live one — so `_refresh_token_user` ends
+every session of the user (AU-09, 2026-09-30):
 
 ```python
 # backend/src/auth/service.py
 if refresh_token.revoked:
-    # Security alert: Attempt to use revoked token
-    # In a real system, we might revoke all tokens for this user
+    await revoke_all_sessions(db, refresh_token.user_id)   # all refresh tokens + token_version
+    await db.commit()
     raise HTTPException(status_code=401, detail="Token revoked")
 ```
 
-Presenting a revoked token is a strong sign the token family was stolen. The standard response is to revoke **every** token for that user. Here only the single request is rejected; the attacker's freshly rotated token stays live.
+Until 2026-09-30 only the request was refused and a comment described the right response;
+the attacker's freshly rotated token stayed live for 7 days. A side effect worth knowing:
+two browser tabs that refresh at the same moment both present the same token, and the
+second counts as reuse. The frontend refreshes through one shared request for that reason
+(`api.client.ts`).
 
 ### 5.5 The refresh cookie nobody reads
 
@@ -1424,10 +1430,10 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 
 | # | Gap | Evidence |
 |---|---|---|
-| 5 | No logout endpoint. Refresh tokens survive sign-out for up to 7 days. | [auth.service.ts:30](../../frontend/src/services/auth.service.ts:30) — client-side only |
+| 5 | ~~No logout endpoint.~~ **Fixed (AU-12):** `POST /auth/logout`, which the frontend calls on sign-out. | [router.py](../../backend/src/auth/router.py) |
 | 6 | ~~Refresh tokens stored in **plaintext**.~~ **Fixed (AU-10):** only a SHA-256 is stored. | [models.py](../../backend/src/auth/models.py) |
-| 7 | Refresh-token reuse detected but not acted on — no family revocation. | [service.py:186](../../backend/src/auth/service.py:186) |
-| 8 | Access tokens cannot be revoked — no `jti`, no denylist. Valid until `exp`. | [security.py:18](../../backend/src/common/security.py:18) |
+| 7 | ~~Refresh-token reuse detected but not acted on.~~ **Fixed (AU-09):** reuse ends every session. | [service.py](../../backend/src/auth/service.py) |
+| 8 | ~~Access tokens cannot be revoked.~~ **Fixed (AU-05):** per user, through `token_version`. | [dependencies.py](../../backend/src/auth/dependencies.py) |
 | 9 | Password reset is frontend-only; the two endpoints do not exist. | [PasswordReset.tsx:23](../../frontend/src/pages/auth/PasswordReset.tsx:23) vs. empty backend grep |
 | 10 | No password policy server-side. `password: str`, no length or complexity rule. | [schemas.py:5](../../backend/src/auth/schemas.py:5) |
 | 11 | No rate limiting on `/auth/login` beyond the API-wide `200/minute` per client IP — nothing per account. | [rate_limit.py](../../backend/src/common/rate_limit.py) |

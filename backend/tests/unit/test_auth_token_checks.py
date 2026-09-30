@@ -43,7 +43,7 @@ class _DB:
 
 def _user(active=True):
     return SimpleNamespace(id=uuid.uuid4(), email="rep@example.com", company_id=uuid.uuid4(),
-                           is_active=active, company=SimpleNamespace(status="active"),
+                           is_active=active, token_version=0, company=SimpleNamespace(status="active"),
                            hashed_password=get_password_hash("correct horse battery"))
 
 
