@@ -227,8 +227,8 @@ were not exercised live — there is no Razorpay test account here.
 
 ### BC-04 — The billing crons are never scheduled
 
-**✅ Verified · Critical** · **Status: partly fixed (2026-09-30)** — the monthly job no longer
-grants unpaid credits (below); scheduling and the daily reset are the next change.
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — both jobs are Arq crons; the
+daily one renews only expired credits; the monthly one no longer grants unpaid credits.
 
 `WorkerSettings.cron_jobs` registers seven jobs: CORTEX resumption, dreaming, critic
 calibration, skill promotion, prompt evolution, KPI rollup and cost-estimator refresh.
@@ -266,6 +266,19 @@ paid invoice gets nothing and no transaction row (the old job, run on the old co
 $79 + $23.70 and wrote a `success` transaction with no payment id); a missed paid invoice is
 granted once across two runs and a past-due subscription becomes active; an old-flow
 subscription past its month is cancelled.
+
+**Scheduling and the daily job (2026-09-30).** `billing/jobs.py` wraps both `CronService`
+methods as Arq jobs, registered in `WorkerSettings.cron_jobs`: `billing_daily_credits` at
+00:00 UTC and `billing_subscription_reconciliation` at 01:30 UTC. The daily job calls
+`CreditService.renew_expired_credits`, which renews only credits that have expired (under the
+wallet lock, BC-27), so running it again the same day changes nothing. It also reaps
+abandoned checkouts ([BC-18](#4-t2--gates-and-jobs-that-never-run)). **Evidence:**
+`tests/integration/test_billing_crons.py` — the worker schedules both; a wallet with $1.25 of
+unexpired daily credit still has $1.25 after two runs (the old job: back to $5); expired
+credits are renewed; the reaper cases under BC-18. Four of five fail on the old code. Live:
+the restarted worker lists `cron:billing_daily_credits` and
+`cron:billing_subscription_reconciliation`; the job run twice against the local database
+renewed or created all 165 wallets on the first run and changed nothing on the second.
 
 ---
 
@@ -463,10 +476,10 @@ So one pricing override does nothing, and the other silently deletes a real cost
 | ID | Item | Reality | Status |
 |---|---|---|---|
 | **BC-14** | `check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker`, `require_credits` | Defined, unit-tested, **zero callers**. See [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) | ✅ Verified |
-| **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ Verified |
+| **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ fixed (2026-09-30) with BC-04 — Arq crons at 00:00 and 01:30 UTC |
 | **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ fixed (2026-09-30) with BC-03 — set when the Razorpay subscription is created; every charge and status change is matched on it |
 | **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ Verified |
-| **BC-18** | Abandoned checkouts and orphaned subscriptions | A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | 📄 Doc-reported |
+| **BC-18** | Abandoned checkouts and orphaned subscriptions | A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | ✅ fixed (2026-09-30) — the daily job marks a top-up order still `pending` after 24 h `expired` and a subscription still `pending_payment` `failed` (cancelling its Razorpay subscription); a payment that arrives later for an expired order is still credited. A failed top-up payment is recorded by the webhook (BC-I5). `test_billing_crons.py` |
 
 ---
 
@@ -648,6 +661,8 @@ three tables.
 
 ### BC-I4 — Schedule the crons
 
+**Status: done (2026-09-30)** — see [BC-04](#bc-04--the-billing-crons-are-never-scheduled).
+
 **Effect: large.** [BC-04](#bc-04--the-billing-crons-are-never-scheduled). Two entries in
 `WorkerSettings.cron_jobs`, next to the seven that are already there. Also change the daily
 job from an assignment to a top-up so re-running it is safe.
@@ -685,6 +700,8 @@ it closes the worst of it.
 `app_admin` ([BC-19](#bc-19--partner_admin-can-edit-platform-wide-pricing)).
 
 ### BC-I7 — Reap abandoned payments and subscriptions
+
+**Status: done (2026-09-30)** — see BC-18.
 
 **Effect: small.** [BC-18](#4-t2--gates-and-jobs-that-never-run). One query in the daily
 job: mark `pending` transactions older than 24 hours as `expired`, and orphaned

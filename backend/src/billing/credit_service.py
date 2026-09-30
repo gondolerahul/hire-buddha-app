@@ -161,6 +161,13 @@ class CreditService:
         await self._expire(wallet, datetime.utcnow())
         return wallet
 
+    async def renew_expired_credits(self, company_id: UUID) -> CreditWallet:
+        """Renew expired daily credits and empty expired buckets; a no-op
+        for a wallet whose credits are current. What the daily cron runs."""
+        wallet = await self._locked_current_wallet(company_id)
+        await self.db.commit()
+        return wallet
+
     async def get_balance(self, company_id: UUID) -> dict:
         """Return current credit balance across all buckets.
 
@@ -274,7 +281,8 @@ class CreditService:
     async def flush_and_inject_daily_credits(self, company_id: UUID) -> CreditWallet:
         """
         Flush the day's credits and inject a fresh amount from config,
-        whether or not they have expired.
+        whether or not they have expired. Only for initialising a wallet;
+        the daily cron uses :meth:`renew_expired_credits`.
 
         Queries the wallet directly (not get_or_create_wallet) to avoid
         recursion when daily_expires_at is None.

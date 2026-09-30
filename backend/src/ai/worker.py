@@ -48,6 +48,7 @@ from src.ai.campaign_worker import (
 )
 
 from src.mobile.reconciler import mobile_housekeeping_job
+from src.billing.jobs import billing_daily_credits, billing_subscription_reconciliation
 
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
@@ -132,6 +133,10 @@ try:
         cron(traced_job(cost_estimator_refresh), hour=2, minute=30),
         # Mobile dialer: expire stale call attempts + reconcile unidentified AI legs.
         cron(traced_job(mobile_housekeeping_job), minute={1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56}),
+        # Billing (BC-04): renew expired daily credits and reap abandoned
+        # checkouts at midnight UTC; reconcile subscriptions with Razorpay.
+        cron(traced_job(billing_daily_credits), hour={0}, minute={0}),
+        cron(traced_job(billing_subscription_reconciliation), hour={1}, minute={30}),
     ]
 except ImportError:
     pass  # arq.cron may not be available in all versions

@@ -1142,8 +1142,8 @@ the account to `subscription` and granted **no** credits, month two could never 
 | Replay protection | ✅ A top-up order is credited once; a repeated verify returns `credits_added: 0` (BC-01) |
 | Amount validation | ✅ The stored `payment_transactions.amount` is credited; the request carries no amount (BC-01) |
 | Unique constraint on `razorpay_order_id` | ✅ Partial unique indexes on `razorpay_order_id` and `razorpay_payment_id` (BC-01) |
-| Abandoned checkout | Row stays `pending` forever; nothing reaps it |
-| Orphaned subscription | A `pending_payment` row with no matching payment stays forever |
+| Abandoned checkout | ✅ After 24 h the daily job marks the order `expired` (BC-18); a payment that still arrives is credited |
+| Orphaned subscription | ✅ After 24 h `pending_payment` becomes `failed` and the Razorpay subscription is cancelled (BC-18) |
 | Subscription renewal | ✅ Razorpay charges the mandate; `subscription.charged` (or the reconciliation job) grants the cycle once per payment (BC-03/BC-04) |
 | Failed payment | A top-up's `payment.failed` webhook marks its row `failed` with the error code and description; the order stays payable and a later successful payment on it is still credited |
 
@@ -1184,8 +1184,8 @@ Two jobs, both in [cron_service.py](../../backend/src/billing/cron_service.py).
 
 | Job | Method | Intended schedule | What it does | Trigger |
 |---|---|---|---|---|
-| Daily credit refresh | `run_daily_credit_job` | `00:00:00` UTC daily | For every `Company` with `status='active'`, calls `flush_and_inject_daily_credits` | `POST /api/v1/cron/daily-credits` |
-| Subscription reconciliation | `run_subscription_reconciliation` (alias `run_monthly_subscription_job`) | daily | For every pending or live subscription: grant each cycle Razorpay reports paid whose payment is not recorded (a missed webhook), and copy Razorpay's status. A subscription from the old one-time-order flow ends when the month it paid for ends | `POST /api/v1/cron/monthly-billing` |
+| Daily credit refresh | `run_daily_credit_job` | `00:00` UTC daily (`billing_daily_credits`) | For every `Company` with `status='active'`, renews daily credits **that have expired** (`renew_expired_credits`); then reaps abandoned checkouts: a top-up order `pending` for 24 h becomes `expired`, a subscription `pending_payment` for 24 h becomes `failed` and its Razorpay subscription is cancelled. A payment that still arrives for an expired order is credited | `POST /api/v1/cron/daily-credits` |
+| Subscription reconciliation | `run_subscription_reconciliation` (alias `run_monthly_subscription_job`) | `01:30` UTC daily (`billing_subscription_reconciliation`) | For every pending or live subscription: grant each cycle Razorpay reports paid whose payment is not recorded (a missed webhook), and copy Razorpay's status. A subscription from the old one-time-order flow ends when the month it paid for ends | `POST /api/v1/cron/monthly-billing` |
 
 Both are `app_admin`-only. The daily job returns `{"processed", "errors", "timestamp"}`; the
 reconciliation returns counts (`checked`, `credited`, `status_changed`, `legacy_ended`,
@@ -1195,8 +1195,9 @@ reconciliation returns counts (`checked`, `credited`, `status_changed`, `legacy_
 flowchart LR
     T0["00:00 UTC every day"] --> D["run_daily_credit_job"]
     D --> D1["for each active company"]
-    D1 --> D2["daily_credits equals config.default_daily_credits"]
+    D1 --> D2["if expired - daily_credits equals config.default_daily_credits"]
     D2 --> D3["daily_expires_at equals midnight tomorrow"]
+    D --> R["reap checkouts pending over 24 h"]
 
     T1["daily"] --> M["run_subscription_reconciliation"]
     M --> M1["for each pending or live subscription"]
@@ -1207,7 +1208,12 @@ flowchart LR
     ANY["any balance read"] -.->|"lazy self-heal"| D2
 ```
 
-⚠️ **Nothing schedules these.** There is no APScheduler, no Arq cron entry, no systemd timer, and no crontab in the repo. The docstring says they "can be triggered by an external cron scheduler … or APScheduler (can be added to main.py startup)" — neither has been. Today, daily credits work only through the lazy self-heal in `get_balance`, and **monthly subscription credits are never injected unless an admin clicks the endpoint.**
+Both are **Arq crons** on the main worker — `billing/jobs.py`, registered in
+`ai/worker.py` (BC-04); the admin endpoints run the same methods on demand. Until BC-04
+nothing scheduled either one: daily credits worked only through the lazy self-heal in
+`get_balance`, and the daily job **assigned** a full day's credits to every wallet, so
+running it again mid-day handed back whatever had been spent. It now renews only expired
+credits, so a second run the same day changes nothing.
 
 The subscription job used to be a monthly *grant*: for every active subscription it recorded
 a `success` payment and injected a month of credits, whether or not money had moved —
@@ -1652,7 +1658,7 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 - ⚠️ Switching to `subscription` makes any remaining `wallet_balance` unspendable, because bucket 2a and 2b are an `if`/`elif` on `account_model`.
 - ⚠️ `verify_subscription` never grants credits. A new subscriber has `$0` (plus daily) until the monthly cron is manually triggered.
 - ⚠️ There are no holds. Cost accrues on the run and the wallet is debited only at the end, so a single run can overdraw.
-- ⚠️ Re-running the daily cron **resets** `daily_credits` to full rather than topping up.
+- ~~⚠️ Re-running the daily cron **resets** `daily_credits` to full rather than topping up.~~ Fixed 2026-09-30 (BC-04): it renews only expired credits, and both billing jobs are Arq crons.
 
 **Gating**
 
