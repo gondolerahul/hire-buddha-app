@@ -10,6 +10,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -36,6 +37,13 @@ __all__ = [
 
 class ExecutionRun(Base):
     __tablename__ = "execution_runs"
+    # The list endpoints filter on company or entity and sort by newest; child
+    # runs are found by their parent (DM-05). A B-tree serves ``DESC`` too.
+    __table_args__ = (
+        Index("ix_execution_runs_company_created", "company_id", "created_at"),
+        Index("ix_execution_runs_entity_created", "entity_id", "created_at"),
+        Index("ix_execution_runs_parent_run_id", "parent_run_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
@@ -81,7 +89,7 @@ class LLMInteractionLog(Base):
     __tablename__ = "llm_interaction_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False, index=True)  # DM-06
     model_provider: Mapped[str] = mapped_column(String, nullable=False)
     model_name: Mapped[str] = mapped_column(String, nullable=False)
     input_prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -102,7 +110,7 @@ class ToolInteractionLog(Base):
     __tablename__ = "tool_interaction_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False, index=True)  # DM-06
     tool_id: Mapped[str] = mapped_column(String, nullable=False)
     tool_name: Mapped[str] = mapped_column(String, nullable=False)
     provider: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -122,7 +130,7 @@ class HumanApproval(Base):
     __tablename__ = "human_approvals"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False, index=True)  # DM-06
     checkpoint_trigger: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str | None] = mapped_column(String, default="PENDING")  # PENDING, APPROVED, REJECTED, TIMEOUT
     requested_by: Mapped[str | None] = mapped_column(String, nullable=True)

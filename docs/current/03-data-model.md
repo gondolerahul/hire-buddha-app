@@ -306,8 +306,10 @@ Defined at [orm/execution.py:38](../../backend/src/ai/orm/execution.py:38).
 | `csat_score` | Integer | yes | — | `+1` thumbs up, `-1` thumbs down, NULL unrated |
 | `csat_comment` | Text | yes | — | Free-text feedback |
 
-Note there is **no index on `company_id` or `entity_id`** here — only the idempotency
-partial index. Large-tenant list queries scan.
+Indexes (DM-05, 2026-09-30): `ix_execution_runs_company_created (company_id, created_at)`
+— the run list's filter and sort —, `ix_execution_runs_entity_created (entity_id,
+created_at)`, `ix_execution_runs_parent_run_id`, plus the idempotency partial index. Before
+DM-05 there was no index on `company_id` or `entity_id` and every list query scanned.
 
 ### 4.3 `llm_interaction_logs`
 
@@ -330,7 +332,8 @@ Defined at [orm/execution.py:81](../../backend/src/ai/orm/execution.py:81).
 | `log_metadata` | JSON | yes | — | Free-form extras |
 | `created_at` | DateTime | yes | utcnow | |
 
-No indexes beyond the PK. Queries filter on `run_id`.
+Index `ix_llm_interaction_logs_run_id` — every query filters on `run_id` (DM-06, 2026-09-30;
+before, none beyond the PK).
 
 ### 4.4 `tool_interaction_logs`
 
@@ -352,6 +355,9 @@ Defined at [orm/execution.py:102](../../backend/src/ai/orm/execution.py:102).
 | `log_metadata` | JSON | yes | — | |
 | `idempotency_key` | String(255) | yes | — | Partial index `idx_tool_logs_idemp` where NOT NULL |
 | `created_at` | DateTime | yes | utcnow | |
+
+Index `ix_tool_interaction_logs_run_id` (DM-06). `human_approvals` and `usage_logs` got the
+same `run_id` index in the same revision, `dm05_run_indexes`.
 
 ### 4.5 `human_approvals`
 
@@ -2047,8 +2053,6 @@ flowchart LR
 - **Three columns are literally named `metadata`** (`campaigns`, `campaign_calls`,
   `cortex_edges`) and are mapped to differently-named Python attributes. Writing
   `campaign.metadata` gets you SQLAlchemy's table metadata object, not your JSON.
-- **`execution_runs` has no index on `company_id` or `entity_id`** — only the partial
-  idempotency index.
 - **Several numeric-looking values are stored as text**: `documents.file_size`
   (`String`), `companies.default_daily_credits` (`String`).
 - **All `DateTime` columns are naive.** There is no `timezone=True` anywhere. UTC is a

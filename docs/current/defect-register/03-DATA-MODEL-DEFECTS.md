@@ -230,7 +230,7 @@ De-duplicate existing rows in the same migration.
 
 ### DM-05 — `execution_runs` has no index on `company_id` or `entity_id`
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — with DM-06.
 
 The only index on `execution_runs` besides the primary key is the partial idempotency
 index on `idempotency_key WHERE NOT NULL`.
@@ -244,11 +244,28 @@ tenant, forever. This is the table that grows fastest.
 **Fix:** add `(company_id, created_at DESC)` and `(entity_id, created_at DESC)`. Both
 are the shape the list endpoints actually use.
 
+**Done (2026-09-30)** in revision `dm05_run_indexes`, declared on the model too (so the
+census and autogenerate see them): `ix_execution_runs_company_created (company_id,
+created_at)` and `ix_execution_runs_entity_created (entity_id, created_at)` — ascending,
+because a B-tree is read backwards for `ORDER BY created_at DESC` at no cost — plus
+`ix_execution_runs_parent_run_id`, for child-run lookups (the `child_runs` relationship and
+the wait-on-children checks).
+
+**Evidence:** the schema census fails with the model change and without the revision (7
+missing indexes), and passes with both. On the local database, with sequential scans
+disabled so the tiny table does not hide it, the run list query
+(`company_id = … AND parent_run_id IS NULL ORDER BY created_at DESC`) uses
+`ix_execution_runs_company_created`.
+
 ---
 
 ### DM-06 — Log tables have no indexes at all
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — `run_id` is indexed on
+`llm_interaction_logs`, `tool_interaction_logs`, and also `human_approvals` and
+`usage_logs`, which hang off a run the same way and had no index on it either (revision
+`dm05_run_indexes`; `index=True` on the models). A lookup by `run_id` uses the index on the
+local database.
 
 `llm_interaction_logs` and `tool_interaction_logs` have no indexes beyond the primary
 key (`tool_interaction_logs` also has the partial idempotency one). Every query filters
@@ -452,6 +469,8 @@ exits non-zero at `m0b1e0d1a100`).
 ## 6. Improvements
 
 ### DM-I1 — Add the indexes the queries already assume
+
+**Status: done (2026-09-30)** — DM-05 and DM-06.
 
 **Effect: large, cheap.** [DM-05](#dm-05--execution_runs-has-no-index-on-company_id-or-entity_id)
 and [DM-06](#dm-06--log-tables-have-no-indexes-at-all) together are four index
