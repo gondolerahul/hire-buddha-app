@@ -1012,7 +1012,7 @@ if settlement["exhausted"]:
 
 ### 9.1 Credentials
 
-Razorpay keys are **not** environment variables. They live in `integration_registry` under `service_sku = 'razorpay_keys'`, in the `service_metadata` JSON as `{"key_id": ..., "key_secret": ...}` — [credits_router.py:29](../../backend/src/billing/credits_router.py:29). Missing keys produce a `503` with a message telling you exactly what to add.
+Razorpay keys are **not** environment variables. They live in `integration_registry` under `service_sku = 'razorpay_keys'`, in the `service_metadata` JSON as `{"key_id": ..., "key_secret": ..., "webhook_secret": ...}` — [razorpay_gateway.py](../../backend/src/billing/razorpay_gateway.py). Missing keys produce a `503` with a message telling you exactly what to add. `webhook_secret` is the secret entered on the webhook in the Razorpay dashboard; without it the webhook (§9.4) answers `503`.
 
 ### 9.2 Top-up flow
 
@@ -1098,15 +1098,30 @@ sequenceDiagram
 
 | Property | Status |
 |---|---|
-| Webhook endpoint | ❌ **None exists.** Verification is a client-initiated callback from the browser, not a server-to-server webhook. `/webhooks/*` in `main.py` are voice webhooks only. |
+| Webhook endpoint | ✅ `POST /api/v1/credits/razorpay/webhook` (BC-I5) — see below |
 | Replay protection | ✅ A top-up order is credited once; a repeated verify returns `credits_added: 0` (BC-01) |
 | Amount validation | ✅ The stored `payment_transactions.amount` is credited; the request carries no amount (BC-01) |
 | Unique constraint on `razorpay_order_id` | ✅ Partial unique indexes on `razorpay_order_id` and `razorpay_payment_id` (BC-01) |
 | Abandoned checkout | Row stays `pending` forever; nothing reaps it |
 | Orphaned subscription | A `pending_payment` row with no matching payment stays forever |
-| Failed payment | Not recorded — the `failed` status is only ever written by the monthly cron |
+| Failed payment | A top-up's `payment.failed` webhook marks its row `failed` with the error code and description; the order stays payable and a later successful payment on it is still credited |
 
-These are real gaps, not documentation shortcuts. Treat the payment path as prototype-grade.
+**The webhook.** `POST /api/v1/credits/razorpay/webhook` —
+[razorpay_webhook.py](../../backend/src/billing/razorpay_webhook.py) — is Razorpay's
+server-to-server delivery; the browser callback depends on the payer's browser staying open
+long enough to call it, the webhook does not. It checks `X-Razorpay-Signature` (HMAC-SHA256
+of the raw body under `webhook_secret`), then hands the event to
+`PaymentService.handle_webhook_event`:
+
+| Event | Effect |
+|---|---|
+| `payment.captured` | For a top-up order: the paid amount and currency must equal the stored order (otherwise logged, `amount_mismatch`, not credited); then `credit_topup` — the same code the browser callback uses, so whichever arrives second credits nothing |
+| `payment.failed` | For a top-up order not yet credited: status `failed`, error recorded |
+| anything else, or a payment for an order that is not a top-up | `ignored` |
+
+Every handled or ignored event is a `200` with `{"status": <outcome>}`; an error is a `500`,
+which Razorpay retries. Enable `payment.captured` and `payment.failed` on the webhook in the
+Razorpay dashboard.
 
 ### 9.5 Is Stripe wired up?
 

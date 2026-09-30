@@ -80,6 +80,60 @@ class PaymentService:
         logger.info("Top-up %s credited %s to company %s", order_id, amount, txn.company_id)
         return txn, wallet, True
 
+    # ── Webhook ────────────────────────────────────────────────────────
+
+    async def handle_webhook_event(self, event: dict) -> str:
+        """Apply one Razorpay webhook event; returns what was done.
+
+        Unknown events and payments that are not ours are ``"ignored"`` (still
+        a 200, so Razorpay does not retry them).
+        """
+        kind = event.get("event") or ""
+        payload = event.get("payload") or {}
+        payment = (payload.get("payment") or {}).get("entity") or {}
+        if kind == "payment.captured":
+            return await self._on_payment_captured(payment)
+        if kind == "payment.failed":
+            return await self._on_payment_failed(payment)
+        return "ignored"
+
+    async def _on_payment_captured(self, payment: dict) -> str:
+        order_id, payment_id = payment.get("order_id"), payment.get("id")
+        if not order_id or not payment_id:
+            return "ignored"
+        txn = await self._topup(order_id, None)
+        if txn is None:
+            return "ignored"  # not a top-up order (e.g. a subscription invoice)
+        paid = Decimal(str(payment.get("amount") or 0)) / 100
+        if paid != Decimal(str(txn.amount)) or (payment.get("currency") or "USD") != txn.currency:
+            logger.error(
+                "Razorpay payment %s for order %s paid %s %s; the order is for %s %s — not credited",
+                payment_id, order_id, paid, payment.get("currency"), txn.amount, txn.currency,
+            )
+            return "amount_mismatch"
+        _, _, credited = await self.credit_topup(order_id=order_id, payment_id=payment_id)
+        return "credited" if credited else "already_credited"
+
+    async def _on_payment_failed(self, payment: dict) -> str:
+        """Record a failed attempt. The order stays payable: a later
+        successful payment on it is still credited."""
+        order_id = payment.get("order_id")
+        txn = await self._topup(order_id, None, lock=True) if order_id else None
+        if txn is None:
+            return "ignored"
+        if txn.status == "success":
+            await self.db.commit()
+            return "already_credited"
+        txn.status = "failed"
+        txn.transaction_metadata = {
+            **(txn.transaction_metadata or {}),
+            "failed_payment_id": payment.get("id"),
+            "error_code": payment.get("error_code"),
+            "error_description": payment.get("error_description"),
+        }
+        await self.db.commit()
+        return "recorded_failure"
+
     async def _topup(
         self, order_id: str, company_id: Optional[UUID], *, lock: bool = False,
     ) -> Optional[PaymentTransaction]:

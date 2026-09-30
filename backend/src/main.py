@@ -136,6 +136,7 @@ async def legacy_assets_path(path: str):
 # Billing, reports, credits, and cron jobs
 mount_optional(app, "src.billing.billing_router")
 mount_optional(app, "src.billing.credits_router")
+mount_optional(app, "src.billing.razorpay_webhook")  # POST /api/v1/credits/razorpay/webhook
 mount_optional(app, "src.billing.cron_router")
 
 # Analytics & Reports

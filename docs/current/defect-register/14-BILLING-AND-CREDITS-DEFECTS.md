@@ -583,6 +583,21 @@ job from an assignment to a top-up so re-running it is safe.
 
 ### BC-I5 — Add the Razorpay webhook
 
+**Status: done (2026-09-30)** — `POST /api/v1/credits/razorpay/webhook`
+(`billing/razorpay_webhook.py`). The signature is an HMAC-SHA256 of the raw body under
+`razorpay_keys.webhook_secret` (503 when unset, 400 when wrong). `payment.captured` credits a
+top-up through the same `PaymentService.credit_topup` as the browser callback — so either
+may arrive first and the second credits nothing — after checking the paid amount and
+currency against the stored order; `payment.failed` records the failure on the row, and the
+order stays payable. Other events and payments for orders that are not top-ups are ignored
+with a 200. The subscription events are handled since BC-03.
+**Evidence:** `tests/integration/test_razorpay_webhook.py`, 7 cases (credit once on replay;
+webhook then browser callback credits once; bad signature; no secret; wrong amount; a failed
+attempt recorded and a later success credited; unrelated events ignored). Live on the local
+API with a temporary `razorpay_keys` row: bad signature 400, a 100-cent payment for a $12.50
+order `amount_mismatch`, the right payment `credited` ($12.50 in the wallet), its replay
+`already_credited`.
+
 **Effect: large.** [BC-01](#bc-01--the-client-chooses-how-much-to-credit-its-own-wallet).
 Browser-initiated verification cannot be trusted, whatever the signature check does. A
 server-to-server webhook with the delivery id recorded gives amount validation and replay

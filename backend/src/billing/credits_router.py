@@ -19,6 +19,7 @@ from src.auth.router import get_current_user
 from src.auth.models import User
 from src.billing.credit_service import CreditService
 from src.billing.payment_service import PaymentNotFound, PaymentService, razorpay_signature_valid
+from src.billing.razorpay_gateway import get_razorpay_creds
 from src.billing.billing_models import Subscription, PaymentTransaction, SubscriptionTier
 
 logger = logging.getLogger(__name__)
@@ -29,20 +30,7 @@ router = APIRouter(prefix="/api/v1/credits", tags=["Credits & Payments"])
 
 async def _get_razorpay_creds(db: AsyncSession) -> Optional[dict]:
     """Fetch Razorpay key_id/key_secret from integration_registry."""
-    try:
-        from src.config.models import IntegrationRegistry
-        stmt = select(IntegrationRegistry).where(
-            IntegrationRegistry.service_sku == "razorpay_keys",
-            IntegrationRegistry.status == "active",
-        )
-        result = await db.execute(stmt)
-        entry = result.scalar_one_or_none()
-        if entry and entry.service_metadata:
-            return entry.service_metadata
-        return None
-    except Exception as e:
-        logger.error(f"Failed to fetch Razorpay credentials: {e}")
-        return None
+    return await get_razorpay_creds(db)
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
