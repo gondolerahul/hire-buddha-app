@@ -7,7 +7,9 @@ This file is intentionally minimal. The job functions live in
 ``ai.core.agent_loop.AgentLoop``.
 
 Only WorkerSettings and cron registration remain here because arq
-requires them at module level for worker discovery.
+requires them at module level for worker discovery. Every job and cron is
+registered through ``traced_job``, so each run is a span in the trace of
+whatever queued it (SA-10).
 """
 import logging
 import warnings
@@ -48,6 +50,7 @@ from src.mobile.reconciler import mobile_housekeeping_job
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
 from src.common.job_queue import arq_redis_settings
+from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +66,16 @@ from src.common.job_queue import arq_redis_settings
 CHILD_RUN_QUEUE = "children"
 
 
+async def startup(ctx: dict) -> None:
+    setup_tracing("hirebuddha-worker")
+
+
+async def shutdown(ctx: dict) -> None:
+    shutdown_tracing()
+
+
 class WorkerSettings:
-    functions = [
+    functions = [traced_job(job) for job in (
         run_execution_recursive,
         process_gateway_event,
         process_document,
@@ -78,7 +89,7 @@ class WorkerSettings:
         # Enqueued by dreaming_cron_trigger (must be registered to run).
         dreaming_worker,
         graph_maintenance_worker,
-    ]
+    )]
     # Register CORTEX scheduled wake-up cron
     cron_jobs = [
         # Run every 5 minutes to check for scheduled tree resumptions
@@ -87,6 +98,9 @@ class WorkerSettings:
 
     job_timeout = 7200  # 2-hour absolute ceiling; per-entity timeout via logic_gate config
 
+    on_startup = startup
+    on_shutdown = shutdown
+
     # All of REDIS_URL — password, TLS and database index included (SA-05).
     redis_settings = arq_redis_settings()
 
@@ -94,26 +108,26 @@ class WorkerSettings:
 try:
     from arq.cron import cron
     WorkerSettings.cron_jobs = [
-        cron(cortex_resume_scheduled, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
+        cron(traced_job(cortex_resume_scheduled), minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
         # C: Auto-schedule dreaming every 6 hours
-        cron(dreaming_cron_trigger, hour={0, 6, 12, 18}, minute={15}),
+        cron(traced_job(dreaming_cron_trigger), hour={0, 6, 12, 18}, minute={15}),
         # Daily semantic-graph maintenance: decay stale edges, prune the weakest.
-        cron(graph_maintenance_worker, hour={3}, minute={45}),
+        cron(traced_job(graph_maintenance_worker), hour={3}, minute={45}),
         # Weekly critic calibration (Sunday 03:15 UTC)
-        cron(critic_calibration_job, weekday=6, hour=3, minute=15),
+        cron(traced_job(critic_calibration_job), weekday=6, hour=3, minute=15),
         # Weekly skill candidate scan (Sunday 04:30 UTC)
-        cron(skill_promotion_scan, weekday=6, hour=4, minute=30),
+        cron(traced_job(skill_promotion_scan), weekday=6, hour=4, minute=30),
         # Weekly Meta-Agent prompt-evolution candidates
         # (Monday 05:00 UTC; never auto-applies — HITL gate required).
-        cron(meta_agent_prompt_evolution, weekday=0, hour=5, minute=0),
+        cron(traced_job(meta_agent_prompt_evolution), weekday=0, hour=5, minute=0),
         # Hourly KPI rollup refresh (xx:07 to spread
         # load away from other top-of-hour crons).
-        cron(kpi_rollup_refresh, minute={7}),
+        cron(traced_job(kpi_rollup_refresh), minute={7}),
         # /9: Nightly cost-estimator baseline refresh from
         # telemetry (02:30 UTC — quiet hour, follows the daily aggregate).
-        cron(cost_estimator_refresh, hour=2, minute=30),
+        cron(traced_job(cost_estimator_refresh), hour=2, minute=30),
         # Mobile dialer: expire stale call attempts + reconcile unidentified AI legs.
-        cron(mobile_housekeeping_job, minute={1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56}),
+        cron(traced_job(mobile_housekeeping_job), minute={1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56}),
     ]
 except ImportError:
     pass  # arq.cron may not be available in all versions

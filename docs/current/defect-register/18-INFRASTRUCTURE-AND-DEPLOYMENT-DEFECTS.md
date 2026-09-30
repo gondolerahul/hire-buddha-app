@@ -321,7 +321,10 @@ time anyone starts this stack.
 
 ### IN-20 — The gateway and the worker have no tracing
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: partly fixed (2026-09-30)** — tracing is fixed (SA-10): the
+gateway is merged into the instrumented API, and the worker exports a span per job,
+joined to the trace of the request that queued it. The worker still has no metrics
+endpoint.
 
 `setup_telemetry` is called once, on the last line of `main.py`. The gateway has its own
 hand-rolled `/metrics/gateway` JSON endpoint and no OpenTelemetry. The worker has neither.
@@ -396,6 +399,10 @@ internal ports are exposed.
 `setup_telemetry` is 32 lines and already written. Calling it from the gateway, and wiring
 `events.set_otel_exporter` in the worker, makes the two processes that do the real work
 visible.
+
+**Status: done for tracing (2026-09-30, SA-10)** — differently: the gateway no longer exists, and
+the worker installs a tracer provider and wraps each job in a span (`traced_job`) rather
+than going through `events.set_otel_exporter`.
 
 Pairs with [SA-I4](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-i4--give-the-worker-a-health-signal)
 — a worker heartbeat, so a dead worker is an alarm rather than a pile of `PENDING` runs.

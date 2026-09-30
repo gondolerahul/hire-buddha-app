@@ -1126,7 +1126,10 @@ tool. Point Grafana, Metabase or `psql` at them.
 
 Application-level telemetry (OpenTelemetry, Prometheus) is wired in
 [common/telemetry.py](../../backend/src/common/telemetry.py) and initialised at
-[main.py:141](../../backend/src/main.py:141) — see
+[main.py:173](../../backend/src/main.py:173) for the API and in the worker's
+`on_startup` ([worker.py](../../backend/src/ai/worker.py)) — both export to
+`OTEL_EXPORTER_OTLP_ENDPOINT`, and a job's span joins the trace of the request
+that queued it. See
 [02 — System architecture](02-system-architecture.md).
 
 ---

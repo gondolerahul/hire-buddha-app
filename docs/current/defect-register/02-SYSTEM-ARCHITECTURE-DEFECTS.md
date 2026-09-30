@@ -275,9 +275,16 @@ returning 200.
 
 ### SA-10 — Neither the gateway nor the worker reports traces
 
-**✅ Verified · Medium** · **Status: open — gateway half resolved (2026-09-30)** by the single-port merge:
-the webhook and streaming endpoints are now instrumented with the rest of the API
-(WebSocket scopes excluded — a span per audio frame). The worker still has no tracing.
+**✅ Verified · Medium** · **Status: fixed (2026-09-30)** — gateway half by the single-port merge
+(the webhook and streaming endpoints are instrumented with the rest of the API, WebSocket
+scopes excluded). Worker half: the worker installs its own tracer provider
+(`hirebuddha-worker`) on startup, and every job and cron runs in an `arq <function>`
+span. `common/job_queue.py` leaves the producer's trace context in Redis under
+`hb:trace:{job_id}`, so the job span is a child of the request that queued it —
+verified live: four webhooks, four `process_gateway_event` spans, each parented to its
+`POST /webhook/inbound` span. The context travels out of band, not as a job argument, so
+a worker started before the change still runs new jobs. Not done: the worker has no
+Prometheus endpoint, and jobs enqueued on `ctx["redis"]` inside a job start new traces.
 
 `setup_telemetry` is called on the last line of `main.py` — the Backend API only. The
 gateway has no OpenTelemetry instrumentation at all (it has a hand-rolled

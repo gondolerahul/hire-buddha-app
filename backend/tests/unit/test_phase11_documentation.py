@@ -141,9 +141,9 @@ def test_kpi_migration_importable() -> None:
 def test_kpi_cron_registered() -> None:
     from src.ai.worker import WorkerSettings
     from src.ai.core.arq_jobs import kpi_rollup_refresh
-    # The cron list contains the kpi refresh entry.
+    # The cron list contains the kpi refresh entry (registered through traced_job).
     assert any(
-        getattr(cj, "coroutine", None) is kpi_rollup_refresh
+        getattr(getattr(cj, "coroutine", None), "__wrapped__", None) is kpi_rollup_refresh
         or getattr(cj, "name", "") == "kpi_rollup_refresh"
         for cj in WorkerSettings.cron_jobs
     ), "kpi_rollup_refresh cron must be registered in WorkerSettings"

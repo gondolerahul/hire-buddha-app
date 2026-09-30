@@ -207,7 +207,9 @@ served by `GET /api/v1/streaming/voice-sessions/{id}`.
   It also owns the cron jobs (see [§8](#8-async-job-architecture-arq)).
 * **What it talks to.** Redis (dequeue), PostgreSQL (own sessions — never the
   request-scoped `get_db()`), LLM providers, and Redis again to publish trace
-  spans that the SSE stream relays.
+  spans that the SSE stream relays. It exports OpenTelemetry spans as
+  `hirebuddha-worker` — one per job, in the trace of the request that queued it
+  (see [§10](#opentelemetry-and-prometheus)).
 * **If it dies.** The API still accepts executions; runs sit in `PENDING`
   forever. Nothing surfaces an error to the user. This is the most common
   "the platform looks broken but nothing is logging" failure — always check
@@ -696,6 +698,13 @@ the worker build their arq connection there, with `RedisSettings.from_dsn(REDIS_
 used `RedisSettings()` (arq's `localhost:6379`, whatever `REDIS_URL` said) and the
 worker and campaign routes parsed the URL by hand, keeping only host and port.
 
+`enqueue_job` (and `enqueue_on`, for a caller holding an open pool) also leaves
+the caller's trace context in Redis under `hb:trace:{job_id}` for a day, choosing
+the job id itself when the caller did not. The worker reads it back when the
+job starts (SA-10). It is kept out of the job's arguments on purpose: a worker
+started before that change — the API reloads on `git pull`, the worker does
+not — still runs the job.
+
 On the worker side, `run_execution_recursive` runs two guards before doing any
 work — both worth knowing because they explain "my job silently did nothing":
 
@@ -876,7 +885,8 @@ stateDiagram-v2
 
 ### Registered job functions
 
-All from [`WorkerSettings.functions`](../../backend/src/ai/worker.py:70).
+All from [`WorkerSettings.functions`](../../backend/src/ai/worker.py:78), each registered through
+`traced_job` — same name, plus a span per run.
 
 | Job name | Defined in | Arguments | What it does |
 |----------|-----------|-----------|--------------|
@@ -1006,7 +1016,7 @@ Loaded by the API and the Arq worker.
 
 | Variable | Read in | Default | Purpose |
 |----------|---------|---------|---------|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | [`telemetry.py:21`](../../backend/src/common/telemetry.py:21) | `http://localhost:4317` | OTLP gRPC collector. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | [`telemetry.py:32`](../../backend/src/common/telemetry.py:32) | `http://localhost:4317` | OTLP gRPC collector, for the API and the worker. |
 | `TRACE_MAX_FIELD_BYTES` | [`trace.py:57`](../../backend/src/ai/core/trace.py:57) | `1048576` | Per-field cap on trace payloads. |
 | `AI_FLAG_<KEY>` | [`feature_flags.py:147`](../../backend/src/ai/core/feature_flags.py:147) | — | Env override for any feature flag, e.g. `AI_FLAG_AGENT_LOOP_ENABLED=true`. Flag keys use dots; the env form uppercases and replaces `.` with `_`. |
 
@@ -1023,10 +1033,12 @@ Three separate systems, easy to confuse:
 ```mermaid
 graph TB
     subgraph OTEL["1. OpenTelemetry + Prometheus - infrastructure level"]
-        SETUP["common/telemetry.py setup_telemetry"]
+        SETUP["common/telemetry.py setup_telemetry - API"]
         SETUP --> FASTAPI["FastAPIInstrumentor - auto spans per HTTP request"]
         SETUP --> OTLP["BatchSpanProcessor -> OTLP gRPC :4317"]
         SETUP --> PROMEP["mount /metrics - prometheus_client ASGI app"]
+        WSETUP["worker on_startup setup_tracing - worker"] --> OTLP
+        WSETUP --> JOBSPAN["traced_job - a span per arq job and cron"]
     end
     subgraph EV["2. Structured events - application level"]
         EVENT["core/events.py event / aevent / emit"]
@@ -1045,9 +1057,10 @@ graph TB
 
 ### OpenTelemetry and Prometheus
 
-[`common/telemetry.py`](../../backend/src/common/telemetry.py) is called once, on
-the **last line of `main.py`**. It creates a `TracerProvider` with
-`service.name = "hirebuddha-backend"`, adds a `BatchSpanProcessor` pointing at
+[`common/telemetry.py`](../../backend/src/common/telemetry.py) serves both
+processes. In the API, `setup_telemetry` runs on the **last line of `main.py`**:
+it creates a `TracerProvider` with `service.name = "hirebuddha-backend"`, adds a
+`BatchSpanProcessor` pointing at
 `OTEL_EXPORTER_OTLP_ENDPOINT` (insecure gRPC), instruments the FastAPI app for
 HTTP only (WebSocket scopes are excluded — a span per audio frame would swamp the
 exporter), and mounts the `prometheus_client` ASGI app at `/metrics`.
@@ -1056,8 +1069,18 @@ sessions; it is declared before the `/metrics` mount, which would otherwise matc
 it.
 
 The webhook and streaming endpoints the gateway served are now covered by the
-API's instrumentation. The **worker** has none; a worker-side OTel exporter would
-have to be wired via `events.set_otel_exporter(...)`.
+API's instrumentation.
+
+The **worker** calls `setup_tracing("hirebuddha-worker")` from its `on_startup`
+hook (same exporter, same endpoint) and flushes on shutdown. Every job and cron
+in `WorkerSettings` is registered through `traced_job`, which runs it inside an
+`arq <function>` span (kind CONSUMER; `arq.job_id`, `arq.job_try`; error status
+if it raises). When the job was enqueued through `common/job_queue.py` inside a
+traced request, the span's parent is that request's span — so a webhook, the
+`process_gateway_event` it queued and anything that job does share one trace.
+Cron runs, and jobs enqueued straight on `ctx["redis"]` inside another job
+(child runs, `resume_parent_run`), start their own traces. Until SA-10
+(2026-09-30) the worker exported nothing. It still has no Prometheus endpoint.
 
 [`docker-compose.observability.yml`](../../backend/docker-compose.observability.yml)
 brings up Jaeger (UI 16686, OTLP 4317/4318), Prometheus (9090) and Grafana. Two
@@ -1368,7 +1391,7 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 | [`stop_services.sh`](../../stop_services.sh) | 98 | Kills by PID file, then by port, then `docker compose down` |
 | [`setup_production_vm.sh`](../../setup_production_vm.sh) | 183 | Eight-step Ubuntu bootstrap: Python 3.12, Poetry, Node 20, Docker, venv, npm, `.env` |
 | [`backend/docker-compose.yml`](../../backend/docker-compose.yml) | 57 | Defines `app` (the API, 8000), `db` (5433), `redis` (6379); only `db` and `redis` are actually used |
-| [`backend/src/main.py`](../../backend/src/main.py) | 170 | The API app: lifespan (dispatcher), CORS, suspension middleware, rate limiter, ~30 routers (18 of them optional) including the webhook/stream edge, three static mounts, telemetry |
+| [`backend/src/main.py`](../../backend/src/main.py) | 173 | The API app: lifespan (dispatcher), CORS, rate limiter, ~30 routers (18 of them optional) including the webhook/stream edge, three static mounts, telemetry |
 | [`backend/src/common/router_mounts.py`](../../backend/src/common/router_mounts.py) | 52 | `mount_optional` — mounts a router or records why its import failed; `GET /api/v1/health` and `GET /health` report the failures |
 | [`backend/src/common/rate_limit.py`](../../backend/src/common/rate_limit.py) | 22 | The slowapi `limiter`: `RATE_LIMIT` per client IP, Redis storage with in-memory fallback |
 | [`backend/src/common/job_queue.py`](../../backend/src/common/job_queue.py) | 37 | `arq_redis_settings`, `arq_pool`, `enqueue_job` — every arq connection, from all of `REDIS_URL` |
@@ -1386,7 +1409,7 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 | [`backend/src/ai/tools/resilience.py`](../../backend/src/ai/tools/resilience.py) | 403 | `classify_tool_failure`, reformat-retry, fallback chain, `[TOOL_EMPTY]` marker |
 | [`backend/src/common/config.py`](../../backend/src/common/config.py) | 180 | The one `Settings` object, for the API and the worker |
 | [`backend/src/common/database.py`](../../backend/src/common/database.py) | 36 | Engine with the tuned pool, `AsyncSessionLocal`, `get_db` |
-| [`backend/src/common/telemetry.py`](../../backend/src/common/telemetry.py) | 38 | OTel tracer provider, FastAPI instrumentation (WebSockets excluded), `/metrics` mount |
+| [`backend/src/common/telemetry.py`](../../backend/src/common/telemetry.py) | 102 | OTel tracer provider for the API and the worker, FastAPI instrumentation (WebSockets excluded), `/metrics` mount, `traced_job` and the Redis-carried job trace context |
 | [`backend/scripts/lint_ai_layout.py`](../../backend/scripts/lint_ai_layout.py) | 271 | Executable architecture policy for `backend/src/ai/` |
 | [`deploy/apache/hirebuddha-security.conf`](../../deploy/apache/hirebuddha-security.conf) | 200 | Global headers, IP blocklist, path blocks, mod_evasive, size limits |
 | [`deploy/apache/gateway.hirebuddha.com-le-ssl.conf`](../../deploy/apache/gateway.hirebuddha.com-le-ssl.conf) | 41 | The canonical WebSocket-upgrade + proxy vhost, all to port 8000 |
