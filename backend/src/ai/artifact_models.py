@@ -35,7 +35,8 @@ class Artifact(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
-    campaign_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
+    # The campaign this file belongs to (DM-18: the key pointed at hierarchical_entities).
+    campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
     run_id = Column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True)
 
@@ -60,7 +61,6 @@ class Artifact(Base):
 
     # Relationships
     company = relationship("Company")
-    campaign = relationship("HierarchicalEntity", foreign_keys=[campaign_id])
     agent = relationship("HierarchicalEntity", foreign_keys=[agent_id])
     run = relationship("ExecutionRun")
 

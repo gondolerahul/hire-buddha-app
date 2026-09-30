@@ -489,7 +489,7 @@ target, so nothing can ever enter it.
 
 ### DM-18 — `artifacts.campaign_id` points at the wrong table
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-01)** — the FK now points at `campaigns`.
 
 The column is called `campaign_id` and its foreign key points at
 `hierarchical_entities`, not `campaigns`. Any join written from the name will be wrong,
@@ -500,6 +500,24 @@ campaign id.
 
 **Fix:** rename the column to say what it holds, or repoint the FK. Do not leave a
 column whose name contradicts its constraint.
+
+**Done (2026-10-01) — repointed.** The name was the truth: the only writer is the artifacts
+upload API, whose form field is a campaign id (the Artifacts page also filters by one); no
+tool sets it. So a real campaign id violated the key, and an entity id was accepted.
+
+- Revision `dm18_artifact_campaign_fk`: clears any value that is not a campaign id, then
+  `artifacts.campaign_id → campaigns.id ON DELETE SET NULL`. The model says so; its unused
+  `campaign` relationship (to `HierarchicalEntity`) is dropped rather than repointed, so the
+  artifact model does not depend on the campaign model being loaded.
+- Entity deletion no longer "nulls the artifacts' campaign reference" by entity id.
+- **Found while fixing:** `POST /artifacts/upload` attached the file to whatever
+  `campaign_id` and `agent_id` it was given — another company's included; the keys only prove
+  the rows exist. It now answers 404 unless both belong to the uploader's company.
+
+**Evidence:** `tests/integration/test_artifact_campaign_link.py` (real Postgres, rolled back)
+— a campaign id is accepted and an entity id refused by the key; an upload naming another
+company's campaign or agent is a 404 and saves nothing, while the uploader's own are
+accepted. The upload case fails on the old code. The schema census passes.
 
 ---
 

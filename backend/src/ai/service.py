@@ -224,18 +224,13 @@ class AIService:
             .values(template_source_id=None)
         )
         
-        # Artifacts — nullify agent/campaign references
+        # Artifacts — nullify agent references (campaign_id points at campaigns, DM-18)
         try:
             from src.ai.artifact_models import Artifact, CallLog
             await self.db.execute(
                 update(Artifact)
                 .where(Artifact.agent_id.in_(all_entity_ids))
                 .values(agent_id=None)
-            )
-            await self.db.execute(
-                update(Artifact)
-                .where(Artifact.campaign_id.in_(all_entity_ids))
-                .values(campaign_id=None)
             )
             # Call logs — nullify agent reference
             await self.db.execute(

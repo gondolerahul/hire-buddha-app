@@ -104,6 +104,30 @@ async def list_artifacts(
     return {"artifacts": [_to_response(a) for a in artifacts], "count": len(artifacts)}
 
 
+async def _require_own_links(db: AsyncSession, company_id: UUID, campaign_id: Optional[UUID],
+                             agent_id: Optional[UUID]) -> None:
+    """404 unless the campaign and agent an upload names belong to the uploader's company.
+
+    The foreign keys only prove the rows exist; without this, a file could be
+    attached to another company's campaign or agent (DM-18).
+    """
+    from sqlalchemy import select
+
+    from src.ai.campaign_models import Campaign
+    from src.ai.orm.entity import HierarchicalEntity
+
+    if campaign_id is not None:
+        owner = (await db.execute(select(Campaign.company_id).where(Campaign.id == campaign_id))).scalar_one_or_none()
+        if owner != company_id:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+    if agent_id is not None:
+        owner = (await db.execute(
+            select(HierarchicalEntity.company_id).where(HierarchicalEntity.id == agent_id)
+        )).scalar_one_or_none()
+        if owner != company_id:
+            raise HTTPException(status_code=404, detail="Agent not found")
+
+
 @router.post("/upload", summary="Upload a new artifact file")
 async def upload_artifact(
     file: UploadFile = File(...),
@@ -121,6 +145,7 @@ async def upload_artifact(
             detail=f"file_category must be one of: {', '.join(valid_categories)}",
         )
 
+    await _require_own_links(db, current_user.company_id, campaign_id, agent_id)
     svc = ArtifactService(db)
     artifact = await svc.save_upload(
         upload=file,

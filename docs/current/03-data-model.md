@@ -1225,7 +1225,7 @@ Defined at [artifact_models.py:34](../../backend/src/ai/artifact_models.py:34).
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
 | `company_id` | UUID FK→companies.id | no | — | |
-| `campaign_id` | UUID FK→hierarchical_entities.id | yes | — | Note: points at an **entity**, not the `campaigns` table |
+| `campaign_id` | UUID FK→campaigns.id, `ON DELETE SET NULL` | yes | — | The file's campaign. Pointed at `hierarchical_entities` until DM-18 (2026-10-01) |
 | `agent_id` | UUID FK→hierarchical_entities.id | yes | — | |
 | `run_id` | UUID FK→execution_runs.id | yes | — | |
 | `origin` | String(30) | no | — | `user-uploads` or `system-generated` |
@@ -2103,7 +2103,6 @@ flowchart LR
   `.execution_options(include_deleted=True)` where history must include deleted agents.
 - **Run status transitions are advisory.** `validate_transition` warns but never blocks.
   And `REPAIRING` is unreachable: no other status lists it as an allowed target.
-- **`artifacts.campaign_id` points at `hierarchical_entities`, not `campaigns`.**
 - **`call_logs.voice_session_id` deliberately has no FK** because the two tables belong
   to different modules; the same is true of `conversation_history.session_id`, which is
   polymorphic across `voice_sessions` and `whatsapp_sessions`.
