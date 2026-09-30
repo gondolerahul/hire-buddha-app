@@ -413,7 +413,10 @@ much better than a silently unauthenticated internal endpoint.
 
 ### SA-21 — Three different Python versions across the deployment path
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-09-30)** — 3.12 everywhere: `pyproject.toml`
+declares `^3.12` (the lock re-resolved with no package changes; mypy checks 3.12) and both
+Dockerfile stages use `python:3.12-slim`, matching the VM script and local dev.
+`tests/unit/test_python_version.py` fails if one drifts.
 
 `setup_production_vm.sh` installs **3.12**. `pyproject.toml` declares
 `python = "^3.11"`. `backend/Dockerfile` uses `python:3.11-slim`. Whatever is tested

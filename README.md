@@ -84,7 +84,7 @@ audio/video/telephony WebSockets — is served by the API on **one port, 8000**.
 
 | Category | Technology |
 |----------|-----------|
-| Framework | FastAPI (Python 3.11+) |
+| Framework | FastAPI (Python 3.12) |
 | ORM | SQLAlchemy 2.0 (async) |
 | Database | PostgreSQL 15 + pgvector |
 | Cache / Queue | Redis 7 + Arq |

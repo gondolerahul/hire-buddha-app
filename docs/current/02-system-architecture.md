@@ -346,9 +346,10 @@ Node 20 → Docker CE → `python3 -m venv .venv` + `poetry install` → `npm in
 follow-ups: edit `.env`, `docker compose up -d db redis`, `alembic upgrade head`,
 `python db-scripts/seed_admin_user.py`, `./start_services.sh`.
 
-Note the Python-version split: the VM script installs **3.12**, `pyproject.toml`
-declares `python = "^3.11"`, and [`backend/Dockerfile`](../../backend/Dockerfile)
-uses `python:3.11-slim`.
+Everything runs **Python 3.12**: the VM script installs it, `pyproject.toml`
+declares `python = "^3.12"` (and mypy checks against 3.12), and both stages of
+[`backend/Dockerfile`](../../backend/Dockerfile) use `python:3.12-slim`
+(SA-21; until then pyproject said `^3.11` and the image ran 3.11).
 
 Apache is set up separately by
 [`deploy/apache/setup_apache.sh`](../../deploy/apache/setup_apache.sh) (run as

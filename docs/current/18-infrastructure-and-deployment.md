@@ -83,7 +83,7 @@ graph TB
 | Tool | Version | Why |
 |---|---|---|
 | Ubuntu | 22.04 or 24.04 LTS | What the setup script targets |
-| Python | 3.11+ (script installs 3.12) | `pyproject.toml` requires `^3.11` |
+| Python | 3.12 | `pyproject.toml` requires `^3.12`; the setup script and the Dockerfile install 3.12 |
 | Poetry | 1.7+ | The only dependency manager — there is no `requirements.txt` |
 | Node.js | 20 LTS | Vite 5 |
 | Docker + Compose plugin | current | PostgreSQL and Redis |
@@ -281,13 +281,13 @@ preserves them; `docker compose down -v` **deletes your database**.
 ```mermaid
 flowchart LR
     subgraph B["Stage 1: builder"]
-        B1["python:3.11-slim"] --> B2["apt: curl, build-essential"]
+        B1["python:3.12-slim"] --> B2["apt: curl, build-essential"]
         B2 --> B3["Install Poetry 1.7.1"]
         B3 --> B4["COPY pyproject.toml poetry.lock"]
         B4 --> B5["poetry install --no-root<br/>into /app/.venv"]
     end
     subgraph R["Stage 2: runtime"]
-        R1["python:3.11-slim"] --> R2["COPY --from=builder /app/.venv"]
+        R1["python:3.12-slim"] --> R2["COPY --from=builder /app/.venv"]
         R2 --> R3["COPY . ."]
         R3 --> R4["EXPOSE 8000"]
         R4 --> R5["CMD uvicorn src.main:app --reload"]
@@ -534,12 +534,10 @@ What it deliberately does **not** do:
 **After `usermod -aG docker $USER` you must log out and back in** before Docker
 commands work without `sudo`. The script warns about this.
 
-> ⚠️ The script installs **Python 3.12** while `pyproject.toml` targets
-> `python = "^3.11"` and the Dockerfile uses `python:3.11-slim`. Three different
-> Python versions across three surfaces. 3.12 satisfies the `^3.11` constraint,
-> but note `audioop-lts` is conditionally pinned for `python >= 3.13`, so the
-> audio path has version-sensitive dependencies. Local dev and production may
-> not be running the same interpreter.
+> The script installs **Python 3.12**, which is what `pyproject.toml` declares
+> (`^3.12`) and what the Dockerfile runs (`python:3.12-slim`) — SA-21 / IN-10.
+> `^3.12` still admits 3.13, where `audioop-lts` is pulled in to replace the
+> removed `audioop` module, so the audio path is the part to re-test on 3.13.
 
 ---
 
@@ -1077,7 +1075,7 @@ with the gate:
 ```toml
 # backend/pyproject.toml
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 ignore_missing_imports = true
 ```
 
@@ -1360,8 +1358,9 @@ a Redis-backed event bus, then moving artifacts to object storage.
 16. **Backups are monthly and stored on the same disk**, under a hard-coded
     `hb-proto-3` path that does not match this checkout.
 
-17. **Three different Python versions** across the setup script (3.12),
-    `pyproject.toml` (`^3.11`) and the Dockerfile (3.11).
+17. **One Python version, 3.12** — the setup script, `pyproject.toml` and the
+    Dockerfile agree (SA-21). `tests/unit/test_python_version.py` fails if one of
+    them drifts.
 
 18. **`npm install` needs `--legacy-peer-deps`.** Without it, installation fails
     on React Three Fiber peer conflicts.

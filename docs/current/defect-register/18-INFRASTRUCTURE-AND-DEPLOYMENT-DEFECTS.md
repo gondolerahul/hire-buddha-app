@@ -244,7 +244,8 @@ open browser tab produces roughly 1.3 access-log lines per second, forever.
 
 ### IN-10 — Three different Python versions
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-09-30, SA-21)** — 3.12 in the VM script,
+`pyproject.toml` (`^3.12`, mypy 3.12) and both Dockerfile stages.
 
 | Where | Version |
 |---|---|
@@ -417,6 +418,8 @@ already kills by port. The blanket `pkill -f "uvicorn"` at the end is a belt-and
 that will one day kill someone else's application.
 
 ### IN-I9 — Pin one Python version
+
+**Status: done (2026-09-30, SA-21)** — except the CI matrix, which waits on IN-I1.
 
 **Effect: small.** [IN-10](#in-10--three-different-python-versions). Pick 3.12 (what the VM
 installs), update `pyproject.toml` and the Dockerfile, and add it to the CI matrix once

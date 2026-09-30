@@ -1,4 +1,4 @@
-FROM python:3.11-slim as builder
+FROM python:3.12-slim as builder
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ COPY pyproject.toml poetry.lock* ./
 RUN poetry install --no-root --no-ansi
 
 # Runtime stage
-FROM python:3.11-slim as runtime
+FROM python:3.12-slim as runtime
 
 WORKDIR /app
 
