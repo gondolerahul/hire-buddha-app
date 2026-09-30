@@ -325,7 +325,7 @@ Trees and drop the v1 path — see
 
 ### DM-08 — `tool_registry_entries.name` is globally unique across tenants
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-01)**
 
 `company_id` is nullable on this table (NULL means a built-in tool), but `name` carries
 a **global** unique constraint. So two tenants cannot both register a custom tool called
@@ -336,6 +336,29 @@ tenant-local.
 
 **Fix:** make it unique on `(company_id, name)` with a partial unique index for the
 `company_id IS NULL` built-in case.
+
+**Done (2026-10-01).** The collision is reachable today through the meta-agent's tool
+synthesis, which writes `SYNTHESIZED` rows under the tenant's company (custom tools are
+created only by `app_admin`, under the APP company).
+
+- Revision `dm08_tool_name_per_company` drops the global key and adds
+  `uq_tool_registry_company_name (company_id, name)` with `NULLS NOT DISTINCT` — one
+  constraint instead of two, and built-in rows (no company) stay unique by name. Declared on
+  the model; the plain `name` index stays.
+- The built-in sync looked rows up by name alone (`get_tool_by_name`, `scalar_one_or_none`),
+  which per-company names would break; it is `get_built_in_entry(name)`, built-in rows only.
+- **Found while fixing:** `GET /ai/tool-registry`, `GET /ai/tool-registry/{id}` and the
+  builder's `GET /ai/tools` returned every tenant's synthesized tools — with their spec,
+  source and audit in `configuration` — to any signed-in user. They now show built-ins,
+  the platform's own custom tools, and the tools of the companies the caller can see
+  (`auth.visibility`); another tenant's tool by id is a 404; `app_admin` sees all. The
+  list no longer folds same-named rows of different companies into one.
+
+**Evidence:** `tests/integration/test_tool_registry_tenancy.py` (real Postgres, rolled back),
+5 cases — two tenants share a name; one company cannot reuse one; built-in names stay
+unique; a tenant lists its own and platform tools but not another tenant's, while
+`app_admin` lists all; another tenant's tool is a 404. The two visibility cases fail on the
+old code; the schema census passes with the new key.
 
 ---
 

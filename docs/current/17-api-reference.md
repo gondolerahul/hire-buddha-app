@@ -697,8 +697,8 @@ Every `/email/*` route needs a bearer token and is scoped to the caller's compan
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/v1/ai/tool-registry` | All registered tools |
-| GET | `/api/v1/ai/tool-registry/{tool_id}` | One tool |
+| GET | `/api/v1/ai/tool-registry` | The tools the caller can see: built-ins, platform tools, its companies' tools (all for `app_admin`) |
+| GET | `/api/v1/ai/tool-registry/{tool_id}` | One tool (404 for another tenant's) |
 | POST | `/api/v1/ai/tool-registry` | Register a tool |
 | PUT | `/api/v1/ai/tool-registry/{tool_id}` | Update |
 | DELETE | `/api/v1/ai/tool-registry/{tool_id}` | Remove |

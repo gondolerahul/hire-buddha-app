@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import UniqueConstraint, Boolean, DateTime, ForeignKey, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,10 +24,17 @@ class ToolRegistryEntry(Base):
     by Application Admins via the Tool Management API.
     """
     __tablename__ = "tool_registry_entries"
+    # A name is unique per company; built-ins (company_id NULL) are unique among
+    # themselves — NULLs count as equal (Postgres 15+). It was unique across all
+    # tenants, so two tenants could not both synthesize a tool named alike (DM-08).
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uq_tool_registry_company_name",
+                         postgresql_nulls_not_distinct=True),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)  # null = system-wide
-    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)  # Tool identifier (matches Tool.name)
+    name: Mapped[str] = mapped_column(String, nullable=False, index=True)  # Tool identifier (matches Tool.name)
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., "browser", "social", "document", "utility"

@@ -441,20 +441,23 @@ Defined at [orm/tools.py:26](../../backend/src/ai/orm/tools.py:26).
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
 | `company_id` | UUID FK→companies.id | yes | — | **NULL means system-wide** |
-| `name` | String | no | — | **Unique globally**, indexed (`ix_tool_registry_entries_name`) |
+| `name` | String | no | — | Indexed (`ix_tool_registry_entries_name`); **unique per company** — `uq_tool_registry_company_name (company_id, name)`, `NULLS NOT DISTINCT`, so built-in rows are unique among themselves (DM-08) |
 | `display_name` | String | yes | — | |
 | `description` | Text | yes | — | |
 | `category` | String | yes | — | `browser`, `social`, `document`, `utility`, … |
-| `tool_type` | String | no | `BUILT_IN` | `BUILT_IN` or `CUSTOM`; indexed |
+| `tool_type` | String | no | `BUILT_IN` | `BUILT_IN`, `CUSTOM` (app_admin-created, APP company) or `SYNTHESIZED` (meta-agent, per tenant); indexed |
 | `function_schema` | JSON | yes | — | OpenAI-compatible function-calling schema |
 | `is_enabled` | Boolean | yes | `True` | |
 | `configuration` | JSON | yes | — | Custom config (credential refs etc.) |
 | `created_by` | UUID FK→users.id | yes | — | |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 
-The global uniqueness of `name` combined with a nullable `company_id` means two
-tenants cannot both define a custom tool with the same name. Built-in rows are seeded
-at startup and are the master data `clean_db.sql` deliberately preserves.
+Until 2026-09-30 `name` was unique across all tenants, so the second tenant to synthesize a
+tool with a given name failed. Reads are scoped too since then
+(`ToolManagementService._visible_entries`): a user sees built-in rows, the platform's
+(APP company's) custom tools and the tools of the companies they can see; `app_admin` sees
+all. Built-in rows are seeded at startup and are the master data `clean_db.sql` deliberately
+preserves.
 
 ---
 
@@ -2095,8 +2098,6 @@ flowchart LR
   `.execution_options(include_deleted=True)` where history must include deleted agents.
 - **Run status transitions are advisory.** `validate_transition` warns but never blocks.
   And `REPAIRING` is unreachable: no other status lists it as an allowed target.
-- **`tool_registry_entries.name` is globally unique** even though `company_id` is
-  nullable, so two tenants cannot register the same custom tool name.
 - **`artifacts.campaign_id` points at `hierarchical_entities`, not `campaigns`.**
 - **`call_logs.voice_session_id` deliberately has no FK** because the two tables belong
   to different modules; the same is true of `conversation_history.session_id`, which is

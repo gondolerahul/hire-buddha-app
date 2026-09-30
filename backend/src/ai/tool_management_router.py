@@ -38,7 +38,7 @@ async def list_all_tools(
 ):
     """List all tools (built-in + custom), enriched with metadata."""
     service = ToolManagementService(db)
-    return await service.list_all_tools()
+    return await service.list_all_tools(viewer=current_user)
 
 
 @router.get("/{tool_id}", response_model=ToolRegistryEntryResponse)
@@ -47,9 +47,9 @@ async def get_tool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get a single tool by ID."""
+    """Get a single tool by ID (404 for another tenant's tool)."""
     service = ToolManagementService(db)
-    return await service.get_tool(tool_id)
+    return await service.get_tool(tool_id, viewer=current_user)
 
 
 # ---------------------------------------------------------------------------

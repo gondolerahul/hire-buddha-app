@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,18 +62,47 @@ class ToolManagementService:
     # List all tools (built-in + custom from DB)
     # ------------------------------------------------------------------
 
-    async def list_all_tools(self) -> List[dict]:
+    async def _visible_entries(self, viewer: Any = None):
+        """A SELECT of the entries ``viewer`` may see (DM-08).
+
+        Built-in rows (no company) and the platform's own custom tools (the APP
+        company's) for everyone; otherwise only the companies the viewer can see
+        (``auth.visibility``). ``app_admin`` — and internal callers passing no
+        viewer — see every row. Before this, any signed-in user listed every
+        tenant's synthesized tools, source and audit included.
         """
-        Return a merged list of all tools.
-        - Built-in tools from the in-memory ToolRegistry
-        - Custom tools from the DB
-        DB entries override built-in metadata (e.g., is_enabled flag).
+        from sqlalchemy import or_
+        from src.auth.models import Company
+        from src.auth.visibility import visible_company_ids
+
+        stmt = select(ToolRegistryEntry)
+        if viewer is None:
+            return stmt
+        scope = await visible_company_ids(self.db, viewer)
+        if scope is None:
+            return stmt
+        platform = select(Company.id).where(Company.type == "APP")
+        return stmt.where(or_(
+            ToolRegistryEntry.company_id.is_(None),
+            ToolRegistryEntry.company_id.in_(platform),
+            ToolRegistryEntry.company_id.in_(scope),
+        ))
+
+    async def list_all_tools(self, viewer: Any = None) -> List[dict]:
+        """
+        Return a merged list of the tools ``viewer`` may see.
+        - Built-in tools from the in-memory ToolRegistry, with their DB row's
+          metadata (e.g. is_enabled) when there is one
+        - Custom and synthesized tools from the DB
         """
         from src.ai.tools import ToolRegistry
 
-        # 1. Get all DB entries (keyed by name)
-        result = await self.db.execute(select(ToolRegistryEntry))
-        db_entries = {entry.name: entry for entry in result.scalars().all()}
+        # 1. DB entries: built-in rows keyed by name; every other row listed as is
+        #    (a name is unique per company, so two tenants may share one).
+        result = await self.db.execute(await self._visible_entries(viewer))
+        rows = result.scalars().all()
+        db_entries = {entry.name: entry for entry in rows if entry.company_id is None}
+        other_entries = [entry for entry in rows if entry.company_id is not None]
 
         # 2. Get built-in tools
         built_in_tools = ToolRegistry.list_tools()  # [{name, description}]
@@ -116,10 +145,12 @@ class ToolManagementService:
                     "updated_at": None,
                 })
 
-        # 4. Add remaining DB-only entries (custom tools)
-        for name, db_entry in db_entries.items():
+        # 4. Add remaining DB-only entries (custom and synthesized tools)
+        for db_entry in [*db_entries.values(), *other_entries]:
+            name = db_entry.name
             merged.append({
                 "id": str(db_entry.id),
+                "company_id": str(db_entry.company_id) if db_entry.company_id else None,
                 "name": db_entry.name,
                 "display_name": db_entry.display_name or name,
                 "description": db_entry.description,
@@ -178,20 +209,23 @@ class ToolManagementService:
             )
         return entry
 
-    async def get_tool(self, tool_id: uuid.UUID) -> ToolRegistryEntry:
-        """Get a tool entry by ID."""
+    async def get_tool(self, tool_id: uuid.UUID, viewer: Any = None) -> ToolRegistryEntry:
+        """Get a tool entry by ID; 404 when ``viewer`` may not see it."""
         result = await self.db.execute(
-            select(ToolRegistryEntry).where(ToolRegistryEntry.id == tool_id)
+            (await self._visible_entries(viewer)).where(ToolRegistryEntry.id == tool_id)
         )
         entry = result.scalar_one_or_none()
         if not entry:
             raise HTTPException(status_code=404, detail="Tool not found")
         return entry
 
-    async def get_tool_by_name(self, name: str) -> Optional[ToolRegistryEntry]:
-        """Get a tool entry by name."""
+    async def get_built_in_entry(self, name: str) -> Optional[ToolRegistryEntry]:
+        """The DB row of built-in tool ``name`` (company_id NULL), if seeded."""
         result = await self.db.execute(
-            select(ToolRegistryEntry).where(ToolRegistryEntry.name == name)
+            select(ToolRegistryEntry).where(
+                ToolRegistryEntry.name == name,
+                ToolRegistryEntry.company_id.is_(None),
+            )
         )
         return result.scalar_one_or_none()
 
@@ -247,7 +281,7 @@ class ToolManagementService:
         created = 0
 
         for name, tool in built_in_tools.items():
-            existing = await self.get_tool_by_name(name)
+            existing = await self.get_built_in_entry(name)
             if not existing:
                 entry = ToolRegistryEntry(
                     id=uuid.uuid4(),

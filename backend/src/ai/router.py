@@ -461,7 +461,7 @@ async def list_tools(
     try:
         from src.ai.tool_management_service import ToolManagementService
         service = ToolManagementService(db)
-        return await service.list_all_tools()
+        return await service.list_all_tools(viewer=current_user)
     except Exception:
         # Fallback to simple ToolRegistry list if DB is unavailable
         from src.ai.tools import ToolRegistry
