@@ -245,18 +245,26 @@ class CreditService:
         """Replace subscription credits for a paid billing cycle (no carry-forward).
 
         ``expires_at`` is the end of the cycle that was paid for; without one
-        the credits last a month from now.
+        the credits last a month from now. A cycle that has already ended, or
+        ends before the credits the wallet holds (an older payment recorded
+        late), grants nothing: it must not replace a newer cycle's credits.
         """
         await self.get_or_create_wallet(company_id)
         wallet = await self.lock_wallet(company_id)
+        now = datetime.utcnow()
+        expires_at = expires_at or now + timedelta(days=31)
+        if expires_at <= now or (
+            wallet.sub_credits_expire_at and expires_at < wallet.sub_credits_expire_at
+        ):
+            await self.db.commit()
+            return wallet
         bonus = base_amount * (bonus_pct / Decimal("100"))
 
         # Flush old credits — strict no carry-forward
         wallet.subscription_credits = base_amount
         wallet.subscription_bonus_credits = bonus
         wallet.account_model = "subscription"
-        now = datetime.utcnow()
-        wallet.sub_credits_expire_at = expires_at or now + timedelta(days=31)
+        wallet.sub_credits_expire_at = expires_at
         wallet.updated_at = now
 
         await self.db.commit()

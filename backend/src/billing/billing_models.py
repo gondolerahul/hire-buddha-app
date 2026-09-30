@@ -90,6 +90,9 @@ class SubscriptionTier(Base):
     monthly_fee = Column(Numeric(10, 2), nullable=False)
     bonus_pct = Column(Numeric(5, 2), nullable=False, default=0.0)
     is_active = Column(Boolean, default=True, nullable=False)
+    # The Razorpay plan subscriptions to this tier are created on; made on first
+    # use and cleared when monthly_fee changes (Razorpay plans are immutable).
+    razorpay_plan_id = Column(String(200), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -108,7 +111,8 @@ class Subscription(Base):
     monthly_fee = Column(Numeric(10, 2), nullable=False)
     bonus_pct = Column(Numeric(5, 2), nullable=False, default=20.0)  # 20.0, 30.0, 40.0
 
-    status = Column(String(20), nullable=False, default="active")    # active | cancelled | past_due
+    # pending_payment -> active <-> past_due | paused -> cancelled; failed = checkout abandoned
+    status = Column(String(20), nullable=False, default="active")
     razorpay_subscription_id = Column(String(200), nullable=True)
     razorpay_plan_id = Column(String(200), nullable=True)
     next_billing_date = Column(DateTime, nullable=True)

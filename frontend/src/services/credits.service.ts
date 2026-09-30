@@ -29,8 +29,8 @@ export interface TopUpOrder {
     key_id: string;
 }
 
-export interface SubscriptionOrder {
-    order_id: string;
+export interface SubscriptionCheckout {
+    razorpay_subscription_id: string;
     amount: number;
     currency: string;
     key_id: string;
@@ -67,19 +67,15 @@ export const creditsService = {
         return data;
     },
 
-    createSubscription: async (payload: {
-        plan_tier: number;
-        monthly_fee: number;
-    }): Promise<SubscriptionOrder> => {
-        const { data } = await apiClient.post<SubscriptionOrder>('/credits/subscriptions', payload);
+    createSubscription: async (tierLevel: number): Promise<SubscriptionCheckout> => {
+        const { data } = await apiClient.post<SubscriptionCheckout>('/credits/subscriptions', { tier_level: tierLevel });
         return data;
     },
 
     verifySubscription: async (payload: {
-        razorpay_order_id: string;
         razorpay_payment_id: string;
+        razorpay_subscription_id: string;
         razorpay_signature: string;
-        subscription_id: string;
     }): Promise<{ message: string; plan_tier: number; monthly_fee: number; bonus_credits_pct: number }> => {
         const { data } = await apiClient.post('/credits/subscriptions/verify', payload);
         return data;

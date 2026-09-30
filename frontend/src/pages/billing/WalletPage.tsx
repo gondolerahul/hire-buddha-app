@@ -115,31 +115,28 @@ export const WalletPage: React.FC = () => {
     const handleSubscribe = async (tier: number, fee: number) => {
         setError(null);
         try {
-            // Step 1: Create a Razorpay payment order for the subscription
-            const order = await creditsService.createSubscription({ plan_tier: tier, monthly_fee: fee });
+            // Step 1: Create a Razorpay subscription on the tier's plan
+            const checkout = await creditsService.createSubscription(tier);
 
-            // Step 2: Open Razorpay checkout
+            // Step 2: Razorpay checkout authorises the recurring mandate and takes the first charge
             if ((window as any).Razorpay) {
                 const rzp = new (window as any).Razorpay({
-                    key: order.key_id,
-                    amount: fee * 100,
-                    currency: order.currency,
+                    key: checkout.key_id,
+                    subscription_id: checkout.razorpay_subscription_id,
                     name: 'HireBuddha',
                     description: `Tier ${tier} Subscription — $${fee}/mo`,
-                    order_id: order.order_id,
                     handler: async (response: any) => {
                         try {
-                            // Step 3: Verify payment and activate subscription
+                            // Step 3: Verify the first payment; its credits are granted now
                             const result = await creditsService.verifySubscription({
-                                razorpay_order_id: order.order_id,
                                 razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_subscription_id: response.razorpay_subscription_id,
                                 razorpay_signature: response.razorpay_signature,
-                                subscription_id: order.subscription_id,
                             });
-                            setSuccess(`🎉 ${result.message} — ${result.bonus_credits_pct}% bonus credits activated!`);
+                            setSuccess(`${result.message} — ${result.bonus_credits_pct}% bonus credits every month.`);
                             fetchData();
                         } catch (e: any) {
-                            setError('Payment verification failed. Please contact support.');
+                            setError('Payment verification failed. Your credits will arrive when Razorpay confirms the payment.');
                         }
                     },
                     prefill: {},
@@ -155,11 +152,11 @@ export const WalletPage: React.FC = () => {
     };
 
     const handleCancel = async (id: string) => {
-        if (!confirm('Cancel your subscription? Credits will expire at month end.')) return;
+        if (!confirm('Cancel your subscription? No further payments are taken; credits you have paid for last until they expire.')) return;
         setCancellingId(id);
         try {
             await creditsService.cancelSubscription(id);
-            setSuccess('Subscription cancelled. Credits remain until month end.');
+            setSuccess('Subscription cancelled. Credits you have paid for last until they expire.');
             fetchData();
         } catch (e: any) {
             setError(e?.response?.data?.detail || 'Cancellation failed');
@@ -202,14 +199,13 @@ export const WalletPage: React.FC = () => {
                         expiry={balance?.daily_expires_at}
                         accent
                     />
-                    {balance?.account_model === 'pay_as_you_go' && (
-                        <CreditBucket
-                            label="Wallet Balance"
-                            amount={balance?.wallet_balance || 0}
-                            expiry={balance?.wallet_expires_at}
-                        />
-                    )}
-                    {balance?.account_model === 'subscription' && (
+                    <CreditBucket
+                        label="Wallet Balance"
+                        amount={balance?.wallet_balance || 0}
+                        expiry={balance?.wallet_expires_at}
+                    />
+                    {(balance?.account_model === 'subscription'
+                        || (balance?.subscription_credits || 0) + (balance?.subscription_bonus_credits || 0) > 0) && (
                         <>
                             <CreditBucket
                                 label="Subscription Credits"
@@ -227,8 +223,8 @@ export const WalletPage: React.FC = () => {
             </div>
 
             <div className="wallet-two-col">
-                {/* Top-Up Section */}
-                {balance?.account_model === 'pay_as_you_go' && (
+                {/* Top-Up Section — the balance is spendable on either account model */}
+                {balance && (
                     <div className="topup-section glass">
                         <h2 className="section-title"><CreditCard size={18} /> Top Up Wallet</h2>
                         <p className="section-desc">Add funds via Razorpay. Balance is valid for 365 days.</p>
@@ -265,13 +261,19 @@ export const WalletPage: React.FC = () => {
                 {/* Active Subscription */}
                 {subscription && (
                     <div className="active-subscription glass">
-                        <h2 className="section-title"><Star size={18} /> Active Subscription</h2>
+                        <h2 className="section-title"><Star size={18} /> {subscription.status === 'active' ? 'Active Subscription' : 'Subscription'}</h2>
+                        {subscription.status === 'past_due' && (
+                            <div className="error-banner"><AlertTriangle size={14} /> The last payment failed. Razorpay is retrying; no credits are granted until a payment succeeds.</div>
+                        )}
+                        {subscription.status === 'paused' && (
+                            <div className="error-banner"><AlertTriangle size={14} /> Paused — no payments are taken and no credits are granted.</div>
+                        )}
                         <div className="sub-details">
                             <div className="sub-tier-badge">Tier {subscription.plan_tier}</div>
                             <p className="sub-fee">${subscription.monthly_fee}/mo</p>
                             <p className="sub-bonus">+{subscription.bonus_pct}% Bonus Credits</p>
                             {subscription.next_billing_date && (
-                                <p className="sub-next">Next billing: {parseServerDate(subscription.next_billing_date).toLocaleDateString()}</p>
+                                <p className="sub-next">Paid through: {parseServerDate(subscription.next_billing_date).toLocaleDateString()}</p>
                             )}
                         </div>
                         <button
@@ -290,8 +292,8 @@ export const WalletPage: React.FC = () => {
                 <div className="plans-section">
                     <h2 className="section-title"><Star size={18} /> Subscription Plans</h2>
                     <p className="section-desc">
-                        Switch to subscription for auto-debit billing and bonus credits every month.
-                        Daily $5 credits always apply first.
+                        Subscribe for a monthly auto-debit via Razorpay and bonus credits every month.
+                        Credits are spent soonest-expiring first: daily, then subscription, then your wallet balance.
                     </p>
                     <div className="plans-grid">
                         {plans.map((plan: any) => (

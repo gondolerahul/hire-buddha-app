@@ -39,12 +39,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 7 | **Before the first paying tenant** |
+| [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 8 | **Before the first paying tenant** |
 | [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 7 | Before any margin analysis |
 | [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | Before relying on the control |
 | [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 8 | Now — mostly cheap |
 
-**Total: 27 defects, 10 improvements.**
+**Total: 28 defects, 10 improvements.**
 
 The three to read first:
 
@@ -167,7 +167,8 @@ the BC-27 race. Five fail on the old code.
 
 ### BC-03 — Subscribing strands the wallet and grants nothing
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — subscriptions are Razorpay
+Subscriptions; the first payment grants its cycle's credits at verification.
 
 Three confirmed facts compound into a complete pay-and-get-nothing path:
 
@@ -186,11 +187,48 @@ credits until a human manually POSTs a cron endpoint.
 - [`billing/credit_service.py:204`](../../../backend/src/billing/credit_service.py:204) — `inject_subscription_credits`
 - Also recorded as **D-02** in the platform register
 
+**Done (2026-09-30).** Product decision: renewal is a real Razorpay Subscription (a recurring
+mandate), not a prepaid month. BC-02 had already made the wallet balance spendable. Now:
+
+- `POST /credits/subscriptions {tier_level}` makes the tier's Razorpay plan on first use
+  (stored as `subscription_tiers.razorpay_plan_id`, migration `bc03_tier_razorpay_plan`;
+  cleared when the tier's fee changes), creates a Razorpay subscription on it, and stores the
+  row `pending_payment` **with** its `razorpay_subscription_id` (BC-16). A company with a live
+  subscription gets 409.
+- The wallet page opens checkout with `subscription_id`; `POST /credits/subscriptions/verify`
+  checks the subscription signature (`payment_id|subscription_id`) and calls
+  `PaymentService.record_subscription_charge`, which records the payment
+  (`subscription_charge`, keyed on the unique payment id) and grants the fee plus bonus until
+  the end of the paid cycle (Razorpay's `current_end`). Each later month arrives as the
+  `subscription.charged` webhook and goes through the same function — once per payment
+  whichever path brings it; an older payment recorded late cannot replace a newer cycle.
+- The other `subscription.*` webhook events copy Razorpay's status (`past_due` on a failed
+  charge, `paused`, `cancelled`); cancelling cancels the Razorpay subscription **first** and
+  answers 502, changing nothing, if Razorpay refuses. Credits paid for stay until they expire.
+- Found on the way: the wallet page sent `plan_tier`, the API required `tier_level`, so
+  subscribing had always failed with 422 — [BC-28](#bc-28--subscribing-always-fails-with-422).
+
+**Evidence:** `tests/integration/test_subscriptions.py`, 13 cases with Razorpay replaced by an
+in-memory fake (routes, services and Postgres real): the wallet page's request creates a
+subscription and plan, and a second subscriber reuses the plan; verification grants
+$79 + $23.70 once — a repeat and the `subscription.charged` webhook for the same payment
+grant nothing; a bad signature grants nothing; the next month's charge replaces the credits;
+halted → `past_due`, cancelled → `cancelled` with the account pay-as-you-go again and the paid
+credits kept; a Razorpay cancel failure is a 502 with the row unchanged; one live
+subscription per company; the reconciliation cases under BC-04; a fee change retires the
+plan. On the old code: the wallet page's request got 422, and verification returned 200
+with `account_model: subscription` and **$0** of subscription credit. Live on the local API
+(temporary `razorpay_keys` row): a signed `subscription.charged` granted $79 + $23.70, its
+replay nothing, `subscription.halted` → `past_due`, `subscription.cancelled` → `cancelled`
+and pay-as-you-go. The Razorpay API calls themselves (plan, subscription, cancel, invoices)
+were not exercised live — there is no Razorpay test account here.
+
 ---
 
 ### BC-04 — The billing crons are never scheduled
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: partly fixed (2026-09-30)** — the monthly job no longer
+grants unpaid credits (below); scheduling and the daily reset are the next change.
 
 `WorkerSettings.cron_jobs` registers seven jobs: CORTEX resumption, dreaming, critic
 calibration, skill promotion, prompt evolution, KPI rollup and cost-estimator refresh.
@@ -216,6 +254,18 @@ Two further problems in the same jobs:
 - [`ai/worker.py`](../../../backend/src/ai/worker.py) — the `cron_jobs` list
 - [`billing/cron_service.py:87`](../../../backend/src/billing/cron_service.py:87) — the unreachable branch
 - Also recorded as **D-03** in the platform register
+
+**The monthly job (2026-09-30, with BC-03).** Renewal is Razorpay's now, so the job no longer
+grants anything by itself. `run_subscription_reconciliation` (the `/cron/monthly-billing`
+endpoint still calls it) asks Razorpay for each pending or live subscription's invoices and
+grants each cycle whose invoice is `paid` and whose payment is not yet recorded — a
+`subscription.charged` webhook that never arrived — then copies Razorpay's status.
+Subscriptions from the old one-time-order flow, which nothing can renew, end when the month
+they paid for ends. **Evidence:** `test_subscriptions.py` — an active subscription with no
+paid invoice gets nothing and no transaction row (the old job, run on the old code, granted
+$79 + $23.70 and wrote a `success` transaction with no payment id); a missed paid invoice is
+granted once across two runs and a past-due subscription becomes active; an old-flow
+subscription past its month is cancelled.
 
 ---
 
@@ -286,6 +336,24 @@ unique `company_id`).
 **Evidence:** `test_concurrent_deductions_are_not_lost` — three sessions each make five $1
 deductions from a $100 wallet at once: $85 left. On the old code, $92: seven of the fifteen
 deductions were lost.
+
+---
+
+### BC-28 — Subscribing always fails with 422
+
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — found while fixing BC-03.
+
+The wallet page's **Subscribe** button posted `{plan_tier, monthly_fee}` to
+`POST /credits/subscriptions`; the API's `SubscriptionCreate` requires `tier_level`. Every
+click was a 422 (*Field required: tier_level*), shown as "Subscription initiation failed". No
+one could ever subscribe from the UI — which is also why BC-03's pay-and-get-nothing path had
+never been hit.
+
+- [`frontend/src/services/credits.service.ts`](../../../frontend/src/services/credits.service.ts) — `createSubscription`
+
+**Fix (2026-09-30):** `createSubscription(tierLevel)` sends `{tier_level}`. **Evidence:**
+`test_the_wallet_pages_request_creates_a_razorpay_subscription`; the old payload against the
+old code: 422.
 
 ---
 
@@ -396,7 +464,7 @@ So one pricing override does nothing, and the other silently deletes a real cost
 |---|---|---|---|
 | **BC-14** | `check_credit_gate`, `consume_step_cost`, `check_credit_circuit_breaker`, `require_credits` | Defined, unit-tested, **zero callers**. See [BC-05](#bc-05--three-of-the-four-credit-gates-have-no-callers) | ✅ Verified |
 | **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ Verified |
-| **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ Verified |
+| **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ fixed (2026-09-30) with BC-03 — set when the Razorpay subscription is created; every charge and status change is matched on it |
 | **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ Verified |
 | **BC-18** | Abandoned checkouts and orphaned subscriptions | A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | 📄 Doc-reported |
 
@@ -488,7 +556,10 @@ Same as [DM-01](03-DATA-MODEL-DEFECTS.md#dm-01--subscription_tiers-has-no-migrat
 
 ### BC-24 — `billing_events` has no unique constraint
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30, `80b22ed`)** — as DM-04: unique key
+`uq_billing_events_period_grouping`, duplicates merged by the migration, and
+`record_billing_event` is one `INSERT … ON CONFLICT DO UPDATE`. See
+[DM-04](03-DATA-MODEL-DEFECTS.md#dm-04--billing_events-has-no-unique-constraint).
 
 No `__table_args__`, no `UniqueConstraint` on
 `(company_id, period_month, grouping_type, grouping_value)`. Concurrent settlements

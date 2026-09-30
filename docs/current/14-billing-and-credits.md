@@ -224,6 +224,7 @@ Global master data (no `company_id`) — the plans an app admin publishes. [bill
 | `monthly_fee` | Numeric(10,2) | USD/month |
 | `bonus_pct` | Numeric(5,2) | Percent bonus credits, e.g. `30.0` |
 | `is_active` | Boolean | Hidden from `GET /credits/subscription-tiers` when false |
+| `razorpay_plan_id` | String(200) | The Razorpay plan (monthly, `monthly_fee` in USD cents) subscriptions to this tier are made on. Created on first subscribe; cleared when `monthly_fee` changes, because Razorpay plans are immutable — existing subscribers keep theirs |
 
 ⚠️ **This table has no Alembic migration.** Grep the whole `backend/migrations/` tree: nothing creates `subscription_tiers`. It is referenced by the ORM, the router, and [`clean_db.sql`](../../backend/db-scripts/clean_db.sql), but a freshly migrated database will not have it, and `GET /credits/subscription-tiers` will 500. The frontend papers over this with a hard-coded `FALLBACK_PLANS` array — [WalletPage.tsx:43](../../frontend/src/pages/billing/WalletPage.tsx:43).
 
@@ -236,23 +237,29 @@ Global master data (no `company_id`) — the plans an app admin publishes. [bill
 | `monthly_fee` | Numeric(10,2) | — | Snapshotted at purchase, not re-read from the tier |
 | `bonus_pct` | Numeric(5,2) | `20.0` | Snapshotted too |
 | `status` | String(20) | `"active"` | See the state diagram below |
-| `razorpay_subscription_id` | String(200) | `NULL` | ⚠️ Never populated — see §9 |
-| `razorpay_plan_id` | String(200) | `NULL` | ⚠️ Never populated |
-| `next_billing_date` | DateTime | `NULL` | Set by the monthly cron |
+| `razorpay_subscription_id` | String(200) | `NULL` | The Razorpay Subscription (§9.3). `NULL` only on rows made by the one-time-order flow before BC-16 |
+| `razorpay_plan_id` | String(200) | `NULL` | The plan it was created on |
+| `next_billing_date` | DateTime | `NULL` | The end of the last cycle paid for ("paid through") |
 | `cancelled_at` | DateTime | `NULL` | |
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending_payment: "POST /credits/subscriptions"
-    pending_payment --> active: "POST /credits/subscriptions/verify - signature OK"
-    pending_payment --> pending_payment: "verify fails - row is orphaned"
-    active --> past_due: "monthly cron - Razorpay charge raised"
-    active --> cancelled: "DELETE /credits/subscriptions/-id-"
-    past_due --> active: "manual repair only"
+    [*] --> pending_payment: "POST /credits/subscriptions - Razorpay subscription created"
+    pending_payment --> active: "first charge - checkout verify, subscription.charged, or reconciliation"
+    pending_payment --> failed: "daily reaper - checkout abandoned for 24 h"
+    active --> active: "subscription.charged - next cycle granted"
+    active --> past_due: "subscription.pending or halted - a charge failed"
+    past_due --> active: "a later charge succeeds"
+    active --> paused: "subscription.paused"
+    paused --> active: "subscription.resumed"
+    active --> cancelled: "DELETE /credits/subscriptions/-id- or subscription.cancelled / completed"
+    past_due --> cancelled: "same"
     cancelled --> [*]
 ```
 
-Note that the model docstring lists `active | cancelled | past_due`, but the router writes a fourth value, `pending_payment` — [credits_router.py:373](../../backend/src/billing/credits_router.py:373). The column is a plain `String(20)`, so nothing enforces the enum.
+`active`, `past_due` and `paused` are *live*: a company has at most one, and
+`POST /credits/subscriptions` answers 409 while it does. The column is a plain
+`String(20)`; the transitions above are the only writers.
 
 ### 2.5 `payment_transactions`
 
@@ -292,7 +299,7 @@ The **monthly aggregate**, upserted on every settlement. This is what both money
 | `image_gen_count` / `video_gen_count` | Integer | Usage counters |
 | `other_ai_cost` | Numeric(14,6) | Free-form accumulator |
 
-The upsert key is the tuple `(company_id, period_month, grouping_type, grouping_value)`. There is **no unique constraint** enforcing it — the code does a `SELECT` then either accumulates or inserts, so two concurrent settlements for the same key can create duplicate rows.
+The upsert key is the tuple `(company_id, period_month, grouping_type, grouping_value)`, enforced by the unique constraint `uq_billing_events_period_grouping` since DM-04 (`80b22ed`); `record_billing_event` is a single `INSERT … ON CONFLICT DO UPDATE`, so concurrent settlements accumulate into one row.
 
 ### 2.7 `usage_logs` — the row-level ledger
 
@@ -1067,32 +1074,65 @@ the expired balance is dropped and the new money starts a fresh 365 days.
 
 ### 9.3 Subscription flow
 
+A subscription is a **Razorpay Subscription** — a recurring mandate the customer authorises
+once in checkout, on a Razorpay plan made from the tier. Razorpay charges it every month;
+every charge grants that cycle's credits; nothing else does (BC-03, BC-04, BC-16).
+
 ```mermaid
 sequenceDiagram
     participant FE as WalletPage.tsx
-    participant BE as "POST /api/v1/credits/subscriptions"
+    participant BE as "/api/v1/credits"
     participant RZ as Razorpay
     participant SUB as subscriptions
     participant PT as payment_transactions
     participant CW as credit_wallets
 
-    FE->>BE: "{tier_level: 2}"
-    BE->>BE: look up active subscription_tiers row
-    BE->>RZ: order.create - monthly_fee cents
-    BE->>SUB: INSERT status pending_payment, razorpay_subscription_id NULL
-    BE->>PT: INSERT status pending, type subscription_charge
-    BE-->>FE: "{order_id, key_id, subscription_id, bonus_credits_pct}"
-    FE->>RZ: checkout
-    RZ-->>FE: payment_id plus signature
-    FE->>BE: "POST /credits/subscriptions/verify"
-    BE->>BE: HMAC check
-    BE->>PT: status success
-    BE->>SUB: status active
-    BE->>CW: account_model equals subscription
-    BE-->>FE: "Subscription activated for Tier N"
+    FE->>BE: "POST /subscriptions {tier_level: 2}"
+    BE->>BE: 409 if the company has a live subscription
+    BE->>RZ: plan.create - once per tier, stored on subscription_tiers
+    BE->>RZ: subscription.create - plan_id, 120 cycles
+    BE->>SUB: INSERT status pending_payment, razorpay_subscription_id
+    BE-->>FE: "{razorpay_subscription_id, key_id, ...}"
+    FE->>RZ: checkout with subscription_id - mandate + first charge
+    RZ-->>FE: payment_id, subscription_id, signature
+    FE->>BE: "POST /subscriptions/verify"
+    BE->>BE: HMAC over "payment_id|subscription_id"
+    BE->>RZ: subscription.fetch - current_end of the paid cycle
+    BE->>PT: INSERT subscription_charge, success, razorpay_payment_id
+    BE->>CW: subscription credits = fee, bonus = fee x bonus_pct, expire at current_end
+    BE->>SUB: status active, next_billing_date = current_end
+    Note over RZ,BE: every month
+    RZ->>BE: "webhook subscription.charged - payment + current_end"
+    BE->>PT: same grant, once per payment id
 ```
 
-⚠️ Notice what is **missing**: `verify_subscription` flips `account_model` to `subscription` but **never calls `inject_subscription_credits`**. The tenant pays and gets zero credits until the monthly cron runs. Worse, flipping `account_model` immediately makes their existing `wallet_balance` unspendable (§7.1). A first-month subscriber is effectively locked out of their own money.
+`PaymentService.record_subscription_charge` makes every grant, whichever path brings the
+payment: the checkout callback, the `subscription.charged` webhook, or the reconciliation job
+(§10). It is keyed on the Razorpay payment id — the unique index on
+`payment_transactions.razorpay_payment_id` makes a second grant for one payment impossible —
+and grants the tier's fee plus bonus only when the payment paid at least the fee. The
+credits last until the end of the cycle paid for (Razorpay's `current_end`). A cycle that
+has already ended, or ends before the credits the wallet already holds (an older payment
+recorded late), is recorded but grants nothing, so it cannot replace a newer cycle's
+credits.
+
+The other webhook events copy Razorpay's status: `subscription.pending` / `halted` (a
+charge failed) → `past_due`; `paused` → `paused`; `activated` / `resumed` → `active`;
+`cancelled` / `completed` → `cancelled`. A company left with no live subscription is
+labelled pay-as-you-go again; credits it has paid for stay until they expire.
+
+**Cancelling** (`DELETE /credits/subscriptions/{id}`) cancels the Razorpay subscription
+first (immediately — no further charges), and only then marks the row `cancelled`. If
+Razorpay refuses and does not report it already cancelled, the route answers 502 and
+changes nothing: a row shown cancelled while Razorpay kept charging would take money for
+nothing.
+
+Before BC-03 the flow used a one-time Razorpay order for the first month: verification set
+the account to `subscription` and granted **no** credits, month two could never be charged
+(`razorpay_subscription_id` was never populated), and the wallet page's request
+(`plan_tier`) did not match the API's (`tier_level`), so subscribing always failed with 422
+(BC-28). The Razorpay account must support recurring payments in USD, and the webhook
+(§9.4) should have the `subscription.*` events enabled.
 
 ### 9.4 Idempotency and failure handling — the honest assessment
 
@@ -1104,6 +1144,7 @@ sequenceDiagram
 | Unique constraint on `razorpay_order_id` | ✅ Partial unique indexes on `razorpay_order_id` and `razorpay_payment_id` (BC-01) |
 | Abandoned checkout | Row stays `pending` forever; nothing reaps it |
 | Orphaned subscription | A `pending_payment` row with no matching payment stays forever |
+| Subscription renewal | ✅ Razorpay charges the mandate; `subscription.charged` (or the reconciliation job) grants the cycle once per payment (BC-03/BC-04) |
 | Failed payment | A top-up's `payment.failed` webhook marks its row `failed` with the error code and description; the order stays payable and a later successful payment on it is still credited |
 
 **The webhook.** `POST /api/v1/credits/razorpay/webhook` —
@@ -1117,11 +1158,13 @@ of the raw body under `webhook_secret`), then hands the event to
 |---|---|
 | `payment.captured` | For a top-up order: the paid amount and currency must equal the stored order (otherwise logged, `amount_mismatch`, not credited); then `credit_topup` — the same code the browser callback uses, so whichever arrives second credits nothing |
 | `payment.failed` | For a top-up order not yet credited: status `failed`, error recorded |
+| `subscription.charged` | `record_subscription_charge` for the payment (§9.3) |
+| `subscription.pending`, `halted`, `paused`, `activated`, `resumed`, `cancelled`, `completed` | The subscription's status follows Razorpay's (§9.3) |
 | anything else, or a payment for an order that is not a top-up | `ignored` |
 
 Every handled or ignored event is a `200` with `{"status": <outcome>}`; an error is a `500`,
-which Razorpay retries. Enable `payment.captured` and `payment.failed` on the webhook in the
-Razorpay dashboard.
+which Razorpay retries. Enable `payment.captured`, `payment.failed` and the `subscription.*` events
+on the webhook in the Razorpay dashboard.
 
 ### 9.5 Is Stripe wired up?
 
@@ -1142,9 +1185,11 @@ Two jobs, both in [cron_service.py](../../backend/src/billing/cron_service.py).
 | Job | Method | Intended schedule | What it does | Trigger |
 |---|---|---|---|---|
 | Daily credit refresh | `run_daily_credit_job` | `00:00:00` UTC daily | For every `Company` with `status='active'`, calls `flush_and_inject_daily_credits` | `POST /api/v1/cron/daily-credits` |
-| Monthly subscription billing | `run_monthly_subscription_job` | 1st of the month | For every `status='active'` subscription: record a `payment_transactions` row, inject tier credits, advance `next_billing_date` | `POST /api/v1/cron/monthly-billing` |
+| Subscription reconciliation | `run_subscription_reconciliation` (alias `run_monthly_subscription_job`) | daily | For every pending or live subscription: grant each cycle Razorpay reports paid whose payment is not recorded (a missed webhook), and copy Razorpay's status. A subscription from the old one-time-order flow ends when the month it paid for ends | `POST /api/v1/cron/monthly-billing` |
 
-Both return `{"processed": N, "errors": M, "timestamp": ...}` and both are `app_admin`-only.
+Both are `app_admin`-only. The daily job returns `{"processed", "errors", "timestamp"}`; the
+reconciliation returns counts (`checked`, `credited`, `status_changed`, `legacy_ended`,
+`skipped`, `errors`).
 
 ```mermaid
 flowchart LR
@@ -1153,31 +1198,22 @@ flowchart LR
     D1 --> D2["daily_credits equals config.default_daily_credits"]
     D2 --> D3["daily_expires_at equals midnight tomorrow"]
 
-    T1["1st of month"] --> M["run_monthly_subscription_job"]
-    M --> M1["for each active subscription"]
-    M1 --> M2["INSERT payment_transactions - subscription_charge"]
-    M2 --> M3["inject_subscription_credits - fee plus bonus, replaces"]
-    M3 --> M4["next_billing_date equals 1st of next month"]
+    T1["daily"] --> M["run_subscription_reconciliation"]
+    M --> M1["for each pending or live subscription"]
+    M1 --> M2["invoice.all - paid invoices"]
+    M2 --> M3["record_subscription_charge per unrecorded payment"]
+    M1 --> M4["subscription.fetch - copy status"]
 
     ANY["any balance read"] -.->|"lazy self-heal"| D2
 ```
 
 ⚠️ **Nothing schedules these.** There is no APScheduler, no Arq cron entry, no systemd timer, and no crontab in the repo. The docstring says they "can be triggered by an external cron scheduler … or APScheduler (can be added to main.py startup)" — neither has been. Today, daily credits work only through the lazy self-heal in `get_balance`, and **monthly subscription credits are never injected unless an admin clicks the endpoint.**
 
-The monthly job also does not actually charge anyone. Read it closely — [cron_service.py:87](../../backend/src/billing/cron_service.py:87):
-
-```python
-# backend/src/billing/cron_service.py
-if razorpay_client and sub.razorpay_subscription_id:
-    try:
-        # Razorpay handles auto-debit for subscriptions automatically
-        # We just record the expected charge
-        logger.info(f"Razorpay subscription {sub.razorpay_subscription_id} auto-debits monthly")
-    except Exception as rp_err:
-        sub.status = "past_due"
-```
-
-The `try` block contains only a log line, so the `except` is unreachable and `past_due` is never set. And since `razorpay_subscription_id` is never populated anywhere in the codebase, the condition is always false. The net effect: the job records a `success` transaction and grants credits **regardless of whether money moved**.
+The subscription job used to be a monthly *grant*: for every active subscription it recorded
+a `success` payment and injected a month of credits, whether or not money had moved —
+its Razorpay branch needed a `razorpay_subscription_id` nothing ever wrote, and its `try`
+held only a log line. Since BC-04 renewal is Razorpay's (§9.3) and this job only reconciles:
+it never grants without an invoice Razorpay reports `paid`.
 
 ---
 
@@ -1625,15 +1661,15 @@ curl -X PUT -H "Authorization: Bearer $APP_ADMIN_TOKEN" -H 'Content-Type: applic
 
 **Payments**
 
-- ⚠️ No webhook. Verification is browser-initiated and the **client supplies the amount to credit**. Replay is not prevented.
-- ⚠️ `razorpay_subscription_id` is never populated, so the monthly job's "did Razorpay charge them?" branch is always skipped and everyone is granted credits regardless.
+- ~~⚠️ No webhook. Verification is browser-initiated and the **client supplies the amount to credit**. Replay is not prevented.~~ Fixed 2026-09-30 (BC-01, BC-I5): the stored amount is credited once, and `POST /credits/razorpay/webhook` exists.
+- ~~⚠️ `razorpay_subscription_id` is never populated, so the monthly job's "did Razorpay charge them?" branch is always skipped and everyone is granted credits regardless.~~ Fixed 2026-09-30 (BC-03, BC-04, BC-16): subscriptions are Razorpay Subscriptions and only a payment grants credits.
 - ⚠️ Stripe is a dependency in `pyproject.toml` with zero code behind it. The Stripe-era tables (`invoices`, `ledger_entries`, `payment_methods`) were dropped by migration `a804c0db1551`.
-- ⚠️ `verify_topup` returns a dict with the key `"message"` written twice — harmless, but a sign of how much of this file is unreviewed.
+- ~~⚠️ `verify_topup` returns a dict with the key `"message"` written twice.~~ Gone with BC-01.
 
 **Schema and access**
 
 - ~~⚠️ `subscription_tiers` has no migration.~~ Fixed 2026-09-30 (DM-01): `dm21_schema_catch_up` creates it and seeds Starter, Growth and Scale.
-- ⚠️ `billing_events` has no unique constraint on its logical upsert key; concurrent settlements can duplicate rows.
+- ~~⚠️ `billing_events` has no unique constraint on its logical upsert key; concurrent settlements can duplicate rows.~~ Fixed 2026-09-30 (DM-04 / BC-24, `80b22ed`): a unique key on it and an `INSERT … ON CONFLICT DO UPDATE`.
 - ⚠️ `partner_admin` can `PUT /billing/config` with `company_id: null`, editing **platform-wide** pricing.
 - ⚠️ `GET /billing/config` has no role check — any user can read the multiplier and base costs (BC-26).
 - ⚠️ `GET /credits/subscription-tiers` has no auth dependency at all.

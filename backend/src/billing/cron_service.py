@@ -1,8 +1,9 @@
 """
-Cron Service — scheduled jobs for daily credit refresh and monthly subscription billing.
+Cron Service — scheduled jobs for daily credit refresh and subscription reconciliation.
 
 Daily job (00:00:00): Flush expired daily credits, inject fresh $5 for every company.
-Monthly job (1st of month): Process Razorpay subscription charges, flush and re-inject tier credits.
+Subscription reconciliation: grant cycles Razorpay reports paid that the webhook
+missed, and copy Razorpay's subscription status.
 
 These can be triggered by:
   1. An external cron scheduler (systemd timer, crontab)
@@ -19,13 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from src.auth.models import Company
-from src.billing.billing_models import CreditWallet, Subscription, PaymentTransaction
+from src.billing.billing_models import Subscription
 from src.billing.credit_service import CreditService
+from src.billing.payment_service import (
+    LIVE_SUBSCRIPTION_STATUSES, RAZORPAY_SUBSCRIPTION_STATUS, PaymentService, razorpay_time,
+)
+from src.billing.razorpay_gateway import get_razorpay_creds, razorpay_client
 
 logger = logging.getLogger(__name__)
-
-# Subscription tier bonus percentages
-# Now stored directly on the Subscription object
 
 
 class CronService:
@@ -61,108 +63,66 @@ class CronService:
         logger.info(f"Daily credit job complete. Processed: {processed}, Errors: {errors}")
         return {"processed": processed, "errors": errors, "timestamp": datetime.utcnow().isoformat()}
 
-    async def run_monthly_subscription_job(self) -> dict:
+    async def run_subscription_reconciliation(self) -> dict:
+        """Bring each subscription in line with Razorpay (BC-04).
+
+        Renewal is Razorpay's: it charges each cycle and sends
+        ``subscription.charged``, which grants the cycle's credits. This job
+        catches what the webhook missed — for every invoice Razorpay reports
+        ``paid`` whose payment is not recorded, the cycle is granted — and
+        copies Razorpay's status (``past_due`` when a charge failed,
+        ``cancelled`` when it ended). It grants nothing without a paid invoice;
+        before BC-04 the monthly job recorded a "success" payment and granted
+        a month of credits whether or not anyone had paid.
+
+        Subscriptions paid with a one-time order before BC-16 have no Razorpay
+        subscription and nothing can renew them: they end when the month they
+        paid for ends.
         """
-        Monthly cron — process subscriptions and flush/re-inject tier credits.
-        Called on the 1st of each month.
-        """
-        logger.info("Starting monthly subscription processing job")
-        credit_svc = CreditService(self.db)
-        processed = 0
-        errors = 0
+        logger.info("Starting subscription reconciliation")
+        client = razorpay_client(await get_razorpay_creds(self.db))
+        payments = PaymentService(self.db)
+        counts = {"checked": 0, "credited": 0, "status_changed": 0,
+                  "legacy_ended": 0, "skipped": 0, "errors": 0}
+        now = datetime.utcnow()
 
-        # Get all active subscriptions
-        stmt = select(Subscription).where(Subscription.status == "active")
-        result = await self.db.execute(stmt)
-        subscriptions = result.scalars().all()
-
-        razorpay_client = await self._get_razorpay_client()
-
-        for sub in subscriptions:
+        result = await self.db.execute(select(Subscription).where(
+            Subscription.status.in_(("pending_payment",) + LIVE_SUBSCRIPTION_STATUSES)))
+        for sub in result.scalars().all():
             try:
-                # 1. Charge via Razorpay if we have a subscription ID
-                charged_amount = sub.monthly_fee
-                payment_status = "success"
-
-                if razorpay_client and sub.razorpay_subscription_id:
-                    try:
-                        # Razorpay handles auto-debit for subscriptions automatically
-                        # We just record the expected charge
-                        logger.info(f"Razorpay subscription {sub.razorpay_subscription_id} auto-debits monthly")
-                    except Exception as rp_err:
-                        logger.error(f"Razorpay charge failed for sub {sub.id}: {rp_err}")
-                        sub.status = "past_due"
-                        payment_status = "failed"
-                        charged_amount = Decimal("0")
-
-                # 2. Record payment transaction
-                txn = PaymentTransaction(
-                    company_id=sub.company_id,
-                    amount=charged_amount,
-                    currency="USD",
-                    transaction_type="subscription_charge",
-                    status=payment_status,
-                    credits_awarded=charged_amount if payment_status == "success" else Decimal("0"),
-                    transaction_metadata={"subscription_id": str(sub.id), "tier": sub.plan_tier},
-                )
-                self.db.add(txn)
-
-                # 3. Flush old sub credits and inject new tier credits (on successful charge)
-                if payment_status == "success":
-                    bonus_pct = sub.bonus_pct
-                    await credit_svc.inject_subscription_credits(
-                        company_id=sub.company_id,
-                        base_amount=charged_amount,
-                        bonus_pct=bonus_pct,
-                    )
-                    # Update next billing date
-                    now = datetime.utcnow()
-                    if now.month == 12:
-                        sub.next_billing_date = datetime(now.year + 1, 1, 1)
-                    else:
-                        sub.next_billing_date = datetime(now.year, now.month + 1, 1)
-                    sub.updated_at = datetime.utcnow()
-
-                await self.db.commit()
-                processed += 1
+                if not sub.razorpay_subscription_id:
+                    paid_until = sub.next_billing_date or sub.created_at + timedelta(days=31)
+                    if sub.status in LIVE_SUBSCRIPTION_STATUSES and paid_until < now:
+                        await payments.set_subscription_status(sub, "cancelled")
+                        counts["legacy_ended"] += 1
+                    continue
+                if client is None:
+                    counts["skipped"] += 1
+                    continue
+                counts["checked"] += 1
+                invoices = client.invoice.all({"subscription_id": sub.razorpay_subscription_id})
+                paid = [i for i in (invoices or {}).get("items", [])
+                        if i.get("status") == "paid" and i.get("payment_id")]
+                for inv in sorted(paid, key=lambda i: i.get("billing_end") or 0):
+                    if await payments.record_subscription_charge(
+                        sub,
+                        payment_id=inv["payment_id"],
+                        amount=Decimal(str(inv.get("amount_paid") or inv.get("amount") or 0)) / 100,
+                        cycle_end=razorpay_time(inv.get("billing_end")),
+                    ):
+                        counts["credited"] += 1
+                rz_status = client.subscription.fetch(sub.razorpay_subscription_id).get("status")
+                status = RAZORPAY_SUBSCRIPTION_STATUS.get(rz_status or "")
+                if status and status != sub.status:
+                    await payments.set_subscription_status(sub, status)
+                    counts["status_changed"] += 1
             except Exception as e:
-                logger.error(f"Monthly subscription job failed for sub {sub.id}: {e}")
+                logger.error(f"Subscription reconciliation failed for {sub.id}: {e}")
                 await self.db.rollback()
-                errors += 1
+                counts["errors"] += 1
 
-        logger.info(f"Monthly subscription job complete. Processed: {processed}, Errors: {errors}")
-        return {"processed": processed, "errors": errors, "timestamp": datetime.utcnow().isoformat()}
+        logger.info(f"Subscription reconciliation complete: {counts}")
+        return {**counts, "timestamp": datetime.utcnow().isoformat()}
 
-    async def _get_razorpay_client(self):
-        """
-        Get Razorpay client using credentials from integration_registry.
-        Razorpay credentials are stored as service_sku='razorpay_keys' in integration_registry.
-        Returns None if Razorpay is not configured.
-        """
-        try:
-            from src.config.models import IntegrationRegistry
-            stmt = select(IntegrationRegistry).where(
-                IntegrationRegistry.service_sku == "razorpay_keys",
-                IntegrationRegistry.status == "active",
-            )
-            result = await self.db.execute(stmt)
-            registry = result.scalar_one_or_none()
-
-            if not registry or not registry.service_metadata:
-                logger.warning("Razorpay credentials not found in integration_registry")
-                return None
-
-            key_id = registry.service_metadata.get("key_id")
-            key_secret = registry.service_metadata.get("key_secret")
-
-            if not key_id or not key_secret:
-                return None
-
-            import razorpay
-            return razorpay.Client(auth=(key_id, key_secret))
-        except ImportError:
-            logger.warning("razorpay package not installed. Payment processing unavailable.")
-            return None
-        except Exception as e:
-            logger.error(f"Failed to initialize Razorpay client: {e}")
-            return None
+    # The /cron/monthly-billing endpoint's name for it.
+    run_monthly_subscription_job = run_subscription_reconciliation

@@ -2,8 +2,6 @@
 Credits Router — wallet balance, Razorpay top-up, and subscription management.
 Razorpay credentials are fetched from integration_registry (service_sku='razorpay_keys').
 """
-import hmac
-import hashlib
 import logging
 from decimal import Decimal
 from typing import Optional
@@ -18,8 +16,10 @@ from src.common.database import get_db
 from src.auth.router import get_current_user
 from src.auth.models import User
 from src.billing.credit_service import CreditService
-from src.billing.payment_service import PaymentNotFound, PaymentService, razorpay_signature_valid
-from src.billing.razorpay_gateway import get_razorpay_creds
+from src.billing.payment_service import (
+    LIVE_SUBSCRIPTION_STATUSES, PaymentNotFound, PaymentService, razorpay_signature_valid, razorpay_time,
+)
+from src.billing.razorpay_gateway import get_razorpay_creds, razorpay_client
 from src.billing.billing_models import Subscription, PaymentTransaction, SubscriptionTier
 
 logger = logging.getLogger(__name__)
@@ -230,6 +230,8 @@ async def update_subscription_tier(
     if payload.name is not None:
         tier.name = payload.name
     if payload.monthly_fee is not None:
+        if Decimal(str(tier.monthly_fee)) != payload.monthly_fee:
+            tier.razorpay_plan_id = None  # new subscribers get a plan at the new fee
         tier.monthly_fee = payload.monthly_fee
     if payload.bonus_pct is not None:
         tier.bonus_pct = payload.bonus_pct
@@ -261,43 +263,90 @@ async def delete_subscription_tier(
 
 
 # ─── Subscriptions ────────────────────────────────────────────────────────────
+#
+# A subscription is a Razorpay Subscription on a plan made from the tier: the
+# customer authorises a recurring mandate once, Razorpay charges every month,
+# and each charge grants that cycle's credits — through the checkout callback
+# for the first charge and the ``subscription.charged`` webhook (or the
+# reconciliation job) for every one. Nothing grants credits without a payment
+# (BC-03, BC-04, BC-16).
+
+# Razorpay needs a finite number of cycles; ten years of monthly charges.
+SUBSCRIPTION_TOTAL_COUNT = 120
+
+
+def _subscription_to_dict(sub: Subscription) -> dict:
+    return {
+        "id": str(sub.id),
+        "plan_tier": sub.plan_tier,
+        "monthly_fee": float(sub.monthly_fee),
+        "bonus_pct": float(sub.bonus_pct),
+        "status": sub.status,
+        "razorpay_subscription_id": sub.razorpay_subscription_id,
+        "next_billing_date": sub.next_billing_date.isoformat() if sub.next_billing_date else None,
+    }
+
+
+async def _live_subscription(db: AsyncSession, company_id) -> Optional[Subscription]:
+    result = await db.execute(
+        select(Subscription)
+        .where(Subscription.company_id == company_id,
+               Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES))
+        .order_by(Subscription.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+def _razorpay_client_or_503(creds: Optional[dict]):
+    client = razorpay_client(creds)
+    if client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Payment gateway not configured. Add Razorpay keys to Integration Registry with SKU 'razorpay_keys'.",
+        )
+    return client
+
+
+async def _plan_for_tier(db: AsyncSession, client, tier: SubscriptionTier) -> str:
+    """The tier's Razorpay plan, created on first use. Razorpay plans are
+    immutable, so changing a tier's fee clears it and the next subscriber
+    gets a new plan; existing subscribers keep theirs."""
+    if tier.razorpay_plan_id:
+        return tier.razorpay_plan_id
+    plan = client.plan.create(data={
+        "period": "monthly",
+        "interval": 1,
+        "item": {
+            "name": f"HireBuddha {tier.name}",
+            "amount": int(Decimal(str(tier.monthly_fee)) * 100),  # USD cents
+            "currency": "USD",
+            "description": f"Tier {tier.tier_level}, {tier.bonus_pct}% bonus credits",
+        },
+        "notes": {"tier_level": str(tier.tier_level)},
+    })
+    tier.razorpay_plan_id = plan["id"]
+    await db.commit()
+    return tier.razorpay_plan_id
+
 
 @router.get("/subscriptions", summary="Get current subscription info")
 async def get_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Subscription).where(
-            Subscription.company_id == current_user.company_id,
-            Subscription.status == "active",
-        )
-    )
-    sub = result.scalar_one_or_none()
+    sub = await _live_subscription(db, current_user.company_id)
     if not sub:
         return {"subscription": None, "account_model": "pay_as_you_go"}
-
-    return {
-        "subscription": {
-            "id": str(sub.id),
-            "plan_tier": sub.plan_tier,
-            "monthly_fee": float(sub.monthly_fee),
-            "bonus_pct": float(sub.bonus_pct),
-            "status": sub.status,
-            "razorpay_subscription_id": sub.razorpay_subscription_id,
-            "next_billing_date": sub.next_billing_date.isoformat() if sub.next_billing_date else None,
-        },
-        "account_model": "subscription",
-    }
+    return {"subscription": _subscription_to_dict(sub), "account_model": "subscription"}
 
 
-@router.post("/subscriptions", summary="Create subscription via Razorpay")
+@router.post("/subscriptions", summary="Create a Razorpay subscription for a tier")
 async def create_subscription(
     payload: SubscriptionCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Lookup the tier
     result = await db.execute(
         select(SubscriptionTier).where(
             SubscriptionTier.tier_level == payload.tier_level,
@@ -308,83 +357,58 @@ async def create_subscription(
     if not tier:
         raise HTTPException(status_code=404, detail=f"Active subscription tier level {payload.tier_level} not found")
 
+    live = await _live_subscription(db, current_user.company_id)
+    if live:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This company already has a {live.status} subscription (Tier {live.plan_tier}). Cancel it first.",
+        )
+
     creds = await _get_razorpay_creds(db)
-    if not creds:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Payment gateway not configured. Add Razorpay keys to Integration Registry with SKU 'razorpay_keys'.",
-        )
-
+    client = _razorpay_client_or_503(creds)
     try:
-        import razorpay
-        client = razorpay.Client(auth=(creds["key_id"], creds["key_secret"]))
-
-        # Create a Razorpay order for the first month's subscription fee
-        # Razorpay receipt must be ≤ 40 chars; use first 8 chars of company_id
-        short_cid = str(current_user.company_id).replace("-", "")[:8]
-        order_data = {
-            "amount": int(tier.monthly_fee * 100),  # USD cents
-            "currency": "USD",
-            "receipt": f"sub_{short_cid}_t{tier.tier_level}",
-            "notes": {
-                "company_id": str(current_user.company_id),
-                "type": "subscription",
-                "plan_tier": str(tier.tier_level),
-            },
-        }
-        order = client.order.create(data=order_data)
-        logger.info(f"Razorpay order created for subscription tier {tier.tier_level}: {order['id']}")
-
-        # Record pending subscription in DB — NOT active until payment verified
-        sub = Subscription(
-            company_id=current_user.company_id,
-            plan_tier=tier.tier_level,
-            monthly_fee=tier.monthly_fee,
-            bonus_pct=tier.bonus_pct,
-            status="pending_payment",
-            razorpay_subscription_id=None,
-        )
-        db.add(sub)
-
-        # Record the payment transaction
-        txn = PaymentTransaction(
-            company_id=current_user.company_id,
-            razorpay_order_id=order["id"],
-            amount=tier.monthly_fee,
-            currency="USD",
-            transaction_type="subscription_charge",
-            status="pending",
-        )
-        db.add(txn)
-        await db.commit()
-
-        return {
-            "order_id": order["id"],
-            "amount": float(tier.monthly_fee),
-            "currency": "USD",
-            "key_id": creds["key_id"],
-            "plan_tier": tier.tier_level,
-            "bonus_credits_pct": float(tier.bonus_pct),
-            "subscription_id": str(sub.id),
-        }
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="razorpay package not installed. Run: pip install razorpay",
-        )
+        plan_id = await _plan_for_tier(db, client, tier)
+        rz_sub = client.subscription.create(data={
+            "plan_id": plan_id,
+            "total_count": SUBSCRIPTION_TOTAL_COUNT,
+            "customer_notify": 1,
+            "notes": {"company_id": str(current_user.company_id), "tier_level": str(tier.tier_level)},
+        })
     except Exception as e:
-        logger.error(f"Razorpay subscription order creation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Subscription initiation failed: {str(e)}")
+        logger.error(f"Razorpay subscription creation failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Subscription initiation failed: {e}")
+
+    # Pending until the first charge is verified (callback or webhook).
+    sub = Subscription(
+        company_id=current_user.company_id,
+        plan_tier=tier.tier_level,
+        monthly_fee=tier.monthly_fee,
+        bonus_pct=tier.bonus_pct,
+        status="pending_payment",
+        razorpay_subscription_id=rz_sub["id"],
+        razorpay_plan_id=plan_id,
+    )
+    db.add(sub)
+    await db.commit()
+
+    return {
+        "razorpay_subscription_id": rz_sub["id"],
+        "amount": float(tier.monthly_fee),
+        "currency": "USD",
+        "key_id": creds["key_id"],
+        "plan_tier": tier.tier_level,
+        "bonus_credits_pct": float(tier.bonus_pct),
+        "subscription_id": str(sub.id),
+    }
 
 
 class SubscriptionVerify(BaseModel):
-    razorpay_order_id: str
     razorpay_payment_id: str
+    razorpay_subscription_id: str
     razorpay_signature: str
-    subscription_id: str
 
 
-@router.post("/subscriptions/verify", summary="Verify subscription payment and activate")
+@router.post("/subscriptions/verify", summary="Verify the first subscription payment and grant its credits")
 async def verify_subscription(
     payload: SubscriptionVerify,
     current_user: User = Depends(get_current_user),
@@ -394,55 +418,38 @@ async def verify_subscription(
     if not creds:
         raise HTTPException(status_code=503, detail="Payment gateway not configured")
 
-    # Verify Razorpay signature
-    body = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-    expected_sig = hmac.new(
-        creds["key_secret"].encode("utf-8"),
-        body.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-    if not hmac.compare_digest(expected_sig, payload.razorpay_signature):
+    # Razorpay signs payment_id|subscription_id for a subscription checkout.
+    body = f"{payload.razorpay_payment_id}|{payload.razorpay_subscription_id}"
+    if not razorpay_signature_valid(creds["key_secret"], body, payload.razorpay_signature):
         raise HTTPException(status_code=400, detail="Invalid payment signature")
 
-    # Update payment transaction
-    result = await db.execute(
-        select(PaymentTransaction).where(
-            PaymentTransaction.razorpay_order_id == payload.razorpay_order_id,
-            PaymentTransaction.company_id == current_user.company_id,
-        )
-    )
-    txn = result.scalar_one_or_none()
-    if txn:
-        txn.razorpay_payment_id = payload.razorpay_payment_id
-        txn.razorpay_signature = payload.razorpay_signature
-        txn.status = "success"
-
-    # Activate the subscription
-    result = await db.execute(
-        select(Subscription).where(
-            Subscription.id == UUID(payload.subscription_id),
-            Subscription.company_id == current_user.company_id,
-        )
-    )
-    sub = result.scalar_one_or_none()
+    payments = PaymentService(db)
+    sub = await payments.subscription_by_razorpay_id(
+        payload.razorpay_subscription_id, current_user.company_id)
     if not sub:
         raise HTTPException(status_code=404, detail="Subscription not found")
 
-    sub.status = "active"
+    # The cycle this payment paid for ends at Razorpay's current_end.
+    cycle_end = None
+    client = razorpay_client(creds)
+    if client is not None:
+        try:
+            cycle_end = razorpay_time(client.subscription.fetch(sub.razorpay_subscription_id).get("current_end"))
+        except Exception as e:
+            logger.warning(f"Could not fetch Razorpay subscription {sub.razorpay_subscription_id}: {e}")
 
-    # Update wallet account model to subscription
-    credit_svc = CreditService(db)
-    wallet = await credit_svc.get_or_create_wallet(current_user.company_id)
-    wallet.account_model = "subscription"
-
-    await db.commit()
-
+    credited = await payments.record_subscription_charge(
+        sub, payment_id=payload.razorpay_payment_id,
+        amount=Decimal(str(sub.monthly_fee)), cycle_end=cycle_end,
+    )
+    await db.refresh(sub)
     return {
-        "message": f"Subscription activated for Tier {sub.plan_tier}",
+        "message": f"Subscription activated for Tier {sub.plan_tier}" if credited
+        else "Subscription payment already recorded",
         "plan_tier": sub.plan_tier,
         "monthly_fee": float(sub.monthly_fee),
         "bonus_credits_pct": float(sub.bonus_pct),
+        "credits_granted": credited,
     }
 
 
@@ -452,7 +459,6 @@ async def cancel_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from datetime import datetime
     result = await db.execute(
         select(Subscription).where(
             Subscription.id == subscription_id,
@@ -463,14 +469,20 @@ async def cancel_subscription(
     if not sub:
         raise HTTPException(status_code=404, detail="Subscription not found")
 
-    sub.status = "cancelled"
-    sub.cancelled_at = datetime.utcnow()
-    sub.updated_at = datetime.utcnow()
+    # Stop the mandate first: marking the row cancelled while Razorpay kept
+    # charging would take money for a subscription we show as cancelled.
+    if sub.razorpay_subscription_id:
+        client = _razorpay_client_or_503(await _get_razorpay_creds(db))
+        try:
+            client.subscription.cancel(sub.razorpay_subscription_id, {"cancel_at_cycle_end": 0})
+        except Exception as e:
+            try:
+                rz_status = client.subscription.fetch(sub.razorpay_subscription_id).get("status")
+            except Exception:
+                rz_status = None
+            if rz_status not in ("cancelled", "completed", "expired"):
+                logger.error(f"Razorpay cancel failed for {sub.razorpay_subscription_id}: {e}")
+                raise HTTPException(status_code=502, detail=f"Could not cancel with Razorpay: {e}")
 
-    # Revert wallet to PAYG
-    credit_svc = CreditService(db)
-    wallet = await credit_svc.get_or_create_wallet(current_user.company_id)
-    wallet.account_model = "pay_as_you_go"
-
-    await db.commit()
-    return {"message": "Subscription cancelled successfully"}
+    await PaymentService(db).set_subscription_status(sub, "cancelled")
+    return {"message": "Subscription cancelled. Credits already paid for last until they expire."}
