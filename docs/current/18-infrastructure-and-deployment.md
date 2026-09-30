@@ -330,6 +330,15 @@ Build:
 cd backend && docker build -t hirebuddha-backend .
 ```
 
+[`backend/.dockerignore`](../../backend/.dockerignore) keeps the build context to
+the application (IN-22, 2026-09-30). The runtime stage ends with `COPY . .`, so without
+it the image took `backend/.env` with its secrets, and any host `.venv` — which
+landed on `/app/.venv` over the Linux virtualenv the builder stage made (a Windows
+one breaks the image). It also leaves out `uploads/`, `artifact/` (the API creates
+both at startup), caches, logs and PID files: the context went from the whole
+working copy to 9.4 MB. Configuration reaches a container through its environment,
+as `docker-compose.yml` does for `app`.
+
 ---
 
 ## 5. Environment configuration

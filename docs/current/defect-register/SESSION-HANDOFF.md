@@ -208,7 +208,7 @@ Found in the third session:
 |---|---|
 | The CORTEX RECURSE child enqueue had never worked (`ArqRedis(self.redis.client)` raised every call); its child runs stayed `PENDING` | Fixed with SA-07; MC-09's note in [08](08-MEMORY-AND-CORTEX-DEFECTS.md) corrected. **Behaviour change:** those child runs now run |
 | Runbook said `redis-cli LLEN arq:queue`; the queue is a sorted set | Corrected in `18-infrastructure-and-deployment.md` §16.4 (with SA-I4) |
-| The backend image has no `.dockerignore`: `COPY . .` would copy `.env` and a host `.venv` into it | Recorded as **IN-22** in [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) (open) |
+| The backend image had no `.dockerignore`: `COPY . .` copied `.env` and a host `.venv` into it | **IN-22** in [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) — fixed: `backend/.dockerignore` |
 | The Dockerfile's Poetry 1.7.1 warns that the Poetry 2.x lock "might not be compatible" (it installed correctly) | Noted in the SA-21 commit |
 | `cortex_resume_scheduled` wraps `ctx['redis']` in `ArqRedis` again (MC-24, deferred) | Unchanged |
 

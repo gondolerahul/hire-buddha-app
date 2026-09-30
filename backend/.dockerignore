@@ -1,0 +1,30 @@
+# Build context for backend/Dockerfile (IN-22). The runtime stage ends with
+# `COPY . .`, so anything not listed here goes into the image.
+
+# Secrets. Configuration reaches a container through its environment.
+.env
+.env.*
+!.env.example
+
+# Host virtualenvs. The builder stage makes /app/.venv; a host one copied over
+# it (a Windows one especially) breaks the image.
+.venv
+venv
+env
+
+# Caches and build output
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+node_modules
+
+# Runtime data and local state. main.py creates artifact/ and uploads/ at startup.
+artifact
+uploads
+logs
+*.log
+*.pid
