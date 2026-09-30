@@ -793,48 +793,42 @@ Path A is in the tool itself — [image_generation.py:372](../../backend/src/ai/
 ```mermaid
 flowchart TD
     A["consume - amount"] --> B["1. daily_credits"]
-    B -->|"remaining greater than 0"| C{"account_model"}
-    C -->|pay_as_you_go| D["2a. wallet_balance"]
-    C -->|subscription| E["2b. subscription_credits"]
-    E -->|"remaining greater than 0"| F["2c. subscription_bonus_credits"]
+    B -->|"remaining greater than 0"| E["2. subscription_credits"]
+    E -->|"remaining greater than 0"| F["3. subscription_bonus_credits"]
+    F -->|"remaining greater than 0"| D["4. wallet_balance"]
     D --> G["done"]
-    F --> G
     B -->|"remaining equals 0"| G
 ```
 
 | Priority | Bucket | Source | Expiry | Carry forward |
 |---|---|---|---|---|
 | 1 | `daily_credits` | `billing_config.default_daily_credits` (default `5.0`) | midnight UTC next day | never |
-| 2a | `wallet_balance` | Razorpay top-up | 365 days from the last top-up | yes, within validity |
-| 2b | `subscription_credits` | monthly cron = the tier's `monthly_fee` | last second of the month | never |
-| 2c | `subscription_bonus_credits` | `monthly_fee × bonus_pct / 100` | last second of the month | never |
+| 2 | `subscription_credits` | the tier's `monthly_fee`, per paid cycle (§9.3) | end of the paid billing cycle | never |
+| 3 | `subscription_bonus_credits` | `monthly_fee × bonus_pct / 100` | same as 2 | never |
+| 4 | `wallet_balance` | Razorpay top-up | 365 days from the last top-up | yes, within validity |
 
-Crucially, **`account_model` decides which of 2a/2b is even considered** — the branch is `if` / `elif`, so a subscription account cannot spend its `wallet_balance` at all, and a PAYG account cannot spend leftover subscription credits — [credit_service.py:161](../../backend/src/billing/credit_service.py:161).
+Buckets are spent **soonest-expiring first**, and every bucket that holds credit is
+spendable — `SPEND_ORDER` and `deduct` in [credit_service.py](../../backend/src/billing/credit_service.py).
+`account_model` only labels the account for the UI. Until BC-02 it chose between the wallet
+balance and the subscription buckets with an `if` / `elif`, so a subscriber could not spend
+the top-ups they had paid for, and a company that cancelled could not spend its remaining
+subscription credits — while both still counted in `total_available`.
+
+Every change to a wallet's buckets happens under a row lock (`CreditService.lock_wallet`,
+`SELECT … FOR UPDATE`, re-read under the lock). Before BC-27 the wallet was read, changed
+in Python and written back unlocked, so concurrent deductions overwrote each other: three
+sessions making five $1 deductions each took $8 from a $100 wallet instead of $15.
 
 ### 7.2 Balance computation and self-healing
 
-`get_balance` is not a plain read — it repairs the wallet as a side effect — [credit_service.py:78](../../backend/src/billing/credit_service.py:78):
-
-```python
-# backend/src/billing/credit_service.py
-wallet = await self.get_or_create_wallet(company_id)
-now = datetime.utcnow()
-
-# Auto-renew expired daily credits in place (no cron needed).
-if wallet.daily_expires_at is None or wallet.daily_expires_at < now:
-    wallet = await self.flush_and_inject_daily_credits(company_id)
-
-daily = Decimal(str(wallet.daily_credits))
-
-wallet_bal = Decimal(str(wallet.wallet_balance))
-if wallet.wallet_expires_at and wallet.wallet_expires_at < now:
-    wallet_bal = Decimal("0")
-```
+`get_balance` is not a plain read — under the wallet lock it renews expired daily credits
+and empties the other expired buckets (`CreditService._expire`), then commits. `consume`,
+`consume_incremental` and the gates all start from the same step.
 
 Two consequences worth knowing:
 
 - The **daily cron is an optimisation, not a requirement.** Any balance read refreshes stale daily credits. If the cron never runs, credits still appear the first time someone looks.
-- Expired `wallet_balance` and subscription credits are **zeroed in the returned dict but not in the row** by `get_balance`. `consume` and `consume_incremental` do zero the row.
+- A new wallet is created with `INSERT … ON CONFLICT DO NOTHING`, so two first requests for a company cannot both insert one.
 
 ### 7.3 `consume` vs `consume_incremental`
 
@@ -843,7 +837,9 @@ Two consequences worth knowing:
 | Behaviour when short | raises `InsufficientCreditsError`, **deducts nothing** | deducts everything available, wallet lands at `$0` |
 | Return value | `{daily, wallet, subscription}` | same, plus `shortfall` and `exhausted` |
 | Used by | voice settlement, image generation | run settlement (`settle_billing`), per-step deduction |
-| Defined at | [credit_service.py:119](../../backend/src/billing/credit_service.py:119) | [credit_service.py:304](../../backend/src/billing/credit_service.py:304) |
+
+Both call the same `deduct` over `SPEND_ORDER`; they differ only in what happens when the
+buckets hold less than the amount.
 
 The rationale in the docstring: *"this does NOT raise when the amount exceeds the balance — it deducts as much as possible, so the wallet goes to $0 rather than allowing the balance to stay untouched while costs pile up."*
 

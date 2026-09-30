@@ -1,23 +1,35 @@
 """
 Credit Service — manages credit wallet consumption with priority ordering.
 
-Priority order:
-  1. Daily credits (always first, universal)
-  2a. Pay-As-You-Go: Wallet balance
-  2b. Subscription: Subscription credits + bonus credits
+A wallet has four buckets. Consumption draws on every bucket that holds
+credit, soonest-expiring first:
+
+  1. Daily credits          — expire at the next 00:00 UTC
+  2. Subscription credits   — expire at the end of the paid billing cycle
+  3. Subscription bonus     — same expiry as 2
+  4. Wallet balance         — top-ups, valid for 365 days
+
+``account_model`` (pay_as_you_go | subscription) labels the account for the
+UI; it does not decide which buckets can be spent. Before BC-02 it did, so a
+company that subscribed could no longer spend the top-ups it had paid for.
+
+Every change to a wallet's buckets is made under a row lock
+(:meth:`CreditService.lock_wallet`), so concurrent runs, top-ups and settlements
+cannot overwrite one another's changes.
 
 Raises InsufficientCreditsError if all buckets are zero.
 """
 from decimal import Decimal
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from src.billing.billing_models import CreditWallet, Subscription
+from src.billing.billing_models import CreditWallet
 from src.billing.billing_service import BillingService
 
 
@@ -31,79 +43,137 @@ MINIMUM_EXECUTION_THRESHOLDS = {
 }
 DEFAULT_MINIMUM_THRESHOLD = Decimal("0.05")
 
+# (deduction key, wallet column), in the order buckets are spent.
+SPEND_ORDER = (
+    ("daily", "daily_credits"),
+    ("subscription", "subscription_credits"),
+    ("subscription", "subscription_bonus_credits"),
+    ("wallet", "wallet_balance"),
+)
+
 
 class InsufficientCreditsError(Exception):
     """Raised when all credit buckets are exhausted and task execution should be blocked."""
     pass
 
 
+def _next_midnight(now: datetime) -> datetime:
+    return now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+
+
+def _dec(value) -> Decimal:
+    return Decimal(str(value or 0))
+
+
+def available_credit(wallet: CreditWallet) -> Decimal:
+    """Sum of the four buckets as stored (call after :meth:`CreditService._expire`)."""
+    return sum((_dec(getattr(wallet, column)) for _, column in SPEND_ORDER), Decimal("0"))
+
+
+def deduct(wallet: CreditWallet, amount: Decimal) -> tuple[dict, Decimal]:
+    """Take up to ``amount`` from the buckets in :data:`SPEND_ORDER`.
+
+    Mutates ``wallet`` in place; returns ``(deductions, shortfall)``.
+    """
+    deductions = {"daily": Decimal("0"), "wallet": Decimal("0"), "subscription": Decimal("0")}
+    remaining = amount
+    for key, column in SPEND_ORDER:
+        if remaining <= 0:
+            break
+        held = _dec(getattr(wallet, column))
+        if held <= 0:
+            continue
+        take = min(remaining, held)
+        setattr(wallet, column, held - take)
+        deductions[key] += take
+        remaining -= take
+    wallet.updated_at = datetime.utcnow()
+    return deductions, remaining
+
+
 class CreditService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def _daily_amount(self, company_id: UUID) -> Decimal:
+        config = await BillingService(self.db).get_billing_config(company_id)
+        if config and config.default_daily_credits:
+            return _dec(config.default_daily_credits)
+        return Decimal("0")
+
     async def get_or_create_wallet(self, company_id: UUID) -> CreditWallet:
-        """Return credit wallet for company, creating with config-defined daily credit if not found.
-        
-        Also handles the case where a wallet exists but was never properly
-        initialized (daily_expires_at is None) — triggers a fresh daily
-        credit injection so the wallet doesn't stay stuck at $0.
+        """Return the company's credit wallet, creating it with a day's credits.
+
+        Creation is an ``INSERT … ON CONFLICT DO NOTHING``, so two requests for a
+        new company cannot both insert. A wallet whose daily credits were never
+        initialised (``daily_expires_at`` is None) gets its first injection.
         """
         stmt = select(CreditWallet).where(CreditWallet.company_id == company_id)
-        result = await self.db.execute(stmt)
-        wallet = result.scalar_one_or_none()
+        wallet = (await self.db.execute(stmt)).scalar_one_or_none()
 
         if not wallet:
-            tomorrow = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-            tomorrow = tomorrow + timedelta(days=1)
-            
-            billing_svc = BillingService(self.db)
-            config = await billing_svc.get_billing_config(company_id)
-            daily_amount = Decimal(str(config.default_daily_credits)) if config and config.default_daily_credits else Decimal("0")
-            
-            wallet = CreditWallet(
-                company_id=company_id,
-                daily_credits=daily_amount,
-                daily_expires_at=tomorrow,
+            now = datetime.utcnow()
+            await self.db.execute(
+                pg_insert(CreditWallet.__table__)
+                .values(
+                    company_id=company_id,
+                    daily_credits=await self._daily_amount(company_id),
+                    daily_expires_at=_next_midnight(now),
+                )
+                .on_conflict_do_nothing(index_elements=["company_id"])
             )
-            self.db.add(wallet)
             await self.db.commit()
-            await self.db.refresh(wallet)
+            wallet = (await self.db.execute(stmt)).scalar_one()
         elif wallet.daily_expires_at is None:
-            # Wallet exists but daily credits were never initialized.
-            # Trigger a fresh injection so it doesn't stay at $0 forever.
             wallet = await self.flush_and_inject_daily_credits(company_id)
 
         return wallet
 
+    async def lock_wallet(self, company_id: UUID) -> CreditWallet:
+        """The company's wallet, row-locked until the transaction ends.
+
+        Re-read under the lock, so a balance changed by a concurrent
+        transaction is not overwritten. The wallet must exist.
+        """
+        stmt = (
+            select(CreditWallet)
+            .where(CreditWallet.company_id == company_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return (await self.db.execute(stmt)).scalar_one()
+
+    async def _expire(self, wallet: CreditWallet, now: datetime) -> None:
+        """Renew expired daily credits and empty the other expired buckets."""
+        if wallet.daily_expires_at is None or wallet.daily_expires_at < now:
+            wallet.daily_credits = await self._daily_amount(wallet.company_id)
+            wallet.daily_expires_at = _next_midnight(now)
+        if wallet.wallet_expires_at and wallet.wallet_expires_at < now:
+            wallet.wallet_balance = Decimal("0")
+        if wallet.sub_credits_expire_at and wallet.sub_credits_expire_at < now:
+            wallet.subscription_credits = Decimal("0")
+            wallet.subscription_bonus_credits = Decimal("0")
+
+    async def _locked_current_wallet(self, company_id: UUID) -> CreditWallet:
+        """The wallet, row-locked, with expired buckets settled."""
+        await self.get_or_create_wallet(company_id)
+        wallet = await self.lock_wallet(company_id)
+        await self._expire(wallet, datetime.utcnow())
+        return wallet
+
     async def get_balance(self, company_id: UUID) -> dict:
         """Return current credit balance across all buckets.
-        
-        Auto-renews daily credits if they have expired (so the daily allowance
-        is not stuck at 0 between cron runs).
+
+        Expired daily credits are renewed in place (no cron needed); other
+        expired buckets read as zero.
         """
-        wallet = await self.get_or_create_wallet(company_id)
-        now = datetime.utcnow()
+        wallet = await self._locked_current_wallet(company_id)
+        await self.db.commit()
 
-        # Auto-renew expired daily credits in place (no cron needed).
-        # Also handles wallets where daily_expires_at was never set (None)
-        # — these need their first injection.
-        if wallet.daily_expires_at is None or wallet.daily_expires_at < now:
-            wallet = await self.flush_and_inject_daily_credits(company_id)
-
-        daily = Decimal(str(wallet.daily_credits))
-
-        # Check wallet balance expiry
-        wallet_bal = Decimal(str(wallet.wallet_balance))
-        if wallet.wallet_expires_at and wallet.wallet_expires_at < now:
-            wallet_bal = Decimal("0")
-
-        # Check subscription credits expiry
-        sub_credits = Decimal(str(wallet.subscription_credits))
-        sub_bonus = Decimal(str(wallet.subscription_bonus_credits))
-        if wallet.sub_credits_expire_at and wallet.sub_credits_expire_at < now:
-            sub_credits = Decimal("0")
-            sub_bonus = Decimal("0")
-
+        daily = _dec(wallet.daily_credits)
+        wallet_bal = _dec(wallet.wallet_balance)
+        sub_credits = _dec(wallet.subscription_credits)
+        sub_bonus = _dec(wallet.subscription_bonus_credits)
         return {
             "account_model": wallet.account_model,
             "daily_credits": float(daily),
@@ -121,84 +191,19 @@ class CreditService:
         Deduct `amount` from credit buckets in priority order.
         Returns dict showing how much was deducted from each bucket.
 
-        Raises InsufficientCreditsError if total available < amount.
+        Raises InsufficientCreditsError if total available < amount; nothing
+        is deducted then.
         """
-        wallet = await self.get_or_create_wallet(company_id)
-        now = datetime.utcnow()
-        remaining = amount
-        deductions = {"daily": Decimal("0"), "wallet": Decimal("0"), "subscription": Decimal("0")}
-
-        # Auto-renew expired daily credits (same as get_balance)
-        if wallet.daily_expires_at is None or wallet.daily_expires_at < now:
-            wallet = await self.flush_and_inject_daily_credits(company_id)
-        if wallet.wallet_expires_at and wallet.wallet_expires_at < now:
-            wallet.wallet_balance = Decimal("0")
-        if wallet.sub_credits_expire_at and wallet.sub_credits_expire_at < now:
-            wallet.subscription_credits = Decimal("0")
-            wallet.subscription_bonus_credits = Decimal("0")
-
-        total_available = (
-            Decimal(str(wallet.daily_credits))
-            + Decimal(str(wallet.wallet_balance))
-            + Decimal(str(wallet.subscription_credits))
-            + Decimal(str(wallet.subscription_bonus_credits))
-        )
-
+        wallet = await self._locked_current_wallet(company_id)
+        total_available = available_credit(wallet)
         if total_available < amount:
+            await self.db.commit()  # keep the renewal, release the lock
             raise InsufficientCreditsError(
                 f"Insufficient credits. Required: ${amount}, Available: ${total_available}"
             )
-
-        # 1. Consume daily credits first
-        daily = Decimal(str(wallet.daily_credits))
-        if remaining > 0 and daily > 0:
-            take = min(remaining, daily)
-            wallet.daily_credits = daily - take
-            deductions["daily"] = take
-            remaining -= take
-
-        # 2a. PAYG — consume wallet balance
-        if remaining > 0 and wallet.account_model == "pay_as_you_go":
-            bal = Decimal(str(wallet.wallet_balance))
-            if bal > 0:
-                take = min(remaining, bal)
-                wallet.wallet_balance = bal - take
-                deductions["wallet"] = take
-                remaining -= take
-
-        # 2b. Subscription — consume subscription credits then bonus
-        elif remaining > 0 and wallet.account_model == "subscription":
-            sub = Decimal(str(wallet.subscription_credits))
-            if sub > 0:
-                take = min(remaining, sub)
-                wallet.subscription_credits = sub - take
-                deductions["subscription"] += take
-                remaining -= take
-
-            bonus = Decimal(str(wallet.subscription_bonus_credits))
-            if remaining > 0 and bonus > 0:
-                take = min(remaining, bonus)
-                wallet.subscription_bonus_credits = bonus - take
-                deductions["subscription"] += take
-                remaining -= take
-
-        wallet.updated_at = datetime.utcnow()
+        deductions, _ = deduct(wallet, amount)
         await self.db.commit()
         return deductions
-
-    async def lock_wallet(self, company_id: UUID) -> CreditWallet:
-        """The company's wallet, row-locked until the transaction ends.
-
-        Re-read under the lock, so a balance changed by a concurrent
-        transaction is not overwritten. The wallet must exist.
-        """
-        stmt = (
-            select(CreditWallet)
-            .where(CreditWallet.company_id == company_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        return (await self.db.execute(stmt)).scalar_one()
 
     @staticmethod
     def add_to_wallet_balance(
@@ -209,7 +214,7 @@ class CreditService:
         An expired balance is gone; the top-up does not revive it.
         """
         now = datetime.utcnow()
-        current = Decimal(str(wallet.wallet_balance))
+        current = _dec(wallet.wallet_balance)
         if wallet.wallet_expires_at and wallet.wallet_expires_at < now:
             current = Decimal("0")
         wallet.wallet_balance = current + amount
@@ -235,25 +240,24 @@ class CreditService:
         company_id: UUID,
         base_amount: Decimal,
         bonus_pct: Decimal,
+        expires_at: Optional[datetime] = None,
     ) -> CreditWallet:
+        """Replace subscription credits for a paid billing cycle (no carry-forward).
+
+        ``expires_at`` is the end of the cycle that was paid for; without one
+        the credits last a month from now.
         """
-        Replace subscription credits (no carry-forward).
-        Called on the 1st of each month by the cron job.
-        """
-        wallet = await self.get_or_create_wallet(company_id)
+        await self.get_or_create_wallet(company_id)
+        wallet = await self.lock_wallet(company_id)
         bonus = base_amount * (bonus_pct / Decimal("100"))
 
         # Flush old credits — strict no carry-forward
         wallet.subscription_credits = base_amount
         wallet.subscription_bonus_credits = bonus
         wallet.account_model = "subscription"
-
-        # Expire at end of this month
         now = datetime.utcnow()
-        import calendar
-        last_day = calendar.monthrange(now.year, now.month)[1]
-        wallet.sub_credits_expire_at = datetime(now.year, now.month, last_day, 23, 59, 59)
-        wallet.updated_at = datetime.utcnow()
+        wallet.sub_credits_expire_at = expires_at or now + timedelta(days=31)
+        wallet.updated_at = now
 
         await self.db.commit()
         await self.db.refresh(wallet)
@@ -261,32 +265,21 @@ class CreditService:
 
     async def flush_and_inject_daily_credits(self, company_id: UUID) -> CreditWallet:
         """
-        Flush expired daily credits and inject fresh amount from config.
-        Called daily at 00:00:00 by cron job, and also triggered when
-        daily_expires_at is None (uninitialised wallet).
+        Flush the day's credits and inject a fresh amount from config,
+        whether or not they have expired.
 
-        NOTE: Queries wallet directly via SELECT (not get_or_create_wallet)
-        to avoid infinite recursion when daily_expires_at is None.
+        Queries the wallet directly (not get_or_create_wallet) to avoid
+        recursion when daily_expires_at is None.
         """
-        # Direct query — do NOT call get_or_create_wallet here (recursion risk)
         stmt = select(CreditWallet).where(CreditWallet.company_id == company_id)
-        result = await self.db.execute(stmt)
-        wallet = result.scalar_one_or_none()
-
-        if not wallet:
-            # Should not happen if called from get_or_create_wallet,
-            # but handle defensively
+        if (await self.db.execute(stmt)).scalar_one_or_none() is None:
             return await self.get_or_create_wallet(company_id)
-        
-        billing_svc = BillingService(self.db)
-        config = await billing_svc.get_billing_config(company_id)
-        daily_amount = Decimal(str(config.default_daily_credits)) if config and config.default_daily_credits else Decimal("0")
-        
-        wallet.daily_credits = daily_amount
-        tomorrow = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow = tomorrow + timedelta(days=1)
-        wallet.daily_expires_at = tomorrow
-        wallet.updated_at = datetime.utcnow()
+
+        wallet = await self.lock_wallet(company_id)
+        now = datetime.utcnow()
+        wallet.daily_credits = await self._daily_amount(company_id)
+        wallet.daily_expires_at = _next_midnight(now)
+        wallet.updated_at = now
         await self.db.commit()
         await self.db.refresh(wallet)
         return wallet
@@ -343,65 +336,13 @@ class CreditService:
 
         Returns dict with deduction breakdown and a boolean `exhausted` flag.
         """
-        wallet = await self.get_or_create_wallet(company_id)
-        now = datetime.utcnow()
-        remaining = amount
-        deductions = {
-            "daily": Decimal("0"),
-            "wallet": Decimal("0"),
-            "subscription": Decimal("0"),
-        }
-
-        # Auto-renew expired daily credits (same as get_balance)
-        if wallet.daily_expires_at is None or wallet.daily_expires_at < now:
-            wallet = await self.flush_and_inject_daily_credits(company_id)
-        if wallet.wallet_expires_at and wallet.wallet_expires_at < now:
-            wallet.wallet_balance = Decimal("0")
-        if wallet.sub_credits_expire_at and wallet.sub_credits_expire_at < now:
-            wallet.subscription_credits = Decimal("0")
-            wallet.subscription_bonus_credits = Decimal("0")
-
-        # 1. Consume daily credits first
-        daily = Decimal(str(wallet.daily_credits))
-        if remaining > 0 and daily > 0:
-            take = min(remaining, daily)
-            wallet.daily_credits = daily - take
-            deductions["daily"] = take
-            remaining -= take
-
-        # 2a. PAYG — consume wallet balance
-        if remaining > 0 and wallet.account_model == "pay_as_you_go":
-            bal = Decimal(str(wallet.wallet_balance))
-            if bal > 0:
-                take = min(remaining, bal)
-                wallet.wallet_balance = bal - take
-                deductions["wallet"] = take
-                remaining -= take
-
-        # 2b. Subscription — consume subscription credits then bonus
-        elif remaining > 0 and wallet.account_model == "subscription":
-            sub = Decimal(str(wallet.subscription_credits))
-            if sub > 0:
-                take = min(remaining, sub)
-                wallet.subscription_credits = sub - take
-                deductions["subscription"] += take
-                remaining -= take
-
-            bonus = Decimal(str(wallet.subscription_bonus_credits))
-            if remaining > 0 and bonus > 0:
-                take = min(remaining, bonus)
-                wallet.subscription_bonus_credits = bonus - take
-                deductions["subscription"] += take
-                remaining -= take
-
-        wallet.updated_at = datetime.utcnow()
+        wallet = await self._locked_current_wallet(company_id)
+        deductions, shortfall = deduct(wallet, amount)
         await self.db.commit()
-
-        exhausted = remaining > 0
         return {
             **deductions,
-            "shortfall": remaining,
-            "exhausted": exhausted,
+            "shortfall": shortfall,
+            "exhausted": shortfall > 0,
         }
 
     async def require_credits(self, company_id: UUID, amount: Decimal) -> None:

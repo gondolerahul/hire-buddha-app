@@ -39,12 +39,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 6 | **Before the first paying tenant** |
+| [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 7 | **Before the first paying tenant** |
 | [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 7 | Before any margin analysis |
 | [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | Before relying on the control |
 | [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 8 | Now — mostly cheap |
 
-**Total: 26 defects, 10 improvements.**
+**Total: 27 defects, 10 improvements.**
 
 The three to read first:
 
@@ -124,7 +124,8 @@ signature case passes on both.
 
 ### BC-02 — Switching to a subscription makes the existing balance unspendable
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30)** — every bucket is spendable,
+soonest-expiring first; `account_model` no longer gates spending.
 
 The deduction path is an `if` / `elif` on `account_model`:
 
@@ -145,6 +146,22 @@ can never be spent.
 
 **Fix:** make 2a an independent `if`, or migrate the balance into subscription credits on
 switch. The first is one word.
+
+**Done (2026-09-30).** Not quite one word: the same `if`/`elif` also stopped a company that
+cancelled from spending its remaining subscription credits, and `consume` checked the
+balance across all four buckets and then deducted from only some, so it could return
+"success" having taken less than asked. `consume` and `consume_incremental` (two copies of
+the branch) now share one `deduct`, which walks `SPEND_ORDER` — daily, subscription,
+subscription bonus, wallet balance: soonest to expire first. `account_model` only labels the
+account. Found on the way and fixed with it:
+[BC-27](#bc-27--concurrent-deductions-overwrite-each-other) (lost updates).
+
+**Evidence:** `tests/integration/test_credit_consumption.py`, 7 cases against the real
+Postgres: a subscriber with $5 of subscription credit and a $20 balance spends $15 (was: $5
+taken, $15 asked); spending order across all four buckets; a PAYG company spends leftover
+subscription credit; `consume` is all-or-nothing; `consume_incremental` drains all four and
+reports the shortfall (was: $3 short of $6 with $4 held); expired buckets read as zero; and
+the BC-27 race. Five fail on the old code.
 
 ---
 
@@ -245,6 +262,30 @@ platform discovers it at the end.
 credit floor. So the in-loop budget will not stop it either.
 
 - Also recorded as **D-37** in the platform register
+
+---
+
+### BC-27 — Concurrent deductions overwrite each other
+
+**✅ Verified · High** · **Status: fixed (2026-09-30)** — found while fixing BC-02.
+
+Every wallet change was read-modify-write in Python with no lock: read `wallet_balance`,
+subtract, assign, commit. Two sessions doing it at once each wrote their own result over the
+other's. Concurrent runs of one company settling, a voice call deducting while a run
+settles, or a top-up landing mid-settlement each lose money for one side — the platform's
+when a deduction is lost, the customer's when a top-up is.
+
+- [`billing/credit_service.py`](../../../backend/src/billing/credit_service.py) — `consume`,
+  `consume_incremental`, `add_wallet_credits`, `inject_subscription_credits`
+
+**Fix (2026-09-30):** every change goes through `CreditService.lock_wallet` — `SELECT … FOR
+UPDATE` with `populate_existing`, so the values changed are the ones read under the lock.
+Wallet creation is `INSERT … ON CONFLICT DO NOTHING` (two first requests used to race on the
+unique `company_id`).
+
+**Evidence:** `test_concurrent_deductions_are_not_lost` — three sessions each make five $1
+deductions from a $100 wallet at once: $85 left. On the old code, $92: seven of the fifteen
+deductions were lost.
 
 ---
 
