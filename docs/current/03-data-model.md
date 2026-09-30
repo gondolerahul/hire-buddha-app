@@ -277,6 +277,23 @@ Relationships in: `execution_runs`, `documents`, `voice_sessions`, `whatsapp_ses
 `conversation_history`, `phone_numbers`, `campaigns`, `lead_queue`, `artifacts`,
 `call_logs`. Out: `companies`, `users` (creator), itself twice.
 
+**Soft-deleted rows are hidden by default** (DM-16, 2026-09-30). A `do_orm_execute` hook in
+[orm/entity.py](../../backend/src/ai/orm/entity.py) adds `status != 'DELETED'` (through
+`with_loader_criteria`) to every ORM `SELECT` that selects the entity or any of its columns
+— `select(HierarchicalEntity)`, `select(HierarchicalEntity.id)`, `session.get(...)`.
+
+| Query | Deleted entities |
+|---|---|
+| Selects the entity or its columns | hidden |
+| … with `.execution_options(include_deleted=True)` | visible — the history reports and the mobile campaign list use this |
+| Joins through entities without selecting them | visible |
+| Relationship loads (`run.entity`, `joinedload`, `selectinload`) | visible — a historical run keeps its entity |
+| Raw SQL (`text()`) | not filtered — add the condition by hand |
+
+The filter is attached only when the statement selects entities because SQLAlchemy's
+selectin loader copies a statement's options into its own query: a criteria added to
+"select runs" would hide a deleted run's entity from `selectinload(ExecutionRun.entity)`.
+
 ### 4.2 `execution_runs`
 
 Purpose: one row per invocation of an entity, including recursive child invocations.
@@ -2072,7 +2089,8 @@ flowchart LR
 - **Only `hierarchical_entities` is soft-deleted.** Deletion sets `status='DELETED'` and
   `deleted_at`, recursively across descendants, and nulls out `documents.entity_id` and
   `template_source_id` on referencing rows ([service.py:203](../../backend/src/ai/service.py:203)).
-  Queries must add `.where(status != "DELETED")` themselves — there is no default filter.
+  Entity queries hide those rows by default since DM-16 (see §4.1); opt out with
+  `.execution_options(include_deleted=True)` where history must include deleted agents.
 - **Run status transitions are advisory.** `validate_transition` warns but never blocks.
   And `REPAIRING` is unreachable: no other status lists it as an allowed target.
 - **`tool_registry_entries.name` is globally unique** even though `company_id` is

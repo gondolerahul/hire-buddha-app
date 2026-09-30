@@ -213,6 +213,8 @@ async def list_mobile_campaigns(db: AsyncSession, user: User, status: Optional[s
         .join(HierarchicalEntity, HierarchicalEntity.id == Campaign.agent_id)
         .where(Campaign.company_id == user.company_id, Campaign.execution_mode == EXECUTION_MODE_MOBILE)
         .order_by(Campaign.created_at.desc())
+        # A campaign keeps its agent after the agent is deleted; still list it (DM-16).
+        .execution_options(include_deleted=True)
     )
     if status:
         q = q.where(Campaign.status == status)

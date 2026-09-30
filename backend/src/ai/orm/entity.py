@@ -5,9 +5,9 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, event
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, ORMExecuteState, Session, mapped_column, relationship, with_loader_criteria
 
 from src.common.database import Base
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from src.auth.models import Company, User
     from src.ai.orm.execution import ExecutionRun
 
-__all__ = ["HierarchicalEntity"]
+__all__ = ["HierarchicalEntity", "INCLUDE_DELETED"]
 
 
 class HierarchicalEntity(Base):
@@ -67,3 +67,46 @@ class HierarchicalEntity(Base):
     )
     creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
     execution_runs: Mapped[list["ExecutionRun"]] = relationship("ExecutionRun", back_populates="entity")
+
+
+# ── Soft delete is filtered by default (DM-16) ──────────────────────────────
+# Deleting an entity sets status = 'DELETED'; the row stays so runs, usage and
+# billing keep their foreign keys. Every ORM SELECT *of entities* — the entity
+# itself or any of its columns — hides those rows unless it opts out with
+# ``.execution_options(include_deleted=True)``. Before this, each query had to
+# remember ``status != 'DELETED'`` and about forty did not: a deleted agent still
+# answered calls, could be given a phone number, and showed on the partner
+# console.
+#
+# Not filtered, on purpose: a statement that only joins through entities
+# without selecting them, relationship loads (``run.entity`` still returns the
+# entity a historical run belongs to), and raw SQL (``text()``). Reports that
+# show history by entity name opt out. The filter is attached only when the
+# entity is selected because SQLAlchemy's selectin loader copies a statement's
+# options into its own query: a criteria added to "SELECT runs" would hide a
+# deleted run's entity from ``selectinload(ExecutionRun.entity)``.
+INCLUDE_DELETED = "include_deleted"
+
+
+def _selects_entities(state: ORMExecuteState) -> bool:
+    descriptions = getattr(state.statement, "column_descriptions", None) or []
+    return any(d.get("entity") is HierarchicalEntity for d in descriptions)
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _hide_soft_deleted_entities(state: ORMExecuteState) -> None:
+    if (
+        state.is_select
+        and not state.is_column_load
+        and not state.is_relationship_load
+        and not state.execution_options.get(INCLUDE_DELETED, False)
+        and _selects_entities(state)
+    ):
+        state.statement = state.statement.options(
+            with_loader_criteria(
+                HierarchicalEntity,
+                lambda cls: cls.status != "DELETED",
+                include_aliases=False,
+                propagate_to_loaders=False,
+            )
+        )

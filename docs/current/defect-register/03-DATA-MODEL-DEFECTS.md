@@ -387,7 +387,7 @@ instead of a cross-tenant leak.
 
 ### DM-16 — Soft delete has no default filter
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30)**
 
 Only `hierarchical_entities` is soft-deleted. Deletion sets `status = 'DELETED'` and
 `deleted_at`, recursively across descendants.
@@ -402,6 +402,35 @@ if they were live — in the entity list, in a template clone, in a child resolu
 **Fix:** a SQLAlchemy `with_loader_criteria` default, or a query helper that every
 service is required to use. Relying on discipline has already failed once — the index
 `idx_entities_not_deleted` exists precisely because someone noticed the scans.
+
+**Done (2026-09-30)** — the `with_loader_criteria` default. Of 52 ORM queries that select
+entities, 13 added the filter by hand; the rest did not, among them the loader that gives a
+phone call its agent (`voice/agent_loader.py`), phone-number assignment, the campaign
+router, the gateway dispatcher, template cloning, run refinement, the partner console's
+entity list and the dashboard's entity count.
+
+- A `do_orm_execute` listener in `ai/orm/entity.py` adds `status != 'DELETED'` to every ORM
+  `SELECT` that selects `HierarchicalEntity` or its columns (`session.get` included) unless
+  the statement sets `execution_options(include_deleted=True)` (`INCLUDE_DELETED`).
+- **Not** filtered: relationship loads — a historical run's `run.entity` still loads, by
+  `joinedload` or `selectinload` — statements that only join through entities, and raw SQL.
+  The first version attached the criteria to every statement and hid deleted runs' entities
+  from `selectinload`: SQLAlchemy's selectin loader copies the parent statement's options
+  regardless of `propagate_to_loaders`. The criteria is now attached only when the statement
+  itself selects entities.
+- Opted out, because they show history: three report queries (HITL overview, a user's run
+  history, per-agent error rates — which would otherwise drop deleted agents' runs from the
+  totals) and the mobile campaign list (a campaign keeps its agent after deletion).
+- Behaviour that changes on purpose: a deleted agent is no longer found when a call,
+  campaign dial or dispatch loads it by id, so it can no longer run; it is no longer counted
+  as an active entity on the dashboard or listed on the partner console.
+
+**Evidence:** `tests/integration/test_soft_delete_filter.py` (real Postgres, rolled back),
+7 cases — entity selects, id selects and `session.get` hide a deleted entity; the opt-out
+sees it; a run's entity loads under `joinedload` and `selectinload`; a join through entities
+is unaffected; selecting entity columns is filtered unless opted out; the per-agent
+error-rate report still counts a deleted agent's run. The integration suite (106 cases)
+passes.
 
 ---
 

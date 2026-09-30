@@ -236,7 +236,7 @@ class ReportsService:
             HierarchicalEntity.type.label("entity_type"),
         ).join(ExecutionRun, HumanApproval.run_id == ExecutionRun.id) \
          .join(HierarchicalEntity, ExecutionRun.entity_id == HierarchicalEntity.id) \
-         .where(HumanApproval.requested_at >= since)
+         .where(HumanApproval.requested_at >= since)          .execution_options(include_deleted=True)  # history: deleted agents too (DM-16)
 
         if company_id:
             q = q.where(ExecutionRun.company_id == company_id)
@@ -535,7 +535,7 @@ class ReportsService:
                 ExecutionRun.user_id == user_id,
                 ExecutionRun.company_id == company_id,
                 ExecutionRun.parent_run_id.is_(None),  # top-level only
-            )
+            ).execution_options(include_deleted=True)  # history: deleted agents too (DM-16)
 
         if status_filter:
             q = q.where(ExecutionRun.status == status_filter.upper())
@@ -610,7 +610,7 @@ class ReportsService:
             HierarchicalEntity.name,
             HierarchicalEntity.type,
             ExecutionRun.status,
-        )
+        ).execution_options(include_deleted=True)  # history: deleted agents too (DM-16)
 
         result = await self.db.execute(q)
         rows = result.all()
