@@ -181,7 +181,7 @@ it now differs from the ORM only by the census's listed exceptions.
 
 ### DM-03 — `feature_flags` has no ORM model and is optional
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)**
 
 The table exists only in a migration and is queried with raw SQL from
 `core/feature_flags.py`. There is no SQLAlchemy model, so `alembic autogenerate` cannot
@@ -197,6 +197,20 @@ flag happens to be at its default.
 
 **Fix:** add the ORM model. Keep the fallback, but log once at startup when the table is
 missing.
+
+**Done (2026-10-01).** `ai/orm/feature_flags.py` models the table as the migration built it,
+the three per-scope partial unique indexes and the company lookup index included; it is in
+the shared model list, so autogenerate and the schema census see it (the census no longer
+lists `feature_flags` as an exception). The service keeps its raw SQL and its fallback.
+`warn_if_table_missing()` runs in the API's startup and logs *feature_flags table is
+missing: every flag resolves from env vars and code defaults…* when `to_regclass` finds no
+table. (Each failed lookup already logged a warning; the startup line makes the state
+visible before any flag is read.)
+
+**Evidence:** `tests/unit/test_feature_flags_table_check.py` — the startup check warns when
+the table is absent and not when present; the model is registered. The schema census passes
+with the model (the index check covers its four indexes); strict mypy passes over `orm` and
+`core`.
 
 ---
 

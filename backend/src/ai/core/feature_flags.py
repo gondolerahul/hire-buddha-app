@@ -616,3 +616,30 @@ class FeatureFlags:
                 flag_key, type(exc).__name__,
             )
             return None
+
+
+async def warn_if_table_missing() -> bool:
+    """Log once, at startup, when the ``feature_flags`` table is absent (DM-03).
+
+    Every lookup still falls back to env vars and code defaults — flags must
+    never break a request — but a database without the table otherwise behaves
+    exactly like one where every flag is at its default. Returns whether the
+    table is there.
+    """
+    from sqlalchemy import text
+
+    from src.common.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            present = bool((await db.execute(text("SELECT to_regclass('public.feature_flags') IS NOT NULL"))).scalar())
+    except Exception as exc:
+        logger.warning("feature_flags: could not check for the table (%s)", type(exc).__name__)
+        return False
+    if not present:
+        logger.warning(
+            "feature_flags table is missing: every flag resolves from env vars and code "
+            "defaults until migration p11t02_feature_flags runs"
+        )
+    return present
+

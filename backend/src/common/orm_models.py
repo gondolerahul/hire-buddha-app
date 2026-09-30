@@ -20,6 +20,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "src.ai.orm.document",
     "src.ai.orm.entity",
     "src.ai.orm.execution",
+    "src.ai.orm.feature_flags",
     "src.ai.orm.tools",
     "src.ai.orm.trace",
     "src.ai.orm.trust",

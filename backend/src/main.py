@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).warning(
             "INTERNAL_TOKEN is empty or a placeholder: POST /internal/event answers 503"
         )
+    from src.ai.core.feature_flags import warn_if_table_missing
+
+    await warn_if_table_missing()
     dispatcher = get_dispatcher()
     await dispatcher.start()
     yield

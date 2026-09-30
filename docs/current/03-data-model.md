@@ -1294,11 +1294,14 @@ index `ix_social_connections_company_platform`.
 
 ### 10.1 `feature_flags`
 
-Purpose: runtime toggles at global / company / entity scope. **Has no SQLAlchemy model** —
-it exists only in the migration
-[p11t02_feature_flags.py:57](../../backend/migrations/versions/p11t02_feature_flags.py:57)
-and is queried with raw SQL from
-[core/feature_flags.py](../../backend/src/ai/core/feature_flags.py).
+Purpose: runtime toggles at global / company / entity scope. Created by migration
+[p11t02_feature_flags.py:57](../../backend/migrations/versions/p11t02_feature_flags.py:57),
+modelled by [orm/feature_flags.py](../../backend/src/ai/orm/feature_flags.py) `FeatureFlag`
+(DM-03, 2026-10-01 — so autogenerate and the schema census see it), and queried with raw SQL
+from [core/feature_flags.py](../../backend/src/ai/core/feature_flags.py). The lookups still fall
+back to env vars and code defaults when the table is absent; the API logs a warning at
+startup when it is (`warn_if_table_missing`), so a missing table no longer passes for "every
+flag at its default".
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
@@ -2104,14 +2107,8 @@ flowchart LR
 - **`call_logs.voice_session_id` deliberately has no FK** because the two tables belong
   to different modules; the same is true of `conversation_history.session_id`, which is
   polymorphic across `voice_sessions` and `whatsapp_sessions`.
-- **`feature_flags` has no ORM model** and is queried with raw SQL. It is also optional —
-  the flag service falls through to env vars and defaults if the table is absent.
-- **Two migration files share the `a1b2c3d4e5f6_` filename prefix** with different
-  revision ids. Alembic reads the `revision` variable, not the filename.
-- **`clean_db.sql` truncates by an explicit table list.** New tables are not covered
-  until someone adds them to the array — the list currently omits `cortex_edges`,
-  `execution_trace_events`, `source_trust_scores`, `feature_flags`, `lead_queue`,
-  `phone_numbers` and `tool_registry_entries` (the last is intentional).
+- **`feature_flags` is optional at runtime** — the flag service falls through to env vars
+  and defaults if the table is absent — and the API logs a warning at startup when it is.
 
 ---
 

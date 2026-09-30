@@ -28,7 +28,6 @@ BACKEND = Path(__file__).resolve().parents[2]
 # Tables the database may hold without an ORM model, and why.
 DB_ONLY_TABLES: dict[str, str] = {
     "alembic_version": "Alembic's own bookkeeping",
-    "feature_flags": "DM-03 — read with raw SQL, no model yet",
 }
 # Columns the database may hold without an ORM attribute, and why.
 DB_ONLY_COLUMNS: dict[tuple[str, str], str] = {}
