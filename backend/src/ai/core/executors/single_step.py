@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import time
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -82,13 +82,10 @@ class SingleStepExecutor:
             run = await self._reload_run(inner_db, state.run_id)
             entity = run.entity
 
-            # The legacy step path bills tool/LLM spend by mutating
-            # ``run.total_cost_usd`` in place (see StepExecutorService._log_usage
-            # / ToolCostResolver.charge) — it never returns cost on the step
-            # result dict. Snapshot the run's accumulated cost before the
-            # fragment so we can report the real per-iteration delta below; the
-            # raw step ``cost_usd`` is almost always 0.0.
-            cost_before = Decimal(str(getattr(run, "total_cost_usd", 0) or 0))
+            # A step's spend is its usage rows (AK-02): the iteration's cost is
+            # how much the run's own rows grew across the fragment. The raw step
+            # ``cost_usd`` is almost always 0.0.
+            cost_before = await self._rows_cost(inner_db, state.run_id)
 
             for step in move.plan_fragment or []:
                 step_obj = self._coerce_step(step)
@@ -131,15 +128,12 @@ class SingleStepExecutor:
                     if result.get("error"):
                         _step_span.set_error(str(result.get("error")))
 
-            # Reconcile with the engine-tracked spend. ``run`` is the same ORM
-            # instance the step executor mutated, so its cost is current; the
-            # delta captures tool + LLM cost the step dicts don't surface. Take
-            # the larger so the per-iteration ActionResult (and the critic /
-            # budget that read it) see the real money spent, not 0.0.
-            cost_after = Decimal(str(getattr(run, "total_cost_usd", 0) or 0))
-            engine_delta = cost_after - cost_before
-            if engine_delta > cost:
-                cost = engine_delta
+            # The rows the fragment wrote: tool + LLM cost the step dicts don't
+            # surface. Take the larger so the per-iteration ActionResult (the
+            # bandit reward, the iteration event) sees the real money spent.
+            cost_after = await self._rows_cost(inner_db, state.run_id)
+            if cost_before is not None and cost_after is not None and cost_after - cost_before > cost:
+                cost = cost_after - cost_before
 
         latency_ms = int((time.time() - start) * 1000)
         await state.absorb_context_dict(ctx)
@@ -187,6 +181,17 @@ class SingleStepExecutor:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _rows_cost(db: Any, run_id: Any) -> Optional[Decimal]:
+        """The run's spend now, or None if it cannot be read. Telemetry only
+        (the iteration's cost); the bill is the loop's sum (AK-02)."""
+        from src.ai.governance.run_cost import run_spend
+        try:
+            return (await run_spend(db, run_id)).cost_usd
+        except Exception as exc:                                            # noqa: BLE001
+            logger.debug("[SingleStepExecutor] run spend unreadable: %s", exc)
+            return None
 
     @staticmethod
     async def _reload_run(db: Any, run_id: Any) -> ExecutionRun:

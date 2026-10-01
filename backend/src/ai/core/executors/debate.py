@@ -240,7 +240,9 @@ class DebateExecutor:
     async def _bill(
         self, db: Any, state: AgentState, run: ExecutionRun, responses: list[Any],
     ) -> Decimal:
-        """Charge the aggregated LLM cost and fold it into ``run.total_cost_usd``.
+        """Write the debate's LLM usage rows for the run and return their cost.
+
+        The rows are the charge: the run's total is their sum (AK-02).
 
         Uses the same ``<model>-in`` / ``<model>-out`` SKU convention as
         ``StepExecutorService._log_usage`` so debate cost lands on the same
