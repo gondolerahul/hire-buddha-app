@@ -302,7 +302,11 @@ worker for a long time.
 
 ### EP-09 — `entity.status` is not a state machine
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-01)** — `update_entity` checks
+status changes against `ENTITY_STATUS_TRANSITIONS` (DELETED only through DELETE); an
+ARCHIVED entity does not run (400, and refused as a child); a DRAFT runs on its own or
+inside a draft tree, never under a published parent; a DEPRECATED one runs with an
+`agent.entity.deprecated_run` event (`tests/integration/test_entity_status.py`).
 
 There is no transition validation on entity status, and a `DRAFT` or `ARCHIVED` entity
 executes perfectly happily. Only `DELETED` is enforced, in the arq ghost-run guard.

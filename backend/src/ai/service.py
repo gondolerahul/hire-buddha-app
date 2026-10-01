@@ -118,7 +118,11 @@ class AIService:
 
         # The edit is checked before it touches the row, so a refused one
         # leaves nothing to undo.
-        from src.ai.governance.composition import EntityShape
+        from src.ai.governance.composition import EntityShape, status_transition_problem
+        if "status" in update_data:
+            refused = status_transition_problem(entity.status, update_data["status"])
+            if refused:
+                raise HTTPException(status_code=422, detail=f"Status: {refused}.")
         await self._require_composition(EntityShape.of(entity).with_changes(update_data))
 
         for field, value in update_data.items():
@@ -271,6 +275,15 @@ class AIService:
     async def trigger_execution(self, execution_in: ExecutionRunCreate, company_id: UUID, user_id: UUID = None, user_role: str = None) -> ExecutionRun:
         # Pre-flight: validate entity exists and belongs to this company
         entity = await self.get_entity(execution_in.entity_id, company_id, user_role=user_role)
+
+        # Status (EP-09): an ARCHIVED entity does not run; a DEPRECATED one
+        # runs and says so; a DRAFT runs on its own (a test run).
+        status = str(getattr(entity.status, "value", entity.status) or "").upper()
+        if status == "ARCHIVED":
+            raise HTTPException(status_code=400, detail=f"Cannot execute '{entity.name}': it is ARCHIVED.")
+        if status == "DEPRECATED":
+            from src.ai.core.events import event
+            event("agent.entity.deprecated_run", entity_id=str(entity.id), entity_name=entity.name)
 
         # Every level: the whole tree must satisfy the composition rule before
         # anything is spent — each invocation step resolves, every child is in

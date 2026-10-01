@@ -838,14 +838,19 @@ run starts.
 stateDiagram-v2
     [*] --> DRAFT: create with status=DRAFT
     [*] --> ACTIVE: create default
-    DRAFT --> ACTIVE: PUT /entities/id status=ACTIVE
-    ACTIVE --> DEPRECATED: PUT status=DEPRECATED
-    DEPRECATED --> ARCHIVED: PUT status=ARCHIVED
-    ARCHIVED --> ACTIVE: PUT status=ACTIVE
-    DRAFT --> DELETED: DELETE
-    ACTIVE --> DELETED: DELETE
-    DEPRECATED --> DELETED: DELETE
-    ARCHIVED --> DELETED: DELETE
+    DRAFT --> ACTIVE
+    DRAFT --> ARCHIVED
+    ACTIVE --> DRAFT
+    ACTIVE --> DEPRECATED
+    ACTIVE --> ARCHIVED
+    DEPRECATED --> ACTIVE
+    DEPRECATED --> ARCHIVED
+    ARCHIVED --> ACTIVE
+    ARCHIVED --> DRAFT
+    DRAFT --> DELETED: DELETE only
+    ACTIVE --> DELETED: DELETE only
+    DEPRECATED --> DELETED: DELETE only
+    ARCHIVED --> DELETED: DELETE only
     DELETED --> [*]: rows retained forever
     note right of DELETED
         soft delete only
@@ -855,15 +860,25 @@ stateDiagram-v2
     end note
 ```
 
-**There is no state machine.** Unlike `RunStatus`, `EntityStatus` has no
-`VALID_TRANSITIONS` map and no validator — `update_entity`
-([service.py:145](../../backend/src/ai/service.py:145)) does a blind
-`setattr` loop over `model_dump(exclude_unset=True)`. Any status can become any
-other status. `DRAFT` / `DEPRECATED` / `ARCHIVED` are **filter labels only**:
-nothing prevents executing a `DRAFT` or `ARCHIVED` entity. The only status the
-engine cares about is `DELETED`.
+**Status is a state machine** (EP-09). `update_entity` checks every status
+change against `ENTITY_STATUS_TRANSITIONS`
+([`governance/composition.py`](../../backend/src/ai/governance/composition.py))
+and refuses the rest with a 422; `DELETED` is reached only through `DELETE`,
+which cascades to the tree. The runtime honours each status:
 
-### `DELETED` — the one status with teeth
+| Status | Runs? |
+|---|---|
+| `ACTIVE` | Yes |
+| `DRAFT` | On its own (a test run), or inside a tree whose parent is also `DRAFT`. A `DRAFT` child under a published parent is refused at dispatch and when its child run would be created |
+| `DEPRECATED` | Yes, with an `agent.entity.deprecated_run` event (top-level and as a child) |
+| `ARCHIVED` | No — `trigger_execution` refuses it (400), and so do dispatch and child-run creation when it is a child |
+| `DELETED` | No — see below |
+
+Before EP-09 any status could become any other through `PUT`, and `DRAFT`,
+`DEPRECATED` and `ARCHIVED` were filter labels: a half-built `DRAFT` agent
+referenced by a published `PROCESS` ran.
+
+### `DELETED`
 
 | Where | Behaviour |
 |-------|-----------|

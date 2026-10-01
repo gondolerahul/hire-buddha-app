@@ -47,6 +47,8 @@ __all__ = [
     "child_depth",
     "DEFAULT_MAX_CONCURRENT_CHILDREN",
     "max_concurrent_children",
+    "ENTITY_STATUS_TRANSITIONS",
+    "status_transition_problem",
 ]
 
 DEFAULT_MAX_RECURSION_DEPTH = 5
@@ -170,6 +172,19 @@ def _level_problem(where: str, parent_type: str, child: Any) -> Optional[str]:
         f"{where} names {child.name}, a {child_type}: a {parent_type} can only "
         f"compose entities at its own level or below"
     )
+
+
+def _status_problem(where: str, parent: Any, child: Any) -> Optional[str]:
+    """ARCHIVED never runs; a DRAFT runs on its own or inside a draft tree (EP-09)."""
+    child_status = _type_name(getattr(child, "status", ""))
+    if child_status == "ARCHIVED":
+        return f"{where} names {child.name}, which is ARCHIVED and does not run"
+    if child_status == "DRAFT" and _type_name(getattr(parent, "status", "")) != "DRAFT":
+        return (
+            f"{where} names {child.name}, a DRAFT: a draft runs on its own or inside "
+            f"a draft tree, not under a published parent"
+        )
+    return None
 
 
 async def authoring_violations(db: Any, shape: EntityShape) -> list[str]:
@@ -298,7 +313,8 @@ async def dispatch_violations(db: Any, root: Any) -> list[str]:
             if child.id in on_path:
                 problems.append(f"{entity.name}: {where} names {child.name}, which is its own ancestor (a cycle)")
                 continue
-            level = _level_problem(f"{entity.name}: {where}", parent_type, child)
+            level = (_level_problem(f"{entity.name}: {where}", parent_type, child)
+                     or _status_problem(f"{entity.name}: {where}", entity, child))
             if level:
                 problems.append(level)
                 continue
@@ -316,12 +332,13 @@ def runtime_violation(parent: Any, child: Any) -> Optional[str]:
     """Why ``child`` may not run as a child of ``parent``, or ``None``.
 
     The in-memory half of the rule, for a child the runtime resolved: same
-    company and the level rule. (Existence and deletion are the caller's
-    company-scoped load.)
+    company, the level rule and the status rule. (Existence and deletion are
+    the caller's company-scoped load.)
     """
     if _as_uuid(getattr(child, "company_id", None)) != _as_uuid(getattr(parent, "company_id", None)):
         return f"{child.name} does not belong to {parent.name}'s company"
-    return _level_problem("the step", _type_name(parent.type), child)
+    return (_level_problem("the step", _type_name(parent.type), child)
+            or _status_problem("the step", parent, child))
 
 
 # ── Depth (EP-06, EP-28) ────────────────────────────────────────────────────
@@ -393,3 +410,28 @@ def max_concurrent_children(governance: Any) -> int:
     except (TypeError, ValueError):
         return DEFAULT_MAX_CONCURRENT_CHILDREN
     return cap if cap >= 1 else DEFAULT_MAX_CONCURRENT_CHILDREN
+
+
+# ── Entity status (EP-09) ───────────────────────────────────────────────────
+
+# Which status an update may move an entity to. DELETED is reached only through
+# DELETE (it cascades to the tree and keeps the row for billing).
+ENTITY_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
+    "DRAFT": frozenset({"ACTIVE", "ARCHIVED"}),
+    "ACTIVE": frozenset({"DRAFT", "DEPRECATED", "ARCHIVED"}),
+    "DEPRECATED": frozenset({"ACTIVE", "ARCHIVED"}),
+    "ARCHIVED": frozenset({"DRAFT", "ACTIVE"}),
+    "DELETED": frozenset(),
+}
+
+
+def status_transition_problem(current: Any, target: Any) -> Optional[str]:
+    """Why an update may not move an entity from ``current`` to ``target``, or None."""
+    now, to = _type_name(current), _type_name(target)
+    if now == to:
+        return None
+    if to == "DELETED":
+        return "an entity is deleted with DELETE, not by setting its status"
+    if to not in ENTITY_STATUS_TRANSITIONS.get(now, frozenset()):
+        return f"an entity cannot go from {now} to {to}"
+    return None

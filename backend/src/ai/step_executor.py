@@ -183,6 +183,10 @@ class StepExecutorService:
         if refused:
             from src.ai.core.exceptions import CompositionError
             raise CompositionError(f"Child invocation refused for step {step.name}: {refused}")
+        if str(child_entity.status or "").upper() == "DEPRECATED":
+            from src.ai.core.events import event
+            event("agent.entity.deprecated_run", entity_id=str(child_entity.id),
+                  entity_name=child_entity.name, parent_run_id=str(run.id))
 
         # Propagate CORTEX tree ID so all entities share one tree.
         child_input = dict(context)
