@@ -69,14 +69,18 @@ def _make_entity(entity_id: UUID, company_id: UUID) -> SimpleNamespace:
         identity=None,
         hierarchy=None,
         logic_gate=None,
-        # No plan: the Strategist falls to its default branch and emits a
-        # SingleStep move with NO plan_fragment — an *open-ended* move. The
-        # pre-critic runs on those (and is what these tests exercise). Plan-
-        # driven moves now skip the pre-critic by design (a reconciled plan
-        # shouldn't be second-guessed move-by-move), so a static plan here would
-        # make the circuit-breaker test no longer reach the pre-critic.
+        # A plan whose only step waits on a step that never runs: nothing is
+        # ever ready, so the Strategist emits a SingleStep move with NO
+        # plan_fragment every iteration — an *open-ended* move. The pre-critic
+        # runs on those (and is what these tests exercise). Plan-driven moves
+        # skip the pre-critic by design (a reconciled plan shouldn't be
+        # second-guessed move-by-move), and an entity with no plan at all is
+        # given one (R1), so a ready step here would never reach the pre-critic.
         planning={
-            "static_plan": {"enabled": False},
+            "static_plan": {"enabled": True, "steps": [{
+                "step_id": "waits", "name": "Waits", "type": "ACTION",
+                "target": {"input_dependencies": ["never_runs"]},
+            }]},
             "dynamic_planning": {"enabled": False},
         },
         capabilities=None,
