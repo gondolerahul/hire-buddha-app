@@ -170,7 +170,7 @@ class ToolRegistry:
         if cid not in cls._tenant_tools:
             cls._tenant_tools[cid] = {}
         cls._tenant_tools[cid][tool.name] = tool
-        logger.info(f"Registered tenant tool '{tool.name}' for company {cid}")
+        logger.debug(f"Registered tenant tool '{tool.name}' for company {cid}")
 
     @classmethod
     def get_tool(cls, name: str, company_id: Optional[UUID] = None) -> Optional[Tool]:

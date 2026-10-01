@@ -711,36 +711,3 @@ h3 {
     border-radius: 0 4pt 4pt 0;
 }
 """
-    
-    def get_function_schema(self) -> Dict[str, Any]:
-        """Return JSON schema for function calling."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "Markdown formatted content to convert to PDF"
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "Document title"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "Output filename (without .pdf extension)"
-                    },
-                    "author": {
-                        "type": "string",
-                        "description": "Author name (optional, defaults to 'HireBuddha Research Agent')"
-                    },
-                    "subject": {
-                        "type": "string",
-                        "description": "Document subject (optional, defaults to 'Research Report')"
-                    }
-                },
-                "required": ["content", "title", "filename"]
-            }
-        }

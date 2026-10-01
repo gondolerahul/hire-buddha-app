@@ -122,11 +122,12 @@ class SandboxCodeTool(Tool):
         # P3 — Tenant-scoped temp directory for filesystem isolation
         company_id = context.get("company_id") if context else None
         if company_id:
-            sandbox_dir = os.path.join(tempfile.gettempdir(), "sandbox", str(company_id))
+            from src.ai.tools.sandbox.workspace import tenant_workspace, workspace_root
+            sandbox_dir = tenant_workspace(company_id)
             os.makedirs(sandbox_dir, exist_ok=True)
             # Create a stable /tmp/sandbox/output symlink so LLM-generated code
             # using the generic path "/tmp/sandbox/output/" resolves correctly.
-            output_link = os.path.join(tempfile.gettempdir(), "sandbox", "output")
+            output_link = os.path.join(workspace_root(), "output")
             try:
                 if os.path.islink(output_link):
                     os.unlink(output_link)

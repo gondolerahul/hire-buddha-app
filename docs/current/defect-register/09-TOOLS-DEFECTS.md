@@ -200,7 +200,7 @@ looking for it by name will conclude it does not exist.
 
 ### TX-05 — `register_tenant_tool` logs at INFO on every registration
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-01)** — the line logs at DEBUG.
 
 `logger.info(f"Registered tenant tool '{tool.name}' for company {cid}")` fires on every
 tenant tool registration. Since tenant tools are registered per process and lost on

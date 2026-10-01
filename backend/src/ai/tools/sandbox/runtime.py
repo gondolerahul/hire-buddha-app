@@ -424,9 +424,9 @@ async def resolve_persistent_browser_dir(
 
 
 def _sandbox_base_dir() -> str:
-    import tempfile
+    from src.ai.tools.sandbox.workspace import workspace_root
 
-    return os.path.join(tempfile.gettempdir(), "sandbox")
+    return workspace_root()
 
 
 async def run_sandbox_exec(

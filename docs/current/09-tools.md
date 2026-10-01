@@ -1181,8 +1181,14 @@ stateDiagram-v2
     end note
 ```
 
-The workspace model matters: the host directory `/tmp/sandbox/{company_id}` is
-bind-mounted into the container **at the identical absolute path**. That is why
+The workspace model matters: the host directory `<root>/{company_id}` is
+bind-mounted into the container **at the identical absolute path**. `<root>` is
+`settings.SANDBOX_WORKSPACE_ROOT`, or `<system temp>/sandbox` (`/tmp/sandbox`)
+when unset; every sandbox path derives from
+[`sandbox/workspace.py`](../../backend/src/ai/tools/sandbox/workspace.py)
+(`workspace_root`, `tenant_workspace` — TL-29, 2026-10-01). The default is
+node-local and lost on reboot (TL-16); a durable deployment points the setting at
+a mounted volume. That is why
 existing tools — which write a script to a host path and then exec it — work
 unchanged under either runtime, and why `_ffmpeg` concat lists are valid in
 both.

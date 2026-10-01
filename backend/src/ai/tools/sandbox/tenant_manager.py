@@ -29,7 +29,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import tempfile
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -57,7 +56,9 @@ class TenantSandboxConfig:
 
 
 def _sandbox_base_dir() -> str:
-    return os.path.join(tempfile.gettempdir(), "sandbox")
+    from src.ai.tools.sandbox.workspace import workspace_root
+
+    return workspace_root()
 
 
 class TenantSandboxManager:

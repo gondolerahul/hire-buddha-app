@@ -364,7 +364,8 @@ as single-shot navigation only and drop the stateful actions.
 
 ### TL-63 — `pdf_generator` defines `get_function_schema` twice
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-01)** — the second copy is deleted; the
+schema advertises `image_paths` again.
 
 Two `get_function_schema` methods ([pdf_generator.py:76](../../../backend/src/ai/tools/documents/pdf_generator.py:76)
 and [:715](../../../backend/src/ai/tools/documents/pdf_generator.py:715)); the second wins.

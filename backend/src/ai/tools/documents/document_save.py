@@ -153,8 +153,8 @@ class DocumentSaveTool(Tool):
         if os.path.exists(source_path):
             return source_path
         if company_id and company_id != "default" and not os.path.isabs(source_path):
-            import tempfile
-            sandbox_dir = os.path.join(tempfile.gettempdir(), "sandbox", str(company_id))
+            from src.ai.tools.sandbox.workspace import tenant_workspace
+            sandbox_dir = tenant_workspace(company_id)
             candidate = os.path.join(sandbox_dir, source_path)
             if os.path.exists(candidate):
                 return candidate
