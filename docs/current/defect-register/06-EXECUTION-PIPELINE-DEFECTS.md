@@ -9,6 +9,13 @@
 > **Context:** the recurring theme here is **config that looks configurable and is not**.
 > A tenant admin fills in a field in the builder, saves it, and nothing reads it.
 
+> **2026-10-01 — consolidated.** This register is now worked through
+> [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), which merges
+> registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 into one deduplicated list,
+> adds the six-level hierarchy (R1) and the skill-first tool stack (R2), and orders the
+> fixes in phases. Use the canonical id from its merge map in commits; status lines here
+> are still updated as fixes land.
+
 ---
 
 ## How to read this file
@@ -37,12 +44,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--tenant-boundary-and-correctness) | Tenant boundary and correctness | 4 | Before the first paying tenant |
+| [T0](#2-t0--tenant-boundary-and-correctness) | Tenant boundary and correctness | 5 | Before the first paying tenant |
 | [T1](#3-t1--config-that-does-nothing) | Config that does nothing | 8 | Each is a decision: wire it or remove it from the UI |
-| [T2](#4-t2--dead-columns-and-dead-docs) | Dead columns and dead docs | 5 | **Now** — free |
-| [T3](#5-t3--traps-in-the-step-engine) | Traps in the step engine | 8 | When the area is next touched |
+| [T2](#4-t2--dead-columns-and-dead-docs) | Dead columns and dead docs | 6 | **Now** — free |
+| [T3](#5-t3--traps-in-the-step-engine) | Traps in the step engine | 9 | When the area is next touched |
 
-**Total: 25 defects, 10 improvements.**
+**Total: 28 defects, 10 improvements.** (EP-26…EP-28 were found on 2026-10-01 while consolidating registers 05–11; see [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).)
 
 The three to read first:
 
@@ -150,6 +157,36 @@ money, and fail at whatever step first tries to use the missing value.
 **Fix:** validate `input_data` against `input_schema` in `trigger_execution` and reject
 with a 422 before the run row is created. This is the cheapest possible way to stop a
 class of wasted runs.
+
+---
+
+### EP-26 — Behaviour forks on entity type, so a planless entity spins or claims success
+
+**✅ Verified · High** · **Status: open** — found 2026-10-01 while consolidating registers
+05–11 (see [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), R1).
+
+How an entity with no plan is handled depends on its `type`, in four places that disagree:
+
+- `AgentLoop._ensure_plan` reconciles a plan only when a `static_plan` or
+  `dynamic_planning` block is enabled.
+- `PlannerService.reconcile` injects a default step only for `ACTION` and `SKILL`.
+- `Strategist.next_move` plans a planless entity (`Recursive`) only when it is an `AGENT`.
+- `RecursiveExecutor`, when it still finds no plan, achieves every subgoal and stamps
+  `{"output": "Success", "steps": []}`.
+
+So a `PROCESS` (or `SKILL`, or `ACTION`) whose planning blocks are off and whose children
+are linked only through `parent_id` gets `SingleStep` no-ops until the 50-iteration cap,
+and fails having done nothing. A goal-only `AGENT` with no children and no planning is
+`COMPLETED` with output "Success" — billed and counted as a success with no work done.
+
+- [`ai/core/agent_loop.py`](../../../backend/src/ai/core/agent_loop.py) — `_ensure_plan`
+- [`ai/planning/planner_service.py`](../../../backend/src/ai/planning/planner_service.py) — `reconcile`
+- [`ai/core/strategist.py`](../../../backend/src/ai/core/strategist.py) — Case B
+- [`ai/core/executors/recursive.py`](../../../backend/src/ai/core/executors/recursive.py)
+
+**Fix:** one rule for every level (R1): with no plan, reconcile one — static, else
+dynamic, else delegate to children when the entity has children and no tools, else one
+default step that carries `{{input}}`. A run that still has no plan fails with the reason.
 
 ---
 
@@ -322,6 +359,7 @@ explanation.
 | **EP-15** | `ExecutionRun.execution_time_ms` | Never written by the loop path. Derive from `completed_at - started_at`. Any dashboard reading it shows nulls | 📄 Doc-reported |
 | **EP-16** | `__completed_steps__` in `INTERNAL_KEYS.md` | Documented and never written. The live mechanism is `AgentState.completed_step_ids`. The doc is stale and misleads anyone debugging step completion | 📄 Doc-reported |
 | **EP-17** | The stale `core/README.md` | Documents `execution_engine.py` and `recursive_engine.py`, neither of which exists. Same entry as [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified |
+| **EP-28** | `governance.execution_limits.max_recursion_depth` | A second copy of `governance.max_recursion_depth` with no reader at all (the first is read only into prompt text — [EP-06](#ep-06--max_recursion_depth-is-a-sentence-in-a-prompt)). Two settings for one limit, the same split as [PC-17](07-PLANNING-AND-CRITICS-DEFECTS.md#pc-17--two-different-goal_validation_interval-settings) | ✅ Verified · **open** — found 2026-10-01 |
 
 ---
 
@@ -485,6 +523,25 @@ rendered to the model as if it were a previous step's output.
 
 **Fix:** when the rendered template does not contain the run input, append it as a
 `## Task` section. Add `__agent_state__` to `INTERNAL_CONTEXT_KEYS`.
+
+---
+
+### EP-27 — Reading an entity writes a "virtual" plan into its row
+
+**✅ Verified · Medium** · **Status: open** — found 2026-10-01 while consolidating
+registers 05–11.
+
+`AIService.get_entity` gives an `ACTION` or `SKILL` with no static steps a virtual
+one-step plan "for the UI" by assigning `entity.planning = virtual_planning` on the
+**persistent** ORM instance. `update_entity` loads the entity through `get_entity`,
+applies the update and commits — so an update that does not itself send `planning` (a
+status change, a rename) writes the virtual plan into the database. The entity then has
+a real static plan nobody authored.
+
+- [`ai/service.py`](../../../backend/src/ai/service.py) — `get_entity`, `update_entity`
+
+**Fix:** compute the display plan in the response, for any level, and never assign it to
+the row.
 
 ---
 

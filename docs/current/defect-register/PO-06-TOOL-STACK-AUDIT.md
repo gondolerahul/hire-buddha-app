@@ -11,6 +11,13 @@
 > `step_executor.py`, `tool_management_*`, `social_*`, `tool_fallback.py`, the sandbox
 > runtime, and the LLM REACT loop where it dispatches tools.
 
+> **2026-10-01 — consolidated.** This register is now worked through
+> [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), which merges
+> registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 into one deduplicated list,
+> adds the six-level hierarchy (R1) and the skill-first tool stack (R2), and orders the
+> fixes in phases. Use the canonical id from its merge map in commits; status lines here
+> are still updated as fixes land.
+
 ---
 
 ## How this relates to the existing registers

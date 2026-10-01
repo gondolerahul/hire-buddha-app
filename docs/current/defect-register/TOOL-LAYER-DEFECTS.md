@@ -13,6 +13,13 @@
 > **Context:** there are **no paying tenants**. Nothing here is a production
 > emergency; everything in T0 is a launch blocker.
 
+> **2026-10-01 — consolidated.** This register is now worked through
+> [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), which merges
+> registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 into one deduplicated list,
+> adds the six-level hierarchy (R1) and the skill-first tool stack (R2), and orders the
+> fixes in phases. Use the canonical id from its merge map in commits; status lines here
+> are still updated as fixes land.
+
 ---
 
 ## How to use this in a fresh session
