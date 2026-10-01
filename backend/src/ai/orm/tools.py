@@ -45,8 +45,8 @@ class ToolRegistryEntry(Base):
     is_enabled: Mapped[bool | None] = mapped_column(Boolean, default=True)
     configuration: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Custom config (API keys ref, etc.)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company: Mapped["Company | None"] = relationship("Company")
     creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])

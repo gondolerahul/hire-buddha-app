@@ -24,7 +24,7 @@ class UsageLog(Base):
     __tablename__ = "usage_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    timestamp: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True, index=True)  # DM-06
     # NULL for a charge with no registry row — a fixed-cost tool (BC-07).

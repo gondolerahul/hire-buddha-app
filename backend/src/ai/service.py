@@ -865,7 +865,7 @@ class AIService:
             )
             
             # Executions count (today, all companies)
-            today = datetime.now().date()
+            today = datetime.utcnow().date()  # created_at is UTC (DM-12)
             executions_count = await self.db.execute(
                 select(func.count(ExecutionRun.id))
                 .where(func.date(ExecutionRun.created_at) == today)
@@ -881,7 +881,7 @@ class AIService:
             )
             
             # Executions count (today)
-            today = datetime.now().date()
+            today = datetime.utcnow().date()  # created_at is UTC (DM-12)
             executions_count = await self.db.execute(
                 select(func.count(ExecutionRun.id))
                 .where(ExecutionRun.company_id == company_id)

@@ -28,8 +28,8 @@ class Document(Base):
     file_type: Mapped[str] = mapped_column(String, nullable=False)  # pdf, docx, txt
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # bytes (was text, DM-11)
     upload_status: Mapped[str | None] = mapped_column(String, default="processing")  # processing, completed, failed
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company: Mapped["Company"] = relationship("Company")
     entity: Mapped["HierarchicalEntity | None"] = relationship("HierarchicalEntity")

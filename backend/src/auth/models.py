@@ -18,8 +18,8 @@ class Company(Base):
     onboarding_status = Column(String, default="pending")  # pending, in_progress, completed
     onboarding_metadata = Column(JSONB, nullable=True)  # tracks completed steps & config
     default_daily_credits = Column(Numeric(10, 4), nullable=True)  # override daily credit amount for this tenant (was text, DM-11)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     parent = relationship("Company", remote_side=[id], backref="children")
     users = relationship("User", back_populates="company")
@@ -39,8 +39,8 @@ class User(Base):
     # Carried in every access token as ``tv``; bumping it ends every session the
     # user has — access tokens at their next request, refresh tokens at once (AU-I3).
     token_version = Column(Integer, nullable=False, default=0, server_default="0")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company = relationship("Company", back_populates="users")
     refresh_tokens = relationship("RefreshToken", back_populates="user")
@@ -52,8 +52,8 @@ class RefreshToken(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     # SHA-256 (hex) of the token; the token itself is never stored (AU-10).
     token_hash = Column(String(64), unique=True, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     user = relationship("User", back_populates="refresh_tokens")

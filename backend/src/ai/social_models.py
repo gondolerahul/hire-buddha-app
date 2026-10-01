@@ -38,7 +38,7 @@ class SocialConnection(Base):
     # OAuth tokens (encrypted via common/security.py AES-256-GCM)
     encrypted_access_token = Column(Text, nullable=False)
     encrypted_refresh_token = Column(Text, nullable=True)  # some platforms don't issue refresh tokens
-    token_expires_at = Column(DateTime, nullable=True)  # NULL = never expires
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)  # NULL = never expires
 
     # Platform identifiers
     platform_user_id = Column(String(255), nullable=True)  # e.g. LinkedIn URN, Twitter user ID
@@ -51,8 +51,8 @@ class SocialConnection(Base):
     # Status
     is_active = Column(Boolean, nullable=False, default=True)
     status = Column(String(50), nullable=False, default="active")  # active, token_expired, revoked, error
-    last_used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company = relationship("Company")

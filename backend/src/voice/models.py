@@ -27,14 +27,14 @@ class VoiceSession(Base):
     stream_sid = Column(String(100), nullable=True)
     direction = Column(String(20), nullable=True)  # 'inbound' | 'outbound'
     status = Column(String(20), nullable=False, default="initiated")
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    ended_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     total_cost_usd = Column(Numeric(10, 4), nullable=False, default=0)
     context_state = Column(JSONB, nullable=True)  # Conversation context
     conversation_log = Column(JSONB, nullable=True)  # Full transcript
     session_metadata = Column(JSONB, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     company = relationship("Company")
@@ -61,14 +61,14 @@ class WhatsAppSession(Base):
     provider = Column(String(20), nullable=False)  # 'twilio' | 'tata_tele'
     conversation_id = Column(String(100), nullable=False, unique=True)
     status = Column(String(20), nullable=False, default="active")
-    session_window_expires = Column(DateTime, nullable=True)  # 24-hour window
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    last_message_at = Column(DateTime, nullable=True)
+    session_window_expires = Column(DateTime(timezone=True), nullable=True)  # 24-hour window
+    started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    last_message_at = Column(DateTime(timezone=True), nullable=True)
     message_count = Column(Integer, nullable=False, default=0)
     total_cost_usd = Column(Numeric(10, 4), nullable=False, default=0)
     conversation_log = Column(JSONB, nullable=True)
     session_metadata = Column(JSONB, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
     company = relationship("Company")
@@ -97,7 +97,7 @@ class ConversationHistory(Base):
     message_type = Column(String(20), nullable=True)  # 'text' | 'audio' | 'image'
     content = Column(Text, nullable=True)
     audio_duration_ms = Column(Integer, nullable=True)
-    timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     message_metadata = Column(JSONB, nullable=True)
 
     # Relationships

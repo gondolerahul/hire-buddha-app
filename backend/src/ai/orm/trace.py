@@ -75,8 +75,8 @@ class ExecutionTraceEvent(Base):
     # In-process monotonic ordering within a run (assigned by the recorder).
     seq: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
-    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
@@ -92,7 +92,7 @@ class ExecutionTraceEvent(Base):
     payload: Mapped[Any] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_execution_trace_events_run_seq", "run_id", "seq"),

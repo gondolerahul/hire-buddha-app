@@ -89,11 +89,11 @@ class UserDevice(Base):
     status = Column(String(20), nullable=False, default=DEVICE_UNVERIFIED)
     verification_code_hash = Column(String(128), nullable=True)
     verification_did = Column(String(20), nullable=True)
-    verification_expires_at = Column(DateTime, nullable=True)
-    verified_at = Column(DateTime, nullable=True)
-    last_seen_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    verification_expires_at = Column(DateTime(timezone=True), nullable=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_user_devices_verification_did", "verification_did", "verification_expires_at"),
@@ -116,9 +116,9 @@ class ContactUpload(Base):
     phone_column = Column(String(255), nullable=True)
     valid_contacts = Column(JSONB, nullable=False, default=list)
     errors = Column(JSONB, nullable=False, default=list)
-    consumed_at = Column(DateTime, nullable=True)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
 class CampaignAssignee(Base):
@@ -126,7 +126,7 @@ class CampaignAssignee(Base):
 
     campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    assigned_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    assigned_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     __table_args__ = (PrimaryKeyConstraint("campaign_id", "user_id"),)
 
@@ -141,8 +141,8 @@ class MobileCampaignRun(Base):
     device_id = Column(UUID(as_uuid=True), ForeignKey("user_devices.id"), nullable=False)
     status = Column(String(20), nullable=False, default=RUN_RUNNING)
     dial_order = Column(String(20), nullable=False, default="ai_first")
-    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    ended_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index(
@@ -174,20 +174,20 @@ class MobileCallAttempt(Base):
     assisted = Column(Boolean, nullable=False, default=False)
     voice_session_id = Column(UUID(as_uuid=True), ForeignKey("voice_sessions.id"), nullable=True, index=True)
 
-    expires_at = Column(DateTime, nullable=False)
-    ai_answered_at = Column(DateTime, nullable=True)
-    ai_ready_at = Column(DateTime, nullable=True)
-    lead_dialed_at = Column(DateTime, nullable=True)
-    lead_answered_at = Column(DateTime, nullable=True)
-    merged_at = Column(DateTime, nullable=True)
-    ended_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    ai_answered_at = Column(DateTime(timezone=True), nullable=True)
+    ai_ready_at = Column(DateTime(timezone=True), nullable=True)
+    lead_dialed_at = Column(DateTime(timezone=True), nullable=True)
+    lead_answered_at = Column(DateTime(timezone=True), nullable=True)
+    merged_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
 
     lead_failure_cause = Column(String(30), nullable=True)
     end_reason = Column(String(50), nullable=True)
     lead_ring_seconds = Column(Integer, nullable=True)
     conversation_seconds = Column(Integer, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         Index(
@@ -226,8 +226,8 @@ class MobileClientLog(Base):
     message = Column(Text, nullable=False, default="")
     fields = Column(JSONB, nullable=False, default=dict)
     app_version = Column(String(50), nullable=True)
-    device_ts = Column(DateTime, nullable=True)
-    received_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    device_ts = Column(DateTime(timezone=True), nullable=True)
+    received_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_mobile_logs_company_time", "company_id", "received_at"),
@@ -242,9 +242,9 @@ class MobileCallEvent(Base):
     attempt_id = Column(UUID(as_uuid=True), ForeignKey("mobile_call_attempts.id", ondelete="CASCADE"), nullable=False)
     seq = Column(Integer, nullable=False)
     type = Column(String(40), nullable=False)
-    device_ts = Column(DateTime, nullable=True)
+    device_ts = Column(DateTime(timezone=True), nullable=True)
     elapsed_ms = Column(Integer, nullable=True)
-    received_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    received_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     payload = Column(JSONB, nullable=False, default=dict)
 
     __table_args__ = (

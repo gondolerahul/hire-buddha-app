@@ -50,8 +50,8 @@ class IntegrationRegistry(Base):
     #   anthropic (Vertex AI REQUIRED): {"project_id": "...", "region": "us-east5"}
     #   azure_openai: {"azure_endpoint": "https://...", "api_version": "2025-01-01-preview", "deployment_name": "..."}
     status = Column(String, default="active")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company = relationship("src.auth.models.Company")
 
@@ -75,8 +75,8 @@ class ModelTaskDefault(Base):
     integration_id = Column(UUID(as_uuid=True), ForeignKey("integration_registry.id"), nullable=False)
     routing_mode = Column(String(20), nullable=False, default="single")  # "single" | "router"
     is_default = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company = relationship("src.auth.models.Company")
     integration = relationship("IntegrationRegistry")

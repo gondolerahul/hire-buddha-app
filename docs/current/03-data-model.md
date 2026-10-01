@@ -125,7 +125,7 @@ graph TB
 | Convention | Rule | Exceptions worth knowing |
 |---|---|---|
 | Primary keys | `UUID(as_uuid=True)`, Python-side `default=uuid.uuid4` | `cortex_edges.id` and `feature_flags.id` were created with a `gen_random_uuid()` server default in their migrations |
-| Timestamps | `created_at = DateTime, default=datetime.utcnow`; `updated_at` adds `onupdate=datetime.utcnow` | Naive `DateTime` — **no timezone**. Everything is UTC by convention, not by type. `usage_logs` calls its column `timestamp`, `conversation_history` too |
+| Timestamps | `created_at = DateTime(timezone=True), default=datetime.utcnow`; `updated_at` adds `onupdate=datetime.utcnow` | Every host column is `timestamptz` since DM-12 (2026-10-01). Python still works in **naive UTC**: every asyncpg connection runs with `TimeZone=UTC` and a driver codec ([database.py](../../backend/src/common/database.py)) writes a naive value as UTC, converts an aware one, and reads back naive UTC, raw SQL included. The API emits naive UTC as before. Don't read the local clock (`datetime.now()`, `date.today()`); `tests/unit/test_utc_timestamps.py` fails if you do. The three CORTEX tables keep naive `timestamp` (package-owned). `usage_logs` calls its column `timestamp`, `conversation_history` too |
 | Soft delete | Only `hierarchical_entities` has one: `deleted_at` + `status='DELETED'` | Everything else is a hard delete or never deleted |
 | JSON | `JSONB` everywhere since DM-13 (2026-10-01), except three `json` columns whose key order is content: `execution_runs.context_state`, `hierarchical_entities.io_contract`, `tool_registry_entries.function_schema` | `jsonb` re-sorts object keys and rejects the `\u0000` escape; the engine's `json_serializer` ([database.py](../../backend/src/common/database.py)) drops NUL characters. `tests/unit/test_json_columns.py` fails if a new `json` column appears without a reason |
 | Reserved-word dodges | SQLAlchemy reserves `metadata` on the declarative class, so no column may be called `metadata` | Each such column has the name of the attribute that maps it: `campaign_metadata`, `call_metadata`, `edge_metadata` (renamed from `metadata` in DM-14), `log_metadata`, `artifact_metadata`. `tests/unit/test_metadata_columns.py` fails if a `metadata` column reappears |
@@ -2110,8 +2110,12 @@ flowchart LR
   the last three; pass the attribute's real name (`edge_metadata=`, `campaign_metadata=`).
   `SemanticGraphService.create_edge` passed `metadata=`, so no CORTEX edge stored its
   metadata before that fix.
-- **All `DateTime` columns are naive.** There is no `timezone=True` anywhere. UTC is a
-  convention enforced only by `datetime.utcnow` defaults.
+- **Timestamps are instants in the database and naive UTC in Python.** Columns are
+  `timestamptz` (DM-12). The driver codec in `src/common/database.py` hands Python naive UTC
+  datetimes, so `datetime.utcnow()` comparisons work as before. A `psql` session not pinned
+  to UTC shows them in its own zone. `date_trunc` and `::date` on a `timestamptz` follow the
+  session zone, which the app pins to UTC. Use `AT TIME ZONE 'UTC'` in SQL that may run
+  elsewhere, as `kpi_daily_rollup` now does.
 - **Only `hierarchical_entities` is soft-deleted.** Deletion sets `status='DELETED'` and
   `deleted_at`, recursively across descendants, and nulls out `documents.entity_id` and
   `template_source_id` on referencing rows ([service.py:203](../../backend/src/ai/service.py:203)).

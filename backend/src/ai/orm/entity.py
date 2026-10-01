@@ -51,9 +51,9 @@ class HierarchicalEntity(Base):
     observability: Mapped[Any] = mapped_column(JSONB, nullable=True)
     metadata_extensions: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # Soft-delete timestamp; NULL = active
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Soft-delete timestamp; NULL = active
 
     company: Mapped["Company"] = relationship("Company")
     parent: Mapped["HierarchicalEntity | None"] = relationship(

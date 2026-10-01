@@ -151,7 +151,7 @@ class BillingService:
 
         tb = calculate_tb(base_cost, mf, pf, spf, d)
 
-        today = date.today()
+        today = datetime.utcnow().date()  # the period follows the UTC timestamps (DM-12)
         period = date(today.year, today.month, 1)
 
         # One row per (company, month, grouping) — the unique constraint

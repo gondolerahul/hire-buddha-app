@@ -57,7 +57,7 @@ class Artifact(Base):
 
     artifact_metadata = Column(JSONB, nullable=True)    # Extra info (dimensions, call SID, model used, etc.)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
     company = relationship("Company")
@@ -87,7 +87,7 @@ class CallLog(Base):
     provider = Column(String(30), nullable=True)        # twilio | tata_tele
     call_cost_usd = Column(Numeric(10, 6), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
     company = relationship("Company")
@@ -110,7 +110,7 @@ class CallContent(Base):
     sentiment = Column(String(20), nullable=True)    # positive | neutral | negative
     content_metadata = Column(JSONB, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     # Relationships
     call_log = relationship("CallLog", back_populates="content")

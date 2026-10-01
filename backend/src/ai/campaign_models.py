@@ -69,8 +69,8 @@ class Campaign(Base):
     call_script_template = Column(Text, nullable=True)  # Custom script template
     
     # Scheduling
-    scheduled_start = Column(DateTime, nullable=True)
-    scheduled_end = Column(DateTime, nullable=True)
+    scheduled_start = Column(DateTime(timezone=True), nullable=True)
+    scheduled_end = Column(DateTime(timezone=True), nullable=True)
     
     # Throttling
     max_concurrent_calls = Column(Integer, nullable=False, default=5)
@@ -85,8 +85,8 @@ class Campaign(Base):
     status = Column(String(20), nullable=False, default="draft")  # draft | scheduled | running | paused | completed | failed
     
     # Execution tracking
-    started_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     calls_initiated = Column(Integer, nullable=False, default=0)
     calls_completed = Column(Integer, nullable=False, default=0)
     calls_failed = Column(Integer, nullable=False, default=0)
@@ -98,8 +98,8 @@ class Campaign(Base):
     # Named like the attribute since DM-14; a column called "metadata" cannot
     # be mapped under that name, and `campaign.metadata` is the table MetaData.
     campaign_metadata = Column(JSONB, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     company = relationship("Company")
@@ -124,7 +124,7 @@ class CampaignCall(Base):
     # Mobile dialer lease: a rep's device holds the lead while dialing it.
     leased_by_user_id = Column(UUID(as_uuid=True), nullable=True)
     leased_by_device_id = Column(UUID(as_uuid=True), nullable=True)
-    lease_expires_at = Column(DateTime, nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
     call_sid = Column(String(100), nullable=True)
 
     # Outcome
@@ -146,18 +146,18 @@ class CampaignCall(Base):
     # db-scripts/mobile_dialer_002.sql
     rep_disposition = Column(String(30), nullable=True)
     rep_note = Column(Text, nullable=True)
-    rep_dispositioned_at = Column(DateTime, nullable=True)
+    rep_dispositioned_at = Column(DateTime(timezone=True), nullable=True)
     rep_dispositioned_by = Column(UUID(as_uuid=True), nullable=True)
     disposition_source = Column(String(10), nullable=True)  # ai | rep
 
     # A lead the rep agreed to call back later. Held out of the leasing query
     # until its time comes; see src/mobile/service.py _LEASE_SQL.
-    callback_at = Column(DateTime, nullable=True)
+    callback_at = Column(DateTime(timezone=True), nullable=True)
 
     # Timing
-    scheduled_at = Column(DateTime, nullable=True)
-    called_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
+    scheduled_at = Column(DateTime(timezone=True), nullable=True)
+    called_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     
     # Retry tracking
@@ -166,7 +166,7 @@ class CampaignCall(Base):
     
     # Metadata
     call_metadata = Column(JSONB, nullable=True)  # was column "metadata" (DM-14)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     
     # Relationships
     campaign = relationship("Campaign")

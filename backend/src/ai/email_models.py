@@ -31,9 +31,9 @@ class EmailConnection(Base):
     provider_type = Column(String, nullable=False, default="gmail")  # gmail, outlook, custom
     folder_prefix = Column(String, nullable=True)  # e.g., "[Gmail]/" for Gmail
     is_active = Column(Boolean, nullable=False, default=True)
-    last_connected_at = Column(DateTime, nullable=True)
+    last_connected_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String, nullable=False, default="active")  # active, auth_failed, disconnected
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company = relationship("Company")

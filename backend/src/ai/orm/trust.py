@@ -42,7 +42,7 @@ class SourceTrustScore(Base):
     # Current learned trust (smoothed estimate blended with the prior).
     learned_trust: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company: Mapped["Company"] = relationship("Company")
 

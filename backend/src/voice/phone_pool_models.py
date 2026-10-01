@@ -36,14 +36,14 @@ class PhoneNumber(Base):
     # Ownership (set when claimed)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     claimed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    claimed_at = Column(DateTime, nullable=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Agent assignment (set when assigned)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
     customer_id = Column(UUID(as_uuid=True), nullable=True)
     customer_name = Column(String(255), nullable=True)
     customer_metadata = Column(JSONB, nullable=True)
-    assigned_at = Column(DateTime, nullable=True)
+    assigned_at = Column(DateTime(timezone=True), nullable=True)
 
     # Inventory metadata (from provider sync)
     provider_sid = Column(String(100), nullable=True)
@@ -56,8 +56,8 @@ class PhoneNumber(Base):
     added_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     company = relationship("Company", foreign_keys=[company_id])

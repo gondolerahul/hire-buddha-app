@@ -2,9 +2,12 @@
 
 Postgres refuses ``ALTER COLUMN … TYPE`` on a column a view reads, and the
 materialised view reads ``execution_runs`` and ``hierarchical_entities.tags``.
-A revision that changes those types wraps its work in :func:`rebuilt`. The
-definition is the one ``p11t09_kpi_rollup`` created; rebuilding repopulates
-it, as the hourly refresh would.
+A revision that changes those types wraps its work in :func:`rebuilt`, which
+recreates the view from the definition it is given (rebuilding repopulates it,
+as the hourly refresh would). ``CREATE_VIEW`` is the one ``p11t09_kpi_rollup``
+created; ``CREATE_VIEW_UTC`` buckets days in UTC explicitly, for once
+``completed_at`` is ``timestamptz`` (DM-12) and ``date_trunc`` would otherwise
+follow the session time zone.
 """
 from __future__ import annotations
 
@@ -33,13 +36,16 @@ JOIN hierarchical_entities e ON e.id = er.entity_id
 WHERE er.completed_at IS NOT NULL
 GROUP BY 1, 2, 3
 """
+CREATE_VIEW_UTC = CREATE_VIEW.replace(
+    "date_trunc('day', er.completed_at)", "date_trunc('day', er.completed_at AT TIME ZONE 'UTC')")
+assert CREATE_VIEW_UTC != CREATE_VIEW
 CREATE_INDEX = "CREATE UNIQUE INDEX kpi_daily_rollup_uniq ON kpi_daily_rollup(day, company_id, primary_tag)"
 
 
 @contextmanager
-def rebuilt() -> Iterator[None]:
-    """Drop the view, let the caller alter its tables, then create it again."""
+def rebuilt(definition: str = CREATE_VIEW) -> Iterator[None]:
+    """Drop the view, let the caller alter its tables, then create it from ``definition``."""
     op.execute("DROP MATERIALIZED VIEW IF EXISTS kpi_daily_rollup")
     yield
-    op.execute(CREATE_VIEW)
+    op.execute(definition)
     op.execute(CREATE_INDEX)

@@ -285,7 +285,7 @@ The **monthly aggregate**, upserted on every settlement. This is what both money
 | Column | Type | Meaning |
 |---|---|---|
 | `company_id` | UUID FK | |
-| `period_month` | Date | Always the 1st of the month |
+| `period_month` | Date | Always the 1st of the month, in UTC (the local date until DM-12, 2026-10-01) |
 | `grouping_type` | String(30) | `partner` \| `tenant` \| `user` \| `process` \| `agent` \| `tool` |
 | `grouping_value` | String(500) | Free text — entity name, agent UUID, or tool id |
 | `base_cost` | Numeric(14,6) | `c`, accumulated |

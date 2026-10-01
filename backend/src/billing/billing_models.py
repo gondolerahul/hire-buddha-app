@@ -37,8 +37,8 @@ class BillingConfig(Base):
     base_cost_image_gen = Column(Numeric(14, 6), nullable=True)
 
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     company = relationship("Company")
 
@@ -56,18 +56,18 @@ class CreditWallet(Base):
 
     # Daily credits — injected daily per BillingConfig, expires at 00:00:00 next day (never carries forward)
     daily_credits = Column(Numeric(10, 4), nullable=False, default=0)
-    daily_expires_at = Column(DateTime, nullable=True)
+    daily_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Wallet balance — topped up via Razorpay, 365-day validity
     wallet_balance = Column(Numeric(12, 4), nullable=False, default=0.0)
-    wallet_expires_at = Column(DateTime, nullable=True)
+    wallet_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Subscription credits — allocated monthly, strictly no carry-forward
     subscription_credits = Column(Numeric(12, 4), nullable=False, default=0.0)
     subscription_bonus_credits = Column(Numeric(12, 4), nullable=False, default=0.0)
-    sub_credits_expire_at = Column(DateTime, nullable=True)
+    sub_credits_expire_at = Column(DateTime(timezone=True), nullable=True)
 
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     company = relationship("Company")
     transactions = relationship(
@@ -94,8 +94,8 @@ class SubscriptionTier(Base):
     # use and cleared when monthly_fee changes (Razorpay plans are immutable).
     razorpay_plan_id = Column(String(200), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 class Subscription(Base):
@@ -115,11 +115,11 @@ class Subscription(Base):
     status = Column(String(20), nullable=False, default="active")
     razorpay_subscription_id = Column(String(200), nullable=True)
     razorpay_plan_id = Column(String(200), nullable=True)
-    next_billing_date = Column(DateTime, nullable=True)
-    cancelled_at = Column(DateTime, nullable=True)
+    next_billing_date = Column(DateTime(timezone=True), nullable=True)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     company = relationship("Company")
 
@@ -142,8 +142,8 @@ class PaymentTransaction(Base):
     credits_awarded = Column(Numeric(12, 4), nullable=True)
     transaction_metadata = Column(JSONB, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     __table_args__ = (
         # One transaction per Razorpay order and per payment, so a replayed
@@ -212,8 +212,8 @@ class BillingEvent(Base):
     video_gen_count = Column(Integer, nullable=False, default=0)
     other_ai_cost = Column(Numeric(14, 6), nullable=False, default=0)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     company = relationship("Company")
 
@@ -235,8 +235,8 @@ class CreditHold(Base):
     run_id = Column(UUID(as_uuid=True), ForeignKey("execution_runs.id", ondelete="CASCADE"),
                     nullable=False, unique=True)
     amount = Column(Numeric(14, 6), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    released_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    released_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("idx_credit_holds_open", "company_id",

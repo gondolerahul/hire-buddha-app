@@ -44,5 +44,5 @@ class FeatureFlag(Base):
     flag_key: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     value_json: Mapped[Any] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

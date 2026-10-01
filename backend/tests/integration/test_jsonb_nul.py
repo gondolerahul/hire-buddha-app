@@ -2,9 +2,9 @@
 
 ``jsonb`` rejects the ``\\u0000`` escape that ``json`` accepted, so with the
 columns converted, a tool output containing a NUL would have failed the whole
-flush. The app engine drops NULs from the JSON it writes. This runs on that
-engine (the suite's fixture builds its own) in a transaction that is rolled
-back.
+flush. The app engine drops NULs from the JSON it writes. This builds an
+engine configured the same way (a pooled app connection may belong to another
+test's event loop) and rolls its transaction back.
 """
 from __future__ import annotations
 
@@ -19,9 +19,14 @@ pytestmark = pytest.mark.needs_db
 
 @pytest.mark.asyncio
 async def test_a_nul_in_a_jsonb_value_is_dropped_not_fatal():
-    from src.ai.orm.feature_flags import FeatureFlag
-    from src.common.database import engine
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
 
+    from src.ai.orm.feature_flags import FeatureFlag
+    from src.common.config import settings
+    from src.common.database import json_serializer
+
+    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool, json_serializer=json_serializer)
     key = f"dm13-{uuid.uuid4().hex[:8]}"
     async with engine.connect() as conn:
         trans = await conn.begin()
@@ -35,3 +40,4 @@ async def test_a_nul_in_a_jsonb_value_is_dropped_not_fatal():
             assert stored == {"output": "ab", "items": [""]}
         finally:
             await trans.rollback()
+    await engine.dispose()

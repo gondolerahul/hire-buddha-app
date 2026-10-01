@@ -78,9 +78,9 @@ class ExecutionRun(Base):
     span_id: Mapped[str | None] = mapped_column(String, nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # Step-level dedup
 
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     # First-party CSAT signal on a completed run (Phase 12 `07` §6, P-O2): the
     # only ground-truth "was this good?" signal — feeds critic false-pass
@@ -153,7 +153,7 @@ class LLMInteractionLog(Base):
     reasoning_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     step_name: Mapped[str | None] = mapped_column(String, nullable=True)  # Associates this log with a specific plan step
     log_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="llm_logs")
 
@@ -181,7 +181,7 @@ class ToolInteractionLog(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     log_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # Step-level dedup
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="tool_logs")
 
@@ -206,8 +206,8 @@ class HumanApproval(Base):
     reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     notification_channels: Mapped[Any] = mapped_column(JSONB, nullable=True)
     timeout_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    requested_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
-    responded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="human_approvals")
     reviewer: Mapped["User | None"] = relationship("User")
