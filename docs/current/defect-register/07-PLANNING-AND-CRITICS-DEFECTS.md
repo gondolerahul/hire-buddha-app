@@ -44,12 +44,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--paying-for-criticism-that-is-discarded) | Paying for criticism that is discarded | 5 | Now — this is money per run |
+| [T0](#2-t0--paying-for-criticism-that-is-discarded) | Paying for criticism that is discarded | 6 | Now — this is money per run |
 | [T1](#3-t1--self-correction-that-does-not-correct) | Self-correction that does not correct | 5 | Before claiming the platform self-corrects |
 | [T2](#4-t2--built-and-never-wired) | Built and never wired | 6 | Each is a decision: wire it or delete it |
 | [T3](#5-t3--planning-correctness) | Planning correctness | 10 | When the area is next touched |
 
-**Total: 26 defects, 10 improvements.** (PC-26 was found on 2026-10-01.)
+**Total: 27 defects, 10 improvements.** (PC-26 was found on 2026-10-01; PC-27 on 2026-10-02.)
 
 The three to read first:
 
@@ -165,6 +165,30 @@ actually reduce the most expensive stage.
 Note also that the threshold `governance.critic_cost_share_pct` is **not a declared
 Pydantic field**, so it cannot be set through the API — see
 [PC-16](#pc-16--every-critic-knob-in-governance-is-undeclared).
+
+### PC-27 — The post critic judges the step's output cut to 160 characters
+
+**✅ Verified · High** · **Status: open** — found 2026-10-02 during the P4 live run of the
+[consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md); scheduled first in P7.
+
+The post critic (and the alignment check) judge `observation.summary`, and
+`Observer._summarise` builds it as `"[<outcome>] " + output[:160]`
+([observer.py:70](../../../backend/src/ai/core/observer.py:70), unchanged since the initial
+commit). Any step whose answer is longer than 160 characters reaches the critic as a
+sentence cut mid-word, so the critic returns `REVISE` with `INCOMPLETE`; the loop retries
+the step, the next answer is cut the same way, and every third iteration the supervisor —
+seeing a run of `INCOMPLETE` verdicts — asks for a `REPLAN`, which wipes the completed steps
+([PC-09](#pc-09--replan-wipes-completed-step-ids-for-dynamic-plans)). The run never
+finishes on its own; it stops at the iteration or cost cap.
+
+Live, 2026-10-02 (run `a13cae0f-a4db-470d-bd3e-fccf4fd58fd5`): an `ACTION` asked for "two
+sentences on why unit tests matter" produced a complete two-sentence answer every
+iteration; the critic called it "one full sentence and a partial second sentence" five
+times; the supervisor replanned twice; nine iterations and $0.044 later it was cancelled.
+The interaction rows added in P4.7 are what made the critic's input and verdicts readable.
+
+**Fix:** the critics judge the step's output (bounded by a token budget, not 160
+characters); the observation summary stays a summary for the timeline.
 
 ---
 

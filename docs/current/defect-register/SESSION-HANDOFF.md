@@ -33,8 +33,10 @@
 > these are worked as one plan, not one defect at a time —
 > [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), with the
 > product owner's R1 (six-level hierarchy) and R2 (skill-first tool stack). Its §12
-> progress log is the status of record. **P0–P3 are done** (P3, the tool entry point and
-> tool security, ended at `b5b1467`); **next is P4** (one cost write path). On this
+> progress log is the status of record. **P0–P4 are done** (P3, tool security, ended at
+> `b5b1467`; P4, one cost write path, at `07bb740`); **next is P5** (versions and assets),
+> but read **PC-27** first: the post critic judges output cut to 160 characters, so a
+> run with longer answers loops on `INCOMPLETE` (scheduled first in P7). On this
 > machine the P0–P1 migrations were applied during P3 (`alembic upgrade head`, now
 > `ep06_run_depth`) and both workers restarted. The unit baseline is now **6** known
 > failures (the doc-factory Windows path test passes since P3.5). New entry from P3's live

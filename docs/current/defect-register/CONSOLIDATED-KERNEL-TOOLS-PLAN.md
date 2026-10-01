@@ -346,6 +346,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 
 | ID | Merged | Defect | Sev | Status | Phase |
 |---|---|---|---|---|---|
+| **PC-27** | — | The post critic and the alignment check judge the step output cut to 160 characters (`Observer._summarise`), so any longer answer is `INCOMPLETE`, retried and replanned until a cap (found in the P4 live run) | High | 🆕 | P7 (first) |
 | **PC-06** | PC-I1 | Every retry strategy executes identically | High | ✅ | P7 |
 | **PC-07** | (EP-05 row) | `retry_policy` is schema-only; retries are immediate | Medium | ✅ | P7 |
 | **PC-08** | — | `FailureTag.severity` is never consulted | Low | ✅ | P7 |
@@ -770,6 +771,7 @@ and run → 4.4 override through the registry → 4.5 reformat span → 4.6 one 
 
 | # | Work | Ids |
 |---|---|---|
+| 7.0 | The critics judge the step's output, not its 160-character summary — first, because every other P7 item acts on their verdicts | PC-27 |
 | 7.1 | Retry strategies carry their fields onto the `Move`; the executor honours model escalation, prompt rewrite, fallback tool, ask-user | PC-06 |
 | 7.2 | Backoff from `logic_gate.retry_policy` (and it becomes the per-step retry bound) | PC-07 |
 | 7.3 | Severity orders the choice | PC-08 |
@@ -937,3 +939,14 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P3.9 | TX-01, TL-01 (part), TL-02 (part) | `9ef850e` | `test_container_runtime.py`, `test_tool_synthesis.py`. TL-01's default flip and TL-02's harness rework stay in P11 |
 | P3.10 | TX-04 (MI-13) | `b5b1467` | `test_tool_status.py`; the registry has 86 tools |
 | **P3 done** | TL-50, TL-10, TL-12, TX-03, TL-13, TL-14, TL-53, TL-65, TL-03, TL-11, TL-21, TL-04, TL-56, TL-05, TL-07, TL-08, TL-54, TL-55, TX-02, TL-20, TL-06, TX-01, TX-04 (TL-01, TL-02 in part) | — | Unit 1589 passed + 6 known failures (the Windows doc-factory path test now passes); integration 227 passed + the 2 known local failures. **Live**, through the restarted worker (run `ad8e1313…`): an `ACTION` granted only `calculator` with `max_tool_calls: 1` had its second call refused `call_budget` and logged as refused. The live run also found **TL-68** (new): `calculator` cannot be called natively — scheduled in P6 (6.10) |
+| — | P4 detailed design | `89d9e35` | Written into §8 P4 before P4.1 |
+| P4.1 | AK-02 (AK-I1, BC-I3) | `89d9e35` | Live evidence on the old code: run `ad8e1313…` recorded and billed $0.0085 while its own rows summed to $0.010393 plus $0.001052 of alignment spend with no run (~26% unbilled). `test_run_cost.py`. Found: the v2 planner, its judge and the alignment check wrote rows with no run id |
+| P4.1 follow-up | AK-02 | `c37bfd3` | An iteration's cost (bandit reward, events) is the growth of the run's rows; it read the run column, which spenders no longer write |
+| P4.2 | PC-03 (cost half) | `1b19b69` | `test_alignment_cost.py` |
+| P4.3 | PC-20 | `ca74534` | `test_planner_service.py`. Found: without the entity the tool invariant **failed** every tool step of a replan (not "skipped"), and replans wrote no usage row |
+| P4.4 | LP-05 | `c28e88e` | `test_model_override.py` |
+| P4.5 | EP-24 (EP-I10) | `31ad5ba` | `test_reformat_visibility.py` |
+| P4.6 | TX-I1, TL-33 | `902af7c` | `test_tool_cost_resolver.py` |
+| P4.7 | LP-I9 | `bf10015` | `test_interaction_rows.py` |
+| P4.8 | AK-11 (remainder) | `07bb740` | `test_cost_frames.py`; `critic_pipeline.py` deduplicated to stay within the planning/ cap |
+| **P4 done** | AK-02, AK-I1, BC-I3, PC-03 (cost), PC-20, LP-05, EP-24, TX-I1, TL-33, LP-I9, AK-11 | — | Unit + integration 1846 passed + the 8 known failures (the layout cap, then fixed). **Live** through the restarted worker (run `a13cae0f…`): total $0.0375 = Σ its rows $0.037542; no unattributed rows; planner and critic calls have interaction rows. The live run also found **PC-27** (new, High): the post critic judges output cut to 160 characters, so the run looped on `INCOMPLETE` until cancelled — scheduled first in P7 |
