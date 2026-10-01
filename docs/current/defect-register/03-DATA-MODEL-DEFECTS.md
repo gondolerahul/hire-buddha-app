@@ -473,7 +473,7 @@ passes.
 
 ### DM-17 — Run status transitions are advisory
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — enforced on every ORM write.
 
 `validate_transition` warns but never blocks. Illegal state transitions are therefore
 reachable, and the status machine in the docs is a description of intent rather than a
@@ -484,6 +484,38 @@ target, so nothing can ever enter it.
 
 - [`ai/schemas/enums.py`](../../../backend/src/ai/schemas/enums.py) — `VALID_TRANSITIONS`
 - Also recorded as **D-35** in the platform register
+
+**Verified (2026-10-01).** `validate_transition` had no callers at all, so not even the
+warning fired. The harm is concrete: the loop's final write did not look at the stored
+status, so a run the user cancelled while its last step ran was finished as `COMPLETED`.
+And the session (`expire_on_commit=False`) kept a stale status, so the reload before that
+write could not see the cancel either.
+
+**Done (2026-10-01).**
+
+- `VALID_TRANSITIONS` now lists every status. The four terminal ones (`COMPLETED`, `FAILED`,
+  `PARTIAL_COMPLETE`, `CANCELLED`, exported as `TERMINAL_RUN_STATUSES`) have no outgoing
+  edges. `PARTIAL_COMPLETE → RUNNING/COMPLETED/FAILED` went, because nothing used them.
+  `PENDING → FAILED` was added: the credit gate fails a run before it starts. `REPAIRING`
+  was removed from `RunStatus` and the frontend enum (also AK-15).
+- A `set` listener on `ExecutionRun.status` refuses an unlisted transition. It keeps the
+  old value and logs a warning rather than raising, so a refused status does not lose the
+  rest of the write.
+- `AgentLoop._reload_run` reads with `populate_existing`. The final and suspend writes
+  also take `FOR UPDATE`, so the guard compares with the stored status.
+- `cancel_execution` is one conditional `UPDATE … WHERE status NOT IN (terminal)`. It
+  cannot overwrite a run that finished after it was loaded.
+
+**Evidence:** `tests/unit/test_run_status_transitions.py` checks that terminal statuses
+are final, that a late `COMPLETED` keeps `CANCELLED`, that the pipeline's paths (credit
+refusal, child wait and resume, pause, re-delivered job) are allowed, and that the table
+is closed with every status reachable. `tests/integration/test_run_cancel_race.py` (real
+Postgres) covers a cancel made behind the loop's back surviving the final write (whose
+cost still lands) and a cancel not overwriting a run that finished meanwhile. 23 of these
+cases fail on the old code (`5e38d68`).
+
+**Note:** the listener itself landed early, swept into `141a4df` (FE-10) from the shared
+working tree. This commit completes it.
 
 ---
 

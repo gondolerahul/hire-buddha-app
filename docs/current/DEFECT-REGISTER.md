@@ -460,7 +460,7 @@ up a launch.
 | **D-32** | Rate limits key on `127.0.0.1` | No vhost sets a forwarded-for header, so every caller shares one bucket | 📄 Doc |
 | **D-33** | Child-resolver strategy 4 is not company-scoped | A name-based lookup can cross a tenant boundary | 📄 Doc |
 | **D-34** | `_final_status` can return `COMPLETED` when every step failed | Runs that did nothing are billed and reported as successes | 📄 Doc |
-| **D-35** | Run status transitions are advisory | `validate_transition` warns but never blocks; illegal states are reachable | 📄 Doc |
+| **D-35** | Run status transitions are advisory | `validate_transition` warns but never blocks; illegal states are reachable | ✅ fixed (2026-10-01) — DM-17: the run model refuses an illegal status write; terminal statuses are final; cancel and the loop's final write cannot overwrite each other |
 | **D-36** | Agent selection is `LIMIT 1` with no `ORDER BY` | Non-deterministic agent choice, in three separate call sites | 📄 Doc |
 | **D-37** | No credit holds | Cost accrues during a run and settles at the end, so one run can overdraw | ✅ fixed (2026-09-30, `c1eecb9`) — BC-06: a run holds its estimated bill; the BC-05 breaker stops it at the wallet |
 | **D-38** | Frontend has no error boundary | One render throw blanks the entire page | 📄 Doc |

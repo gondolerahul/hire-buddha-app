@@ -19,6 +19,7 @@ __all__ = [
     "ContextSourceType",
     "CortexTreeStatus",
     "CortexNodeType",
+    "TERMINAL_RUN_STATUSES",
     "VALID_TRANSITIONS",
     "validate_transition",
 ]
@@ -39,30 +40,41 @@ class RunStatus(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     PARTIAL_COMPLETE = "PARTIAL_COMPLETE"  # Some steps OK, others failed
-    REPAIRING = "REPAIRING"
     REFINING = "REFINING"                  # Selective re-execution with user feedback
     CANCELLED = "CANCELLED"                # Operator-cancelled mid-flight (terminal)
     WAITING_ON_CHILDREN = "WAITING_ON_CHILDREN"  # Suspended; child runs in flight
 
 
-# Execution state machine — valid transitions
+# Execution state machine — valid transitions. Enforced (DM-17): every write to
+# ``execution_runs.status`` through the ORM passes ``orm/execution.py``'s
+# listener, which refuses a transition not listed here and keeps the old status.
+# The four terminal statuses are final — retry and refine create new runs, and
+# the dispatcher never re-drives a terminal run — so a late write (a loop
+# finishing after the user cancelled) cannot overwrite them.
+TERMINAL_RUN_STATUSES: frozenset[str] = frozenset({"COMPLETED", "FAILED", "PARTIAL_COMPLETE", "CANCELLED"})
 VALID_TRANSITIONS: dict[str, set[str]] = {
-    "PENDING": {"RUNNING", "REFINING", "CANCELLED"},
+    # A run can fail or be cancelled before it starts (a guard, a user).
+    "PENDING": {"RUNNING", "REFINING", "FAILED", "CANCELLED"},
     "RUNNING": {"PAUSED", "COMPLETED", "FAILED", "PARTIAL_COMPLETE",
                 "CANCELLED", "WAITING_ON_CHILDREN"},
     "PAUSED": {"RUNNING", "RESUMING", "FAILED", "CANCELLED"},
     "RESUMING": {"RUNNING", "FAILED", "CANCELLED"},
-    "PARTIAL_COMPLETE": {"RUNNING", "COMPLETED", "FAILED"},
-    "REPAIRING": {"RUNNING", "FAILED"},
     "REFINING": {"RUNNING", "COMPLETED", "FAILED"},
     # Async child dispatch: a suspended parent resumes (RESUMING → RUNNING) once
     # its children are terminal, or fails/cancels out of the wait.
     "WAITING_ON_CHILDREN": {"RESUMING", "RUNNING", "FAILED", "CANCELLED"},
+    **{status: set() for status in TERMINAL_RUN_STATUSES},
 }
 
 
 def validate_transition(current: str, target: str) -> bool:
-    """Check if a status transition is valid. Logs a warning for invalid ones (lenient mode)."""
+    """Whether ``current → target`` is allowed; logs a warning when it is not.
+
+    Staying in the same status is always allowed (a re-driven run sets RUNNING
+    again). Unknown statuses are not.
+    """
+    if current == target:
+        return True
     allowed = VALID_TRANSITIONS.get(current, set())
     if target not in allowed:
         logging.getLogger(__name__).warning(

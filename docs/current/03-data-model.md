@@ -1420,14 +1420,15 @@ stateDiagram-v2
 
 ### 11.2 Run status lifecycle
 
-`RunStatus` and `VALID_TRANSITIONS` are both in
-[schemas/enums.py:34](../../backend/src/ai/schemas/enums.py:34).
+`RunStatus`, `TERMINAL_RUN_STATUSES` and `VALID_TRANSITIONS` are all in
+[schemas/enums.py:35](../../backend/src/ai/schemas/enums.py:35).
 
 ```mermaid
 stateDiagram-v2
   [*] --> PENDING
   PENDING --> RUNNING
   PENDING --> REFINING
+  PENDING --> FAILED
   PENDING --> CANCELLED
   RUNNING --> PAUSED
   RUNNING --> COMPLETED
@@ -1442,11 +1443,6 @@ stateDiagram-v2
   RESUMING --> RUNNING
   RESUMING --> FAILED
   RESUMING --> CANCELLED
-  PARTIAL_COMPLETE --> RUNNING
-  PARTIAL_COMPLETE --> COMPLETED
-  PARTIAL_COMPLETE --> FAILED
-  REPAIRING --> RUNNING
-  REPAIRING --> FAILED
   REFINING --> RUNNING
   REFINING --> COMPLETED
   REFINING --> FAILED
@@ -1456,27 +1452,33 @@ stateDiagram-v2
   WAITING_ON_CHILDREN --> CANCELLED
   COMPLETED --> [*]
   FAILED --> [*]
+  PARTIAL_COMPLETE --> [*]
   CANCELLED --> [*]
 ```
 
-Enforcement is **lenient**: `validate_transition()` logs a warning and returns `False`
-for an invalid transition, but nothing stops the write.
+**The four terminal statuses are final.** Retry and refine create new runs, and the
+dispatcher never re-drives a terminal run, so nothing legitimately leaves one.
 
-```python
-# backend/src/ai/schemas/enums.py
-def validate_transition(current: str, target: str) -> bool:
-    allowed = VALID_TRANSITIONS.get(current, set())
-    if target not in allowed:
-        logging.getLogger(__name__).warning(
-            f"Invalid state transition: {current} → {target} "
-            f"(allowed: {allowed or 'none'})"
-        )
-        return False
-    return True
-```
+**Enforced since DM-17 (2026-10-01).** A listener on `ExecutionRun.status`
+([orm/execution.py:94](../../backend/src/ai/orm/execution.py:94)) checks every ORM write
+against `VALID_TRANSITIONS`. A transition the table does not list is **refused, not
+raised**: the attribute keeps its old status and a warning is logged, so the rest of the
+write (a cancelled run's cost, tokens and result) still lands. Staying in the same status
+is always allowed.
 
-Also note `REPAIRING` has no inbound edge in `VALID_TRANSITIONS` — nothing can legally
-transition *into* it.
+The guard compares with the value the session holds, which can be stale. The two writers
+that race therefore read the stored value first:
+
+- The loop's final write and its suspend write reload the run with `populate_existing`
+  and `FOR UPDATE` (`AgentLoop._reload_run(for_update=True)`), so a cancel that landed
+  after the loop's last status check keeps the run `CANCELLED`, and a cancel arriving
+  during the write waits for it.
+- Cancel is one `UPDATE … WHERE status NOT IN (terminal)`
+  ([service.py:482](../../backend/src/ai/service.py:482)), so it does nothing to a run that
+  has meanwhile finished.
+
+Core `UPDATE` statements bypass the listener; there are none on `status` outside cancel.
+`REPAIRING`, which nothing could enter, was removed.
 
 ### 11.3 User roles
 
@@ -2101,8 +2103,9 @@ flowchart LR
   `template_source_id` on referencing rows ([service.py:203](../../backend/src/ai/service.py:203)).
   Entity queries hide those rows by default since DM-16 (see §4.1); opt out with
   `.execution_options(include_deleted=True)` where history must include deleted agents.
-- **Run status transitions are advisory.** `validate_transition` warns but never blocks.
-  And `REPAIRING` is unreachable: no other status lists it as an allowed target.
+- **An illegal run-status write is silently refused.** Since DM-17 the run model keeps
+  the old status and logs a warning instead of raising (§11.2). Setting `COMPLETED` on a
+  `CANCELLED` run leaves it `CANCELLED`; read the status back if it matters.
 - **`call_logs.voice_session_id` deliberately has no FK** because the two tables belong
   to different modules; the same is true of `conversation_history.session_id`, which is
   polymorphic across `voice_sessions` and `whatsapp_sessions`.

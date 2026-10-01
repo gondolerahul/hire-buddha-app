@@ -500,13 +500,20 @@ class AIService:
         if not run:
             raise HTTPException(status_code=404, detail="Execution not found")
 
-        terminal = {"COMPLETED", "FAILED", "PARTIAL_COMPLETE", "CANCELLED"}
-        if str(run.status) not in terminal:
-            from datetime import datetime
-            run.status = "CANCELLED"
-            run.completed_at = datetime.utcnow()
-            await self.db.commit()
+        # One conditional UPDATE, so a run that finished meanwhile stays
+        # finished: the WHERE is re-checked after any lock the finishing loop
+        # holds, and then matches nothing (DM-17).
+        from sqlalchemy import update
 
+        from src.ai.schemas.enums import TERMINAL_RUN_STATUSES
+        cancelled = (await self.db.execute(
+            update(ExecutionRun)
+            .where(ExecutionRun.id == run.id, ExecutionRun.status.notin_(TERMINAL_RUN_STATUSES))
+            .values(status="CANCELLED", completed_at=datetime.utcnow())
+            .execution_options(synchronize_session=False)
+        )).rowcount
+        await self.db.commit()
+        if cancelled:
             # Notify any live SSE subscriber so the stream closes promptly. The
             # ``status`` key drives the stream generator's break condition.
             try:
@@ -533,6 +540,7 @@ class AIService:
                 selectinload(ExecutionRun.human_approvals),
             )
             .where(ExecutionRun.id == execution_id)
+            .execution_options(populate_existing=True)  # the UPDATE bypassed the loaded run
         )
         return result.scalar_one()
 

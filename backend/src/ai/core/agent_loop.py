@@ -1090,7 +1090,9 @@ class AgentLoop:
                     await self.db.rollback()
                 except Exception:
                     pass
-            fresh = await self._reload_run(run_id) if run_id else None
+            # Locked and re-read: a cancel that landed since the loop's last
+            # status check is seen here and keeps the run CANCELLED (DM-17).
+            fresh = await self._reload_run(run_id, for_update=True) if run_id else None
             if fresh is None:
                 logger.error("Final persist: run %s not found; skipping", run_id)
                 return
@@ -1148,7 +1150,7 @@ class AgentLoop:
                 await self.db.commit()
             except Exception:                                              # pragma: no cover
                 await self.db.rollback()
-            fresh = await self._reload_run(run_id) if run_id else None
+            fresh = await self._reload_run(run_id, for_update=True) if run_id else None
             if fresh is None:
                 logger.error("Persist-suspended: run %s not found", run_id)
                 return
@@ -1193,12 +1195,24 @@ class AgentLoop:
     # Helpers
     # ------------------------------------------------------------------
 
-    async def _reload_run(self, run_id: UUID) -> Optional[ExecutionRun]:
-        result = await self.db.execute(
+    async def _reload_run(self, run_id: UUID, *, for_update: bool = False) -> Optional[ExecutionRun]:
+        """Load the run with the database's current values.
+
+        ``populate_existing`` overwrites an instance already in the session
+        (which ``expire_on_commit=False`` leaves stale), so the status the run
+        model's transition guard checks against is the stored one. With
+        ``for_update`` the row stays locked until the caller commits, so a
+        concurrent cancel cannot slip in between the read and the write.
+        """
+        stmt = (
             select(ExecutionRun)
             .options(selectinload(ExecutionRun.entity))
             .where(ExecutionRun.id == run_id)
+            .execution_options(populate_existing=True)
         )
+        if for_update:
+            stmt = stmt.with_for_update(of=ExecutionRun)
+        result = await self.db.execute(stmt)
         return cast(Optional[ExecutionRun], result.scalar_one_or_none())
 
     async def _check_cancelled(self, state: AgentState) -> bool:

@@ -317,7 +317,7 @@ the same lesson as `tools.cost_resolver_v2_enabled` in the tool layer.
 | **AK-12** | `Budget.can_afford` is fully implemented with zero call sites | The `budget.py` module docstring claims "Strategist consults `pressure` and `can_afford`". It consults only `pressure` | ✅ Verified |
 | **AK-13** | The `budget.py` docstring says the critic self-skips on pressure | It does not. The critic degrades on a **cost-share** rule (`critic_cost / run_cost > 0.20`), not on budget pressure. Anyone tuning cost from the docstring will tune the wrong knob | 📄 Doc-reported |
 | **AK-14** | `core/README.md` documents two files that do not exist | It lists `execution_engine.py` as "still reachable when `agent_loop.enabled=false`" and `recursive_engine.py` as a supporting service. Neither file exists; neither does the flag. `worker.py`'s docstring repeats the same stale reference | ✅ Verified |
-| **AK-15** | `RunStatus.REPAIRING` is unreachable | No other status lists it as an allowed target, so nothing can enter it | 📄 Doc-reported |
+| **AK-15** | `RunStatus.REPAIRING` is unreachable | No other status lists it as an allowed target, so nothing can enter it | 📄 Doc-reported · ✅ fixed (2026-10-01) with DM-17 — `REPAIRING` removed from both enums |
 
 ---
 

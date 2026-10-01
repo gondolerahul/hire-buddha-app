@@ -970,7 +970,7 @@ The enums (all string enums, values matching the backend exactly):
 | `UserRole` | `app_admin`, `partner_admin`, `tenant_admin`, `app_user`, `partner_user`, `tenant_user` |
 | `EntityType` | `ACTION`, `SKILL`, `AGENT`, `PROCESS` |
 | `EntityStatus` | `DRAFT`, `ACTIVE`, `DEPRECATED`, `ARCHIVED` |
-| `RunStatus` | `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `REPAIRING`, `REFINING` |
+| `RunStatus` | `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `REFINING` (`REPAIRING` removed with DM-17) |
 
 > **`RunStatus` is already out of date.** `ExecutionDetail.tsx:557` polls on
 > `'PAUSED'` and `'RESUMING'` by casting to `string` because those members are

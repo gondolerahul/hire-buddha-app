@@ -1045,23 +1045,22 @@ stateDiagram-v2
     WAITING_ON_CHILDREN --> RUNNING
     WAITING_ON_CHILDREN --> FAILED
     WAITING_ON_CHILDREN --> CANCELLED
-    PARTIAL_COMPLETE --> RUNNING
-    PARTIAL_COMPLETE --> COMPLETED
-    PARTIAL_COMPLETE --> FAILED
-    REPAIRING --> RUNNING
-    REPAIRING --> FAILED
     REFINING --> RUNNING
     REFINING --> COMPLETED
     REFINING --> FAILED
     COMPLETED --> [*]
     FAILED --> [*]
+    PARTIAL_COMPLETE --> [*]
     CANCELLED --> [*]
 ```
 
 Defined as `VALID_TRANSITIONS` at
-[enums.py:49](../../backend/src/ai/schemas/enums.py:49).
-[`validate_transition`](../../backend/src/ai/schemas/enums.py:64) is **lenient**
-— an illegal transition logs a warning and returns `False`; it does not block.
+[enums.py:55](../../backend/src/ai/schemas/enums.py:55); `PENDING` may also go to
+`FAILED` (the credit gate refuses a run before it starts). **Enforced** since DM-17: a
+write the table does not allow is refused by the run model, which keeps the old status
+and logs a warning. Terminal statuses are final, so a loop finishing after a cancel
+leaves the run `CANCELLED` (it reloads the row, locked, before its final write). See
+[03-data-model.md §11.2](03-data-model.md#112-run-status-lifecycle).
 
 ### Retry, refine, cancel
 
@@ -1069,7 +1068,7 @@ Defined as `VALID_TRANSITIONS` at
 |-----------|:------------------:|---------------|
 | `POST /executions/{id}/retry` | ✅ `parent_run_id = old.id` | Copies `input_data` + `context_state` forward so completed step keys are skipped; carries `__cortex_tree_id__` so the CORTEX tree is resumed, not recreated. Requires `FAILED` or `COMPLETED` ([service.py:549](../../backend/src/ai/service.py:549)). |
 | `POST /executions/{id}/refine` | ✅ `parent_run_id = old.id` | An LLM reads the user feedback plus the step list and returns which `step_id`s must re-run; downstream dependents cascade in; the rest are passed as `__skip_steps__` + `__reuse_outputs__`. Requires `COMPLETED` ([service.py:617](../../backend/src/ai/service.py:617)). |
-| `POST /executions/{id}/cancel` | ❌ | Flips status to `CANCELLED`, publishes `{"type":"cancelled","status":"CANCELLED"}` so the SSE stream closes. The loop re-reads status at the top of each iteration and aborts. No-op on an already-terminal run ([service.py:492](../../backend/src/ai/service.py:492)). |
+| `POST /executions/{id}/cancel` | ❌ | One `UPDATE … WHERE status NOT IN (terminal)` sets `CANCELLED`, then publishes `{"type":"cancelled","status":"CANCELLED"}` so the SSE stream closes. The loop re-reads status at the top of each iteration and aborts. No-op on an already-terminal run, including one that finished after the request loaded it ([service.py:482](../../backend/src/ai/service.py:482)). |
 
 > Retry/refine set `parent_run_id` to the *previous run of the same entity*,
 > not to a structural parent. So `parent_run_id` overloads two meanings, and a
