@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, JellyButton } from '@/components/ui';
 import {
-    Brain, Workflow, Zap, Activity, Layers, Tag, Copy, Trash2, Eye,
-    Search, GitBranch, Cpu, Sparkles, AlertCircle, CheckCircle2,
+    Brain, Workflow, Zap, Activity, Layers, Tag, Copy, Trash2, Eye, Search, GitBranch, Cpu, Sparkles, AlertCircle, CheckCircle2, Repeat, Network,
 } from 'lucide-react';
 import { templateService } from '@/services/template.service';
 import { HierarchicalEntity, EntityType, EntityStatus, UserRole } from '@/types';
@@ -17,6 +16,8 @@ const TYPE_ICONS: Record<EntityType, React.ReactNode> = {
     [EntityType.SKILL]:   <Activity size={20} />,
     [EntityType.AGENT]:   <Brain size={20} />,
     [EntityType.PROCESS]: <Workflow size={20} />,
+    [EntityType.LOOP]:    <Repeat size={20} />,
+    [EntityType.GRAPH]:   <Network size={20} />,
 };
 
 const TYPE_COLORS: Record<EntityType, string> = {
@@ -24,6 +25,8 @@ const TYPE_COLORS: Record<EntityType, string> = {
     [EntityType.SKILL]:   'var(--color-secondary)',
     [EntityType.AGENT]:   'var(--color-rose-gold)',
     [EntityType.PROCESS]: 'var(--color-accent)',
+    [EntityType.LOOP]:    'var(--color-info)',
+    [EntityType.GRAPH]:   'var(--color-success)',
 };
 
 const STATUS_COLORS: Record<string, string> = {

@@ -968,6 +968,8 @@ function serializeFlow(nodes: ReactFlowNode[], edges: ReactFlowEdge[]): any {
 
 ## 17. LOOP Runtime Architecture — ⬜ road map (design v3.0.2, closes register B1)
 
+> **Superseded in part, 2026-10-01 (R1).** LOOP (a department or function) and GRAPH (the entire business) are now levels 5 and 6 of the entity hierarchy, and **a LOOP or GRAPH run is an ordinary run** through the same `AgentLoop`, with the same planning, critics, limits and billing as every other level — the principle below that "a Loop is never a run" no longer holds. The heartbeat and schedules this section designs become triggers that start ordinary runs of a LOOP entity; that work is still on the road map. See [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md` §3](../../current/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md#3-requirement-r1--six-level-hierarchy-one-execution-model) and [`06-execution-pipeline.md` §3](../../current/06-execution-pipeline.md#3-the-six-levels).
+
 > **Design principle: a Loop is a scheduler and an aggregator — never a run.** The shipped AgentLoop's run-based model (finite runs, suspend/resume, per-run billing) is untouched. The LOOP tier is a thin standing layer built from shipped machinery: Arq cron, CORTEX, the CostLedger.
 
 ### 17.1 Execution Model

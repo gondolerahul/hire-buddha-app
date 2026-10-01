@@ -56,11 +56,15 @@ export interface ModelConfig {
     tools: string[];
 }
 
+// The six levels of the hierarchy, lowest first (R1). Every level runs the same
+// way; a child sits at its parent's level or below.
 export enum EntityType {
-    ACTION = 'ACTION',
-    SKILL = 'SKILL',
-    AGENT = 'AGENT',
-    PROCESS = 'PROCESS',
+    ACTION = 'ACTION',    // 1 — a wrapper around a tool
+    SKILL = 'SKILL',      // 2 — instructions, scripts and assets with a contract
+    AGENT = 'AGENT',      // 3 — a role
+    PROCESS = 'PROCESS',  // 4 — a business process
+    LOOP = 'LOOP',        // 5 — a department or function
+    GRAPH = 'GRAPH',      // 6 — the entire business
 }
 
 export enum EntityStatus {

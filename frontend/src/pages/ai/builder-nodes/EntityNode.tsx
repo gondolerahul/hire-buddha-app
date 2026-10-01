@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { Brain, Zap, Layers, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Brain, Zap, Layers, CheckCircle2, AlertTriangle, Workflow, Repeat, Network } from 'lucide-react';
 import { EntityType } from '@/types';
 import './nodes.css';
 
@@ -8,7 +8,9 @@ const IconMap = {
     [EntityType.ACTION]: Zap,
     [EntityType.SKILL]: Brain,
     [EntityType.AGENT]: Layers,
-    [EntityType.PROCESS]: Layers,
+    [EntityType.PROCESS]: Workflow,
+    [EntityType.LOOP]: Repeat,
+    [EntityType.GRAPH]: Network,
 };
 
 export const EntityNode = memo(({ data, selected }: NodeProps) => {

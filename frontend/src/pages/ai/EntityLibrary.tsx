@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, JellyButton } from '@/components/ui';
-import { Plus, Brain, Workflow, Zap, Activity, Edit, Trash2, Play, Layers, Tag, BookCopy, CheckCircle } from 'lucide-react';
+import { Plus, Brain, Workflow, Zap, Activity, Edit, Trash2, Play, Layers, Tag, BookCopy, CheckCircle, Repeat, Network } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
 import { templateService } from '@/services/template.service';
 import { metaService } from '@/services/meta.service';
@@ -81,6 +81,8 @@ export const EntityLibrary: React.FC = () => {
             case EntityType.SKILL: return <Activity size={20} />;
             case EntityType.AGENT: return <Brain size={20} />;
             case EntityType.PROCESS: return <Workflow size={20} />;
+            case EntityType.LOOP: return <Repeat size={20} />;
+            case EntityType.GRAPH: return <Network size={20} />;
         }
     };
 
@@ -90,6 +92,8 @@ export const EntityLibrary: React.FC = () => {
             case EntityType.SKILL: return 'var(--color-secondary)';
             case EntityType.AGENT: return 'var(--color-rose-gold)';
             case EntityType.PROCESS: return 'var(--color-accent)';
+            case EntityType.LOOP: return 'var(--color-info)';
+            case EntityType.GRAPH: return 'var(--color-success)';
         }
     };
 

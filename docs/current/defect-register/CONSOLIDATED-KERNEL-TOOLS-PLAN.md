@@ -820,4 +820,6 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P1.9 | EP-06, EP-28 | `94070b3` | `test_run_depth.py` (fails to collect on the old code), `test_run_depth_db.py` (child and RECURSE refusals fail on the old code; the migration test runs its SQL on old-shape rows); migration round-trips |
 | P1.10 | AK-07 | `cf36bbf` | Re-verified: no fan-out happened (one child per move, sequential), and a mixed ready set sent a child step to the DAG executor, which failed it. `test_child_fan_out.py`, `test_strategist.py`: 4 fail on the old code |
 | P1.11 | EP-09 | `fe8a233` | `test_entity_status.py`: all 5 fail on the old code |
-| P1.12 | EP-19 | (this commit) | `test_template_tree.py` fails on the old code; it also found the in-place remap that never reached the database |
+| P1.12 | EP-19 | `e034edf` | `test_template_tree.py` fails on the old code; it also found the in-place remap that never reached the database |
+| P1.13 | R1 (frontend) | (this commit) | `EntityType` has LOOP and GRAPH; icon/colour maps cover six levels; builder recursion setting is the one setting (EP-28); `tsc`, `npm run lint`, `vite build` pass. Roadmap §17 carries the dated R1 note |
+| **P1 done** | R1, EP-01, EP-03, EP-06, EP-09, EP-19, EP-26, EP-27, EP-28, AK-07 | — | A GRAPH → LOOP → PROCESS → AGENT → SKILL → ACTION tree builds through the API (`test_the_six_levels_compose_downwards`) and a planless entity of every level runs through the one loop (`test_a_planless_entity_does_its_work_at_every_level`) |

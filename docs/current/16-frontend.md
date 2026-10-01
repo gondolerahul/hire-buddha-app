@@ -986,7 +986,7 @@ The enums (all string enums, values matching the backend exactly):
 | Enum | Values |
 |------|--------|
 | `UserRole` | `app_admin`, `partner_admin`, `tenant_admin`, `app_user`, `partner_user`, `tenant_user` |
-| `EntityType` | `ACTION`, `SKILL`, `AGENT`, `PROCESS` |
+| `EntityType` | `ACTION`, `SKILL`, `AGENT`, `PROCESS`, `LOOP`, `GRAPH` — the six levels, lowest first. The library tabs and the builder's type picker iterate the enum; the icon and colour maps (`EntityNode`, `EntityLibrary`, `TemplateMarketplace`, `EntityFlow`) cover every level |
 | `EntityStatus` | `DRAFT`, `ACTIVE`, `DEPRECATED`, `ARCHIVED` |
 | `RunStatus` | `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `REFINING` (`REPAIRING` removed with DM-17) |
 

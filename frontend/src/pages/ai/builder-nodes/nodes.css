@@ -154,6 +154,16 @@
     color: var(--color-warning);
 }
 
+.loop .node-icon {
+    background: rgba(114, 46, 209, 0.15);
+    color: var(--color-accent-secondary);
+}
+
+.graph .node-icon {
+    background: rgba(255, 77, 79, 0.15);
+    color: var(--color-accent-tertiary);
+}
+
 /* Node Status and Badges */
 .node-status-icon {
     color: var(--color-success);

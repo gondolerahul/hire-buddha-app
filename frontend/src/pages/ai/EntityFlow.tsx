@@ -8,7 +8,7 @@ import 'reactflow/dist/style.css';
 import { EntityNode } from './builder-nodes/EntityNode';
 import { ToolNode } from './builder-nodes/ToolNode';
 import { JellyButton } from '@/components/ui';
-import { Save, Layers, Trash2, Brain, Zap, Activity, Plus, Settings, Search, AlertTriangle, LayoutGrid } from 'lucide-react';
+import { Save, Layers, Trash2, Brain, Zap, Activity, Plus, Settings, Search, AlertTriangle, LayoutGrid, Workflow, Repeat, Network } from 'lucide-react';
 import { EntityType, HierarchicalEntity, ToolUsage } from '@/types';
 import { apiClient } from '@/services/api.client';
 import './EntityFlow.css';
@@ -390,6 +390,9 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
         if (type === EntityType.AGENT) return <Layers size={13} />;
         if (type === EntityType.SKILL) return <Brain size={13} />;
         if (type === EntityType.ACTION) return <Zap size={13} />;
+        if (type === EntityType.PROCESS) return <Workflow size={13} />;
+        if (type === EntityType.LOOP) return <Repeat size={13} />;
+        if (type === EntityType.GRAPH) return <Network size={13} />;
         return <Activity size={13} />;
     };
 
