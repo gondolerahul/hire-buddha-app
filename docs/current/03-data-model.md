@@ -317,10 +317,8 @@ Defined at [orm/execution.py:46](../../backend/src/ai/orm/execution.py:46).
 | `total_cost_usd` | Numeric(10,4) | yes | `0` | Internal provider cost |
 | `billed_amount` | Numeric(14,6) | yes | — | Result of the TB billing formula — the user-facing charge |
 | `total_tokens` | Integer | yes | `0` | Rolled up across the run subtree |
-| `execution_time_ms` | Integer | yes | — | |
+| `execution_time_ms` | Integer | yes | — | Wall-clock ms from `started_at` to `completed_at`, written at finalisation (EP-15) |
 | `trace_id` | UUID | yes | — | Opaque tracing id (no FK) |
-| `span_id` | String | yes | — | |
-| `idempotency_key` | String(255) | yes | — | Step-level dedup; partial index `idx_exec_runs_idemp` where NOT NULL |
 | `started_at` / `completed_at` / `created_at` | DateTime | yes | — / — / utcnow | |
 | `csat_score` | Integer | yes | — | `+1` thumbs up, `-1` thumbs down, NULL unrated |
 | `csat_comment` | Text | yes | — | Free-text feedback |

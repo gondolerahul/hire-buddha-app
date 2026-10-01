@@ -1103,6 +1103,12 @@ class AgentLoop:
                 return
             fresh.status = status
             fresh.completed_at = datetime.utcnow()
+            if fresh.started_at is not None:
+                # Wall-clock run time (EP-15): reports, registry search and the
+                # run's episode read it; nothing wrote it before.
+                fresh.execution_time_ms = max(0, int(
+                    (fresh.completed_at - fresh.started_at).total_seconds() * 1000
+                ))
             # Don't clobber the engine-billed cost with the loop's budget — keep
             # whichever is larger (the nested engine bills on its own session).
             fresh.total_cost_usd = Decimal(str(max(

@@ -73,10 +73,10 @@ class ExecutionRun(Base):
     total_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), default=0)
     billed_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 6), nullable=True)  # TB formula result — the user-facing charge
     total_tokens: Mapped[int | None] = mapped_column(Integer, default=0)
+    # Wall-clock milliseconds from started_at to completed_at, written when the
+    # loop finalises the run (EP-15); a suspended parent's wait is included.
     execution_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     trace_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    span_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # Step-level dedup
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

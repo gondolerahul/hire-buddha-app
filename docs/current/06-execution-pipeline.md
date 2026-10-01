@@ -995,10 +995,8 @@ entity `status` (a `DRAFT` or `ARCHIVED` entity runs happily); credit balance
 | `total_cost_usd` | `_bump_run_cost`, `_persist_final` | Internal cost, `Numeric(10,4)`. |
 | `billed_amount` | `settle_billing` | Customer-facing charge, `Numeric(14,6)`. |
 | `total_tokens` | `_bump_run_cost`, `_persist_final` | Rolled up over the subtree. |
-| `execution_time_ms` | — | **Never written by the loop path.** Compute from `completed_at - started_at`. |
+| `execution_time_ms` | `_persist_final` | Wall-clock ms from `started_at` to `completed_at` (EP-15, 2026-10-01; earlier finished runs backfilled). |
 | `trace_id` | insert (`uuid4()`); children inherit the parent's | Groups a whole run tree. |
-| `span_id` | — | **Never written.** Spans live in `execution_trace_events`. |
-| `idempotency_key` | — | **Dead column.** Indexed, commented "Step-level dedup", zero readers or writers repo-wide. Same for `ToolInteractionLog.idempotency_key`. |
 | `started_at` / `completed_at` / `created_at` | loop / insert | — |
 | `csat_score` / `csat_comment` | `POST /executions/{id}/csat` | ±1 thumbs, feeds critic calibration. |
 
@@ -2164,9 +2162,9 @@ sequenceDiagram
   function-call dict, and the field is not on `ToolReference`.
 - **`io_contract.input_schema` is never validated.** Any `input_data` is
   accepted. `output_schema` is a prompt instruction only.
-- **`ExecutionRun.idempotency_key` and `span_id` are dead columns**, as is
-  `ToolInteractionLog.idempotency_key`. `execution_time_ms` is never written by
-  the loop path — derive it from `completed_at - started_at`.
+- **`ToolInteractionLog.idempotency_key` is a dead column** until write tools
+  carry idempotency keys (TL-39). The run's own `idempotency_key` and `span_id`
+  were dropped on 2026-10-01 (EP-13); spans live in `execution_trace_events`.
 - **Every step output is stored under two keys** (`name` and `step_id`).
   Duplicate step names silently overwrite each other, and context size doubles.
 - **`__completed_steps__` is documented but unwritten.** The live mechanism is

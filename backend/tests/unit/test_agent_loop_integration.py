@@ -256,3 +256,15 @@ async def test_agent_loop_executor_exception_does_not_crash_loop(swap_single_ste
     # the loop falls through to PARTIAL_COMPLETE or FAILED — either is OK.
     assert outcome["status"] in {RunStatus.FAILED.value,
                                  RunStatus.PARTIAL_COMPLETE.value}
+
+
+@pytest.mark.asyncio
+async def test_a_finalised_run_records_its_execution_time(swap_single_step):
+    """EP-15: reports, registry search and run episodes read
+    execution_time_ms; nothing wrote it, so they all saw NULL."""
+    run = _FakeRun()
+    db = _FakeDB(run)
+    loop = AgentLoop(db=db, redis=None, feature_flags=FeatureFlags(db=None))
+    await loop.run(run.id)
+    assert run.started_at is not None and run.completed_at is not None
+    assert isinstance(run.execution_time_ms, int) and run.execution_time_ms >= 0
