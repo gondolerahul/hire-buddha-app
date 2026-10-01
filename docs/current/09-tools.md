@@ -1116,9 +1116,9 @@ graph TB
     FF --> RSE
     HB --> RSR["resolve_sandbox_runtime"]
     RSE --> RSR
-    RSR --> FLAG{"sandbox.container_runtime_enabled per company - else SANDBOX_CONTAINER_RUNTIME_ENABLED - default OFF"}
-    FLAG -->|off or import error| SP["SubprocessRuntime - host asyncio subprocess"]
-    FLAG -->|on| CR["ContainerRuntime - docker exec"]
+    RSR --> FLAG{"sandbox.container_runtime_enabled - company row, global row, AI_FLAG env, default = SANDBOX_CONTAINER_RUNTIME_ENABLED"}
+    FLAG -->|off| SP["SubprocessRuntime - host asyncio subprocess"]
+    FLAG -->|on| CR["ContainerRuntime - docker exec; cannot be built = error"]
     CR --> TM["TenantSandboxManager"]
     RSE --> MET["meter_sandbox_usage - UsageService sandbox-runtime seconds"]
 ```
@@ -1130,9 +1130,25 @@ with only a curated `env` dict for isolation.
 `ContainerRuntime` runs `docker exec -u 10001:10001` inside a long-lived
 per-tenant container, wrapping the command in coreutils `timeout
 --kill-after=2` so the in-container process actually dies. It is selected only
-when `sandbox.container_runtime_enabled` is on for the company, or the
-process-wide `SANDBOX_CONTAINER_RUNTIME_ENABLED` setting is true. **Both default
-to OFF.** Any Docker failure silently falls back to `SubprocessRuntime`.
+when `sandbox.container_runtime_enabled` is on for the company.
+
+**One switch** (since 2026-10-01, TX-01): `container_runtime_enabled(company_id)`
+resolves that flag through its whole chain — the company's row, the global row,
+`AI_FLAG_SANDBOX_CONTAINER_RUNTIME_ENABLED`, then the flag's default, which *is* the
+deployment's `SANDBOX_CONTAINER_RUNTIME_ENABLED` (off unless set). Before, the flag
+was declared `True` — the admin Feature Flags page showed container sandboxing on —
+while the runtime consulted it only when a DB row existed and otherwise used the
+setting, which was off. A call's context can no longer choose the runtime (the
+`container_runtime` key is gone).
+
+**No silent downgrade** (TL-01, in part): a `ContainerRuntime` that cannot be built
+raises instead of falling back to the host, and a Docker failure inside it is an
+`ExecResult` error, not a host retry. Flipping the default to containers needs the
+sandbox images and a durable workspace volume (P11).
+
+The tool-synthesis test harness (`ToolSandboxTester`) writes its files under the
+company's workspace — the directory a tenant container mounts — rather than bare
+`/tmp`, which only the host runtime could see (TL-02, in part).
 
 ### 12.2 The trust boundary
 

@@ -112,7 +112,7 @@ LLM-authored code can reach the host. Several are one-line fixes.
 
 ### TL-01 — The default sandbox runs LLM-authored code as the backend OS user
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: partly fixed (2026-10-01, P3.9)** — a container runtime that cannot be built now raises instead of silently running the code on the host, and the switch is one truthful setting (TX-01). Open: the default is still the host runtime — the flip needs the sandbox images and a durable workspace (P11).
 
 `get_sandbox_runtime` returns `SubprocessRuntime` unless
 `SANDBOX_CONTAINER_RUNTIME_ENABLED` or the per-company
@@ -136,7 +136,7 @@ outbound network, and no cgroup memory/CPU/PID limits. The real isolation —
 
 ### TL-02 — Tool synthesis executes generated code outside the sandbox
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: partly fixed (2026-10-01, P3.9)** — the harness workdir is created under the company's workspace (the directory a tenant container mounts), and a call without a company is refused. Open (P11): the harness still calls `inst.run` without context, and `SandboxedSynthesizedTool` still replays the harness per call.
 
 `ToolSandboxTester.run_examples` allocates its harness workdir with
 `tempfile.mkdtemp(prefix="toolsynth_")` — bare `/tmp`, not the tenant workspace. That

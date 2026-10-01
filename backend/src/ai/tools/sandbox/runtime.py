@@ -11,9 +11,11 @@ per-tenant Docker `ContainerRuntime`, `02` S4) without touching the tools.
 * ``SubprocessRuntime`` — today's behavior (host asyncio subprocess + a fresh
   Playwright Chromium per session). The default in dev/CI and the production
   rollback path.
-* ``get_sandbox_runtime`` — the factory the tools call. Returns
-  ``SubprocessRuntime`` until the (S4) ``ContainerRuntime`` lands behind
-  ``sandbox.container_runtime_enabled``.
+* ``resolve_sandbox_runtime`` — what the tools call: ``ContainerRuntime`` when
+  the one switch, ``sandbox.container_runtime_enabled``, is on for the company
+  (its default is the deployment's ``SANDBOX_CONTAINER_RUNTIME_ENABLED``),
+  else ``SubprocessRuntime``. A container runtime that cannot be built is an
+  error, never a silent fallback to the host (TX-01, TL-01).
 
 The tools keep their arg-parsing + output-shaping + artifact logic; they hand
 the runtime a fully-built argv/env (or browser action) and shape the
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -45,6 +48,9 @@ _DEFAULT_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 "
     "HireBuddha-AI-Agent/1.0"
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -282,47 +288,24 @@ class SubprocessRuntime:
         return None
 
 
-def _container_runtime_selected(context: Optional[Mapping[str, Any]]) -> bool:
-    """Whether the per-tenant ``ContainerRuntime`` should be used.
+def get_sandbox_runtime(
+    context: Optional[Mapping[str, Any]] = None, *, container: bool = False,
+) -> SandboxRuntime:
+    """The runtime for this call: ``ContainerRuntime`` when ``container``, else
+    ``SubprocessRuntime``. Use :func:`resolve_sandbox_runtime`, which decides
+    ``container`` from the one switch.
 
-    An explicit ``context["container_runtime"]`` wins (this is where a caller
-    threads a resolved per-company ``sandbox.container_runtime_enabled`` feature
-    flag); otherwise the process-wide ``SANDBOX_CONTAINER_RUNTIME_ENABLED``
-    setting decides. Default OFF.
-    """
-    if context is not None and "container_runtime" in context:
-        return bool(context["container_runtime"])
-    try:
-        from src.common.config import settings
-
-        return bool(settings.SANDBOX_CONTAINER_RUNTIME_ENABLED)
-    except Exception:  # noqa: BLE001 - config import must never break tools
-        return False
-
-
-def get_sandbox_runtime(context: Optional[Mapping[str, Any]] = None) -> SandboxRuntime:
-    """Return the runtime the sandbox tools should use.
-
-    Defaults to ``SubprocessRuntime`` (today's behavior, the dev/CI default and
-    the production rollback path). When the per-tenant container runtime is
-    enabled (settings/flag, default OFF) this returns a ``ContainerRuntime``;
-    importing it is deferred so a host without Docker support never pays for it,
-    and any import failure falls back to ``SubprocessRuntime``. The tools never
-    change.
+    A container runtime that cannot be built raises: it is never replaced by
+    the host runtime, which runs the code as the backend's own OS user (TL-01).
     """
     company_id = None
     if context:
         cid = context.get("company_id")
         company_id = str(cid) if cid else None
+    if container:
+        from src.ai.tools.sandbox.container_runtime import ContainerRuntime
 
-    if _container_runtime_selected(context):
-        try:
-            from src.ai.tools.sandbox.container_runtime import ContainerRuntime
-
-            return ContainerRuntime(company_id=company_id)
-        except Exception:  # noqa: BLE001 - never let container selection break a tool
-            return SubprocessRuntime(company_id=company_id)
-
+        return ContainerRuntime(company_id=company_id)
     return SubprocessRuntime(company_id=company_id)
 
 
@@ -359,29 +342,31 @@ async def _resolve_company_flag(
         return None
 
 
-async def _resolve_company_container_flag(company_id: Optional[str]) -> Optional[bool]:
-    """Per-company ``sandbox.container_runtime_enabled`` (see _resolve_company_flag)."""
-    return await _resolve_company_flag("sandbox.container_runtime_enabled", company_id)
+async def container_runtime_enabled(company_id: Optional[str]) -> bool:
+    """The one switch (TX-01): ``sandbox.container_runtime_enabled`` for this
+    company — its row, the global row, ``AI_FLAG_SANDBOX_CONTAINER_RUNTIME_ENABLED``,
+    then the deployment default (``SANDBOX_CONTAINER_RUNTIME_ENABLED``)."""
+    from uuid import UUID
+
+    from src.ai.core.feature_flags import DEFAULTS, FeatureFlags
+    from src.common.database import AsyncSessionLocal
+
+    key = "sandbox.container_runtime_enabled"
+    try:
+        async with AsyncSessionLocal() as db:
+            return await FeatureFlags(db).is_on(
+                key, company_id=UUID(str(company_id)) if company_id else None)
+    except Exception as exc:  # noqa: BLE001 - no DB: the deployment default decides
+        logger.warning("sandbox switch unresolved (%s); using the deployment default", exc)
+        return bool(DEFAULTS.get(key, False))
 
 
 async def resolve_sandbox_runtime(
     context: Optional[Mapping[str, Any]] = None,
 ) -> "SandboxRuntime":
-    """Async runtime selection that honors the per-company canary flag.
-
-    The sync :func:`get_sandbox_runtime` can't await DB flag resolution, so tools
-    call this instead: it resolves the per-company
-    ``sandbox.container_runtime_enabled`` flag and threads the result into the
-    context as ``container_runtime`` (an explicit override the sync factory then
-    respects), with the process-wide setting as the fallback when no explicit
-    flag row exists.
-    """
-    ctx: dict[str, Any] = dict(context or {})
-    if "container_runtime" not in ctx:
-        flag = await _resolve_company_container_flag(ctx.get("company_id"))
-        if flag is not None:
-            ctx["container_runtime"] = flag
-    return get_sandbox_runtime(ctx)
+    """The runtime for a tool call, chosen by the one switch for its company."""
+    company_id = (context or {}).get("company_id")
+    return get_sandbox_runtime(context, container=await container_runtime_enabled(company_id))
 
 
 async def resolve_persistent_browser_dir(

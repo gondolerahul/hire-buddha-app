@@ -1011,7 +1011,7 @@ Loaded by the API and the Arq worker.
 | `VIDEO_STREAMING_ENABLED` | `True` | |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
 | `TURN_SERVER_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` | `""` | Optional TURN relay for WebRTC. |
-| `SANDBOX_CONTAINER_RUNTIME_ENABLED` | `False` | Master switch for per-tenant container sandboxing. Off = `SubprocessRuntime`. |
+| `SANDBOX_CONTAINER_RUNTIME_ENABLED` | `False` | The deployment's default for the `sandbox.container_runtime_enabled` flag, the one switch for per-tenant container sandboxing (a company or global flag row overrides it). Off = `SubprocessRuntime`. See [09 §12.1](09-tools.md#121-the-runtime-abstraction). |
 | `SANDBOX_IMAGE` | `hb-sandbox:local` | Sandbox image tag or digest. |
 | `SANDBOX_NETWORK` | `none` | Docker network for the sandbox. |
 | `SANDBOX_MEMORY` | `1g` | Container memory cap. |

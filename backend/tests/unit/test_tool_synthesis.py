@@ -108,11 +108,36 @@ def test_build_harness_files_ships_base_stub() -> None:
     assert "class Tool" in files["src/ai/tools/base.py".replace("/", __import__("os").sep)]
 
 
+# The harness runs in the company's workspace (TL-02), so it needs a company.
+_CTX = {"company_id": "00000000-0000-0000-0000-00000000a702"}
+
+
+@pytest.mark.asyncio
+async def test_the_harness_runs_in_the_companys_workspace() -> None:
+    import os
+    from src.ai.tools.sandbox.workspace import tenant_workspace
+    seen = {}
+
+    async def _exec(context, argv, *, cwd=None, timeout=30.0, env=None):
+        seen["cwd"] = cwd
+        return SimpleNamespace(exit_code=1, stdout="", stderr="")
+
+    await ToolSandboxTester().run_examples(WORD_COUNT_SRC, _spec(), _CTX, exec_fn=_exec)
+    root = os.path.realpath(tenant_workspace(_CTX["company_id"]))
+    assert os.path.commonpath([os.path.realpath(seen["cwd"]), root]) == root
+
+
+@pytest.mark.asyncio
+async def test_the_harness_refuses_a_call_without_a_company() -> None:
+    report = await ToolSandboxTester().run_examples(WORD_COUNT_SRC, _spec(), {})
+    assert not report.ok and "no company" in (report.error or "")
+
+
 @pytest.mark.asyncio
 async def test_sandbox_tester_grades_examples() -> None:
     rows = [{"input": '{"text": "a b c"}', "errored": False, "output": '{"count": 3}'}]
     report = await ToolSandboxTester().run_examples(
-        WORD_COUNT_SRC, _spec(), {}, exec_fn=_fake_exec(rows),
+        WORD_COUNT_SRC, _spec(), _CTX, exec_fn=_fake_exec(rows),
     )
     assert report.ok, report.summary()
     assert report.outcomes[0].passed
@@ -122,7 +147,7 @@ async def test_sandbox_tester_grades_examples() -> None:
 async def test_sandbox_tester_fails_on_wrong_output() -> None:
     rows = [{"input": '{"text": "a b c"}', "errored": False, "output": '{"count": 99}'}]
     report = await ToolSandboxTester().run_examples(
-        WORD_COUNT_SRC, _spec(), {}, exec_fn=_fake_exec(rows),
+        WORD_COUNT_SRC, _spec(), _CTX, exec_fn=_fake_exec(rows),
     )
     assert not report.ok
 
@@ -139,7 +164,7 @@ async def test_sandbox_tester_real_subprocess_smoke() -> None:
         return SimpleNamespace(exit_code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
 
     report = await ToolSandboxTester().run_examples(
-        WORD_COUNT_SRC, _spec(), {}, exec_fn=_real_exec,
+        WORD_COUNT_SRC, _spec(), _CTX, exec_fn=_real_exec,
     )
     assert report.ok, report.summary()
 

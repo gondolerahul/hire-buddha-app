@@ -28,96 +28,92 @@ from src.ai.tools.sandbox.tenant_manager import (
 
 
 # --------------------------------------------------------------------------
-# selection
+# selection — one switch, no silent host fallback (TX-01, TL-01)
 # --------------------------------------------------------------------------
 
-def test_factory_default_is_subprocess(monkeypatch) -> None:
-    from src.common import config
-
-    monkeypatch.setattr(config.settings, "SANDBOX_CONTAINER_RUNTIME_ENABLED", False)
+def test_factory_default_is_subprocess() -> None:
     assert isinstance(get_sandbox_runtime({"company_id": "c1"}), SubprocessRuntime)
 
 
-def test_factory_context_opts_in() -> None:
-    rt = get_sandbox_runtime({"company_id": "c1", "container_runtime": True})
+def test_factory_container_when_asked() -> None:
+    rt = get_sandbox_runtime({"company_id": "c1"}, container=True)
     assert isinstance(rt, ContainerRuntime)
     assert rt.company_id == "c1"
     assert isinstance(rt, SandboxRuntime)
 
 
-def test_factory_context_override_wins_over_settings(monkeypatch) -> None:
-    from src.common import config
+def test_the_call_context_cannot_choose_the_runtime() -> None:
+    """``container_runtime`` in a context used to override every switch; run
+    input could set it (TL-53)."""
+    assert isinstance(get_sandbox_runtime({"company_id": "c1", "container_runtime": True}),
+                      SubprocessRuntime)
 
-    monkeypatch.setattr(config.settings, "SANDBOX_CONTAINER_RUNTIME_ENABLED", True)
-    rt = get_sandbox_runtime({"company_id": "c1", "container_runtime": False})
-    assert isinstance(rt, SubprocessRuntime)
 
+def test_a_container_runtime_that_cannot_be_built_is_an_error(monkeypatch) -> None:
+    from src.ai.tools.sandbox import container_runtime as cr
 
-def test_factory_settings_enables_container(monkeypatch) -> None:
-    from src.common import config
+    def _broken(self, *a, **k):
+        raise RuntimeError("docker support missing")
 
-    monkeypatch.setattr(config.settings, "SANDBOX_CONTAINER_RUNTIME_ENABLED", True)
-    assert isinstance(get_sandbox_runtime({"company_id": "c1"}), ContainerRuntime)
+    monkeypatch.setattr(cr.ContainerRuntime, "__init__", _broken)
+    with pytest.raises(RuntimeError, match="docker support missing"):
+        get_sandbox_runtime({"company_id": "c1"}, container=True)
 
 
 def test_container_name() -> None:
     assert TenantSandboxManager.container_name("abc-123") == "hb-sandbox-abc-123"
 
 
-# --------------------------------------------------------------------------
-# async per-company canary resolution
-# --------------------------------------------------------------------------
-
 @pytest.mark.asyncio
-async def test_resolve_explicit_db_flag_overrides_settings(monkeypatch) -> None:
-    from src.common import config
+@pytest.mark.parametrize("on, expected", [(True, ContainerRuntime), (False, SubprocessRuntime)])
+async def test_resolve_follows_the_switch(monkeypatch, on, expected) -> None:
+    async def _switch(_cid):
+        return on
 
-    monkeypatch.setattr(config.settings, "SANDBOX_CONTAINER_RUNTIME_ENABLED", False)
-
-    async def _flag(_cid):
-        return True  # an explicit company/global row says ON
-
-    monkeypatch.setattr(runtime_mod, "_resolve_company_container_flag", _flag)
-    rt = await resolve_sandbox_runtime({"company_id": "c1"})
-    assert isinstance(rt, ContainerRuntime)
+    monkeypatch.setattr(runtime_mod, "container_runtime_enabled", _switch)
+    assert isinstance(await resolve_sandbox_runtime({"company_id": "c1"}), expected)
 
 
 @pytest.mark.asyncio
-async def test_resolve_no_db_flag_falls_through_to_settings(monkeypatch) -> None:
+async def test_the_switch_is_the_flag_resolved_for_the_company(monkeypatch) -> None:
+    from uuid import uuid4
+
+    from src.ai.core.feature_flags import FeatureFlags
+
+    seen = {}
+
+    async def _is_on(self, key, *, company_id=None, **_kw):
+        seen.update(key=key, company_id=company_id)
+        return True
+
+    monkeypatch.setattr(FeatureFlags, "is_on", _is_on)
+    cid = uuid4()
+    assert await runtime_mod.container_runtime_enabled(str(cid)) is True
+    assert seen == {"key": "sandbox.container_runtime_enabled", "company_id": cid}
+
+
+def test_the_flags_default_is_the_deployment_setting(monkeypatch) -> None:
+    """The flag was declared True while the runtime ran the host sandbox."""
+    from src.ai.core import feature_flags as ff
     from src.common import config
 
+    assert ff.DEFAULTS["sandbox.container_runtime_enabled"] == bool(
+        config.settings.SANDBOX_CONTAINER_RUNTIME_ENABLED)
     monkeypatch.setattr(config.settings, "SANDBOX_CONTAINER_RUNTIME_ENABLED", True)
-
-    async def _none(_cid):
-        return None  # no explicit row → settings master decides
-
-    monkeypatch.setattr(runtime_mod, "_resolve_company_container_flag", _none)
-    rt = await resolve_sandbox_runtime({"company_id": "c1"})
-    assert isinstance(rt, ContainerRuntime)
+    assert ff._sandbox_container_default() is True
 
 
 @pytest.mark.asyncio
-async def test_resolve_db_flag_off_overrides_settings_on(monkeypatch) -> None:
-    from src.common import config
+async def test_without_a_database_the_deployment_default_decides(monkeypatch) -> None:
+    from src.ai.core import feature_flags as ff
+    from src.common import database
 
-    monkeypatch.setattr(config.settings, "SANDBOX_CONTAINER_RUNTIME_ENABLED", True)
+    def _no_db():
+        raise OSError("database unavailable")
 
-    async def _off(_cid):
-        return False  # explicit opt-OUT row wins over the settings master
-
-    monkeypatch.setattr(runtime_mod, "_resolve_company_container_flag", _off)
-    rt = await resolve_sandbox_runtime({"company_id": "c1"})
-    assert isinstance(rt, SubprocessRuntime)
-
-
-@pytest.mark.asyncio
-async def test_resolve_explicit_context_skips_db(monkeypatch) -> None:
-    def _boom(_cid):  # must not be called when context is explicit
-        raise AssertionError("flag resolution should be skipped")
-
-    monkeypatch.setattr(runtime_mod, "_resolve_company_container_flag", _boom)
-    rt = await resolve_sandbox_runtime({"company_id": "c1", "container_runtime": True})
-    assert isinstance(rt, ContainerRuntime)
+    monkeypatch.setattr(database, "AsyncSessionLocal", _no_db)
+    monkeypatch.setitem(ff.DEFAULTS, "sandbox.container_runtime_enabled", True)
+    assert await runtime_mod.container_runtime_enabled("c1") is True
 
 
 # --------------------------------------------------------------------------

@@ -179,7 +179,18 @@ class ToolSandboxTester:
             exec_fn = run_sandbox_exec
 
         owns_dir = workdir is None
-        workdir = workdir or tempfile.mkdtemp(prefix="toolsynth_")
+        if workdir is None:
+            # Inside the company's workspace — the directory a tenant container
+            # mounts — not bare /tmp, which only the host runtime can see: the
+            # harness used to work only when the generated code ran unsandboxed
+            # on the host (TL-02).
+            company_id = (context or {}).get("company_id")
+            if not company_id:
+                return SandboxTestReport(ok=False, error="no company: the harness has no workspace")
+            from src.ai.tools.sandbox.workspace import tenant_workspace
+            base = tenant_workspace(company_id)
+            os.makedirs(base, exist_ok=True)
+            workdir = tempfile.mkdtemp(prefix="toolsynth_", dir=base)
         try:
             for rel, content in build_harness_files(source, spec).items():
                 path = os.path.join(workdir, rel)

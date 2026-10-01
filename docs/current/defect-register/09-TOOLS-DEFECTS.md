@@ -103,7 +103,7 @@ wrong with it.
 
 ### TX-01 — The per-company sandbox flag is never read
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.9)** — one switch: `container_runtime_enabled()` resolves `sandbox.container_runtime_enabled` through its whole chain, and the flag's declared default is the deployment's `SANDBOX_CONTAINER_RUNTIME_ENABLED` (it was a hard-coded `True` the runtime ignored). The `container_runtime` context override is gone. `tests/unit/test_container_runtime.py`.
 
 This one changes how [TL-01](TOOL-LAYER-DEFECTS.md#tl-01--the-default-sandbox-runs-llm-authored-code-as-the-backend-os-user)
 should be fixed, so read it before starting that work.

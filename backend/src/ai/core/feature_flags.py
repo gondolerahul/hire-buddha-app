@@ -25,6 +25,15 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
 
+
+def _sandbox_container_default() -> bool:
+    """The deployment's default for ``sandbox.container_runtime_enabled``."""
+    try:
+        from src.common.config import settings
+        return bool(settings.SANDBOX_CONTAINER_RUNTIME_ENABLED)
+    except Exception:                                                     # pragma: no cover
+        return False
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,11 +96,11 @@ DEFAULTS: dict[str, bool] = {
     "tools.resilience_v2_enabled": True,
     # Planner v2 (multi-candidate generation + invariants + judge).
     "planner.v2_enabled": True,
-    # Per-tenant container sandbox canary (Phase 12 `02` S4). Default ON
-    # (globally enabled as of Phase 12 go-live — Step 1.3 of phase12_ops_guide.md).
-    # A global DB row (company_id IS NULL) also enforces this; the code default
-    # ensures the flag is True even on fresh installs before the DB row is present.
-    "sandbox.container_runtime_enabled": True,
+    # Per-tenant container sandbox (Phase 12 `02` S4) — THE switch (TX-01):
+    # company row, then global row, then AI_FLAG_ env, then this default, which
+    # is the deployment's SANDBOX_CONTAINER_RUNTIME_ENABLED. It was declared True
+    # here while the runtime ignored it and ran the host sandbox.
+    "sandbox.container_runtime_enabled": _sandbox_container_default(),
     # Per-tenant persistent browser profile canary (Phase 12 `02` S5). Default
     # OFF (ephemeral context). Resolved per-company and threaded into the tool
     # context as ``persistent_browser``; master is
