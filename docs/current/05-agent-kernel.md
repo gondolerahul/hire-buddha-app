@@ -1703,7 +1703,7 @@ Every event the loop emits:
 |-------|-------------|------------|
 | `agent.loop.run_start` | `run` | — |
 | `agent.loop.plan_reconciled` | `_ensure_plan` | — |
-| `agent.task_class.classified` | `_classify_task` | — |
+| `agent.task_class.classified` | `_classify_task` | `task_class_classified` |
 | `agent.loop.budget_pressure` | pressure > 0.5 | — |
 | `agent.retry.dequeued` | retry queue drain | `retry_dequeued` |
 | `agent.loop.iteration_start` | phase 2 | `iteration_start` |
@@ -1718,27 +1718,24 @@ Every event the loop emits:
 | `agent.critic.supervisor` | phase 6 | `critic_super` |
 | `agent.retry.picked` | retry enqueued | `retry_picked` |
 | `agent.retry.exhausted` | per-step retry cap hit | — |
-| `agent.replan.triggered` | `_handle_replan` | — (see below) |
+| `agent.replan.triggered` | `_handle_replan` | `replan_triggered` |
 | `agent.replan.skipped_static` | static plan guard | — |
 | `agent.loop.iteration_end` | phase 9 | `iteration_end` |
 | `agent.loop.budget_exhausted` | `_loop` | — |
 | `agent.loop.cancelled` | `_check_cancelled` | `cancelled` |
 | `agent.loop.suspended` | `_persist_suspended` | — |
-| `agent.loop.resumed` | `resume` | — (see below) |
-| `agent.bandit.arm_updated` | `_finalize_bandit` | — |
+| `agent.loop.resumed` | `resume` | `resume` |
+| `agent.bandit.arm_updated` | `_finalize_bandit` | `bandit_arm_updated` |
 | `agent.dreaming.triggered` | `_enqueue_dreaming_trigger` | — |
 | `agent.loop.billing_settled` | `_settle_billing` | — |
 | `agent.loop.run_end` | `_drive` finally | `run_end` |
 
-> **Two dead SSE mappings.** `_SSE_EVENT_TYPES` maps `agent.loop.resume` and
-> `agent.loop.replan`, but the loop emits `agent.loop.resumed` and
-> `agent.replan.triggered`. Those two entries never match, so the frontend's
-> `resume` and `replan_triggered` reducer cases never fire from the loop
-> ([agent_loop_sse.py:29](../../backend/src/ai/core/agent_loop_sse.py:29) vs
-> [agent_loop.py:308](../../backend/src/ai/core/agent_loop.py:308) and
-> [agent_loop.py:1413](../../backend/src/ai/core/agent_loop.py:1413)). Same for
-> `bandit_arm_updated` and `task_class_classified`, which the reducer handles
-> but the mapping table omits.
+> **The map is checked by a test (AK-11, fixed 2026-10-01).** It once mapped
+> `agent.loop.resume` and `agent.loop.replan`, which nothing emits, so the `resume` and
+> `replan_triggered` frames never reached the browser; `bandit_arm_updated` and
+> `task_class_classified` were not mapped at all. `tests/unit/test_sse_event_contract.py`
+> fails when a map key is never emitted or a mapped type has no reducer case. The
+> `resume` frame carries `from_iteration`, which the reducer reads.
 
 The `run_end` frame also stamps `status` so the SSE generator can close the
 stream — [router.py:346](../../backend/src/ai/router.py:346) breaks out of the
@@ -1967,9 +1964,6 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 - **Executors that use the loop's shared session can corrupt it.**
   `SingleStepExecutor` opens its own `AsyncSessionLocal` for exactly this
   reason; `DAGExecutor` and `ChildEntityExecutor` still use the passed-in `db`.
-- **Two SSE event-name mappings are broken** (`agent.loop.resume` vs
-  `agent.loop.resumed`, `agent.loop.replan` vs `agent.replan.triggered`), so the
-  frontend never receives `resume` or `replan_triggered` frames from the loop.
 - **`Budget.can_afford` is unused**, and the `budget.py` docstring's claim that
   the critic self-skips on pressure is wrong — it degrades on cost share.
 - **`agent_loop.snapshot_every_iteration`, `agent_loop.perception_bounded_viewport`

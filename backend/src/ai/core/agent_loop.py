@@ -327,7 +327,8 @@ class AgentLoop:
             state.next_decision = "ABORT"
 
         await event_async("agent.loop.resumed", run_id=str(run_id),
-                          iteration=state.iteration, any_failed=any_failed)
+                          iteration=state.iteration, from_iteration=state.iteration,
+                          any_failed=any_failed)
         return await self._drive(run, state, run_id)
 
     async def _fold_children(self, state: AgentState) -> tuple[bool, bool]:
@@ -1441,6 +1442,7 @@ class AgentLoop:
                 )
                 await event_async(
                     "agent.bandit.arm_updated",
+                    run_id=str(state.run_id),
                     entity_id=str(state.entity_id),
                     task_class=state.task_class,
                     arm=arm, success=success,

@@ -1868,21 +1868,20 @@ Three producers publish to that one channel:
 | `critic_super` | `agent.critic.supervisor` | `iteration`, `recommendation`, `confidence` |
 | `retry_picked` | `agent.retry.picked` | `iteration`, `strategy`, `tags` |
 | `retry_dequeued` | `agent.retry.dequeued` | `iteration`, `strategy` |
-| `replan_triggered` | `agent.loop.replan` | `iteration`, … |
-| `resume` | `agent.loop.resume` | — |
+| `replan_triggered` | `agent.replan.triggered` | `iteration`, `by`, `proposed_subgoals_count`, `new_plan_size` |
+| `resume` | `agent.loop.resumed` | `iteration`, `from_iteration`, `any_failed` |
+| `bandit_arm_updated` | `agent.bandit.arm_updated` | `entity_id`, `task_class`, `arm`, `success`, `cost_usd`, `new_score` |
+| `task_class_classified` | `agent.task_class.classified` | `entity_id`, `task_class`, `classifier_version` |
 | `cancelled` | `agent.loop.cancelled` | `iteration`, `status` |
 | `run_end` | `agent.loop.run_end` | `outcome`, `iters`, `total_cost_usd`, plus `status` mirrored from `outcome` so the stream closes |
 | `span_open` | trace | `span_id`, `parent_span_id`, `kind`, `name`, `iteration`, `seq`, `status`, `payload` |
 | `span_close` | trace | same plus `duration_ms`, `cost_usd`, `tokens_in`, `tokens_out`, `child_run_id`, `error` |
 | *(none)* | HITL | `{"status": "HITL_PENDING", "approval_id", "trigger"}` |
 
-> **Mapping drift:** `_SSE_EVENT_TYPES` maps `"agent.loop.resume"`, but the loop
-> actually emits `"agent.loop.resumed"`
-> ([agent_loop.py:308](../../backend/src/ai/core/agent_loop.py:308)) — that
-> frame never reaches the browser. Likewise unmapped and therefore
-> SSE-invisible: `agent.executor.completed`, `agent.retry.exhausted`,
-> `agent.loop.suspended`, `agent.loop.suspended_on_children`,
-> `agent.loop.billing_settled`, `agent.cost.charged`. They still reach the
+> **Unmapped on purpose:** `agent.executor.completed`, `agent.retry.exhausted`,
+> `agent.loop.suspended`, `agent.loop.suspended_on_children` and
+> `agent.loop.billing_settled` are not mapped (the map's keys are checked against the
+> emitted names by `tests/unit/test_sse_event_contract.py`, AK-11). They still reach the
 > structured-log / OTel sink.
 
 ---
@@ -2194,8 +2193,6 @@ sequenceDiagram
   file. `pdf_generator` also leaves `run_id = NULL` and writes the file twice.
 - **The SSE stream authenticates via `?token=`**, not the `Authorization`
   header, because `EventSource` cannot set headers.
-- **`agent.loop.resumed` never reaches the browser** — the SSE map has
-  `agent.loop.resume`. Several other loop events are similarly unmapped.
 - **Parallel DAG steps run in isolated sessions.** Never mutate a shared ORM
   object from a step; fold cost with the atomic `_bump_run_cost` increment or
   you will silently drop charges.

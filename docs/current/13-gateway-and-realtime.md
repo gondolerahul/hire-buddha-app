@@ -992,7 +992,7 @@ executing in the arq worker can stream to a browser attached to the API.
 
 | Publisher | File | Payload `type` values |
 |-----------|------|----------------------|
-| AgentLoop telemetry | [`agent_loop_sse.py:75`](../../backend/src/ai/core/agent_loop_sse.py:75) | `iteration_start`, `iteration_end`, `resume`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `retry_picked`, `retry_dequeued`, `replan_triggered`, `cancelled`, `run_end` |
+| AgentLoop telemetry | [`agent_loop_sse.py:75`](../../backend/src/ai/core/agent_loop_sse.py:75) | `iteration_start`, `iteration_end`, `resume`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `retry_picked`, `retry_dequeued`, `replan_triggered`, `bandit_arm_updated`, `task_class_classified`, `cancelled`, `run_end` |
 | Trace spans | [`trace.py:251`](../../backend/src/ai/core/trace.py:251) | `span_open`, `span_close` |
 | HITL checkpoints | [`governance_service.py:336`](../../backend/src/ai/governance/governance_service.py:336) | no `type`; `{"status": "HITL_PENDING", "approval_id", "trigger", "message"}` |
 | Cancellation | [`service.py:528`](../../backend/src/ai/service.py:528) | `{"type": "cancelled", "status": "CANCELLED"}` |
@@ -1000,18 +1000,20 @@ executing in the arq worker can stream to a browser attached to the API.
 The internal-name → wire-`type` translation is a single dict:
 
 ```python
-# backend/src/ai/core/agent_loop_sse.py:29-42
+# backend/src/ai/core/agent_loop_sse.py
 _SSE_EVENT_TYPES: dict[str, str] = {
     "agent.loop.iteration_start": "iteration_start",
     "agent.loop.iteration_end": "iteration_end",
-    "agent.loop.resume": "resume",
+    "agent.loop.resumed": "resume",
     "agent.critic.pre_verdict": "critic_pre",
     "agent.critic.post_verdict": "critic_post",
     "agent.critic.alignment": "critic_align",
     "agent.critic.supervisor": "critic_super",
     "agent.retry.picked": "retry_picked",
     "agent.retry.dequeued": "retry_dequeued",
-    "agent.loop.replan": "replan_triggered",
+    "agent.replan.triggered": "replan_triggered",
+    "agent.bandit.arm_updated": "bandit_arm_updated",
+    "agent.task_class.classified": "task_class_classified",
     "agent.loop.cancelled": "cancelled",
     "agent.loop.run_end": "run_end",
 }
@@ -1019,7 +1021,8 @@ _SSE_EVENT_TYPES: dict[str, str] = {
 
 An event whose internal name is not in that dict is logged and traced but never
 reaches the browser. If you add a loop event and it does not show up in the UI,
-this dict is the missing link.
+this dict is the missing link. `tests/unit/test_sse_event_contract.py` fails when a
+key is a name nothing emits, or a value has no case in the reducer (AK-11).
 
 ### 11.3 HITL on the same channel
 

@@ -25,18 +25,22 @@ __all__ = ["set_sse_redis", "event_async"]
 
 _SSE_REDIS: Any = None
 
-# Internal event name → frontend reducer ``type``.
+# Internal event name → frontend reducer ``type``. Every key must be a name the
+# kernel really emits, and every value a ``case`` in the reducer:
+# ``tests/unit/test_sse_event_contract.py`` checks both (AK-11).
 _SSE_EVENT_TYPES: dict[str, str] = {
     "agent.loop.iteration_start": "iteration_start",
     "agent.loop.iteration_end": "iteration_end",
-    "agent.loop.resume": "resume",
+    "agent.loop.resumed": "resume",
     "agent.critic.pre_verdict": "critic_pre",
     "agent.critic.post_verdict": "critic_post",
     "agent.critic.alignment": "critic_align",
     "agent.critic.supervisor": "critic_super",
     "agent.retry.picked": "retry_picked",
     "agent.retry.dequeued": "retry_dequeued",
-    "agent.loop.replan": "replan_triggered",
+    "agent.replan.triggered": "replan_triggered",
+    "agent.bandit.arm_updated": "bandit_arm_updated",
+    "agent.task_class.classified": "task_class_classified",
     "agent.loop.cancelled": "cancelled",
     "agent.loop.run_end": "run_end",
 }
