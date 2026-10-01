@@ -533,14 +533,17 @@ flowchart TD
     NOMO --> C["LLMRouter._resolve_adapter task_type, model_override"]
     C --> D{"adapter cache hit for company:task:override?"}
     D -->|yes| Z["reuse adapter"]
-    D -->|no| E["ConfigService.resolve_model_for_task"]
+    D -->|no| O{"override?"}
+    O -->|yes| OV["ConfigService.resolve_model_by_name - its LLM row with -in and -out SKUs, company then APP"]
+    OV -->|none| X0["RuntimeError - override has no active, billable integration"]
+    O -->|no| E["ConfigService.resolve_model_for_task"]
     E --> F{"integration found?"}
     F -->|no| X1["RuntimeError - No model configured, configure in AI Model Configuration page"]
+    OV --> G
     F -->|yes| G{"api_key found?"}
     G -->|no| X2["RuntimeError - No API key found for integration"]
-    G -->|yes| H["effective_model = model_override or integration.model_name"]
-    H --> I["_sanitize_model_name - strip publishers/google/models/ etc"]
-    I --> J["_get_adapter provider_name"]
+    G -->|yes| I["_sanitize_model_name - strip publishers/google/models/ etc"]
+    I --> J["_get_adapter - the resolved row's provider"]
     J --> Z
     Z --> K["adapter.generate or generate_with_tools_react"]
 ```
@@ -555,10 +558,15 @@ model_override = config.get("model_name")
 ```
 
 Precedence is therefore: **entity `reasoning_config.model_name` > company task
-default > APP task default > error**. Note the override changes only the *model
-id string* — the provider, credentials and `service_metadata` still come from
-the task default's integration row. Overriding a Gemini default with
-`"gpt-4o"` will send `gpt-4o` to Vertex AI and 404.
+default > APP task default > error**.
+
+**An override resolves like any model** (since 2026-10-02, P4.4, LP-05):
+`ConfigService.resolve_model_by_name` finds the active `LLM` rows for that model name —
+the company's, else the platform's — and requires both its `<model>-in` and `<model>-out`
+SKUs, so the call can be billed. Provider, key and `service_metadata` come from that row.
+A model with no such integration is refused with a `RuntimeError` before any call.
+Before, the override changed only the model id: provider and key stayed the task
+default's (`"gpt-4o"` went to Vertex AI), and a model with no SKU ran and billed $0.
 
 ### 6.4 `routing_mode` is dead
 

@@ -449,6 +449,37 @@ class ConfigService:
         await self.db.commit()
         return True
 
+    async def resolve_model_by_name(
+        self, company_id: UUID, model_name: str
+    ) -> Tuple[Optional[IntegrationRegistry], Optional[str]]:
+        """The integration that serves ``model_name`` — the company's, else the
+        platform's — as ``(integration, api_key)``, or ``(None, None)``.
+
+        A model is usable only when it can be billed: its ``<model>-in`` and
+        ``<model>-out`` SKUs are both active in the same company (LP-05). An
+        entity's ``model_override`` resolves here, so it brings its own
+        provider and credentials instead of borrowing the task default's.
+        """
+        owners = [company_id]
+        app_company_id = await self._get_app_company_id()
+        if app_company_id and app_company_id != company_id:
+            owners.append(app_company_id)
+        for owner in owners:
+            rows = (await self.db.execute(
+                select(IntegrationRegistry).where(
+                    IntegrationRegistry.company_id == owner,
+                    IntegrationRegistry.model_name == model_name,
+                    IntegrationRegistry.service_category == "LLM",
+                    IntegrationRegistry.status == "active",
+                )
+            )).scalars().all()
+            skus = {r.service_sku for r in rows}
+            if f"{model_name}-in" not in skus or f"{model_name}-out" not in skus:
+                continue
+            row = next((r for r in rows if r.encrypted_api_key), rows[0])
+            return row, decrypt_api_key(row.encrypted_api_key) if row.encrypted_api_key else None
+        return None, None
+
     async def resolve_model_for_task(
         self, company_id: UUID, task_type: str
     ) -> Tuple[Optional[IntegrationRegistry], Optional[str]]:

@@ -127,27 +127,39 @@ class LLMRouter:
 
         from src.config.service import ConfigService
         config_svc = ConfigService(self.db)
-        integration, api_key = await config_svc.resolve_model_for_task(
-            company_id=self.company_id,
-            task_type=task_type,
-        )
-        if not integration:
-            raise RuntimeError(
-                f"No model configured for task type '{task_type}' "
-                f"(company_id={self.company_id}). "
-                f"Please configure a default in the AI Model Configuration page."
+        if model_override:
+            # An override resolves through the registry like any model: its own
+            # provider, key and settings, and it must be billable (LP-05).
+            # Before, it replaced only the model name, so "gpt-4o" was sent to
+            # Vertex with the default's key, and a model with no SKU billed $0.
+            effective_model = _sanitize_model_name(model_override)
+            integration, api_key = await config_svc.resolve_model_by_name(
+                company_id=self.company_id, model_name=effective_model,
             )
+            if not integration:
+                raise RuntimeError(
+                    f"Model override '{effective_model}' has no active, billable integration "
+                    f"(an LLM row with '{effective_model}-in' and '{effective_model}-out' SKUs) "
+                    f"for company {self.company_id} or the platform. Configure it in Service "
+                    f"Integrations, or remove the entity's model override."
+                )
+            logger.info(f"LLMRouter: model override '{effective_model}' via {integration.provider_name}")
+        else:
+            integration, api_key = await config_svc.resolve_model_for_task(
+                company_id=self.company_id,
+                task_type=task_type,
+            )
+            if not integration:
+                raise RuntimeError(
+                    f"No model configured for task type '{task_type}' "
+                    f"(company_id={self.company_id}). "
+                    f"Please configure a default in the AI Model Configuration page."
+                )
+            effective_model = integration.model_name or ""
         if not api_key:
             raise RuntimeError(
-                f"No API key found for integration '{integration.provider_name}/{integration.model_name}'. "
+                f"No API key found for integration '{integration.provider_name}/{effective_model}'. "
                 f"Please check the Service Integration configuration."
-            )
-        # Entity-level model override takes priority over company defaults
-        effective_model = model_override or integration.model_name or ""
-        if model_override:
-            logger.info(
-                f"LLMRouter: Model override '{model_override}' "
-                f"(default was '{integration.model_name}')"
             )
         adapter = _get_adapter(
             provider_name=integration.provider_name,

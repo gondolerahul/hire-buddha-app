@@ -188,7 +188,7 @@ so the loop silently truncates and returns whatever it had, with no error and no
 
 ### LP-05 — An entity `model_override` changes the model but not the provider
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-02, P4.4)** — `LLMRouter` resolves an override through `ConfigService.resolve_model_by_name`: the model's own active `LLM` row (company, else platform) with both `-in` and `-out` SKUs, whose provider, key and settings are used; no such row is a `RuntimeError` before any call. `tests/integration/test_model_override.py`.
 
 `model_override` replaces the model id and leaves the resolved provider and credentials in
 place. Overriding a Gemini default with `gpt-4o` therefore sends `gpt-4o` **to Vertex AI**.
