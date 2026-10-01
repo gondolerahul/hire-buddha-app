@@ -320,10 +320,10 @@ export interface HITLCheckpoint {
 export interface Governance {
     max_cost_usd?: number;
     timeout_ms: number;
-    max_recursion_depth?: number;
+    max_recursion_depth?: number;   // how deep the tree below this entity may go (enforced)
     checkpoint_every_n_steps?: number;
     execution_limits?: {
-        max_recursion_depth: number;
+        max_recursion_depth?: number;   // old spelling, folded into max_recursion_depth
         max_tool_calls?: number;
     };
     hitl_checkpoints: HITLCheckpoint[];
@@ -434,6 +434,8 @@ export interface ExecutionRun {
     entity_id: string;
     parent_run_id?: string;   // structure: the run that dispatched this one as a child
     retry_of_run_id?: string; // the run this one retries or refines
+    depth?: number;           // how many parents this run has; 0 for a top-level run
+    max_depth?: number;       // the deepest a descendant of this run may go
     company_id: string;
     status: RunStatus;
     input_data?: any;

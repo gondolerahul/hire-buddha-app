@@ -307,6 +307,8 @@ Defined at [orm/execution.py:46](../../backend/src/ai/orm/execution.py:46).
 | `entity_id` | UUID FK→hierarchical_entities.id | no | — | What ran |
 | `parent_run_id` | UUID FK→self | yes | — | Structure only: the run that dispatched this one as a child (a `CHILD_ENTITY_INVOCATION` or a CORTEX RECURSE subtree). Children are not admitted or settled on their own |
 | `retry_of_run_id` | UUID FK→self | yes | — | The run a retry or refinement repeats (EP-03). A retry is a top-level run: admitted, metered and settled |
+| `depth` | Integer | no | `0` | Parents above this run; written when a child run is created (EP-06) |
+| `max_depth` | Integer | yes | — | The deepest a descendant may go: the tightest `governance.max_recursion_depth` on the way down. NULL on a top-level run until it dispatches a child |
 | `company_id` | UUID FK→companies.id | no | — | Tenant |
 | `user_id` | UUID FK→users.id | yes | — | Who triggered it |
 | `status` | String | yes | `PENDING` | See [§11.2](#112-run-status-lifecycle) |

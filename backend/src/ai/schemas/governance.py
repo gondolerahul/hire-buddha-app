@@ -1,9 +1,9 @@
 """schemas/governance.py — Governance, HITL checkpoints, execution limits."""
 from __future__ import annotations
 
-from typing import ClassVar, List, Optional
+from typing import Any, ClassVar, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from src.ai.schemas.enums import HITLTriggerType
 
@@ -15,8 +15,11 @@ __all__ = [
 
 
 class ExecutionLimits(BaseModel):
-    max_recursion_depth: int = 5
     max_tool_calls: Optional[int] = None
+
+    # The old spelling of Governance.max_recursion_depth — the one the entity
+    # builder edited. Accepted, and folded into the one setting by Governance.
+    extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"max_recursion_depth"})
 
 
 class HITLCheckpoint(BaseModel):
@@ -35,9 +38,29 @@ class HITLCheckpoint(BaseModel):
 class Governance(BaseModel):
     max_cost_usd: Optional[float] = None
     timeout_ms: int = 60000
+    # How deep the tree below this entity may go: a child run past it is refused
+    # (EP-06). One setting; ``execution_limits.max_recursion_depth`` is folded
+    # into it (EP-28).
     max_recursion_depth: int = 5
     execution_limits: Optional[ExecutionLimits] = None
     hitl_checkpoints: List[HITLCheckpoint] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fold_recursion_limit(cls, data: Any) -> Any:
+        """``execution_limits.max_recursion_depth`` — the spelling the builder
+        sent — becomes ``max_recursion_depth``. When both are sent, it wins:
+        it is the one a person set (the other was the schema default)."""
+        if not isinstance(data, dict):
+            return data
+        limits = data.get("execution_limits")
+        if isinstance(limits, dict) and "max_recursion_depth" in limits:
+            limits = dict(limits)
+            folded = limits.pop("max_recursion_depth")
+            data = {**data, "execution_limits": limits}
+            if folded is not None:
+                data["max_recursion_depth"] = folded
+        return data
 
     # Critic-pipeline knobs the AgentLoop reads (agent_loop._critic_pipeline_for).
     # Defaults are the runtime's own fallbacks, so declaring them changes nothing

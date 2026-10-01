@@ -175,9 +175,11 @@ class StepExecutorService:
                 ),
             )
         # The composition rule (R1): a dynamic plan's children are first seen
-        # here, so the level rule is checked here too.
-        from src.ai.governance.composition import runtime_violation
-        refused = runtime_violation(entity, child_entity)
+        # here, so the level rule is checked here too — and the depth limit,
+        # which is a count of runs, not prompt text (EP-06).
+        from src.ai.governance.composition import child_depth, runtime_violation
+        depth = child_depth(run, entity, child_entity)
+        refused = runtime_violation(entity, child_entity) or depth.refused
         if refused:
             from src.ai.core.exceptions import CompositionError
             raise CompositionError(f"Child invocation refused for step {step.name}: {refused}")
@@ -266,6 +268,8 @@ class StepExecutorService:
             user_id=run.user_id,
             entity_id=entity_id,
             parent_run_id=run.id,
+            depth=depth.depth,
+            max_depth=depth.max_depth,
             trace_id=run.trace_id,
             input_data=child_input,
             status=RunStatus.PENDING
@@ -654,9 +658,11 @@ class StepExecutorService:
         if max_cost:
             current_cost = float(run.total_cost_usd or 0)
             exec_constraints["Cost budget"] = f"${current_cost:.4f} spent of ${max_cost:.2f} max"
-        max_depth = governance.get("max_recursion_depth")
-        if max_depth:
-            exec_constraints["Max recursion depth"] = str(max_depth)
+        # Enforced when a child run is created (EP-06); shown so the model
+        # plans within it.
+        from src.ai.governance.composition import max_recursion_depth
+        _limit = run.max_depth if run.max_depth is not None else (run.depth or 0) + max_recursion_depth(governance)
+        exec_constraints["Recursion depth"] = f"this run is at depth {run.depth or 0}; children may go to depth {_limit}"
 
         # Budget-aware REACT (Phase 12 `07` §2): surface budget pressure as a
         # soft constraint and, past a threshold, an explicit "finish, don't

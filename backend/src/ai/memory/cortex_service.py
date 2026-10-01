@@ -38,13 +38,27 @@ async def _host_child_run_factory(
     result_slot: str,
     execution_run_id: Any,
 ) -> Any:
-    """Create the host ExecutionRun a RECURSE op spawns for a scoped subtree."""
-    from src.ai.models import ExecutionRun
+    """Create the host ExecutionRun a RECURSE op spawns for a scoped subtree.
+
+    A RECURSE child is a child run like any other: it counts against the tree's
+    ``max_recursion_depth`` and is refused past it (EP-06).
+    """
+    from src.ai.core.exceptions import CompositionError
+    from src.ai.governance.composition import child_depth
+    from src.ai.models import ExecutionRun, HierarchicalEntity
+
+    parent_run = await db.get(ExecutionRun, execution_run_id) if execution_run_id else None
+    entity = await db.get(HierarchicalEntity, tree.entity_id)
+    depth = child_depth(parent_run, entity, entity)
+    if depth.refused:
+        raise CompositionError(f"RECURSE refused: {depth.refused}")
 
     child_run = ExecutionRun(
         entity_id=tree.entity_id,
         company_id=company_id,
         parent_run_id=execution_run_id,
+        depth=depth.depth,
+        max_depth=depth.max_depth,
         user_id=tree.user_id,
         input_data={
             "cortex_tree_id": str(tree.id),

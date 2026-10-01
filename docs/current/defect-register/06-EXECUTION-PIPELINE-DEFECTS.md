@@ -241,7 +241,10 @@ ladder. The real ceiling on a runaway agent is `MAX_REACT_TURNS = 12`, the step
 
 ### EP-06 — `max_recursion_depth` is a sentence in a prompt
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — runs carry `depth` and
+`max_depth`; `create_child_run` and the RECURSE factory refuse a child past the
+tightest limit on the way down (`governance/composition.child_depth`, migration
+`ep06_run_depth`; `test_run_depth.py`, `tests/integration/test_run_depth_db.py`).
 
 The only use of the setting is:
 
@@ -374,7 +377,7 @@ explanation.
 | **EP-15** | `ExecutionRun.execution_time_ms` | Never written by the loop path. Derive from `completed_at - started_at`. Any dashboard reading it shows nulls | ✅ Verified · **fixed (2026-10-01)** — written at finalisation; finished runs backfilled by `ep13_run_row_hygiene` |
 | **EP-16** | `__completed_steps__` in `INTERNAL_KEYS.md` | Documented and never written. The live mechanism is `AgentState.completed_step_ids`. The doc is stale and misleads anyone debugging step completion | ✅ Verified · **fixed (2026-10-01)** — `INTERNAL_KEYS.md` rewritten from the code; it now marks every key with no writer (eleven of them) |
 | **EP-17** | The stale `core/README.md` | Documents `execution_engine.py` and `recursive_engine.py`, neither of which exists. Same entry as [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified · **fixed (2026-10-01)** with AK-14 |
-| **EP-28** | `governance.execution_limits.max_recursion_depth` | A second copy of `governance.max_recursion_depth` with no reader at all (the first is read only into prompt text — [EP-06](#ep-06--max_recursion_depth-is-a-sentence-in-a-prompt)). Two settings for one limit, the same split as [PC-17](07-PLANNING-AND-CRITICS-DEFECTS.md#pc-17--two-different-goal_validation_interval-settings) | ✅ Verified · **open** — found 2026-10-01 |
+| **EP-28** | `governance.execution_limits.max_recursion_depth` | A second copy of `governance.max_recursion_depth` with no reader at all (the first is read only into prompt text — [EP-06](#ep-06--max_recursion_depth-is-a-sentence-in-a-prompt)). Two settings for one limit, the same split as [PC-17](07-PLANNING-AND-CRITICS-DEFECTS.md#pc-17--two-different-goal_validation_interval-settings) | **✅ Verified · Medium** · **Status: fixed (2026-10-01)** — one setting: the schema folds the old spelling into `max_recursion_depth` (it wins: it is the builder's), the migration folds stored copies, and the builder edits the one setting |
 
 ---
 

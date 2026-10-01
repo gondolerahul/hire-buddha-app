@@ -403,7 +403,10 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     // ═══════════════════════════════════════════════════════════════════════════
     const [maxCostUsd, setMaxCostUsd] = useState<number | undefined>(entity?.governance?.max_cost_usd);
     const [timeoutMs, setTimeoutMs] = useState(entity?.governance?.timeout_ms || 300000);
-    const [maxRecursionDepth, setMaxRecursionDepth] = useState(entity?.governance?.execution_limits?.max_recursion_depth || 5);
+    // One setting (EP-28): governance.max_recursion_depth. Older entities kept the
+    // builder's value in execution_limits; the backend folds it in.
+    const [maxRecursionDepth, setMaxRecursionDepth] = useState(
+        entity?.governance?.execution_limits?.max_recursion_depth ?? entity?.governance?.max_recursion_depth ?? 5);
     const [maxToolCalls, setMaxToolCalls] = useState<number | undefined>(entity?.governance?.execution_limits?.max_tool_calls);
     const [checkpointEveryNSteps, setCheckpointEveryNSteps] = useState(entity?.governance?.checkpoint_every_n_steps || 3);
     const [hitlCheckpoints, setHitlCheckpoints] = useState<HITLCheckpoint[]>(entity?.governance?.hitl_checkpoints || []);
@@ -788,7 +791,8 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
 
             governance: {
                 max_cost_usd: maxCostUsd, timeout_ms: timeoutMs,
-                execution_limits: { max_recursion_depth: maxRecursionDepth, max_tool_calls: maxToolCalls },
+                max_recursion_depth: maxRecursionDepth,
+                execution_limits: { max_tool_calls: maxToolCalls },
                 hitl_checkpoints: hitlCheckpoints, checkpoint_every_n_steps: checkpointEveryNSteps,
             },
 
@@ -1770,7 +1774,8 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                 </div>
                                 <div className="form-group">
                                     <label>Max Recursion Depth</label>
-                                    <input type="number" value={maxRecursionDepth} onChange={(e) => setMaxRecursionDepth(parseInt(e.target.value))} />
+                                    <input type="number" min={0} value={maxRecursionDepth} onChange={(e) => setMaxRecursionDepth(parseInt(e.target.value))} />
+                                    <small>How many levels of child runs may run below this entity. A child past it is refused.</small>
                                 </div>
                                 <div className="form-group">
                                     <label>Max Tool Calls</label>

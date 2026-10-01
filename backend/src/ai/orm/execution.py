@@ -64,6 +64,11 @@ class ExecutionRun(Base):
     # The run a retry or refinement repeats (EP-03). A retry is a top-level run
     # of its own: admitted, metered and settled like any other.
     retry_of_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True)
+    # How many parents this run has (a top-level run is 0), and the deepest a
+    # descendant of it may go — the tightest governance.max_recursion_depth on
+    # the way down. NULL until the run dispatches a child (EP-06).
+    depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    max_depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     status: Mapped[str | None] = mapped_column(String, default="PENDING")

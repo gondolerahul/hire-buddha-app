@@ -337,7 +337,7 @@ class Governance(BaseModel):
 |---|---|---|
 | `max_cost_usd` | `None` | Hard USD cap for the run |
 | `timeout_ms` | `60000` (60s) | Wall-clock limit |
-| `max_recursion_depth` | `5` | How deep child entities may nest |
+| `max_recursion_depth` | `5` | How deep the tree below this entity may go — enforced when a child run is created (EP-06). `execution_limits.max_recursion_depth`, the builder's old spelling, is folded into it (EP-28) |
 | `execution_limits` | `None` | Further per-entity limits |
 | `hitl_checkpoints` | `[]` | Human approval checkpoints |
 

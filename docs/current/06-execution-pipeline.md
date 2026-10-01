@@ -637,9 +637,9 @@ opt-in ([platform_schema_compiler.py:808-822](../../backend/src/ai/meta/platform
 |-------|------|---------|--------------------|
 | `max_cost_usd` | float? | `None` | **Yes, hard.** [`StepEngine._enforce_cost_cap`](../../backend/src/ai/core/step_engine.py:237) re-reads `run.total_cost_usd` before each step and raises `BudgetExhaustedError`. Also seeds `Budget.usd_max` ([budget.py:94](../../backend/src/ai/core/budget.py:94), default `$100`). |
 | `timeout_ms` | int | `60000` | **Yes, per step.** `asyncio.wait_for` at [step_engine.py:315](../../backend/src/ai/core/step_engine.py:315). Also seeds `Budget.wall_max_s` (default 7200 s). |
-| `max_recursion_depth` | int | `5` | **No.** Only surfaced as a prompt line ([step_executor.py:681](../../backend/src/ai/step_executor.py:681)) and warned about by the meta schema validator. See §8. |
+| `max_recursion_depth` | int | `5` | **Yes, hard** (EP-06). A child run past it is refused when it is created — see §8 *Recursion depth*. Also shown to the model as a constraint line. |
 | `execution_limits.max_tool_calls` | int? | `None` | **Prompt-only.** Rendered as "Tool calls remaining: N of M" ([step_executor.py:673-676](../../backend/src/ai/step_executor.py:673)); no hard block. |
-| `execution_limits.max_recursion_depth` | int | `5` | Duplicate of the above; unread. |
+| `execution_limits.max_recursion_depth` | — | — | The builder's old spelling of `max_recursion_depth`. Accepted and folded into it (it wins when both are sent — it is the one a person set); migration `ep06_run_depth` folded the stored copies (EP-28). |
 | `hitl_checkpoints` | list[`HITLCheckpoint`] | `[]` | **Yes.** [`GovernanceService.evaluate_hitl`](../../backend/src/ai/governance/governance_service.py:246). |
 
 `HITLCheckpoint` = `{trigger_type, step_ref, tool_ref, threshold, expression,
@@ -1583,9 +1583,16 @@ own `AgentLoop`. Only L0 calls `settle_billing` — `_settle_billing` returns
 early when `parent_run_id` is set
 ([agent_loop.py:1144](../../backend/src/ai/core/agent_loop.py:1144)).
 
-**Depth is not enforced.** `governance.max_recursion_depth` has no runtime
-reader (grep: only `step_executor.py:681` for the prompt line and the meta
-schema validator). What actually bounds recursion:
+**Depth is a limit** (EP-06). Every run carries `depth` (a top-level run is 0,
+a child its parent's + 1) and `max_depth`, the deepest a descendant may go: the
+root's `depth + max_recursion_depth`, narrowed — never widened — by each
+descendant's own `max_recursion_depth` on the way down
+(`governance/composition.child_depth`). `create_child_run` and the CORTEX
+RECURSE factory refuse a child whose depth would pass its parent's
+`max_depth` (`CompositionError`; no run row). With the default of 5, a GRAPH
+reaches an ACTION at depth 5; same-level composition or RECURSE that goes deeper
+needs a larger limit on the root. Before EP-06 the setting was a line in the
+prompt and only credits and cost caps bounded a fan-out. The other guards:
 
 | Guard | Value | Where |
 |-------|-------|-------|
@@ -2200,8 +2207,6 @@ sequenceDiagram
 - **`logic_gate.retry_policy` and `planning.loop_control` are dead config.** No
   runtime readers. Real retry bounds are `MAX_RETRIES_PER_STEP = 2` plus the
   tool healing ladder.
-- **`governance.max_recursion_depth` is not enforced.** It only appears as a
-  prompt line. Depth is bounded in practice by credits and cost caps.
 - **`execution_limits.max_tool_calls` is a prompt hint, not a limit**, and
   `tool_call_counts` is reset at the start of every step.
 - **`rate_limit_per_run` cannot fire.** No caller injects it into the

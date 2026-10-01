@@ -107,6 +107,8 @@ class ExecutionRunSummary(BaseModel):
     entity_id: UUID
     parent_run_id: Optional[UUID]
     retry_of_run_id: Optional[UUID] = None  # the run this one retries or refines (EP-03)
+    depth: int = 0                          # parents above this run (EP-06)
+    max_depth: Optional[int] = None         # the deepest a descendant may go
     company_id: UUID
     status: RunStatus
     error_message: Optional[str]

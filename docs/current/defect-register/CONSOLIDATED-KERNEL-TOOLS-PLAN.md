@@ -816,4 +816,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P1.3–1.4 | EP-26, R1 (router rule) | `6f52461` | `test_uniform_execution.py`: 18 of 22 fail on the old code; the parity golden `research_agent_brief` (recorded as "Success" with no work) re-recorded hermetically |
 | P1.5 | EP-27 | `8f356fb` | `test_entity_read_is_pure.py`: 6 of 7 fail on the old code (the PROCESS rename passes there because only ACTION/SKILL got the virtual plan) |
 | P1.6 | R1 (level-derived defaults) | `9641720` | `test_level_defaults.py` + LOOP/GRAPH rows of `test_matrix_defaults`: 10 of 30 fail on the old code |
-| P1.8 | EP-03 | (this commit) | `test_retry_is_not_a_child.py`: retry and refine fail on the old code; the backfill test runs the migration's SQL on rows in the old shape; migration round-trips |
+| P1.8 | EP-03 | `a797ac4` | `test_retry_is_not_a_child.py`: retry and refine fail on the old code; the backfill test runs the migration's SQL on rows in the old shape; migration round-trips |
+| P1.9 | EP-06, EP-28 | (this commit) | `test_run_depth.py` (fails to collect on the old code), `test_run_depth_db.py` (child and RECURSE refusals fail on the old code; the migration test runs its SQL on old-shape rows); migration round-trips |

@@ -37,11 +37,17 @@ from src.ai.schemas.levels import can_parent
 __all__ = [
     "EntityShape",
     "ChildReference",
+    "ChildDepth",
+    "DEFAULT_MAX_RECURSION_DEPTH",
     "child_references",
     "authoring_violations",
     "dispatch_violations",
     "runtime_violation",
+    "max_recursion_depth",
+    "child_depth",
 ]
+
+DEFAULT_MAX_RECURSION_DEPTH = 5
 
 CHILD_STEP = "CHILD_ENTITY_INVOCATION"
 
@@ -313,3 +319,56 @@ def runtime_violation(parent: Any, child: Any) -> Optional[str]:
     if _as_uuid(getattr(child, "company_id", None)) != _as_uuid(getattr(parent, "company_id", None)):
         return f"{child.name} does not belong to {parent.name}'s company"
     return _level_problem("the step", _type_name(parent.type), child)
+
+
+# ── Depth (EP-06, EP-28) ────────────────────────────────────────────────────
+
+def max_recursion_depth(governance: Any) -> int:
+    """How deep the tree below an entity may go.
+
+    ``governance.max_recursion_depth``; a stored ``execution_limits`` copy (the
+    builder's old spelling) wins when present, as the schema's fold does.
+    """
+    gov = governance if isinstance(governance, dict) else {}
+    limits = gov.get("execution_limits")
+    candidates = [limits.get("max_recursion_depth") if isinstance(limits, dict) else None,
+                  gov.get("max_recursion_depth")]
+    for raw in candidates:
+        if raw is None:
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value >= 0:
+            return value
+    return DEFAULT_MAX_RECURSION_DEPTH
+
+
+@dataclass(frozen=True)
+class ChildDepth:
+    depth: int                 # the child run's depth
+    max_depth: int             # the deepest a descendant of the child may go
+    refused: Optional[str]     # why the child may not start, or None
+
+
+def child_depth(parent_run: Any, parent_entity: Any, child_entity: Any) -> ChildDepth:
+    """The depth of a child run of ``parent_run``, and whether it may start.
+
+    A run's ``max_depth`` is the tightest limit on the way down: the root's
+    ``depth + max_recursion_depth``, narrowed by every descendant's own limit.
+    A top-level run's is derived from its entity when it first dispatches.
+    """
+    parent_depth = int(getattr(parent_run, "depth", 0) or 0)
+    parent_max = getattr(parent_run, "max_depth", None)
+    if parent_max is None:
+        parent_max = parent_depth + max_recursion_depth(getattr(parent_entity, "governance", None))
+    depth = parent_depth + 1
+    own_max = depth + max_recursion_depth(getattr(child_entity, "governance", None))
+    refused = None
+    if depth > parent_max:
+        refused = (
+            f"{getattr(child_entity, 'name', 'the child')} would run at depth {depth}, "
+            f"past this tree's max_recursion_depth (deepest allowed: {parent_max})"
+        )
+    return ChildDepth(depth=depth, max_depth=min(parent_max, own_max), refused=refused)
