@@ -188,10 +188,14 @@ class EmailIngestTool(Tool):
             return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
         
-        imap_host = params.get("imap_host") or resolved.get("imap_host")
-        imap_port = params.get("imap_port") or resolved.get("imap_port") or 993
-        email_address = params.get("email_address") or resolved.get("email_address")
-        password = params.get("password") or resolved.get("password")
+        # Server, account and password come from the company's connection row
+        # only. ``email_address`` may pick which of the company's connections;
+        # it cannot point the tool at another server or supply a password
+        # (TL-04, TL-56).
+        imap_host = resolved.get("imap_host")
+        imap_port = resolved.get("imap_port") or 993
+        email_address = resolved.get("email_address")
+        password = resolved.get("password")
         folder = params.get("folder", "INBOX")
         count = params.get("count", 5)
         unread_only = params.get("unread_only", True)
@@ -308,10 +312,14 @@ class EmailClassifyTool(Tool):
             return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
 
-        imap_host = params.get("imap_host") or resolved.get("imap_host")
-        imap_port = params.get("imap_port") or resolved.get("imap_port") or 993
-        email_address = params.get("email_address") or resolved.get("email_address")
-        password = params.get("password") or resolved.get("password")
+        # Server, account and password come from the company's connection row
+        # only. ``email_address`` may pick which of the company's connections;
+        # it cannot point the tool at another server or supply a password
+        # (TL-04, TL-56).
+        imap_host = resolved.get("imap_host")
+        imap_port = resolved.get("imap_port") or 993
+        email_address = resolved.get("email_address")
+        password = resolved.get("password")
         uid = params.get("uid")
         category = params.get("category")
         source_folder = params.get("source_folder", "INBOX")
@@ -408,10 +416,14 @@ class EmailDraftTool(Tool):
             return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
 
-        imap_host = params.get("imap_host") or resolved.get("imap_host")
-        imap_port = params.get("imap_port") or resolved.get("imap_port") or 993
-        email_address = params.get("email_address") or resolved.get("email_address")
-        password = params.get("password") or resolved.get("password")
+        # Server, account and password come from the company's connection row
+        # only. ``email_address`` may pick which of the company's connections;
+        # it cannot point the tool at another server or supply a password
+        # (TL-04, TL-56).
+        imap_host = resolved.get("imap_host")
+        imap_port = resolved.get("imap_port") or 993
+        email_address = resolved.get("email_address")
+        password = resolved.get("password")
         original_message_id = params.get("original_message_id")
         draft_body = params.get("draft_body")
         to_addr = params.get("to")
@@ -529,10 +541,14 @@ class EmailSendTool(Tool):
             return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
 
-        smtp_host = params.get("smtp_host") or resolved.get("smtp_host")
-        smtp_port = params.get("smtp_port") or resolved.get("smtp_port") or 587
-        email_address = params.get("email_address") or resolved.get("email_address")
-        password = params.get("password") or resolved.get("password")
+        # Server, account and password come from the company's connection row
+        # only. ``email_address`` may pick which of the company's connections;
+        # it cannot point the tool at another server — an open relay from the
+        # tenant's identity — or supply a password (TL-04).
+        smtp_host = resolved.get("smtp_host")
+        smtp_port = resolved.get("smtp_port") or 587
+        email_address = resolved.get("email_address")
+        password = resolved.get("password")
         to_addr = params.get("to")
         subject = params.get("subject")
         body = params.get("body")

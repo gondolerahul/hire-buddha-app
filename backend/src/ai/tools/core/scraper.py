@@ -1,7 +1,7 @@
 import json
 import httpx
-from typing import Any, Dict
-from src.ai.tools.base import Tool, ToolParams, ToolResult as TypedToolResult
+from typing import Any, Dict, Optional
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, ToolParams, ToolResult as TypedToolResult, context_company_id
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +82,13 @@ class ScraperTool(Tool):
             if not url:
                 return json.dumps({"error": "Missing 'url' in scraper input"})
 
-            # Retrieve execution context info
+            # The company comes from the execution context only (TL-03, TL-05):
+            # without one the scrape used to spend the platform's key and save
+            # the page into the platform's artifact store.
+            company_id = context_company_id(context)
+            if not company_id:
+                return json.dumps({"error": NO_CONTEXT_ERROR})
             context = context or {}
-            company_id = context.get("company_id")
             purpose = params.get("purpose", f"Scraped content from {url}")
             
             # Extract campaign/run IDs if provided
@@ -105,13 +109,7 @@ class ScraperTool(Tool):
                 # Per feedback: App Admin configures Firecrawl SKU system-wide.
                 # config_svc auto-falls back to APP company if company-specific key is missing
                 # get_api_key_by_provider already checks the app company ID as fallback
-                key = None
-                if company_id:
-                    key = await config_svc.get_api_key_by_provider(company_id, "firecrawl")
-                else:
-                    app_company_id_val = await config_svc._get_app_company_id()
-                    if app_company_id_val:
-                        key = await config_svc.get_api_key_by_provider(app_company_id_val, "firecrawl")
+                key = await config_svc.get_api_key_by_provider(company_id, "firecrawl")
                 
                 if not key:
                     return json.dumps({"error": "Firecrawl integration is not configured. Please add the 'firecrawl' provider key in the system settings."})
@@ -150,10 +148,6 @@ class ScraperTool(Tool):
                     file_name = f"scraped_{safe_url[:50]}.md"
                     
                     # Store file path in DB, ArtifactService physically saves to @artifact base folder
-                    # Uses company_id from context if available, otherwise app company id
-                    target_company_id = company_id
-                    if not target_company_id:
-                        target_company_id = await config_svc._get_app_company_id()
                         
                     content_bytes = markdown_content.encode("utf-8")
                     
@@ -163,7 +157,7 @@ class ScraperTool(Tool):
                         mime_type="text/markdown",
                         file_category="documents",
                         origin=ORIGIN_SYSTEM,
-                        company_id=target_company_id,
+                        company_id=company_id,
                         purpose=purpose,
                         generated_by="scraper_tool",
                         campaign_id=campaign_id,
@@ -189,11 +183,15 @@ class ScraperTool(Tool):
     # Typed interface
     # ---------------------------------------------------------------------------
 
-    async def run_typed(self, params: ScraperParams) -> TypedToolResult:
-        """Typed tool execution — accepts ScraperParams, returns TypedToolResult."""
+    async def run_typed(self, params: ScraperParams, context: Optional[Dict[str, Any]] = None) -> TypedToolResult:
+        """Typed tool execution — accepts ScraperParams, returns TypedToolResult.
+
+        Takes the execution context and passes it on (TL-05): the executor
+        hands ``context`` only to a ``run_typed`` that declares it.
+        """
         try:
             result_str = await self.run_with_context(
-                json.dumps({"url": params.url, "purpose": params.purpose})
+                json.dumps({"url": params.url, "purpose": params.purpose}), context,
             )
             return TypedToolResult(output=result_str)
         except Exception as e:

@@ -190,7 +190,7 @@ must come from a frozen `ExecutionContext` the tool cannot construct.
 
 ### TL-04 — `email_send` lets the model override the SMTP server and password
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.4)** — all four email tools take server, port, address and password from the company's `email_connections` row only; the model's `email_address` only picks among the company's rows. Evidence: the old `email_send` connected to `smtp.attacker` with the model's password; `tests/unit/test_tool_credentials.py`.
 
 Credential resolution reads `params.get("password") or resolved.get("password")` — the
 **model's value takes precedence** over the decrypted `email_connections` row. The same
@@ -209,7 +209,7 @@ accepted params entirely. Resolve them only from the connection row.
 
 ### TL-05 — The typed dispatch path silently drops execution context in `scraper_tool`
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.4)** — `ScraperTool.run_typed` takes and forwards `context`; without a context the scraper refuses (`NO_CONTEXT_ERROR`) instead of using the platform's key and artifact store. The typed path itself goes in P6 (TL-41).
 
 `ScraperTool.run_typed(params)` declares no `context` parameter. The executor inspects
 the signature and, finding none, calls `run_typed(typed_params)` without one. Because

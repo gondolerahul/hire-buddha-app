@@ -446,6 +446,10 @@ The typed path is chosen by reflection
 that Pydantic model from `tool_args` (minus `company_id` / `user_id`). If
 anything in that reflection fails it silently logs at DEBUG and falls through to
 the legacy string path — which is why a broken typed signature is easy to miss.
+The execution context reaches `run_typed` only when it declares a `context`
+parameter; `scraper_tool`'s did not, so every typed scraper call ran with no
+company — on the platform's Firecrawl key, saving into the platform's artifact
+store — until 2026-10-01 (TL-05). Both typed tools now declare it.
 
 ### 3.6 A minimal complete tool
 
@@ -883,7 +887,12 @@ All four tools share one credential resolver,
 [`_resolve_connection`](../../backend/src/ai/tools/email/email_tool.py:111),
 which reads the `email_connections` table (see
 [email_models.py](../../backend/src/ai/email_models.py)) and decrypts
-`encrypted_app_password`.
+`encrypted_app_password`. **Server, port, account and password come from that row
+only** (since 2026-10-01, TL-04/TL-56): the model's `email_address` may pick which
+of the company's connections to use, and an address with no row is refused. Before,
+`params.get("smtp_host") or resolved.get("smtp_host")` — and the same for the IMAP
+host, address and password — let a prompt-injected call send through any server,
+or hand the tenant's decrypted password to one.
 
 **There is no OAuth in the email tools.** The connection model stores
 `encrypted_app_password` and `provider_type` (`gmail` / `outlook` / `custom`);

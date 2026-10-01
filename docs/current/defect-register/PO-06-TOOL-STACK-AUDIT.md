@@ -268,7 +268,7 @@ artifacts.
 
 ### TL-56 — Every email tool lets the model override the mail server
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.4, with [TL-04](TOOL-LAYER-DEFECTS.md#tl-04--email_send-lets-the-model-override-the-smtp-server-and-password))** — `email_ingest`, `email_classify` and `email_draft` read the IMAP server, address and password from the connection row only.
 
 TL-04 records this for `email_send` (SMTP relay). The same
 `params.get(...) or resolved.get(...)` precedence is in **all four** email tools for
