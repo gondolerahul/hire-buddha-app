@@ -1334,6 +1334,7 @@ class AgentLoop:
                     ),
                 },
                 goal=new_goal, request=run_request(state.context_state),
+                entity=self._entity, run_id=state.run_id,
             )
             if new_plan:
                 state.plan_steps = list(new_plan)

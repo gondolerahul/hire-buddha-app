@@ -814,7 +814,7 @@ flowchart LR
 | 6 | `no_orphaned_outputs` | Any non-final step declaring an `output_slot` must have that slot (or the step's id) referenced downstream. | Candidate dropped. Pure heuristic; the final step is exempt and a missing `output_slot` is fine. |
 | 7 | `child_invocations_have_entity_id` | Every `CHILD_ENTITY_INVOCATION` has `target.entity_id` **or** `target.entity_name_hint`. | Candidate dropped. `child_resolver` can rescue a name hint; it cannot rescue nothing. |
 | 8 | `prompt_templates_are_strings` | `target.prompt_template` is `None` or a `str`. | Candidate dropped. Backstop for LLMs emitting objects, even though `PlanStepTarget` coerces them. |
-| 9 | `child_invocations_target_known_children` | Every `CHILD_ENTITY_INVOCATION` with a `target.entity_id` targets a known child: a live child of the entity (`parent_id` or `hierarchy.children`) or a child the static plan already targets. Name-hint-only steps pass. Skipped when `known_child_ids` is `None` (roster unknown, e.g. `adapt_plan`). | Candidate dropped. Stops invented ids like `child_1234` from reaching dispatch (PC-24). |
+| 9 | `child_invocations_target_known_children` | Every `CHILD_ENTITY_INVOCATION` with a `target.entity_id` targets a known child: a live child of the entity (`parent_id` or `hierarchy.children`) or a child the static plan already targets. Name-hint-only steps pass. Skipped when `known_child_ids` is `None` (roster unknown). | Candidate dropped. Stops invented ids like `child_1234` from reaching dispatch (PC-24). |
 
 Plus one invariant that is **not** in the default suite:
 
@@ -890,17 +890,29 @@ docstring at
 
 ### 7.2 `PlannerService.adapt_plan`
 
+> **Since 2026-10-02 (P4.3, PC-20).** The replan context used to carry no entity, company or
+> run. Without the entity, `all_required_tools_in_capabilities` read the capability list as
+> empty, so every candidate step that called a tool — even a granted one — failed it; the
+> child-roster check had no roster; and with no company the replan's LLM calls wrote no usage
+> row, so replans were free. The loop now passes `entity=` and `run_id=`.
+
 ```python
 # backend/src/ai/planning/planner_service.py
 completed_ids = {s.get("step_id") for s in completed_steps if s.get("step_id")}
 remaining = [s for s in original_plan if s.get("step_id") not in completed_ids]
 ...
 if v2:
+    child_roster, known_child_ids = await self._child_roster(entity, static_plan)  # when entity is given
     ctx = PlanContext(
-        entity=None,
-        static_plan={"steps": list(original_plan or [])},
+        entity=entity,                    # the loop passes its entity (PC-20)
+        static_plan=static_plan,
         goal=goal or "",
+        request=request,
         failed_step=failed_step or {},
+        company_id=self.company_id,       # the replan's calls write usage rows…
+        run_id=run_id,                    # …attributed to the run (P4.1/P4.3)
+        child_roster=child_roster,
+        known_child_ids=known_child_ids,
     )
     gen = PlanGenerator(llm_router=self.llm, db=self.db)
     result = await gen.generate(ctx, n=2)
@@ -920,7 +932,7 @@ sequenceDiagram
 
     AL->>AL: new_goal = joined proposed_subgoals or entity.goal
     AL->>AL: completed = one dict per id in state.completed_step_ids
-    AL->>PS: adapt_plan - original_plan, completed, failed_step, goal
+    AL->>PS: adapt_plan - original_plan, completed, failed_step, goal, entity, run_id
     PS->>PS: remaining = original_plan minus completed ids
     PS->>FF: is_on planner.v2_enabled
     alt flag off or lookup raised

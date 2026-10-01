@@ -352,7 +352,7 @@ exists to protect.
 
 ### PC-20 — `adapt_plan` disables three invariants and skips billing
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P4.3)** — the loop passes `entity=` and `run_id=`; the replan context carries the entity, the company, the run and the entity's child roster, so every invariant runs and the replan's calls write usage rows to the run. Found while fixing: worse than "skipped" — without the entity `all_required_tools_in_capabilities` read the capability list as empty and **failed** every candidate step that called a tool, granted or not; and with no company the replan wrote no usage row at all. `tests/unit/test_planner_service.py`.
 
 `PlannerService.adapt_plan` calls the generator with `entity=None`. Three of the eight
 invariants need the entity and are skipped. The replan's tokens are also not billed to the

@@ -324,8 +324,17 @@ class PlannerService:
         failed_step: dict[str, Any],
         goal: str,
         request: str = "",
+        *,
+        entity: Any = None,
+        run_id: Any = None,
     ) -> List[dict[str, Any]]:
         """Mid-execution re-planning (autonomous loop).
+
+        ``entity`` and ``run_id`` make a replan a full plan (PC-20): with the
+        entity the invariants that need it run (tools in its capabilities,
+        children it may invoke), and with the company and the run the replan's
+        LLM calls write their usage rows to the run — before, the context had
+        neither, so those invariants were skipped and the calls wrote no row.
 
         Delegates to :class:`PlanGenerator.generate` (multi-candidate +
         invariants + judge) when ``planner.v2_enabled`` is on. On any
@@ -347,12 +356,21 @@ class PlannerService:
                     PlanContext,
                     PlanGenerator,
                 )
+                static_plan = {"steps": list(original_plan or [])}
+                child_roster, known_child_ids = (
+                    await self._child_roster(entity, static_plan) if entity is not None
+                    else ("", None)
+                )
                 ctx = PlanContext(
-                    entity=None,
-                    static_plan={"steps": list(original_plan or [])},
+                    entity=entity,
+                    static_plan=static_plan,
                     goal=goal or "",
                     request=request,
                     failed_step=failed_step or {},
+                    company_id=self.company_id,
+                    run_id=run_id,
+                    child_roster=child_roster,
+                    known_child_ids=known_child_ids,
                 )
                 gen = PlanGenerator(llm_router=self.llm, db=self.db)
                 result = await gen.generate(ctx, n=2)

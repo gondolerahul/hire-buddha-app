@@ -415,3 +415,44 @@ class TestReconcileV2RouterEnforcement:
 
         assert result["steps"] == v2_plan["steps"]  # untouched
         assert all(s.get("type") != "CHILD_ENTITY_INVOCATION" for s in result["steps"])
+
+
+# ── PC-20 (P4.3): a replan is a full plan — entity, company and run ─────────
+
+
+@pytest.mark.asyncio
+async def test_a_replan_gets_the_entity_the_company_and_the_run(service, monkeypatch):
+    from types import SimpleNamespace
+    from src.ai.planning import plan_generator as pg
+
+    seen = {}
+
+    async def _generate(self, ctx, n=3):
+        seen.update(entity=ctx.entity, company_id=ctx.company_id, run_id=ctx.run_id)
+        return SimpleNamespace(chosen=SimpleNamespace(steps=[{"name": "next", "type": "THOUGHT"}]))
+
+    monkeypatch.setattr(pg.PlanGenerator, "generate", _generate)
+    monkeypatch.setattr(PlannerService, "_child_roster", AsyncMock(return_value=("", set())))
+    entity, run_id = SimpleNamespace(id=uuid4(), capabilities={}), uuid4()
+    with patch('src.ai.core.feature_flags.FeatureFlags.is_on', AsyncMock(return_value=True)):
+        await service.adapt_plan(original_plan=[], completed_steps=[], failed_step={},
+                                 goal="g", entity=entity, run_id=run_id)
+    assert seen == {"entity": entity, "company_id": service.company_id, "run_id": run_id}
+
+
+def test_with_the_entity_the_tool_invariant_judges_the_grants():
+    """Without the entity (the old replan context) the capability list read as
+    empty, so every replan step that called a tool — even a granted one — failed
+    this invariant. With the entity it is judged against the grants."""
+    from types import SimpleNamespace
+    from src.ai.planning.plan_invariants import validate_plan
+
+    def _ok(tool, entity):
+        plan = [{"step_id": "s1", "type": "TOOL_CALL", "target": {"tool_id": tool}}]
+        return {i.name: i.passed for i in validate_plan(plan, entity)}["all_required_tools_in_capabilities"]
+
+    entity = SimpleNamespace(id=uuid4(), capabilities={"tools": [{"tool_id": "web_search"}]},
+                             governance={}, planning={})
+    assert _ok("web_search", entity) is True
+    assert _ok("email_send", entity) is False
+    assert _ok("web_search", None) is False      # the old replan: a granted tool refused
