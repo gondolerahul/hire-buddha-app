@@ -8,7 +8,6 @@
  *   - CriticVerdictChip   — verdict chip (PASS / REVISE / REJECT / BLOCK)
  *   - FailureTagChip      — single FailureTag pill with hover-tooltip
  *   - RetryStrategyBadge  — retry-strategy badge
- *   - ProvenanceRibbon    — provenance + trust-score badge for CORTEX nodes
  *
  * Larger compositions live in sibling files (AgentStatePanel,
  * IterationCard, AgentLoopTimeline, ReflectionsList).
@@ -21,7 +20,6 @@ import type {
     FailureTag,
     PostCriticVerdictKind,
     PreCriticVerdictKind,
-    ProvenanceBlock,
     RetryStrategy,
     SupervisorRecommendation,
 } from '@/types/agentKernel';
@@ -220,52 +218,6 @@ export const RetryStrategyBadge: React.FC<{ strategy?: RetryStrategy | null }> =
     return (
         <span className="agentk-retry-badge" title={`Strategist queued: ${strategy}`}>
             retry ▸ {strategy.replace(/^RETRY_/, '').replace(/_/g, ' ').toLowerCase()}
-        </span>
-    );
-};
-
-// ---------------------------------------------------------------------------
-// Provenance ribbon (Track 6)
-// ---------------------------------------------------------------------------
-
-const _PROV_COLORS: Record<string, string> = {
-    user_upload:    '#2a8',
-    manual:         '#2a8',
-    dreaming:       '#a06fff',
-    tool:           '#5b6fff',
-    reflection:     '#888',
-    context_source: '#888',
-    external_link:  '#d80',
-};
-
-export const ProvenanceRibbon: React.FC<{ provenance?: ProvenanceBlock | null }> = ({
-    provenance,
-}) => {
-    if (!provenance) return null;
-    const color = _PROV_COLORS[provenance.source_type] ?? '#888';
-    const trustPct = Math.round((provenance.trust_score ?? 0) * 100);
-    return (
-        <span className="agentk-prov-ribbon" style={{ borderColor: color }}>
-            <span className="agentk-prov-ribbon__source" style={{ color }}>
-                {provenance.source_type.replace(/_/g, ' ')}
-            </span>
-            <span
-                className="agentk-prov-ribbon__trust"
-                title={`Trust score ${trustPct}%`}
-                style={{ background: color }}
-            >
-                {trustPct}%
-            </span>
-            {provenance.url ? (
-                <a
-                    href={provenance.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="agentk-prov-ribbon__url"
-                >
-                    source ↗
-                </a>
-            ) : null}
         </span>
     );
 };
