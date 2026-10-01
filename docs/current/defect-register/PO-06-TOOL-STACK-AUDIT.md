@@ -144,7 +144,12 @@ set) at execution, not just at advertisement. Pair with TL-10 — thread `compan
 
 ### TL-51 — The resilience classifier fails a succeeding tool on its content
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — the keyword buckets apply only
+to a failed call (a succeeding call fails only on blank output); a tool in
+`resilience.WRITE_TOOLS` is never re-run (no reformat retry, no fallback); the
+`TOOL_CALL` step path uses `ToolResilience.run` instead of its inline copy; the final
+`[TOOL_EMPTY]` marker keeps the tool's last output. Test:
+`tests/unit/test_tool_success.py`.
 
 `tools.resilience_v2_enabled` defaults **True**, so every REACT tool call runs through
 `classify_tool_failure` ([resilience.py:62](../../../backend/src/ai/tools/resilience.py:62)).
@@ -168,7 +173,10 @@ tool result rather than a substring. Never re-invoke a write tool on a reformat 
 
 ### TL-52 — A tool that returns an error is recorded and billed as a success
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — `ToolExecutor` settles every
+result through `result_error` (`{"error": …}`, `{"success": false}`, `Error: …`,
+`[ERROR] …`): such a call is `success=False` with its error, is logged as failed,
+is not billed, and fails its TOOL_CALL step. Test: `tests/unit/test_tool_success.py`.
 
 Tools signal failure by returning `{"error": "..."}` or an `"Error: ..."` string, not by
 raising. The executor only sets `success=False` when the call **raises**

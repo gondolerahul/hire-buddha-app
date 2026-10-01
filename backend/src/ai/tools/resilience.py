@@ -23,9 +23,58 @@ import logging
 from enum import Enum
 from typing import Any, Optional
 
-from src.ai.tool_executor import ToolExecutor, ToolResult
+from src.ai.tool_executor import ToolExecutor, ToolResult, result_error
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Write tools (TL-51)
+# ---------------------------------------------------------------------------
+# Calling one of these twice does the thing twice: a second email, post, ad
+# campaign, CRM update or saved file. The resilience layer never re-runs one —
+# no reformat retry, no fallback to another tool — whatever its result says.
+# ``tests/unit/test_tool_success.py`` checks that every registered tool whose
+# name reads like a write is in ``WRITE_TOOLS`` or ``READS_DESPITE_NAME``.
+
+WRITE_TOOLS: frozenset[str] = frozenset({
+    # messages
+    "email_send", "email_draft", "email_classify",
+    "facebook_send_message", "whatsapp_send_tenant",
+    # posts and comments
+    "facebook_create_post", "facebook_manage_comments",
+    "instagram_publish_media", "instagram_manage_comments",
+    "linkedin_create_post", "linkedin_manage_comments",
+    "pinterest_create_pin", "pinterest_manage_boards",
+    "reddit_create_post", "reddit_manage_comments",
+    "tiktok_publish_video", "tiktok_manage_comments",
+    "twitter_create_post",
+    "youtube_upload_video", "youtube_manage_comments", "youtube_manage_playlists",
+    # ads
+    "google_ads_create_campaign", "google_ads_manage_keywords",
+    "linkedin_ads_create_campaign", "linkedin_ads_manage_audiences",
+    "linkedin_ads_manage_creatives",
+    "meta_ads_create_campaign", "meta_ads_manage_adsets", "meta_ads_manage_audiences",
+    "snapchat_ads_create_campaign", "snapchat_ads_manage_ad_squads",
+    "snapchat_ads_manage_audiences",
+    # records, calendars and files
+    "crm_update_lead", "google_calendar_create_event",
+    "linkedin_sales_save_lead", "linkedin_sales_get_lists",
+    "document_save", "file_writer", "docx_tool", "excel_tool", "pptx_tool",
+    # the platform itself
+    "agent_reflect", "meta_entity_creator", "meta_entity_executor", "tool_synthesis",
+})
+
+# Names that read like a write but only produce output the run keeps.
+READS_DESPITE_NAME: frozenset[str] = frozenset({
+    "image_generation", "video_generate", "video_edit", "video_add_sound",
+    "pdf_generator",
+})
+
+
+def is_write_tool(tool_id: str) -> bool:
+    # A fallback provenance id ("a→b") is a write when either side is.
+    return any(part in WRITE_TOOLS for part in str(tool_id or "").split("→"))
 
 
 # ---------------------------------------------------------------------------
@@ -62,18 +111,21 @@ _INFRA_KEYWORDS = {
 def classify_tool_failure(tr: ToolResult) -> FailureKind:
     """Map a :class:`ToolResult` to a :class:`FailureKind`.
 
-    Extracted from the inline keyword logic in ``step_executor._execute_tool_call``
-    so the REACT path and direct path use the same rules.
+    The REACT path and the direct TOOL_CALL path use these rules. A call that
+    succeeded is a failure only when it returned nothing: the keyword buckets
+    apply to failed calls, so a page, search summary or email that merely
+    *mentions* "no results" or "timed out" is not a failure (TL-51). Whether a
+    call failed comes from the tool's own result (``settle_result``, TL-52).
     """
     output_str = str(getattr(tr, "output", "") or "")
     output_lower = output_str.lower()
 
-    is_empty = (
-        not getattr(tr, "output", None)
-        or (isinstance(tr.output, str) and not tr.output.strip())
-        or any(kw in output_lower for kw in _EMPTY_KEYWORDS)
-    )
-    if is_empty:
+    if not getattr(tr, "output", None) or (isinstance(tr.output, str) and not tr.output.strip()):
+        return FailureKind.EMPTY
+    success = getattr(tr, "success", True) and not result_error(tr.output)
+    if success:
+        return FailureKind.NONE
+    if any(kw in output_lower for kw in _EMPTY_KEYWORDS):
         return FailureKind.EMPTY
 
     # Order matters: prefer the most specific buckets before falling
@@ -81,7 +133,6 @@ def classify_tool_failure(tr: ToolResult) -> FailureKind:
     # output like ``"ERROR: invalid json ..."`` is both an error-message
     # AND a format error; the FORMAT bucket carries the actionable
     # signal so it wins.
-    success = getattr(tr, "success", True)
     if any(kw in output_lower for kw in _TIMEOUT_KEYWORDS):
         return FailureKind.TIMEOUT
     if any(kw in output_lower for kw in _IO_ERROR_KEYWORDS):
@@ -95,10 +146,7 @@ def classify_tool_failure(tr: ToolResult) -> FailureKind:
     )
     if is_error_msg:
         return FailureKind.ERROR_MSG
-    if not success:
-        return FailureKind.OTHER
-
-    return FailureKind.NONE
+    return FailureKind.OTHER
 
 
 def _is_format_error(output_lower: str) -> bool:
@@ -115,6 +163,8 @@ def _is_format_error(output_lower: str) -> bool:
 
 
 __all__ = [
+    "WRITE_TOOLS",
+    "is_write_tool",
     "ToolResilience",
     "FailureKind",
     "classify_tool_failure",
@@ -178,6 +228,8 @@ class ToolResilience:
         kind = classify_tool_failure(tr)
         if kind is FailureKind.NONE:
             return tr
+        if is_write_tool(tool_id):
+            return await self._write_not_repeated(run, tool_id, kind, tr)
 
         await self._emit(
             "agent.tool.resilience.reformat_attempt",
@@ -225,16 +277,40 @@ class ToolResilience:
             run_id=str(getattr(run, "id", "")) if run else None,
             tool_id=tool_id, failure_kind=kind.value,
         )
-        tr.output = (
-            f"[TOOL_EMPTY] Tool '{tool_id}' returned no usable output after "
-            f"retries. Failure kind: {kind.value}."
-        )
-        tr.success = False
-        return tr
+        return self._final_failure(tool_id, kind, tr)
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    async def _write_not_repeated(
+        self, run: Any, tool_id: str, kind: FailureKind, tr: ToolResult,
+    ) -> ToolResult:
+        """A write tool is never re-run: a retry or fallback would do the write
+        a second time. Its failed result goes back as it is."""
+        await self._emit(
+            "agent.tool.resilience.write_not_retried",
+            run_id=str(getattr(run, "id", "")) if run else None,
+            tool_id=tool_id, failure_kind=kind.value,
+        )
+        tr.success = False
+        tr.error = tr.error or result_error(tr.output) or str(tr.output or "")[:1000] or kind.value
+        return tr
+
+    @staticmethod
+    def _final_failure(tool_id: str, kind: FailureKind, tr: ToolResult) -> ToolResult:
+        """Retries and fallback found nothing: mark the failure, keeping what
+        the tool last said."""
+        last = str(tr.output or "").strip()
+        tr.error = tr.error or result_error(tr.output)
+        tr.output = (
+            f"[TOOL_EMPTY] Tool '{tool_id}' returned no usable output after "
+            f"retries. Failure kind: {kind.value}."
+            + (f" Last output: {last[:500]}" if last else "")
+        )
+        tr.success = False
+        tr.error = tr.error or kind.value
+        return tr
 
     async def _exec_one(
         self, tool_id: str, raw_input: Any, extra_context: dict,
@@ -283,6 +359,8 @@ class ToolResilience:
         kind = classify_tool_failure(tr)
         if kind is FailureKind.NONE:
             return tr
+        if is_write_tool(tool_id):
+            return await self._write_not_repeated(run, tool_id, kind, tr)
 
         await self._emit(
             "agent.tool.resilience.reformat_attempt",
@@ -348,12 +426,7 @@ class ToolResilience:
             run_id=str(getattr(run, "id", "")) if run else None,
             tool_id=tool_id, failure_kind=kind.value, path="react_afc",
         )
-        tr.output = (
-            f"[TOOL_EMPTY] Tool '{tool_id}' returned no usable output after "
-            f"retries. Failure kind: {kind.value}."
-        )
-        tr.success = False
-        return tr
+        return self._final_failure(tool_id, kind, tr)
 
     async def _reformat_input(
         self,

@@ -78,18 +78,22 @@ class TestExecuteStepRouting:
 
 
 class TestIsFormatError:
+    """The TOOL_CALL path classifies through ``tools.resilience`` (TL-51)."""
 
-    def test_detects_json_parse_error(self, executor):
+    def test_detects_json_parse_error(self):
+        from src.ai.tools.resilience import _is_format_error
         output = '{"error": "invalid json: Expecting value at line 1"}'
-        assert executor._is_format_error(output.lower(), {"invalid json", "json", "parse"}) is True
+        assert _is_format_error(output.lower()) is True
 
-    def test_ignores_infra_error(self, executor):
+    def test_ignores_infra_error(self):
+        from src.ai.tools.resilience import _is_format_error
         output = '{"error": "API key not configured"}'
-        assert executor._is_format_error(output.lower(), {"json", "parse"}) is False
+        assert _is_format_error(output.lower()) is False
 
-    def test_ignores_non_error(self, executor):
+    def test_ignores_non_error(self):
+        from src.ai.tools.resilience import _is_format_error
         output = '{"status": "success", "data": "some result"}'
-        assert executor._is_format_error(output.lower(), {"json", "parse"}) is False
+        assert _is_format_error(output.lower()) is False
 
 
 class TestShouldExit:

@@ -10,6 +10,7 @@ from src.ai.tools.base import Tool as _BaseTool, ToolParams as _BaseToolParams
 from src.ai.core.trace import span as _trace_span
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,45 @@ def _stamp_tool_span(sp, tr: "ToolResult") -> None:
             sp.update(skip_reason=tr.skip_reason)
     except Exception:
         pass
+
+
+# A tool reports failure in its result, not by raising: ``{"error": …}``,
+# ``{"success": false, …}``, or a string starting ``Error: …`` /
+# ``Error <doing x>: …`` / ``[ERROR] …``.
+_ERROR_PREFIX = re.compile(r"^\s*(\[error\]|error(\s+\w+)?\s*:)", re.IGNORECASE)
+
+
+def result_error(output: Any) -> Optional[str]:
+    """The error a tool reported in its own result, or None (TL-52)."""
+    if isinstance(output, dict):
+        if output.get("error"):
+            return str(output["error"])
+        if output.get("success") is False:
+            return str(output.get("message") or output.get("error_message")
+                       or "the tool reported success=false")
+        return None
+    if isinstance(output, str):
+        text = output.strip()
+        if _ERROR_PREFIX.match(text):
+            return text[:1000]
+        if text.startswith("{"):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                return None
+            return result_error(parsed) if isinstance(parsed, dict) else None
+    return None
+
+
+def settle_result(tr: "ToolResult") -> "ToolResult":
+    """A result whose payload reports an error is a failure, whatever the
+    call path said: it is logged and treated as failed and is not billed."""
+    if tr.success and not tr.skipped:
+        err = result_error(tr.output)
+        if err:
+            tr.success = False
+            tr.error = err
+    return tr
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +248,7 @@ class ToolExecutor:
             async with _trace_span(
                 "tool", call.get("name"), args=call.get("args", {}),
             ) as _sp:
-                tr = await _one(call)
+                tr = settle_result(await _one(call))
                 _stamp_tool_span(_sp, tr)
             results.append(tr)
 
@@ -273,7 +313,7 @@ class ToolExecutor:
             async with _trace_span(
                 "tool", call.get("tool"), input=call.get("input", ""),
             ) as _sp:
-                tr = await _one(call)
+                tr = settle_result(await _one(call))
                 _stamp_tool_span(_sp, tr)
             results.append(tr)
         return results

@@ -346,127 +346,19 @@ class StepExecutorService:
                 "agent_id": str(entity.id) if entity is not None else None,
             }
 
-            result = await ToolExecutor.execute_tools([{"tool": tool_id, "input": raw_input}], extra_context=extra_context)
-            tool_result = result[0]  # ToolResult dataclass (P3.2)
-
-            # ── Phase 9 Hardening: Extended Self-Healing Retry ────────────
-            # Covers FORMAT, IO, EMPTY, and TIMEOUT failures.
-            # On persistent failure, tries tool fallback chains.
-            _FORMAT_ERROR_KEYWORDS = {"invalid json", "json", "parse", "format", "delimiter", "control character", "expecting", "decode"}
-            _IO_ERROR_KEYWORDS = {"no such file or directory", "errno 2", "errno 22", "invalid argument", "file name too long"}
-            _EMPTY_KEYWORDS = {"no results", "empty response", "0 results"}
-            _TIMEOUT_KEYWORDS = {"timeout", "timed out", "deadline exceeded"}
-            tool_output_str = str(tool_result.output or "").lower()
-
-            # Classify failure type
-            _is_empty = (
-                not tool_result.output
-                or (isinstance(tool_result.output, str) and not tool_result.output.strip())
-                or any(kw in tool_output_str for kw in _EMPTY_KEYWORDS)
+            # One set of rules for a failed call on every path (TL-51): the
+            # reformat retry and the fallback chain run only for a call that
+            # failed, and never for a write tool.
+            from src.ai.tools.resilience import ToolResilience
+            tool_result = await ToolResilience(
+                reformat_fn=self._reformat_tool_input, tool_executor=ToolExecutor,
+            ).run(
+                run=run, entity=entity, tool_id=tool_id, raw_input=raw_input,
+                extra_context=extra_context, step_name=step.name or "",
+                step_description=step.description or step.name or "",
             )
-            _is_error_msg = (
-                isinstance(tool_result.output, str)
-                and tool_result.output.strip().upper().startswith("ERROR:")
-            )
-            _is_format_err = self._is_format_error(tool_output_str, _FORMAT_ERROR_KEYWORDS)
-            _is_io_err = (
-                not tool_result.success
-                and any(kw in tool_output_str for kw in _IO_ERROR_KEYWORDS)
-            )
-            _is_timeout = (
-                not tool_result.success
-                and any(kw in tool_output_str for kw in _TIMEOUT_KEYWORDS)
-            )
-            _failure_type = (
-                "empty" if _is_empty else
-                "error_msg" if _is_error_msg else
-                "format" if _is_format_err else
-                "io" if _is_io_err else
-                "timeout" if _is_timeout else
-                None
-            )
+            tool_id = tool_result.tool or tool_id  # "a→b" when a fallback answered
 
-            if _failure_type:
-                logger.warning(f"Tool '{tool_id}' failed ({_failure_type}). Output: {tool_output_str[:200]}")
-
-                # Step 1: Try LLM-guided reformat/simplification retry
-                reformatted_input = await self._reformat_tool_input(
-                    run=run,
-                    entity=entity,
-                    tool_id=tool_id,
-                    original_input=raw_input,
-                    error_message=str(tool_result.output or "[EMPTY OUTPUT]"),
-                    step_description=step.description or step.name,
-                )
-                if reformatted_input and reformatted_input != raw_input:
-                    logger.info(f"Retrying tool '{tool_id}' with reformatted input ({len(reformatted_input)} chars)")
-                    retry_result = await ToolExecutor.execute_tools(
-                        [{"tool": tool_id, "input": reformatted_input}],
-                        extra_context=extra_context,
-                    )
-                    retry_tool_result = retry_result[0]
-                    retry_output_str = str(retry_tool_result.output or "").lower()
-                    _retry_ok = (
-                        retry_tool_result.success
-                        and retry_tool_result.output
-                        and isinstance(retry_tool_result.output, str)
-                        and retry_tool_result.output.strip()
-                        and not self._is_format_error(retry_output_str, _FORMAT_ERROR_KEYWORDS)
-                        and not any(kw in retry_output_str for kw in _IO_ERROR_KEYWORDS)
-                    )
-                    if _retry_ok:
-                        logger.info(f"Retry succeeded for tool '{tool_id}'")
-                        tool_result = retry_tool_result
-                    else:
-                        logger.warning(f"Retry also failed for tool '{tool_id}'")
-
-                # Step 2: If still failing, try tool fallback chain
-                _still_failed = (
-                    not tool_result.output
-                    or (isinstance(tool_result.output, str) and not tool_result.output.strip())
-                    or not tool_result.success
-                )
-                if _still_failed:
-                    try:
-                        from src.ai.tool_fallback import get_fallback_tool
-                        alt_tool_id, alt_input = get_fallback_tool(tool_id, raw_input)
-                        if alt_tool_id:
-                            # Check entity has access to the fallback tool
-                            entity_tools = [t.get("tool_id") for t in (entity.capabilities or {}).get("tools", [])]
-                            if alt_tool_id in entity_tools or not entity_tools:
-                                logger.info(f"Falling back from '{tool_id}' to '{alt_tool_id}'")
-                                alt_result = await ToolExecutor.execute_tools(
-                                    [{"tool": alt_tool_id, "input": alt_input}],
-                                    extra_context=extra_context,
-                                )
-                                alt_tool_result = alt_result[0]
-                                if alt_tool_result.success and alt_tool_result.output and str(alt_tool_result.output).strip():
-                                    logger.info(f"Fallback to '{alt_tool_id}' succeeded!")
-                                    tool_result = alt_tool_result
-                                    tool_id = f"{tool_id}→{alt_tool_id}"  # Track provenance
-                                else:
-                                    logger.warning(f"Fallback to '{alt_tool_id}' also failed")
-                            else:
-                                logger.debug(f"Fallback tool '{alt_tool_id}' not in entity capabilities")
-                    except ImportError:
-                        pass  # tool_fallback module not yet available
-                    except Exception as _fb_err:
-                        logger.warning(f"Tool fallback failed: {_fb_err}")
-
-                # Step 3: If STILL empty after all retries, mark as explicit failure
-                _final_empty = (
-                    not tool_result.output
-                    or (isinstance(tool_result.output, str) and not tool_result.output.strip())
-                )
-                if _final_empty:
-                    tool_result.output = (
-                        f"[TOOL_EMPTY] Tool '{tool_id}' returned no results after retry. "
-                        f"The search/operation may have failed. Original failure type: {_failure_type}."
-                    )
-                    tool_result.success = False
-                    logger.error(f"Tool '{tool_id}' produced no output after all retry attempts")
-            # ─────────────────────────────────────────────────────────────
-            
             latency = int((datetime.utcnow() - start_time).total_seconds() * 1000)
             
             # Log Tool Call — tool_result is a ToolResult dataclass, not a dict
@@ -483,8 +375,10 @@ class StepExecutorService:
             self.db.add(log)
 
             # One price lookup for every tool call (BC-11); the charge and its
-            # usage_logs row are committed together below.
-            await self._charge_tool(run, tool_id, latency)
+            # usage_logs row are committed together below. A failed call is
+            # not billed (TL-52).
+            if tool_result.success:
+                await self._charge_tool(run, tool_id, latency)
 
             await self.db.commit()
             
@@ -502,7 +396,11 @@ class StepExecutorService:
                 )
             # ───────────────────────────────────────────────────────────
             
-            return {"step": step.name, "output": tool_result.output}
+            result: dict[str, Any] = {"step": step.name, "output": tool_result.output}
+            if not tool_result.success:
+                # The step failed with its tool (AK-01, TL-52).
+                result["error"] = tool_result.error or str(tool_result.output or "")[:1000] or "tool failed"
+            return result
         except Exception as e:
             return {"step": step.name, "error": str(e), "success": False}
 
@@ -520,18 +418,6 @@ class StepExecutorService:
         except Exception as e:
             logger.warning(f"Could not charge tool '{tool_id}': {e}")
             return Decimal("0")
-
-    def _is_format_error(self, output_lower: str, keywords: set) -> bool:
-        """Check if a tool output indicates a formatting/parsing error (not infra)."""
-        # Must contain "error" to be an error at all
-        if '"error"' not in output_lower and 'error:' not in output_lower:
-            return False
-        # Exclude infrastructure errors that reformatting can't fix
-        _INFRA_KEYWORDS = {"api key", "not configured", "timeout", "connection", "unauthorized", "403", "401", "rate limit"}
-        if any(k in output_lower for k in _INFRA_KEYWORDS):
-            return False
-        # Check for format-related error keywords
-        return any(k in output_lower for k in keywords)
 
     async def _reformat_tool_input(
         self,
@@ -913,7 +799,8 @@ class StepExecutorService:
                     all_tool_results.append(_tr.to_dict())
                     results.append({"tool": _tr.tool, "output": _tr.output, "success": _tr.success})
 
-                    await self._charge_tool(run, _tr.tool, _tr.latency_ms or 0)
+                    if _tr.success:  # a failed call is not billed (TL-52)
+                        await self._charge_tool(run, _tr.tool, _tr.latency_ms or 0)
 
                     # CORTEX: ingest scraper/browser results as knowledge nodes
                     if _tr.tool in ("scraper_tool", "headless_browser") and _tr.success:

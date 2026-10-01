@@ -1392,18 +1392,32 @@ class FailureKind(str, Enum):
     TIMEOUT = "TIMEOUT"; ERROR_MSG = "ERROR_MSG"; OTHER = "OTHER"
 ```
 
-`classify_tool_failure(tr)` inspects the output *string* — there is no exception
-type or status code involved:
+**Whether a call failed comes from its result** (TL-52). Tools report failure in
+what they return, not by raising, so `ToolExecutor` passes every result through
+`settle_result`: an output that is `{"error": …}`, `{"success": false, …}`, a
+JSON string of either, or a string starting `Error: …`, `Error <doing x>: …` or
+`[ERROR] …` (`result_error`) makes the call `success=False` with that `error`.
+A failed call is logged as failed in `tool_interaction_logs` (the efficacy
+report's success rate), **is not billed** (both step paths call `_charge_tool`
+only on success), and fails its TOOL_CALL step (the step result carries
+`error`, so the run's status sees it — AK-01).
+
+`classify_tool_failure(tr)` then buckets the failure. **A call that succeeded is
+a failure only when its output is blank** (TL-51): the keyword buckets apply
+only to failed calls, so a page, search summary or email that merely mentions
+"no results" or "timed out" is a success. Before TL-51 the buckets ran on every
+output, failed succeeding calls on their content, and re-ran them.
 
 | Order | Kind | Trigger |
 |---|---|---|
-| 1 | `EMPTY` | output falsy, whitespace-only, or contains `no results` / `empty response` / `0 results` |
+| 0 | `EMPTY` | output falsy or whitespace-only (any call) |
+| — | `NONE` | the call succeeded (`success` and no error envelope) |
+| 1 | `EMPTY` | failed, and contains `no results` / `empty response` / `0 results` |
 | 2 | `TIMEOUT` | contains `timeout` / `timed out` / `deadline exceeded` |
 | 3 | `IO` | contains `no such file or directory` / `errno 2` / `errno 22` / `invalid argument` / `file name too long` |
 | 4 | `FORMAT` | contains `error` **and** a format keyword (`invalid json`, `parse`, `delimiter`, `control character`, `expecting`, `decode`) **and not** an infra keyword (`api key`, `not configured`, `timeout`, `connection`, `unauthorized`, `403`, `401`, `rate limit`) |
 | 5 | `ERROR_MSG` | output starts with `ERROR:` |
-| 6 | `OTHER` | `success` is False for any other reason |
-| — | `NONE` | everything else — treated as success |
+| 6 | `OTHER` | any other failed call |
 
 The order matters and is commented as deliberate: `"ERROR: invalid json ..."` is
 both an error message and a format error, and FORMAT wins because it carries the
@@ -1416,6 +1430,8 @@ stateDiagram-v2
     [*] --> Execute
     Execute --> Classify
     Classify --> Success: FailureKind NONE
+    Classify --> WriteFailed: a write tool failed
+    WriteFailed --> [*]: returned as it is, never re-run
     Classify --> ReformatEligible: FORMAT or IO or EMPTY or ERROR_MSG
     Classify --> FallbackStage: TIMEOUT or OTHER
     ReformatEligible --> Reformat: reformat_fn is set
@@ -1434,6 +1450,16 @@ stateDiagram-v2
 
 Exact policy, stated plainly:
 
+- **A write tool is never re-run** (TL-51). `WRITE_TOOLS` in `resilience.py`
+  lists the tools whose call changes something outside the run — messages,
+  posts and comments, ad objects, CRM and calendar records, saved files, and
+  the platform's own creator/executor tools; `is_write_tool` also matches a
+  fallback id `a→b`. A failed write gets no reformat retry and no fallback (a
+  second attempt would send, post or save a second time); its result goes back
+  unchanged with `success=False`, and `agent.tool.resilience.write_not_retried`
+  is emitted. `tests/unit/test_tool_success.py` fails when a registered tool
+  whose name reads like a write is in neither `WRITE_TOOLS` nor
+  `READS_DESPITE_NAME`.
 - **At most one reformat retry.** `REFORMAT_RECOVERABLE_KINDS = (FORMAT, IO,
   EMPTY, ERROR_MSG)`. `TIMEOUT` and `OTHER` skip straight to fallback — a
   timeout is not something rewriting the input fixes.
@@ -1447,16 +1473,17 @@ Exact policy, stated plainly:
   `httpx` client timeouts (15 s in `web_search`, 30 s in `SocialMediaTool` and
   `scraper_tool`), or the sandbox runtime's `timeout` parameter.
 
-Three telemetry events are emitted:
+Four telemetry events are emitted:
 `agent.tool.resilience.reformat_attempt`,
 `agent.tool.resilience.fallback_taken`,
-`agent.tool.resilience.final_empty`.
+`agent.tool.resilience.final_empty`,
+`agent.tool.resilience.write_not_retried`.
 
-On total failure the output is replaced so the LLM sees something structured
-rather than an ambiguous blank:
+On total failure the output is replaced so the LLM sees something structured,
+keeping what the tool last said:
 
 ```
-[TOOL_EMPTY] Tool 'web_search' returned no usable output after retries. Failure kind: EMPTY.
+[TOOL_EMPTY] Tool 'web_search' returned no usable output after retries. Failure kind: ERROR_MSG. Last output: Error: quota exceeded
 ```
 
 A successful fallback renames the result: `alt_tr.tool = f"{tool_id}→{alt_tool_id}"`.
@@ -1472,7 +1499,10 @@ A successful fallback renames the result: `alt_tr.tool = f"{tool_id}→{alt_tool
 
 ### 15.4 Which paths use `ToolResilience`
 
-Only the REACT / automatic-function-calling path, and only behind a flag:
+Both. The direct `TOOL_CALL` step (`_execute_tool_call`) calls
+`ToolResilience.run` unconditionally (TL-51 removed its inline copy of the
+classifier, which had drifted). The REACT / automatic-function-calling path
+uses it behind a flag:
 
 ```python
 # backend/src/ai/step_executor.py
@@ -1485,10 +1515,6 @@ if await FeatureFlags(self.db).is_on("tools.resilience_v2_enabled",
 
 The flag defaults to `True`
 ([core/feature_flags.py:87](../../backend/src/ai/core/feature_flags.py:87)).
-The **direct `TOOL_CALL` step path still runs its own inline copy** of the same
-logic at [step_executor.py:310–426](../../backend/src/ai/step_executor.py:310) —
-the Track 8 goal of "one implementation used by both paths" is half done. The
-two copies currently agree, but they are two copies.
 
 ---
 
