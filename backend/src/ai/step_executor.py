@@ -26,7 +26,7 @@ from src.ai.tool_executor import ToolExecutor
 from src.ai.llm.router import LLMRouter
 from src.ai.usage_service import UsageService
 from src.billing.credit_service import InsufficientCreditsError
-from sqlalchemy import select, update, func
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -171,48 +171,6 @@ class StepExecutorService:
         """Delegate to CortexBridge if available."""
         if self._cortex_bridge:
             await self._cortex_bridge.ingest_tool_result(run, tool_id, tool_output, context)
-
-    async def _bump_run_cost(self, run: ExecutionRun, cost_delta=Decimal("0"), token_delta: int = 0) -> None:
-        """Atomically fold cost/tokens into ``run.total_cost_usd`` on the DB row.
-
-        Why not ``run.total_cost_usd += delta``? The parallel DAG path
-        (``ExecutionEngine._execute_steps_dag``) runs each step in its OWN
-        AsyncSession with its OWN reloaded copy of this run row. An in-place ORM
-        mutation is flushed as an *absolute* full-row UPDATE
-        (``SET total_cost_usd = <my local value>``), so when several isolated
-        sessions commit concurrently the last writer wins and every other
-        step's cost is silently dropped — the Phase 11 billing leak where a
-        ~$6 run settled at ~$0.88.
-
-        An atomic ``SET total_cost_usd = total_cost_usd + :delta`` is
-        read-modify-write under a row lock, so concurrent increments sum
-        correctly. We then ``refresh`` only these two columns so the in-memory
-        object mirrors the new value WITHOUT being marked dirty (a dirty flush
-        would re-introduce the clobbering absolute write).
-        """
-        cost_delta = Decimal(str(cost_delta or 0))
-        token_delta = int(token_delta or 0)
-        if cost_delta == 0 and token_delta == 0:
-            return
-        await self.db.execute(
-            update(ExecutionRun)
-            .where(ExecutionRun.id == run.id)
-            .values(
-                total_cost_usd=func.coalesce(ExecutionRun.total_cost_usd, 0) + cost_delta,
-                total_tokens=func.coalesce(ExecutionRun.total_tokens, 0) + token_delta,
-            )
-        )
-        # Commit immediately to release the run-row lock the UPDATE just took.
-        # In the parallel DAG every isolated-session step bumps the SAME run
-        # row; if the lock were held until the step's next (infrequent) commit,
-        # the parallel steps would serialise and block on each other for the
-        # whole step body (LLM + sandbox work) — observed as multi-minute
-        # ``transactionid`` lock waits. A short acquire-update-commit cycle keeps
-        # the atomic increment correct without the contention. Safe because the
-        # session uses ``expire_on_commit=False`` (no attribute expiry → no
-        # MissingGreenlet) and ``log_usage`` already commits per call.
-        await self.db.commit()
-        await self.db.refresh(run, attribute_names=["total_cost_usd", "total_tokens"])
 
     async def _execute_step(self, run: ExecutionRun, entity: HierarchicalEntity, step: PlanStep, context: dict) -> dict:
         """Routes execution to specific step handler."""
@@ -495,8 +453,10 @@ class StepExecutorService:
         try:
             charge = await ToolCostResolver(self.db, run.company_id).charge(
                 run=run, tool_id=tool_id, latency_ms=latency_ms)
+            # The usage_logs row is the charge; the run's total is the sum of
+            # its rows, written by the loop (P4.1, AK-02).
+            await self.db.commit()
             if charge.amount > 0:
-                await self._bump_run_cost(run, charge.amount, 0)  # commits the ledger row too
                 logger.info(f"Tool cost for '{tool_id}': ${charge.amount} ({charge.source})")
             return charge.amount
         except Exception as e:
@@ -966,9 +926,8 @@ Step 2: [your analysis]
         if log.cost_usd is None:
             log.cost_usd = Decimal("0")
 
-        # Accumulate the per-interaction log cost in-memory (distinct row per
-        # call — never clobbered) and fold the run-level cost in atomically via
-        # _bump_run_cost so concurrent isolated-session steps don't lose cost.
+        # The interaction row carries its own cost; the run's total is the sum
+        # of its usage rows, written by the loop (P4.1, AK-02).
         _cost_delta = Decimal("0")
         if input_usage:
             log.cost_usd += input_usage.calculated_cost
@@ -984,8 +943,7 @@ Step 2: [your analysis]
         else:
             logger.warning(f"No registry entry for SKU '{output_sku}' — output cost not tracked")
 
-        await self._bump_run_cost(run, _cost_delta, prompt_tokens + completion_tokens)
-        logger.info(f"Run total cost so far: ${run.total_cost_usd}, total tokens: {run.total_tokens}")
+        logger.debug(f"Step LLM cost: ${_cost_delta}")
 
     async def _maybe_summarize_context(self, run, entity, context_state: dict) -> dict:
         """Smartly trim context if it exceeds threshold, preserving critical keys."""

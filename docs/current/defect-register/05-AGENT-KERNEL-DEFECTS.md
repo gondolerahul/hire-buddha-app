@@ -115,7 +115,7 @@ already exists and is exactly the right status for this case.
 
 ### AK-02 — The budget under-counts spend unless three separate syncs all fire
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-02, P4.1)** — one write path: every spender writes an attributed `usage_logs` row with the run id and nothing else; [`governance/run_cost.py`](../../../backend/src/ai/governance/run_cost.py) sums the run's rows plus its children's totals, and the loop alone writes that onto the run and sets its budget from it each iteration. The five bump paths, `_sync_budget_cost`, `_sync_budget_tokens` and every `max()` are deleted. Found while fixing: the v2 planner, its judge and the alignment check wrote rows **with no run id**, so that spend was never billed — they now attribute to the run. `tests/integration/test_run_cost.py`.
 
 Most spend never flows back through `ActionResult.cost_usd`. The nested step path bills
 by mutating `run.total_cost_usd` **on its own session**, and the critic pipeline writes
@@ -458,6 +458,8 @@ above.
 ## 6. Improvements
 
 ### AK-I1 — One cost write path
+
+**Status: done (2026-10-02, P4.1, as [AK-02](#ak-02--the-budget-under-counts-spend-unless-three-separate-syncs-all-fire)).**
 
 **Effect: large.** Cause **C**. Today spend is recorded by the loop's `Budget`, by nested
 step code mutating `run.total_cost_usd` on a different session, and by the critic pipeline

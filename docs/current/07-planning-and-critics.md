@@ -2009,8 +2009,11 @@ if iter_critic_cost > 0:
     state.budget.consume(usd=iter_critic_cost)
 ```
 
-The order matters: `_sync_budget_cost` pulls the run's real cost up via `max()`,
-so the critic cost must be added **after** that sync or it gets clobbered.
+Since P4.1 (AK-02) there is no order to get wrong: the critic's rows carry the run id,
+and the loop sets its budget from the sum of the run's rows each iteration
+([`governance/run_cost.py`](../../backend/src/ai/governance/run_cost.py)). The v2
+planner, its judge and the alignment check now attribute their rows to the run too —
+before, they wrote rows with no run, so the run's bill never included them.
 
 **Known gap:** `alignment_cost_usd` is declared on `StepHealthRecord` but never
 written — `AlignmentVerdict` has no cost field and

@@ -108,7 +108,7 @@ def _loop_with_children(children_by_id):
 
 
 @pytest.mark.asyncio
-async def test_fold_children_all_terminal_marks_step_and_folds_cost() -> None:
+async def test_fold_children_all_terminal_marks_step() -> None:
     child_id = str(uuid4())
     state = _make_state()
     state.plan_steps = [{"step_id": "child_step", "type": "CHILD_ENTITY_INVOCATION"}]
@@ -125,7 +125,10 @@ async def test_fold_children_all_terminal_marks_step_and_folds_cost() -> None:
     assert any_failed is False
     assert "child_step" in state.completed_step_ids
     assert state.context_state["child_step"] == "child output"
-    assert state.budget.usd_used == Decimal("0.75")
+    # The child's cost reaches the parent through the run's spend — its rows
+    # plus its children's totals (P4.1, tests/integration/test_run_cost.py) —
+    # not through the fold, which used to add it to the budget a second way.
+    assert state.budget.usd_used == Decimal("0")
 
 
 @pytest.mark.asyncio

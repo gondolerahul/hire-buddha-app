@@ -65,6 +65,7 @@ class PlanJudge:
         intelligence_rules: Optional[list[Any]] = None,
         anti_patterns: Optional[list[Any]] = None,
         company_id: Optional[Any] = None,
+        run_id: Optional[Any] = None,
     ) -> tuple[Any, list[float], str]:
         """Return ``(chosen_candidate, scores, reasoning)``.
 
@@ -110,7 +111,7 @@ class PlanJudge:
                 max_tokens=400,
             )
             parsed = self._parse(response.output, n=len(candidates))
-            await self._log_attributed_usage(company_id, response, "planner")
+            await self._log_attributed_usage(company_id, response, "planner", run_id)
         except Exception as exc:                                            # noqa: BLE001
             logger.warning(f"PlanJudge LLM call failed: {exc}; using cost tiebreak")
             scores = [0.0] * len(candidates)
@@ -178,12 +179,12 @@ class PlanJudge:
         return best_idx
 
     async def _log_attributed_usage(
-        self, company_id: Any, resp: Any, attribution: str,
+        self, company_id: Any, resp: Any, attribution: str, run_id: Any = None,
     ) -> None:
         from src.ai.services.attributed_usage import log_llm_response_usage
         await log_llm_response_usage(
             db=self.db, response=resp, attribution=attribution,
-            company_id=company_id,
+            company_id=company_id, run_id=run_id,
         )
 
     @staticmethod

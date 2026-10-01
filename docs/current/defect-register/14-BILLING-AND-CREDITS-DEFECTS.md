@@ -86,7 +86,7 @@ found on the way and added (BC-27, BC-28, BC-29), and BC-30 and BC-31 on 2026-10
 |---|---|---|
 | BC-I1 | Call the credit gates that already exist | ✅ done `c1eecb9` |
 | BC-I2 | Credit holds instead of settle-at-the-end | ✅ done `c1eecb9` |
-| BC-I3 | One cost write path | ◐ done for tools `d71918d` |
+| BC-I3 | One cost write path | ✅ done — tools `d71918d`; every spender 2026-10-02 (AK-02, P4.1) |
 | BC-I4 | Schedule the crons | ✅ done `e46bff3` |
 | BC-I5 | Add the Razorpay webhook | ✅ done `01a5386` |
 | BC-I6 | Validate pricing inputs on write | ✅ done `7e706b3` |

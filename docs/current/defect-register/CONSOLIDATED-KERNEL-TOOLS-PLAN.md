@@ -705,6 +705,39 @@ reads that sum. `_sync_budget_cost` and the `max()` reconciliation are deleted.
 | 4.7 | An `LLMInteractionLog` for planner and critic calls | LP-I9 |
 | 4.8 | The `cost_charged` SSE frame the frontend reducer already handles is emitted when a run's usage row is written (today nothing produces it) | AK-11 (remainder) |
 
+#### P4 detailed design (written 2026-10-01, before P4.1)
+
+Re-read against the code at `abcc37c`. What holds today, and what is worse than recorded:
+
+- Spend reaches `run.total_cost_usd` five ways: an atomic bump (`StepExecutorService._bump_run_cost`
+  for step LLM calls and tools; `DebateExecutor`), an in-memory `+=` on the ORM row
+  (`PlannerService._log_planner_usage`, `CortexBridge` — last writer wins), the loop's budget
+  (`consume` of the action cost, the critic cost and each finished child's total), and
+  `_sync_budget_cost`/`_persist_final`'s `max()` of the two. AK-02 as recorded.
+- **Worse:** three spenders write rows the run never sees. `PlanGenerator` and `PlanJudge`
+  (the default v2 planner) and `GoalAlignment` write `usage_logs` **with no `run_id`**, and
+  `adapt_plan`'s context has no company, so replans write **no row at all**. Settlement bills
+  the run's total, so v2 planning, alignment and replans are never charged. Locally 107 of
+  1,392 usage rows have no run.
+
+**One write path — `src/ai/governance/run_cost.py`:**
+
+| Piece | What it is |
+|---|---|
+| The rule | Every spender writes an attributed `usage_logs` row with its `run_id` (`UsageService.log_usage`, `CostLedger.add`). No spender touches `execution_runs.total_cost_usd`/`total_tokens` |
+| `run_spend(db, run_id)` | The run's own rows (`Σ calculated_cost`; tokens = `Σ raw_quantity` of `LLM`-category SKUs) plus its structural children's recorded totals (`parent_run_id`; since EP-03 retries are not children) |
+| `refresh_run_cost(db, run_id)` | Writes `run_spend` onto the run row with one `UPDATE` and returns it. Called by the run's owner only: the loop after each iteration (before the budget check), at suspend and at finalisation; voice at call end |
+| The budget | `state.budget.usd_used`/`tokens_used` are **set** from `refresh_run_cost`, never accumulated. `_sync_budget_cost`, `_sync_budget_tokens`, every `max()`, the critic-cost and child-cost `consume` calls and all five bump paths are deleted |
+
+A child's row holds its own cost plus its children's when it finishes, so a parent's sum is
+complete when its children are; the parent waits for them before it finalises. Parallel DAG
+steps only insert rows, so nothing contends on the run row.
+
+**Commit order:** 4.1 (with the attribution gaps: `PlanContext.run_id`, the judge and alignment
+pass the run) → 4.2 alignment cost on its verdict → 4.3 `adapt_plan` with the entity, company
+and run → 4.4 override through the registry → 4.5 reformat span → 4.6 one resolver per run →
+4.7 interaction rows for planner/critic calls → 4.8 `cost_charged` frames.
+
 ### P5 — Versions and assets (R2, doc phases 1–2)
 
 | # | Work | Ids |

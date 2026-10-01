@@ -159,7 +159,7 @@ async def test_charge_writes_a_ledger_row_and_leaves_the_run_to_the_caller() -> 
     charge = await resolver.charge(run=run, tool_id="web_search",
                                     latency_ms=42)
     assert charge.amount == Decimal("0.030")
-    assert run.total_cost_usd == Decimal("0.10")   # _bump_run_cost adds it atomically
+    assert run.total_cost_usd == Decimal("0.10")   # the run total is the sum of rows (AK-02)
     ledger_row = db.add.call_args.args[0]
     assert (ledger_row.calculated_cost, ledger_row.sku_id, ledger_row.attribution) == (
         Decimal("0.030"), row.id, "tool")

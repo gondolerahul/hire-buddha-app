@@ -122,6 +122,9 @@ class _FakeResult:
             raise LookupError("no result")
         return self._value
 
+    def one(self):
+        return self._value
+
 
 class _FakeDB:
     def __init__(self, run: _FakeRun):
@@ -504,7 +507,23 @@ class _TxnFakeDB:
         self.commit_count = 0
         self.rollback_count = 0
 
+    def _usage_sum(self):
+        from src.ai.orm.usage import UsageLog
+        rows = [o for o in (*self.committed, *self._pending)
+                if isinstance(o, UsageLog) and o.run_id == self.run.id]
+        return (sum((Decimal(str(r.calculated_cost)) for r in rows), Decimal("0")), 0)
+
     async def execute(self, stmt, *_a, **_kw):
+        # The run's spend (P4.1): the sum of its usage rows — what a real
+        # transaction sees, its own pending writes included — and no children.
+        sql = str(stmt)
+        if "usage_logs" in sql and "sum(" in sql.lower():
+            return _FakeResult(self._usage_sum())
+        if "sum(execution_runs" in sql.lower():
+            return _FakeResult((0, 0))
+        if sql.lstrip().upper().startswith("UPDATE EXECUTION_RUNS"):
+            self.run.total_cost_usd = self._usage_sum()[0]
+            return _FakeResult(None)
         name = None
         try:
             descs = stmt.column_descriptions
@@ -539,14 +558,22 @@ class _TxnFakeDB:
 
 
 class _CostingCritic(NoOpCriticPipeline):
-    """A critic whose finalize_iteration reports a non-zero per-iteration cost
-    on its StepHealthRecord (as the RealCriticPipeline does), so the loop has
-    real critic spend to fold into total_cost_usd."""
+    """A critic that spends $0.05 per iteration and, as the RealCriticPipeline
+    does, writes that spend as a usage row for the run (P4.1: the run's cost
+    is the sum of its rows)."""
+
+    def __init__(self, db=None):
+        super().__init__()
+        self._db = db
 
     async def finalize_iteration(self, state):
+        from src.ai.orm.usage import UsageLog
         from src.ai.planning.step_health_record import StepHealthRecord
         rec = StepHealthRecord(iteration=state.iteration)
         rec.post_critic_cost_usd = Decimal("0.05")
+        self._db.add(UsageLog(run_id=state.run_id, company_id=state.company_id,
+                              raw_quantity=Decimal("1"), calculated_cost=Decimal("0.05"),
+                              attribution="critic_post"))
         return rec
 
 
@@ -563,8 +590,8 @@ async def test_agent_loop_persists_llm_log_and_nonzero_cost(
     run = _FakeRun(entity)
     db = _TxnFakeDB(run)
 
-    # The real planner writes an LLMInteractionLog and bumps run.total_cost_usd;
-    # simulate exactly that side-effect on the loop's shared session.
+    # The real planner writes an LLMInteractionLog and its usage rows; simulate
+    # exactly that on the loop's shared session (P4.1: rows, not the run total).
     async def _fake_reconcile(self, run_, _entity, _input):  # noqa: ANN001, ARG001
         self.db.add(LLMInteractionLog(
             run_id=run_.id,
@@ -578,7 +605,10 @@ async def test_agent_loop_persists_llm_log_and_nonzero_cost(
             reasoning_mode="PLANNER",
             step_name="__planner__",
         ))
-        run_.total_cost_usd = (run_.total_cost_usd or Decimal("0")) + Decimal("0.10")
+        from src.ai.orm.usage import UsageLog
+        self.db.add(UsageLog(run_id=run_.id, company_id=run_.company_id,
+                             raw_quantity=Decimal("140"), calculated_cost=Decimal("0.10"),
+                             attribution="planner"))
         return {"steps": [{
             "step_id": "s1", "order": 1, "name": "route",
             "type": "ACTION", "target": {}, "required": True,
@@ -604,7 +634,7 @@ async def test_agent_loop_persists_llm_log_and_nonzero_cost(
     monkeypatch.setattr(GovernanceService, "settle_billing", _fake_settle)
 
     loop = AgentLoop(
-        db=db, redis=None, critic_pipeline=_CostingCritic(),
+        db=db, redis=None, critic_pipeline=_CostingCritic(db),
         feature_flags=FeatureFlags(db=None),
     )
     outcome = await loop.run(run.id)

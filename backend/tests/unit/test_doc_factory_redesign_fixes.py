@@ -6,8 +6,8 @@ Covers the two real platform bugs surfaced by the doc-factory-process analysis
   §5.1 — StepEngine._enforce_cost_cap raises BudgetExhaustedError once a
          run reaches its entity's governance.max_cost_usd (the cap that the
          legacy run loop previously never enforced on children).
-  §5.2 — AgentLoop._sync_budget_tokens rolls child-run tokens up to the parent
-         so total_tokens is no longer 0 for a delegating parent.
+  §5.2 — child-run tokens roll up to the parent (now ``run_spend``, P4.1;
+         tested in tests/integration/test_run_cost.py).
   §4.5 — SandboxCodeTool no longer auto-registers files written under scratch/.
 
 Pure unit tests: no real DB / Redis / LLM.
@@ -116,36 +116,8 @@ async def test_cost_cap_boundary_equal_trips():
         await StepEngine._enforce_cost_cap(stub, run, {"max_cost_usd": 2.00})
 
 
-# ---------------------------------------------------------------------------
-# §5.2 — token roll-up
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_sync_budget_tokens_sums_subtree():
-    from src.ai.core.agent_loop import AgentLoop
-
-    loop = AgentLoop(db=_FakeDB(value=1_798_376), redis=None)
-    loop._run_id = uuid4()
-    assert await loop._sync_budget_tokens() == 1_798_376
-
-
-@pytest.mark.asyncio
-async def test_sync_budget_tokens_zero_without_run_id():
-    from src.ai.core.agent_loop import AgentLoop
-
-    loop = AgentLoop(db=_FakeDB(value=123), redis=None)
-    loop._run_id = None
-    assert await loop._sync_budget_tokens() == 0
-
-
-@pytest.mark.asyncio
-async def test_sync_budget_tokens_zero_on_db_error():
-    from src.ai.core.agent_loop import AgentLoop
-
-    loop = AgentLoop(db=_FakeDB(raises=True), redis=None)
-    loop._run_id = uuid4()
-    assert await loop._sync_budget_tokens() == 0
+# §5.2 — the token roll-up is `governance.run_cost.run_spend` since P4.1
+# (AK-02): tests/integration/test_run_cost.py.
 
 
 # ---------------------------------------------------------------------------

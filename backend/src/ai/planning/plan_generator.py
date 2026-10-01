@@ -62,6 +62,9 @@ class PlanContext:
     # What this run was asked to do. ``goal`` is the entity's standing goal;
     # without the request every plan was made blind to the task (PC-25).
     request: str = ""
+    # The run the planning spend belongs to: its usage rows carry it, so the
+    # run's cost — and its bill — includes planning (AK-02).
+    run_id: Optional[UUID] = None
 
 
 _REQUEST_CHARS = 4000
@@ -522,6 +525,7 @@ class PlanGenerator:
                 intelligence_rules=ctx.intelligence_rules,
                 anti_patterns=ctx.anti_patterns,
                 company_id=ctx.company_id,
+                run_id=ctx.run_id,
             )
             for c, s in zip(ranked, scores):
                 c.judge_score = s
@@ -560,6 +564,7 @@ class PlanGenerator:
             task_class=getattr(state, "task_class", "general"),
             budget=getattr(state, "budget", None),
             company_id=getattr(state, "company_id", None),
+            run_id=getattr(state, "run_id", None),
             goal=goal,
             proposed_subgoals=list(proposed_subgoals or []),
             failed_step=failed_step,
@@ -601,5 +606,5 @@ class PlanGenerator:
         from src.ai.services.attributed_usage import log_llm_response_usage
         await log_llm_response_usage(
             db=self.db, response=resp, attribution=attribution,
-            company_id=ctx.company_id,
+            company_id=ctx.company_id, run_id=ctx.run_id,
         )

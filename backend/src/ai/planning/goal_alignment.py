@@ -59,9 +59,12 @@ class GoalAlignmentVerifier:
     declared goal. Uses a cheap, fast LLM call with low temperature.
     """
 
-    def __init__(self, db: AsyncSession, company_id: UUID):
+    def __init__(self, db: AsyncSession, company_id: UUID, run_id: Optional[UUID] = None):
         self.db = db
         self.company_id = company_id
+        # The run the check's spend belongs to: its usage rows carry it, so the
+        # run's cost and bill include alignment (AK-02, PC-03).
+        self.run_id = run_id
 
     async def verify_step_alignment(
         self,
@@ -121,6 +124,7 @@ class GoalAlignmentVerifier:
                             company_id=self.company_id,
                             service_sku=f"{model}-in",
                             raw_quantity=float(response.prompt_tokens),
+                            execution_id=self.run_id,
                             attribution="critic_align",
                         )
                     if response.completion_tokens:
@@ -128,6 +132,7 @@ class GoalAlignmentVerifier:
                             company_id=self.company_id,
                             service_sku=f"{model}-out",
                             raw_quantity=float(response.completion_tokens),
+                            execution_id=self.run_id,
                             attribution="critic_align",
                         )
             except Exception:                                                    # pragma: no cover

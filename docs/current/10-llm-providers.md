@@ -1414,8 +1414,8 @@ sequenceDiagram
     SE->>US: "log_usage(company, model-out, completion_tokens, run.id)"
     US-->>SE: UsageLog
     SE->>SE: "log.cost_usd += both calculated_cost values"
-    SE->>DB: "_bump_run_cost - UPDATE execution_runs SET total_cost_usd = total_cost_usd + delta"
     SE->>DB: commit
+    Note over SE,DB: The run's total is the sum of its usage rows, written by the loop (AK-02)
 ```
 
 | Writer | Writes `LLMInteractionLog`? | Writes `usage_logs`? | Attribution |

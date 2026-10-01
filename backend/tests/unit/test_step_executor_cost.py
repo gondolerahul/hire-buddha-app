@@ -1,20 +1,18 @@
-"""Phase 11 — StepExecutorService._bump_run_cost regression tests.
+"""A step's spend is usage rows only; the run row is the loop's (P4.1, AK-02).
 
-Guards the billing leak surfaced by the doc-factory-process canary: the
-parallel DAG path runs each step in its own AsyncSession with its own copy of
-the run row, so an in-place ``run.total_cost_usd += delta`` was flushed as an
-*absolute* full-row write and concurrent steps clobbered each other — a ~$6 run
-settled at ~$0.88.
-
-``_bump_run_cost`` must instead emit an ATOMIC
-``SET total_cost_usd = total_cost_usd + :delta`` UPDATE (concurrency-safe under
-a row lock) and refresh the in-memory object so it mirrors the new value
-without being marked dirty.
+Phase 11 found parallel DAG steps clobbering each other's ORM writes to
+``run.total_cost_usd`` (a ~$6 run settled at ~$0.88), and ``_bump_run_cost``
+replaced them with an atomic increment. Since P4.1 no spender writes the run
+row at all: each charge is an attributed ``usage_logs`` row with the run id,
+and the loop writes the run's total as the sum of those rows
+(``governance.run_cost``). Parallel steps only insert rows, so there is nothing
+to clobber.
 """
 from __future__ import annotations
 
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -23,12 +21,12 @@ from src.ai.step_executor import StepExecutorService
 
 
 class _CaptureDB:
-    """Records the statements passed to ``execute`` and ``refresh`` calls."""
+    """Records every statement passed to ``execute``."""
 
     def __init__(self) -> None:
         self.executed: list = []
-        self.refreshed: list = []
-        self.commits: int = 0
+        self.commits = 0
+        self.add = MagicMock()
 
     async def execute(self, statement, *_a, **_kw):
         self.executed.append(statement)
@@ -37,46 +35,46 @@ class _CaptureDB:
     async def commit(self):
         self.commits += 1
 
-    async def refresh(self, obj, attribute_names=None):
-        self.refreshed.append((obj, attribute_names))
+    async def refresh(self, *_a, **_kw):
+        pass
 
 
-def _svc(db) -> StepExecutorService:
-    return StepExecutorService(
-        db=db, redis=None, company_id=uuid4(), usage_service=None,
-    )
+def _writes_the_run_row(db: _CaptureDB) -> bool:
+    return any(getattr(getattr(st, "table", None), "name", None) == "execution_runs"
+               for st in db.executed)
 
 
-@pytest.mark.asyncio
-async def test_bump_run_cost_emits_atomic_increment() -> None:
-    db = _CaptureDB()
-    svc = _svc(db)
-    run = SimpleNamespace(id=uuid4(), total_cost_usd=Decimal("1.00"), total_tokens=100)
-
-    await svc._bump_run_cost(run, Decimal("0.50"), 200)
-
-    assert len(db.executed) == 1
-    sql = str(db.executed[0].compile(compile_kwargs={"literal_binds": True})).lower()
-    # An atomic read-modify-write references the column on BOTH sides; an
-    # absolute clobbering write (the bug) would only have it on the left.
-    flat = sql.replace(" ", "")
-    assert "update execution_runs" in sql
-    assert "total_cost_usd=(coalesce(execution_runs.total_cost_usd,0)+0.50)" in flat
-    assert "total_tokens=(coalesce(execution_runs.total_tokens,0)+200)" in flat
-    # In-memory mirror is refreshed (not left stale / dirty) for the two columns.
-    assert db.refreshed == [(run, ["total_cost_usd", "total_tokens"])]
-    # Committed immediately so the run-row lock doesn't serialise parallel steps.
-    assert db.commits == 1
+def test_the_bump_path_is_gone() -> None:
+    assert not hasattr(StepExecutorService, "_bump_run_cost")
 
 
 @pytest.mark.asyncio
-async def test_bump_run_cost_is_noop_for_zero_delta() -> None:
+async def test_a_steps_llm_call_writes_usage_rows_and_not_the_run() -> None:
     db = _CaptureDB()
-    svc = _svc(db)
-    run = SimpleNamespace(id=uuid4(), total_cost_usd=Decimal("0"), total_tokens=0)
+    usage = SimpleNamespace(log_usage=AsyncMock(side_effect=[
+        SimpleNamespace(calculated_cost=Decimal("0.10")),
+        SimpleNamespace(calculated_cost=Decimal("0.40")),
+    ]))
+    svc = StepExecutorService(db=db, redis=None, company_id=uuid4(), usage_service=usage)
+    run = SimpleNamespace(id=uuid4(), company_id=uuid4(), total_cost_usd=Decimal("0"), total_tokens=0)
+    log = SimpleNamespace(cost_usd=None)
 
-    await svc._bump_run_cost(run, Decimal("0"), 0)
+    await svc._log_usage(run, "gemini-2.5-flash", 1000, 200, log)
 
-    assert db.executed == []
-    assert db.refreshed == []
-    assert db.commits == 0
+    assert [c.kwargs["execution_id"] for c in usage.log_usage.await_args_list] == [run.id, run.id]
+    assert log.cost_usd == Decimal("0.50")           # the interaction row keeps its cost
+    assert run.total_cost_usd == Decimal("0") and not _writes_the_run_row(db)
+
+
+@pytest.mark.asyncio
+async def test_a_tool_charge_writes_its_row_and_not_the_run(monkeypatch) -> None:
+    from src.ai.governance import tool_cost_resolver as tcr
+
+    db = _CaptureDB()
+    monkeypatch.setattr(tcr.ToolCostResolver, "charge", AsyncMock(
+        return_value=tcr.ToolChargeResult(amount=Decimal("0.03"), source="registry", sku_id=None)))
+    svc = StepExecutorService(db=db, redis=None, company_id=uuid4(), usage_service=None)
+    run = SimpleNamespace(id=uuid4(), company_id=uuid4(), total_cost_usd=Decimal("0"))
+
+    assert await svc._charge_tool(run, "web_search", 12) == Decimal("0.03")
+    assert db.commits == 1 and not _writes_the_run_row(db)

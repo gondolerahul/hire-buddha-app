@@ -161,6 +161,7 @@ class PlannerService:
             request=run_request(input_data),
             child_roster=child_roster,
             known_child_ids=known_child_ids,
+            run_id=getattr(run, "id", None),
         )
         gen = PlanGenerator(llm_router=self.llm, db=self.db)
         result = await gen.generate(ctx, n=n_candidates)
@@ -604,27 +605,20 @@ class PlannerService:
             in_sku = f"{model_name}-in"
             out_sku = f"{model_name}-out"
 
-            in_usage = await self.usage_service.log_usage(
+            # The rows are the charge; the run's total is their sum (AK-02).
+            await self.usage_service.log_usage(
                 company_id=run.company_id,
                 service_sku=in_sku,
                 raw_quantity=float(plan_result_resp.prompt_tokens or 0),
                 execution_id=run.id,
                 attribution="planner",
             )
-            out_usage = await self.usage_service.log_usage(
+            await self.usage_service.log_usage(
                 company_id=run.company_id,
                 service_sku=out_sku,
                 raw_quantity=float(plan_result_resp.completion_tokens or 0),
                 execution_id=run.id,
                 attribution="planner",
             )
-
-            from decimal import Decimal
-            if run.total_cost_usd is None:
-                run.total_cost_usd = Decimal("0")
-            if in_usage:
-                run.total_cost_usd += in_usage.calculated_cost
-            if out_usage:
-                run.total_cost_usd += out_usage.calculated_cost
         except Exception as e:
             logger.debug(f"Planner usage logging failed: {e}")

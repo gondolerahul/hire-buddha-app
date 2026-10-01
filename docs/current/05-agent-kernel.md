@@ -477,30 +477,30 @@ The pressure value reaches the *step prompt* through the legacy context bridge:
 ([agent_state.py:368](../../backend/src/ai/core/agent_state.py:368),
 [step_executor.py:690](../../backend/src/ai/step_executor.py:690)).
 
-### Cost reconciliation — why the budget lies unless you sync it
+### Cost — one write path
 
-Most spend does **not** flow back through `ActionResult.cost_usd`. The nested
-step path bills by mutating `run.total_cost_usd` on its own session, and the
-critic pipeline writes `usage_logs` rows without touching the run's cost
-column. So the loop does three things at the end of every iteration
-([agent_loop.py:670-688](../../backend/src/ai/core/agent_loop.py:670)):
+> **Since 2026-10-02 (P4.1 of the [consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md), AK-02).**
+> Before, spend reached `run.total_cost_usd` five ways (atomic bumps from the step
+> executor and the debate executor, in-memory `+=` from the planner and the CORTEX
+> bridge, and the loop's own tally), reconciled each iteration by `_sync_budget_cost`'s
+> `max()` in an order nothing enforced. The default (v2) planner, its judge and the
+> alignment check wrote usage rows with **no run id**, and replans wrote none — spend the
+> run, and its bill, never saw.
 
-```python
-# backend/src/ai/core/agent_loop.py
-state.budget.consume(
-    usd=action_result.cost_usd,
-    wall_s=max(action_result.latency_ms // 1000, 0),
-)
-await self._sync_budget_cost(state)      # pull run.total_cost_usd UP via max()
-if iter_critic_cost > 0:
-    state.budget.consume(usd=iter_critic_cost)   # add critic spend on top
-```
+Every spender — a step's LLM call, a tool, the planner and judge, a critic, a debate, a
+CORTEX summary — writes one attributed `usage_logs` row carrying the run id, and nothing
+else. [`governance/run_cost.py`](../../backend/src/ai/governance/run_cost.py):
 
-Order matters: `_sync_budget_cost` uses `max()`, so adding critic cost *before*
-it would be clobbered. Token totals are rolled up separately with a recursive
-CTE over the run subtree in `_sync_budget_tokens`
-([agent_loop.py:838](../../backend/src/ai/core/agent_loop.py:838)) so a
-delegating parent does not report zero tokens.
+| | |
+|---|---|
+| `run_spend(db, run_id)` | the run's own rows (`Σ calculated_cost`; tokens = `Σ raw_quantity` of `LLM`-category SKUs) **plus** its structural children's recorded totals (`parent_run_id`; a retry is not a child, EP-03) |
+| `refresh_run_cost(db, run_id)` | writes that onto the run row and returns it |
+
+The loop is the run row's only cost writer: `_refresh_spend` after every iteration sets
+`state.budget.usd_used` and `tokens_used` from `refresh_run_cost` (the budget is **set**,
+never accumulated), and `_persist_suspended` / `_persist_final` write `run_spend` — the
+amount settlement bills. A child records its own total (its rows plus its children's)
+when it finishes, so a parent's sum is complete once its children are.
 
 > The critic pipeline does not read budget pressure: it degrades on a
 > *cost-share* rule (`critic_cost / run_cost > governance.critic_cost_share_pct`,
@@ -565,7 +565,7 @@ sequenceDiagram
     R->>PG: persist candidate Intelligence rule (entity scope only)
     L->>S: decide_next state, supervisor
     S-->>L: Decision
-    L->>L: budget bookkeeping and _sync_budget_cost
+    L->>L: budget bookkeeping - _refresh_spend sets the budget from the run's usage rows
     L->>X: write AgentState snapshot node
 ```
 
@@ -754,7 +754,7 @@ infinite-planning-loop").
 
 ### Phase 9 — Bookkeeping
 
-Budget consume → `_sync_budget_cost` → add critic cost → `_snapshot` (a CORTEX
+Wall-clock consume → `_refresh_spend` (the run's spend from its usage rows, AK-02) → `_snapshot` (a CORTEX
 node with the full state JSON) → emit `agent.loop.iteration_end` carrying a
 human-readable `narrative` and `reflection` for the SPA timeline.
 

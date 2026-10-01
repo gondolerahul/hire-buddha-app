@@ -9,7 +9,6 @@ viewport/checkpoint management.
 """
 import json
 import logging
-from decimal import Decimal
 from typing import Any, List, Optional
 from uuid import UUID
 
@@ -238,6 +237,8 @@ class CortexBridge:
                     _model = _resp.model_name or "unknown"
                     _in_sku = f"{_model}-in"
                     _out_sku = f"{_model}-out"
+                    # The rows are the charge; the run's total is their sum,
+                    # written by the loop (AK-02).
                     _in_usage = await self.usage_service.log_usage(
                         company_id=run.company_id,
                         service_sku=_in_sku,
@@ -250,15 +251,6 @@ class CortexBridge:
                         raw_quantity=float(_resp.completion_tokens),
                         execution_id=run.id,
                     )
-                    if run.total_cost_usd is None:
-                        run.total_cost_usd = Decimal("0")
-                    if _in_usage:
-                        run.total_cost_usd += _in_usage.calculated_cost
-                    if _out_usage:
-                        run.total_cost_usd += _out_usage.calculated_cost
-                    if run.total_tokens is None:
-                        run.total_tokens = 0
-                    run.total_tokens += (_resp.prompt_tokens + _resp.completion_tokens)
                     logger.info(
                         f"CORTEX summary cost tracked: "
                         f"in={_resp.prompt_tokens}, out={_resp.completion_tokens} "

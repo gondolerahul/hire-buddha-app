@@ -423,7 +423,7 @@ class RealCriticPipeline:
 
         try:
             from src.ai.planning.goal_alignment import GoalAlignmentVerifier
-            verifier = GoalAlignmentVerifier(self.db, cast(UUID, state.company_id))
+            verifier = GoalAlignmentVerifier(self.db, cast(UUID, state.company_id), run_id=state.run_id)
             result = await verifier.verify_step_alignment(
                 entity_goal=self.config.entity_goal,
                 task_desc=self.config.task_description,

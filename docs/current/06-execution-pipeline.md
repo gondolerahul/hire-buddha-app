@@ -1050,9 +1050,9 @@ entity `status` (a `DRAFT` or `ARCHIVED` entity runs happily); credit balance
 | `result_data` | `_persist_final` | `{"output": str[:8000], "steps": [...]}`. |
 | `context_state` | loop | Sanitized step outputs; also holds `__agent_state_snapshot__` while suspended. |
 | `error_message` | `_persist_final` | Truncated to 1000 chars. |
-| `total_cost_usd` | `_bump_run_cost`, `_persist_final` | Internal cost, `Numeric(10,4)`. |
+| `total_cost_usd` | the loop only (`_refresh_spend`, `_persist_final`) — the sum of the run's usage rows plus its children's totals ([`governance/run_cost.py`](../../backend/src/ai/governance/run_cost.py), AK-02) | Internal cost, `Numeric(10,4)`. |
 | `billed_amount` | `settle_billing` | Customer-facing charge, `Numeric(14,6)`. |
-| `total_tokens` | `_bump_run_cost`, `_persist_final` | Rolled up over the subtree. |
+| `total_tokens` | the loop only, with the cost | `LLM`-SKU usage rows plus the children's totals. |
 | `execution_time_ms` | `_persist_final` | Wall-clock ms from `started_at` to `completed_at` (EP-15, 2026-10-01; earlier finished runs backfilled). |
 | `trace_id` | insert (`uuid4()`); children inherit the parent's | Groups a whole run tree. |
 | `started_at` / `completed_at` / `created_at` | loop / insert | — |
@@ -1198,12 +1198,12 @@ remainder sequentially.
 
 Two hard-won details are worth reading in the source:
 
-- **Cost accounting under parallelism.** Each isolated session folds its spend
-  into the run row with an atomic `SET total_cost_usd = total_cost_usd + :delta`
-  ([`_bump_run_cost`](../../backend/src/ai/step_executor.py:65)). An in-place
-  ORM `+=` would flush an absolute full-row UPDATE and the last writer would
-  wipe every other branch's cost — the Phase-11 leak where a ~$6 run settled at
-  ~$0.88.
+- **Cost accounting under parallelism.** Each isolated session only inserts
+  `usage_logs` rows with the run id; the loop writes the run's total as their sum
+  ([`governance/run_cost.py`](../../backend/src/ai/governance/run_cost.py), AK-02).
+  Nothing contends on the run row. (An in-place ORM `+=` from parallel sessions was
+  the Phase-11 leak where a ~$6 run settled at ~$0.88; the atomic increment that
+  replaced it is gone with every other bump.)
 - **Dependency-failure short-circuit.** Before running a single-ready step, the
   engine checks whether any `{{step_N}}` it needs resolved to a `[FAILED]` /
   `[TOOL_EMPTY]` marker and, if so, skips the step with a
@@ -1391,7 +1391,7 @@ sequenceDiagram
     TX->>SP: set_output, set success, close span
     TX-->>SE: ToolResult
     SE->>DB: INSERT tool_interaction_logs
-    SE->>DB: resolve tool cost then _bump_run_cost then INSERT usage_logs
+    SE->>DB: resolve tool cost then INSERT usage_logs - the loop sums the rows
     SE->>SE: if scraper_tool or headless_browser and success then ingest to CORTEX
 ```
 
@@ -1852,7 +1852,7 @@ erDiagram
 
 | Field | Written by |
 |-------|------------|
-| `total_cost_usd` | `_bump_run_cost` per LLM call and per tool call (atomic increment); reconciled at `_persist_final` as `max(budget.usd_used, row value)`. |
+| `total_cost_usd` | the loop: the sum of the run's `usage_logs` rows plus its children's totals, written after each iteration and at `_persist_final` (AK-02). Spenders write rows only. |
 | `total_tokens` | Same increment path; rolled up across the run subtree at finalize. |
 | `billed_amount` | `GovernanceService.settle_billing`, top-level runs only. |
 | `completed_at` | `_persist_final`. |
@@ -2168,7 +2168,7 @@ sequenceDiagram
     SX->>SX: parse_variables - {{input}} resolved
     SX->>LLM: call_llm_react REACT, tool_schemas for sandbox_code and document_save
     LLM-->>SX: SPEC text, no tool calls
-    SX->>PG: llm_interaction_logs, usage_logs in and out, _bump_run_cost
+    SX->>PG: llm_interaction_logs, usage_logs in and out
     SE->>SE: store_step_output - context['Analyze & outline'] and context['outline']
     Note over AL: iteration 2 - 'generate' ready, dep outline complete
     SX->>SX: input_dependencies=[outline] so only input plus outline pass through
@@ -2273,8 +2273,8 @@ sequenceDiagram
 - **The SSE stream authenticates via `?token=`**, not the `Authorization`
   header, because `EventSource` cannot set headers.
 - **Parallel DAG steps run in isolated sessions.** Never mutate a shared ORM
-  object from a step; fold cost with the atomic `_bump_run_cost` increment or
-  you will silently drop charges.
+  object from a step. A charge is a `usage_logs` row with the run id — never a write
+  to `execution_runs.total_cost_usd`, which only the loop writes (AK-02).
 - **`ToolExecutor` never passes `company_id` to the registry**, so tenant-scoped
   tools are invisible to entity execution.
 

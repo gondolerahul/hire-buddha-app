@@ -124,9 +124,8 @@ class ToolCostResolver:
     ) -> ToolChargeResult:
         """Price one call and add its ``usage_logs`` row to the session.
 
-        Does not touch ``run.total_cost_usd``: the caller adds the amount
-        atomically (``StepExecutorService._bump_run_cost``), and its commit
-        persists the row with it.
+        Does not touch ``run.total_cost_usd``: a run's total is the sum of
+        its usage rows (``governance.run_cost``, AK-02). The caller commits.
         """
         amount, source, sku_id = await self.resolve(tool_id)
         if amount <= 0:

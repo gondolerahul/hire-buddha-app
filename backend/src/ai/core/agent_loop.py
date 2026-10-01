@@ -20,7 +20,6 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, Optional, cast
 from uuid import UUID
 
@@ -351,7 +350,6 @@ class AgentLoop:
         complete and folds the child output into ``context_state`` so the loop
         advances past it on resume.
         """
-        from decimal import Decimal
         _TERMINAL = {
             RunStatus.COMPLETED.value, RunStatus.FAILED.value,
             RunStatus.PARTIAL_COMPLETE.value, RunStatus.CANCELLED.value,
@@ -388,12 +386,6 @@ class AgentLoop:
                 record_child_step_result(
                     state, step_id, output, child.get("run_id"),
                 )
-            # Fold child cost into the parent budget (child billed its own row).
-            try:
-                state.budget.consume(usd=Decimal(str(child_run.total_cost_usd or 0)),
-                                     tokens=int(child_run.total_tokens or 0))
-            except Exception:
-                pass
             if status in (RunStatus.FAILED.value, RunStatus.CANCELLED.value):
                 any_failed = True
         return all_terminal, any_failed
@@ -658,13 +650,6 @@ class AgentLoop:
         except Exception:                                                   # pragma: no cover
             logger.exception("finalize_iteration failed; continuing")
 
-        # This iteration's critic LLM spend. The critic pipeline already wrote
-        # attributed ``usage_logs`` rows (``log_llm_response_usage``) but —
-        # unlike the planner and the nested actor engine — it never incremented
-        # ``run.total_cost_usd``. We fold it into the budget below (step 9) so
-        # the final ``_persist_final`` write lands it on ``total_cost_usd``.
-        iter_critic_cost = self._critic_cost_from_record(record)
-
         # Never auto-retry a whole child-entity invocation. A ChildEntity move
         # runs an ENTIRE sub-agent (its own multi-step plan, often $10+ and
         # many minutes). Re-running it on a post-critic REVISE re-does all that
@@ -708,24 +693,11 @@ class AgentLoop:
         if (decision.next_state_patch or {}).get("replan_requested"):
             await self._handle_replan(state, supervise)
 
-        # 9. Bookkeeping: cost + snapshot
-        state.budget.consume(
-            usd=action_result.cost_usd,
-            wall_s=max(action_result.latency_ms // 1000, 0),
-        )
-        # Reconcile USD with the run's real accumulated cost — the nested
-        # engine bills on its own session, so action_result.cost_usd is 0 here
-        # and the budget bar would otherwise show $0.
-        await self._sync_budget_cost(state)
-        # Add this iteration's critic spend on TOP of the just-synced run cost.
-        # Order matters: _sync_budget_cost pulls the run's accumulated cost UP
-        # into the budget via max(), so adding the critic cost beforehand would
-        # be clobbered. Doing it after keeps planner + nested-actor + critic all
-        # accounted for. Budget is in-memory, so this survives the
-        # _persist_final session reset and lands on total_cost_usd via that
-        # final max() write — making settle_billing bill the real amount.
-        if iter_critic_cost > 0:
-            state.budget.consume(usd=iter_critic_cost)
+        # 9. Bookkeeping: cost + snapshot. The run's spend is the sum of its
+        # usage rows (every step, tool, critic and planner call writes one)
+        # plus its children's totals; the budget is set from it (AK-02).
+        state.budget.consume(wall_s=max(action_result.latency_ms // 1000, 0))
+        await self._refresh_spend(state)
         await self._snapshot(state)
 
         await event_async(
@@ -849,75 +821,33 @@ class AgentLoop:
             logger.warning("Failed to build RealCriticPipeline; using NoOp: %s", exc)
             self.critic_pipeline = NoOpCriticPipeline()
 
-    @staticmethod
-    def _critic_cost_from_record(record: Any) -> "Decimal":
-        """Sum the four critic-stage costs recorded for one iteration.
-
-        ``finalize_iteration`` returns the iteration's ``StepHealthRecord``
-        (or ``None`` for the NoOp pipeline). Each critic stage stamps its LLM
-        spend onto the record; we total them so the AgentLoop can fold the
-        critic's cost into ``total_cost_usd`` (the critic pipeline writes
-        ``usage_logs`` rows but never touches the run's cost column).
-        """
-        from decimal import Decimal
-        if record is None:
-            return Decimal("0")
-        total = Decimal("0")
-        for attr in (
-            "pre_critic_cost_usd",
-            "post_critic_cost_usd",
-            "alignment_cost_usd",
-            "supervisor_cost_usd",
-        ):
-            val = getattr(record, attr, None)
-            if not val:
-                continue
-            try:
-                total += Decimal(str(val))
-            except Exception:                                               # pragma: no cover
-                pass
-        return total
-
-    async def _sync_budget_cost(self, state: AgentState) -> None:
-        """Pull the run's real accumulated cost into the budget so the rail /
-        budget bar reflect actual spend (the nested engine bills separately)."""
+    async def _refresh_spend(self, state: AgentState) -> Any:
+        """Write the run's spend — its usage rows plus its children's totals —
+        onto the run row and set the budget from it (P4.1, AK-02). The loop is
+        the only writer of ``total_cost_usd``; spenders only write rows."""
+        from src.ai.governance.run_cost import RunSpend, refresh_run_cost
         if not self._run_id:
-            return
+            return RunSpend(state.budget.usd_used, int(state.budget.tokens_used or 0))
         try:
-            from decimal import Decimal
-            row = (await self.db.execute(
-                select(ExecutionRun.total_cost_usd).where(
-                    ExecutionRun.id == self._run_id
-                )
-            )).scalar_one_or_none()
-            if row is not None:
-                actual = Decimal(str(row))
-                if actual > state.budget.usd_used:
-                    state.budget.usd_used = actual
+            spend = await refresh_run_cost(self.db, self._run_id)
         except Exception:                                                   # pragma: no cover
-            pass
+            logger.exception("Run cost refresh failed for run %s", self._run_id)
+            await self.db.rollback()
+            return RunSpend(state.budget.usd_used, int(state.budget.tokens_used or 0))
+        state.budget.usd_used = spend.cost_usd
+        state.budget.tokens_used = spend.tokens
+        return spend
 
-    async def _sync_budget_tokens(self) -> int:
-        """Sum ``total_tokens`` across this run + all descendant child runs.
-
-        Token axis counterpart to ``_sync_budget_cost``: the nested engine bills
-        tokens onto the *child* run row, so a delegating parent otherwise reports
-        ``total_tokens == 0``. Best-effort — any failure returns 0.
-        """
-        if not self._run_id:
-            return 0
+    async def _spend_for_persist(self, state: AgentState, run_id: Any) -> Any:
+        """The run's spend for its final or suspended write. A failing sum must
+        not stop the run being finalised: it falls back to the last refreshed
+        value (the budget), loudly."""
+        from src.ai.governance.run_cost import RunSpend, run_spend
         try:
-            from sqlalchemy import text
-            total = (await self.db.execute(text(
-                "WITH RECURSIVE subtree AS ("
-                " SELECT id, total_tokens FROM execution_runs WHERE id = :rid"
-                " UNION ALL SELECT c.id, c.total_tokens FROM execution_runs c"
-                " JOIN subtree s ON c.parent_run_id = s.id)"
-                " SELECT COALESCE(SUM(total_tokens), 0) FROM subtree"
-            ), {"rid": str(self._run_id)})).scalar_one_or_none()
-            return int(total or 0)
-        except Exception:                                                   # pragma: no cover
-            return 0
+            return await run_spend(self.db, run_id)
+        except Exception:
+            logger.exception("Run cost sum failed for run %s; using the last refreshed spend", run_id)
+            return RunSpend(state.budget.usd_used, int(state.budget.tokens_used or 0))
 
     async def _build_real_critic_pipeline(self, state: AgentState) -> CriticPipeline:
         from src.ai.llm.router import LLMRouter
@@ -1109,19 +1039,12 @@ class AgentLoop:
                 fresh.execution_time_ms = max(0, int(
                     (fresh.completed_at - fresh.started_at).total_seconds() * 1000
                 ))
-            # Don't clobber the engine-billed cost with the loop's budget — keep
-            # whichever is larger (the nested engine bills on its own session).
-            fresh.total_cost_usd = Decimal(str(max(
-                float(state.budget.usd_used), float(fresh.total_cost_usd or 0)
-            )))
-            # Roll up tokens from the whole run subtree (child runs bill onto
-            # their own rows) so a delegating parent reports the real total.
-            synced_tokens = await self._sync_budget_tokens()
-            fresh.total_tokens = max(
-                int(state.budget.tokens_used or 0),
-                int(synced_tokens or 0),
-                int(fresh.total_tokens or 0),
-            )
+            # The run's spend: its usage rows plus its children's totals — the
+            # amount settlement bills (AK-02).
+            spend = await self._spend_for_persist(state, run_id)
+            fresh.total_cost_usd = spend.cost_usd
+            fresh.total_tokens = spend.tokens
+            state.budget.usd_used = spend.cost_usd
             if state.cortex_tree_id:  # read by retry and refine (EP-29)
                 fresh.context_state = {**(fresh.context_state or {}), "__cortex_tree_id__": str(state.cortex_tree_id)}
             if error:
@@ -1172,9 +1095,9 @@ class AgentLoop:
             cs[SUSPENDED_AT_KEY] = utc_now_iso()
             fresh.context_state = cs
             fresh.status = RunStatus.WAITING_ON_CHILDREN.value
-            fresh.total_cost_usd = Decimal(str(max(
-                float(state.budget.usd_used), float(fresh.total_cost_usd or 0)
-            )))
+            spend = await self._spend_for_persist(state, run_id)
+            fresh.total_cost_usd = spend.cost_usd
+            fresh.total_tokens = spend.tokens
             await self.db.commit()
             await event_async(
                 "agent.loop.suspended",

@@ -682,6 +682,16 @@ before, the ledger skipped the insert and the charge reached `run.total_cost_usd
 line item. The usage-breakdown report outer-joins the registry and names such rows after the
 tool (category `TOOL`).
 
+**A run's cost** (since 2026-10-02, AK-02) is the sum of its `usage_logs` rows plus its
+structural children's recorded totals —
+[`governance/run_cost.py`](../../backend/src/ai/governance/run_cost.py). Every spender (a
+step's LLM call, a tool, the planner and its judge, a critic, a debate, a CORTEX summary)
+writes one attributed row with the run id and nothing else; the loop alone writes
+`execution_runs.total_cost_usd`/`total_tokens` from that sum, after every iteration and at
+finalisation, and settlement bills that number. Before, five paths bumped the column and the
+loop reconciled them with `max()`; and the v2 planner, its judge, the alignment check and
+every replan wrote rows with no run (or none), so they were never billed.
+
 **Tool calls** have one price lookup, `ToolCostResolver` —
 [tool_cost_resolver.py](../../backend/src/ai/governance/tool_cost_resolver.py) — called by
 `StepExecutorService._charge_tool` from both tool paths (a `TOOL_CALL` step and a REACT
@@ -689,8 +699,9 @@ function call): the company's registry row for the tool (`service_sku == tool_id
 `TOOL_SKU_MAP[tool_id]`), else the platform (APP) company's row, else
 `TOOL_FIXED_COST[tool_id]`, else $0 with a warning. A registry price is divided by its
 `cost_unit` (`usage_service.unit_divisor`, shared with the LLM path), so a
-"per 1000 requests" SKU charges a thousandth per call. `_charge_tool` adds the amount to the
-run atomically (`_bump_run_cost`), which commits the ledger row with it. Before BC-11 the two
+"per 1000 requests" SKU charges a thousandth per call. `_charge_tool` commits the ledger
+row; it does not touch the run row — a run's cost is the sum of its rows (see "A run's
+cost" below). Before BC-11 the two
 tool paths each carried a hand-copied price table, the resolver had no callers, a tenant
 without its own row paid nothing (BC-10), and an `OR service_category = 'CUSTOM_API'` in the
 lookup let any custom-API row price every tool (BC-29).
@@ -1034,8 +1045,8 @@ flowchart TD
     B --> C{"budget.exhausted?"}
     C -->|yes| D["emit agent.loop.budget_exhausted - stop"]
     C -->|no| E["run the action"]
-    E --> F["budget.consume - usd equals action cost, wall_s"]
-    F --> G["_sync_budget_cost - pull run.total_cost_usd up via max"]
+    E --> F["budget.consume - wall_s"]
+    F --> G["_refresh_spend - budget set from the run's usage rows plus children"]
     G --> H{"pressure greater than threshold?"}
     H -->|yes| I["budget_prompt_lines injects finish-now directive into the prompt"]
     H -->|no| J["continue"]

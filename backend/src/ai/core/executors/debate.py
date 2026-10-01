@@ -25,7 +25,7 @@ from decimal import Decimal
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
@@ -279,19 +279,8 @@ class DebateExecutor:
             if u_out is not None:
                 total += Decimal(str(u_out.calculated_cost))
 
-        if total > 0 or tokens > 0:
-            try:
-                await db.execute(
-                    update(ExecutionRun)
-                    .where(ExecutionRun.id == run.id)
-                    .values(
-                        total_cost_usd=func.coalesce(ExecutionRun.total_cost_usd, 0) + total,
-                        total_tokens=func.coalesce(ExecutionRun.total_tokens, 0) + tokens,
-                    )
-                )
-                await db.commit()
-            except Exception as exc:                                       # noqa: BLE001
-                logger.debug("[DebateExecutor] run-cost bump failed: %s", exc)
+        # The rows are the charge; the run's total is their sum, written by the
+        # loop (governance.run_cost, AK-02).
         return total
 
     # ------------------------------------------------------------------

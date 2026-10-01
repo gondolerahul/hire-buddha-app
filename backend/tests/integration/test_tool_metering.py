@@ -67,8 +67,9 @@ async def _rows(db, run_id):
 
 
 async def _cost(db, run_id) -> Decimal:
-    return Decimal(str((await db.execute(select(ExecutionRun.total_cost_usd).where(
-        ExecutionRun.id == run_id))).scalar()))
+    """The run's cost: the sum of its usage rows (P4.1, AK-02)."""
+    from src.ai.governance.run_cost import run_spend
+    return (await run_spend(db, run_id)).cost_usd
 
 
 @pytest.mark.asyncio

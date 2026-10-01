@@ -191,17 +191,11 @@ class StepEngine:
                         step_result = await isolated_engine._execute_step_wrapper(
                             iso_run, entity, step_obj, frozen_ctx
                         )
-                        # Cost/token accounting is owned by StepExecutorService
-                        # via _bump_run_cost, which folds each LLM/tool/child
-                        # charge into run.total_cost_usd with an ATOMIC
-                        # "total_cost_usd = total_cost_usd + delta" UPDATE. That
-                        # is concurrency-safe across these parallel isolated
-                        # sessions. The previous design merged cost here from
-                        # step_result["cost_usd"], but _execute_step never
-                        # populated that key, so every parallel step's cost was
-                        # silently dropped (the Phase 11 billing leak). A
-                        # defensive commit guarantees the final increment is
-                        # durable before the isolated session closes.
+                        # Each charge is a usage_logs row with the run id; the
+                        # run's total is their sum, written by the loop
+                        # (governance.run_cost, AK-02), so parallel steps never
+                        # contend on the run row. Commit so the rows are durable
+                        # before the isolated session closes.
                         await isolated_db.commit()
                         return step_result
 
