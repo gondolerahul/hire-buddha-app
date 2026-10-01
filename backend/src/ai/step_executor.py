@@ -164,7 +164,8 @@ class StepExecutorService:
                 HierarchicalEntity.status != "DELETED",
             )
         )
-        if not child_entity_check.scalar_one_or_none():
+        child_entity = child_entity_check.scalar_one_or_none()
+        if not child_entity:
             from src.ai.core.exceptions import EntityNotFoundError
             raise EntityNotFoundError(
                 str(entity_id),
@@ -173,6 +174,13 @@ class StepExecutorService:
                     f"The process template may not have been fully cloned."
                 ),
             )
+        # The composition rule (R1): a dynamic plan's children are first seen
+        # here, so the level rule is checked here too.
+        from src.ai.governance.composition import runtime_violation
+        refused = runtime_violation(entity, child_entity)
+        if refused:
+            from src.ai.core.exceptions import CompositionError
+            raise CompositionError(f"Child invocation refused for step {step.name}: {refused}")
 
         # Propagate CORTEX tree ID so all entities share one tree.
         child_input = dict(context)

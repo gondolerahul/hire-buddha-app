@@ -89,6 +89,13 @@ class EntityNotFoundError(AgentError):
         super().__init__(f"Entity {entity_id} not found. {context}")
 
 
+class CompositionError(AgentError):
+    """A child the run tried to start breaks the composition rule
+    (``ai.governance.composition``): above its parent's level, or past a
+    limit on the tree."""
+    pass
+
+
 class PlanningError(AgentError):
     """Plan generation or reconciliation failed."""
     pass

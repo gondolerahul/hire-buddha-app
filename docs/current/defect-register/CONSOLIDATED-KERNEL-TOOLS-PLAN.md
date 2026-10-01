@@ -811,4 +811,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P0.10 | EP-13, EP-15 | `c60b028` | Migration round-trips; a finalised run has `execution_time_ms` |
 | P0.11 | MI-10 | `4ffe662` | `test_curator_duplicate_rationale_names_the_existing_entity` fails on the old code |
 | P1.1 | R1 (levels) | `a195d67` | `test_entity_levels.py` (collection fails on the old code), `test_entity_levels_db.py` (the old schema stores `WORKFLOW`); migration round-trips and validates on the local database |
-| P1.7 | EP-01 | (this commit) | `test_child_tenancy.py` (both fail on the old code), `test_child_resolver.py` asserts the company filter |
+| P1.7 | EP-01 | `ec7addd` | `test_child_tenancy.py` (both fail on the old code), `test_child_resolver.py` asserts the company filter |
+| P1.2 | R1 (composition) | (this commit) | `test_composition_rule.py`: 14 of 16 fail on the old code (the 2 that pass assert valid trees are accepted); `test_composition_helpers.py` |

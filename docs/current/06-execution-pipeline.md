@@ -44,7 +44,7 @@ flowchart TD
         T["Template - is_template=true"] -->|clone_template| E
     end
     subgraph DISPATCH["Dispatch"]
-        API["POST /api/v1/ai/execute"] --> VAL["AIService.trigger_execution - entity + child preflight"]
+        API["POST /api/v1/ai/execute"] --> VAL["AIService.trigger_execution - entity + composition check of the whole tree"]
         VAL --> ROW["INSERT execution_runs status=PENDING"]
         ROW --> Q["arq enqueue_job run_execution_recursive"]
     end
@@ -356,7 +356,7 @@ but the field is typed `Optional[str]` and **nothing reads it**.
 | [`load_entity_children`](../../backend/src/ai/meta/platform_schema_compiler.py:718) | Loads live child ORM rows from `children[].child_id`, **company-scoped**. |
 | [`describe_entity_children`](../../backend/src/ai/meta/platform_schema_compiler.py:760) | Renders a markdown block of children with their exact UUIDs for the dynamic planner. |
 | [`resolve_child_entity_id`](../../backend/src/ai/planning/child_resolver.py:57) Strategy 3 | Positional index match: the *N*th `CHILD_ENTITY_INVOCATION` step maps to `children[N]`. |
-| [`AIService._validate_process_children`](../../backend/src/ai/service.py:357) | Pre-flight existence check before a PROCESS run. |
+| [`ai.governance.composition`](../../backend/src/ai/governance/composition.py) | The composition rule — checked on create/update, before every run (the whole tree) and when a child run is created. See §3. |
 | [`AIService.delete_entity`](../../backend/src/ai/service.py:183) / `clone_template` / `convert_to_template` | Tree walking. |
 | [`remap_entity_refs`](../../backend/src/ai/entity_clone_helpers.py:83) | Rewrites `child_id` after a clone. |
 
@@ -749,6 +749,24 @@ leftover unknown value as `PROCESS` rather than failing the Entity Library).
 Before R1, `LOOP` rows existed in some databases and were read as `PROCESS`
 through an alias; they are now their own level.
 
+### The composition rule
+
+A child sits **at its parent's level or below**, in its parent's company, and
+the tree has no cycle ([`ai/governance/composition.py`](../../backend/src/ai/governance/composition.py)).
+Same-level children are allowed: a department federating sub-departments
+(LOOP→LOOP), a process calling a sub-process, a skill reusing a skill. An
+entity names a child three ways — a child row's `parent_id`,
+`hierarchy.children[].child_id`, and the target of a static-plan
+`CHILD_ENTITY_INVOCATION` step — and all three are checked:
+
+| Where | When | What is refused |
+|---|---|---|
+| `AIService.create_entity` / `update_entity` | Authoring — **422**, before the row changes | A parent or a child (by id) that does not exist in the company, sits at the wrong level, or closes a cycle. An unresolved step target (a name, or the `__PLACEHOLDER__` the seed scripts patch afterwards) is left for dispatch |
+| `AIService.trigger_execution` | Dispatch — **400**, every level, the whole tree | The same, for every descendant, with each invocation step resolved the way the runtime resolves it (`resolve_child_entity_id`); a step that resolves to nothing |
+| `StepExecutorService.create_child_run` | Runtime — `CompositionError`, no child run | A child (e.g. from a dynamic plan) above its parent's level, or outside the parent's company (EP-01) |
+
+### Where behaviour still forks on the level
+
 Nothing about the type is polymorphic — the same `AgentLoop`, the same
 `StepEngine`, the same `StepExecutorService` run every level. What still differs
 is a handful of **explicit branches**, which R1 replaces with one rule each
@@ -758,7 +776,6 @@ is a handful of **explicit branches**, which R1 replaces with one rule each
 |--------|:------:|:-----:|:-----:|:-------:|
 | Virtual 1-step plan injected on GET (UI) — [service.py:123](../../backend/src/ai/service.py:123) | ✅ | ✅ | — | — |
 | Real `auto_generated` step injected when `static_plan.steps` is empty — [planner_service.py:53](../../backend/src/ai/planning/planner_service.py:53) | ✅ | ✅ | — | — |
-| Child pre-flight validation before dispatch — [service.py:285](../../backend/src/ai/service.py:285) | — | — | — | ✅ |
 | Strategist picks `Recursive` when there is no plan — [strategist.py:145](../../backend/src/ai/core/strategist.py:145) | — | — | ✅ | — |
 | Router enforcement (force `CHILD_ENTITY_INVOCATION` steps) — [planner_service.py:330-351](../../backend/src/ai/planning/planner_service.py:330) | — | — | ✅ only if it binds no tools | ✅ always, if it has children |
 | `self_introspection` auto-on | — | ✅ | ✅ | ✅ |
@@ -936,8 +953,8 @@ def clone_entity_fields(src: HierarchicalEntity) -> dict:
 `convert_to_template` ([service.py:991](../../backend/src/ai/service.py:991)) is
 the mirror image (app_admin only) but uses only paths A and B — a template made
 this way from a plan-only hierarchy will be missing children, which is exactly
-the failure `_validate_process_children` reports as *"Please clone the complete
-template first."*
+the failure the dispatch composition check reports with *"If it came from a
+template, clone the complete template first."*
 
 ---
 
@@ -975,11 +992,9 @@ sequenceDiagram
     API->>API: get_current_user - JWT
     API->>SVC: trigger_execution entity_id, input_data, company_id, user_id, role
     SVC->>PG: get_entity - 404 if missing or DELETED, RBAC scoping
-    alt entity.type == PROCESS
-        SVC->>PG: _validate_process_children
-        Note over SVC,PG: every CHILD_ENTITY_INVOCATION target.entity_id<br/>and every hierarchy child must exist in this company
-        SVC-->>UI: 400 with the full missing list, if any
-    end
+    SVC->>PG: dispatch_violations - every level, the whole tree
+    Note over SVC,PG: every invocation step resolves, every child exists<br/>in the entity's company at its parent's level or below, no cycle
+    SVC-->>UI: 400 with every problem, if any
     SVC->>PG: INSERT execution_runs status=PENDING trace_id=uuid4
     SVC->>PG: SELECT with selectinload entity, child_runs, llm_logs, tool_logs, approvals
     SVC->>RQ: create_pool then enqueue_job run_execution_recursive run_id
@@ -2087,7 +2102,7 @@ sequenceDiagram
     participant AS as ArtifactService
 
     U->>API: entity_id=doc-factory-lite, input_data={"input":"Q3 sales workbook, 3 sheets, margin formulas"}
-    API->>PG: get_entity - AGENT so no PROCESS child preflight
+    API->>PG: get_entity, then the composition check of its tree
     API->>PG: INSERT execution_runs PENDING trace_id=T
     API->>W: enqueue run_execution_recursive
     W->>PG: guards pass, stamp feature_flags, bind TraceRecorder

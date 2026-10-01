@@ -30,7 +30,15 @@ class AIService:
         
         # Templates are public — no company association
         effective_company_id = None if entity_data.get("is_template") else company_id
-        
+
+        from src.ai.governance.composition import EntityShape
+        await self._require_composition(EntityShape(
+            id=None, type=str(entity_data.get("type") or ""), company_id=effective_company_id,
+            parent_id=entity_data.get("parent_id") and UUID(str(entity_data["parent_id"])),
+            hierarchy=entity_data.get("hierarchy"), planning=entity_data.get("planning"),
+            name=str(entity_data.get("name") or ""),
+        ))
+
         # Flatten identity if provided as nested model to JSONB column
         entity = HierarchicalEntity(**entity_data, company_id=effective_company_id, created_by=user_id)
         self.db.add(entity)
@@ -129,13 +137,34 @@ class AIService:
         entity = await self.get_entity(entity_id, company_id, user_role=user_role)
         
         update_data = entity_in.model_dump(mode='json', exclude_unset=True)
+
+        # The edit is checked before it touches the row, so a refused one
+        # leaves nothing to undo.
+        from src.ai.governance.composition import EntityShape
+        with self.db.no_autoflush:
+            await self._require_composition(EntityShape.of(entity).with_changes(update_data))
+
         for field, value in update_data.items():
             setattr(entity, field, value)
-            
+
         self.db.add(entity)
         await self.db.commit()
         await self.db.refresh(entity)
         return entity
+
+    async def _require_composition(self, shape) -> None:
+        """422 when the entity, as about to be written, breaks the composition
+        rule (``ai.governance.composition``): a parent or child in another
+        company, a child above its parent's level, or a cycle."""
+        from src.ai.governance.composition import authoring_violations
+        problems = await authoring_violations(self.db, shape)
+        if problems:
+            raise HTTPException(
+                status_code=422,
+                detail="Composition rule: " + "; ".join(problems) + ". A child sits at "
+                       "its parent's level or below (ACTION < SKILL < AGENT < PROCESS "
+                       "< LOOP < GRAPH), in the same company, with no cycle.",
+            )
 
     async def delete_entity(self, entity_id: UUID, company_id: UUID):
         entity = await self.get_entity(entity_id, company_id)
@@ -266,11 +295,22 @@ class AIService:
         # Pre-flight: validate entity exists and belongs to this company
         entity = await self.get_entity(execution_in.entity_id, company_id, user_role=user_role)
 
-        # For PROCESS entities, validate all child entity references exist
-        # within the executing company before allowing execution.
+        # Every level: the whole tree must satisfy the composition rule before
+        # anything is spent — each invocation step resolves, every child is in
+        # the entity's company, at its parent's level or below, with no cycle.
         entity_type_str = entity.type.value if hasattr(entity.type, 'value') else str(entity.type)
-        if entity_type_str == "PROCESS":
-            await self._validate_process_children(entity, company_id, user_role=user_role)
+        from src.ai.governance.composition import dispatch_violations
+        problems = await dispatch_violations(self.db, entity)
+        if problems:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot execute '{entity.name}': {len(problems)} problem"
+                    f"{'' if len(problems) == 1 else 's'} in its tree. If it came from a "
+                    f"template, clone the complete template first.\n"
+                    + "\n".join(f"  • {m}" for m in problems)
+                ),
+            )
 
         # 402 now rather than a run that fails in the worker: the run's own
         # credit gate (AgentLoop, BC-05) still decides, with its hold.
@@ -308,79 +348,6 @@ class AIService:
         await enqueue_job("run_execution_recursive", str(execution.id))
 
         return execution
-
-    async def _validate_process_children(self, entity: HierarchicalEntity, company_id: UUID, user_role: str = None) -> None:
-        """
-        Pre-flight check: verify all CHILD_ENTITY_INVOCATION targets exist
-        within the executing company.  Raises HTTP 400 if any are missing,
-        blocking the entire execution with a descriptive error.
-        """
-        planning = entity.planning or {}
-        static_steps = (planning.get("static_plan") or {}).get("steps", [])
-
-        missing: list[str] = []
-        for step in static_steps:
-            if step.get("type") != "CHILD_ENTITY_INVOCATION":
-                continue
-            target_id = (step.get("target") or {}).get("entity_id")
-            if not target_id:
-                missing.append(f"Step '{step.get('name', '?')}' has no entity_id configured")
-                continue
-            try:
-                child_uuid = UUID(str(target_id))
-            except (ValueError, AttributeError):
-                missing.append(f"Step '{step.get('name', '?')}' has invalid entity_id '{target_id}'")
-                continue
-            query = select(HierarchicalEntity.id).where(
-                HierarchicalEntity.id == child_uuid,
-            )
-            # app_admin can reference entities from any company
-            if user_role != "app_admin":
-                query = query.where(HierarchicalEntity.company_id == company_id)
-            result = await self.db.execute(query)
-            if not result.scalar_one_or_none():
-                missing.append(
-                    f"Step '{step.get('name', '?')}' references entity {target_id} "
-                    f"which does not exist in your company"
-                )
-
-        # Also check hierarchy.children for referenced entities
-        hierarchy = entity.hierarchy
-        if hierarchy and isinstance(hierarchy, dict):
-            for child_ref in hierarchy.get("children", []):
-                if isinstance(child_ref, dict):
-                    child_id_str = child_ref.get("child_id")
-                    if child_id_str:
-                        try:
-                            child_uuid = UUID(str(child_id_str))
-                        except (ValueError, AttributeError):
-                            continue
-                        result = await self.db.execute(
-                            select(HierarchicalEntity.id).where(
-                                HierarchicalEntity.id == child_uuid,
-                            ) if user_role == "app_admin" else
-                            select(HierarchicalEntity.id).where(
-                                HierarchicalEntity.id == child_uuid,
-                                HierarchicalEntity.company_id == company_id,
-                            )
-                        )
-                        if not result.scalar_one_or_none():
-                            child_type = child_ref.get("child_type", "unknown")
-                            missing.append(
-                                f"Hierarchy child ({child_type}) references entity {child_id_str} "
-                                f"which does not exist in your company"
-                            )
-
-        if missing:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Cannot execute process '{entity.name}': {len(missing)} child "
-                    f"entit{'y' if len(missing) == 1 else 'ies'} not found in your company. "
-                    f"Please clone the complete template first.\n"
-                    + "\n".join(f"  • {m}" for m in missing)
-                ),
-            )
 
     async def get_execution(self, execution_id: UUID, company_id: UUID, user_role: str = None) -> ExecutionRun:
         from sqlalchemy.orm import selectinload, joinedload
