@@ -5,7 +5,7 @@ Covers: list users (role-scoped), create user (admin), update user, cross-compan
 import pytest
 import httpx
 
-from tests.e2e.conftest import auth_headers, TEST_ID
+from tests.e2e.conftest import PASSWORD, auth_headers, TEST_ID
 
 
 # ── List Users ────────────────────────────────────────────────────────────────
@@ -57,16 +57,16 @@ async def test_admin_creates_user(
         headers=auth_headers(app_admin_token),
         json={
             "email": f"e2e_created_{TEST_ID}@test.hirebuddha.com",
-            "password": "Created1!",
+            "password": PASSWORD,
             "full_name": "Created User",
             "company_id": test_tenant["id"],
-            "role": "user",
+            "role": "tenant_user",
         },
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["email"] == f"e2e_created_{TEST_ID}@test.hirebuddha.com"
-    assert data["role"] == "user"
+    assert data["role"] == "tenant_user"
 
 
 # ── Update User ───────────────────────────────────────────────────────────────
@@ -75,11 +75,13 @@ async def test_admin_creates_user(
 async def test_admin_updates_user(
     client: httpx.AsyncClient, app_admin_token
 ):
-    # First get a user to update
+    # First get a user to update: one of this session's, never a real account
+    # (app_admin lists every user in the database)
     resp = await client.get("/api/v1/users", headers=auth_headers(app_admin_token))
     users = resp.json()
-    assert len(users) > 0
-    target_user = users[0]
+    session_users = [u for u in users if u["email"].endswith(f"_{TEST_ID}@test.hirebuddha.com")]
+    assert session_users, "app_admin should see this session's users"
+    target_user = session_users[0]
 
     resp = await client.patch(
         f"/api/v1/users/{target_user['id']}",

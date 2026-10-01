@@ -154,18 +154,20 @@ async def test_suspended_company_blocks_access(client: httpx.AsyncClient, app_ad
     assert resp.status_code == 200
 
     # Re-login to get a fresh token so middleware checks company status
-    from tests.e2e.conftest import _email
+    from tests.e2e.conftest import _email, PASSWORD
     resp_login = await client.post(
         "/api/v1/auth/login",
-        json={"email": _email("tenantadmin"), "password": "Test1234!"},
+        json={"email": _email("tenantadmin"), "password": PASSWORD},
     )
-    fresh_token = resp_login.json().get("access_token")
 
-    # Try to access a protected endpoint — should be blocked
-    if fresh_token:
+    # Either sign-in is refused, or a protected endpoint is
+    if resp_login.status_code == 200:
+        fresh_token = resp_login.json()["access_token"]
         resp_me = await client.get("/api/v1/auth/me", headers=auth_headers(fresh_token))
         # Either middleware 403 or dependency 403
         assert resp_me.status_code == 403, f"Expected 403, got {resp_me.status_code}"
+    else:
+        assert resp_login.status_code == 403, resp_login.text
 
     # Reactivate
     resp = await client.patch(
