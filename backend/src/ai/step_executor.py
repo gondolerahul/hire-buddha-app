@@ -153,13 +153,14 @@ class StepExecutorService:
             from src.ai.core.exceptions import AgentError
             raise AgentError(f"Child invocation missing entity_id for step {step.name}")
 
-        # ── Runtime safety net: validate child entity exists ──
-        # The pre-flight check in trigger_execution() already validated
-        # company-scoped access. Here we just confirm the entity exists
-        # and hasn't been deleted since execution was enqueued.
+        # ── Runtime safety net: the child exists, is not deleted, and lives in
+        # the parent entity's company (EP-01). A plan can carry any UUID (a
+        # dynamic plan, a stale static one), and the pre-flight in
+        # trigger_execution() only saw the plan as it was at dispatch.
         child_entity_check = await self.db.execute(
             select(HierarchicalEntity).where(
                 HierarchicalEntity.id == entity_id,
+                HierarchicalEntity.company_id == entity.company_id,
                 HierarchicalEntity.status != "DELETED",
             )
         )
@@ -168,7 +169,7 @@ class StepExecutorService:
             raise EntityNotFoundError(
                 str(entity_id),
                 context=(
-                    f"not found or deleted. "
+                    f"not found in this entity's company, or deleted. "
                     f"The process template may not have been fully cloned."
                 ),
             )

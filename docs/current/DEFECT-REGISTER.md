@@ -458,7 +458,7 @@ up a launch.
 |---|---|---|---|
 | **D-31** | No webhook idempotency | Provider retries create duplicate executions and duplicate charges | 📄 Doc |
 | **D-32** | Rate limits key on `127.0.0.1` | No vhost sets a forwarded-for header, so every caller shares one bucket | 📄 Doc |
-| **D-33** | Child-resolver strategy 4 is not company-scoped | A name-based lookup can cross a tenant boundary | 📄 Doc |
+| **D-33** | Child-resolver strategy 4 is not company-scoped | A name-based lookup can cross a tenant boundary | 📄 Doc · **fixed (2026-10-01)** as EP-01 — the lookup and `create_child_run` stay in the parent's company |
 | **D-34** | `_final_status` can return `COMPLETED` when every step failed | Runs that did nothing are billed and reported as successes | 📄 Doc |
 | **D-35** | Run status transitions are advisory | `validate_transition` warns but never blocks; illegal states are reachable | ✅ fixed (2026-10-01) — DM-17: the run model refuses an illegal status write; terminal statuses are final; cancel and the loop's final write cannot overwrite each other |
 | **D-36** | Agent selection is `LIMIT 1` with no `ORDER BY` | Non-deterministic agent choice, in three separate call sites | 📄 Doc |

@@ -20,9 +20,10 @@ def _step(name="invoke child", entity_id=None, name_hint=None) -> SimpleNamespac
     )
 
 
-def _parent(static_steps=None, children=None, parent_id=None):
+def _parent(static_steps=None, children=None, parent_id=None, company_id=None):
     return SimpleNamespace(
         id=parent_id or uuid4(),
+        company_id=company_id or uuid4(),
         planning={"static_plan": {"steps": list(static_steps or [])}},
         hierarchy={"children": list(children or [])},
     )
@@ -122,6 +123,19 @@ async def test_strategy_4_name_hint_db_lookup() -> None:
         db,
     )
     assert resolved == db_eid
+    # The lookup stays inside the parent's company (EP-01).
+    stmt = db.execute.call_args[0][0]
+    assert parent.company_id in stmt.compile().params.values()
+
+
+@pytest.mark.asyncio
+async def test_strategy_4_needs_the_parents_company() -> None:
+    db = AsyncMock()
+    parent = _parent()
+    parent.company_id = None
+    with pytest.raises(EntityNotFoundError):
+        await resolve_child_entity_id(_step(name="Anything", name_hint="My Other Agent"), parent, db)
+    db.execute.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

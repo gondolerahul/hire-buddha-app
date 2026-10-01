@@ -850,8 +850,8 @@ engine cares about is `DELETED`.
 |-------|-----------|
 | [service.py:55](../../backend/src/ai/service.py:55) / [:83](../../backend/src/ai/service.py:83) | Excluded from `get_entities` and `get_entity`. |
 | [arq_jobs.py:72](../../backend/src/ai/core/arq_jobs.py:72) | A queued run whose entity is DELETED is abandoned as a "ghost job" — returns cleanly so arq stops retrying. |
-| [step_executor.py:150](../../backend/src/ai/step_executor.py:150) | `create_child_run` refuses to spawn a child on a DELETED entity. |
-| [child_resolver.py:123](../../backend/src/ai/planning/child_resolver.py:123) | Name-based resolution skips DELETED. |
+| [step_executor.py:156](../../backend/src/ai/step_executor.py:156) | `create_child_run` refuses to spawn a child on a DELETED entity, or on one outside the parent's company. |
+| [child_resolver.py:116](../../backend/src/ai/planning/child_resolver.py:116) | Name-based resolution skips DELETED and stays in the parent's company. |
 
 `delete_entity` ([service.py:157](../../backend/src/ai/service.py:157)) is a
 **cascading soft delete**:
@@ -1531,15 +1531,16 @@ in order, emitting `agent.child_resolver.fallback` with the strategy index:
 | 1 | UUID passthrough | `step.target.entity_id` parses as a UUID |
 | 2 | Static-plan name match | a `CHILD_ENTITY_INVOCATION` step in the parent's `static_plan` whose `name` matches (exact, then substring) |
 | 3 | Hierarchy index match | the *N*th invocation step ↔ `hierarchy.children[N].child_id` |
-| 4 | `entity_name_hint` DB lookup | `SELECT … WHERE name = hint AND status != 'DELETED'` |
+| 4 | `entity_name_hint` DB lookup | `SELECT … WHERE name = hint AND company_id = <parent's company> AND status != 'DELETED'`; skipped when the parent has no company |
 
 A total miss raises `EntityNotFoundError`, which `create_child_run` converts to
 `AgentError("Child invocation missing entity_id for step …")`.
 
-> **Security note:** Strategy 4 does **not** filter by `company_id`
-> ([child_resolver.py:120-125](../../backend/src/ai/planning/child_resolver.py:120)).
-> A planner-emitted name that matches another tenant's entity would resolve
-> cross-tenant. Every other path is company-scoped.
+Whatever strategy resolved the id, `create_child_run` then loads the child
+**inside the parent entity's company** and refuses one that is missing, deleted
+or another tenant's (`EntityNotFoundError`, no child run row). Before EP-01 was
+fixed, Strategy 4 looked names up across every company and `create_child_run`
+accepted any UUID, so a plan naming another tenant's entity ran it.
 
 ### Recursion depth
 
@@ -2206,8 +2207,6 @@ sequenceDiagram
   `clone_template`, which walks all three.
 - **`parent_run_id` means two different things**: a structural child run, *or*
   the previous run in a retry/refine chain.
-- **Child-resolver Strategy 4 is not company-scoped** — a name-based lookup can
-  cross tenants.
 - **The Execution Detail page finds files by regex, not by `run_id`.** A tool
   that does not print its artifact URL into its output produces an invisible
   file. `pdf_generator` also leaves `run_id = NULL` and writes the file twice.

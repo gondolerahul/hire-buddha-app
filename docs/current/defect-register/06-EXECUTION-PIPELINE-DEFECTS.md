@@ -66,7 +66,11 @@ The three to read first:
 
 ### EP-01 — Child resolution Strategy 4 crosses tenant boundaries
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01)** — Strategy 4 looks the
+name up inside the parent's company only (and not at all for a parent with no
+company), and `create_child_run` loads the child inside the parent entity's company,
+so a UUID from a dynamic or stale plan cannot reach another tenant either
+(`tests/integration/test_child_tenancy.py`, `test_child_resolver.py`).
 
 `resolve_child_entity_id` tries four strategies in order. The fourth is a name lookup:
 

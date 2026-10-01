@@ -19,7 +19,8 @@ Strategies tried, in order:
      ``CHILD_ENTITY_INVOCATION`` steps in the static plan, then look
      up the matching entry in ``entity.hierarchy.children[]``.
   4. **Entity-name-hint DB lookup** — fall back to a DB query against
-     ``HierarchicalEntity.name`` using ``step.target.entity_name_hint``.
+     ``HierarchicalEntity.name`` using ``step.target.entity_name_hint``,
+     inside the parent's company only (EP-01).
 
 If none resolve, :class:`EntityNotFoundError` is raised. Each
 successful resolution emits an ``agent.child_resolver.fallback`` event
@@ -111,15 +112,18 @@ async def resolve_child_entity_id(
                                 strategy_used=3, step_name=step_name)
                     return child_eid
 
-    # Strategy 4 — entity_name_hint DB lookup.
+    # Strategy 4 — entity_name_hint DB lookup, inside the parent's company:
+    # a name another tenant happens to use must never resolve (EP-01).
     name_hint = _read_name_hint(step)
-    if name_hint and db is not None:
+    company_id = _company_id(parent_entity)
+    if name_hint and db is not None and company_id is not None:
         from sqlalchemy import select
         from src.ai.orm.entity import HierarchicalEntity
         try:
             row = (await db.execute(
                 select(HierarchicalEntity).where(
                     HierarchicalEntity.name == name_hint,
+                    HierarchicalEntity.company_id == company_id,
                     HierarchicalEntity.status != "DELETED",
                 )
             )).scalar_one_or_none()
@@ -144,6 +148,12 @@ def _step_name(step: Any) -> str:
     if isinstance(step, dict):
         return str(step.get("name", ""))
     return str(getattr(step, "name", "")) or ""
+
+
+def _company_id(parent_entity: Any) -> Optional[UUID]:
+    if isinstance(parent_entity, dict):
+        return _coerce_uuid(parent_entity.get("company_id"))
+    return _coerce_uuid(getattr(parent_entity, "company_id", None))
 
 
 def _read_target_entity_id(step: Any) -> Optional[Union[str, UUID]]:
