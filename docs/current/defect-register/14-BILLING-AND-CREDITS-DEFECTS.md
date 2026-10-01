@@ -41,12 +41,12 @@
 |---|---|---|---|---|
 | [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 8 | 8 | 0 |
 | [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 8 | 8 | 0 |
-| [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | 5 | 0 |
+| [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 6 | 6 | 0 |
 | [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 9 | 8 | 1 |
 
-**Total: 30 defects (29 fixed, 1 won't fix), 10 improvements (8 done, 1 done for tools, 1 partly
+**Total: 31 defects (30 fixed, 1 won't fix), 10 improvements(8 done, 1 done for tools, 1 partly
 done).** Worked 2026-09-30 on branch `roadmap-development-defect-fixes`; three defects were
-found on the way and added (BC-27, BC-28, BC-29), and BC-30 on 2026-10-01.
+found on the way and added (BC-27, BC-28, BC-29), and BC-30 and BC-31 on 2026-10-01.
 
 | ID | Defect | Status |
 |---|---|---|
@@ -80,6 +80,7 @@ found on the way and added (BC-27, BC-28, BC-29), and BC-30 on 2026-10-01.
 | BC-28 | Subscribing always fails with 422 *(new)* | ✅ fixed `fe8f1a6` |
 | BC-29 | Any custom-API registry row prices every tool *(new)* | ✅ fixed `d71918d` |
 | BC-30 | Every subscription tier shows as "Archived" *(new)* | ✅ fixed `8bfa93b` |
+| BC-31 | One company's failure ends the daily credit job *(new)* | ✅ fixed |
 
 | ID | Improvement | Status |
 |---|---|---|
@@ -651,7 +652,8 @@ So one pricing override does nothing, and the other silently deletes a real cost
 | **BC-15** | The daily and monthly cron jobs | Endpoints only; nothing schedules them. See [BC-04](#bc-04--the-billing-crons-are-never-scheduled) | ✅ fixed (2026-09-30, `e46bff3`) with BC-04 — Arq crons at 00:00 and 01:30 UTC |
 | **BC-16** | `razorpay_subscription_id` | Declared on the model, **never populated**, so the monthly job's charge branch is always skipped | ✅ fixed (2026-09-30, `fe8f1a6`) with BC-03 — set when the Razorpay subscription is created; every charge and status change is matched on it |
 | **BC-17** | `tools.cost_resolver_v2_enabled` | Declared with default `True`, **never read**. Adding a flag is not the same as wiring a control | ✅ fixed (2026-09-30, `d71918d`) with BC-11 — the flag is deleted; the resolver is used unconditionally |
-| **BC-18** | Abandoned checkouts and orphaned subscriptions | A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | ✅ fixed (2026-09-30, `e46bff3`) — the daily job marks a top-up order still `pending` after 24 h `expired` and a subscription still `pending_payment` `failed` (cancelling its Razorpay subscription); a payment that arrives later for an expired order is still credited. A failed top-up payment is recorded by the webhook (BC-I5). `test_billing_crons.py` |
+| **BC-31** | One company's failure ends the daily credit job | Found 2026-10-01 by the end-to-end session. After a company failed, the handler rolled back, which expires every loaded `Company`; the next `company.id` — in the next renewal, and in the handler's own log line — was a lazy load the async session refuses (`MissingGreenlet`), so one bad company (for example one deleted mid-run by another session's cleanup) made the whole job a 500. That is also why `test_billing_crons` failed now and then on the shared database | ✅ fixed (2026-10-01) — the job reads the active companies' ids up front (`_active_company_ids`), so a rollback undoes only the failing company's renewal and the loop goes on. `test_billing_crons.py::test_one_company_failing_does_not_stop_the_daily_job` fails on the old code with exactly that `MissingGreenlet`; live, `POST /cron/daily-credits` processed 228 companies with no errors |
+| **BC-18** | Abandoned checkouts and orphaned subscriptions |A `pending` `payment_transactions` row stays forever; a `pending_payment` subscription with no matching payment stays forever. Nothing reaps either, and a failed payment is never recorded | ✅ fixed (2026-09-30, `e46bff3`) — the daily job marks a top-up order still `pending` after 24 h `expired` and a subscription still `pending_payment` `failed` (cancelling its Razorpay subscription); a payment that arrives later for an expired order is still credited. A failed top-up payment is recorded by the webhook (BC-I5). `test_billing_crons.py` |
 
 ---
 

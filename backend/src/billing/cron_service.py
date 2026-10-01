@@ -37,12 +37,17 @@ class CronService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _get_all_companies(self) -> list:
-        """Return all active companies."""
+    async def _active_company_ids(self) -> list[UUID]:
+        """The ids of all active companies.
+
+        Ids, not ORM objects: a failed company's rollback expires every loaded
+        instance, and reading an expired one's ``id`` is a lazy load that an
+        async session refuses (MissingGreenlet), which ended the job (BC-31).
+        """
         result = await self.db.execute(
-            select(Company).where(Company.status == "active")
+            select(Company.id).where(Company.status == "active")
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def run_daily_credit_job(self) -> dict:
         """
@@ -54,17 +59,19 @@ class CronService:
         wallet to a full day's credits on each run).
         """
         logger.info("Starting daily credit renewal job")
-        companies = await self._get_all_companies()
+        company_ids = await self._active_company_ids()
         credit_svc = CreditService(self.db)
         processed = 0
         errors = 0
 
-        for company in companies:
+        for company_id in company_ids:
             try:
-                await credit_svc.renew_expired_credits(company.id)
+                await credit_svc.renew_expired_credits(company_id)
                 processed += 1
             except Exception as e:
-                logger.error(f"Daily credit job failed for company {company.id}: {e}")
+                # One company's failure (say, it was deleted mid-run) undoes only
+                # its own renewal; each earlier one is already committed.
+                logger.error(f"Daily credit job failed for company {company_id}: {e}")
                 await self.db.rollback()
                 errors += 1
 

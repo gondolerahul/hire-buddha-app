@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select, text
 
 from src.billing.billing_models import CreditWallet, PaymentTransaction, Subscription
@@ -99,3 +100,47 @@ async def test_a_payment_that_arrives_for_an_expired_order_is_still_credited(db)
     await CronService(db).reap_abandoned_checkouts()
     _, wallet, credited = await PaymentService(db).credit_topup(order_id=order_id, payment_id="pay_late")
     assert credited and Decimal(str(wallet.wallet_balance)) == Decimal("5")
+
+
+@pytest_asyncio.fixture
+async def savepoint_db(_engine):
+    """A session whose commit and rollback act on a SAVEPOINT, so the job's own
+    rollback undoes only its current company, as it does in production."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+    async with _engine.connect() as conn:
+        trans = await conn.begin()
+        session = AsyncSession(bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint")
+        try:
+            yield session
+        finally:
+            await session.close()
+            await trans.rollback()
+
+
+@pytest.mark.asyncio
+async def test_one_company_failing_does_not_stop_the_daily_job(savepoint_db, monkeypatch):
+    """BC-31: the error handler's rollback expired every loaded company, so the
+    next ``company.id`` raised MissingGreenlet and the whole job failed."""
+    from src.billing.credit_service import CreditService
+    db = savepoint_db
+    ours = await _company(db)
+    db.add(CreditWallet(company_id=ours, daily_credits=Decimal("0.10"),
+                        daily_expires_at=datetime.utcnow() - timedelta(minutes=1)))
+    await db.commit()
+
+    renew = CreditService.renew_expired_credits
+    failed: list = []
+
+    async def renew_or_fail(self, company_id):
+        if not failed and company_id != ours:
+            failed.append(company_id)
+            raise RuntimeError("wallet unavailable")
+        return await renew(self, company_id)
+
+    monkeypatch.setattr(CreditService, "renew_expired_credits", renew_or_fail)
+    result = await CronService(db).run_daily_credit_job()
+
+    assert failed and result["errors"] == 1 and result["processed"] >= 1
+    w = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == ours)
+                          .execution_options(populate_existing=True))).scalar_one()
+    assert w.daily_expires_at > datetime.utcnow()
