@@ -381,7 +381,8 @@ does not appear on the canvas.
 
 ### FE-09 — Timestamps are wrong unless routed through a helper
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the lint gate now refuses a
+`new Date(value)` or `Date.parse` outside `utils/datetime.ts`.
 
 The backend emits **naive UTC** ISO strings. `new Date(s)` parses them as browser-local, so
 every timestamp is off by the viewer's UTC offset.
@@ -392,6 +393,22 @@ hardest kind of bug to spot in a dashboard.
 
 The root cause is upstream: all `DateTime` columns are naive
 ([DM-12](03-DATA-MODEL-DEFECTS.md#4-t2--wrong-types-and-dead-tables)).
+
+**Done (2026-10-01).** Every timestamp the pages render already went through
+`parseServerDate` — a sweep before this register; no `new Date(<value>)` was left. What was
+missing was the guard. `.eslintrc.cjs` (FE-02) has a `no-restricted-syntax` rule that fails
+`new Date(<anything>)` and `Date.parse(...)` outside `utils/datetime.ts`, naming the helper
+in its message; `new Date()` (now) is allowed. The helper itself was right: a string with an
+offset or `Z` keeps it, one without is UTC, with a space or microseconds too.
+
+DM-12 (2026-10-01) made the columns `timestamptz`, but the API still sends naive UTC
+(`created_at: "2026-10-01T09:28:49.244270"` from `/ai/executions`), so the helper stays
+needed. If the API starts sending offsets, nothing here changes.
+
+**Evidence:** in the browser (Asia/Calcutta), `parseServerDate` gave the same instant for
+`…T09:18:33`, `… 09:18:33`, `…T09:18:33.109953`, `…Z`, `…+00:00` and `…T14:48:33+05:30`;
+`new Date('2026-10-01T09:18:33')` gave 03:48:33Z — 5 h 30 m off. ESLint on a probe file
+reported `new Date(s)` and `Date.parse(s)` and passed `new Date()`; `npm run lint` passes.
 
 ---
 

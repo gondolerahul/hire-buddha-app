@@ -2385,7 +2385,8 @@ Concretely:
   `<audio>`/`<a>`/`<img>` URLs with `authedApiUrl` (FE-07).
 - **Timestamps must go through `parseServerDate`.** The backend emits naive UTC
   ISO strings; `new Date(s)` parses them as browser-local and is wrong by your
-  UTC offset. Import from `@/utils/datetime`.
+  UTC offset. Import from `@/utils/datetime`. `npm run lint` refuses
+  `new Date(<value>)` and `Date.parse` anywhere else (FE-09).
 - **`<Navigate to="/…/:id">` does not interpolate the parameter.** Use
   `ParamRedirect` in `router/index.tsx` (FE-05).
 - **The sidebar and the router are separate lists.** Adding a route does not add
