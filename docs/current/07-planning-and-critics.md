@@ -807,7 +807,7 @@ flowchart LR
 | # | Name | What it checks | Consequence of violating |
 |---|------|----------------|--------------------------|
 | 1 | `no_cycle_in_child_invocations` | No `CHILD_ENTITY_INVOCATION` step targets the parent entity's own id. Passes trivially when `entity.id` is unknown. | Candidate dropped. Without it a parent would spawn itself forever. |
-| 2 | `all_required_tools_in_capabilities` | Every `TOOL_CALL` step's `target.tool_id` appears in `entity.capabilities["tools"]`. | Candidate dropped. Prevents planning a tool the entity is not allowed to use. **See the bug note below.** |
+| 2 | `all_required_tools_in_capabilities` | Every `TOOL_CALL` step's `target.tool_id` appears in `entity.capabilities["tools"]`. | Candidate dropped. Prevents planning a tool the entity is not allowed to use. Declared ids come from `declared_tool_ids`, which reads `{"tool_id": …}` dicts and bare ids (PC-19). |
 | 3 | `no_dangling_variable_refs` | Every `{{var}}` and `{var}` in a `prompt_template` resolves to a whitelisted name or an *earlier* step's id. Whitelist: `input, goal, context, __memory__, __intelligence_rules__, __episodic_memory__, step_id, iteration, user_id`. | Candidate dropped. Catches `{{step_7}}` in step 2. |
 | 4 | `no_dangling_step_dependencies` | Every `target.input_dependencies` entry matches a step's `step_id`, `id` or `name` anywhere in the plan. | Candidate dropped. Note this one is **order-insensitive**, unlike #3. |
 | 5 | `cost_estimate_within_budget` | `estimate_plan_cost(plan)` ≤ cap. Cap resolution: `budget.usd_max` first, then `entity.governance["max_cost_usd"]`. A `None` or non-positive cap passes automatically. | Candidate dropped. An estimator exception also fails the invariant. |
@@ -849,17 +849,13 @@ stateDiagram-v2
 cheapest invariant-violating candidate is executed, and its violations are
 recorded on `cand.invariant_violations`.
 
-> **Bug worth knowing about (invariant #2).** Entity capabilities are stored as
-> a list of `ToolReference` objects — `[{"tool_id": "web_search"}]` — but the
-> invariant does `declared = {str(t) for t in (caps.get("tools") or [])}`, which
-> stringifies each dict to `"{'tool_id': 'web_search'}"`. A `TOOL_CALL` step with
-> `target.tool_id == "web_search"` therefore never matches, and the invariant
-> fails for every real tool-bearing entity. The unit test at
-> [test_plan_invariants.py:63](../../backend/tests/unit/test_plan_invariants.py:63)
-> passes plain strings (`tools=["web_search"]`), so it does not catch this.
-> Practical effect: candidates with `TOOL_CALL` steps are dropped more often
-> than intended, and the planner leans on the repair/cheapest fallbacks.
-> `ai/meta/board/validator.py:111` has the same expression.
+> **Invariant #2 reads tool dicts** (PC-19). Entity capabilities are stored as
+> `ToolReference` dicts — `[{"tool_id": "web_search"}]`. The invariant used to
+> compare `str(dict)` with the step's tool id, so it failed for every real
+> tool-bearing entity and the planner fell back to repair or the cheapest
+> candidate. `declared_tool_ids` (in `plan_invariants.py`) normalises dicts and
+> bare ids; the Meta board validator's `_all_tools_listed`, which had the same
+> expression, uses it too.
 
 ---
 
@@ -2098,7 +2094,7 @@ them.
 | `planning.dynamic_planning.reconciliation_strategy` | `"HYBRID"` | yes | **Not read.** |
 | `planning.static_plan.enabled` | `True` | yes | Combined with `dynamic_planning.enabled` to gate `_handle_replan`. |
 | `planning.static_plan.fallback_behavior` | `"ADAPTIVE"` | yes | `ADAPTIVE` / `STRICT` / `DYNAMIC_ONLY` — see §4.1. |
-| `capabilities.tools` | `[]` | yes | Feeds the `all_required_tools_in_capabilities` invariant (see the bug note in §6.1). |
+| `capabilities.tools` | `[]` | yes | Feeds the `all_required_tools_in_capabilities` invariant (§6.1). |
 
 ### 18.4 Hard-coded constants
 
@@ -2201,8 +2197,6 @@ them.
 * **The post critic never sees intelligence rules.** `intelligence_reader` is
   hard-coded to `None` in `_build_real_critic_pipeline`, so `intel_rules`
   is always `"(none)"`.
-* **`all_required_tools_in_capabilities` stringifies tool dicts** and therefore
-  fails for real tool-bearing entities (§6.1).
 * **`PlanGenerator` never emits its telemetry.** It is always constructed
   without `emit_event`, so no `agent.plan.*` event ever fires.
 * **`PlanGenerator.replan` has no caller.** Re-planning goes through

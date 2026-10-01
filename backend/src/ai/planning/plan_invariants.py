@@ -99,11 +99,24 @@ def no_cycle_in_child_invocations(plan: list[dict[str, Any]], entity: Any) -> In
     )
 
 
+def declared_tool_ids(capabilities: Any) -> set[str]:
+    """The tool ids an entity declares. ``capabilities.tools`` holds
+    ``{"tool_id": …}`` dicts (or bare ids); comparing ``str(dict)`` with a tool
+    id failed every tool-bearing entity (PC-19)."""
+    tools = (capabilities or {}).get("tools") or [] if isinstance(capabilities, dict) else []
+    ids = {
+        str(t.get("tool_id") or t.get("id") or t.get("name") or "") if isinstance(t, dict) else str(t)
+        for t in tools
+    }
+    ids.discard("")
+    return ids
+
+
 def all_required_tools_in_capabilities(plan: list[dict[str, Any]], entity: Any) -> Invariant:
     caps = getattr(entity, "capabilities", None) or {}
     if isinstance(entity, dict):
         caps = entity.get("capabilities") or {}
-    declared = {str(t) for t in (caps.get("tools") or [])}
+    declared = declared_tool_ids(caps)
     missing: list[str] = []
     for s in plan:
         if str(s.get("type", "")).upper() != "TOOL_CALL":

@@ -336,7 +336,10 @@ run with missing input.
 
 ### PC-19 — One plan invariant fails for every tool-bearing entity
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-01)** — `declared_tool_ids`
+normalises `{"tool_id": …}` dicts and bare ids; the invariant and the Meta board
+validator's `_all_tools_listed` (same bug) both use it. Test:
+`tests/unit/test_plan_invariants.py`.
 
 `all_required_tools_in_capabilities` stringifies tool dicts before comparing them. For a
 real entity — whose `capabilities.tools` is a list of `{"tool_id": ...}` dicts, not

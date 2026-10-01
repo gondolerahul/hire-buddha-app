@@ -110,7 +110,8 @@ class ValidatorRole:
     @staticmethod
     def _all_tools_listed(spec: dict[str, Any]) -> CheckResult:
         caps = spec.get("capabilities") or {}
-        listed = {str(t) for t in (caps.get("tools") or [])}
+        from src.ai.planning.plan_invariants import declared_tool_ids
+        listed = declared_tool_ids(caps)
         plan = spec.get("planning") or {}
         steps = (plan.get("static_plan") or {}).get("steps") or plan.get("steps") or []
         missing: list[str] = []

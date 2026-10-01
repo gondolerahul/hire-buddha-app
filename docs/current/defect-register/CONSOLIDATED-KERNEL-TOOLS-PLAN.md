@@ -832,4 +832,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P2.3, P2.2b | LP-03 (LP-I1), LP-04 | `5e38ec3` | `test_llm_retry.py` (collection fails on the old code: no `retry` module). Retry is per provider call, not per ReAct loop, so a turn's tools never re-run; SDK retries off |
 | P2.5 | EP-25 | `a67d11f` | `test_step_prompt.py` (collection fails on the old code: the prompt assembly is now `compose_step_prompt`; the old constants lack `__agent_state__`) |
 | P2.6 | PC-25 | `cce42ea` | `test_plan_request.py` (collection fails on the old code: no `run_request`) |
-| P2.7 | PC-18 (PC-I5) | (this commit) | `test_step_ids.py`: both fail on the old code — the dependent step never becomes ready |
+| P2.7 | PC-18 (PC-I5) | `94dcdb7` | `test_step_ids.py`: both fail on the old code — the dependent step never becomes ready |
+| P2.8 | PC-19 | (this commit) | `test_plan_invariants.py`: the two dict-shaped cases fail on the old code; the Meta board validator had the same compare |

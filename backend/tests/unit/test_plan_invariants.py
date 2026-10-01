@@ -66,6 +66,15 @@ def test_tool_declared_passes() -> None:
     assert all_required_tools_in_capabilities(plan, _entity(tools=["web_search"])).passed
 
 
+def test_tool_declared_as_a_dict_passes() -> None:
+    """PC-19: a real entity declares ``{"tool_id": …}`` dicts, not strings."""
+    plan = [{"type": "TOOL_CALL", "name": "s1", "target": {"tool_id": "web_search"}}]
+    entity = _entity(tools=[{"tool_id": "web_search", "rate_limit_per_run": 5}])
+    assert all_required_tools_in_capabilities(plan, entity).passed
+    ghost = [{"type": "TOOL_CALL", "name": "s1", "target": {"tool_id": "ghost_tool"}}]
+    assert not all_required_tools_in_capabilities(ghost, entity).passed
+
+
 # ---------------------------------------------------------------------------
 # 3. Dangling variable refs
 # ---------------------------------------------------------------------------
@@ -299,3 +308,14 @@ def test_validate_plan_rejects_invented_child():
     invs = validate_plan([_child_step("child_1234")], _entity(), None, known_child_ids={"abc"})
     failed = {i.name for i in invs if not i.passed}
     assert "child_invocations_target_known_children" in failed
+
+
+def test_the_meta_board_validator_reads_tool_dicts_too() -> None:
+    """PC-19: the Meta board's validator had the same ``str(dict)`` compare."""
+    from src.ai.meta.board.validator import ValidatorRole
+
+    spec = {"capabilities": {"tools": [{"tool_id": "web_search"}]},
+            "planning": {"static_plan": {"steps": [
+                {"type": "TOOL_CALL", "name": "s1", "target": {"tool_id": "web_search"}}]}}}
+    assert ValidatorRole._all_tools_listed(spec).passed
+
