@@ -73,17 +73,43 @@ async def test_child_entity_invocation_takes_precedence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_without_plan_chooses_recursive() -> None:
-    s = _state(entity_type=EntityType.AGENT)
+@pytest.mark.parametrize("entity_type", list(EntityType))
+async def test_a_planless_entity_at_any_level_is_planned(entity_type) -> None:
+    """R1: no plan → Recursive (plan the goal) at every level, not only AGENT."""
+    s = _state(entity_type=entity_type)
     move = await Strategist().next_move(s, perception=None)
     assert move.executor == "Recursive"
 
 
+def _failed(s: AgentState, executor: str, summary: str = "[fail] No plan could be made") -> AgentState:
+    from src.ai.core.agent_state import Observation
+
+    s.chosen_executor = executor
+    s.last_observation = Observation(iteration=1, outcome="fail", novelty_score=0.5,
+                                     goal_delta_estimate=-0.1, summary=summary)
+    return s
+
+
+def test_a_failed_planning_move_aborts_with_its_reason() -> None:
+    s = _failed(_state(entity_type=EntityType.LOOP), "Recursive")
+    decision = Strategist().decide_next(s)
+    assert decision.next == "ABORT"
+    assert "No plan could be made" in decision.reason
+    s.apply_decision(decision)
+    assert s.done and s.abort_reason == decision.reason
+
+
+def test_a_failed_step_with_a_plan_does_not_abort() -> None:
+    s = _failed(_state(plan_steps=[{"step_id": "s1", "type": "ACTION"}]), "SingleStep")
+    assert Strategist().decide_next(s).next == "CONTINUE"
+
+
 @pytest.mark.asyncio
-async def test_default_fallback_is_singlestep() -> None:
-    s = _state(entity_type=EntityType.SKILL)
+async def test_a_plan_with_nothing_unblocked_progresses_sequentially() -> None:
+    s = _state(plan_steps=[{"step_id": "s2", "type": "ACTION", "depends_on": ["s9"]}])
+    s.plan_has_unblocked_steps = lambda: False          # type: ignore[method-assign]
     move = await Strategist().next_move(s, perception=None)
-    assert move.executor == "SingleStep"
+    assert move.executor == "SingleStep" and move.plan_fragment is None
 
 
 # ---------------------------------------------------------------------------

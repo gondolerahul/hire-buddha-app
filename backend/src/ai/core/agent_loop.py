@@ -216,6 +216,8 @@ class AgentLoop:
                 outcome_status = self._final_status(state)
                 last_output = self._final_output(state)
                 total_cost = float(state.budget.usd_used)
+                if outcome_status == RunStatus.FAILED.value and state.abort_reason:
+                    last_error = state.abort_reason
         except CreditExhaustedError as exc:
             # Out of credit mid-run: stop, keep and bill the work done (BC-05).
             outcome_status = RunStatus.PARTIAL_COMPLETE.value
@@ -943,31 +945,23 @@ class AgentLoop:
             return default
 
     async def _ensure_plan(self, state: AgentState) -> None:
-        """Reconcile a plan once when the loop has none.
+        """Reconcile a plan once when the loop has none — every level (R1).
 
-        ``_extract_plan_steps`` only finds steps for entities with a
-        pre-existing ``run.dynamic_plan`` or a ``static_plan``; an entity
-        configured for *dynamic* planning enters the loop with
-        ``state.plan_steps == []``. Reconciling here populates
+        ``_extract_plan_steps`` only finds steps in a pre-existing
+        ``run.dynamic_plan`` or a ``static_plan``. ``PlannerService.reconcile``
+        resolves the rest the same way at every level: a dynamic plan,
+        delegation to children, or one default step. Reconciling here populates
         ``state.plan_steps`` (and persists ``run.dynamic_plan``) so the
         Strategist's plan-driven branch dispatches one ready step per iteration
         — CHILD_ENTITY_INVOCATION steps via ChildEntity, others via SingleStep.
 
-        Best-effort: any failure leaves the loop on its existing (empty) plan;
-        a recursive AGENT still expands its goal, and other entities wind down
-        via the no-op + iteration cap.
+        Best-effort: on a failure the plan stays empty and the Strategist sends
+        the run to the Recursive executor, which plans again or fails the run.
         """
         if state.plan_steps:
             return
         entity = self._entity
         if entity is None:
-            return
-        planning = (getattr(entity, "planning", None) or {})
-        static_on = bool((planning.get("static_plan") or {}).get("enabled"))
-        dynamic_on = bool((planning.get("dynamic_planning") or {}).get("enabled"))
-        # No planning configured at all → leave plan empty (e.g. a goal-only
-        # AGENT routed to recursive expansion).
-        if not static_on and not dynamic_on:
             return
         try:
             from src.ai.planning.planner_service import PlannerService

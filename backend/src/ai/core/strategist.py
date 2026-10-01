@@ -27,7 +27,6 @@ from src.ai.core.agent_state import (
     ExecutorName,
     SupervisorVerdict,
 )
-from src.ai.schemas.enums import EntityType
 
 __all__ = ["Move", "Decision", "Strategist", "MAX_CORRECTIVE_RETRIES_PER_RUN"]
 
@@ -140,13 +139,15 @@ class Strategist:
                 reasoning_hint=self._step_reasoning_hint(ready[0]),
             )
 
-        # Case B: goal-only AGENT with no plan → recursive expansion.
-        if state.entity_type == EntityType.AGENT and not state.has_plan():
+        # Case B: no plan, at any level → plan the goal (Recursive). The loop
+        # reconciles a plan before the first iteration, so this is reached only
+        # when that failed (R1, EP-26).
+        if not state.has_plan():
             await self._record_arm(state, "RECURSIVE")
             return self._move(
                 state, executor="Recursive",
                 plan_fragment=None,
-                rationale="AGENT without plan; recursive goal expansion",
+                rationale="no plan; plan the goal",
             )
 
         # Case C: PROCESS with no ready steps but blocked steps remain.
@@ -243,6 +244,17 @@ class Strategist:
         # best-effort output rather than burning the budget and FAILING.
         if state.retry_queue and state.corrective_retries_used <= MAX_CORRECTIVE_RETRIES_PER_RUN:
             return Decision(next="CONTINUE", reason="pending corrective retry queued")
+
+        # The Recursive executor is the last planner: when it found no plan
+        # there is nothing left to run, and the run fails with its reason
+        # rather than idling to the iteration cap (EP-26).
+        if (
+            not state.has_plan()
+            and state.chosen_executor == "Recursive"
+            and state.last_observation is not None
+            and state.last_observation.outcome == "fail"
+        ):
+            return Decision(next="ABORT", reason=state.last_observation.summary or "no plan")
 
         if state.all_subgoals_achieved() and not state.has_plan():
             return Decision(next="DONE", reason="all subgoals achieved; no plan remaining")

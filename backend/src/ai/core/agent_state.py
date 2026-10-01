@@ -223,6 +223,9 @@ class AgentState:
     # Loop-level termination
     done: bool = False
     next_decision: Literal["CONTINUE", "DONE", "PAUSE_HITL", "ABORT"] = "CONTINUE"
+    # Why the Strategist aborted the run; the loop writes it to the run's
+    # error_message. Transient — not snapshotted (an aborted run never resumes).
+    abort_reason: str = field(default="", repr=False, compare=False)
 
     # Count of *consecutive* iterations whose chosen move was rejected by the
     # pre-critic (``PreCriticVerdict.kind == "BLOCK"``). Reset to 0 the moment a
@@ -339,6 +342,8 @@ class AgentState:
         self.next_decision = decision.next
         if decision.next in ("DONE", "ABORT"):
             self.done = True
+        if decision.next == "ABORT" and decision.reason:
+            self.abort_reason = decision.reason
 
     # ------------------------------------------------------------------
     # Legacy context bridge

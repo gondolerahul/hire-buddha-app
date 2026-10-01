@@ -402,10 +402,16 @@ async def test_pre_critic_skipped_for_plan_driven_moves(swap_single_step):
 
 
 @pytest.mark.asyncio
-async def test_pre_critic_still_runs_for_open_ended_moves(swap_single_step):
+async def test_pre_critic_still_runs_for_open_ended_moves(swap_single_step, monkeypatch):
     """A move with NO plan_fragment (open-ended) still goes through the
     pre-critic — that's where a BLOCK is actionable."""
-    # No-plan SKILL → Strategist default → SingleStep with no plan_fragment.
+    # Planning fails before the first iteration → the Strategist's open-ended
+    # Recursive move (plan the goal), which the pre-critic sees.
+    async def _no_plan(self, _run, _entity, _input):  # noqa: ANN001, ARG001
+        raise RuntimeError("planner down")
+
+    from src.ai.planning.planner_service import PlannerService
+    monkeypatch.setattr(PlannerService, "reconcile", _no_plan)
     entity = SimpleNamespace(
         id=uuid4(), company_id=uuid4(), name="noplan", type="SKILL",
         goal="g", description="d", identity=None, hierarchy=None,

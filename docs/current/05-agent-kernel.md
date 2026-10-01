@@ -876,7 +876,7 @@ flowchart TD
     BAN -- DAG_SEQUENTIAL --> M3["executor = SingleStep, fragment = ready[0:1]"]
     BAN -- DAG_PARALLEL --> M4["executor = DAG, fragment = all ready"]
     A3 -- no --> M5["executor = SingleStep, fragment = ready[0:1], arm = DAG_SEQUENTIAL"]
-    A -- no --> B{"entity_type == AGENT and no plan?"}
+    A -- no --> B{"no plan? - any level"}
     B -- yes --> M6["executor = Recursive, fragment = None, arm = RECURSIVE"]
     B -- no --> C{"has_plan but no ready steps?"}
     C -- yes --> M7["executor = SingleStep, fragment = None, arm = DAG_SEQUENTIAL"]
@@ -890,7 +890,7 @@ flowchart TD
 | A3-par | `len(ready) >= 2`, bandit picks parallel | `DAG` | all ready | `DAG_PARALLEL` |
 | A3-seq | `len(ready) >= 2`, bandit picks sequential | `SingleStep` | `ready[:1]` | `DAG_SEQUENTIAL` |
 | A4 | exactly one ready step | `SingleStep` | `ready[:1]` | `DAG_SEQUENTIAL` |
-| B | `EntityType.AGENT` and no plan | `Recursive` | `None` | `RECURSIVE` |
+| B | no plan, at any level (R1) — reached only when the up-front `_ensure_plan` failed | `Recursive` | `None` | `RECURSIVE` |
 | C | plan exists but nothing unblocked | `SingleStep` | `None` | `DAG_SEQUENTIAL` |
 | D | fallback | `SingleStep` | `None` | `SINGLE_TOOL` |
 
@@ -961,7 +961,9 @@ flowchart TD
     SV -- REPLAN --> REP["replace open_subgoals, CONTINUE with replan_requested"]
     SV -- CONTINUE or none --> RQ{"retry_queue non-empty and corrective_retries_used <= 2?"}
     RQ -- yes --> CONT1["CONTINUE - pending corrective retry"]
-    RQ -- no --> SGD{"all subgoals achieved and no plan?"}
+    RQ -- no --> NP{"no plan and the Recursive move failed?"}
+    NP -- yes --> ABORT3["ABORT - its reason, e.g. No plan could be made"]
+    NP -- no --> SGD{"all subgoals achieved and no plan?"}
     SGD -- yes --> DONE1["DONE"]
     SGD -- no --> PLD{"has_plan and no ready steps and plan fully complete?"}
     PLD -- yes --> DONE2["DONE - all plan steps completed"]
@@ -1065,7 +1067,7 @@ skill-specific executor to build.
 |------|-------|------|--------------|--------|
 | `SingleStep` | `SingleStepExecutor` | [single_step.py](../../backend/src/ai/core/executors/single_step.py) | Runs each step of `plan_fragment` sequentially through `StepEngine._execute_step_wrapper`, **on its own `AsyncSessionLocal`**. No fragment → zero-cost no-op. | implemented |
 | `DAG` | `DAGExecutor` | [dag.py](../../backend/src/ai/core/executors/dag.py) | Hands the whole fragment to `StepEngine._execute_steps_dag`, which builds a dependency graph and parallelises independent steps. | implemented |
-| `Recursive` | `RecursiveExecutor` | [recursive.py](../../backend/src/ai/core/executors/recursive.py) | For a goal-only AGENT: calls `PlannerService.reconcile` to turn the goal into a plan, writes `run.dynamic_plan`, and lets the next iteration dispatch it. If no plan results, achieves all subgoals and stamps `result_data = {"output": "Success", "steps": []}`. | implemented |
+| `Recursive` | `RecursiveExecutor` | [recursive.py](../../backend/src/ai/core/executors/recursive.py) | For an entity of any level that reached an iteration without a plan (the up-front `_ensure_plan` failed): calls `PlannerService.reconcile`, writes `run.dynamic_plan`, and lets the next iteration dispatch it. If no plan results it **fails with the reason**; `decide_next` then ends the run `FAILED` (it used to stamp `"Success"` and complete — EP-26). | implemented |
 | `ChildEntity` | `ChildEntityExecutor` | [child_entity.py](../../backend/src/ai/core/executors/child_entity.py) | Creates a child `ExecutionRun`, enqueues `run_execution_recursive` for it, returns `awaiting_children` so the parent suspends. | implemented |
 | `Debate` | `DebateExecutor` | [debate.py](../../backend/src/ai/core/executors/debate.py) | Generates N persona/temperature-varied candidate answers in parallel, an independent LLM judge picks the winner, writes a `debate` subtree to CORTEX. Defaults: 3 candidates, min 2, max 5. | implemented |
 
@@ -1375,6 +1377,7 @@ def _final_status(state: AgentState) -> str:
 | Hard iteration cap (`max_iterations`, default 50) | `_loop` top | `ABORT` | `FAILED` |
 | Pre-critic circuit breaker (3 consecutive `BLOCK`) | `_iteration` phase 3 | `ABORT` | `FAILED` |
 | Supervisor `ABORT` | `decide_next` | `ABORT` | `FAILED` |
+| No plan could be made (the Recursive executor failed) | `decide_next` | `ABORT` | `FAILED`, `error_message` = the reason |
 | Supervisor `PAUSE` | `decide_next` | `PAUSE_HITL` | `PAUSED` |
 | Operator cancel | `_check_cancelled` | `ABORT` | `external_status`, i.e. `CANCELLED` |
 | A child run failed | `resume` after `_fold_children` | `ABORT` | `FAILED` |
@@ -1879,7 +1882,7 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 | [core/executors/base.py](../../backend/src/ai/core/executors/base.py) | 91 | `ActionResult`, `Executor` protocol, the global registry. |
 | [core/executors/single_step.py](../../backend/src/ai/core/executors/single_step.py) | 210 | Sequential step dispatch on an isolated session. |
 | [core/executors/dag.py](../../backend/src/ai/core/executors/dag.py) | 122 | Parallel DAG dispatch. |
-| [core/executors/recursive.py](../../backend/src/ai/core/executors/recursive.py) | 95 | Goal → plan for goal-only AGENTs. |
+| [core/executors/recursive.py](../../backend/src/ai/core/executors/recursive.py) | 85 | Goal → plan for a run that still has none; fails honestly when nothing can be planned. |
 | [core/executors/child_entity.py](../../backend/src/ai/core/executors/child_entity.py) | 191 | Async child dispatch. |
 | [core/executors/debate.py](../../backend/src/ai/core/executors/debate.py) | 368 | N-candidate debate plus an LLM judge. |
 | [constants.py](../../backend/src/ai/constants.py) | 88 | `INTERNAL_CONTEXT_KEYS`, `MAX_REACT_TURNS`, context thresholds. |
@@ -1919,7 +1922,8 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
   SupervisorCritic renders blockers into its prompt, so it always sees none.
 - **The pre-critic almost never runs.** Any move with a `plan_fragment` gets a
   synthetic `PASS`. In practice that is every plan-driven iteration — so the
-  pre-critic only sees `Recursive` moves and no-fragment `SingleStep` moves.
+  pre-critic only sees `Recursive` moves (planning failed before the first
+  iteration) and no-fragment `SingleStep` moves.
 - **A pre-critic BLOCK still costs you an iteration.** `budget.consume(iter_step=True)`
   happens before the pre-critic, so three blocks burn three iterations *and*
   three critic LLM calls before the breaker trips.

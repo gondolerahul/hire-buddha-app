@@ -180,48 +180,43 @@ Only two production call sites reconcile a plan:
 
 | Caller | File | When |
 |--------|------|------|
-| `AgentLoop._ensure_plan` | [agent_loop.py:951](../../backend/src/ai/core/agent_loop.py:951) | once, at loop bootstrap, when `state.plan_steps` is empty and the entity has *some* planning config |
-| `RecursiveExecutor` | [executors/recursive.py:49](../../backend/src/ai/core/executors/recursive.py:49) | when a goal-only AGENT expands its goal into a sub-plan |
+| `AgentLoop._ensure_plan` | [agent_loop.py](../../backend/src/ai/core/agent_loop.py) | once, at loop bootstrap, whenever `state.plan_steps` is empty — at every level, with or without planning config (R1) |
+| `RecursiveExecutor` | [executors/recursive.py](../../backend/src/ai/core/executors/recursive.py) | when a run reaches an iteration with no plan (the up-front reconcile failed); fails the run with the reason if it finds none |
 
 Both call `PlannerService.reconcile(run, entity, input_data)`.
 
 ### 3.2 `PlannerService.reconcile`
 
-```python
-# backend/src/ai/planning/planner_service.py
-planning = entity.planning or {}
-static_plan = copy.deepcopy(planning.get("static_plan", {})) or {}
-if "steps" not in static_plan:
-    static_plan["steps"] = []
+One resolution for **every level** (R1, EP-26 — before it, only ACTION and
+SKILL got a default step, only an AGENT was planned from its goal, and a
+PROCESS, LOOP or GRAPH with no planning blocks idled to the iteration cap):
 
-# Fallback: If no steps and it is a leaf action/skill, add a default step
-if not static_plan["steps"] and entity.type in [EntityType.ACTION, EntityType.SKILL]:
-    static_plan["steps"] = [{
-        "step_id": "auto_generated", "order": 1, "name": "Execute", ...
-    }]
-
-dynamic_config = planning.get("dynamic_planning", {}) or {}
-if not dynamic_config.get("enabled"):
-    return await self._maybe_enforce_router(run, entity, input_data, static_plan)
-```
-
-So the decision tree is:
+1. the static plan, when it has steps;
+2. a dynamic plan, when `dynamic_planning.enabled` and `planner.v2_enabled` (the
+   static plan is its context; on failure or no result the static plan stands);
+3. delegation, when the entity has children and no tools of its own
+   (`_maybe_enforce_router`, §3.3);
+4. otherwise one default step — [`planning/default_step.py`](../../backend/src/ai/planning/default_step.py):
+   an `ACTION` step `auto_generated` / "Execute" whose description is the
+   entity's and whose template reads what the execute form asks for (the
+   `io_contract.input_schema` fields, else `{{input}}`). An ACTION step offers
+   the entity's own tools, so the same step serves a tool wrapper and a role.
 
 ```mermaid
 flowchart TD
     A["reconcile - entity, input_data"] --> B["deep-copy static_plan"]
-    B --> C{"static steps empty AND type is ACTION or SKILL?"}
-    C -->|yes| D["Inject one auto_generated Execute step"]
-    C -->|no| E
-    D --> E{"planning.dynamic_planning.enabled?"}
+    B --> E{"planning.dynamic_planning.enabled?"}
     E -->|no| ROUTER
     E -->|yes| F{"flag planner.v2_enabled?"}
     F -->|no| ROUTER
     F -->|yes| G["_generate_dynamic_plan_v2"]
     G -->|"returns None or raises"| ROUTER
     G -->|ok| H["_assign_step_ids from 1"]
-    H --> ROUTER["_maybe_enforce_router"]
-    ROUTER --> OUT[["plan dict with steps"]]
+    H --> ROUTER["_maybe_enforce_router - children and no tools"]
+    ROUTER --> EMPTY{"still no steps?"}
+    EMPTY -->|yes| D["one default step - default_step entity"]
+    EMPTY -->|no| OUT[["plan dict with steps"]]
+    D --> OUT
 ```
 
 Two notes a newcomer will trip on:
@@ -238,10 +233,13 @@ Two notes a newcomer will trip on:
 
 `_maybe_enforce_router`
 ([planner_service.py:305](../../backend/src/ai/planning/planner_service.py:305))
-runs on **every** plan, static or dynamic. It exists because the `PlanGenerator`
-prompt contains no routing directive, so a PROCESS with children can come back
-with flat `THOUGHT`/`ACTION` steps that print code as text and produce no
-artifact.
+runs on **every** plan, static or dynamic, at **every level**. The rule is the
+entity's tools, not its type: an entity with children and **no tools of its
+own** cannot do the work itself, so its plan must delegate. (Before R1, a
+PROCESS always delegated, an AGENT only without tools, and no other type ever.)
+It exists because the `PlanGenerator` prompt contains no routing directive, so
+such an entity can come back with flat `THOUGHT`/`ACTION` steps that print code
+as text and produce no artifact.
 
 ```mermaid
 sequenceDiagram
@@ -249,14 +247,13 @@ sequenceDiagram
     participant DB as Database
     participant LLM as LLMRouter
 
-    PS->>PS: entity.type in PROCESS, AGENT?
+    PS->>PS: capabilities.tools non-empty?
+    Note over PS: an entity with its own tools is left alone, at any level
     PS->>DB: load_entity_children
     DB-->>PS: child_entities
     alt no children
         PS-->>PS: return plan unchanged
     end
-    PS->>PS: has_tools = capabilities.tools non-empty
-    Note over PS: a tool-bearing AGENT is left alone
     PS->>PS: any step is CHILD_ENTITY_INVOCATION targeting a real child?
     alt yes
         PS-->>PS: return plan unchanged

@@ -1,14 +1,12 @@
 """
-RecursiveExecutor — goal→plan mapping for goal-only AGENTs (Track 2).
+RecursiveExecutor — plans an entity that entered the loop without a plan.
 
-The Strategist routes an AGENT that enters the loop with no plan here. Rather
-than hand the whole run to the legacy ``execute_run`` (the C4 deletion target),
-this maps the goal onto a plan via ``PlannerService.reconcile`` and lets the
-loop's plan-driven path (SingleStep / DAG, on the StepEngine surface) execute
-it on subsequent iterations. When the goal yields no resolvable plan, it
-completes cleanly with the legacy engine's sentinel output ("Success"), so a
-goal-only AGENT with nothing to dispatch winds the run down to COMPLETED
-exactly as ``execute_run`` did — without ever calling it.
+The loop reconciles a plan before its first iteration (``AgentLoop._ensure_plan``)
+at every level; the Strategist sends a run here only when it still has none
+(R1, EP-26). This maps the goal onto a plan via ``PlannerService.reconcile`` and
+hands it to the loop's plan-driven path (SingleStep / DAG / ChildEntity) for the
+next iterations. When no plan can be made it fails, with the reason, and the
+Strategist ends the run as FAILED — it never reports work it did not do.
 """
 from __future__ import annotations
 
@@ -45,6 +43,7 @@ class RecursiveExecutor:
         input_data = run.input_data if isinstance(run.input_data, dict) else {}
 
         steps: Any = None
+        plan_error = ""
         try:
             planner = PlannerService(db, company_id=cast(UUID, state.company_id))
             plan = await planner.reconcile(run, entity, input_data)
@@ -52,6 +51,7 @@ class RecursiveExecutor:
         except Exception as exc:                                           # noqa: BLE001
             logger.warning("Recursive goal planning failed: %s", exc)
             plan = None
+            plan_error = f"{type(exc).__name__}: {exc}"
 
         latency_ms = int((time.time() - start) * 1000)
 
@@ -66,21 +66,13 @@ class RecursiveExecutor:
                 await db.rollback()
             return ActionResult(success=True, latency_ms=latency_ms)
 
-        # No resolvable plan for this goal-only AGENT — complete cleanly,
-        # mirroring the legacy engine's empty-plan completion. The entity's goal
-        # seeds one open subgoal (agent_loop bootstrap); achieve it so the
-        # Strategist returns DONE (the legacy engine instead terminated the run
-        # out-of-band, which the loop honoured via _check_cancelled). Stamp the
-        # sentinel result_data the legacy engine wrote so _persist_final
-        # preserves it and the run output matches the golden.
-        for sg in list(state.open_subgoals):
-            state.achieve_subgoal(sg.id)
-        try:
-            run.result_data = {"output": "Success", "steps": []}
-            await db.commit()
-        except Exception:                                                  # pragma: no cover
-            await db.rollback()
-        return ActionResult(output="Success", success=True, latency_ms=latency_ms)
+        # Nothing could be planned: fail with the reason. The Strategist ends
+        # the run (decide_next) instead of idling to the iteration cap, and the
+        # run is FAILED — not COMPLETED with work it never did.
+        reason = "No plan could be made for this entity"
+        if plan_error:
+            reason += f": {plan_error}"
+        return ActionResult(success=False, error=reason, latency_ms=latency_ms)
 
     @staticmethod
     async def _reload_run(db: Any, run_id: Any) -> ExecutionRun:

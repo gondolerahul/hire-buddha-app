@@ -765,6 +765,18 @@ entity names a child three ways — a child row's `parent_id`,
 | `AIService.trigger_execution` | Dispatch — **400**, every level, the whole tree | The same, for every descendant, with each invocation step resolved the way the runtime resolves it (`resolve_child_entity_id`); a step that resolves to nothing |
 | `StepExecutorService.create_child_run` | Runtime — `CompositionError`, no child run | A child (e.g. from a dynamic plan) above its parent's level, or outside the parent's company (EP-01) |
 
+### One way to plan, at every level
+
+An entity with no plan is planned the same way whatever its level
+(`PlannerService.reconcile`, [07 §3.2](07-planning-and-critics.md#32-plannerservicereconcile)):
+its static plan; else a dynamic plan; else, when it has children and no tools
+of its own, delegation to them; else one default `ACTION` step whose
+description is the entity's. The loop reconciles before its first iteration for
+every level; a run that still has no plan goes to the `Recursive` executor,
+which plans again or **fails the run with the reason**. Before R1 (EP-26) a
+planless PROCESS, LOOP or GRAPH idled through no-op iterations to the cap, and a
+goal-only AGENT was `COMPLETED` with output "Success" having done nothing.
+
 ### Where behaviour still forks on the level
 
 Nothing about the type is polymorphic — the same `AgentLoop`, the same
@@ -775,9 +787,6 @@ is a handful of **explicit branches**, which R1 replaces with one rule each
 | Branch | ACTION | SKILL | AGENT | PROCESS |
 |--------|:------:|:-----:|:-----:|:-------:|
 | Virtual 1-step plan injected on GET (UI) — [service.py:123](../../backend/src/ai/service.py:123) | ✅ | ✅ | — | — |
-| Real `auto_generated` step injected when `static_plan.steps` is empty — [planner_service.py:53](../../backend/src/ai/planning/planner_service.py:53) | ✅ | ✅ | — | — |
-| Strategist picks `Recursive` when there is no plan — [strategist.py:145](../../backend/src/ai/core/strategist.py:145) | — | — | ✅ | — |
-| Router enforcement (force `CHILD_ENTITY_INVOCATION` steps) — [planner_service.py:330-351](../../backend/src/ai/planning/planner_service.py:330) | — | — | ✅ only if it binds no tools | ✅ always, if it has children |
 | `self_introspection` auto-on | — | ✅ | ✅ | ✅ |
 | `reflection` auto-on | — | — | ✅ | ✅ |
 | `can_have_children` in the platform manifest | ❌ | ❌ | ❌ | ✅ |

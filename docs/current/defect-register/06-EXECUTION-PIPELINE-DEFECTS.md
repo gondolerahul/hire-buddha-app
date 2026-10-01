@@ -166,10 +166,16 @@ class of wasted runs.
 
 ### EP-26 — Behaviour forks on entity type, so a planless entity spins or claims success
 
-**✅ Verified · High** · **Status: open** — found 2026-10-01 while consolidating registers
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — found while consolidating registers
 05–11 (see [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), R1).
+One resolution for every level: `_ensure_plan` always reconciles; `reconcile` gives
+static → dynamic → delegation (children and no tools) → one default step
+(`planning/default_step.py`); the Strategist sends any planless run to `Recursive`, which
+plans again or fails, and `decide_next` ends the run `FAILED` with the reason in
+`error_message`. The `research_agent_brief` parity golden, which had recorded the
+"Success"-with-no-work run, was re-recorded (1 step) (`test_uniform_execution.py`).
 
-How an entity with no plan is handled depends on its `type`, in four places that disagree:
+How an entity with no plan is handled depended on its `type`, in four places that disagree:
 
 - `AgentLoop._ensure_plan` reconciles a plan only when a `static_plan` or
   `dynamic_planning` block is enabled.

@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from typing import Any, List, Optional, cast
 
 from src.ai.models import ExecutionRun, HierarchicalEntity, LLMInteractionLog
-from src.ai.schemas import EntityType, PlanStep
+from src.ai.schemas import PlanStep
 from src.ai.llm.router import LLMRouter
 from src.ai.usage_service import UsageService
 
@@ -38,64 +38,49 @@ class PlannerService:
         entity: HierarchicalEntity,
         input_data: dict[str, Any],
     ) -> dict[str, Any]:
-        """Merges static and dynamic plans based on strategy.
+        """The plan a run follows — one resolution for every level (R1, EP-26).
 
-        Returns a plan dict with a ``steps`` key containing the final
-        ordered list of step dicts.
+        1. The static plan, when it has steps.
+        2. A dynamic plan, when ``dynamic_planning`` is enabled and the
+           ``planner.v2_enabled`` flag is on (the static plan is its context;
+           on failure or no result the static plan stands).
+        3. Delegation, when the entity has children and no tools of its own
+           (:meth:`_maybe_enforce_router`).
+        4. Otherwise one default step (``planning.default_step``).
+
+        Returns a plan dict whose ``steps`` key holds the ordered step dicts.
         """
+        from src.ai.planning.default_step import default_step
+
         planning = entity.planning or {}
         static_plan = copy.deepcopy(planning.get("static_plan", {})) or {}
-
         if "steps" not in static_plan:
             static_plan["steps"] = []
 
-        # Fallback: If no steps and it is a leaf action/skill, add a default step
-        if not static_plan["steps"] and entity.type in [EntityType.ACTION, EntityType.SKILL]:
-            static_plan["steps"] = [{
-                "step_id": "auto_generated",
-                "order": 1,
-                "name": "Execute",
-                "description": f"Executing {entity.name}",
-                "type": "ACTION",
-                "target": {
-                    "prompt_template": entity.description or "Process instruction: {{instruction}}"
-                },
-                "required": True
-            }]
-
+        plan = static_plan
         dynamic_config = planning.get("dynamic_planning", {}) or {}
-
-        if not dynamic_config.get("enabled"):
-            return await self._maybe_enforce_router(run, entity, input_data, static_plan)
-
-        # Dynamic planning routes through the v2 PlanGenerator
-        # (multi-candidate generation + invariants + judge) when the
-        # planner.v2_enabled flag is on. The legacy single-shot v1 planner
-        # was retired in the cut-C5 consolidation; the static plan is the
-        # only fallback when v2 is off, returns nothing, or errors.
-        try:
-            from src.ai.core.feature_flags import FeatureFlags
-            flags = FeatureFlags(self.db)
-            v2 = await flags.is_on("planner.v2_enabled", company_id=self.company_id)
-        except Exception:                                                   # pragma: no cover
-            v2 = False
-        if v2:
+        if dynamic_config.get("enabled"):
             try:
-                v2_plan = await self._generate_dynamic_plan_v2(
-                    run, entity, input_data, static_plan,
-                )
-                if v2_plan is not None:
-                    # The v2 PlanGenerator has no routing directive, so a
-                    # static-less router can come back with flat THOUGHT/ACTION
-                    # steps. Enforce delegation here so it can't dead-end on
-                    # text output (see _maybe_enforce_router).
-                    return await self._maybe_enforce_router(
-                        run, entity, input_data, v2_plan
+                from src.ai.core.feature_flags import FeatureFlags
+                v2 = await FeatureFlags(self.db).is_on("planner.v2_enabled", company_id=self.company_id)
+            except Exception:                                               # pragma: no cover
+                v2 = False
+            if v2:
+                try:
+                    v2_plan = await self._generate_dynamic_plan_v2(
+                        run, entity, input_data, static_plan,
                     )
-            except Exception as e:                                          # noqa: BLE001
-                logger.warning(f"PlanGenerator reconcile failed; falling back to static: {e}")
+                    if v2_plan is not None:
+                        plan = v2_plan
+                except Exception as e:                                      # noqa: BLE001
+                    logger.warning(f"PlanGenerator reconcile failed; falling back to static: {e}")
 
-        return await self._maybe_enforce_router(run, entity, input_data, static_plan)
+        # The generator has no routing directive, so a router can come back
+        # with flat THOUGHT/ACTION steps; delegation is enforced for any source.
+        plan = await self._maybe_enforce_router(run, entity, input_data, plan)
+        if not plan.get("steps"):
+            plan["steps"] = [default_step(entity)]
+        return plan
 
     async def _generate_dynamic_plan_v2(
         self,
@@ -350,27 +335,23 @@ class PlannerService:
         input_data: dict[str, Any],
         plan: dict[str, Any],
     ) -> dict[str, Any]:
-        """Guarantee a router-with-children delegates — for ANY plan source.
+        """An entity with children and no tools of its own delegates — at any
+        level, for any plan source (R1).
 
-        Dynamic plans come from ``_generate_dynamic_plan_v2``
-        (``planner.v2_enabled`` defaults True), whose PlanGenerator has no
-        routing directive, so a static-less router can come back with flat
-        THOUGHT/ACTION steps. Centralising the post-hoc enforcement here means
-        a static-less routing PROCESS/AGENT ends up with ≥1
-        CHILD_ENTITY_INVOCATION step regardless of which generator produced
-        the plan — otherwise the AgentLoop drives flat THOUGHT/ACTION steps that
-        produce no child run and no artifact.
+        Such an entity cannot do the work itself: a THOUGHT/ACTION step would
+        only print code or prose. Dynamic plans come from
+        ``_generate_dynamic_plan_v2``, whose PlanGenerator has no routing
+        directive, so the plan is made to contain at least one
+        CHILD_ENTITY_INVOCATION here, whatever produced it.
 
         Idempotent and best-effort: a plan that already delegates to a real
-        child passes through untouched; a non-router (no children, or a
-        tool-bearing AGENT) is returned unchanged; any failure leaves the plan
-        as-is.
+        child passes through untouched; an entity with tools, or without
+        children, is returned unchanged; any failure leaves the plan as-is.
         """
         if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
             return plan
-        entity_type = getattr(entity, "type", "")
-        entity_type = str(getattr(entity_type, "value", entity_type)).upper()
-        if entity_type not in ("PROCESS", "AGENT"):
+        caps = getattr(entity, "capabilities", None) or {}
+        if caps.get("tools"):
             return plan
         try:
             from src.ai.meta.platform_schema_compiler import load_entity_children
@@ -384,12 +365,6 @@ class PlannerService:
             )
             return plan
         if not child_entities:
-            return plan
-        caps = getattr(entity, "capabilities", None) or {}
-        has_tools = bool(caps.get("tools"))
-        # A router cannot do the work itself: a PROCESS, or any entity binding no
-        # tools. A tool-bearing AGENT is left free to use its own tools.
-        if not (entity_type == "PROCESS" or not has_tools):
             return plan
 
         user_input = (input_data or {}).get("input") or {

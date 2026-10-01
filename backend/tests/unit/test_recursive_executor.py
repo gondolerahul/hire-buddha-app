@@ -1,9 +1,10 @@
-"""RecursiveExecutor re-platform (C4 PR-7).
+"""RecursiveExecutor — plans an entity that reached the loop without a plan.
 
-The loop's RecursiveExecutor must map a goal-only AGENT onto a plan via the
-PlannerService and never hand the run to the legacy ``execute_run``. When the
-goal yields a plan, it populates ``state.plan_steps`` for the loop's plan-driven
-path; when it yields nothing, it completes cleanly with the sentinel output.
+It maps the goal onto a plan via the PlannerService and never hands the run to
+the legacy ``execute_run``. When the goal yields a plan, it populates
+``state.plan_steps`` for the loop's plan-driven path; when nothing can be
+planned it fails with the reason — it used to report "Success" for work it never
+did (EP-26).
 """
 from __future__ import annotations
 
@@ -72,7 +73,13 @@ async def test_recursive_executor_maps_goal_onto_plan(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_recursive_executor_no_plan_completes_with_sentinel(monkeypatch) -> None:
+@pytest.mark.parametrize("reconcile_result, reason", [
+    ({"steps": []}, "No plan could be made for this entity"),
+    (RuntimeError("planner down"), "RuntimeError: planner down"),
+])
+async def test_recursive_executor_without_a_plan_fails_with_the_reason(
+    monkeypatch, reconcile_result, reason,
+) -> None:
     import src.ai.planning.planner_service as ps_mod
     from src.ai.core.executors.recursive import RecursiveExecutor
 
@@ -81,18 +88,24 @@ async def test_recursive_executor_no_plan_completes_with_sentinel(monkeypatch) -
             pass
 
         async def reconcile(self, run, entity, input_data):  # noqa: ANN001, ARG002
-            return {"steps": []}
+            if isinstance(reconcile_result, Exception):
+                raise reconcile_result
+            return reconcile_result
 
     monkeypatch.setattr(ps_mod, "PlannerService", _FakePlanner)
 
+    run = _Run()
+
     async def _fake_reload(db, run_id):              # noqa: ANN001, ARG001
-        return _Run()
+        return run
 
     monkeypatch.setattr(RecursiveExecutor, "_reload_run", staticmethod(_fake_reload))
 
     state = _state()
     result = await RecursiveExecutor().execute(None, state, db=_FakeDB())
 
-    assert result.success is True
-    assert result.output == "Success"
-    assert state.plan_steps == []   # nothing to dispatch; loop winds down to DONE
+    assert result.success is False
+    assert reason in (result.error or "")
+    assert result.output != "Success"
+    assert state.plan_steps == []
+    assert run.dynamic_plan is None
