@@ -497,9 +497,9 @@ live: a run with tool calls needs Vertex, whose credentials had expired.
 
 ### FE-11 — The social login buttons do nothing
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01, `1fffde8`)** — the buttons start a sign-in that
-completes, shown only for a configured provider; PKCE follows when the API accepts a
-`code_verifier` (the auth session is adding it).
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `1fffde8`; PKCE in the next commit)** — the
+buttons start a sign-in that completes, shown only for a configured provider, with a checked
+`state` and PKCE.
 
 The Google and Microsoft buttons on the login page have **no handler**. They render, they
 look clickable, and clicking them does nothing.
@@ -541,9 +541,20 @@ from this browser* and made no exchange call; with the matching state, one
 code was fake) was shown before returning to the login page. The state was gone after each.
 No unit test: FE-03.
 
+**PKCE (2026-10-01).** Once the API forwarded a `code_verifier` (`a10d41e`, AU-23), `begin()`
+also makes a 32-byte verifier and sends its S256 challenge with the authorize request — to
+both providers, since Microsoft refuses an exchange without the verifier once a challenge was
+sent — and the exchange sends the verifier. `begin()` and `start()` are async (the hash is
+`crypto.subtle`, so a provider sign-in needs https or localhost; the login page shows the
+error otherwise). **Evidence:** with test ids for both providers, each authorize URL carried
+`code_challenge_method=S256` and a challenge equal to base64url(SHA-256(stored verifier)),
+43 characters; a callback with the matching state sent `{code, redirect_uri, code_verifier}`
+with the stored verifier (request body captured), and the API's failure for the fake code was
+shown.
+
 ---
 
-### FE-31 — Reloading the Artifacts page shows the API's 404
+### FE-31— Reloading the Artifacts page shows the API's 404
 
 **✅ Verified · Low** · **Status: fixed (2026-10-01, `c222808`)** — found while checking FE-29.
 

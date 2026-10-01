@@ -18,23 +18,43 @@ const isConfigured = (id?: string): id is string => !!id && !/^your_.*_here$/i.t
 const randomState = (): string =>
     Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
 
-const AUTHORIZE_URL: Record<OAuthProvider, (clientId: string, state: string) => string> = {
-    google: (clientId, state) => `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+const base64url = (bytes: Uint8Array): string =>
+    btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** PKCE (RFC 7636): a random verifier, and its S256 challenge for the authorize request. */
+async function pkcePair(): Promise<{ verifier: string; challenge: string }> {
+    if (!crypto.subtle) {
+        // Only a secure context (https, or localhost) has it.
+        throw new Error('Sign-in with a provider needs a secure (https) connection');
+    }
+    const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return { verifier, challenge: base64url(new Uint8Array(digest)) };
+}
+
+type AuthorizeParams = { clientId: string; state: string; challenge: string };
+
+const AUTHORIZE_URL: Record<OAuthProvider, (p: AuthorizeParams) => string> = {
+    google: ({ clientId, state, challenge }) => `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
         client_id: clientId,
         redirect_uri: REDIRECT_URI,
         response_type: 'code',
         scope: 'openid email profile',
         state,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
         prompt: 'select_account',
     })}`,
     // `User.Read`: the API reads the account from Graph's /me.
-    microsoft: (clientId, state) => `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${new URLSearchParams({
+    microsoft: ({ clientId, state, challenge }) => `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${new URLSearchParams({
         client_id: clientId,
         redirect_uri: REDIRECT_URI,
         response_type: 'code',
         scope: 'openid email profile User.Read',
         response_mode: 'query',
         state,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
     })}`,
 };
 
@@ -43,7 +63,9 @@ const AUTHORIZE_URL: Record<OAuthProvider, (clientId: string, state: string) => 
  *
  * The `state` is random, kept in sessionStorage with the provider, and must
  * come back unchanged: a callback this browser did not start — a link someone
- * else crafted to sign the user into *their* account — is refused.
+ * else crafted to sign the user into *their* account — is refused. PKCE binds
+ * the code to this browser too: the authorize request carries the verifier's
+ * challenge, and only the exchange that sends the verifier gets tokens.
  */
 export const oauthService = {
     /** The providers with a real client id; the login page shows only these. */
@@ -52,19 +74,20 @@ export const oauthService = {
     },
 
     /** Record a new sign-in for `provider` and return the provider's URL for it. */
-    begin(provider: OAuthProvider): string {
+    async begin(provider: OAuthProvider): Promise<string> {
         const clientId = CLIENT_IDS[provider];
         if (!isConfigured(clientId)) {
             throw new Error(`${provider} sign-in is not configured`);
         }
         const state = randomState();
-        sessionStorage.setItem(STATE_KEY, JSON.stringify({ state, provider }));
-        return AUTHORIZE_URL[provider](clientId, state);
+        const { verifier, challenge } = await pkcePair();
+        sessionStorage.setItem(STATE_KEY, JSON.stringify({ state, provider, verifier }));
+        return AUTHORIZE_URL[provider]({ clientId, state, challenge });
     },
 
     /** Go to the provider's sign-in page. */
-    start(provider: OAuthProvider): void {
-        window.location.assign(oauthService.begin(provider));
+    async start(provider: OAuthProvider): Promise<void> {
+        window.location.assign(await oauthService.begin(provider));
     },
 
     /**
@@ -77,13 +100,13 @@ export const oauthService = {
         // Single use: whatever happens next, this state cannot be replayed.
         const stored = sessionStorage.getItem(STATE_KEY);
         sessionStorage.removeItem(STATE_KEY);
-        let expected: { state?: string; provider?: OAuthProvider } = {};
+        let expected: { state?: string; provider?: OAuthProvider; verifier?: string } = {};
         try {
             expected = stored ? JSON.parse(stored) : {};
         } catch {
             // unreadable: treated as missing
         }
-        if (!expected.state || !expected.provider || params.get('state') !== expected.state) {
+        if (!expected.state || !expected.provider || !expected.verifier || params.get('state') !== expected.state) {
             throw new Error('This sign-in was not started from this browser. Please sign in again.');
         }
 
@@ -98,7 +121,11 @@ export const oauthService = {
 
         let data;
         try {
-            ({ data } = await apiClient.post(`/auth/oauth/${expected.provider}`, { code, redirect_uri: REDIRECT_URI }));
+            ({ data } = await apiClient.post(`/auth/oauth/${expected.provider}`, {
+                code,
+                redirect_uri: REDIRECT_URI,
+                code_verifier: expected.verifier,
+            }));
         } catch (err) {
             throw new Error(apiErrorMessage(err, 'Failed to authenticate with the sign-in provider'));
         }

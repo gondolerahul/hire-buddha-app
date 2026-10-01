@@ -115,7 +115,7 @@ export const LoginPage: React.FC = () => {
                                         key={provider}
                                         variant="secondary"
                                         className="oauth-button"
-                                        onClick={() => oauthService.start(provider)}
+                                        onClick={() => oauthService.start(provider).catch((err: Error) => setError(err.message))}
                                     >
                                         {PROVIDER_BUTTONS[provider].icon}
                                         {PROVIDER_BUTTONS[provider].label}
