@@ -809,4 +809,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P0.8 | TL-29, TL-63, TX-05 | `15995a2` | `test_tool_hygiene.py`: `image_paths` advertised, one workspace root |
 | P0.9 | PC-26, TL-64 | `1a2747d` | `test_cost_estimator.py` fails on a baseline key the registry does not know |
 | P0.10 | EP-13, EP-15 | `c60b028` | Migration round-trips; a finalised run has `execution_time_ms` |
-| P0.11 | MI-10 | (this commit) | `test_curator_duplicate_rationale_names_the_existing_entity` fails on the old code |
+| P0.11 | MI-10 | `4ffe662` | `test_curator_duplicate_rationale_names_the_existing_entity` fails on the old code |
+| P1.1 | R1 (levels) | (this commit) | `test_entity_levels.py` (collection fails on the old code), `test_entity_levels_db.py` (the old schema stores `WORKFLOW`); migration round-trips and validates on the local database |

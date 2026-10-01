@@ -26,10 +26,17 @@ __all__ = [
 
 
 class EntityType(str, Enum):
-    ACTION = "ACTION"
-    SKILL = "SKILL"
-    AGENT = "AGENT"
-    PROCESS = "PROCESS"
+    """The six levels of the hierarchy, lowest first (R1).
+
+    The level is the only difference between entities — see
+    ``schemas/levels.py`` for ``entity_level`` and the composition rule.
+    """
+    ACTION = "ACTION"      # 1 — a wrapper around a tool
+    SKILL = "SKILL"        # 2 — instructions, scripts and assets with a contract
+    AGENT = "AGENT"        # 3 — a role
+    PROCESS = "PROCESS"    # 4 — a business process
+    LOOP = "LOOP"          # 5 — a department or function
+    GRAPH = "GRAPH"        # 6 — the entire business
 
 
 class RunStatus(str, Enum):

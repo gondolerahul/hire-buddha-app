@@ -5,10 +5,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, event
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, JSON, String, Text, event
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, ORMExecuteState, Session, mapped_column, relationship, with_loader_criteria
 
+from src.ai.schemas.enums import EntityType
 from src.common.database import Base
 
 if TYPE_CHECKING:
@@ -20,12 +21,20 @@ __all__ = ["HierarchicalEntity", "INCLUDE_DELETED"]
 
 class HierarchicalEntity(Base):
     __tablename__ = "hierarchical_entities"
+    # The six levels (R1). Added NOT VALID by its migration and validated when
+    # the table held no other value; see migrations/versions/r1_entity_levels.py.
+    __table_args__ = (
+        CheckConstraint(
+            "type IN (" + ", ".join(f"'{t.value}'" for t in EntityType) + ")",
+            name="ck_hierarchical_entities_type",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
     version: Mapped[str] = mapped_column(String, nullable=False, default="1.0.0")
-    type: Mapped[str] = mapped_column(String, nullable=False)  # ACTION, SKILL, AGENT, PROCESS
+    type: Mapped[str] = mapped_column(String, nullable=False)  # EntityType: ACTION … GRAPH (schemas/levels.py)
     status: Mapped[str] = mapped_column(String, nullable=False, default="ACTIVE")  # DRAFT, ACTIVE, DEPRECATED, ARCHIVED
     name: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)

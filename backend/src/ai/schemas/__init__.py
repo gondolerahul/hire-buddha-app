@@ -8,6 +8,7 @@ This file is a backwards-compat re-export so existing
 """
 # pyright: reportWildcardImportFromLibrary=false
 from src.ai.schemas.enums import *           # noqa: F401, F403
+from src.ai.schemas.levels import *          # noqa: F401, F403
 from src.ai.schemas.persona import *         # noqa: F401, F403
 from src.ai.schemas.reasoning import *       # noqa: F401, F403
 from src.ai.schemas.planning import *        # noqa: F401, F403

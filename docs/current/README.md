@@ -13,7 +13,7 @@
 ## Read this first
 
 The platform is an **enterprise multi-tenant AI orchestration system**. Tenants
-compose hierarchical AI entities (`ACTION → SKILL → AGENT → PROCESS`) in a
+compose hierarchical AI entities (`ACTION → SKILL → AGENT → PROCESS → LOOP → GRAPH`) in a
 no-code builder, run them through an autonomous control loop that plans,
 criticises and self-corrects, and pay for exactly the tokens, minutes and tool
 calls they consume.

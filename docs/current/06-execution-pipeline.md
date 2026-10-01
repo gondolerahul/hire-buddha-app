@@ -10,7 +10,7 @@
 
 1. [The 60-second version](#1-the-60-second-version)
 2. [`HierarchicalEntity` — the configuration model](#2-hierarchicalentity--the-configuration-model)
-3. [The four entity types](#3-the-four-entity-types)
+3. [The six levels](#3-the-six-levels)
 4. [Entity lifecycle, versioning, templates and cloning](#4-entity-lifecycle-versioning-templates-and-cloning)
 5. [Creating an execution](#5-creating-an-execution)
 6. [Step execution](#6-step-execution)
@@ -725,11 +725,34 @@ Also stamped at dispatch: the worker writes
 
 ---
 
-## 3. The four entity types
+## 3. The six levels
 
-`type` is a plain string column. Nothing about it is polymorphic — the same
-`AgentLoop`, the same `StepEngine`, the same `StepExecutorService` run all four.
-What differs is a handful of **explicit branches**:
+An entity's `type` is its **level** in the hierarchy (R1 in
+[`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md#3-requirement-r1--six-level-hierarchy-one-execution-model)):
+
+| Level | `type` | Maps to |
+|---:|---|---|
+| 6 | `GRAPH` | The entire business |
+| 5 | `LOOP` | A department or function |
+| 4 | `PROCESS` | A business process |
+| 3 | `AGENT` | A role |
+| 2 | `SKILL` | Reusable instructions, scripts and assets with an IO contract |
+| 1 | `ACTION` | A wrapper around a tool |
+
+[`schemas/levels.py`](../../backend/src/ai/schemas/levels.py) is the one place
+the level is derived from the type (`entity_level`, `ENTITY_TYPES_BY_LEVEL`) and
+holds the composition rule, `can_parent`: a child sits at its parent's level or
+below it, never above. The column is held to the six values by
+`ck_hierarchical_entities_type` (migration `r1_entity_levels`, added `NOT VALID`
+and validated when the table holds no other value; the read path presents a
+leftover unknown value as `PROCESS` rather than failing the Entity Library).
+Before R1, `LOOP` rows existed in some databases and were read as `PROCESS`
+through an alias; they are now their own level.
+
+Nothing about the type is polymorphic — the same `AgentLoop`, the same
+`StepEngine`, the same `StepExecutorService` run every level. What still differs
+is a handful of **explicit branches**, which R1 replaces with one rule each
+(plan P1; `LOOP` and `GRAPH` take none of the branches below until then):
 
 | Branch | ACTION | SKILL | AGENT | PROCESS |
 |--------|:------:|:-----:|:-----:|:-------:|

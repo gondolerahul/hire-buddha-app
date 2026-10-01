@@ -37,9 +37,9 @@ Five things to internalise:
 1. **`companies` is the tenant root.** Almost every table carries a `company_id`
    foreign key to it. Companies also form a tree (`companies.parent_id`) for the
    APP → PARTNER → TENANT hierarchy.
-2. **`hierarchical_entities` is the single table for all agents.** An ACTION, a
-   SKILL, an AGENT and a PROCESS are all rows in the same table, distinguished by
-   `type`. Their entire configuration — persona, prompts, tools, planning, HITL
+2. **`hierarchical_entities` is the single table for all agents.** Every level
+   of the hierarchy — ACTION, SKILL, AGENT, PROCESS, LOOP and GRAPH — is a row in
+   the same table, distinguished by `type`. Their entire configuration — persona, prompts, tools, planning, HITL
    rules — lives in nine JSON columns on that row.
 3. **`execution_runs` is the single table for all executions**, with child runs
    pointing at parents via `parent_run_id`. Every log table (`llm_interaction_logs`,
@@ -248,7 +248,7 @@ AGENT or PROCESS. Defined at [orm/entity.py:22](../../backend/src/ai/orm/entity.
 | `company_id` | UUID FK→companies.id | no | — | Tenant. NOT NULL even for templates |
 | `parent_id` | UUID FK→self | yes | — | Composition parent |
 | `version` | String | no | `1.0.0` | Semantic version string |
-| `type` | String | no | — | `ACTION` / `SKILL` / `AGENT` / `PROCESS` |
+| `type` | String | no | — | The level: `ACTION` / `SKILL` / `AGENT` / `PROCESS` / `LOOP` / `GRAPH` (`schemas/levels.py`). Held to these by `ck_hierarchical_entities_type` |
 | `status` | String | no | `ACTIVE` | `DRAFT` / `ACTIVE` / `DEPRECATED` / `ARCHIVED` / `DELETED` |
 | `name` | String | no | — | Machine-ish name; plan steps can reference an entity by name |
 | `display_name` | String | yes | — | UI label |
@@ -1400,7 +1400,7 @@ All in [schemas/enums.py](../../backend/src/ai/schemas/enums.py).
 
 | Enum | Values |
 |---|---|
-| `EntityType` | `ACTION`, `SKILL`, `AGENT`, `PROCESS` |
+| `EntityType` | `ACTION`, `SKILL`, `AGENT`, `PROCESS`, `LOOP`, `GRAPH` — levels 1–6 ([schemas/levels.py](../../backend/src/ai/schemas/levels.py)) |
 | `EntityStatus` | `DRAFT`, `ACTIVE`, `DEPRECATED`, `ARCHIVED`, `DELETED` |
 | `RelationshipType` | `SEQUENTIAL`, `PARALLEL`, `CONDITIONAL` |
 | `ReasoningMode` | `REACT`, `CHAIN_OF_THOUGHT`, plus deprecated `REFLECTION` and `TREE_OF_THOUGHTS` |

@@ -18,25 +18,7 @@ from src.ai.schemas.strict_keys import unknown_keys
 
 logger = logging.getLogger(__name__)
 
-# `type` values present in the database that EntityType does not (yet) model,
-# mapped to the closest supported value so read paths stay usable.
-#
-# "LOOP" is not corrupt data: there are LOOP entities backed one-for-one by rows
-# in `loop_runtime`, so the concept is real — it was simply never added to
-# EntityType, the API surface, or the frontend filter tabs. Presenting it as
-# PROCESS keeps the Entity Library working; it is a stopgap, not the endpoint.
-# The proper fix is to add LOOP to EntityType and give it UI affordances, at
-# which point it should be removed from this map.
-#
-# `hierarchical_entities.type` is a plain varchar with no DB-level constraint,
-# so unmapped values are possible too; the validator below defaults those to
-# PROCESS rather than failing the whole response.
-LEGACY_ENTITY_TYPE_ALIASES: Dict[str, EntityType] = {
-    "LOOP": EntityType.PROCESS,
-}
-
 __all__ = [
-    "LEGACY_ENTITY_TYPE_ALIASES",
     "HierarchyChildCondition",
     "HierarchyChild",
     "Hierarchy",
@@ -166,18 +148,18 @@ class HierarchicalEntityResponse(HierarchicalEntityBase):
 
     @field_validator("type", mode="before")
     @classmethod
-    def coerce_legacy_type(cls, v):
-        """Tolerate unsupported `type` values on the read path.
+    def coerce_unknown_type(cls, v):
+        """Tolerate a `type` outside EntityType on the read path.
 
-        This endpoint returns `List[HierarchicalEntityResponse]`, so one row with
-        an unsupported type fails validation for the *entire* response and yields
-        a 500 — the whole Entity Library goes blank rather than a single row
-        dropping out. app_admins hit this first because they list every company's
-        entities: eleven "LOOP" rows took the screen down for them while tenant
-        users, scoped to their own company, saw nothing wrong.
+        The list endpoint returns `List[HierarchicalEntityResponse]`, so one row
+        with an unknown type would fail the *entire* response with a 500 and
+        blank the Entity Library. ``ck_hierarchical_entities_type`` keeps new
+        rows to the six levels; a database that held other values when the
+        constraint was added keeps it ``NOT VALID``, and those rows are
+        presented as PROCESS here rather than taking the screen down.
 
-        Writes are unaffected: HierarchicalEntityCreate/Update still reject
-        anything outside EntityType.
+        Writes are unaffected: HierarchicalEntityCreate/Update reject anything
+        outside EntityType.
         """
         raw = getattr(v, "value", v)
         if not isinstance(raw, str):
@@ -185,13 +167,11 @@ class HierarchicalEntityResponse(HierarchicalEntityBase):
         try:
             return EntityType(raw)
         except ValueError:
-            mapped = LEGACY_ENTITY_TYPE_ALIASES.get(raw.upper(), EntityType.PROCESS)
             logger.warning(
-                "Entity type %r is not modelled by EntityType; presenting it as "
-                "%s. See LEGACY_ENTITY_TYPE_ALIASES.",
-                raw, mapped.value,
+                "Entity type %r is not one of the six levels; presenting it as "
+                "PROCESS.", raw,
             )
-            return mapped
+            return EntityType.PROCESS
 
     @field_validator("identity", mode="before")
     @classmethod

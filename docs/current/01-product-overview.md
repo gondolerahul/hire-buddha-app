@@ -1893,10 +1893,10 @@ Honest boundaries, all verifiable by grep.
 
 ## Gotchas and things that surprise newcomers
 
-- **"Agent" is overloaded.** `AGENT` is one of four entity *types*, but people
-  also say "agent" for any entity. When it matters, say ACTION / SKILL / AGENT /
-  PROCESS.
-- **All four types run on the same engine.** There is no separate ACTION runner.
+- **"Agent" is overloaded.** `AGENT` is one of six entity *levels* (a role), but
+  people also say "agent" for any entity. When it matters, say ACTION / SKILL /
+  AGENT / PROCESS / LOOP / GRAPH.
+- **All six levels run on the same engine.** There is no separate ACTION runner.
   `AgentLoop.run(run_id)` is the only entry point.
 - **Child entity references are UUIDs, so hierarchies build bottom-up.** Every
   seed script creates ACTIONs first and patches `__PLACEHOLDER_*__` strings
