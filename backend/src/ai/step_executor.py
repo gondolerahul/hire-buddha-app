@@ -462,7 +462,7 @@ class StepExecutorService:
         (BC-11) — write its usage_logs row, and add it to the run atomically."""
         from src.ai.governance.tool_cost_resolver import ToolCostResolver
         try:
-            charge = await ToolCostResolver(self.db, run.company_id).charge(
+            charge = await ToolCostResolver(self.db, run.company_id, run_id=run.id).charge(
                 run=run, tool_id=tool_id, latency_ms=latency_ms)
             # The usage_logs row is the charge; the run's total is the sum of
             # its rows, written by the loop (P4.1, AK-02).

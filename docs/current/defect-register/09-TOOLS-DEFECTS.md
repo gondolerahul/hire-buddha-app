@@ -243,6 +243,8 @@ The deep register is a defect list. These are the efficiency items.
 
 ### TX-I1 — Cache tool prices per run
 
+**Status: done (2026-10-02, P4.6).** `ToolCostResolver(..., run_id=)` shares one price cache per run (a bounded LRU); `_charge_tool` passes the run. `tests/unit/test_tool_cost_resolver.py`.
+
 **Effect: large.** Both cost blocks run an `IntegrationRegistry` query for **every tool
 result**, inside the per-turn loop, with no caching
 ([TL-33](TOOL-LAYER-DEFECTS.md#tl-33--a-registry-select-per-tool-call-inside-the-react-loop)).

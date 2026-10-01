@@ -28,6 +28,7 @@ for a fixed cost (BC-07).
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
@@ -64,6 +65,24 @@ TOOL_FIXED_COST: dict[str, Decimal] = {
 
 _MISSING_COST_WARNED: set[str] = set()
 
+# One price cache per run (TX-I1, TL-33). A step's service — and with it its
+# resolver — is rebuilt every iteration, so a per-instance cache looked every
+# tool's price up again each time. Keyed by run id, least recently used first,
+# bounded so finished runs fall out.
+_RUN_CACHE_LIMIT = 512
+_RUN_PRICE_CACHES: "OrderedDict[UUID, dict[str, tuple[Decimal, str, Optional[UUID]]]]" = OrderedDict()
+
+
+def _run_price_cache(run_id: UUID) -> dict[str, tuple[Decimal, str, Optional[UUID]]]:
+    cache = _RUN_PRICE_CACHES.get(run_id)
+    if cache is None:
+        cache = _RUN_PRICE_CACHES[run_id] = {}
+        while len(_RUN_PRICE_CACHES) > _RUN_CACHE_LIMIT:
+            _RUN_PRICE_CACHES.popitem(last=False)
+    else:
+        _RUN_PRICE_CACHES.move_to_end(run_id)
+    return cache
+
 
 __all__ = [
     "TOOL_SKU_MAP",
@@ -96,11 +115,15 @@ class ToolChargeResult:
 class ToolCostResolver:
     """Single entry point for pricing and recording a tool call."""
 
-    def __init__(self, db: Any, company_id: UUID):
+    def __init__(self, db: Any, company_id: UUID, *, run_id: Optional[UUID] = None):
         self.db = db
         self.company_id = company_id
-        # Per-instance cache. Key: tool_id. Value: (Decimal, source, sku_id).
-        self._cache: dict[str, tuple[Decimal, str, Optional[UUID]]] = {}
+        # Key: tool_id. Value: (Decimal, source, sku_id). Shared by every
+        # resolver of the same run, so a run prices each tool once — and
+        # consistently, even if a price is edited mid-run (TX-I1).
+        self._cache: dict[str, tuple[Decimal, str, Optional[UUID]]] = (
+            _run_price_cache(run_id) if run_id is not None else {}
+        )
 
     # ------------------------------------------------------------------
     # Public API

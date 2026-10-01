@@ -202,3 +202,39 @@ def test_canonical_fixed_costs() -> None:
     assert TOOL_FIXED_COST["image_generation"] == Decimal("0.04")
     assert TOOL_FIXED_COST["video_generate"] == Decimal("0.05")
     assert "video_generation" not in TOOL_FIXED_COST
+
+
+# ---------------------------------------------------------------------------
+# TX-I1 / TL-33 (P4.6): one price cache per run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolvers_of_one_run_share_its_price_cache() -> None:
+    """A step's service, and its resolver, is rebuilt every iteration; the
+    price was looked up again every time."""
+    run_id, company = uuid4(), uuid4()
+    db = _db_with_registry_row(_registry_row(internal_cost=Decimal("0.030")))
+    first = await ToolCostResolver(db, company, run_id=run_id).resolve("web_search")
+    queries = db.execute.await_count
+    second = await ToolCostResolver(db, company, run_id=run_id).resolve("web_search")
+    assert first == second and db.execute.await_count == queries      # no new lookup
+    await ToolCostResolver(db, company, run_id=uuid4()).resolve("web_search")
+    assert db.execute.await_count > queries                            # another run looks up
+
+
+@pytest.mark.asyncio
+async def test_a_run_keeps_its_price_when_the_registry_changes() -> None:
+    run_id, company = uuid4(), uuid4()
+    await ToolCostResolver(_db_with_registry_row(_registry_row(internal_cost=Decimal("0.03"))),
+                           company, run_id=run_id).resolve("web_search")
+    later = await ToolCostResolver(_db_with_registry_row(_registry_row(internal_cost=Decimal("9.99"))),
+                                   company, run_id=run_id).resolve("web_search")
+    assert later[0] == Decimal("0.03")
+
+
+def test_the_run_caches_are_bounded() -> None:
+    from src.ai.governance import tool_cost_resolver as tcr
+    for _ in range(tcr._RUN_CACHE_LIMIT + 5):
+        tcr._run_price_cache(uuid4())
+    assert len(tcr._RUN_PRICE_CACHES) == tcr._RUN_CACHE_LIMIT

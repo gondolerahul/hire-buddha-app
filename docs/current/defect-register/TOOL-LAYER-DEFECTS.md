@@ -664,7 +664,7 @@ the worker for the full length of a Veo generation — up to the 360 s poll ceil
 
 ### TL-33 — A registry `SELECT` per tool call inside the REACT loop
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P4.6, with [TX-I1](09-TOOLS-DEFECTS.md#tx-i1--cache-tool-prices-per-run))** — one registry lookup per tool per run: resolvers built with a run's id share its price cache.
 
 Both cost blocks run an `IntegrationRegistry` query for **every single tool result**,
 inside the per-turn loop, with no caching. A research agent making 25 searches issues 25

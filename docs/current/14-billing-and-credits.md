@@ -699,7 +699,10 @@ function call): the company's registry row for the tool (`service_sku == tool_id
 `TOOL_SKU_MAP[tool_id]`), else the platform (APP) company's row, else
 `TOOL_FIXED_COST[tool_id]`, else $0 with a warning. A registry price is divided by its
 `cost_unit` (`usage_service.unit_divisor`, shared with the LLM path), so a
-"per 1000 requests" SKU charges a thousandth per call. `_charge_tool` commits the ledger
+"per 1000 requests" SKU charges a thousandth per call. Prices are cached **per run** (since
+2026-10-02, TX-I1): every resolver built with a run's id shares one cache, so a run looks each
+tool's price up once and prices it the same way to the end, even if a price is edited
+mid-run. `_charge_tool` commits the ledger
 row; it does not touch the run row — a run's cost is the sum of its rows (see "A run's
 cost" below). Before BC-11 the two
 tool paths each carried a hand-copied price table, the resolver had no callers, a tenant
