@@ -59,6 +59,11 @@ _patch_genai_finish_reason()
 # Unified response dataclass — provider-agnostic
 # ---------------------------------------------------------------------------
 
+# ``finish_reason`` of a ReAct loop that ran out of turns while the model was
+# still calling tools: the model was cut off mid-task, not finished (LP-19).
+FINISH_MAX_TURNS = "MAX_TURNS"
+
+
 @dataclass
 class LLMResponse:
     """Unified response from any LLM provider."""
@@ -77,3 +82,8 @@ class LLMResponse:
     # No ``cost_usd``: a response does not know its price. Cost is the
     # attributed ``usage_logs`` row written from the SKU lookup; a property that
     # always returned 0.0 here invited callers to bill nothing (LP-02).
+
+    @property
+    def hit_turn_limit(self) -> bool:
+        """The ReAct loop ran out of turns before the model finished (LP-19)."""
+        return self.finish_reason == FINISH_MAX_TURNS

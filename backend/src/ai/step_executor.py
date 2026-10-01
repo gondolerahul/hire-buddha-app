@@ -47,6 +47,19 @@ def prompt_context_block(filtered_context: dict, context: dict) -> Optional[str]
     return "\n\n".join(str(p) for p in parts if p) or None
 
 
+def llm_step_result(step_name: str, output: str, response: Any, reasoning_mode: str) -> dict[str, Any]:
+    """The step's result dict. A ReAct loop that ran out of turns while the
+    model was still calling tools was cut off, not finished: the step reports
+    it as an error, so the run's status and the critics see it (LP-19)."""
+    result: dict[str, Any] = {"step": step_name, "output": output}
+    if getattr(response, "hit_turn_limit", False):
+        result["error"] = (
+            f"cut off: the {reasoning_mode} loop used all {MAX_REACT_TURNS} turns "
+            "while the model was still calling tools"
+        )
+    return result
+
+
 class StepExecutorService:
     """Handles individual step execution: THOUGHT, TOOL_CALL, CHILD_ENTITY_INVOCATION.
 
@@ -996,7 +1009,7 @@ class StepExecutorService:
 
         await self._log_usage(run, response.model_name, response.prompt_tokens, response.completion_tokens, log)
         await self.db.commit()
-        return {"step": step.name, "output": output}
+        return llm_step_result(step.name, output, response, reasoning_mode)
 
     # ═══════════════════════════════════════════════════════════════════════
     # Reasoning Mode Implementations

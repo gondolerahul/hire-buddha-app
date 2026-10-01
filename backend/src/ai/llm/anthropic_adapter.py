@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.ai.llm.types import LLMResponse
+from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
 from src.ai.llm.base import BaseLLMAdapter
 
 logger = logging.getLogger(__name__)
@@ -150,6 +150,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         combined_output = ""
         all_function_calls = []
 
+        finish_reason = "stop"
         for turn in range(max_react_turns):
             start = time.monotonic()
             response = await client.messages.create(
@@ -205,6 +206,9 @@ class AnthropicAdapter(BaseLLMAdapter):
             else:
                 combined_output += turn_text
                 break
+        else:
+            # Every turn called tools: the model was cut off, not finished.
+            finish_reason = FINISH_MAX_TURNS
 
         return LLMResponse(
             output=combined_output,
@@ -214,4 +218,5 @@ class AnthropicAdapter(BaseLLMAdapter):
             latency_ms=total_latency,
             model_name=self.model_name,
             provider=self._provider_name,
+            finish_reason=finish_reason,
         )

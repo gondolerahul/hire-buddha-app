@@ -1314,12 +1314,15 @@ Loop-control differences that matter:
 | Success flag reaches the model | ✅ `{"output": ..., "success": ...}` | ❌ only `str(output)` | ❌ only `str(output)` |
 | Unknown `finish_reason` | breaks the loop and returns what it has | n/a | n/a |
 | Tokens | summed across turns | summed across turns | summed across turns |
-| Loop exhaustion | falls out of the `for` with whatever text accumulated — **no error, no flag** | same | same |
+| Loop exhaustion | `finish_reason = FINISH_MAX_TURNS` (`"MAX_TURNS"`), `hit_turn_limit` true | same | same |
 
-The last row is a real trap: if the model keeps calling tools for all 12 turns,
-you get a normal-looking `LLMResponse` whose `output` may be empty. The step
-executor compensates by appending a formatted tool-result summary when the text
-is blank:
+If the model keeps calling tools for all 12 turns it was cut off, not finished
+(LP-19). Every adapter's loop ends with a `for … else` that sets
+`finish_reason = FINISH_MAX_TURNS`; `LLMResponse.hit_turn_limit` reads it, and
+`step_executor.llm_step_result` turns it into the step's `error` ("cut off: the
+REACT loop used all 12 turns …"), so the step is recorded as failed (AK-01) and
+the critics see it. The output is kept. The step executor also appends a
+formatted tool-result summary when the text is blank:
 
 ```python
 # backend/src/ai/step_executor.py
@@ -2004,8 +2007,9 @@ Checklist for the adapter itself, learned from the three that exist:
     become strings.
 16. **Tool results are paired to calls by tool *name* on Gemini and Anthropic.**
     Two parallel calls to the same tool mis-pair. Only Azure uses a real id.
-17. **A ReAct loop that exhausts `MAX_REACT_TURNS = 12` returns normally** with
-    possibly-empty output and no flag.
+17. **A ReAct loop that exhausts `MAX_REACT_TURNS = 12` fails its step**
+    (`finish_reason = "MAX_TURNS"`, LP-19). Raise the cap rather than expect a
+    cut-off answer to pass.
 18. **The FinishReason monkey-patch runs at import of `src.ai.llm.types`** and
     mutates the installed SDK. Remember it exists before upgrading
     `google-genai`.

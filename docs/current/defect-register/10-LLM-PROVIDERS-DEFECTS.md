@@ -428,7 +428,10 @@ large part of why so much tool code is defensive parsing
 
 ### LP-19 — A ReAct loop that hits the turn cap returns normally
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-01)** — every adapter's loop
+sets `finish_reason = FINISH_MAX_TURNS` when it runs out of turns
+(`LLMResponse.hit_turn_limit`), and `step_executor.llm_step_result` reports the step
+as failed with "cut off: …". Test: `tests/unit/test_react_turn_limit.py`.
 
 `MAX_REACT_TURNS = 12`. On exhaustion the loop returns normally, with possibly-empty
 output and **no flag**.
