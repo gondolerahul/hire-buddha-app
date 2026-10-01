@@ -294,13 +294,15 @@ class PlanGenerator:
         self, ctx: PlanContext, *, n: int,
     ) -> list[PlanCandidate]:
         temps = list(self.TEMPERATURES[:n])
+        prompts: dict[float, str] = {}  # each candidate's prompt, for its interaction row
 
         async def ask(temp: float) -> Any:
             try:
+                prompts[temp] = self._build_prompt(ctx, temperature=temp)
                 return await self.llm.call_llm(
                     task_type="thinking",
                     system_prompt=_PLAN_SYSTEM,
-                    user_prompt=self._build_prompt(ctx, temperature=temp),
+                    user_prompt=prompts[temp],
                     temperature=temp,
                     max_tokens=2000,
                 )
@@ -319,7 +321,7 @@ class PlanGenerator:
             steps = list(ctx.static_plan.get("steps") or [])
             if resp is not None:
                 steps = self._parse_plan(resp.output)
-                await self._log_attributed_usage(ctx, resp, "planner")
+                await self._log_attributed_usage(ctx, resp, "planner", user_prompt=prompts.get(temp, ""))
             steps = self._tidy(steps)
             est_cost = self.cost_estimator.estimate_plan_cost(steps, ctx.entity)
             est_lat = self.cost_estimator.estimate_latency_s(steps)
@@ -601,10 +603,11 @@ class PlanGenerator:
             return
 
     async def _log_attributed_usage(
-        self, ctx: PlanContext, resp: Any, attribution: str,
+        self, ctx: PlanContext, resp: Any, attribution: str, *, user_prompt: str = "",
     ) -> None:
         from src.ai.services.attributed_usage import log_llm_response_usage
         await log_llm_response_usage(
             db=self.db, response=resp, attribution=attribution,
             company_id=ctx.company_id, run_id=ctx.run_id,
+            system_prompt=_PLAN_SYSTEM, user_prompt=user_prompt,
         )

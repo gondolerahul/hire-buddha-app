@@ -1430,15 +1430,19 @@ sequenceDiagram
 |---|---|---|---|
 | [step_executor.py:1043](../../backend/src/ai/step_executor.py:1043) — THOUGHT/ACTION steps | ✅ | ✅ via `_log_usage` | default `tool` |
 | [step_executor.py:597](../../backend/src/ai/step_executor.py:597) — tool-input reformat retries | ✅ | ✅ via `_log_usage` | default `tool` |
-| [critic_pipeline.py:568](../../backend/src/ai/planning/critic_pipeline.py:568) | ❌ | ✅ via `log_llm_response_usage` | `critic` |
-| [plan_generator.py:551](../../backend/src/ai/planning/plan_generator.py:551) | ❌ | ✅ | `planner` |
-| [plan_judge.py:179](../../backend/src/ai/planning/plan_judge.py:179) | ❌ | ✅ | `plan_judge` |
-| everything else (summariser, meta-tools, goal alignment, cortex providers, video gateway) | ❌ | mostly ❌ | — |
+| [critic_pipeline.py](../../backend/src/ai/planning/critic_pipeline.py) — pre, post, supervisor | ✅ since P4.7 (pre and post with their prompts) | ✅ via `log_llm_response_usage`, with the run | `critic_pre`, `critic_post`, `critic_super` |
+| [plan_generator.py](../../backend/src/ai/planning/plan_generator.py) | ✅ since P4.7, with each candidate's prompt | ✅ with the run (P4.1) | `planner` |
+| [plan_judge.py](../../backend/src/ai/planning/plan_judge.py) | ✅ since P4.7, with its prompt | ✅ with the run (P4.1) | `planner` |
+| [goal_alignment.py](../../backend/src/ai/planning/goal_alignment.py) | ❌ | ✅ with the run (P4.1) | `critic_align` |
+| everything else (summariser, meta-tools, cortex providers, video gateway) | ❌ | mostly ❌ | — |
 
-**Only the step executor writes `LLMInteractionLog`.** Planner and critic spend
-appears in `usage_logs` and in `run.total_cost_usd`, but there is no
-per-interaction log row for it. If you are debugging "the run cost $6 but I only
-see three LLM logs", that is why.
+**Since 2026-10-02 (P4.7, LP-I9) the planner, the judge and the critics write an
+`LLMInteractionLog` too**, through `log_llm_response_usage` (`services/attributed_usage.py`)
+whenever the call belongs to a run: model, provider, prompt (when the caller passes it,
+otherwise `[<attribution>]`), output, tokens, latency, the cost of its two usage rows,
+`reasoning_mode` = the attribution in capitals, `step_name` = `__<attribution>__`. Before,
+only the step executor wrote one, so "the run cost $6 but I only see three LLM logs" was
+the planner and critics. The alignment check still writes usage rows only.
 
 `LLMInteractionLog` columns
 ([orm/execution.py:80](../../backend/src/ai/orm/execution.py:80)):

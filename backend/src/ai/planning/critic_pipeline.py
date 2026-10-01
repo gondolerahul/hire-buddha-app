@@ -291,17 +291,18 @@ class RealCriticPipeline:
             return verdict
 
         try:
-            response = await self.llm.call_llm(
-                task_type="text_generation",
-                system_prompt=PRE_PROMPT_SYSTEM,
-                user_prompt=PRE_PROMPT_USER.format(
+            user_prompt = PRE_PROMPT_USER.format(
                     goal=self.config.entity_goal or "(unknown)",
                     subgoals=", ".join(sg.description for sg in state.open_subgoals[:5]) or "(none)",
                     executor=getattr(move, "executor", "?"),
                     rationale=getattr(move, "rationale", "")[:200],
                     plan_size=len(getattr(move, "plan_fragment", None) or []),
                     pressure=state.budget.pressure,
-                ),
+            )
+            response = await self.llm.call_llm(
+                task_type="text_generation",
+                system_prompt=PRE_PROMPT_SYSTEM,
+                user_prompt=user_prompt,
                 temperature=0.1,
                 max_tokens=200,
             )
@@ -314,6 +315,7 @@ class RealCriticPipeline:
             verdict = PreCriticVerdict(kind=cast(Any, kind), concerns=concerns, cost_usd=cost)
             await self._log_critic_usage(
                 state=state, response=response, attribution="critic_pre",
+                system_prompt=PRE_PROMPT_SYSTEM, user_prompt=user_prompt,
             )
         except Exception as exc:                                            # noqa: BLE001
             logger.warning("pre_critic LLM call failed: %s", exc)
@@ -348,10 +350,7 @@ class RealCriticPipeline:
         intel_rules = await self._render_intel_rules(state)
 
         try:
-            response = await self.llm.call_llm(
-                task_type="text_generation",
-                system_prompt=POST_PROMPT_SYSTEM,
-                user_prompt=POST_PROMPT_USER.format(
+            user_prompt = POST_PROMPT_USER.format(
                     goal=self.config.entity_goal or "(unknown)",
                     task=self.config.task_description or "(none)",
                     step_desc=self._step_description(state),
@@ -359,7 +358,11 @@ class RealCriticPipeline:
                     output=(observation.summary or "")[:2000] or "(empty)",
                     prior_history=prior_history,
                     intel_rules=intel_rules,
-                ),
+            )
+            response = await self.llm.call_llm(
+                task_type="text_generation",
+                system_prompt=POST_PROMPT_SYSTEM,
+                user_prompt=user_prompt,
                 temperature=0.1,
                 max_tokens=400,
                 model_override=critic_model,
@@ -380,6 +383,7 @@ class RealCriticPipeline:
             )
             await self._log_critic_usage(
                 state=state, response=response, attribution="critic_post",
+                system_prompt=POST_PROMPT_SYSTEM, user_prompt=user_prompt,
             )
         except Exception as exc:                                            # noqa: BLE001
             logger.warning("post_critic LLM call failed: %s", exc)
@@ -566,11 +570,13 @@ class RealCriticPipeline:
 
     async def _log_critic_usage(
         self, *, state: AgentState, response: Any, attribution: str,
+        system_prompt: str = "", user_prompt: str = "",
     ) -> None:
         from src.ai.services.attributed_usage import log_llm_response_usage
         await log_llm_response_usage(
             db=self.db, response=response, attribution=attribution,
             company_id=state.company_id, run_id=state.run_id,
+            system_prompt=system_prompt, user_prompt=user_prompt,
         )
 
     @staticmethod

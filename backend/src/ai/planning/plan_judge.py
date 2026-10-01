@@ -111,7 +111,8 @@ class PlanJudge:
                 max_tokens=400,
             )
             parsed = self._parse(response.output, n=len(candidates))
-            await self._log_attributed_usage(company_id, response, "planner", run_id)
+            await self._log_attributed_usage(company_id, response, "planner", run_id,
+                                             system_prompt=_SYSTEM, user_prompt=user)
         except Exception as exc:                                            # noqa: BLE001
             logger.warning(f"PlanJudge LLM call failed: {exc}; using cost tiebreak")
             scores = [0.0] * len(candidates)
@@ -180,11 +181,13 @@ class PlanJudge:
 
     async def _log_attributed_usage(
         self, company_id: Any, resp: Any, attribution: str, run_id: Any = None,
+        *, system_prompt: str = "", user_prompt: str = "",
     ) -> None:
         from src.ai.services.attributed_usage import log_llm_response_usage
         await log_llm_response_usage(
             db=self.db, response=resp, attribution=attribution,
             company_id=company_id, run_id=run_id,
+            system_prompt=system_prompt, user_prompt=user_prompt,
         )
 
     @staticmethod

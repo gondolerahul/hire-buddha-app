@@ -582,6 +582,8 @@ wrong-answer path that gets more likely as parallel tool use increases.
 
 ### LP-I9 — Write an `LLMInteractionLog` for every call
 
+**Status: done (2026-10-02, P4.7)** — `log_llm_response_usage` writes the interaction row whenever the call belongs to a run; the plan generator, the judge and the pre/post critics pass their prompts. `GoalAlignmentVerifier` still writes usage rows only. `tests/integration/test_interaction_rows.py`.
+
 **Effect: medium.** Only the step executor writes these rows. Planner and critic spend
 appears in `usage_logs` and `run.total_cost_usd` with **no interaction row**, so the "what
 did the model actually see" view is missing for the calls most likely to need debugging —

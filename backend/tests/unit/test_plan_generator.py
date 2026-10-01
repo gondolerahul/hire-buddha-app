@@ -308,7 +308,7 @@ def _concurrency_probe() -> tuple[SimpleNamespace, dict[str, int], list[str]]:
             raise RuntimeError("provider down")
         return SimpleNamespace(output=_good_plan(), rationale=kwargs["temperature"])
 
-    async def log_usage(ctx, resp, attribution):
+    async def log_usage(ctx, resp, attribution, **_kw):
         await enter("log", 0.01)
         logged.append(f"{attribution}@{resp.rationale}")
 
