@@ -189,4 +189,9 @@ class UsageService:
         self.db.add(usage_log)
         await self.db.commit()
         await self.db.refresh(usage_log)
+        from src.ai.services.cost_attribution import emit_cost_charged
+        await emit_cost_charged(
+            run_id=execution_id, company_id=company_id, attribution=clean_attribution,
+            sku=service_sku, amount=calculated_cost,
+        )
         return usage_log

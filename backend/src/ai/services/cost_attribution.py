@@ -47,7 +47,40 @@ class CostAttribution(str, Enum):
 VALID_ATTRIBUTIONS: set[str] = {a.value for a in CostAttribution}
 
 
-__all__ = ["CostAttribution", "CostLedger", "VALID_ATTRIBUTIONS"]
+__all__ = ["CostAttribution", "CostLedger", "VALID_ATTRIBUTIONS", "emit_cost_charged"]
+
+
+async def emit_cost_charged(
+    *,
+    run_id: Optional[UUID],
+    company_id: Optional[UUID],
+    attribution: str,
+    sku: Optional[str],
+    amount: Decimal,
+    latency_ms: int = 0,
+    persisted: bool = True,
+) -> None:
+    """Tell the run's execution page a usage row was written (P4.8).
+
+    ``agent.cost.charged`` goes to the structured log and, for a row with a
+    run, to the run's SSE channel as a ``cost_charged`` frame — the frame the
+    page's cost-by-attribution panel already handles, which nothing sent.
+    Best-effort: telemetry never breaks a charge.
+    """
+    try:
+        from src.ai.core.agent_loop_sse import event_async
+        await event_async(
+            "agent.cost.charged",
+            run_id=str(run_id) if run_id else None,
+            company_id=str(company_id) if company_id else None,
+            attribution=attribution,
+            sku=sku,
+            amount_usd=float(amount),
+            latency_ms=int(latency_ms or 0),
+            persisted=persisted,
+        )
+    except Exception:                                                       # pragma: no cover
+        logger.debug("cost_charged emit failed", exc_info=True)
 
 
 class CostLedger:
@@ -112,18 +145,9 @@ class CostLedger:
         if commit:
             await self.db.commit()
             await self.db.refresh(row)
-        try:
-            from src.ai.core.events import event
-            event(
-                "agent.cost.charged",
-                run_id=str(run_id) if run_id else None,
-                company_id=str(company_id) if company_id else None,
-                attribution=attribution,
-                sku=str(sku_id) if sku_id else None,
-                amount_usd=float(amount),
-                latency_ms=int(latency_ms),
-                persisted=True,
-            )
-        except Exception:                                                   # pragma: no cover
-            pass
+        await emit_cost_charged(
+            run_id=run_id, company_id=company_id, attribution=attribution,
+            sku=str(sku_id) if sku_id else None, amount=amount,
+            latency_ms=latency_ms, persisted=commit,
+        )
         return row

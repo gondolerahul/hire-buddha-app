@@ -408,22 +408,13 @@ class RealCriticPipeline:
 
         interval = max(1, self.config.goal_validation_interval)
         if state.iteration % interval != 0:
-            verdict = AlignmentVerdict(aligned=True, drift=0.0)
-            record.alignment_aligned = True
-            record.alignment_drift = 0.0
-            return verdict
+            return self._skipped_alignment(record)
 
         if self._budget_mode(state) is CriticMode.DEGRADED:
-            verdict = AlignmentVerdict(aligned=True, drift=0.0)
-            record.alignment_aligned = True
-            record.alignment_drift = 0.0
-            return verdict
+            return self._skipped_alignment(record)
 
         if not (observation.summary and self.config.entity_goal):
-            verdict = AlignmentVerdict(aligned=True, drift=0.0)
-            record.alignment_aligned = True
-            record.alignment_drift = 0.0
-            return verdict
+            return self._skipped_alignment(record)
 
         try:
             from src.ai.planning.goal_alignment import GoalAlignmentVerifier
@@ -452,6 +443,18 @@ class RealCriticPipeline:
         record.alignment_cost_usd = verdict.cost_usd
         return verdict
 
+    @staticmethod
+    def _continue(record: StepHealthRecord, verdict: SupervisorVerdict) -> SupervisorVerdict:
+        """The supervisor did not run this iteration: carry on."""
+        record.supervisor_recommendation, record.supervisor_confidence = "CONTINUE", verdict.confidence
+        return verdict
+
+    @staticmethod
+    def _skipped_alignment(record: StepHealthRecord) -> AlignmentVerdict:
+        """Not checked this iteration (off-cadence, degraded, nothing to judge)."""
+        record.alignment_aligned, record.alignment_drift = True, 0.0
+        return AlignmentVerdict(aligned=True, drift=0.0)
+
     # ------------------------------------------------------------------
     # Stage 4 — supervisor
     # ------------------------------------------------------------------
@@ -460,19 +463,11 @@ class RealCriticPipeline:
         record = self._ensure_record(state)
         interval = max(1, self.config.meta_review_interval)
         if state.iteration == 0 or state.iteration % interval != 0:
-            verdict = SupervisorVerdict(recommendation="CONTINUE")
-            record.supervisor_recommendation = "CONTINUE"
-            record.supervisor_confidence = verdict.confidence
-            return verdict
+            return self._continue(record, SupervisorVerdict(recommendation="CONTINUE"))
 
         if self._budget_mode(state) is CriticMode.DEGRADED:
-            verdict = SupervisorVerdict(
-                recommendation="CONTINUE",
-                reasoning="Critic pipeline degraded; skipping supervisor.",
-            )
-            record.supervisor_recommendation = "CONTINUE"
-            record.supervisor_confidence = verdict.confidence
-            return verdict
+            return self._continue(record, SupervisorVerdict(
+                recommendation="CONTINUE", reasoning="Critic pipeline degraded; skipping supervisor."))
 
         # Track 4 supervisor v2 (default).
         if self._supervisor_v2 is not None:

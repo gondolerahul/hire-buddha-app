@@ -1742,6 +1742,7 @@ Every event the loop emits:
 | `agent.replan.skipped_static` | static plan guard | — |
 | `agent.loop.iteration_end` | phase 9 | `iteration_end` |
 | `agent.loop.budget_exhausted` | `_loop` | — |
+| `agent.cost.charged` | `emit_cost_charged` — every usage row a run writes (`UsageService.log_usage`, `CostLedger.add`), since 2026-10-02 (P4.8) | `cost_charged` (attribution, sku, `amount_usd`, `persisted`) |
 | `agent.loop.cancelled` | `_check_cancelled` | `cancelled` |
 | `agent.loop.suspended` | `_persist_suspended` | — |
 | `agent.loop.resumed` | `resume` | `resume` |

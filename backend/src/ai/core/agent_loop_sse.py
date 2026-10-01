@@ -41,6 +41,7 @@ _SSE_EVENT_TYPES: dict[str, str] = {
     "agent.replan.triggered": "replan_triggered",
     "agent.bandit.arm_updated": "bandit_arm_updated",
     "agent.task_class.classified": "task_class_classified",
+    "agent.cost.charged": "cost_charged",
     "agent.loop.cancelled": "cancelled",
     "agent.loop.run_end": "run_end",
 }
