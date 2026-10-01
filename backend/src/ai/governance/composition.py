@@ -45,9 +45,12 @@ __all__ = [
     "runtime_violation",
     "max_recursion_depth",
     "child_depth",
+    "DEFAULT_MAX_CONCURRENT_CHILDREN",
+    "max_concurrent_children",
 ]
 
 DEFAULT_MAX_RECURSION_DEPTH = 5
+DEFAULT_MAX_CONCURRENT_CHILDREN = 8
 
 CHILD_STEP = "CHILD_ENTITY_INVOCATION"
 
@@ -372,3 +375,21 @@ def child_depth(parent_run: Any, parent_entity: Any, child_entity: Any) -> Child
             f"past this tree's max_recursion_depth (deepest allowed: {parent_max})"
         )
     return ChildDepth(depth=depth, max_depth=min(parent_max, own_max), refused=refused)
+
+
+# ── Fan-out (AK-07) ─────────────────────────────────────────────────────────
+
+def max_concurrent_children(governance: Any) -> int:
+    """How many child runs one parent may have in flight at once.
+
+    ``governance.max_concurrent_children``; a missing, non-numeric or
+    non-positive value means the default.
+    """
+    raw = governance.get("max_concurrent_children") if isinstance(governance, dict) else None
+    if raw is None:
+        return DEFAULT_MAX_CONCURRENT_CHILDREN
+    try:
+        cap = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_CONCURRENT_CHILDREN
+    return cap if cap >= 1 else DEFAULT_MAX_CONCURRENT_CHILDREN

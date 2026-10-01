@@ -230,7 +230,15 @@ memory system is wired to the loop and contributes nothing to it.
 
 ### AK-07 — The child concurrency cap does not cap anything
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — re-verified: the fan-out
+described below did not happen. The Strategist put only `ready[:1]` into a
+`ChildEntity` move and the parent waited for that child, so independent children ran
+**one after another** and the cap never bound. Next to it, a ready set that mixed a
+child step with other steps went to the DAG executor, which cannot run a child, so the
+child step failed. Now the ready children of a move are dispatched together, at most
+`governance.max_concurrent_children`, and the parent waits for the batch; a child step
+is never batched with other steps (`test_child_fan_out.py`, `test_strategist.py`,
+`test_async_child_dispatch.py`).
 
 `within_child_dispatch_cap` is computed, the result is logged, and then the executor
 dispatches anyway. The code says so:

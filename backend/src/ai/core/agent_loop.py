@@ -792,7 +792,9 @@ class AgentLoop:
 
         # Track 4: optional bandit shared by Strategist + finalize().
         self.bandit = await self._build_bandit(state)
-        self.strategist = Strategist(bandit=self.bandit)
+        from src.ai.governance.composition import max_concurrent_children
+        self.strategist = Strategist(bandit=self.bandit, max_concurrent_children=max_concurrent_children(
+            getattr(self._entity, "governance", None)))
         self.observer = Observer()
         self.reflector = Reflector(db=self.db)
         # Perceiver gets the live CORTEX service and the run's memory

@@ -30,6 +30,10 @@ from src.ai.core.agent_state import (
 
 __all__ = ["Move", "Decision", "Strategist", "MAX_CORRECTIVE_RETRIES_PER_RUN"]
 
+
+def _is_child_step(step: dict[str, Any]) -> bool:
+    return str(step.get("type", "")).upper() == "CHILD_ENTITY_INVOCATION"
+
 # Hard ceiling on corrective retries honoured per run, across all steps. Caps
 # the cost of a perpetually-REVISE critic when the per-step exhaustion check
 # can't apply (moves with no stable step_id, e.g. CHILD_ENTITY invocations).
@@ -75,9 +79,13 @@ class Strategist:
         *,
         allow_parallel_dag: bool = True,
         bandit: Optional["PlanStyleBandit"] = None,    # noqa: F821 — forward ref
+        max_concurrent_children: int = 8,
     ):
         self.allow_parallel_dag = allow_parallel_dag
         self.bandit = bandit
+        # governance.max_concurrent_children: the most child runs one move
+        # dispatches; the parent then waits for them (AK-07).
+        self.max_concurrent_children = max(1, int(max_concurrent_children))
 
     # ------------------------------------------------------------------
     # Pick the next move
@@ -87,16 +95,21 @@ class Strategist:
         # Case A: a static plan exists and has ready steps.
         if state.has_plan() and state.plan_has_unblocked_steps():
             ready = state.plan_ready_steps()
+            children = [s for s in ready if _is_child_step(s)]
 
-            # CHILD_ENTITY_INVOCATION dominates parallel DAG dispatch —
-            # child runs need their own scoped CORTEX subtree.
-            if str(ready[0].get("type", "")).upper() == "CHILD_ENTITY_INVOCATION":
+            # A child step runs as its own run, never inside a SingleStep/DAG
+            # batch (the step engine cannot run one). When the plan's next step
+            # is a child, the ready children are dispatched together, up to the
+            # fan-out cap; the parent then waits for them (AK-07).
+            if _is_child_step(ready[0]):
+                batch = children[: self.max_concurrent_children]
                 await self._record_arm(state, "CHILD_ENTITY")
                 return self._move(
                     state, executor="ChildEntity",
-                    plan_fragment=ready[:1],
-                    rationale="next plan step is CHILD_ENTITY_INVOCATION",
+                    plan_fragment=batch,
+                    rationale=f"{len(batch)} of {len(children)} ready child step(s)",
                 )
+            ready = [s for s in ready if not _is_child_step(s)]
 
             # High-uncertainty / high-stakes step → multi-agent Debate. This is
             # the reframed Tree-of-Thoughts (D-3): reasoning is picked PER STEP,

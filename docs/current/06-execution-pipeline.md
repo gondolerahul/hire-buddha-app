@@ -662,8 +662,8 @@ Firing writes a `human_approvals` row, publishes `HITL_PENDING` on
 write): `critic_cost_share_pct` (0.20), `goal_validation_interval` (2),
 `meta_review_interval` (3) — all at
 [agent_loop.py:915-921](../../backend/src/ai/core/agent_loop.py:915) — and
-`max_concurrent_children` (8) at
-[child_entity.py:51](../../backend/src/ai/core/executors/child_entity.py:51).
+`max_concurrent_children` (8), the most child runs one move dispatches
+(`governance/composition.max_concurrent_children`).
 
 ---
 
@@ -1599,7 +1599,7 @@ prompt and only credits and cost caps bounded a fan-out. The other guards:
 | Credit gate before each child spawn | wallet balance minus parent accumulated cost | [governance_service.py:120](../../backend/src/ai/governance/governance_service.py:120) |
 | Cost cap per run | `governance.max_cost_usd` | [step_engine.py:237](../../backend/src/ai/core/step_engine.py:237) |
 | Loop hard iteration cap | `max_iterations`, default 50 | [agent_loop.py:366](../../backend/src/ai/core/agent_loop.py:366) |
-| Concurrent-children cap | `max_concurrent_children`, default 8 | [child_entity.py:48](../../backend/src/ai/core/executors/child_entity.py:48) — **advisory only**; the code logs and dispatches anyway ([child_entity.py:108-114](../../backend/src/ai/core/executors/child_entity.py:108)) |
+| Concurrent-children cap | `max_concurrent_children`, default 8 | The ready child steps of a move are dispatched together, at most this many; the parent waits for the batch (AK-07) |
 | Depth | *nothing* | — |
 
 A self-referential entity (a PROCESS whose plan invokes itself) will recurse

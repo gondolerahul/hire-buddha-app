@@ -885,7 +885,7 @@ flowchart TD
 
 | Case | Condition | Executor | Fragment | Bandit arm recorded |
 |------|-----------|----------|----------|---------------------|
-| A1 | ready step 0 is `CHILD_ENTITY_INVOCATION` | `ChildEntity` | `ready[:1]` | `CHILD_ENTITY` |
+| A1 | ready step 0 is `CHILD_ENTITY_INVOCATION` | `ChildEntity` | the ready child steps, up to `max_concurrent_children` | `CHILD_ENTITY` |
 | A2 | `_should_debate(state, ready[0])` | `Debate` | `ready[:1]` | `DEBATE` |
 | A3-par | `len(ready) >= 2`, bandit picks parallel | `DAG` | all ready | `DAG_PARALLEL` |
 | A3-seq | `len(ready) >= 2`, bandit picks sequential | `SingleStep` | `ready[:1]` | `DAG_SEQUENTIAL` |
@@ -1068,7 +1068,7 @@ skill-specific executor to build.
 | `SingleStep` | `SingleStepExecutor` | [single_step.py](../../backend/src/ai/core/executors/single_step.py) | Runs each step of `plan_fragment` sequentially through `StepEngine._execute_step_wrapper`, **on its own `AsyncSessionLocal`**. No fragment → zero-cost no-op. | implemented |
 | `DAG` | `DAGExecutor` | [dag.py](../../backend/src/ai/core/executors/dag.py) | Hands the whole fragment to `StepEngine._execute_steps_dag`, which builds a dependency graph and parallelises independent steps. | implemented |
 | `Recursive` | `RecursiveExecutor` | [recursive.py](../../backend/src/ai/core/executors/recursive.py) | For an entity of any level that reached an iteration without a plan (the up-front `_ensure_plan` failed): calls `PlannerService.reconcile`, writes `run.dynamic_plan`, and lets the next iteration dispatch it. If no plan results it **fails with the reason**; `decide_next` then ends the run `FAILED` (it used to stamp `"Success"` and complete — EP-26). | implemented |
-| `ChildEntity` | `ChildEntityExecutor` | [child_entity.py](../../backend/src/ai/core/executors/child_entity.py) | Creates a child `ExecutionRun`, enqueues `run_execution_recursive` for it, returns `awaiting_children` so the parent suspends. | implemented |
+| `ChildEntity` | `ChildEntityExecutor` | [child_entity.py](../../backend/src/ai/core/executors/child_entity.py) | Creates a child `ExecutionRun` per step of the move (up to `max_concurrent_children`), enqueues each on the child queue, returns them as `awaiting_children` so the parent suspends until all are terminal. | implemented |
 | `Debate` | `DebateExecutor` | [debate.py](../../backend/src/ai/core/executors/debate.py) | Generates N persona/temperature-varied candidate answers in parallel, an independent LLM judge picks the winner, writes a `debate` subtree to CORTEX. Defaults: 3 candidates, min 2, max 5. | implemented |
 
 `ExecutorName` declares these five names as a `Literal` in
@@ -1182,13 +1182,18 @@ Key details:
   is set).
 - **A failed or cancelled child fails the parent.** `_fold_children` returns
   `any_failed=True`, and `resume` sets `done=True, next_decision="ABORT"`.
-- **The concurrency cap is advisory.** `DEFAULT_MAX_CONCURRENT_CHILDREN = 8`,
-  overridable via `governance.max_concurrent_children`. When exceeded the
-  executor logs and **dispatches anyway** — the inline backpressure path that
-  used to enforce it was retired
-  ([child_entity.py:108](../../backend/src/ai/core/executors/child_entity.py:108)).
-- **One child per iteration.** The Strategist only ever puts `ready[:1]` into a
-  `ChildEntity` move, so a fan-out PROCESS suspends and resumes once per child.
+- **Ready children run together, up to the cap** (AK-07). When the plan's next
+  ready step is a child, the Strategist puts the ready child steps — at most
+  `governance.max_concurrent_children` (default `DEFAULT_MAX_CONCURRENT_CHILDREN
+  = 8`, `governance/composition.max_concurrent_children`) — into one
+  `ChildEntity` move; the executor dispatches each and the parent suspends until
+  all of them are terminal. A child step is never put into a SingleStep/DAG
+  batch (the step engine cannot run one). Before AK-07 the cap was logged and
+  ignored, and since the Strategist put only `ready[:1]` into a move,
+  independent children ran one after another.
+- **A refused child stops the batch.** A child the composition or depth rule
+  refuses is not dispatched; the children before it in the batch are awaited
+  and the refused step stays ready for the next move.
 
 ```mermaid
 stateDiagram-v2

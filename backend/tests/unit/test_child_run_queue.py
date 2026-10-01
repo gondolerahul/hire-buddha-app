@@ -2,8 +2,8 @@
 
 CHILD_RUN_QUEUE was declared with a comment saying "NOT routed yet": every
 child run went on the default queue, so a fan-out could take every job slot
-top-level runs, documents and events needed, and the only bound on it —
-governance.max_concurrent_children — is advisory.
+top-level runs, documents and events needed. (The per-parent bound,
+governance.max_concurrent_children, caps a parent's batch — AK-07.)
 """
 import json
 from pathlib import Path

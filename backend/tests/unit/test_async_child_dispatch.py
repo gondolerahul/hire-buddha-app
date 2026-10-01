@@ -196,19 +196,22 @@ async def test_resume_skips_when_not_waiting() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_child_executor_async_dispatch_returns_awaiting_and_enqueues(monkeypatch) -> None:
-    from src.ai.core.executors import child_entity as ce
-
-    child_id = uuid4()
+def _dispatch_fakes(monkeypatch, *, fail_on=None):
+    created: list = []
     enqueued: list = []
 
     class _FakeChild:
-        id = child_id
+        def __init__(self):
+            self.id = uuid4()
 
     class _FakeStepExec:
         async def create_child_run(self, run, entity, step_obj, ctx):
-            return _FakeChild()
+            if step_obj.step_id == fail_on:
+                from src.ai.core.exceptions import CompositionError
+                raise CompositionError("past max_recursion_depth")
+            child = _FakeChild()
+            created.append((step_obj.step_id, child.id))
+            return child
 
     class _FakeEngine:
         _step_executor = _FakeStepExec()
@@ -226,21 +229,30 @@ async def test_child_executor_async_dispatch_returns_awaiting_and_enqueues(monke
     class _FakeRedis:
         connection_pool = object()
 
-    executor = ce.ChildEntityExecutor()
-    state = _make_state()
+    return _FakeEngine(), _FakeRedis(), created, enqueued
 
-    class _Step:
-        step_id = "child_step"
-        name = "child_step"
 
-    class _FakeParentRun:
-        id = uuid4()
+class _Step:
+    def __init__(self, step_id):
+        self.step_id = step_id
+        self.name = step_id
 
-    result = await executor._dispatch_async(
-        _FakeEngine(), _FakeRedis(), run=_FakeParentRun(), entity=None,
-        step_obj=_Step(), state=state, start=0.0,
+
+class _FakeParentRun:
+    id = uuid4()
+
+
+@pytest.mark.asyncio
+async def test_child_executor_async_dispatch_returns_awaiting_and_enqueues(monkeypatch) -> None:
+    from src.ai.core.executors import child_entity as ce
+
+    engine, redis, created, enqueued = _dispatch_fakes(monkeypatch)
+    result = await ce.ChildEntityExecutor()._dispatch_async(
+        engine, redis, run=_FakeParentRun(), entity=None,
+        steps=[_Step("child_step")], state=_make_state(), start=0.0,
     )
 
+    (step_id, child_id), = created
     assert result.success is True
     assert result.awaiting_children == [
         {"run_id": str(child_id), "step_id": "child_step", "status": "PENDING"}
@@ -250,43 +262,53 @@ async def test_child_executor_async_dispatch_returns_awaiting_and_enqueues(monke
     assert enqueued == [("run_execution_recursive", (str(child_id),), "children")]
 
 
+@pytest.mark.asyncio
+async def test_a_batch_of_children_is_dispatched_together(monkeypatch) -> None:
+    """AK-07: the ready children of one move run concurrently, as one batch."""
+    from src.ai.core.executors import child_entity as ce
+
+    engine, redis, created, enqueued = _dispatch_fakes(monkeypatch)
+    result = await ce.ChildEntityExecutor()._dispatch_async(
+        engine, redis, run=_FakeParentRun(), entity=None,
+        steps=[_Step("a"), _Step("b"), _Step("c")], state=_make_state(), start=0.0,
+    )
+    assert [c["step_id"] for c in result.awaiting_children] == ["a", "b", "c"]
+    assert len(enqueued) == 3 and len(result.children_run_ids) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_refused_child_stops_the_batch_and_keeps_the_dispatched_ones(monkeypatch) -> None:
+    from src.ai.core.executors import child_entity as ce
+
+    engine, redis, created, enqueued = _dispatch_fakes(monkeypatch, fail_on="b")
+    result = await ce.ChildEntityExecutor()._dispatch_async(
+        engine, redis, run=_FakeParentRun(), entity=None,
+        steps=[_Step("a"), _Step("b"), _Step("c")], state=_make_state(), start=0.0,
+    )
+    assert result.success is True
+    assert [c["step_id"] for c in result.awaiting_children] == ["a"]
+
+    engine, redis, created, enqueued = _dispatch_fakes(monkeypatch, fail_on="a")
+    refused = await ce.ChildEntityExecutor()._dispatch_async(
+        engine, redis, run=_FakeParentRun(), entity=None,
+        steps=[_Step("a")], state=_make_state(), start=0.0,
+    )
+    assert refused.success is False and "max_recursion_depth" in (refused.error or "")
+    assert enqueued == []
+
+
 # ---------------------------------------------------------------------------
 # per-parent concurrency cap
 # ---------------------------------------------------------------------------
 
 
-def _awaiting(n_pending: int, n_terminal: int = 0) -> list[dict]:
-    rows = [{"run_id": str(uuid4()), "step_id": f"s{i}", "status": "PENDING"}
-            for i in range(n_pending)]
-    rows += [{"run_id": str(uuid4()), "step_id": f"t{i}", "status": "COMPLETED"}
-             for i in range(n_terminal)]
-    return rows
+def test_the_cap_reads_governance_and_falls_back_to_the_default() -> None:
+    from src.ai.governance.composition import DEFAULT_MAX_CONCURRENT_CHILDREN, max_concurrent_children
 
-
-def test_pending_child_count_ignores_terminal() -> None:
-    from src.ai.core.executors.child_entity import pending_child_count
-    state = _make_state()
-    state.awaiting_children = _awaiting(n_pending=2, n_terminal=3)
-    assert pending_child_count(state) == 2
-
-
-def test_within_cap_uses_governance_override() -> None:
-    from src.ai.core.executors.child_entity import within_child_dispatch_cap
-    state = _make_state()
-    state.awaiting_children = _awaiting(n_pending=2)
-    assert within_child_dispatch_cap(state, {"max_concurrent_children": 3}) is True
-    assert within_child_dispatch_cap(state, {"max_concurrent_children": 2}) is False
-
-
-def test_within_cap_default_and_bad_values() -> None:
-    from src.ai.core.executors.child_entity import (
-        within_child_dispatch_cap, DEFAULT_MAX_CONCURRENT_CHILDREN,
-    )
-    state = _make_state()
-    state.awaiting_children = _awaiting(n_pending=DEFAULT_MAX_CONCURRENT_CHILDREN)
-    # At the default ceiling → refused.
-    assert within_child_dispatch_cap(state, {}) is False
+    assert max_concurrent_children({"max_concurrent_children": 3}) == 3
+    assert max_concurrent_children({}) == DEFAULT_MAX_CONCURRENT_CHILDREN
+    assert max_concurrent_children(None) == DEFAULT_MAX_CONCURRENT_CHILDREN
     # Garbage / non-positive overrides fall back to the default (not a crash,
     # not an accidental "0 allowed").
-    assert within_child_dispatch_cap(_make_state(), {"max_concurrent_children": "x"}) is True
-    assert within_child_dispatch_cap(_make_state(), {"max_concurrent_children": 0}) is True
+    assert max_concurrent_children({"max_concurrent_children": "x"}) == DEFAULT_MAX_CONCURRENT_CHILDREN
+    assert max_concurrent_children({"max_concurrent_children": 0}) == DEFAULT_MAX_CONCURRENT_CHILDREN

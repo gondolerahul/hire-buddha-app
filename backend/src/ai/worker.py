@@ -143,9 +143,9 @@ class ChildWorkerSettings:
 
     ChildEntityExecutor and CORTEX RECURSE enqueue child runs on
     ``CHILD_RUN_QUEUE``, so a fan-out waits for these slots instead of taking
-    the ones top-level runs, documents and events need. ``max_jobs`` is the
-    one hard cap on concurrent children across all parents
-    (``governance.max_concurrent_children`` is advisory). A parent is resumed
+    the ones top-level runs, documents and events need. ``max_jobs`` caps
+    concurrent children across all parents; ``governance.max_concurrent_children``
+    caps one parent's batch (AK-07). A parent is resumed
     — ``resume_parent_run`` — on the default queue. Same functions as the main
     worker, so anything enqueued here still runs; no crons.
     """

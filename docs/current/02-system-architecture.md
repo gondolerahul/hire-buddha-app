@@ -963,7 +963,7 @@ worker, `ChildWorkerSettings`: same functions, no crons, `max_jobs =
 CHILD_WORKER_MAX_JOBS` (10). `enqueue_child_run` puts `run_execution_recursive`
 there whatever the caller's client defaults to. The child worker's `max_jobs` is
 the one hard cap on concurrent child runs across all parents;
-`governance.max_concurrent_children` is still advisory per parent. A parent is
+`governance.max_concurrent_children` caps one parent's batch (AK-07). A parent is
 resumed by `resume_parent_run` on the default queue — so a nested parent (a child
 that fanned out) finishes its run on the main worker. Until SA-07 (2026-09-30)
 the queue was declared with a "NOT routed yet" comment and every child went on

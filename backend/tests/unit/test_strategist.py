@@ -62,6 +62,34 @@ async def test_dag_disabled_falls_back_to_singlestep() -> None:
     assert move.executor == "SingleStep"
 
 
+def _child(sid: str) -> dict:
+    return {"step_id": sid, "type": "CHILD_ENTITY_INVOCATION"}
+
+
+@pytest.mark.asyncio
+async def test_ready_children_are_dispatched_together_up_to_the_cap() -> None:
+    """AK-07: governance.max_concurrent_children bounds one move's batch."""
+    s = _state(plan_steps=[_child("c1"), _child("c2"), _child("c3")])
+    move = await Strategist(max_concurrent_children=2).next_move(s, perception=None)
+    assert move.executor == "ChildEntity"
+    assert [st["step_id"] for st in move.plan_fragment] == ["c1", "c2"]
+
+
+@pytest.mark.asyncio
+async def test_a_child_step_is_never_batched_with_other_steps() -> None:
+    """A DAG batch holding a child step failed it: the step engine cannot run one."""
+    s = _state(plan_steps=[{"step_id": "a1", "type": "ACTION"}, _child("c1")])
+    move = await Strategist().next_move(s, perception=None)
+    assert move.executor == "SingleStep"
+    assert [st["step_id"] for st in move.plan_fragment] == ["a1"]
+
+    s = _state(plan_steps=[{"step_id": "a1", "type": "ACTION"}, {"step_id": "a2", "type": "ACTION"},
+                           _child("c1")])
+    move = await Strategist().next_move(s, perception=None)
+    assert move.executor == "DAG"
+    assert [st["step_id"] for st in move.plan_fragment] == ["a1", "a2"]
+
+
 @pytest.mark.asyncio
 async def test_child_entity_invocation_takes_precedence() -> None:
     s = _state(plan_steps=[
