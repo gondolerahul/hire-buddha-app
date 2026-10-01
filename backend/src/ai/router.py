@@ -18,6 +18,25 @@ from src.ai.services.knowledge_base import KnowledgeBaseService, file_type_of
 
 router = APIRouter(prefix="/ai", tags=["AI Hierarchical Agent Platform"])
 
+
+def _shown(entity) -> HierarchicalEntityResponse:
+    """One entity as the read and update routes show it.
+
+    An entity with no static steps shows the default step it would run
+    (``planning.default_step``), so the builder and the execute form have the
+    inputs to ask for — at every level. Computed for the response only; the
+    stored row is never changed (EP-27).
+    """
+    from src.ai.planning.default_step import display_planning
+    from src.ai.schemas.planning import Planning
+
+    response = HierarchicalEntityResponse.model_validate(entity)
+    planning = display_planning(entity)
+    if planning is not entity.planning:
+        response.planning = Planning.model_validate(planning)
+    return response
+
+
 # --- Entities ---
 @router.post("/entities", response_model=HierarchicalEntityResponse)
 async def create_entity(
@@ -89,7 +108,7 @@ async def get_entity(
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    return await service.get_entity(entity_id, current_user.company_id, current_user.role)
+    return _shown(await service.get_entity(entity_id, current_user.company_id, current_user.role))
 
 @router.put("/entities/{entity_id}", response_model=HierarchicalEntityResponse)
 async def update_entity(
@@ -99,7 +118,7 @@ async def update_entity(
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    return await service.update_entity(entity_id, entity_in, current_user.company_id, user_role=current_user.role)
+    return _shown(await service.update_entity(entity_id, entity_in, current_user.company_id, user_role=current_user.role))
 
 @router.delete("/entities/{entity_id}")
 async def delete_entity(
@@ -724,7 +743,7 @@ async def get_template(
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    return await service.get_entity(template_id, current_user.company_id, current_user.role)
+    return _shown(await service.get_entity(template_id, current_user.company_id, current_user.role))
 
 @router.post("/templates", response_model=HierarchicalEntityResponse)
 async def create_template(
@@ -745,7 +764,7 @@ async def update_template(
     current_user: User = Depends(app_admin_only)
 ):
     service = AIService(db)
-    return await service.update_entity(template_id, entity_in, current_user.company_id, user_role=current_user.role)
+    return _shown(await service.update_entity(template_id, entity_in, current_user.company_id, user_role=current_user.role))
 
 @router.delete("/templates/{template_id}")
 async def delete_template(

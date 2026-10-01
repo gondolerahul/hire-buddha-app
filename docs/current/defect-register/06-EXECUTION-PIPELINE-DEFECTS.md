@@ -538,8 +538,11 @@ rendered to the model as if it were a previous step's output.
 
 ### EP-27 — Reading an entity writes a "virtual" plan into its row
 
-**✅ Verified · Medium** · **Status: open** — found 2026-10-01 while consolidating
-registers 05–11.
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — found while consolidating
+registers 05–11. `get_entity` no longer touches the row; the read and update routes
+(entities and templates) show the default step through `display_planning`, a copy, for
+an entity of any level with no static steps — the same step the planner runs
+(`tests/integration/test_entity_read_is_pure.py`).
 
 `AIService.get_entity` gives an `ACTION` or `SKILL` with no static steps a virtual
 one-step plan "for the UI" by assigning `entity.planning = virtual_planning` on the

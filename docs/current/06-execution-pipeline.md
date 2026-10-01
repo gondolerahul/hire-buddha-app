@@ -786,7 +786,6 @@ is a handful of **explicit branches**, which R1 replaces with one rule each
 
 | Branch | ACTION | SKILL | AGENT | PROCESS |
 |--------|:------:|:-----:|:-----:|:-------:|
-| Virtual 1-step plan injected on GET (UI) — [service.py:123](../../backend/src/ai/service.py:123) | ✅ | ✅ | — | — |
 | `self_introspection` auto-on | — | ✅ | ✅ | ✅ |
 | `reflection` auto-on | — | — | ✅ | ✅ |
 | `can_have_children` in the platform manifest | ❌ | ❌ | ❌ | ✅ |
@@ -1944,7 +1943,7 @@ All routes below are mounted under `/api/v1` from
 |--------|------|------|---------|
 | POST | `/ai/entities` | user; `target_company_id` needs `app_admin` or a partner owning the tenant | Create an entity. |
 | GET | `/ai/entities` | user | List non-template, non-DELETED entities. Filters: `type`, `company_id` (app_admin), `voice_enabled`, `status`. Partners also see child-tenant entities. |
-| GET | `/ai/entities/{id}` | user | Fetch one. Injects a virtual 1-step plan for ACTION/SKILL with no steps. |
+| GET | `/ai/entities/{id}` | user | Fetch one. An entity with no static steps shows the default step it would run (`planning/default_step.display_planning`), at every level — computed for the response, never written to the row (EP-27). `PUT` and the template routes show it the same way. |
 | PUT | `/ai/entities/{id}` | user | Blind field update. |
 | DELETE | `/ai/entities/{id}` | user | Cascading **soft** delete. |
 | POST | `/ai/entities/{id}/convert-to-template` | **`app_admin`** | Deep-clone the tree into template space. |

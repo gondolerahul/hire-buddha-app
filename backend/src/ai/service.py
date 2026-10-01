@@ -109,28 +109,6 @@ class AIService:
         if not entity:
             raise HTTPException(status_code=404, detail="Entity not found")
             
-        # Ensure Actions/Skills have at least one step in their plan for the UI to correctly display inputs
-        # This is a virtual fallback for UI purposes when no explicit steps are defined
-        if entity.type in [EntityType.ACTION, EntityType.SKILL]:
-            planning = entity.planning or {}
-            static_plan = planning.get("static_plan", {})
-            if not static_plan or not static_plan.get("steps"):
-                # Construct a virtual plan with a default step
-                virtual_planning = planning.copy()
-                virtual_planning["static_plan"] = {
-                    "enabled": True,
-                    "steps": [{
-                        "step_id": "default_execute",
-                        "name": "Execute",
-                        "type": "ACTION",
-                        "target": {
-                            "prompt_template": entity.description or "Process instruction: {{instruction}}"
-                        },
-                        "required": True
-                    }]
-                }
-                entity.planning = virtual_planning
-                
         return entity
 
     async def update_entity(self, entity_id: UUID, entity_in: HierarchicalEntityUpdate, company_id: UUID, user_role: str = None) -> HierarchicalEntity:
@@ -141,8 +119,7 @@ class AIService:
         # The edit is checked before it touches the row, so a refused one
         # leaves nothing to undo.
         from src.ai.governance.composition import EntityShape
-        with self.db.no_autoflush:
-            await self._require_composition(EntityShape.of(entity).with_changes(update_data))
+        await self._require_composition(EntityShape.of(entity).with_changes(update_data))
 
         for field, value in update_data.items():
             setattr(entity, field, value)
