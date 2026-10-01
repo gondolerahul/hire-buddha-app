@@ -128,7 +128,7 @@ graph TB
 | Timestamps | `created_at = DateTime, default=datetime.utcnow`; `updated_at` adds `onupdate=datetime.utcnow` | Naive `DateTime` — **no timezone**. Everything is UTC by convention, not by type. `usage_logs` calls its column `timestamp`, `conversation_history` too |
 | Soft delete | Only `hierarchical_entities` has one: `deleted_at` + `status='DELETED'` | Everything else is a hard delete or never deleted |
 | JSON | `JSON` (generic) on older tables, `JSONB` on newer ones | `execution_trace_events.payload`, all CORTEX JSON, all voice/campaign JSON are JSONB |
-| Reserved-word dodges | SQLAlchemy reserves `metadata` on the declarative class, so models map a differently-named attribute onto a `metadata` column | `Campaign.campaign_metadata`, `CampaignCall.call_metadata`, `CortexEdge.edge_metadata` all map to a DB column literally called `metadata`. `EpisodicMemory.metadata_info`, `UsageLog.log_metadata`, `Artifact.artifact_metadata` use distinct column names |
+| Reserved-word dodges | SQLAlchemy reserves `metadata` on the declarative class, so no column may be called `metadata` | Each such column has the name of the attribute that maps it: `campaign_metadata`, `call_metadata`, `edge_metadata` (renamed from `metadata` in DM-14), `log_metadata`, `artifact_metadata`. `tests/unit/test_metadata_columns.py` fails if a `metadata` column reappears |
 | Money | `Numeric` with explicit scale, never float | `Numeric(10,4)` run cost, `Numeric(18,6)` usage cost, `Numeric(14,6)` billed amount |
 | Declarative base | `src.common.database.Base` for host tables; `cortex_memory.db.Base` for the three CORTEX tables | Alembic's `target_metadata` is a **list** of both — see [§14](#14-migrations-with-alembic) |
 
@@ -672,7 +672,7 @@ Purpose: the semantic graph layer — weighted, typed links between nodes.
 | `traversal_count` | Integer | yes | `0` | |
 | `last_traversed_at` | DateTime | yes | — | |
 | `created_by` | String(50) | yes | — | Which subsystem created the edge |
-| `metadata` (attr `edge_metadata`) | JSONB | yes | — | |
+| `edge_metadata` | JSONB | yes | — | e.g. `{"run_id": …}` on `co_accessed` edges. Column `metadata` until DM-14, and never written before it (see Gotchas) |
 | `created_at` | DateTime | yes | utcnow | |
 
 Unique constraint `uq_cortex_edges_src_tgt_type (source_node_id, target_node_id, edge_type)`.
@@ -1108,7 +1108,7 @@ Defined at [campaign_models.py:52](../../backend/src/ai/campaign_models.py:52).
 | `started_at` / `completed_at` | DateTime | yes | — | |
 | `calls_initiated` / `calls_completed` / `calls_failed` | Integer | no | `0` | Counters updated by webhooks |
 | `outcome_distribution` | JSONB | yes | — | `{"success": 10, "no_answer": 5, ...}` |
-| `metadata` (attr `campaign_metadata`) | JSONB | yes | — | |
+| `campaign_metadata` | JSONB | yes | — | Column `metadata` until DM-14 |
 | `created_at` / `updated_at` | DateTime | no | utcnow | |
 
 Indexes on `company_id`, `agent_id`, `status`, `created_by`.
@@ -1134,7 +1134,7 @@ Defined at [campaign_models.py:105](../../backend/src/ai/campaign_models.py:105)
 | `duration_seconds` | Integer | yes | — | |
 | `retry_count` | Integer | no | `0` | |
 | `max_retries` | Integer | no | `2` | |
-| `metadata` (attr `call_metadata`) | JSONB | yes | — | |
+| `call_metadata` | JSONB | yes | — | Column `metadata` until DM-14 |
 | `created_at` | DateTime | no | utcnow | |
 
 Report ordering uses a SQL `CASE` built from `DISPOSITION_PRIORITY`
@@ -2104,9 +2104,12 @@ flowchart LR
 - **The CORTEX ORM lives in `site-packages`, not the repo.** `cortex_memory` is an
   installed package (`hb-cortex-memory 0.1.0`). Its tables have **no foreign keys** to
   host tables — external references are opaque nullable UUIDs by design.
-- **Three columns are literally named `metadata`** (`campaigns`, `campaign_calls`,
-  `cortex_edges`) and are mapped to differently-named Python attributes. Writing
-  `campaign.metadata` gets you SQLAlchemy's table metadata object, not your JSON.
+- **`Model(metadata=...)` is accepted and silently dropped** on every model: `metadata` is
+  the declarative class's table `MetaData`, so the constructor sets an instance attribute
+  that is never saved. No column is named `metadata` since DM-14 (2026-10-01), which renamed
+  the last three; pass the attribute's real name (`edge_metadata=`, `campaign_metadata=`).
+  `SemanticGraphService.create_edge` passed `metadata=`, so no CORTEX edge stored its
+  metadata before that fix.
 - **All `DateTime` columns are naive.** There is no `timezone=True` anywhere. UTC is a
   convention enforced only by `datetime.utcnow` defaults.
 - **Only `hierarchical_entities` is soft-deleted.** Deletion sets `status='DELETED'` and

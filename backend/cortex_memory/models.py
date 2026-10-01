@@ -210,7 +210,8 @@ class CortexEdge(Base):
     traversal_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=True)
     last_traversed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    edge_metadata: Mapped[Any] = mapped_column("metadata", JSONB, nullable=True)
+    # The column was "metadata" until host revision dm14_metadata_columns.
+    edge_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
     source_node: Mapped["CortexNode"] = relationship(

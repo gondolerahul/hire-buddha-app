@@ -89,7 +89,9 @@ class SemanticGraphService:
             edge_type=edge_type,
             weight=weight,
             created_by=created_by,
-            metadata=metadata,
+            # Not ``metadata=``: that names the declarative MetaData, so the
+            # constructor accepted it and the value was never stored (DM-14).
+            edge_metadata=metadata,
         )
         self.db.add(edge)
         return edge

@@ -95,7 +95,9 @@ class Campaign(Base):
     outcome_distribution = Column(JSONB, nullable=True)  # {"success": 10, "no_answer": 5, ...}
     
     # Metadata
-    campaign_metadata = Column("metadata", JSONB, nullable=True)
+    # Named like the attribute since DM-14; a column called "metadata" cannot
+    # be mapped under that name, and `campaign.metadata` is the table MetaData.
+    campaign_metadata = Column(JSONB, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -163,7 +165,7 @@ class CampaignCall(Base):
     max_retries = Column(Integer, nullable=False, default=2)
     
     # Metadata
-    call_metadata = Column("metadata", JSONB, nullable=True)
+    call_metadata = Column(JSONB, nullable=True)  # was column "metadata" (DM-14)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     
     # Relationships
