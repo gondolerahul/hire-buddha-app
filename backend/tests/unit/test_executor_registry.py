@@ -16,9 +16,10 @@ from src.ai.core.reasoning import (
 from src.ai.schemas.enums import ReasoningMode
 
 
+# Every registered executor is a real one; the Dialog/ToolBurst/Skill stubs
+# that raised NotImplementedError were deleted (AK-10).
 EXPECTED_EXECUTORS = {
-    "SingleStep", "DAG", "Recursive", "ChildEntity",
-    "Dialog", "ToolBurst", "Skill",
+    "SingleStep", "DAG", "Recursive", "ChildEntity", "Debate",
 }
 
 # D-3: REFLECTION and TREE_OF_THOUGHTS are retired as per-step reasoning
@@ -35,11 +36,8 @@ RETIRED_REASONING_MODES = {
 }
 
 
-def test_executor_registry_contains_seven_canonical_executors() -> None:
-    names = registered_executor_names()
-    assert EXPECTED_EXECUTORS.issubset(names), (
-        f"missing: {EXPECTED_EXECUTORS - names}"
-    )
+def test_executor_registry_holds_exactly_the_real_executors() -> None:
+    assert registered_executor_names() == EXPECTED_EXECUTORS
 
 
 def test_get_executor_resolves_each() -> None:
@@ -51,24 +49,6 @@ def test_get_executor_resolves_each() -> None:
 def test_get_executor_unknown_raises() -> None:
     with pytest.raises(LookupError):
         get_executor("NotARealExecutor")
-
-
-@pytest.mark.asyncio
-async def test_stub_executors_raise_not_implemented() -> None:
-    from src.ai.core.strategist import Move
-    from src.ai.core.agent_state import AgentState
-    from src.ai.core.budget import Budget
-    from src.ai.schemas.enums import EntityType
-    from uuid import uuid4
-
-    state = AgentState(
-        run_id=uuid4(), entity_id=uuid4(), company_id=None,
-        entity_type=EntityType.AGENT, budget=Budget(),
-    )
-    for name in ("Dialog", "ToolBurst", "Skill"):
-        move = Move(move_id="x", goal_id=None, executor=name)
-        with pytest.raises(NotImplementedError):
-            await get_executor(name).execute(move, state, db=None)
 
 
 def test_reasoning_registry_complete() -> None:

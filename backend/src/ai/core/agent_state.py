@@ -48,9 +48,6 @@ ExecutorName = Literal[
     "SingleStep",
     "ChildEntity",
     "Debate",
-    "Dialog",
-    "ToolBurst",
-    "Skill",
 ]
 
 

@@ -53,27 +53,21 @@ from typing import Any, Dict
 # ---------------------------------------------------------------------------
 # 1. Feature-flag overrides — written to metadata_extensions.feature_flags on
 #    EVERY entity (parent + every child re-resolve flags from their own config).
-#    The two master switches default OFF; the rest default ON but are pinned for
-#    reproducibility.
+#    They match the defaults; they are pinned for reproducibility.
 # ---------------------------------------------------------------------------
 FEATURE_FLAG_OVERRIDES: Dict[str, bool] = {
-    # master canary switches (default OFF) — flip ON for this hierarchy
-    "agent_loop.enabled": True,
-    "meta_agent.board_routing": True,
+    # Only flags something reads (AK-10). The agent_loop.enabled, board_routing,
+    # meta_review.* and planner.invariants/judge/priors overrides that used to sit
+    # here named switches nothing reads.
     # critic pipeline v2
     "critic_pipeline.v2_enabled": True,
     "critic_pipeline.pre_critic_enabled": True,
     "critic_pipeline.different_model_critic": True,
     "critic_pipeline.calibration_enabled": True,
-    # meta-review + bandit
-    "meta_review.v2_enabled": True,
-    "meta_review.fast_path_enabled": True,
+    # bandit
     "bandit.enabled": True,
     # planner v2
     "planner.v2_enabled": True,
-    "planner.invariants_enforced": True,
-    "planner.judge_enabled": True,
-    "planner.priors_enabled": True,
     # memory v2
     "memory.v2_canonical": True,
     "memory.scope_policy_enforced": True,

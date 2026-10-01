@@ -34,50 +34,49 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULTS: dict[str, bool] = {
+    # A declared flag must have a reader (AK-10). ``tests/unit/
+    # test_feature_flag_census.py`` fails when a key here is read by nothing
+    # outside this module; the few known exceptions are listed there with the
+    # phase that decides them.
+    #
     # The AgentLoop is the sole run engine (C4 deleted the legacy
     # ExecutionEngine.execute_run path), so the ``agent_loop.enabled`` master
     # switch no longer exists. The remaining ``agent_loop.*`` flags tune
     # behaviour WITHIN the loop.
-    "agent_loop.perception_bounded_viewport": True,
+    #
+    # Write one AgentState snapshot node into the run's CORTEX tree per
+    # iteration (it feeds the /agent_state rail). Off saves one write per
+    # iteration; a suspended run's resumable snapshot is separate and unaffected.
     "agent_loop.snapshot_every_iteration": True,
-    "agent_loop.executor_dialog_enabled": False,
-    "agent_loop.executor_skill_enabled": False,
-    "agent_loop.executor_tool_burst_enabled": False,
     # Budget-aware REACT (Phase 12 `07` §2): thread budget pressure into the
     # step prompt as a soft constraint, with an explicit "finish, don't expand"
     # directive past ``agent_loop.budget_pressure_threshold``. The hard engine
     # cap still applies; this nudges the LLM to plan within budget. Default ON.
     "agent_loop.budget_aware_react": True,
-    # Meta-Agent board is the default routing path (see the canonical entry
-    # below; this alias kept ON for consistency).
-    "meta_agent.board_routing": True,
     # Critic pipeline v2 defaults.
     "critic_pipeline.v2_enabled": True,
     "critic_pipeline.different_model_critic": True,
     "critic_pipeline.pre_critic_enabled": True,
     # (C1: critic_pipeline.v1_compat retired — the v1 critic body is deleted.)
+    # Weekly critic calibration per company (critic_calibration_job).
     "critic_pipeline.calibration_enabled": True,
-    # Legacy alias retained for tests / pre-Track-3 callers.
-    "critic_pipeline.enabled": False,
-    # Supervisor v2 + bandit defaults.
-    "meta_review.v2_enabled": True,
-    "meta_review.fast_path_enabled": True,
     "bandit.enabled": True,
     "task_classifier.v2_enabled": False,
-    # Meta-Agent Board defaults.
-    # `board_routing` defaults ON in this pre-production/development build
-    # (30-day canary gate skipped); the board is the default Meta-Agent path.
-    # Downstream gates already default ON so the master flip wires up cleanly.
+    # Meta-Agent Board defaults. The seven-role Board has no production caller
+    # (MI-20); these flags gate it and are decided with it in P10 of the
+    # consolidated plan.
     "meta_agent.board_routing": True,
     "meta_agent.spec_critic_required": True,
     "meta_agent.draft_lifecycle": True,
     "meta_agent.testdriver_suite_enabled": True,
-    "meta_agent.skill_promotion_cron": True,
-    "meta_agent.prompt_evolution_cron": True,
     "meta_agent.curator_consolidation_enabled": False,
     # Third-model tiebreak for high-stakes spec-critic disagreements (Phase 12
     # `06` §4.3). Default OFF; enabled per company.
     "meta_agent.spec_critic_tiebreak": False,
+    # The two weekly Meta-Agent crons (skill_promotion_scan,
+    # meta_agent_prompt_evolution) skip when their flag is off.
+    "meta_agent.skill_promotion_cron": True,
+    "meta_agent.prompt_evolution_cron": True,
     # Tool synthesis kill switch (Phase 12 `06` §2.2 control 5). Default OFF;
     # the marquee/most-dangerous capability. Even when ON, the tool_synthesis
     # meta-tool stays Meta-Agent-only + container-only-exec + DRAFT-register-only.
@@ -86,16 +85,8 @@ DEFAULTS: dict[str, bool] = {
     # gone: ToolCostResolver is the only tool price lookup, unconditionally —
     # BC-17. The flag was declared and never read.)
     "tools.resilience_v2_enabled": True,
-    # Last canary flag of the cost-attribution programme: flipped ON once
-    # embedding became the final metered cost site (memory/embedding_service.py).
-    # Every cost surface now writes an attributed usage_logs row; the CI guard
-    # in tests/integration/test_cost_attribution.py enforces the invariant.
-    "tools.cost_attribution_required": True,
-    # Planner v2 defaults.
+    # Planner v2 (multi-candidate generation + invariants + judge).
     "planner.v2_enabled": True,
-    "planner.invariants_enforced": True,
-    "planner.judge_enabled": True,
-    "planner.priors_enabled": True,
     # Per-tenant container sandbox canary (Phase 12 `02` S4). Default ON
     # (globally enabled as of Phase 12 go-live — Step 1.3 of phase12_ops_guide.md).
     # A global DB row (company_id IS NULL) also enforces this; the code default
@@ -136,8 +127,7 @@ NUMERIC_DEFAULTS: dict[str, float] = {
     # Budget pressure (0..1) past which budget-aware REACT injects the explicit
     # "finish, don't expand" directive (Phase 12 `07` §2).
     "agent_loop.budget_pressure_threshold": 0.70,
-    "critic_pipeline.budget_share_cap": 0.20,
-    # Meta-Agent test driver suite budget (USD).
+    # Meta-Agent test driver suite budget (USD). Gates the unwired Board (MI-20).
     "meta_agent.testdriver_budget_usd": 3.00,
     # Planner candidate count.
     "planner.n_candidates": 3,

@@ -272,7 +272,6 @@ def _build_payload() -> dict:
         "critic_pipeline.v2_enabled": False,
         "critic_pipeline.pre_critic_enabled": False,
         "critic_pipeline.different_model_critic": False,
-        "meta_review.v2_enabled": False,
     })
     return payload
 

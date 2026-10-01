@@ -2030,8 +2030,7 @@ calls on top of the loop and cost $15+ a run.
     "feature_flags": {
       "critic_pipeline.v2_enabled": false,
       "critic_pipeline.pre_critic_enabled": false,
-      "critic_pipeline.different_model_critic": false,
-      "meta_review.v2_enabled": false
+      "critic_pipeline.different_model_critic": false
     }
   }
 }

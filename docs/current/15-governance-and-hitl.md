@@ -939,18 +939,18 @@ given. It also raises `RuntimeError` if `db is None`.
 
 ## 13. Feature flags — the complete catalogue
 
-**42 boolean flags** and **5 numeric flags**, extracted from
-[core/feature_flags.py](../../backend/src/ai/core/feature_flags.py).
+**29 boolean flags** and **4 numeric flags**, extracted from
+[core/feature_flags.py](../../backend/src/ai/core/feature_flags.py). Thirteen
+flags that nothing read were deleted on 2026-10-01 (AK-10);
+`tests/unit/test_feature_flag_census.py` now fails when a declared flag has no
+reader, apart from a short `KNOWN_UNREAD` list that names the decision each
+one waits on.
 
 ### 13.1 Agent loop
 
 | Flag | Default | Controls |
 |---|---|---|
-| `agent_loop.perception_bounded_viewport` | `True` | Bound the CORTEX viewport during perception |
 | `agent_loop.snapshot_every_iteration` | `True` | Write an `AgentState` `snapshot` node each iteration |
-| `agent_loop.executor_dialog_enabled` | `False` | Enable the Dialog executor (stub) |
-| `agent_loop.executor_skill_enabled` | `False` | Enable the Skill executor (stub) |
-| `agent_loop.executor_tool_burst_enabled` | `False` | Enable the ToolBurst executor (stub) |
 | `agent_loop.budget_aware_react` | `True` | Thread budget pressure into the step prompt |
 
 > There is **no `agent_loop.enabled` master switch.** The comment in the code is
@@ -965,8 +965,7 @@ given. It also raises `RuntimeError` if `db is None`.
 | `critic_pipeline.v2_enabled` | `True` | The v2 critic pipeline |
 | `critic_pipeline.different_model_critic` | `True` | Critique with a different model than the actor |
 | `critic_pipeline.pre_critic_enabled` | `True` | Pre-action critic gate |
-| `critic_pipeline.calibration_enabled` | `True` | False-pass/false-fail calibration |
-| `critic_pipeline.enabled` | `False` | ⚠️ Legacy alias for pre-Track-3 callers |
+| `critic_pipeline.calibration_enabled` | `True` | False-pass/false-fail calibration (per company, in the weekly job) |
 
 `critic_pipeline.v1_compat` was retired (C1) — the v1 critic body is deleted.
 
@@ -974,8 +973,6 @@ given. It also raises `RuntimeError` if `db is None`.
 
 | Flag | Default | Controls |
 |---|---|---|
-| `meta_review.v2_enabled` | `True` | SupervisorCritic v2 |
-| `meta_review.fast_path_enabled` | `True` | Cheap fast path before full supervision |
 | `bandit.enabled` | `True` | `PlanStyleBandit` arm selection |
 | `task_classifier.v2_enabled` | `False` | Embedding-NN task classifier (v1 rule-based otherwise) |
 
@@ -983,18 +980,20 @@ given. It also raises `RuntimeError` if `db is None`.
 
 | Flag | Default | Controls |
 |---|---|---|
-| `meta_agent.board_routing` | `True` | Board is the default Meta-Agent path |
-| `meta_agent.spec_critic_required` | `True` | Spec critic must run |
-| `meta_agent.draft_lifecycle` | `True` | DRAFT → ACTIVE lifecycle |
-| `meta_agent.testdriver_suite_enabled` | `True` | Run the TestDriver suite |
-| `meta_agent.skill_promotion_cron` | `True` | Weekly skill-candidate scan |
-| `meta_agent.prompt_evolution_cron` | `True` | Weekly prompt-evolution proposal |
-| `meta_agent.curator_consolidation_enabled` | `False` | Merge-plan proposals for duplicate clusters |
-| `meta_agent.spec_critic_tiebreak` | `False` | Third-model tiebreak on high-stakes disagreement |
+| `meta_agent.board_routing` | `True` | Board is the default Meta-Agent path — **read by nothing** (MI-20) |
+| `meta_agent.spec_critic_required` | `True` | Spec critic must run — **read by nothing** (MI-20) |
+| `meta_agent.draft_lifecycle` | `True` | DRAFT → ACTIVE lifecycle — **read by nothing** (MI-20) |
+| `meta_agent.testdriver_suite_enabled` | `True` | Run the TestDriver suite — **read by nothing** (MI-20) |
+| `meta_agent.skill_promotion_cron` | `True` | Weekly skill-candidate scan (per company) |
+| `meta_agent.prompt_evolution_cron` | `True` | Weekly prompt-evolution proposal (per company) |
+| `meta_agent.curator_consolidation_enabled` | `False` | Merge-plan proposals for duplicate clusters — **read by nothing** (MI-20) |
+| `meta_agent.spec_critic_tiebreak` | `False` | Third-model tiebreak on high-stakes disagreement — **read by nothing** (MI-20) |
 | `meta_agent.tool_synthesis_enabled` | **`False`** | ⚠️ Agents writing new tools |
 
-`meta_agent.board_routing` appears **twice** in `DEFAULTS`, both `True` — a
-harmless duplicate key (the second wins).
+The six Board flags gate the seven-role Architecture Board, which has no
+production caller (MI-20 in [register 11](defect-register/11-META-INTELLIGENCE-DEFECTS.md)).
+They are listed in the census test's `KNOWN_UNREAD` until P10 of the
+[consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md) decides the Board.
 
 The tool-synthesis flag is described in code as the kill switch for *"the
 marquee/most-dangerous capability"*:
@@ -1012,20 +1011,16 @@ marquee/most-dangerous capability"*:
 | Flag | Default | Controls |
 |---|---|---|
 | `tools.resilience_v2_enabled` | `True` | v2 retry / circuit-breaker policies |
-| `tools.cost_attribution_required` | `True` | Every cost surface must write an attributed `usage_logs` row |
 
-`tools.cost_attribution_required` was the last canary of the cost-attribution
-programme, flipped ON once embeddings became the final metered site. A CI guard
-in `tests/integration/test_cost_attribution.py` enforces the invariant.
+`tools.cost_attribution_required` was deleted (AK-10): it was the last canary of
+the cost-attribution programme and nothing read it. The invariant is enforced by
+a test, `tests/integration/test_cost_attribution.py`, not a runtime switch.
 
 ### 13.6 Planner
 
 | Flag | Default | Controls |
 |---|---|---|
 | `planner.v2_enabled` | `True` | Planner v2 |
-| `planner.invariants_enforced` | `True` | Enforce `plan_invariants` checks |
-| `planner.judge_enabled` | `True` | LLM judge over plan candidates |
-| `planner.priors_enabled` | `True` | Planner priors |
 
 ### 13.7 Sandbox
 
@@ -1059,8 +1054,7 @@ See [08 — Memory and CORTEX](08-memory-and-cortex.md) for what each does.
 |---|---|---|
 | `bandit.epsilon` | `0.10` | Exploration rate for the plan-style bandit |
 | `agent_loop.budget_pressure_threshold` | `0.70` | Pressure past which "finish, don't expand" is injected |
-| `critic_pipeline.budget_share_cap` | `0.20` | Max share of run budget the critics may consume |
-| `meta_agent.testdriver_budget_usd` | `3.00` | Shared budget for the Board's test suite |
+| `meta_agent.testdriver_budget_usd` | `3.00` | Shared budget for the Board's test suite — **read by nothing** (MI-20); `TestDriver` uses its own `$3.00` constant |
 | `planner.n_candidates` | `3` | Plan candidates generated per planning call |
 
 ### 13.10 Flags that are OFF by default
@@ -1253,7 +1247,7 @@ redis-cli DEL "tool:search:company_<uuid>"
 - [14 — Billing and credits](14-billing-and-credits.md) — `CreditService`, the
   wallet, and the TB settlement formula.
 - [07 — Planning and critics](07-planning-and-critics.md) — the critic gates and
-  `critic_pipeline.budget_share_cap`.
+  `governance.critic_cost_share_pct`.
 - [11 — Meta-intelligence](11-meta-intelligence.md) — the Board's own gates and
   `meta_agent.*` flags.
 - [09 — Tools](09-tools.md) — tool SKUs, per-run tool budgets, and the sandbox

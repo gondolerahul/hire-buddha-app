@@ -39,10 +39,10 @@
 | Source registers consolidated | 8 (05, 06, 07, 09, 10, 11, TOOL-LAYER, PO-06) |
 | Defect entries in the sources | 189 |
 | Improvement entries in the sources | 60 |
-| Distinct defects after merging duplicates | **166** (23 merges), plus 3 new = **169** |
+| Distinct defects after merging duplicates | **166** (23 merges), plus 4 new = **170** |
 | Already fixed before this consolidation | 10 fully (AK-15, EP-11, PC-04, PC-16, PC-23, PC-24, LP-06, LP-25, TL-19, TL-06) and 2 in part (the queue half of AK-07, the `ToolCostResolver` half of TX-I1) |
 | Found stale while re-verifying | 1 (AK-I7) |
-| New defects found while re-verifying | **3** new entries (EP-26, EP-27, EP-28) and **5** existing entries found worse than recorded (LP-01, EP-03, EP-01, PC-18, AK-10) |
+| New defects found while re-verifying | **4** new entries (EP-26, EP-27, EP-28, MI-20) and **5** existing entries found worse than recorded (LP-01, EP-03, EP-01, PC-18, AK-10) |
 | Product requirements folded in | 2 (R1 six-level hierarchy, R2 skill-first tool stack) |
 | Phases | 12 (P0 … P11) |
 
@@ -99,7 +99,7 @@ The ten things to read first, in consequence order:
 | 🆕 | Found while re-verifying for this consolidation |
 
 New defects found today keep their register's prefix with the next free number:
-**EP-26, EP-27, EP-28** (register 06). The worse faces of LP-01 and EP-03 are recorded
+**EP-26, EP-27, EP-28** (register 06) and **MI-20** (register 11). The worse faces of LP-01 and EP-03 are recorded
 on those entries.
 
 ---
@@ -421,6 +421,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **MI-15** | MI-I8 | Tree sections LRU-prune at 200 rows, rare anti-patterns first | Medium | 📄 | P10 |
 | **MI-17** | MI-I7 | Human-gated queues notify nobody | Low | 📄 | P10 |
 | **MI-19** | MI-I10 | Schema drift is detected and acted on by nothing | Low | 📄 | P10 |
+| **MI-20** | — | The seven-role Board has no production caller; its six flags and `testdriver_budget_usd` are read by nothing — MI-04/05/06/07/18 describe code that never runs | High | 🆕 | P10 |
 | **MI-I4** | — | Cache the platform schema compilation | — | open | P10 |
 | **MI-08, MI-11** | — | Documentation: five of seven Board roles call no LLM; MetaIntelligenceTree has no `entity_id` | Low | 📄 | P10 |
 | **MI-10** | — | The curator reads `similar_id`; the guard returns `existing_entity_id` — reviewers always see `?` | Low | ✅ | P0 |
@@ -718,7 +719,9 @@ provider match (LP-21); cross-process key invalidation over Redis (LP-22); the
 
 ### P10 — Meta-intelligence
 
-Gates fail closed with a metric (MI-01); anti-sprawl in the creation service (MI-02); a
+**First decide the Board (MI-20):** wire Validator → TestDriver → Promoter as the
+gate a drafted SKILL version passes before publication, or delete the package and its
+flags. Then: gates fail closed with a metric (MI-01); anti-sprawl in the creation service (MI-02); a
 per-minute creation limit through `RedisRateLimiter` (MI-03/TL-28); G5 checks the
 curator's decision against the duplicate finding (MI-04); suites report `ran/passed/
 failed/skipped` and a skipped case is not a pass (MI-05/MI-18); the Architect rewrites

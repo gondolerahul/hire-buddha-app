@@ -113,10 +113,13 @@ class PlannerService:
         from src.ai.planning.plan_generator import PlanContext, PlanGenerator
 
         try:
-            from src.ai.core.feature_flags import NUMERIC_DEFAULTS
-            n_candidates = int(NUMERIC_DEFAULTS.get("planner.n_candidates", 3))
+            # Through the resolver, so a company or global row overrides it.
+            from src.ai.core.feature_flags import FeatureFlags
+            n_candidates = int(await FeatureFlags(self.db).get_float(
+                "planner.n_candidates", company_id=self.company_id, default=3,
+            ))
         except Exception:                                                    # pragma: no cover
-            n_candidates = 2
+            n_candidates = 3
 
         child_roster, known_child_ids = await self._child_roster(entity, static_plan)
         ctx = PlanContext(

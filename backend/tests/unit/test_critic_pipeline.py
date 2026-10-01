@@ -184,7 +184,7 @@ async def test_real_pipeline_pre_action_block() -> None:
     )
     state = _state()
     verdict = await pipe.pre_action(
-        _move(executor="ToolBurst", rationale="generate marketing images"),
+        _move(executor="SingleStep", rationale="generate marketing images"),
         state,
     )
     assert verdict.kind == "BLOCK"

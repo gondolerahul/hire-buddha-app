@@ -295,7 +295,15 @@ It costs a little snapshot size and a lot of reader confusion.
 
 ### AK-10 — Five feature flags are declared and read nowhere
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — a census found 23 unread
+flags, not 5. `agent_loop.snapshot_every_iteration`, `critic_pipeline.calibration_enabled`
+and the two weekly Meta-Agent cron flags are now read where their code runs;
+`bandit.epsilon` and `planner.n_candidates` resolve through the flag service; the
+other thirteen, and the three stub executors they gated, are deleted.
+`tests/unit/test_feature_flag_census.py` fails when a declared flag has no reader;
+its `KNOWN_UNREAD` list names the eleven that wait on a decision (`memory.*` in
+register 08, `memory.trust_score_learning` with PC-11, and the Board flags with
+[MI-20](11-META-INTELLIGENCE-DEFECTS.md#mi-20--the-seven-role-board-has-no-production-caller)).
 
 | Flag | Default | Read by |
 |---|---|---|

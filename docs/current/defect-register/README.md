@@ -44,7 +44,7 @@ something that works but costs more than it should.
 | 08 | [Memory, CORTEX & retrieval](08-MEMORY-AND-CORTEX-DEFECTS.md) | [08](../08-memory-and-cortex.md) | 20 (9 fixed, 11 deferred) | 11 |
 | 09 | [Tools & the tool registry](09-TOOLS-DEFECTS.md) | [09](../09-tools.md) | 6 + **[49 deep](TOOL-LAYER-DEFECTS.md)** | 10 |
 | 10 | [LLM providers & routing](10-LLM-PROVIDERS-DEFECTS.md) | [10](../10-llm-providers.md) | 25 | 10 |
-| 11 | [Meta-intelligence & the Board](11-META-INTELLIGENCE-DEFECTS.md) | [11](../11-meta-intelligence.md) | 19 | 10 |
+| 11 | [Meta-intelligence & the Board](11-META-INTELLIGENCE-DEFECTS.md) | [11](../11-meta-intelligence.md) | 20 | 10 |
 | 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 | 10 |
 | 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 | 10 |
 | 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 31 (30 fixed, 1 won't fix) | 10 (8 done, 1 done for tools, 1 partly) |
@@ -56,9 +56,9 @@ something that works but costs more than it should.
 | 20 | [Developer onboarding & glossary](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md) | [20](../20-onboarding-and-glossary.md) | 18 | 10 |
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 | — |
 | — | [**Tool stack audit (PO-06)**](PO-06-TOOL-STACK-AUDIT.md) | [09](../09-tools.md) | 18 (TL-50…TL-67) | — |
-| — | [**Consolidated plan — 05/06/07/09/10/11 + tools**](CONSOLIDATED-KERNEL-TOOLS-PLAN.md) | 05, 06, 07, 09, 10, 11 | 169 distinct (merged from 189 + 3 new) | 60 (merged) |
+| — | [**Consolidated plan — 05/06/07/09/10/11 + tools**](CONSOLIDATED-KERNEL-TOOLS-PLAN.md) | 05, 06, 07, 09, 10, 11 | 170 distinct (merged from 189 + 4 new) | 60 (merged) |
 
-**506 defects, 202 improvements.** Registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 are worked together through the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
+**507 defects, 202 improvements.** Registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 are worked together through the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
 
 Related: [`../DEFECT-REGISTER.md`](../DEFECT-REGISTER.md) is the earlier platform-wide list
 (45 items, `D-nn`). Every one of its entries reappears in the module register that owns it,

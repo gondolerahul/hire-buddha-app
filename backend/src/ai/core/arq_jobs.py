@@ -19,6 +19,20 @@ from src.ai.models import ExecutionRun, HierarchicalEntity, RunStatus
 
 logger = logging.getLogger(__name__)
 
+
+async def _company_flag_on(
+    db: Any, flag_key: str, company_id: Any, cache: dict[Any, bool],
+) -> bool:
+    """Whether a per-company flag is on, resolved once per company per job.
+
+    The weekly crons iterate companies; each company's flag decides whether
+    the cron does anything for it (AK-10: a declared flag is read).
+    """
+    if company_id not in cache:
+        from src.ai.core.feature_flags import FeatureFlags
+        cache[company_id] = await FeatureFlags(db).is_on(flag_key, company_id=company_id)
+    return cache[company_id]
+
 # --- Arq Jobs ---
 
 async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str) -> Any:
@@ -836,7 +850,12 @@ async def critic_calibration_job(ctx: dict[str, Any]) -> dict[str, Any]:
 
             entities_scored = 0
             samples_total = 0
+            enabled: dict[Any, bool] = {}
             for company_id in company_ids:
+                if not await _company_flag_on(
+                    db, "critic_pipeline.calibration_enabled", company_id, enabled,
+                ):
+                    continue
                 results = await CriticCalibrator(db, company_id).run()
                 entities_scored += len(results)
                 samples_total += sum(r.samples for r in results)
@@ -877,11 +896,16 @@ async def skill_promotion_scan(ctx: dict[str, Any]) -> dict[str, Any]:
                 .where(ExecutionRun.entity_id.is_not(None))
                 .limit(500)
             )).scalars().all()
+            enabled: dict[Any, bool] = {}
             for entity_id in entity_rows:
                 ent = (await db.execute(
                     select(HierarchicalEntity).where(HierarchicalEntity.id == entity_id)
                 )).scalar_one_or_none()
                 if ent is None or ent.company_id is None:
+                    continue
+                if not await _company_flag_on(
+                    db, "meta_agent.skill_promotion_cron", ent.company_id, enabled,
+                ):
                     continue
                 lib = SkillLibrary(db)
                 try:
@@ -959,8 +983,13 @@ async def meta_agent_prompt_evolution(ctx: dict[str, Any]) -> dict[str, Any]:
                 if isinstance(e.metadata_extensions, dict)
                 and e.metadata_extensions.get("is_meta_agent")
             ]
+            enabled: dict[Any, bool] = {}
             for me in meta_entities:
                 if me.company_id is None:
+                    continue
+                if not await _company_flag_on(
+                    db, "meta_agent.prompt_evolution_cron", me.company_id, enabled,
+                ):
                     continue
                 recent = (await db.execute(
                     select(ExecutionRun)

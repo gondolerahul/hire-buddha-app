@@ -8,6 +8,7 @@ import pytest
 
 from src.ai.core.agent_state import AgentState, SupervisorVerdict
 from src.ai.core.budget import Budget
+from src.ai.core.executors import registered_executor_names
 from src.ai.core.strategist import Strategist
 from src.ai.schemas.enums import EntityType
 
@@ -145,8 +146,8 @@ async def test_singlestep_carries_per_step_reasoning_hint() -> None:
 
 
 @pytest.mark.asyncio
-async def test_strategist_never_picks_stub_executor() -> None:
-    """The Track 2 Strategist must avoid Dialog / ToolBurst / Skill."""
+async def test_strategist_only_picks_registered_executors() -> None:
+    """Every move names an executor the registry can resolve."""
     for et in EntityType:
         for plan in (
             [],
@@ -157,8 +158,8 @@ async def test_strategist_never_picks_stub_executor() -> None:
         ):
             s = _state(entity_type=et, plan_steps=plan)
             move = await Strategist().next_move(s, perception=None)
-            assert move.executor not in {"Dialog", "ToolBurst", "Skill"}, (
-                f"strategist picked stub for entity_type={et} plan={plan}"
+            assert move.executor in registered_executor_names(), (
+                f"strategist picked an unregistered executor for entity_type={et} plan={plan}"
             )
 
 

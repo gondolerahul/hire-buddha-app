@@ -143,6 +143,8 @@ class AgentLoop:
         self.memory: Any = None  # RunMemory; None when memory is off
         self._entity: Any = None
         self.credits: Optional[CreditGuard] = None  # set once the run is loaded
+        # ``agent_loop.snapshot_every_iteration``, resolved in ``_compose``.
+        self._snapshot_each_iteration = True
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -541,12 +543,6 @@ class AgentLoop:
         ) as _exec_span:
             try:
                 action_result: ActionResult = await executor.execute(move, state, self.db)
-            except NotImplementedError as exc:
-                logger.warning("Stub executor invoked: %s", exc)
-                action_result = ActionResult(
-                    success=False,
-                    error=f"stub: {exc}",
-                )
             except Exception as exc:                                       # noqa: BLE001
                 action_result = ActionResult(
                     success=False,
@@ -792,6 +788,10 @@ class AgentLoop:
             self.db, state, entity=self._entity, runtime_tree=tree, resumed=resumed,
         )
 
+        self._snapshot_each_iteration = await self._flag_or_default(
+            "agent_loop.snapshot_every_iteration", True, state,
+        )
+
         # Track 4: optional bandit shared by Strategist + finalize().
         self.bandit = await self._build_bandit(state)
         self.strategist = Strategist(bandit=self.bandit)
@@ -1034,7 +1034,11 @@ class AgentLoop:
         earlier in the same iteration become visible live (CortexService.write
         only flushes).
         """
-        if self.cortex is None or state.cortex_working_root_id is None:
+        if (
+            not self._snapshot_each_iteration
+            or self.cortex is None
+            or state.cortex_working_root_id is None
+        ):
             return
         try:
             await self.cortex.write(
@@ -1298,9 +1302,11 @@ class AgentLoop:
         if not enabled or state.company_id is None:
             return None
         try:
-            from src.ai.core.feature_flags import NUMERIC_DEFAULTS
             from src.ai.planning.plan_style_bandit import PlanStyleBandit
-            epsilon = float(NUMERIC_DEFAULTS.get("bandit.epsilon", 0.10))
+            # Through the resolver, so a company or global row overrides it.
+            epsilon = await self.flags.get_float(
+                "bandit.epsilon", company_id=state.company_id, default=0.10,
+            )
             return PlanStyleBandit(
                 db=self.db, company_id=state.company_id, epsilon=epsilon,
             )

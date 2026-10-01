@@ -1057,14 +1057,16 @@ flowchart TD
     IMP --> RC["recursive"] --> REG
     IMP --> CE["child_entity"] --> REG
     IMP --> DB2["debate"] --> REG
-    IMP --> ST["stubs - Dialog, ToolBurst, Skill"] --> REG
     LOOP["AgentLoop.get_executor name"] --> REG
     REG -- missing --> ERR["LookupError - iteration returns early"]
 ```
 
 `register_executor` is idempotent and last-write-wins, which is exactly how the
-tests swap in fakes. Real executors are imported before stubs so a stub can
-never shadow a working adapter.
+tests swap in fakes. Every registered executor is real: the `Dialog`,
+`ToolBurst` and `Skill` stubs, which raised `NotImplementedError`, were deleted
+with their three flags on 2026-10-01 (AK-10). Under the six-level hierarchy a
+SKILL runs through the same loop as every other level, so there is no
+skill-specific executor to build.
 
 ### The registry
 
@@ -1075,14 +1077,10 @@ never shadow a working adapter.
 | `Recursive` | `RecursiveExecutor` | [recursive.py](../../backend/src/ai/core/executors/recursive.py) | For a goal-only AGENT: calls `PlannerService.reconcile` to turn the goal into a plan, writes `run.dynamic_plan`, and lets the next iteration dispatch it. If no plan results, achieves all subgoals and stamps `result_data = {"output": "Success", "steps": []}`. | implemented |
 | `ChildEntity` | `ChildEntityExecutor` | [child_entity.py](../../backend/src/ai/core/executors/child_entity.py) | Creates a child `ExecutionRun`, enqueues `run_execution_recursive` for it, returns `awaiting_children` so the parent suspends. | implemented |
 | `Debate` | `DebateExecutor` | [debate.py](../../backend/src/ai/core/executors/debate.py) | Generates N persona/temperature-varied candidate answers in parallel, an independent LLM judge picks the winner, writes a `debate` subtree to CORTEX. Defaults: 3 candidates, min 2, max 5. | implemented |
-| `Dialog` | `DialogExecutor` | [stubs.py](../../backend/src/ai/core/executors/stubs.py) | Reserved for the Meta-Agent multi-role chat. `execute` raises `NotImplementedError`. | **stub** |
-| `ToolBurst` | `ToolBurstExecutor` | [stubs.py](../../backend/src/ai/core/executors/stubs.py) | Reserved for planner-driven tool bursts. Raises. | **stub** |
-| `Skill` | `SkillExecutor` | [stubs.py](../../backend/src/ai/core/executors/stubs.py) | Reserved for SkillLibrary playback. Raises. | **stub** |
 
-`ExecutorName` also declares these eight names as a `Literal` in
-[agent_state.py:45](../../backend/src/ai/core/agent_state.py:45). Stubs raise
-loudly rather than silently mis-billing; the loop converts the
-`NotImplementedError` into a failed `ActionResult` and carries on.
+`ExecutorName` declares these five names as a `Literal` in
+[agent_state.py](../../backend/src/ai/core/agent_state.py). An executor that
+raises is converted by the loop into a failed `ActionResult`.
 
 ### `ActionResult`
 
@@ -1593,36 +1591,20 @@ through to env + defaults, so deploy order does not matter.
 
 | Flag | Default | What it does |
 |------|---------|--------------|
-| `agent_loop.perception_bounded_viewport` | `True` | Intended to bound the CORTEX viewport. **Not referenced in code** — the Perceiver's `max_viewport_chars=4000` is unconditional. |
-| `agent_loop.snapshot_every_iteration` | `True` | Intended to gate `_snapshot`. **Not referenced in code** — snapshots are unconditional when CORTEX is wired. |
-| `agent_loop.executor_dialog_enabled` | `False` | Reserved gate for the `Dialog` stub. Not read today. |
-| `agent_loop.executor_skill_enabled` | `False` | Reserved gate for the `Skill` stub. Not read today. |
-| `agent_loop.executor_tool_burst_enabled` | `False` | Reserved gate for the `ToolBurst` stub. Not read today. |
+| `agent_loop.snapshot_every_iteration` | `True` | **Live.** Off → `_snapshot` writes no per-iteration AgentState node (the `/agent_state` rail goes quiet); a suspended run's resumable snapshot is separate and unaffected. |
 | `agent_loop.budget_aware_react` | `True` | **Live.** Injects budget-pressure lines into the step's execution-constraints prompt block. |
-| `meta_agent.board_routing` | `True` | Meta-Agent board is the default routing path. |
 | `critic_pipeline.v2_enabled` | `True` | **Live.** Off → the loop keeps `NoOpCriticPipeline`; every verdict PASSes. |
 | `critic_pipeline.different_model_critic` | `True` | **Live.** Passed as `enable_different_model` into the pipeline config. |
 | `critic_pipeline.pre_critic_enabled` | `True` | **Live.** Off → `pre_action` returns PASS without an LLM call. |
-| `critic_pipeline.calibration_enabled` | `True` | Weekly critic calibration cron. |
-| `critic_pipeline.enabled` | `False` | Legacy alias kept for pre-Track-3 callers. |
-| `meta_review.v2_enabled` | `True` | SupervisorCritic v2 instead of the `MetaReviewer` shim. |
-| `meta_review.fast_path_enabled` | `True` | Supervisor cheap heuristic before the LLM call. |
+| `critic_pipeline.calibration_enabled` | `True` | **Live.** Off for a company → the weekly `critic_calibration_job` skips it. |
 | `bandit.enabled` | `True` | **Live.** Off → `_build_bandit` returns `None` and the Strategist always takes the first candidate. |
 | `task_classifier.v2_enabled` | `False` | **Live.** Passed to `TaskClassifier`; changes how `state.task_class` is derived. |
-| `meta_agent.spec_critic_required` | `True` | Meta-Agent board gates. |
-| `meta_agent.draft_lifecycle` | `True` | Meta-Agent board gates. |
-| `meta_agent.testdriver_suite_enabled` | `True` | Meta-Agent board gates. |
-| `meta_agent.skill_promotion_cron` | `True` | Weekly skill candidate scan. |
-| `meta_agent.prompt_evolution_cron` | `True` | Prompt evolution cron. |
-| `meta_agent.curator_consolidation_enabled` | `False` | Curator consolidation. |
-| `meta_agent.spec_critic_tiebreak` | `False` | Third-model tiebreak for high-stakes disagreements. |
+| `meta_agent.board_routing`, `meta_agent.spec_critic_required`, `meta_agent.draft_lifecycle`, `meta_agent.testdriver_suite_enabled`, `meta_agent.curator_consolidation_enabled`, `meta_agent.spec_critic_tiebreak` | — | Gate the seven-role Architecture Board, which has **no production caller** (MI-20). Read by nothing until P10 of the consolidated plan decides the Board |
+| `meta_agent.skill_promotion_cron` | `True` | **Live.** Off for a company → `skill_promotion_scan` skips its entities. |
+| `meta_agent.prompt_evolution_cron` | `True` | **Live.** Off for a company → `meta_agent_prompt_evolution` skips its Meta-Agent. |
 | `meta_agent.tool_synthesis_enabled` | `False` | Kill switch for LLM-authored tools. Even ON it stays Meta-Agent-only, container-exec-only, DRAFT-register-only. |
 | `tools.resilience_v2_enabled` | `True` | Tool retry/fallback. |
-| `tools.cost_attribution_required` | `True` | Every cost surface must write an attributed `usage_logs` row; enforced by a CI guard. |
 | `planner.v2_enabled` | `True` | Planner v2. |
-| `planner.invariants_enforced` | `True` | Plan invariant checks. |
-| `planner.judge_enabled` | `True` | Plan judge. |
-| `planner.priors_enabled` | `True` | Plan priors from memory. |
 | `sandbox.container_runtime_enabled` | `True` | Per-tenant container sandbox. |
 | `sandbox.persistent_browser_enabled` | `False` | Per-tenant persistent browser profile. |
 | `memory.v2_canonical` | `True` | Memory v2 canonicalisation. |
@@ -1634,17 +1616,29 @@ through to env + defaults, so deploy order does not matter.
 | `memory.rule_lifecycle_confirmed_only` | `False` | **Live in the Perceiver.** ON → only `confirmed` Intelligence rules reach prompts. |
 | `memory_v2.canonical` | `True` | Legacy alias for pre-Track-6 code. |
 
+Deleted on 2026-10-01 because nothing read them (AK-10):
+`agent_loop.perception_bounded_viewport`, the three `agent_loop.executor_*_enabled`
+gates for the deleted stub executors, `critic_pipeline.enabled`,
+`critic_pipeline.budget_share_cap` (the pipeline reads
+`governance.critic_cost_share_pct`), `meta_review.v2_enabled`,
+`meta_review.fast_path_enabled`, `planner.invariants_enforced`,
+`planner.judge_enabled`, `planner.priors_enabled` and
+`tools.cost_attribution_required` (the invariant is a test,
+`tests/integration/test_cost_attribution.py`, not a runtime switch).
+`tests/unit/test_feature_flag_census.py` fails when a declared flag has no reader;
+its `KNOWN_UNREAD` list names the few that wait on a decision (`memory.*` in
+register 08, the Board flags in MI-20).
+
 ### `NUMERIC_DEFAULTS`
 
 Read with `FeatureFlags.get_float(...)`, which checks `value_json` rows first.
 
 | Flag | Default | What it does |
 |------|---------|--------------|
-| `bandit.epsilon` | `0.10` | Exploration rate for `PlanStyleBandit.select_arm`. |
+| `bandit.epsilon` | `0.10` | Exploration rate for `PlanStyleBandit.select_arm`; resolved per company through `get_float`. |
 | `agent_loop.budget_pressure_threshold` | `0.70` | Pressure past which the "finish, don't expand" directive is injected. |
-| `critic_pipeline.budget_share_cap` | `0.20` | Documented critic cost share cap. Note the pipeline actually reads `entity.governance.critic_cost_share_pct` (also defaulting to `0.20`), not this flag. |
-| `meta_agent.testdriver_budget_usd` | `3.00` | Test-driver suite budget. |
-| `planner.n_candidates` | `3` | Planner candidate count. |
+| `meta_agent.testdriver_budget_usd` | `3.00` | Test-driver suite budget (gates the unwired Board, MI-20). |
+| `planner.n_candidates` | `3` | Planner candidate count; resolved per company through `get_float`. |
 
 Flag scope tiers are enforced by partial unique indexes, and `set()` has three
 separate `ON CONFLICT` clauses to match them exactly
@@ -1907,7 +1901,6 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 | [core/executors/recursive.py](../../backend/src/ai/core/executors/recursive.py) | 95 | Goal → plan for goal-only AGENTs. |
 | [core/executors/child_entity.py](../../backend/src/ai/core/executors/child_entity.py) | 191 | Async child dispatch. |
 | [core/executors/debate.py](../../backend/src/ai/core/executors/debate.py) | 368 | N-candidate debate plus an LLM judge. |
-| [core/executors/stubs.py](../../backend/src/ai/core/executors/stubs.py) | 57 | `Dialog` / `ToolBurst` / `Skill` — all raise. |
 | [core/reasoning/](../../backend/src/ai/core/reasoning/) | 169 total | `Reasoning` protocol + `REACT` and `CHAIN_OF_THOUGHT` adapters. |
 | [constants.py](../../backend/src/ai/constants.py) | 88 | `INTERNAL_CONTEXT_KEYS`, `MAX_REACT_TURNS`, context thresholds. |
 | [core/INTERNAL_KEYS.md](../../backend/src/ai/core/INTERNAL_KEYS.md) | — | Doc-enforced inventory of the internal context keys. |
@@ -1966,9 +1959,6 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
   reason; `DAGExecutor` and `ChildEntityExecutor` still use the passed-in `db`.
 - **`Budget.can_afford` is unused**, and the `budget.py` docstring's claim that
   the critic self-skips on pressure is wrong — it degrades on cost share.
-- **`agent_loop.snapshot_every_iteration`, `agent_loop.perception_bounded_viewport`
-  and the three `agent_loop.executor_*_enabled` flags are declared in `DEFAULTS`
-  but read nowhere.** Flipping them does nothing today.
 - **`RunStatus.WAITING_ON_CHILDREN` is not terminal**, but the arq idempotency
   guard's `_TERMINAL` set correctly excludes it, so a resume dispatch still
   works.

@@ -620,7 +620,7 @@ flowchart TD
 | `DAG_SEQUENTIAL` | one step at a time via `SingleStep` | yes — the common case |
 | `RECURSIVE` | recursive goal expansion | yes — AGENT with no plan |
 | `SINGLE_TOOL` | one `TOOL_CALL` step | yes — the default fallback branch |
-| `DIALOG` | Dialog executor | no — the Dialog executor is flag-gated off (`agent_loop.executor_dialog_enabled: False`) |
+| `DIALOG` | Dialog executor | no — the Dialog stub executor was deleted (AK-10, 2026-10-01); the arm is never chosen (PC-15) |
 | `CHILD_ENTITY` | ChildEntity executor | yes |
 
 The Strategist also records a `"DEBATE"` arm string
@@ -1572,7 +1572,8 @@ flowchart LR
 defaults to `True` and `_build_real_critic_pipeline` never puts
 `supervisor_v2_enabled` in the config dict it passes, so `_supervisor_v2` is
 always constructed. The flags `meta_review.v2_enabled` and
-`meta_review.fast_path_enabled` exist in `DEFAULTS` but are read by **no code**.
+`meta_review.fast_path_enabled` were read by **no code** and were deleted on
+2026-10-01 (AK-10).
 Only a test that constructs `RealCriticPipeline` with an explicit
 `{"supervisor_v2_enabled": False}` config reaches the shim.
 
@@ -2051,15 +2052,14 @@ code default.
 | `critic_pipeline.different_model_critic` | `True` | `_build_real_critic_pipeline` → `enable_different_model` | Whether the post critic uses the ladder. |
 | `bandit.enabled` | `True` | `AgentLoop._build_bandit` | Construct a `PlanStyleBandit` at all. |
 | `planner.v2_enabled` | `True` | `PlannerService.reconcile` and `.adapt_plan` | Use `PlanGenerator` vs static/remaining fallback. |
-| `agent_loop.executor_dialog_enabled` | `False` | executor registry | Makes the `DIALOG` bandit arm unreachable. |
-| `memory.trust_score_learning` | `False` | *nothing* | Intended gate for `TrustLearner`; unwired. |
-| `critic_pipeline.calibration_enabled` | `True` | *nothing* | Declared but never read. |
-| `critic_pipeline.enabled` | `False` | *nothing* | Legacy alias, dead. |
-| `planner.invariants_enforced` | `True` | *nothing* | Invariants always run; not gateable. |
-| `planner.judge_enabled` | `True` | *nothing* | Judge always runs when ≥2 candidates survive. |
-| `planner.priors_enabled` | `True` | *nothing* | Priors are never populated anyway. |
-| `meta_review.v2_enabled` | `True` | *nothing* | Supervisor v2 is hardwired on. |
-| `meta_review.fast_path_enabled` | `True` | *nothing* | Fast path is on via `SupervisorCriticConfig` default. |
+| `memory.trust_score_learning` | `False` | *nothing* | Intended gate for `TrustLearner`; unwired (PC-11, decided in P7). |
+| `critic_pipeline.calibration_enabled` | `True` | `critic_calibration_job` | Off for a company → the weekly calibration skips it. |
+
+Deleted on 2026-10-01 because nothing read them (AK-10): `agent_loop.executor_dialog_enabled`,
+`critic_pipeline.enabled`, `planner.invariants_enforced` (invariants always run),
+`planner.judge_enabled` (the judge runs when two or more candidates survive),
+`planner.priors_enabled`, `meta_review.v2_enabled`, `meta_review.fast_path_enabled`
+and the numeric `critic_pipeline.budget_share_cap`.
 
 ### 18.2 Numeric defaults
 
@@ -2068,9 +2068,8 @@ From `NUMERIC_DEFAULTS`
 
 | Key | Default | Read by | Effect |
 |-----|---------|---------|--------|
-| `bandit.epsilon` | `0.10` | `AgentLoop._build_bandit` | Exploration probability. |
-| `planner.n_candidates` | `3` | `PlannerService._generate_dynamic_plan_v2` | Candidates on the reconcile path. Clamped to 3 by `TEMPERATURES`. |
-| `critic_pipeline.budget_share_cap` | `0.20` | *nothing* | The pipeline reads `entity.governance.critic_cost_share_pct` instead. |
+| `bandit.epsilon` | `0.10` | `AgentLoop._build_bandit` (through `FeatureFlags.get_float`) | Exploration probability. |
+| `planner.n_candidates` | `3` | `PlannerService._generate_dynamic_plan_v2` (through `FeatureFlags.get_float`) | Candidates on the reconcile path. Clamped to 3 by `TEMPERATURES`. |
 
 ### 18.3 Entity configuration
 

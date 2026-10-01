@@ -9,9 +9,8 @@ The strategist owns two questions:
 Track 2 ships a *deterministic* strategist driven entirely by entity
 type and plan state. The LLM-driven version is Track 4 / Track 7.
 
-The strategist NEVER picks executors that are stubs (Dialog,
-ToolBurst, Skill) — those are guarded by feature flags but the
-strategist also checks the registry.
+The strategist only proposes registered executors (Debate is checked
+against the registry before it is proposed).
 """
 from __future__ import annotations
 
@@ -326,8 +325,8 @@ class Strategist:
             signalled = bool(step.get("high_stakes")) or gov_flag
         if not signalled:
             return False
-        # Mirror the stub-executor precedent: the Strategist also checks the
-        # registry so it never proposes a move for an unregistered executor.
+        # The Strategist checks the registry so it never proposes a move for
+        # an unregistered executor.
         try:
             from src.ai.core.executors.base import registered_executor_names
             return "Debate" in registered_executor_names()

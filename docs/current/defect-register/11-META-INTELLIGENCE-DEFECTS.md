@@ -47,11 +47,11 @@
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
 | [T0](#2-t0--gates-that-do-not-gate) | Gates that do not gate | 5 | Before enabling any autonomous creation |
-| [T1](#3-t1--roles-that-do-not-do-their-job) | Roles that do not do their job | 4 | Before relying on the Board |
+| [T1](#3-t1--roles-that-do-not-do-their-job) | Roles that do not do their job | 5 | Before relying on the Board |
 | [T2](#4-t2--wiring-and-documentation-errors) | Wiring and documentation errors | 5 | Now — mostly one-line |
 | [T3](#5-t3--silent-data-loss-and-tuning-traps) | Silent data loss and tuning traps | 5 | When the area is next touched |
 
-**Total: 19 defects, 10 improvements.**
+**Total: 20 defects, 10 improvements.** (MI-20 was found on 2026-10-01 while consolidating registers 05–11.)
 
 The three to read first:
 
@@ -237,6 +237,32 @@ That may be intentional, but it means the semantic search that costs an embeddin
 every request cannot by itself change any decision.
 
 - [`ai/meta/registry_search_service.py`](../../../backend/src/ai/meta/registry_search_service.py) — weights and thresholds
+
+---
+
+### MI-20 — The seven-role Board has no production caller
+
+**✅ Verified · High** · **Status: open** — found 2026-10-01 during the flag census
+(AK-10) for [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
+
+`src/ai/meta/board/` implements RequirementChat, Curator, Architect, Critic,
+Validator, TestDriver and Promoter, with unit tests. Outside the package, nothing
+constructs any of them except `ToolSmith` (used by the tool-synthesis pipeline).
+The Meta-Agent creates entities through `meta_entity_creator`, which applies the
+anti-sprawl guard and nothing else. `meta_agent.board_routing` ("the Board is the
+default Meta-Agent path", default `True`, declared twice) is read by nothing, and
+neither are the five other Board flags or `meta_agent.testdriver_budget_usd`.
+
+So MI-04, MI-05, MI-06, MI-07 and MI-18 describe defects in code that never runs,
+and the safety table in `11-meta-intelligence.md` §19 describes gates that are not
+on any creation path.
+
+- [`ai/meta/board/`](../../../backend/src/ai/meta/board/) — no importer outside the package but `tool_synthesis_pipeline` (ToolSmith)
+- [`ai/tools/meta/entity_creator.py`](../../../backend/src/ai/tools/meta/entity_creator.py) — the path entities are actually created through
+
+**Fix:** decide in P10 of the consolidated plan. The natural home is the skill
+promotion path (R2): Validator → TestDriver → Promoter as the gate a drafted SKILL
+version passes before publication. Otherwise delete the package and its flags.
 
 ---
 
