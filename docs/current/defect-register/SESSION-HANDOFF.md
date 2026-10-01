@@ -467,7 +467,7 @@ From `backend/`:
 PYTHONUTF8=1 .venv/Scripts/python.exe -m pytest tests -q -p no:cacheprovider --ignore=tests/integration --ignore=tests/e2e
 ```
 
-Expected: **1315 passed, 7 failed** (1017 at the first handoff, 1059 at the second, 1126
+Expected: **1316 passed, 7 failed** (1017 at the first handoff, 1059 at the second, 1126
 at the third; the fourth added the auth, RBAC and data-model tests).
 The integration suite runs against the local Postgres in rolled-back transactions:
 `pytest tests/integration` — expect 2 failures in `test_cost_attribution.py`. Two more
