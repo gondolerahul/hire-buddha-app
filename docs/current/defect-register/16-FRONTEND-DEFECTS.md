@@ -718,7 +718,9 @@ background load.
 
 ### FE-20 — `EntityConfigurationTabs` re-renders everything on every keystroke
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the costly part, the tool list,
+no longer re-renders on a keystroke; the filter lists are memoised. The component is still
+one 1,800-line function — see the note below.
 
 1,780 lines, roughly **70 `useState`** in one component, zero `useMemo` and two
 `useCallback`.
@@ -728,6 +730,26 @@ Every keystroke in any field re-executes the whole component function — includ
 the active tab is mounted, but the work to decide what to render is done for all six.
 
 - [`frontend/src/pages/ai/EntityConfigurationTabs.tsx`](../../../frontend/src/pages/ai/EntityConfigurationTabs.tsx)
+
+**Measured first** (dev build, the time from an `input` event's capture to the end of its
+bubble, which covers React's synchronous render of a controlled field; 40 keystrokes each):
+on the Basics tab, median 18 ms, p90 26 ms; on the Capabilities tab, in a field unrelated to
+tools, **median 30.5 ms, p90 41 ms** — every keystroke re-rendered all 97 tool rows, each
+looking itself up with `toolAssignments.find`. The `.filter()` calls themselves cost
+microseconds; the rows were the cost.
+
+**Done (2026-10-01).** The rows are a `ToolPoolList` component under `React.memo`, given the
+memoised filtered list, the assignments, and two handlers that are now stable
+(`useCallback` with state updaters); it looks assignments up in a `Map`. The tool, KB and
+tree filters are `useMemo`s, and the usage counts in the summary are computed once instead
+of four times. **Evidence:** the same Capabilities keystrokes now take median 9.8 ms, p90
+15.1 ms (from 30.5 / 41.3); selecting a tool, changing its usage, searching and deselecting
+work as before (summary 2 → 3 assigned → "2 autonomous, 1 planned" → 2). The Basics tab
+measured median 13.8 ms afterwards — what remains there is the component itself.
+
+**Not done:** splitting the editor into one component per tab, which would make a keystroke
+render only its tab. It is a large change to the component FE-25's save overlay depends on,
+for a few milliseconds per keystroke in a dev build.
 
 ---
 
@@ -835,6 +857,8 @@ hidden, respect `prefers-reduced-motion`, lazy-load it. The last one alone takes
 of the entry chunk, which is what stands between the user and the login form.
 
 ### FE-I5 — Memoise the two heavy components
+
+**Status: done (2026-10-01)** — see FE-18 (`3d1dcec`) and FE-20.
 
 **Effect: medium.** [FE-18](#fe-18--executiondetail-walks-the-whole-run-tree-on-every-render)
 and [FE-20](#fe-20--entityconfigurationtabs-re-renders-everything-on-every-keystroke).

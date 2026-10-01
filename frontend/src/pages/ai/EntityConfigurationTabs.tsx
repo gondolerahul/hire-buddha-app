@@ -1,5 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { JellyButton } from '@/components/ui';
 import { Info, Brain, Settings, Route, Wrench, Shield, Plus, Trash2, Volume2, VolumeX, ChevronDown, ChevronRight, AlertTriangle, Sliders, Database, Upload, User, GitBranch, Search, CheckSquare, Square, File, X, FolderOpen, Lock, FileText, Image, Music, Video, FileSpreadsheet } from 'lucide-react';
 import { EntityType, EntityStatus, HierarchicalEntity, HITLCheckpoint, HITLTriggerType, ToolUsage } from '@/types';
@@ -70,6 +70,50 @@ const HITL_TRIGGER_TYPES: { value: HITLTriggerType; label: string; description: 
 // builder's edits laid over it (FE-25).
 const CONFIG_COLUMNS = ['identity', 'logic_gate', 'planning', 'capabilities', 'governance',
     'io_contract', 'observability', 'hierarchy'] as const;
+
+interface ToolAssignment { tool_id: string; usage: ToolUsage; description?: string; }
+interface RegistryTool { name: string; display_name?: string; description: string; category?: string; is_enabled?: boolean }
+
+/**
+ * The Capabilities tab's tool list: ~100 rows. Memoised, with stable handlers,
+ * so a keystroke elsewhere in the editor does not re-render every row (FE-20).
+ */
+const ToolPoolList = memo(function ToolPoolList({ tools, assignments, onToggle, onUsage }: {
+    tools: RegistryTool[];
+    assignments: ToolAssignment[];
+    onToggle: (toolName: string) => void;
+    onUsage: (toolName: string, usage: ToolUsage) => void;
+}) {
+    const byTool = useMemo(() => new Map(assignments.map(a => [a.tool_id, a])), [assignments]);
+    if (tools.length === 0) return <div className="tool-pool-empty">No tools found</div>;
+    return (
+        <>
+            {tools.map(tool => {
+                const assignment = byTool.get(tool.name);
+                return (
+                    <div key={tool.name} className={`tool-pool-item ${assignment ? 'selected' : ''}`}>
+                        <div className="tool-pool-item-check" onClick={() => onToggle(tool.name)}>
+                            {assignment ? <CheckSquare size={18} /> : <Square size={18} />}
+                        </div>
+                        <div className="tool-pool-item-info" onClick={() => onToggle(tool.name)}>
+                            <div className="tool-pool-item-name"><Wrench size={14} /> {tool.display_name || tool.name}</div>
+                            <div className="tool-pool-item-desc">{tool.description}</div>
+                        </div>
+                        {assignment && (
+                            <div className="tool-pool-item-usage">
+                                <select value={assignment.usage} onChange={(e) => onUsage(tool.name, e.target.value as ToolUsage)}>
+                                    <option value="AUTONOMOUS">Autonomous</option>
+                                    <option value="PLANNED">Planned</option>
+                                    <option value="BOTH">Both</option>
+                                </select>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+        </>
+    );
+});
 
 interface EntityConfigurationTabsProps {
     entity?: HierarchicalEntity;
@@ -297,7 +341,6 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     // ═══════════════════════════════════════════════════════════════════════════
     // TAB 4: CAPABILITIES — "What tools and context does it have?"
     // ═══════════════════════════════════════════════════════════════════════════
-    interface ToolAssignment { tool_id: string; usage: ToolUsage; description?: string; }
     const [toolAssignments, setToolAssignments] = useState<ToolAssignment[]>(
         (entity?.capabilities?.tools || []).map((t: any) => ({
             tool_id: t.tool_id || t,
@@ -305,26 +348,32 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
         }))
     );
     // Available tools from the registry
-    const [availableTools, setAvailableTools] = useState<{ name: string; display_name?: string; description: string; category?: string; is_enabled?: boolean }[]>([]);
+    const [availableTools, setAvailableTools] = useState<RegistryTool[]>([]);
     const [toolSearchQuery, setToolSearchQuery] = useState('');
     useEffect(() => {
         apiClient.get<any[]>('/ai/tools').then(res => setAvailableTools(res.data.filter((t: any) => t.is_enabled !== false))).catch(() => {});
     }, []);
-    const toggleToolAssignment = (toolName: string) => {
-        if (toolAssignments.find(t => t.tool_id === toolName)) {
-            setToolAssignments(toolAssignments.filter(t => t.tool_id !== toolName));
-        } else {
-            setToolAssignments([...toolAssignments, { tool_id: toolName, usage: 'AUTONOMOUS' }]);
-        }
-    };
-    const setToolUsage = (toolName: string, usage: ToolUsage) => {
-        setToolAssignments(toolAssignments.map(t => t.tool_id === toolName ? { ...t, usage } : t));
-    };
-    const filteredAvailableTools = availableTools.filter(t =>
-        t.name.toLowerCase().includes(toolSearchQuery.toLowerCase()) ||
-        t.description.toLowerCase().includes(toolSearchQuery.toLowerCase()) ||
-        (t.display_name || '').toLowerCase().includes(toolSearchQuery.toLowerCase())
-    );
+    // Updaters, so the handlers are stable and the memoised tool list can skip renders.
+    const toggleToolAssignment = useCallback((toolName: string) => {
+        setToolAssignments(prev => prev.some(t => t.tool_id === toolName)
+            ? prev.filter(t => t.tool_id !== toolName)
+            : [...prev, { tool_id: toolName, usage: 'AUTONOMOUS' }]);
+    }, []);
+    const setToolUsage = useCallback((toolName: string, usage: ToolUsage) => {
+        setToolAssignments(prev => prev.map(t => t.tool_id === toolName ? { ...t, usage } : t));
+    }, []);
+    const filteredAvailableTools = useMemo(() => {
+        const q = toolSearchQuery.toLowerCase();
+        return availableTools.filter(t =>
+            t.name.toLowerCase().includes(q) ||
+            t.description.toLowerCase().includes(q) ||
+            (t.display_name || '').toLowerCase().includes(q)
+        );
+    }, [availableTools, toolSearchQuery]);
+    const toolUsageCounts = useMemo(() => ({
+        autonomous: toolAssignments.filter(t => t.usage === 'AUTONOMOUS' || t.usage === 'BOTH').length,
+        planned: toolAssignments.filter(t => t.usage === 'PLANNED' || t.usage === 'BOTH').length,
+    }), [toolAssignments]);
     const [memoryEnabled, setMemoryEnabled] = useState(entity?.capabilities?.memory?.enabled || false);
     const [memoryMode, setMemoryMode] = useState<string>(entity?.capabilities?.memory?.mode || 'STANDARD');
     const [episodicMemoryCount, setEpisodicMemoryCount] = useState(entity?.capabilities?.memory?.episodic_memory_count || 10);
@@ -514,10 +563,13 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
         setShowKBModal(false);
     };
 
-    const filteredKBItems = kbArtifacts.filter(a =>
-        (a.file_name || a.filename || '').toLowerCase().includes(kbSearch.toLowerCase()) ||
-        (a.file_category || '').toLowerCase().includes(kbSearch.toLowerCase())
-    );
+    const filteredKBItems = useMemo(() => {
+        const q = kbSearch.toLowerCase();
+        return kbArtifacts.filter(a =>
+            (a.file_name || a.filename || '').toLowerCase().includes(q) ||
+            (a.file_category || '').toLowerCase().includes(q)
+        );
+    }, [kbArtifacts, kbSearch]);
 
     // CORTEX Tree picker
     const [showTreeModal, setShowTreeModal] = useState(false);
@@ -549,10 +601,13 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
         setShowTreeModal(false);
     };
 
-    const filteredTrees = cortexTrees.filter(t =>
-        (t.task_description || '').toLowerCase().includes(treeSearch.toLowerCase()) ||
-        (t.id || '').toLowerCase().includes(treeSearch.toLowerCase())
-    );
+    const filteredTrees = useMemo(() => {
+        const q = treeSearch.toLowerCase();
+        return cortexTrees.filter(t =>
+            (t.task_description || '').toLowerCase().includes(q) ||
+            (t.id || '').toLowerCase().includes(q)
+        );
+    }, [cortexTrees, treeSearch]);
 
     // File type icon helper
     const getFileIcon = (mimeOrExt: string) => {
@@ -1324,40 +1379,20 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                 <input type="text" placeholder="Search tools..." value={toolSearchQuery} onChange={(e) => setToolSearchQuery(e.target.value)} />
                             </div>
                             <div className="tool-pool-list">
-                                {filteredAvailableTools.length === 0 ? (
-                                    <div className="tool-pool-empty">No tools found</div>
-                                ) : filteredAvailableTools.map(tool => {
-                                    const assignment = toolAssignments.find(t => t.tool_id === tool.name);
-                                    const isSelected = !!assignment;
-                                    return (
-                                        <div key={tool.name} className={`tool-pool-item ${isSelected ? 'selected' : ''}`}>
-                                            <div className="tool-pool-item-check" onClick={() => toggleToolAssignment(tool.name)}>
-                                                {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
-                                            </div>
-                                            <div className="tool-pool-item-info" onClick={() => toggleToolAssignment(tool.name)}>
-                                                <div className="tool-pool-item-name"><Wrench size={14} /> {tool.display_name || tool.name}</div>
-                                                <div className="tool-pool-item-desc">{tool.description}</div>
-                                            </div>
-                                            {isSelected && (
-                                                <div className="tool-pool-item-usage">
-                                                    <select value={assignment!.usage} onChange={(e) => setToolUsage(tool.name, e.target.value as ToolUsage)}>
-                                                        <option value="AUTONOMOUS">Autonomous</option>
-                                                        <option value="PLANNED">Planned</option>
-                                                        <option value="BOTH">Both</option>
-                                                    </select>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
+                                <ToolPoolList
+                                    tools={filteredAvailableTools}
+                                    assignments={toolAssignments}
+                                    onToggle={toggleToolAssignment}
+                                    onUsage={setToolUsage}
+                                />
                             </div>
                             <div className="tool-pool-summary">
                                 {toolAssignments.length} tool{toolAssignments.length !== 1 ? 's' : ''} assigned
-                                {toolAssignments.filter(t => t.usage === 'AUTONOMOUS' || t.usage === 'BOTH').length > 0 && (
-                                    <span className="usage-badge autonomous">🤖 {toolAssignments.filter(t => t.usage === 'AUTONOMOUS' || t.usage === 'BOTH').length} autonomous</span>
+                                {toolUsageCounts.autonomous > 0 && (
+                                    <span className="usage-badge autonomous">🤖 {toolUsageCounts.autonomous} autonomous</span>
                                 )}
-                                {toolAssignments.filter(t => t.usage === 'PLANNED' || t.usage === 'BOTH').length > 0 && (
-                                    <span className="usage-badge planned">📋 {toolAssignments.filter(t => t.usage === 'PLANNED' || t.usage === 'BOTH').length} planned</span>
+                                {toolUsageCounts.planned > 0 && (
+                                    <span className="usage-badge planned">📋 {toolUsageCounts.planned} planned</span>
                                 )}
                             </div>
                         </div>

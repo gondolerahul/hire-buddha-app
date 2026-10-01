@@ -2203,8 +2203,8 @@ for the backend picture, which is much better covered.
 
 | File | Lines | Issue |
 |------|-------|-------|
-| `EntityConfigurationTabs.tsx` | 1780 | ~70 `useState` in one component. Zero `useMemo`, two `useCallback`. Every keystroke in any field re-renders all six tabs' JSX (only the active one is mounted, but the whole component function re-executes, including all the `.filter()` calls for tools, KB items and trees). |
-| `ExecutionDetail.tsx` | 1111 | Zero `useMemo`, zero `useCallback`, zero `React.memo`. `findArtifactInTree`, `flattenChildSteps` and `collectChildLLMLogs` all run **on every render**, recursing the entire child-run tree and regex-scanning every tool-log output string. With a 3-second poll driving re-renders, that is a full tree walk plus regex sweep every 3 seconds forever. |
+| `EntityConfigurationTabs.tsx` | 1883 | ~110 `useState` in one component, so every keystroke re-executes the whole function (only the active tab is mounted). Since FE-20 the tool list — the costly part, ~100 rows — is a memoised `ToolPoolList` with stable handlers, and the tool, KB and tree filters are `useMemo`s: a keystroke on the Capabilities tab went from ~30 ms to ~10 ms (dev build). Splitting it per tab is the remaining step. |
+| `ExecutionDetail.tsx` | 1175 | Until FE-18, `findArtifactInTree`, `flattenChildSteps` and `collectChildLLMLogs` ran on every render under a 3-second poll. Now `deriveRunView` runs once per fetched run (`useMemo`), and the poll stops when the run finishes (FE-19). |
 | `PhonePool.tsx` | 759 | ~20 `useState`, five inline modals, all in one function. |
 | `AppAdminReports.tsx` | 664 | Seven parallel report fetches in one page. |
 
