@@ -1489,6 +1489,12 @@ The reformat call is billed: it writes an `LLMInteractionLog` with
 `reasoning_mode="REFORMAT"` and logs usage
 ([step_executor.py:597-610](../../backend/src/ai/step_executor.py:597)).
 
+Since 2026-10-02 (P4.5, EP-24) a reformat is also visible beside the call it heals: the
+LLM call runs inside a `tool` span named `reformat:<tool>` in the run's trace, and the
+tool call that ran on the rewritten input carries `reformatted=True` — on its
+`ToolResult` and as `log_metadata.reformatted` on its `tool_interaction_logs` row. Before,
+only the bill showed it.
+
 #### Fallback chains ([tool_fallback.py:26](../../backend/src/ai/tool_fallback.py:26))
 
 | Primary | Alternative | Input transform |

@@ -254,6 +254,7 @@ class ToolResilience:
             )
             if new_input and new_input != raw_input:
                 retry = await self._exec_one(tool_id, new_input, extra_context, "plan")
+                retry.reformatted = True
                 if classify_tool_failure(retry) is FailureKind.NONE:
                     return retry
                 tr = retry  # carry the retry's output forward
@@ -397,6 +398,7 @@ class ToolResilience:
             )
             if new_input and new_input != original_str:
                 retry = await self._exec_one(tool_id, new_input, extra_context, "llm")
+                retry.reformatted = True
                 if classify_tool_failure(retry) is FailureKind.NONE:
                     return retry
                 tr = retry

@@ -511,7 +511,7 @@ so the limit is known rather than assumed.
 
 ### EP-24 — The reformat retry is billed and easy to miss
 
-**📄 Doc-reported · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-02, P4.5)** — the reformat LLM call has its own `tool` span, `reformat:<tool>`, in the trace; the call that ran on the rewritten input is `reformatted=True` on its `ToolResult` and its `tool_interaction_logs` row (`log_metadata.reformatted`). `tests/unit/test_reformat_visibility.py`.
 
 Every reformat attempt writes an `LLMInteractionLog` with `reasoning_mode="REFORMAT"` and
 logs usage. That is correct — the call really costs money.

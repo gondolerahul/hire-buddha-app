@@ -94,6 +94,9 @@ class ToolResult:
     error: Optional[str] = None    # Set when success=False
     skipped: bool = False          # Set when rate limit exceeded
     skip_reason: Optional[str] = None
+    # The call ran on input an LLM rewrote after a format error (EP-24): it was
+    # billed as a reformat retry and is marked on its log row and in the trace.
+    reformatted: bool = False
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:

@@ -126,6 +126,17 @@ def llm_step_result(step_name: str, output: str, response: Any, reasoning_mode: 
     return result
 
 
+def _tool_log_metadata(tr: Any) -> Optional[dict[str, Any]]:
+    """A refused call is marked refused (TL-11); one that ran on reformatted
+    input is marked reformatted (EP-24)."""
+    meta: dict[str, Any] = {}
+    if tr.skipped:
+        meta["refused"] = tr.skip_reason
+    if getattr(tr, "reformatted", False):
+        meta["reformatted"] = True
+    return meta or None
+
+
 def log_tool_call(db: Any, run_id: Any, step_name: str, access: Any, tr: Any,
                   input_parameters: Any, latency_ms: int) -> None:
     """One ``tool_interaction_logs`` row per call, on every path that runs a
@@ -141,7 +152,7 @@ def log_tool_call(db: Any, run_id: Any, step_name: str, access: Any, tr: Any,
         output_result=str(tr.output),
         success=tr.success,
         latency_ms=latency_ms,
-        log_metadata={"refused": tr.skip_reason} if tr.skipped else None,
+        log_metadata=_tool_log_metadata(tr),
     ))
     if not tr.skipped:
         access.record(tr.tool)
@@ -513,14 +524,18 @@ class StepExecutorService:
                 f"Output ONLY the corrected JSON:"
             )
 
-            llm_router = LLMRouter(db=self.db, company_id=entity.company_id)
-            resp = await llm_router.call_llm(
-                task_type="text_generation",
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=0.1,  # Low temperature for deterministic formatting
-                max_tokens=4000,
-            )
+            # Its own span in the trace, so a reformat retry is visible beside
+            # the tool call it heals, not only on the bill (EP-24).
+            from src.ai.core.trace import span as _trace_span
+            async with _trace_span("tool", f"reformat:{tool_id}", error=error_message[:500]):
+                llm_router = LLMRouter(db=self.db, company_id=entity.company_id)
+                resp = await llm_router.call_llm(
+                    task_type="text_generation",
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=0.1,  # Low temperature for deterministic formatting
+                    max_tokens=4000,
+                )
 
             # Log the reformat LLM call for billing transparency
             reformat_log = LLMInteractionLog(
