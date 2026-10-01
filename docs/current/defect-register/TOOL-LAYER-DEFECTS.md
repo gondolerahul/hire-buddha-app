@@ -331,7 +331,7 @@ functional.
 
 ### TL-10 — Tenant-scoped tools are unreachable by construction
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.1)** — [`ToolAccess`](../../../backend/src/ai/governance/tool_access.py) resolves `ToolRegistry.get_tool(name, company_id)`, so a company's own tools resolve for it (and only it) on execution and advertisement. Restart loss (tenant tools are in-process) remains; see `09-tools.md` §2.1.
 
 Both executor entry points call `ToolRegistry.get_tool(tool_name)` with **no**
 `company_id`, and `get_tool_schemas` calls `get_all_schemas()` with none either. The
@@ -372,7 +372,7 @@ caller resets it per **step**.
 
 ### TL-12 — The per-tool permission model sits on a class nothing uses
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.1)** — `capabilities.tools` is a list of `ToolGrant` (`tool_id`, `llm_callable`, `plan_callable`, `rate_limit_per_run`), enforced by [`ToolAccess`](../../../backend/src/ai/governance/tool_access.py); `usage` is translated on save (`PLANNED` ⇒ not callable by the model). `ToolDefinition`'s unread fields are deleted. `rate_limit_per_run` is enforced in P3.3; the per-tool timeout (EP-08) in P8.
 
 `ToolDefinition` declares `access_level`, `permissions`, `sandbox_mode`,
 `max_execution_seconds` and `rate_limit_per_run`. But `Capabilities.tools` is typed
@@ -395,7 +395,7 @@ Split `usage` into two independent flags — `llm_callable` and `plan_callable` 
 
 ### TL-13 — The tool status gate is not wired into execution
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.1)** — [`ToolAccess`](../../../backend/src/ai/governance/tool_access.py) refuses an `EXPERIMENTAL`/`DRAFT` tool unless `tools.experimental.<name>` is on for the company, on every call and in advertisement; `get_visible_tools_for_company` is deleted.
 
 `ToolRegistry.get_visible_tools_for_company` merges global and tenant tools, drops
 `DEPRECATED`, and requires `tools.experimental.{tool_id}` for `EXPERIMENTAL` and
@@ -416,7 +416,7 @@ nothing reads.
 
 ### TL-14 — `is_enabled = false` does not disable anything
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.1)** — [`ToolAccess`](../../../backend/src/ai/governance/tool_access.py) reads the switched-off names (the platform row, and the company's) once per step; a disabled tool is neither offered nor run. Live: switching off `web_search` through a real row removed it from a real entity's offer and execution.
 
 The executor resolves tools through `ToolRegistry.get_tool()`, which never consults the
 database. Toggling a tool off hides it from the entity builder's tool picker only; entities that

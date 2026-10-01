@@ -414,10 +414,14 @@ class StepExecutorService:
 
             # One set of rules for a failed call on every path (TL-51): the
             # reformat retry and the fallback chain run only for a call that
-            # failed, and never for a write tool.
+            # failed, and never for a write tool. The tool resolves through
+            # the entity's grants like every other call (P3.1).
+            from src.ai.governance.tool_access import ToolAccess
             from src.ai.tools.resilience import ToolResilience
+            access = await ToolAccess.load(self.db, run.company_id, entity)
             tool_result = await ToolResilience(
                 reformat_fn=self._reformat_tool_input, tool_executor=ToolExecutor,
+                access=access,
             ).run(
                 run=run, entity=entity, tool_id=tool_id, raw_input=raw_input,
                 extra_context=extra_context, step_name=step.name or "",
@@ -507,9 +511,12 @@ class StepExecutorService:
         Capped cost: ~200–400 tokens (single fast LLM call).
         """
         try:
-            # Get the tool's expected input schema
-            tool_schemas = ToolExecutor.get_tool_schemas([tool_id])
-            schema_str = json.dumps(tool_schemas[0], indent=2) if tool_schemas else f"Tool '{tool_id}' expects a JSON object."
+            # The tool's expected input schema (it already resolved for this
+            # entity: this is a retry of a call that ran and failed).
+            from src.ai.tools.base import ToolRegistry
+            _tool = ToolRegistry.get_tool(tool_id, company_id=entity.company_id)
+            schema_str = (json.dumps(_tool.get_function_schema(), indent=2) if _tool
+                          else f"Tool '{tool_id}' expects a JSON object.")
 
             system_prompt = (
                 "You are a JSON formatting assistant. A tool call failed because "
@@ -667,43 +674,14 @@ class StepExecutorService:
                 logger.debug(f"budget-aware REACT injection skipped: {_bp_err}")
 
         # --- Build tools ---
-        # Only AUTONOMOUS and BOTH tools are injected into the LLM prompt.
-        # PLANNED-only tools are executed deterministically by the static plan executor.
-        tool_ids = []
-        tool_schemas = []
-        if entity.capabilities and entity.capabilities.get("tools"):
-            all_tools = entity.capabilities.get("tools", [])
-            autonomous_tools = [
-                t for t in all_tools
-                if t.get("usage", "AUTONOMOUS") in ("AUTONOMOUS", "BOTH")
-            ]
-            tool_ids = [t.get("tool_id") for t in autonomous_tools]
-
-        # ── Meta-Cognition: Auto-inject meta-tools by tier ─────────────
+        # One rule for what the model is offered and what it may call (P3.1):
+        # the entity's grants the model may call, plus the meta-cognition tools
+        # the platform injects — the same ``ToolAccess`` resolves every call.
+        from src.ai.governance.tool_access import ToolAccess
         from src.ai.meta.platform_schema_compiler import resolve_meta_cognition
+        access = await ToolAccess.load(self.db, run.company_id, entity)
+        tool_schemas = access.schemas()
         meta_config = resolve_meta_cognition(entity)
-
-        # Tier 2: Registry Search (AGENT + PROCESS)
-        if meta_config.get("registry_search"):
-            if "meta_registry_search" not in tool_ids:
-                tool_ids.append("meta_registry_search")
-                logger.debug(f"Tier 2: Auto-injected meta_registry_search for {entity.name}")
-
-        # Tier 3: Self-Modification (AGENT + PROCESS)
-        if meta_config.get("self_modification"):
-            for meta_tool in ["meta_entity_creator", "meta_entity_executor"]:
-                if meta_tool not in tool_ids:
-                    tool_ids.append(meta_tool)
-            logger.debug(f"Tier 3: Auto-injected meta_entity_creator/executor for {entity.name}")
-
-        # Introspection meta-tools (Phase 12 `06` §3.1) per the §1 matrix.
-        if meta_config.get("self_introspection") and "agent_introspect" not in tool_ids:
-            tool_ids.append("agent_introspect")
-        if meta_config.get("reflection") and "agent_reflect" not in tool_ids:
-            tool_ids.append("agent_reflect")
-        # ───────────────────────────────────────────────────────────────
-
-        tool_schemas = ToolExecutor.get_tool_schemas(tool_ids)
 
         # ── Tier 1: Platform Awareness ─────────────────────────────────
         platform_awareness_text = None
@@ -777,6 +755,7 @@ class StepExecutorService:
                 _resilience = ToolResilience(
                     reformat_fn=self._reformat_tool_input,
                     tool_executor=ToolExecutor,
+                    access=access,
                 )
         except Exception as _res_err:
             logger.debug(f"ToolResilience setup skipped: {_res_err}")
@@ -802,6 +781,7 @@ class StepExecutorService:
                         [fc],
                         extra_context=extra_context,
                         call_counts=context.get('tool_call_counts', {}),
+                        access=access,
                     )
                 for _tr in _tr_list:
                     self.db.add(ToolInteractionLog(

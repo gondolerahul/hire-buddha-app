@@ -40,12 +40,12 @@ class _AlwaysFailingExecutor:
         self.calls: list[str] = []
 
     async def execute_from_function_calls(
-        self, function_calls, extra_context=None, call_counts=None,
+        self, function_calls, extra_context=None, call_counts=None, **_kw,
     ):
         self.calls.append("afc")
         return [_http_500(function_calls[0]["name"])]
 
-    async def execute_tools(self, payload, extra_context=None):
+    async def execute_tools(self, payload, extra_context=None, **_kw):
         self.calls.append("string")
         return [_http_500(payload[0]["tool"])]
 

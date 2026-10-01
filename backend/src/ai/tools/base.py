@@ -154,6 +154,10 @@ class ToolRegistry:
 
     Phase 6: Added tenant-scoped tool registration so companies
     can have custom tools that don't leak across tenants.
+
+    Execution and advertisement never look tools up here directly: they go
+    through ``ai.governance.tool_access.ToolAccess``, which applies the entity's grants,
+    the admin kill switch and the status opt-in (P3.1).
     """
     _tools: Dict[str, Tool] = {}
     _tenant_tools: Dict[str, Dict[str, Tool]] = {}  # company_id -> {name: Tool}
@@ -189,51 +193,6 @@ class ToolRegistry:
         return merged
 
     @classmethod
-    async def get_visible_tools_for_company(
-        cls,
-        company_id: UUID,
-        *,
-        feature_flags: Any = None,
-        include_deprecated: bool = False,
-    ) -> Dict[str, "Tool"]:
-        """Phase 11 Track 8 — filter EXPERIMENTAL / DEPRECATED tools.
-
-        EXPERIMENTAL tools require an explicit per-company feature flag
-        ``tools.experimental.{tool_id}=true`` before they appear. DEPRECATED
-        tools are hidden unless ``include_deprecated`` is True (admin path).
-        """
-        from src.ai.core.feature_flags import FeatureFlags as _FF
-        flags = feature_flags or _FF()
-        merged = cls.get_tools_for_company(company_id)
-        out: Dict[str, "Tool"] = {}
-        for name, tool in merged.items():
-            status = getattr(tool, "status", ToolStatus.ACTIVE)
-            if status == ToolStatus.DEPRECATED and not include_deprecated:
-                continue
-            if status in (ToolStatus.EXPERIMENTAL, ToolStatus.DRAFT):
-                try:
-                    enabled = await flags.is_on(
-                        f"tools.experimental.{name}",
-                        company_id=company_id,
-                    )
-                except Exception:                                           # pragma: no cover
-                    enabled = False
-                if not enabled:
-                    try:
-                        from src.ai.core.events import event
-                        event(
-                            "agent.tool.status_filtered",
-                            tool_id=name,
-                            company_id=str(company_id) if company_id else None,
-                            reason="experimental_opt_in_required",
-                        )
-                    except Exception:                                       # pragma: no cover
-                        pass
-                    continue
-            out[name] = tool
-        return out
-
-    @classmethod
     def list_tools(cls, company_id: Optional[UUID] = None) -> List[Dict[str, str]]:
         """List all registered tools with their descriptions."""
         tools = cls.get_tools_for_company(company_id) if company_id else cls._tools
@@ -241,9 +200,3 @@ class ToolRegistry:
             {"name": t.name, "description": t.description} 
             for t in tools.values()
         ]
-    
-    @classmethod
-    def get_all_schemas(cls, company_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
-        """Get function schemas for all registered tools."""
-        tools = cls.get_tools_for_company(company_id) if company_id else cls._tools
-        return [t.get_function_schema() for t in tools.values()]

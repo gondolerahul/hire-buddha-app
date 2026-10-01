@@ -386,10 +386,13 @@ Avoid repeating yourself or being overly formal."""
             logger.info("No tools configured for this voice agent")
             return []
 
-        # Resolve function schemas from ToolRegistry
+        # Resolve function schemas through the agent's grants — the same rule
+        # that decides each call (P3.1). Voice agents get their granted tools
+        # only, not the meta-cognition tools (those need a run).
         try:
-            from src.ai.tool_executor import ToolExecutor
-            schemas = ToolExecutor.get_tool_schemas(tool_ids)
+            from src.ai.governance.tool_access import ToolAccess
+            access = await ToolAccess.load(self.db, entity.company_id, entity, meta_tools=False)
+            schemas = access.schemas()
             logger.info(f"Loaded {len(schemas)} tool schema(s) for voice agent: {tool_ids}")
             return schemas
         except Exception as e:

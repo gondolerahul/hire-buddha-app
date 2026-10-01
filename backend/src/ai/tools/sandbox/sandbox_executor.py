@@ -63,8 +63,7 @@ class SandboxCodeTool(Tool):
         "Returns stdout on success, or an error message with stderr on failure."
     )
 
-    # Per-call default timeout — may be overridden by the entity's
-    # ToolDefinition.max_execution_seconds via the args dict.
+    # Per-call default timeout; the call's ``timeout_s`` may override it.
     DEFAULT_TIMEOUT_S: int = 30
 
     async def run(self, input_data: str) -> str:

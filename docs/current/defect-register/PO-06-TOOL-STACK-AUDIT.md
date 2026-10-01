@@ -120,7 +120,7 @@ several were also observed in the dev database (§4).
 
 ### TL-50 — The model can call any registered tool, not just the entity's
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.1)** — every execution path resolves through [`ToolAccess`](../../../backend/src/ai/governance/tool_access.py): a tool runs only if the entity is granted it (or its level gets it as a meta tool); a refusal names the entity's tools, not the catalogue. A fallback resolves the same way. Evidence: on the old executor an entity granted nothing ran `calculator` (`42`) and a bad name returned a 2,019-character catalogue; `tests/unit/test_tool_access.py`.
 
 The REACT loop advertises only the entity's tools, but **execution is not restricted to
 them**. `ToolExecutor.execute_from_function_calls` resolves whatever name the model

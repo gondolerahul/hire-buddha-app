@@ -8,14 +8,12 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from src.ai.schemas.enums import ContextSourceType
 
 __all__ = [
-    "ToolAuth",
-    "ToolDefinition",
-    "ToolReference",
+    "ToolGrant",
     "CortexMemoryConfig",
     "MemoryConfig",
     "ContextSource",
@@ -25,33 +23,38 @@ __all__ = [
 ]
 
 
-class ToolAuth(BaseModel):
-    type: str  # NONE | API_KEY | OAUTH2 | SERVICE_ACCOUNT
-    credentials_ref: Optional[str] = None
+class ToolGrant(BaseModel):
+    """One entry of ``capabilities.tools``: a tool the entity may use, and how.
 
+    Enforced at resolution (``ai.governance.tool_access.ToolAccess``), not only in the
+    prompt (TL-12):
 
-class ToolDefinition(BaseModel):
+    * ``llm_callable`` — the model may call it (it is advertised to the model);
+    * ``plan_callable`` — a plan step (``TOOL_CALL``) may run it;
+    * ``rate_limit_per_run`` — at most this many calls in one run.
+
+    The builder's ``usage`` is the legacy spelling, translated on read:
+    ``PLANNED`` means the model may not call it (TX-03 — it used to be hidden
+    from the model yet still ran when the model named it); ``AUTONOMOUS``,
+    ``BOTH`` and no value mean both.
+    """
     tool_id: str
-    name: Optional[str] = None
-    description: Optional[str] = None
-    provider: Optional[str] = None
-    authentication: Optional[ToolAuth] = None
-    function_schema: Optional[Dict[str, Any]] = None
-    # P3.1 — Extended permission model (OpenCode-inspired)
-    access_level: str = "READ"   # READ | WRITE | EXECUTE (legacy single-string, kept for compat)
-    permissions: List[str] = []  # e.g. ["read", "write", "network", "storage", "execute"]
-    sandbox_mode: bool = False
-    max_execution_seconds: int = 30      # Per-call timeout enforcement
-    rate_limit_per_run: Optional[int] = None  # Max calls per ExecutionRun (None = unlimited)
+    llm_callable: bool = True
+    plan_callable: bool = True
+    rate_limit_per_run: Optional[int] = Field(default=None, ge=1)
 
-
-class ToolReference(BaseModel):
-    """Simple tool reference (just tool_id)."""
-    tool_id: str
-
-    # The entity builder sends a per-tool "usage" choice; nothing reads it, so
-    # it is accepted and not stored.
     extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"usage"})
+
+    @model_validator(mode="before")
+    @classmethod
+    def _translate_usage(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"tool_id": data}
+        if isinstance(data, dict) and "usage" in data:
+            data = dict(data)
+            if str(data.pop("usage") or "").upper() == "PLANNED":
+                data.setdefault("llm_callable", False)
+        return data
 
 
 class CortexMemoryConfig(BaseModel):
@@ -127,7 +130,7 @@ class MetaCognitionConfig(BaseModel):
 
 
 class Capabilities(BaseModel):
-    tools: List[ToolReference] = []  # Accept simple tool references
+    tools: List[ToolGrant] = []
     memory: MemoryConfig = MemoryConfig()
     context_engineering: ContextEngineering = ContextEngineering()
     meta_cognition: MetaCognitionConfig = MetaCognitionConfig()

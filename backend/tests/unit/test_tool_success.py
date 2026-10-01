@@ -17,6 +17,7 @@ import pytest
 
 from src.ai.tool_executor import ToolExecutor, ToolResult, result_error
 from src.ai.tools import ToolRegistry
+from src.ai.tools.base import Tool
 from src.ai.tools.resilience import (
     READS_DESPITE_NAME,
     WRITE_TOOLS,
@@ -54,20 +55,28 @@ def test_ordinary_output_is_not_an_error(output):
     assert result_error(output) is None
 
 
-class _ReturnsError:
-    name = "pdf_generator"
+def _granted(*names):
+    from src.ai.schemas.capabilities import ToolGrant
+    from src.ai.governance.tool_access import ToolAccess
+    return ToolAccess(company_id=None, grants={n: ToolGrant(tool_id=n) for n in names})
 
-    async def run_with_context(self, _input, context=None):  # noqa: ARG002
+
+class _ReturnsError(Tool):
+    name = "pdf_generator"
+    description = "returns an error envelope"
+
+    async def run(self, input_data):  # noqa: ARG002
         return '{"error": "PDF generation failed: weasyprint missing"}'
 
 
 @pytest.mark.asyncio
 async def test_a_tool_that_returns_an_error_is_a_failed_call(monkeypatch):
-    monkeypatch.setattr(ToolRegistry, "get_tool", staticmethod(lambda _name: _ReturnsError()))
+    monkeypatch.setattr(ToolRegistry, "get_tool", staticmethod(lambda _name, company_id=None: _ReturnsError()))
+    access = _granted("pdf_generator")
 
-    [via_string] = await ToolExecutor.execute_tools([{"tool": "pdf_generator", "input": "x"}])
+    [via_string] = await ToolExecutor.execute_tools([{"tool": "pdf_generator", "input": "x"}], access=access)
     [via_call] = await ToolExecutor.execute_from_function_calls(
-        [{"name": "pdf_generator", "args": {"input": "x"}}])
+        [{"name": "pdf_generator", "args": {"input": "x"}}], access=access)
     for tr in (via_string, via_call):
         assert tr.success is False
         assert "weasyprint" in tr.error
@@ -95,11 +104,11 @@ class _Executor:
         self.result = result
         self.calls: list = []
 
-    async def execute_tools(self, calls, extra_context=None):  # noqa: ARG002
+    async def execute_tools(self, calls, extra_context=None, **_kw):  # noqa: ARG002
         self.calls.append(calls)
         return [self.result]
 
-    async def execute_from_function_calls(self, calls, extra_context=None, call_counts=None):  # noqa: ARG002
+    async def execute_from_function_calls(self, calls, extra_context=None, call_counts=None, **_kw):  # noqa: ARG002
         self.calls.append(calls)
         return [self.result]
 
@@ -159,11 +168,13 @@ async def test_a_tool_call_step_whose_tool_failed_is_failed_and_not_billed(monke
     from src.ai.schemas import PlanStep, StepType
     from src.ai.step_executor import StepExecutorService
 
-    async def _execute_tools(calls, extra_context=None):  # noqa: ARG001
+    async def _execute_tools(calls, extra_context=None, **_kw):  # noqa: ARG001
         return [ToolResult(tool=calls[0]["tool"], args={}, output='{"error": "weasyprint missing"}',
                            success=True)]
 
     monkeypatch.setattr(ToolExecutor, "execute_tools", staticmethod(_execute_tools))
+    from src.ai.governance.tool_access import ToolAccess
+    monkeypatch.setattr(ToolAccess, "load", AsyncMock(return_value=_granted("pdf_generator")))
     svc = StepExecutorService(db=MagicMock(commit=AsyncMock()), redis=AsyncMock(), company_id=uuid4(),
                               usage_service=MagicMock(), cortex_bridge=MagicMock())
     svc._charge_tool = AsyncMock()

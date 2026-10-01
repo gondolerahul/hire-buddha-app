@@ -952,6 +952,24 @@ class BaseStreamHandler:
         while self.is_running and time.time() < min(self._agent_playback_until, deadline):
             await asyncio.sleep(0.2)
 
+    async def _tool_access(self):
+        """What this call's agent may run — read once per session (P3.1)."""
+        if getattr(self, "_access", None) is None:
+            from sqlalchemy import select
+            from src.ai.models import HierarchicalEntity
+            from src.ai.governance.tool_access import ToolAccess
+            entity = (await self.db.execute(
+                select(HierarchicalEntity).where(
+                    HierarchicalEntity.id == self.voice_session.agent_id,
+                    HierarchicalEntity.company_id == self.voice_session.company_id,
+                )
+            )).scalar_one_or_none()
+            # No agent in this company: nothing is granted, every call is refused.
+            self._access = await ToolAccess.load(
+                self.db, self.voice_session.company_id, entity, meta_tools=False,
+            ) if entity is not None else ToolAccess(company_id=self.voice_session.company_id)
+        return self._access
+
     async def _handle_tool_call(self, tool_call):
         """
         Execute a tool call from Gemini and return the result to the session.
@@ -1068,7 +1086,8 @@ class BaseStreamHandler:
         }
 
         results = await ToolExecutor.execute_from_function_calls(
-            function_calls, extra_context=extra_context
+            function_calls, extra_context=extra_context,
+            access=await self._tool_access(),
         )
 
         # Log tool results for observability

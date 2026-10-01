@@ -41,9 +41,8 @@ class SocialMediaTool(Tool):
     # C8 social audit (Phase 12): the 15 social/ads platform integrations are
     # not yet wired to any production entity and several are unfinished. They
     # are tagged EXPERIMENTAL so they require an explicit per-company opt-in
-    # (``tools.experimental.{tool_id}=true``) via
-    # ``ToolRegistry.get_visible_tools_for_company`` before an agent can use
-    # them. Promote an individual platform to ``ToolStatus.ACTIVE`` on its
+    # (``tools.experimental.{tool_id}=true``) before an agent can use them;
+    # ``ai.governance.tool_access.ToolAccess`` enforces it on every call. Promote an individual platform to ``ToolStatus.ACTIVE`` on its
     # subclass once it is verified end-to-end. See tools/integrations README.
     status: ToolStatus = ToolStatus.EXPERIMENTAL
 

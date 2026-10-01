@@ -32,7 +32,7 @@ EXPECTED_NAMES = [
     # io_contract
     "IOContract", "Observability",
     # capabilities
-    "ToolAuth", "ToolDefinition", "ToolReference",
+    "ToolGrant",
     "CortexMemoryConfig", "MemoryConfig", "ContextSource",
     "ContextEngineering", "MetaCognitionConfig", "Capabilities",
     # entity

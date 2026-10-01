@@ -1,11 +1,13 @@
-"""Phase 11 Track 8 — ToolStatus + experimental filter."""
+"""Phase 11 Track 8 — ToolStatus; the opt-in gate is enforced by ToolAccess (TL-13)."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 
+from src.ai.governance.tool_access import ToolAccess, ToolDenied
 from src.ai.tools.base import Tool, ToolRegistry, ToolStatus
 
 
@@ -51,64 +53,57 @@ def test_tool_defaults_to_active() -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_visible_tools_for_company — filtering
+# The status gate, through the one resolution point (TL-13, P3.1)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_active_tool_visible_without_opt_in() -> None:
-    ToolRegistry.register(_NoopTool())
-    flags = AsyncMock()
-    flags.is_on = AsyncMock(return_value=False)
-    visible = await ToolRegistry.get_visible_tools_for_company(
-        uuid4(), feature_flags=flags,
+@pytest.fixture
+def registered():
+    tools = [_NoopTool(), _ExperimentalTool(), _DeprecatedTool()]
+    for t in tools:
+        ToolRegistry.register(t)
+    yield
+    for t in tools:
+        ToolRegistry._tools.pop(t.name, None)
+
+
+def _entity(*names: str):
+    return SimpleNamespace(
+        name="e", type="ACTION", capabilities={"tools": [{"tool_id": n} for n in names]},
+        planning={}, logic_gate={}, metadata_extensions={},
     )
-    assert "noop_test" in visible
 
 
-@pytest.mark.asyncio
-async def test_experimental_tool_hidden_without_opt_in() -> None:
-    ToolRegistry.register(_ExperimentalTool())
+async def _access(flag_on: bool, *names: str) -> ToolAccess:
     flags = AsyncMock()
-    flags.is_on = AsyncMock(return_value=False)
-    visible = await ToolRegistry.get_visible_tools_for_company(
-        uuid4(), feature_flags=flags,
-    )
-    assert "exp_test" not in visible
-
-
-@pytest.mark.asyncio
-async def test_experimental_tool_visible_when_flag_on() -> None:
-    ToolRegistry.register(_ExperimentalTool())
-
-    async def is_on(key, **_kw):
-        return key == "tools.experimental.exp_test"
-
-    flags = AsyncMock()
-    flags.is_on = AsyncMock(side_effect=is_on)
-    visible = await ToolRegistry.get_visible_tools_for_company(
-        uuid4(), feature_flags=flags,
-    )
-    assert "exp_test" in visible
+    flags.is_on = AsyncMock(return_value=flag_on)
+    return await ToolAccess.load(None, uuid4(), _entity(*names), feature_flags=flags)
 
 
 @pytest.mark.asyncio
-async def test_deprecated_tool_hidden_by_default() -> None:
-    ToolRegistry.register(_DeprecatedTool())
-    flags = AsyncMock()
-    flags.is_on = AsyncMock(return_value=False)
-    visible = await ToolRegistry.get_visible_tools_for_company(
-        uuid4(), feature_flags=flags,
-    )
-    assert "old_test" not in visible
+async def test_active_tool_resolves_without_opt_in(registered) -> None:
+    access = await _access(False, "noop_test")
+    assert isinstance(access.resolve("noop_test"), _NoopTool)
 
 
 @pytest.mark.asyncio
-async def test_deprecated_tool_visible_when_explicitly_included() -> None:
-    ToolRegistry.register(_DeprecatedTool())
-    flags = AsyncMock()
-    flags.is_on = AsyncMock(return_value=False)
-    visible = await ToolRegistry.get_visible_tools_for_company(
-        uuid4(), feature_flags=flags, include_deprecated=True,
-    )
-    assert "old_test" in visible
+async def test_experimental_tool_refused_without_opt_in(registered) -> None:
+    access = await _access(False, "exp_test")
+    denied = access.resolve("exp_test")
+    assert isinstance(denied, ToolDenied) and denied.reason == "opt_in_required"
+    assert access.schemas() == []
+
+
+@pytest.mark.asyncio
+async def test_experimental_tool_resolves_when_flag_on(registered) -> None:
+    access = await _access(True, "exp_test")
+    assert isinstance(access.resolve("exp_test"), _ExperimentalTool)
+    assert [s["name"] for s in access.schemas()] == ["exp_test"]
+
+
+@pytest.mark.asyncio
+async def test_granted_deprecated_tool_still_runs(registered) -> None:
+    """Like a DEPRECATED entity (D6): it runs, with an event, so an entity
+    that uses it does not break the day it is deprecated."""
+    access = await _access(False, "old_test")
+    assert isinstance(access.resolve("old_test"), _DeprecatedTool)

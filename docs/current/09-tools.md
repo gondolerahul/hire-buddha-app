@@ -46,24 +46,28 @@ All 85 built-in tools register themselves into one in-memory dictionary at
 import time in [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py).
 Nothing is dynamically loaded from disk or from the database at runtime.
 
-When a step runs, the step executor collects the entity's declared tool ids,
-asks the registry for their JSON schemas, and hands those schemas to the LLM as
-native function declarations. The LLM answers with a function call. The
-`ToolExecutor` looks the tool up by name, executes it, times it, wraps the
+When a step runs, the step executor builds a `ToolAccess` for the entity — its
+granted tools, the meta tools its level gets, the admin kill switches and the
+company's opt-ins — and hands the schemas of the tools the model may call to the
+LLM as native function declarations. The LLM answers with a function call. The
+`ToolExecutor` resolves the name through the same `ToolAccess` (a tool the
+entity was not granted is refused, not run), executes it, times it, wraps the
 outcome in a typed `ToolResult`, logs a `tool_interaction_logs` row, and charges
-the run.
+the run. See §2.3.
 
 ```mermaid
 flowchart TD
-    A["Entity capabilities.tools - list of tool_id"] --> B["step_executor filters usage AUTONOMOUS or BOTH"]
-    B --> C["ToolExecutor.get_tool_schemas - JSON schemas"]
+    A["Entity capabilities.tools - ToolGrant list"] --> B["ToolAccess.load - grants, meta tools, kill switches, opt-ins"]
+    B --> C["ToolAccess.schemas - only what the model may call"]
     C --> D["build_sandwich_prompt - schemas become LLM function declarations"]
     D --> E["LLM picks a tool and emits a function_call"]
     E --> F{"tools.resilience_v2_enabled ?"}
     F -->|yes| G["ToolResilience.run_function_call"]
     F -->|no| H["ToolExecutor.execute_from_function_calls"]
     G --> H
-    H --> I{"run_typed overridden ?"}
+    H --> R{"ToolAccess.resolve name ?"}
+    R -->|refused| Z["skipped ToolResult - not run, not retried, not billed"]
+    R -->|allowed| I{"run_typed overridden ?"}
     I -->|yes| J["typed path - Pydantic params"]
     I -->|no| K["legacy path - run_with_context string"]
     J --> L["ToolResult dataclass"]
@@ -141,12 +145,12 @@ until something re-binds them.
 [base.py:22](../../backend/src/ai/tools/base.py:22). The package README still
 says three — that is stale; `DRAFT` was added later.
 
-| Status | Meaning | Visible by default? |
+| Status | Meaning | Runs for an entity granted it? |
 |--------|---------|---------------------|
 | `ACTIVE` | Verified, generally available. The implicit default on `Tool`. | Yes |
-| `EXPERIMENTAL` | Registered globally but unverified. | No — needs `tools.experimental.{tool_id}` per company |
-| `DEPRECATED` | Kept for backward compatibility, slated for removal. | No — unless `include_deprecated=True` (admin path) |
-| `DRAFT` | Freshly LLM-synthesized. Never registered globally, tenant-only, `trust=low`. | No — needs the same opt-in flag |
+| `EXPERIMENTAL` | Registered globally but unverified. | Only with `tools.experimental.{tool_id}` on for the company |
+| `DEPRECATED` | Kept for backward compatibility, slated for removal. | Yes, with an `agent.tool.deprecated_call` event (like a `DEPRECATED` entity, D6) |
+| `DRAFT` | Freshly LLM-synthesized. Never registered globally, tenant-only, `trust=low`. | Only with the same opt-in flag |
 
 ```mermaid
 stateDiagram-v2
@@ -168,59 +172,55 @@ Who carries which status today:
 | `DRAFT` | `SandboxedSynthesizedTool` instances |
 | `ACTIVE` | everything else — all of `core/`, `documents/`, `email/`, `crm/`, `sandbox/`, `image_generation`, and the meta tools other than `tool_synthesis` |
 
-### 2.3 Visibility gating
+### 2.3 Tool access — the one resolution point
 
-[`ToolRegistry.get_visible_tools_for_company`](../../backend/src/ai/tools/base.py:192)
-is the intended gate. It merges global plus tenant tools, drops `DEPRECATED`,
-and requires a per-company feature flag for `EXPERIMENTAL` and `DRAFT`:
+> **Since 2026-10-01 (P3.1 of the [consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md),
+> TL-50, TL-10, TL-12, TX-03, TL-13, TL-14).** Before, every execution path looked
+> tools up by name in the global registry with no company, grant, status or
+> `is_enabled` check: an entity granted only `web_search` could call `email_send`
+> if the model named it, and the "not found" error listed every tool. The status
+> gate (`get_visible_tools_for_company`) had no production caller; it is deleted.
 
-```python
-# backend/src/ai/tools/base.py
-if status in (ToolStatus.EXPERIMENTAL, ToolStatus.DRAFT):
-    enabled = await flags.is_on(f"tools.experimental.{name}", company_id=company_id)
-    if not enabled:
-        event("agent.tool.status_filtered", tool_id=name,
-              company_id=str(company_id), reason="experimental_opt_in_required")
-        continue
-```
+[`ToolAccess`](../../backend/src/ai/governance/tool_access.py) decides whether a
+tool may run, for one entity in one company. It is loaded once per step (once per
+call session for voice) and resolves in memory after that:
+
+| Check, in order | Refusal reason | Source |
+|---|---|---|
+| The entity is granted the tool (`capabilities.tools`) or the platform injects it (the meta-cognition tools for its level, `resolve_meta_cognition`) | `not_granted` | the entity |
+| The model may call it (`llm_callable`), or a plan step may (`plan_callable`) | `not_llm_callable` / `not_plan_callable` | the grant |
+| No admin switched it off (`tool_registry_entries.is_enabled = false`, the platform row or the company's) | `disabled` | one query per load |
+| It is registered — the company's own (tenant) tools first, then the platform's | `not_registered` | `ToolRegistry.get_tool(name, company_id)` |
+| `EXPERIMENTAL`/`DRAFT` tools need `tools.experimental.{name}` on for the company | `opt_in_required` | `FeatureFlags` |
+
+A grant (`ToolGrant` in [schemas/capabilities.py](../../backend/src/ai/schemas/capabilities.py))
+is `{tool_id, llm_callable, plan_callable, rate_limit_per_run}`. The builder still
+sends `usage`; it is translated when the entity is saved: `PLANNED` ⇒ the model may
+not call it, `AUTONOMOUS`/`BOTH`/absent ⇒ both.
 
 ```mermaid
 flowchart TD
-    S["get_visible_tools_for_company - company_id"] --> M["merge global _tools with _tenant_tools for company"]
-    M --> L{"for each tool"}
-    L --> D{"status == DEPRECATED ?"}
-    D -->|yes and not include_deprecated| X1["skip"]
-    D -->|no| E{"status in EXPERIMENTAL or DRAFT ?"}
-    E -->|no| K["include - ACTIVE"]
-    E -->|yes| F["FeatureFlags.is_on tools.experimental.NAME"]
-    F -->|true| K
-    F -->|false or error| X2["skip and emit agent.tool.status_filtered"]
-    K --> OUT["visible tools dict"]
+    L["ToolAccess.load - db, company, entity"] --> A["grants + injected meta tools + disabled names + opt-ins"]
+    A --> S["schemas - advertised to the model"]
+    A --> R["resolve name, via llm or plan"]
+    R -->|allowed| T["Tool instance"]
+    R -->|refused| D["ToolDenied - reason and a message naming the entity's tools"]
+    D --> X["skipped ToolResult - never run, retried, re-routed or billed"]
 ```
 
-**Verified drift — this gate is not wired into execution.** Grepping the
-backend, `get_visible_tools_for_company` is referenced only by
-[tests/unit/test_tool_status.py](../../backend/tests/unit/test_tool_status.py)
-and by a comment in `social/base.py`. The live path in
-[step_executor.py:722](../../backend/src/ai/step_executor.py:722) builds tool
-schemas straight from the entity's declared `capabilities.tools` and
-`ToolExecutor.get_tool_schemas`, which calls `ToolRegistry.get_all_schemas()`
-with **no** company id:
+Every caller goes through it, and `ToolExecutor`'s two entry points take it as a
+required argument — there is no way to run a tool by name alone:
 
-```python
-# backend/src/ai/step_executor.py
-tool_ids = [t.get("tool_id") for t in autonomous_tools]
-...
-tool_schemas = ToolExecutor.get_tool_schemas(tool_ids)
-```
+| Path | Builds `ToolAccess` | via |
+|---|---|---|
+| ReAct / chain-of-thought step (`StepExecutorService._execute_thought`) | per step | `llm` |
+| `TOOL_CALL` plan step (`_execute_tool_call`) | per step | `plan` |
+| `ToolResilience` retries and fallbacks | the caller's | the original call's — a fallback the entity was not granted is refused |
+| Voice (`agent_loader` advertisement, `websocket_handler` calls) | per call session, without the meta tools (they need a run) | `llm` |
 
-Practically: if an entity's `capabilities.tools` lists `linkedin_create_post`,
-that EXPERIMENTAL tool is advertised to the LLM and executable regardless of
-the `tools.experimental.linkedin_create_post` flag. The entity definition, not
-the status enum, is the effective access control today. The flag flip endpoint
-exists at
-[api/admin.py:479](../../backend/src/ai/api/admin.py:479) and writes real rows,
-so wiring the gate in is a small change — but it has not happened yet.
+Advertisement and execution use the same rule, so nothing is offered that would be
+refused. A refusal reaches the model as `Error: tool 'x' is not granted to this
+entity. Tools available to you: …` — the entity's tools, never the catalogue.
 
 ### 2.4 The `tool_registry_entries` table
 
@@ -252,7 +252,7 @@ erDiagram
 |--------|-------|
 | `name` | globally unique, must match `Tool.name` for built-ins |
 | `tool_type` | the ORM comment says `BUILT_IN \| CUSTOM`, but the synthesis pipeline writes a third value, `SYNTHESIZED` ([tool_synthesis_pipeline.py:80](../../backend/src/ai/meta/tool_synthesis_pipeline.py:80)) |
-| `is_enabled` | honoured by the frontend picker only, **not** by the executor (see §19) |
+| `is_enabled` | the admin kill switch: `false` refuses the tool for every entity — the platform row for everyone, a company's row for that company (§2.3; it disabled nothing before P3.1, TL-14) |
 | `configuration` | free-form JSON; for synthesized tools it carries `status`, `trust`, `network_policy`, the generated `source`, and the full audit trail |
 | `company_id` | `NULL` means system-wide; `sync_built_in_tools()` leaves it `NULL` |
 
@@ -396,8 +396,8 @@ sequenceDiagram
     alt limit exceeded
         TE-->>SE: ToolResult skipped true
     else allowed
-        TE->>R: get_tool by name
-        R-->>TE: Tool instance
+        TE->>R: ToolAccess.resolve name via llm
+        R-->>TE: Tool instance, or ToolDenied - skipped result, tool never runs
         alt run_typed overridden and args is a dict
             TE->>TE: get_type_hints to find the ToolParams subclass
             TE->>T: run_typed typed_params and optional context
@@ -1559,10 +1559,11 @@ Behavioural notes:
 - **`web_search ↔ headless_browser` is not symmetric-safe.** `headless_browser`
   falls back to `scraper_tool`, which needs a Firecrawl key. If both are
   unconfigured you burn three tool calls to produce one `[TOOL_EMPTY]`.
-- **The entity must own the fallback tool.** `ToolResilience._fallback_allowed`
-  checks `entity.capabilities.tools`; if the entity declares tools at all and
-  the alternative is not among them, the fallback is skipped. An entity with no
-  declared tools is allowed anything.
+- **The entity must be granted the fallback tool.** The fallback resolves through
+  the caller's `ToolAccess` like any other call (§2.3), so an alternative the
+  entity was not granted is refused. (Before P3.1, `_fallback_allowed` allowed
+  *anything* to an entity that declared no tools.) A refused call — the first
+  one or a fallback — is never retried or re-routed.
 - **`_batch_to_single_search` silently drops queries 2..N.** The agent gets one
   query's results back where it asked for 25, with no warning in the output.
 
@@ -1827,7 +1828,7 @@ flowchart TD
 
 | Control | Effect on the running agent |
 |---|---|
-| `is_enabled` toggle | **None at execution time.** The executor resolves tools through `ToolRegistry.get_tool()`, which never consults the DB. It only hides the tool from `ToolSelectionPanel`, which filters `tool.is_enabled !== false` ([ToolSelectionPanel.tsx:48](../../frontend/src/components/ToolSelectionPanel.tsx:48)). Existing entities that already reference the tool keep calling it. |
+| `is_enabled` toggle | **The kill switch.** `false` refuses the tool for every entity at its next step: `ToolAccess` reads the switched-off names once per step (§2.3). Before 2026-10-01 (TL-14) the executor never read the table and the toggle only hid the tool from the builder's picker. |
 | Edit `description` | Shows in the UI. **Does not change the prompt** — `get_function_schema()` uses the in-code `self.description`. |
 | Edit `function_schema` | Shows in the UI. Not used at execution. |
 | Edit `category`, `display_name` | UI grouping and labels only. |
@@ -1902,16 +1903,15 @@ was deleted under FE-30.)
    services. `headless_browser` blocks `file:` but the browser could still be
    navigated to an internal host.
 
-4. **Tool status is decorative at execution time.** EXPERIMENTAL and DEPRECATED
-   are enforced only by `get_visible_tools_for_company`, which no production
-   code calls. Sixty-four unfinished third-party integrations — several capable
-   of publishing content or spending ad budget — are one entity-definition line
-   away from running.
+4. ~~**Tool status is decorative at execution time.**~~ Fixed 2026-10-01 (TL-13):
+   `ToolAccess` refuses an `EXPERIMENTAL`/`DRAFT` tool unless the company opted in,
+   on every call (§2.3).
 
-5. **`is_enabled = false` does not disable anything.** An admin who toggles a
-   tool off in the UI will reasonably believe it is off. It is not; the executor
-   never reads the DB. Kill-switching a tool today means removing its
-   `ToolRegistry.register(...)` line and redeploying.
+5. ~~**`is_enabled = false` does not disable anything.**~~ Fixed 2026-10-01 (TL-14):
+   it is the kill switch (§19.3).
+
+6. ~~**The model can call any registered tool.**~~ Fixed 2026-10-01 (TL-50): a
+   tool runs only if the entity is granted it (§2.3).
 
 ### 20.3 Secrets handling
 
@@ -1935,11 +1935,12 @@ reading the backend's `.env` file off the host filesystem.
 
 | File | Lines | What it does |
 |---|---|---|
-| [tools/base.py](../../backend/src/ai/tools/base.py) | 249 | `Tool`, `ToolParams`, `ToolResult`, `ToolStatus`, `ToolRegistry`, visibility gate |
+| [tools/base.py](../../backend/src/ai/tools/base.py) | 202 | `Tool`, `ToolParams`, `ToolResult`, `ToolStatus`, `ToolRegistry` |
+| [governance/tool_access.py](../../backend/src/ai/governance/tool_access.py) | 225 | `ToolAccess`, `ToolDenied`, `grants_of`, `injected_meta_tools` — the one decision on whether a tool may run (§2.3) |
 | [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py) | 245 | imports and registers all 85 tools at import time |
 | [tools/README.md](../../backend/src/ai/tools/README.md) | 72 | package map — note the `ToolStatus` list is stale |
 | [tools/resilience.py](../../backend/src/ai/tools/resilience.py) | 403 | `FailureKind`, `classify_tool_failure`, `ToolResilience` |
-| [tool_executor.py](../../backend/src/ai/tool_executor.py) | 346 | typed and legacy dispatch, `ToolResult` dataclass, `call_counts` enforcement, trace spans |
+| [tool_executor.py](../../backend/src/ai/tool_executor.py) | 383 | resolution through `ToolAccess`, typed and legacy dispatch, `ToolResult` dataclass, `call_counts` enforcement, trace spans |
 | [tool_fallback.py](../../backend/src/ai/tool_fallback.py) | 166 | four fallback chains plus their input transforms |
 | [tools.py](../../backend/src/ai/tools.py) | 42 | legacy re-export shim; new code should import `src.ai.tools` |
 | [tool_management_router.py](../../backend/src/ai/tool_management_router.py) | 113 | 7 CRUD routes under `/api/v1/ai/tool-registry` |
@@ -1963,11 +1964,11 @@ reading the backend's `.env` file off the host filesystem.
 
 ## 22. Gotchas and things that surprise newcomers
 
-- **Registering a tool is not enough.** Nothing calls a tool unless some
-  entity's `capabilities.tools` lists its `tool_id`. Tools declared with
-  `usage: "PLANNED"` are excluded from the LLM prompt entirely — only
-  `AUTONOMOUS` and `BOTH` are injected
-  ([step_executor.py:725](../../backend/src/ai/step_executor.py:725)).
+- **Registering a tool is not enough.** A tool runs only for an entity whose
+  `capabilities.tools` grants it (or, for the meta tools, whose level gets it),
+  and only if it is not switched off and, when `EXPERIMENTAL`, the company opted
+  in (§2.3). A grant with `usage: "PLANNED"` (stored as `llm_callable: false`) is
+  neither offered to the model nor callable by it; only a plan step runs it.
 
 - **The schema and the code can disagree and nothing complains.** The schema is
   what the LLM sees; `run_with_context` receives a serialised JSON blob of the
@@ -1995,12 +1996,10 @@ reading the backend's `.env` file off the host filesystem.
   inline literals, the REACT path's inline literals, and
   `planning/cost_estimator.py`. Adding a priced tool means editing all four.
 
-- **`ToolCostResolver`, `RedisRateLimiter` and
-  `get_visible_tools_for_company` are all fully implemented, fully tested, and
-  never called from production code.** Do not assume a tested module is a live
-  module in this codebase — grep for call sites.
-
-- **`is_enabled` in the admin UI does not disable execution.** See §19.3.
+- **`RedisRateLimiter` is fully implemented, fully tested, and never called
+  from production code.** Do not assume a tested module is a live module in this
+  codebase — grep for call sites. (`ToolCostResolver` became the one price table
+  under BC-11; `get_visible_tools_for_company` was replaced by `ToolAccess`.)
 
 - **A "custom tool" created through the API is inert.** There is no loader.
 

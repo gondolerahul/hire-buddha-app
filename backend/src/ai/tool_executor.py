@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
-from src.ai.tools import ToolRegistry
+from typing import TYPE_CHECKING, Dict, List, Optional, Any
 from src.ai.tools.base import Tool as _BaseTool, ToolParams as _BaseToolParams
 from src.ai.core.trace import span as _trace_span
 import json
 import logging
 import re
+
+if TYPE_CHECKING:
+    from src.ai.governance.tool_access import ToolAccess, Via
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +101,23 @@ class ToolResult:
         return asdict(self)
 
 
+def _refused(tool_name: Any, args: Any, denied: Any) -> ToolResult:
+    """A call that never ran: the tool may not run here (P3.1). It is not
+    retried, not re-routed to a fallback, and not billed."""
+    message = getattr(denied, "message", None) or f"Error: tool '{tool_name}' is not available."
+    return ToolResult(
+        tool=str(tool_name), args=args if isinstance(args, dict) else {"input": args},
+        output=message, success=False, error=message,
+        skipped=True, skip_reason=getattr(denied, "reason", "refused"),
+    )
+
+
 class ToolExecutor:
-    """Handles parsing and execution of tool calls from LLM responses."""
+    """Handles parsing and execution of tool calls from LLM responses.
+
+    Every lookup goes through ``ToolAccess`` (``ai.governance.tool_access``): there is
+    no entry point that runs a tool by name alone (TL-50, TL-10).
+    """
 
     @staticmethod
     async def execute_from_function_calls(
@@ -108,6 +125,8 @@ class ToolExecutor:
         extra_context: Optional[Dict[str, Any]] = None,
         # P3.3 — per-run call budget (mutated in-place by caller)
         call_counts: Optional[Dict[str, int]] = None,
+        *,
+        access: "ToolAccess",
     ) -> List[ToolResult]:
         """
         Execute tools from native Gemini function call format.
@@ -123,6 +142,8 @@ class ToolExecutor:
                             been called in this run. Pass a fresh {} per
                             ExecutionRun and keep it alive across all REACT turns.
                             Keys are tool names, values are call counts.
+            access:         What this entity may run (``ToolAccess``). The model
+                            names the tool, so it resolves as an LLM call.
         Returns:
             List[ToolResult] with typed results
         """
@@ -156,91 +177,81 @@ class ToolExecutor:
                         ),
                     )
 
-            tool = ToolRegistry.get_tool(tool_name)
+            tool = access.resolve(tool_name, "llm")
+            if not isinstance(tool, _BaseTool):
+                return _refused(tool_name, tool_args, tool)
 
-            if tool:
-                _start = datetime.now(timezone.utc)
-                try:
-                    # Prefer run_typed() if the tool has overridden it
-                    _has_typed = type(tool).run_typed is not _base_run_typed
-                    if _has_typed and isinstance(tool_args, dict):
-                        # Discover params class from run_typed type hints
-                        import typing as _typing_mod
-                        hints = _typing_mod.get_type_hints(tool.run_typed)
-                        params_cls = hints.get("params")
-                        if params_cls and params_cls is not _base_tool_params:
-                            clean_args = {k: v for k, v in tool_args.items()
-                                          if k not in ("company_id", "user_id")}
-                            typed_params = params_cls(**clean_args)
-                            # Forward extra_context to run_typed() if supported.
-                            # This is critical for tools like WebSearchTool that
-                            # need company_id to resolve API keys from the registry.
-                            import inspect as _inspect
-                            _rtyped_sig = _inspect.signature(tool.run_typed)
-                            if "context" in _rtyped_sig.parameters:
-                                typed_result = await tool.run_typed(typed_params, context=extra_context)
-                            else:
-                                typed_result = await tool.run_typed(typed_params)
-                            _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
-                            call_counts[tool_name] = call_counts.get(tool_name, 0) + 1
-                            return ToolResult(
-                                tool=tool_name,
-                                args=tool_args,
-                                output=typed_result.output,
-                                success=typed_result.success,
-                                latency_ms=_latency,
-                                error=typed_result.error_message,
-                            )
-                except Exception as _typed_err:
-                    # Typed path failed (type hint resolution, param mismatch, etc.)
-                    # Fall through to legacy string-based path silently.
-                    logger.debug(f"Typed tool path failed for {tool_name}, using legacy: {_typed_err}")
-
-                try:
-
-                    # Legacy path: build raw input string
-                    if isinstance(tool_args, dict) and "input" in tool_args:
-                        raw_input = tool_args["input"]
-                    elif isinstance(tool_args, str):
-                        raw_input = tool_args
-                    else:
+            _start = datetime.now(timezone.utc)
+            try:
+                # Prefer run_typed() if the tool has overridden it
+                _has_typed = type(tool).run_typed is not _base_run_typed
+                if _has_typed and isinstance(tool_args, dict):
+                    # Discover params class from run_typed type hints
+                    import typing as _typing_mod
+                    hints = _typing_mod.get_type_hints(tool.run_typed)
+                    params_cls = hints.get("params")
+                    if params_cls and params_cls is not _base_tool_params:
                         clean_args = {k: v for k, v in tool_args.items()
                                       if k not in ("company_id", "user_id")}
-                        raw_input = json.dumps(clean_args)
+                        typed_params = params_cls(**clean_args)
+                        # Forward extra_context to run_typed() if supported.
+                        # This is critical for tools like WebSearchTool that
+                        # need company_id to resolve API keys from the registry.
+                        import inspect as _inspect
+                        _rtyped_sig = _inspect.signature(tool.run_typed)
+                        if "context" in _rtyped_sig.parameters:
+                            typed_result = await tool.run_typed(typed_params, context=extra_context)
+                        else:
+                            typed_result = await tool.run_typed(typed_params)
+                        _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
+                        call_counts[tool_name] = call_counts.get(tool_name, 0) + 1
+                        return ToolResult(
+                            tool=tool_name,
+                            args=tool_args,
+                            output=typed_result.output,
+                            success=typed_result.success,
+                            latency_ms=_latency,
+                            error=typed_result.error_message,
+                        )
+            except Exception as _typed_err:
+                # Typed path failed (type hint resolution, param mismatch, etc.)
+                # Fall through to legacy string-based path silently.
+                logger.debug(f"Typed tool path failed for {tool_name}, using legacy: {_typed_err}")
 
-                    output = await tool.run_with_context(raw_input, context=extra_context)
-                    _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
+            try:
 
-                    # P3.3 — Increment counter on successful call
-                    call_counts[tool_name] = call_counts.get(tool_name, 0) + 1
+                # Legacy path: build raw input string
+                if isinstance(tool_args, dict) and "input" in tool_args:
+                    raw_input = tool_args["input"]
+                elif isinstance(tool_args, str):
+                    raw_input = tool_args
+                else:
+                    clean_args = {k: v for k, v in tool_args.items()
+                                  if k not in ("company_id", "user_id")}
+                    raw_input = json.dumps(clean_args)
 
-                    return ToolResult(
-                        tool=tool_name,
-                        args=tool_args,
-                        output=output,
-                        success=True,
-                        latency_ms=_latency,
-                    )
-                except Exception as e:
-                    _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
-                    return ToolResult(
-                        tool=tool_name,
-                        args=tool_args,
-                        output=f"Error: {str(e)}",
-                        success=False,
-                        latency_ms=_latency,
-                        error=str(e),
-                    )
-            else:
+                output = await tool.run_with_context(raw_input, context=extra_context)
+                _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
+
+                # P3.3 — Increment counter on successful call
+                call_counts[tool_name] = call_counts.get(tool_name, 0) + 1
+
                 return ToolResult(
                     tool=tool_name,
                     args=tool_args,
-                    output=(
-                        f"Error: Tool '{tool_name}' not found. "
-                        f"Available: {[t['name'] for t in ToolRegistry.list_tools()]}"
-                    ),
+                    output=output,
+                    success=True,
+                    latency_ms=_latency,
+                )
+            except Exception as e:
+                _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
+                return ToolResult(
+                    tool=tool_name,
+                    args=tool_args,
+                    output=f"Error: {str(e)}",
                     success=False,
-                    error=f"Tool '{tool_name}' not registered",
+                    latency_ms=_latency,
+                    error=str(e),
                 )
 
         results: List[ToolResult] = []
@@ -258,54 +269,51 @@ class ToolExecutor:
     async def execute_tools(
         tool_calls: List[Dict[str, str]],
         extra_context: Optional[Dict[str, Any]] = None,
+        *,
+        access: "ToolAccess",
+        via: "Via" = "plan",
     ) -> List[ToolResult]:
         """
         Execute tool calls and return results (legacy method, now returns ToolResult).
+
+        ``via`` says who asked: ``"plan"`` for a plan step, ``"llm"`` for a
+        retry of a call the model made.
         """
         async def _one(call: Dict[str, str]) -> ToolResult:
-            tool = ToolRegistry.get_tool(call["tool"])
+            tool = access.resolve(call["tool"], via)
+            if not isinstance(tool, _BaseTool):
+                return _refused(call["tool"], {"input": call.get("input", "")}, tool)
             _start = datetime.now(timezone.utc)
-            if tool:
-                try:
-                    tool_input = call["input"]
-                    if extra_context:
-                        try:
-                            input_dict = json.loads(tool_input) if isinstance(tool_input, str) else tool_input
-                            if isinstance(input_dict, dict):
-                                input_dict.update(extra_context)
-                                tool_input = json.dumps(input_dict)
-                        except Exception:
-                            pass
-                    # Use run_with_context to pass execution context (company_id, user_id)
-                    # so tools can look up API keys from the integration registry
-                    output = await tool.run_with_context(tool_input, context=extra_context)
-                    _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
-                    return ToolResult(
-                        tool=call["tool"],
-                        args={"input": call["input"]},
-                        output=output,
-                        success=True,
-                        latency_ms=_latency,
-                    )
-                except Exception as e:
-                    _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
-                    return ToolResult(
-                        tool=call["tool"],
-                        args={"input": call["input"]},
-                        output=f"Error: {str(e)}",
-                        success=False,
-                        latency_ms=_latency,
-                        error=str(e),
-                    )
-            else:
+            try:
+                tool_input = call["input"]
+                if extra_context:
+                    try:
+                        input_dict = json.loads(tool_input) if isinstance(tool_input, str) else tool_input
+                        if isinstance(input_dict, dict):
+                            input_dict.update(extra_context)
+                            tool_input = json.dumps(input_dict)
+                    except Exception:
+                        pass
+                # Use run_with_context to pass execution context (company_id, user_id)
+                # so tools can look up API keys from the integration registry
+                output = await tool.run_with_context(tool_input, context=extra_context)
                 _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
                 return ToolResult(
                     tool=call["tool"],
-                    args={"input": call.get("input", "")},
-                    output=f"Error: Tool '{call['tool']}' not found",
+                    args={"input": call["input"]},
+                    output=output,
+                    success=True,
+                    latency_ms=_latency,
+                )
+            except Exception as e:
+                _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
+                return ToolResult(
+                    tool=call["tool"],
+                    args={"input": call["input"]},
+                    output=f"Error: {str(e)}",
                     success=False,
                     latency_ms=_latency,
-                    error=f"Tool '{call['tool']}' not registered",
+                    error=str(e),
                 )
 
         results: List[ToolResult] = []
@@ -317,17 +325,6 @@ class ToolExecutor:
                 _stamp_tool_span(_sp, tr)
             results.append(tr)
         return results
-
-    @staticmethod
-    def get_tool_schemas(
-        tool_ids: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
-        """Get provider-agnostic JSON function schemas for specified tools.
-        Schemas are consumed by LLMRouter adapters (Gemini, Anthropic, Azure)."""
-        all_schemas = ToolRegistry.get_all_schemas()
-        if tool_ids is None:
-            return all_schemas
-        return [s for s in all_schemas if s["name"] in tool_ids]
 
     @staticmethod
     def format_tool_results(results: List) -> str:

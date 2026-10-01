@@ -169,7 +169,7 @@ it happens.
 
 ### TX-03 — `usage: "PLANNED"` hides a tool from the model but not from execution
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, P3.1, with [TL-12](TOOL-LAYER-DEFECTS.md#tl-12--the-per-tool-permission-model-sits-on-a-class-nothing-uses))** — a `PLANNED` grant is stored as `llm_callable: false`: not offered to the model and refused when the model names it; a plan step still runs it.
 
 Tools declared `usage: "PLANNED"` are excluded from the LLM prompt — only `AUTONOMOUS` and
 `BOTH` are injected. But a `PLANNED` tool named directly in a static plan step executes
@@ -217,7 +217,7 @@ tenant tools "work".
 
 ### TX-06 — `get_tools_for_company` merges correctly and has no execution caller
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, P3.1, with [TL-10](TOOL-LAYER-DEFECTS.md#tl-10--tenant-scoped-tools-are-unreachable-by-construction))** — execution and advertisement resolve through `ToolAccess`, which looks tools up with the company.
 
 `ToolRegistry` has three lookup methods:
 

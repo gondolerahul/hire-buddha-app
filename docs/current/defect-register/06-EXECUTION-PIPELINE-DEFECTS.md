@@ -100,7 +100,7 @@ that name.
 
 ### EP-02 — `ToolExecutor` never passes `company_id`, so tenant tools are invisible
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.1, as [TL-10](TOOL-LAYER-DEFECTS.md#tl-10--tenant-scoped-tools-are-unreachable-by-construction))** — tools resolve through `ToolAccess` with the company.
 
 `get_tool_schemas` calls `ToolRegistry.get_all_schemas()` and
 `execute_from_function_calls` calls `ToolRegistry.get_tool(name)` — both **without**

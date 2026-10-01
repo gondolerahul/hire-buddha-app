@@ -85,7 +85,7 @@ class _FakeExecutor:
         self.results = list(results)
         self.calls: list[dict] = []
 
-    async def execute_tools(self, payload, extra_context=None):
+    async def execute_tools(self, payload, extra_context=None, **_kw):
         self.calls.append({"payload": payload, "ctx": extra_context})
         return [self.results.pop(0)]
 
@@ -142,24 +142,8 @@ async def test_fallback_taken_when_primary_persists() -> None:
     assert tr.tool == "web_search→headless_browser"
 
 
-@pytest.mark.asyncio
-async def test_fallback_blocked_when_not_in_capabilities() -> None:
-    fx = _FakeExecutor([_empty()])
-    res = ToolResilience(
-        reformat_fn=AsyncMock(return_value=None),
-        fallback_table=lambda tid, inp: ("scraper_tool", inp),
-        tool_executor=fx,
-    )
-
-    class _Ent:
-        capabilities = {"tools": [{"tool_id": "web_search"}]}
-
-    tr = await res.run(tool_id="web_search", raw_input="orig",
-                       entity=_Ent(), extra_context={})
-    # No fallback exec call; only the primary ran.
-    assert len(fx.calls) == 1
-    assert tr.output.startswith("[TOOL_EMPTY]")
-    assert tr.success is False
+# A fallback the entity was not granted is refused by ``ToolAccess`` like any
+# other call (P3.1): tests/unit/test_tool_access.py, with the real executor.
 
 
 # ---------------------------------------------------------------------------
@@ -201,12 +185,12 @@ class _FakeAfcExecutor:
         self.string_calls: list[dict] = []
 
     async def execute_from_function_calls(
-        self, function_calls, extra_context=None, call_counts=None,
+        self, function_calls, extra_context=None, call_counts=None, **_kw,
     ):
         self.afc_calls.append({"calls": function_calls, "ctx": extra_context})
         return [self.afc_results.pop(0)]
 
-    async def execute_tools(self, payload, extra_context=None):
+    async def execute_tools(self, payload, extra_context=None, **_kw):
         self.string_calls.append({"payload": payload, "ctx": extra_context})
         return [self.string_results.pop(0)]
 

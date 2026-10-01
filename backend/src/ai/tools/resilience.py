@@ -194,8 +194,13 @@ class ToolResilience:
         fallback_table: Any = None,
         tool_executor: Any = None,
         emit_event: Any = None,
+        access: Any = None,
     ):
         self.llm = llm_router
+        # What the entity may run (``ai.governance.tool_access.ToolAccess``). Every call
+        # this wrapper makes — the first, a retry, a fallback — resolves
+        # through it, so a fallback the entity was not granted is refused.
+        self.access = access
         self.reformat_fn = reformat_fn
         if fallback_table is None:
             try:
@@ -224,7 +229,9 @@ class ToolResilience:
     ) -> ToolResult:
         """Execute a tool with reformat-retry + fallback chain."""
         extra_context = dict(extra_context or {})
-        tr = await self._exec_one(tool_id, raw_input, extra_context)
+        tr = await self._exec_one(tool_id, raw_input, extra_context, "plan")
+        if tr.skipped:
+            return tr  # never ran (refused or over its limit): nothing to heal
         kind = classify_tool_failure(tr)
         if kind is FailureKind.NONE:
             return tr
@@ -246,7 +253,7 @@ class ToolResilience:
                 step_description=step_description or step_name,
             )
             if new_input and new_input != raw_input:
-                retry = await self._exec_one(tool_id, new_input, extra_context)
+                retry = await self._exec_one(tool_id, new_input, extra_context, "plan")
                 if classify_tool_failure(retry) is FailureKind.NONE:
                     return retry
                 tr = retry  # carry the retry's output forward
@@ -258,10 +265,10 @@ class ToolResilience:
             except Exception as exc:                                        # pragma: no cover
                 logger.debug(f"fallback_table call failed: {exc}")
                 alt_tool_id, alt_input = (None, raw_input)
-            if alt_tool_id and self._fallback_allowed(entity, alt_tool_id):
-                alt_tr = await self._exec_one(alt_tool_id, alt_input, extra_context)
+            if alt_tool_id:
+                alt_tr = await self._exec_one(alt_tool_id, alt_input, extra_context, "plan")
                 alt_kind = classify_tool_failure(alt_tr)
-                success = alt_kind is FailureKind.NONE
+                success = alt_kind is FailureKind.NONE and not alt_tr.skipped
                 await self._emit(
                     "agent.tool.resilience.fallback_taken",
                     run_id=str(getattr(run, "id", "")) if run else None,
@@ -313,11 +320,11 @@ class ToolResilience:
         return tr
 
     async def _exec_one(
-        self, tool_id: str, raw_input: Any, extra_context: dict,
+        self, tool_id: str, raw_input: Any, extra_context: dict, via: str,
     ) -> ToolResult:
         result = await self.executor.execute_tools(
             [{"tool": tool_id, "input": raw_input}],
-            extra_context=extra_context,
+            extra_context=extra_context, access=self.access, via=via,
         )
         if not result:
             return ToolResult(
@@ -352,10 +359,13 @@ class ToolResilience:
 
         tr_list = await self.executor.execute_from_function_calls(
             [function_call], extra_context=extra_context, call_counts=call_counts,
+            access=self.access,
         )
         tr = tr_list[0] if tr_list else ToolResult(
             tool=tool_id, args=tool_args, output="[TOOL_EMPTY]", success=False,
         )
+        if tr.skipped:
+            return tr  # never ran (refused or over its limit): nothing to heal
         kind = classify_tool_failure(tr)
         if kind is FailureKind.NONE:
             return tr
@@ -389,7 +399,7 @@ class ToolResilience:
                 step_description=step_description or step_name,
             )
             if new_input and new_input != original_str:
-                retry = await self._exec_one(tool_id, new_input, extra_context)
+                retry = await self._exec_one(tool_id, new_input, extra_context, "llm")
                 if classify_tool_failure(retry) is FailureKind.NONE:
                     return retry
                 tr = retry
@@ -407,10 +417,10 @@ class ToolResilience:
             except Exception as exc:                                          # pragma: no cover
                 logger.debug(f"fallback_table call failed: {exc}")
                 alt_tool_id, alt_input = (None, None)
-            if alt_tool_id and self._fallback_allowed(entity, alt_tool_id):
-                alt_tr = await self._exec_one(alt_tool_id, alt_input, extra_context)
+            if alt_tool_id:
+                alt_tr = await self._exec_one(alt_tool_id, alt_input, extra_context, "llm")
                 alt_kind = classify_tool_failure(alt_tr)
-                success = alt_kind is FailureKind.NONE
+                success = alt_kind is FailureKind.NONE and not alt_tr.skipped
                 await self._emit(
                     "agent.tool.resilience.fallback_taken",
                     run_id=str(getattr(run, "id", "")) if run else None,
@@ -450,17 +460,6 @@ class ToolResilience:
         except Exception as exc:                                            # pragma: no cover
             logger.debug(f"reformat_fn failed for {tool_id}: {exc}")
             return None
-
-    @staticmethod
-    def _fallback_allowed(entity: Any, alt_tool_id: str) -> bool:
-        if entity is None:
-            return True
-        caps = getattr(entity, "capabilities", None) or {}
-        if isinstance(entity, dict):
-            caps = entity.get("capabilities") or {}
-        tools = [t.get("tool_id") if isinstance(t, dict) else t
-                 for t in (caps.get("tools") or [])]
-        return not tools or alt_tool_id in tools
 
     async def _emit(self, name: str, **payload: Any) -> None:
         if self.emit is not None:

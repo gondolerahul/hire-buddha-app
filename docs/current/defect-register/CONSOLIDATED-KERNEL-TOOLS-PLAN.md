@@ -632,6 +632,59 @@ this company; tools never read tenancy or credentials from the model.
 | 3.9 | One sandbox switch, loud failure | TX-01, TL-01 (part), TL-02 (part) | `sandbox.container_runtime_enabled` resolution honours the declared default or the flag is deleted (one switch); a container failure is an error, not a host fallback; the synthesis harness workdir lives in the tenant workspace |
 | 3.10 | `meta_spec_critic` registered | TX-04 | Registered like every tool, `EXPERIMENTAL` |
 
+#### P3 detailed design (written 2026-10-01, before P3.1)
+
+Re-read against the code at the P2 head (`145d8ae`). What holds today:
+
+- Five lookup sites, none tenant- or grant-aware: `ToolExecutor.execute_from_function_calls`
+  and `execute_tools` (`ToolRegistry.get_tool(name)`), `ToolExecutor.get_tool_schemas`
+  (`get_all_schemas()`), the voice handler (through `execute_from_function_calls`), and
+  `ToolResilience`'s fallback (`_fallback_allowed` allows **anything** when the entity lists
+  no tools). `get_visible_tools_for_company` (the status gate) has no production caller.
+- The ReAct closure builds tool context as `{**filtered_context, company_id, …}` — every
+  run-input key the loop seeded (`container_runtime`, `persona`, `__is_meta_agent__`, …)
+  reaches every tool.
+- Non-`ACTIVE` tools: the 52 social tools, the three video tools and `tool_synthesis`
+  (`EXPERIMENTAL`), synthesized tools (`DRAFT`).
+
+**One module, one decision — `src/ai/governance/tool_access.py`** (the `tools/` root is reserved for the package shell by the layout lint; the access rule is policy, beside `composition.py`):
+
+| Piece | What it is |
+|---|---|
+| `ToolGrant` | Typed entry of `capabilities.tools`: `tool_id`, `llm_callable`, `plan_callable`, `rate_limit_per_run`. Legacy `usage` is read once: `PLANNED` ⇒ not LLM-callable (TX-03); `AUTONOMOUS`/`BOTH`/absent ⇒ both (so existing static plans keep running). Replaces `ToolReference`; `ToolDefinition`'s permission fields, which nothing reads, are deleted |
+| `ToolAccess` | Built once per step (and once per voice session) by `ToolAccess.load(db, company_id, entity)`: the entity's grants, the meta tools `resolve_meta_cognition` injects, the company's `tools.experimental.*` opt-ins and the disabled names (one query over `tool_registry_entries.is_enabled = false` for built-in rows and the company's rows) |
+| `ToolAccess.resolve(name, via)` | The only lookup on an execution path. Returns the tool or a `ToolDenied` with a reason: `not_granted` (TL-50), `not_llm_callable` (TX-03), `disabled` (TL-14), `opt_in_required` (TL-13). Tenant tools resolve before global ones (TL-10). The denial message names the entity's granted tools, never the catalogue |
+| `ToolAccess.schemas()` | Advertisement through the same rule: what `resolve(…, "llm")` would allow, nothing else |
+
+`ToolExecutor`'s two entry points and `get_tool_schemas` take a `ToolAccess`; there is no
+signature without one. `ToolResilience` passes it through, so a fallback tool is resolved
+like any other (an ungranted fallback is refused, not run). `DEPRECATED` tools still
+resolve (an event fires), matching `DEPRECATED` entities (D6).
+
+**Server-minted context — `ExecutionContext` (frozen dataclass, same module):** company,
+user, run, agent (entity) ids, entity name, `is_meta_agent` from
+`metadata_extensions.is_meta_agent` (TL-65), `max_runtime_creations`, and the loop-owned
+read-only state the introspection tools need (`__agent_state__`,
+`__execution_metadata__`, `__cortex_tree_id__`, `__cortex_cursor__`). `as_tool_context()`
+is what tools receive. Run input never merges into it (TL-53). Separately, the API
+refuses (422) reserved keys in `input_data` — `__`-prefixed and the control keys
+`feature_flags`, `cortex_tree_id`, `subtree_root_id`, `container_runtime`,
+`persistent_browser`, `persona`, `company_id`, `user_id`, `run_id`, `agent_id` — so they
+can only be written by the platform (retry, refine, child runs).
+
+**Commit order** (each one commit, a failing test first):
+
+1. P3.1 — `ToolGrant`, `ToolAccess`, the executor signatures (TL-50, TL-10, TL-12, TX-03, TL-13, TL-14)
+2. P3.2 — `ExecutionContext`; reserved input keys; `params["company_id"]` fallbacks removed from every tool (TL-53, TL-65, TL-03)
+3. P3.3 — per-run call counts stored on the run's context (not reset per step); `rate_limit_per_run` from the grant; `max_tool_calls` refuses (TL-11, TL-21)
+4. P3.4 — credentials from the connection row only; `ScraperTool.run_typed` forwards context (TL-04/TL-56, TL-05)
+5. P3.5 — no global symlink; `common/net_guard.py` SSRF guard (scheme, DNS resolve, private/loopback/link-local/ULA/metadata refused, redirects re-checked) for scraper and browser; `tools/paths.py` confining model paths to the tenant workspace; WeasyPrint fetcher that refuses `file:` and guarded hosts, image resolution scoped to the company (TL-07, TL-08, TL-54, TL-55)
+6. P3.6 — registration freezes the instance (TX-02)
+7. P3.7 — voice tool calls through `ToolAccess` with a run id, logged and charged (TL-20)
+8. P3.8 — the list route omits `configuration` (TL-06 remainder)
+9. P3.9 — one sandbox switch, a container failure is an error (TX-01, TL-01 part, TL-02 part)
+10. P3.10 — `meta_spec_critic` registered (TX-04)
+
 ### P4 — One cost write path
 
 **Goal:** every spender writes one attributed `usage_logs` row with its `run_id`; a run's

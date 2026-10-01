@@ -40,7 +40,7 @@ class _StubExecutor:
         self.string_calls: list[dict] = []
 
     async def execute_from_function_calls(
-        self, function_calls, extra_context=None, call_counts=None,
+        self, function_calls, extra_context=None, call_counts=None, **_kw,
     ):
         self.afc_calls.append({
             "calls": function_calls,
@@ -48,7 +48,7 @@ class _StubExecutor:
         })
         return [self.afc_queue.pop(0)]
 
-    async def execute_tools(self, payload, extra_context=None):
+    async def execute_tools(self, payload, extra_context=None, **_kw):
         self.string_calls.append({
             "payload": payload,
             "ctx": dict(extra_context or {}),
@@ -165,33 +165,8 @@ async def test_react_final_empty_marker_emitted() -> None:
     assert "EMPTY" in tr.output
 
 
-# ---------------------------------------------------------------------------
-# Capability-aware fallback — refuse to substitute a tool the entity
-# doesn't have in its capabilities list.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_react_fallback_blocked_by_capabilities() -> None:
-    exec_ = _StubExecutor(afc_queue=[_empty("web_search")])
-
-    class _Entity:
-        capabilities = {"tools": [{"tool_id": "web_search"}]}  # no fallback allowed
-
-    res = ToolResilience(
-        reformat_fn=AsyncMock(return_value=None),
-        fallback_table=lambda tid, inp: ("scraper_tool", inp),
-        tool_executor=exec_,
-    )
-    tr = await res.run_function_call(
-        function_call={"name": "web_search", "args": {"input": "x"}},
-        entity=_Entity(),
-        extra_context={},
-    )
-    # The fallback was vetoed — only the primary AFC call ran.
-    assert len(exec_.string_calls) == 0
-    assert tr.output.startswith("[TOOL_EMPTY]")
-    assert tr.success is False
+# A fallback the entity was not granted is refused by ``ToolAccess`` like any
+# other call (P3.1): tests/unit/test_tool_access.py, with the real executor.
 
 
 # ---------------------------------------------------------------------------
