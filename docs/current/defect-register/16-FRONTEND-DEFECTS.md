@@ -57,7 +57,14 @@ The three to read first:
 
 ### FE-01 — There is no error boundary
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — `components/ErrorBoundary.tsx` wraps
+the router (*The application hit an error…*) and, inside `MainLayout`, each page (*This page
+hit an error…*, with **Try again** and **Reload**); the page boundary clears itself when the
+route changes. A `<Suspense>` inside `MainLayout` means a page chunk still loading shows
+"Loading…" in the content area instead of blanking the shell. **Evidence:** live, a
+deliberate throw added to the Costing Report for the test (and removed) showed the page-level
+message with the sidebar intact; clicking Billing Settings in the sidebar cleared it and
+rendered that page.
 
 Grepping the whole `frontend/src` tree for `ErrorBoundary` or `componentDidCatch` returns
 nothing.
@@ -228,7 +235,10 @@ Costing Report and Billing Settings loaded with the local data); an API-style re
 
 ### FE-05 — Three legacy redirects emit a literal `:id`
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — a `ParamRedirect` fills the route's
+`:params` into the target (`ExecutionRedirect` uses it too). **Evidence:** live,
+`/agents/<id>` landed on `/ai/entities/edit/<id>` and `/execute/process/<id>` on
+`/ai/execute/<id>`.
 
 ```tsx
 <Route path="/agents/:id"    element={<Navigate to="/ai/entities/edit/:id" replace />} />

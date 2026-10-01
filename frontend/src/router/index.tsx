@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-
 import { useAuth } from '@/hooks/useAuth';
 import { MainLayout } from '@/components/layout';
 import { UserRole } from '@/types';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Lazy load pages
 const LoginPage = lazy(() => import('@/pages/auth').then(m => ({ default: m.LoginPage })));
@@ -106,14 +107,23 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 // Execution Redirect component to preserve :id parameter
-const ExecutionRedirect: React.FC = () => {
-    const { id } = useParams();
-    return <Navigate to={`/ai/executions/${id}`} replace />;
+/**
+ * Redirect to `to` with the route's `:params` filled in. `<Navigate>` does not
+ * interpolate, so `<Navigate to="/ai/execute/:id">` sent old bookmarks to a
+ * literal `:id` (FE-05).
+ */
+const ParamRedirect: React.FC<{ to: string }> = ({ to }) => {
+    const params = useParams();
+    const target = to.replace(/:(\w+)/g, (_, name: string) => encodeURIComponent(params[name] ?? ''));
+    return <Navigate to={target} replace />;
 };
+
+const ExecutionRedirect: React.FC = () => <ParamRedirect to="/ai/executions/:id" />;
 
 export const AppRouter: React.FC = () => {
     return (
         <BrowserRouter>
+            <ErrorBoundary scope="The application">
             <Suspense fallback={<PageLoader />}>
                 <Routes>
                     {/* Public Routes */}
@@ -212,8 +222,8 @@ export const AppRouter: React.FC = () => {
                     <Route path="/workflows" element={<Navigate to="/ai/entities" replace />} />
                     <Route path="/agents/create" element={<Navigate to="/ai/entities/create" replace />} />
                     <Route path="/workflows/create" element={<Navigate to="/ai/entities/create" replace />} />
-                    <Route path="/agents/:id" element={<Navigate to="/ai/entities/edit/:id" replace />} />
-                    <Route path="/workflows/:id" element={<Navigate to="/ai/entities/edit/:id" replace />} />
+                    <Route path="/agents/:id" element={<ParamRedirect to="/ai/entities/edit/:id" />} />
+                    <Route path="/workflows/:id" element={<ParamRedirect to="/ai/entities/edit/:id" />} />
 
                     {/* Execution */}
                     <Route
@@ -226,7 +236,7 @@ export const AppRouter: React.FC = () => {
                             </ProtectedRoute>
                         }
                     />
-                    <Route path="/execute/:type/:id" element={<Navigate to="/ai/execute/:id" replace />} />
+                    <Route path="/execute/:type/:id" element={<ParamRedirect to="/ai/execute/:id" />} />
 
                     {/* Executions History */}
                     <Route
@@ -591,6 +601,7 @@ export const AppRouter: React.FC = () => {
                     <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
             </Suspense>
+            </ErrorBoundary>
         </BrowserRouter>
     );
 };

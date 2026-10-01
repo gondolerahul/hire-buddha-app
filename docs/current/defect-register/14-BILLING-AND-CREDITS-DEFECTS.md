@@ -79,7 +79,7 @@ found on the way and added (BC-27, BC-28, BC-29), and BC-30 on 2026-10-01.
 | BC-27 | Concurrent deductions overwrite each other *(new)* | ✅ fixed `6ee7034` |
 | BC-28 | Subscribing always fails with 422 *(new)* | ✅ fixed `fe8f1a6` |
 | BC-29 | Any custom-API registry row prices every tool *(new)* | ✅ fixed `d71918d` |
-| BC-30 | Every subscription tier shows as "Archived" *(new)* | ✅ fixed |
+| BC-30 | Every subscription tier shows as "Archived" *(new)* | ✅ fixed `8bfa93b` |
 
 | ID | Improvement | Status |
 |---|---|---|
@@ -797,7 +797,7 @@ and a fair indicator of how much of that file has been reviewed.
 
 ### BC-30 — Every subscription tier shows as "Archived"
 
-**✅ Verified · Low** · **Status: fixed (2026-10-01)** — found 2026-10-01 while verifying BC-21
+**✅ Verified · Low** · **Status: fixed (2026-10-01, `8bfa93b`)** — found 2026-10-01 while verifying BC-21
 on the Billing Settings page.
 
 `GET /credits/subscription-tiers` returned no `is_active`, so the admin page — which labels a

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -43,6 +43,7 @@ import {
     ShieldAlert,
 } from 'lucide-react';
 import { UserRole } from '@/types';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import logo from '@/assets/logo.png';
 import './MainLayout.css';
 
@@ -301,7 +302,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
             {/* Main Content */}
             <div className="main-content">
-                <main>{children}</main>
+                {/* A page that throws, or whose chunk is still loading, takes
+                    only this area — the sidebar stays (FE-01). Navigating away
+                    clears the error. */}
+                <main>
+                    <ErrorBoundary scope="This page" resetKey={location.pathname}>
+                        <Suspense fallback={<div className="page-loading">Loading…</div>}>
+                            {children}
+                        </Suspense>
+                    </ErrorBoundary>
+                </main>
             </div>
         </div>
     );

@@ -2233,14 +2233,14 @@ page is its own chunk. But:
 
 | Issue | Location |
 |-------|----------|
-| Three `<Navigate>` redirects emit a literal `:id` | `router/index.tsx:213,214,227` |
+| ~~Three `<Navigate>` redirects emit a literal `:id`~~ — fixed (FE-05): `ParamRedirect` | `router/index.tsx:213,214,227` |
 | `JSON.parse` on the IO-contract textareas has no try/catch — bad JSON silently kills the save | `EntityConfigurationTabs.tsx:682` |
 | ~~`getStepToolLogs` is a stub returning `false` for everything~~ — fixed (FE-10): tool logs carry `step_name` | `ExecutionDetail.tsx:83` |
 | `MainLayout`'s submenu-auto-open effect mutates a copy of `openSubmenus` but omits it from the dependency array | `MainLayout.tsx:152-166` |
 | `EntityFlow`'s planned-tool sync effect reads `nodes` without depending on it | `EntityFlow.tsx:188-241` |
 | ~~The `response` variable from `authService.login/register` is assigned and never used~~ — removed (FE-16; it did fail `noUnusedLocals`) | `useAuth.tsx:44,74` |
-| No error boundary anywhere — a render throw blanks the whole app | app-wide |
-| No `<Suspense>` boundary below the router, so a slow chunk blanks the shell too | `router/index.tsx:116` |
+| ~~No error boundary anywhere — a render throw blanks the whole app~~ — fixed (FE-01): one around the router, one around each page | app-wide |
+| ~~No `<Suspense>` boundary below the router, so a slow chunk blanks the shell too~~ — fixed (FE-01): `MainLayout` has one around the page | `router/index.tsx:116` |
 | Google/Microsoft login buttons have no handler | `LoginPage.tsx:76-85` |
 | `.gap-1` defined three times, last one wins with the wrong value | `global.css:312,480,579` |
 
