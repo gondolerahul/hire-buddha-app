@@ -150,21 +150,22 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         setOpenSubmenus(prev => ({ ...prev, [title]: !prev[title] }));
     };
 
+    // The groups holding the current page, opened when you navigate into them.
+    const activeGroupKey = menuGroups
+        .filter(group => !group.isStandalone && group.items?.some(item => isActive(item.path)))
+        .map(group => group.title!)
+        .join('|');
+
     useEffect(() => {
-        const newOpenState = { ...openSubmenus };
-        let changed = false;
-        menuGroups.forEach(group => {
-            if (!group.isStandalone && group.items) {
-                if (group.items.some(item => isActive(item.path))) {
-                    if (!newOpenState[group.title!]) {
-                        newOpenState[group.title!] = true;
-                        changed = true;
-                    }
-                }
-            }
+        if (!activeGroupKey) return;
+        // An updater: the effect used to copy `openSubmenus` from the render it
+        // was created in, so a submenu toggled since could be reverted (FE-08).
+        setOpenSubmenus(prev => {
+            const titles = activeGroupKey.split('|');
+            if (titles.every(title => prev[title])) return prev;
+            return { ...prev, ...Object.fromEntries(titles.map(title => [title, true])) };
         });
-        if (changed) setOpenSubmenus(newOpenState);
-    }, [location.pathname]);
+    }, [activeGroupKey]);
 
     return (
         <div className="main-layout">

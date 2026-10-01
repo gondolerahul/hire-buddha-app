@@ -7,12 +7,16 @@ import { useAuth } from '@/hooks/useAuth';
 import { HierarchicalEntity } from '@/types';
 import { EntityConfigurationTabs } from './EntityConfigurationTabs';
 import './EntityBuilder.css';
+import { hasPath, unknownKeyPaths, withoutPaths } from '@/utils/entityConfig';
 
 export const EntityBuilder: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
-    const [loading, setLoading] = useState(false);
+    // An edit route starts loading: the form must not mount before the entity
+    // arrives, because its fields read their initial values once (FE-23).
+    const [loading, setLoading] = useState(Boolean(id));
+    const [notice, setNotice] = useState('');
     const [error, setError] = useState('');
     const [entity, setEntity] = useState<HierarchicalEntity | undefined>(undefined);
     const [targetCompanyId, setTargetCompanyId] = useState<string | null>(null);
@@ -39,10 +43,26 @@ export const EntityBuilder: React.FC = () => {
     const handleSave = async (entityData: any) => {
         setLoading(true);
         setError('');
+        setNotice('');
 
         try {
             if (id) {
-                await apiClient.put(`/ai/entities/${id}`, entityData);
+                try {
+                    await apiClient.put(`/ai/entities/${id}`, entityData);
+                } catch (err: any) {
+                    // The builder keeps stored settings it does not show (FE-25).
+                    // If the API rejects one as an unknown key, it is a retired
+                    // setting carried over from the stored entity — the builder
+                    // itself only sends keys it knows. Drop those and save again.
+                    const retired = err.response?.status === 422
+                        ? unknownKeyPaths(err.response?.data?.detail)
+                        : [];
+                    if (retired.length === 0 || !retired.every(path => hasPath(entity, path))) throw err;
+                    await apiClient.put(`/ai/entities/${id}`, withoutPaths(entityData, retired));
+                    setNotice(`Saved. Removed retired setting(s) no longer used: ${retired.join(', ')}`);
+                    setLoading(false);
+                    return;
+                }
             } else {
                 // Pass target_company_id as query parameter for new entities
                 const params = targetCompanyId ? `?target_company_id=${targetCompanyId}` : '';
@@ -100,8 +120,17 @@ export const EntityBuilder: React.FC = () => {
                         <div className="spinner"></div>
                         <p>Loading Entity...</p>
                     </div>
+                ) : id && !entity ? (
+                    // The entity did not load: an empty form here would save
+                    // blank fields over it (FE-23).
+                    <div className="loading-state glass">
+                        <p>{error || 'Entity not found.'}</p>
+                    </div>
                 ) : (
                     <EntityConfigurationTabs
+                        // A new entity remounts the form, which reads its
+                        // initial values once (FE-23).
+                        key={entity?.id ?? 'new'}
                         entity={entity}
                         onSave={handleSave}
                         onCancel={handleCancel}
@@ -113,6 +142,7 @@ export const EntityBuilder: React.FC = () => {
             </div>
 
             {error && <div className="error-toast glass">{error}</div>}
+            {notice && <div className="error-toast glass" role="status">{notice}</div>}
         </div>
     );
 };

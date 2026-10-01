@@ -259,7 +259,10 @@ and builds the target.
 
 ### FE-06 — Bad JSON in the IO-contract fields silently kills the save
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the schemas are parsed in a
+`try`; on bad JSON the builder switches to the Basics tab, shows *The input or output schema
+is not valid JSON: …* beside Save, and sends nothing. **Evidence:** live, `{bad json` in the
+input schema of `report-writer` showed the message, the page stayed, and no request was made.
 
 `EntityConfigurationTabs` calls `JSON.parse` on the input/output schema textareas with **no
 try/catch**. A malformed schema throws inside the save handler, the save never completes,
@@ -288,7 +291,18 @@ on. The user sees one area of the product break for no visible reason.
 
 ### FE-08 — Two effects have wrong dependency arrays
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — both effects now update state with
+an updater instead of a copy from the render they were created in, and the lint rule passes
+on both.
+
+- `MainLayout`: the groups holding the current page are computed during render
+  (`activeGroupKey`) and opened with `setOpenSubmenus(prev => …)`, so a submenu toggled in
+  the meantime is not reverted.
+- `EntityFlow`'s planned-tool sync works inside `setNodes(prev => …)`. Worse than recorded:
+  it removed *every* tool node whose tool was not marked PLANNED — including `TOOL_CALL`
+  steps of the stored plan, which the next save then dropped (an FE-25 path). It now removes
+  only the nodes it added itself (`tool-…`), and a separate effect drops edges left without a
+  node.
 
 | Effect | Problem |
 |---|---|
@@ -393,7 +407,8 @@ function).
 
 ### FE-25 — Saving from the entity builder rewrites config it does not show
 
-**✅ Verified · High** · **Status: open** — found 2026-09-29 while fixing PO-09.
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — the builder saves the stored entity
+with its edits laid over it; plan steps round-trip. Found 2026-09-29 while fixing PO-09.
 
 `EntityConfigurationTabs.handleSave` rebuilds every config column from the builder's own
 form state and sends it whole; the update replaces each column. So opening an entity and
@@ -417,6 +432,35 @@ Seeded entities are the ones most exposed: they carry settings the builder canno
 **Fix:** start the payload from the loaded entity and overlay the builder's edits, rather
 than rebuilding it; keep each step's `prompt_template` and `input_dependencies` in the graph
 nodes so they round-trip.
+
+**Done (2026-10-01).** Three causes, not two:
+
+1. **Unshown keys.** `utils/entityConfig.overlayConfig` lays each rebuilt config column over
+   the stored one: keys the builder sets win (a cleared field clears), keys it does not know
+   are kept.
+2. **Plan steps.** A node loaded from a stored step carries that step; the save overlays the
+   canvas's fields on it, so `prompt_template`, `reasoning_hint`, exit conditions and the rest
+   survive. Edges are drawn from the steps' `input_dependencies` (they used to be a chain in
+   list order, which rewired step 3 to step 2). An ACTION step's stored `prompt_template` is
+   kept unless its description was edited — before, every save replaced the step's real
+   instruction with its description. `hierarchy.children` entries keep their stored fields.
+3. **The planned-tool sync** removed plan `TOOL_CALL` steps whose tool was not marked PLANNED
+   (see FE-08).
+
+Keeping stored keys means an entity carrying a key the API no longer accepts (PO-09's 422)
+could not be saved. The builder only sends keys it knows, so such a 422 can only name keys
+carried over: `EntityBuilder` drops exactly those (when every named key exists on the stored
+entity), saves again and says *Removed retired setting(s) no longer used: …*. In the local
+database 84 of 341 entities — all parity-test rows — carry the unread
+`governance.async_child_dispatch`.
+
+**Evidence:** live on `report-writer`, with `governance.meta_review_interval: 5` set first:
+an unchanged save — once through the Hierarchy tab and Save Hierarchy, once straight from
+Basics — kept `meta_review_interval: 5`, kept step 1's real prompt, and kept steps 2 and 3 as
+`TOOL_CALL` on `{{step_1}}` depending on `step_1`. The other differences after the save were
+defaults the form fills (personality sliders, `bio` from the description, `null` → empty).
+The entity was restored afterwards. No unit test: the frontend has no test runner yet
+(FE-03); the helpers in `utils/entityConfig.ts` are pure and ready for one.
 
 ---
 
@@ -541,7 +585,13 @@ into each of the 13 report chunks is left to Rollup's defaults.
 
 ### FE-23 — `useState(entity?.x)` only reads the prop once
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — confirmed a live race, not only a
+latent one: on an edit route the builder rendered the form *before* the fetch started (with
+`entity` undefined), and only recovered because the loading spinner happened to unmount it.
+Now the edit route starts in the loading state; the form is keyed on the entity's id, so a
+different entity remounts it; a failed fetch shows the error instead of an empty form that
+Save would have written over the entity; and the hierarchy graph is built once as initial
+state rather than by an effect that replaced it after the first paint.
 
 `EntityConfigurationTabs` initialises roughly 70 state variables from props. `useState`
 reads its initial value **once**, on first render.

@@ -185,6 +185,10 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
     };
 
     // ── Sync PLANNED/BOTH tools onto canvas ──────────────────────────────────
+    // Works on the current nodes (an updater, not the render's `nodes`, which
+    // the effect did not depend on — FE-08), and removes only the tool nodes
+    // this sync added (`tool-…`): a TOOL_CALL step of the stored plan is the
+    // plan's, and removing it lost it on the next save (FE-25).
     useEffect(() => {
         if (loadingLibraries) return; // Wait for tools to be fetched first
 
@@ -194,51 +198,42 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
                 .map(t => t.tool_id)
         );
 
-        // Find tool nodes already on canvas
-        const existingToolIds = new Set(
-            nodes.filter(n => n.data.toolRef).map(n => n.data.toolRef.tool_id)
-        );
-
-        // Add missing planned tools
-        const toAdd: Node[] = [];
-        plannedIds.forEach(toolId => {
-            if (!existingToolIds.has(toolId)) {
-                const toolInfo = tools.find(t => t.name === toolId);
-                const existingCount = nodes.length + toAdd.length;
-                toAdd.push({
-                    id: `tool-${toolId}`,
-                    type: 'toolNode',
-                    position: { x: 100 + (existingCount % 3) * 300, y: 100 + Math.floor(existingCount / 3) * 160 },
-                    data: {
-                        label: toolInfo?.name || toolId,
-                        description: toolInfo?.description || '',
-                        toolRef: { tool_id: toolId, name: toolInfo?.name || toolId },
-                        stepType: 'TOOL_CALL',
-                        required: true,
-                    },
-                });
-            }
-        });
-
-        // Remove tool nodes that are no longer planned
-        const toRemoveIds = nodes
-            .filter(n => n.data.toolRef && !plannedIds.has(n.data.toolRef.tool_id))
-            .map(n => n.id);
-
-        if (toAdd.length > 0 || toRemoveIds.length > 0) {
-            setNodes(prev => {
-                let updated = prev.filter(n => !toRemoveIds.includes(n.id));
-                updated = [...updated, ...toAdd];
-                return updated;
+        setNodes(prev => {
+            const existingToolIds = new Set(prev.filter(n => n.data.toolRef).map(n => n.data.toolRef.tool_id));
+            const toAdd: Node[] = [];
+            plannedIds.forEach(toolId => {
+                if (!existingToolIds.has(toolId)) {
+                    const toolInfo = tools.find(t => t.name === toolId);
+                    const existingCount = prev.length + toAdd.length;
+                    toAdd.push({
+                        id: `tool-${toolId}`,
+                        type: 'toolNode',
+                        position: { x: 100 + (existingCount % 3) * 300, y: 100 + Math.floor(existingCount / 3) * 160 },
+                        data: {
+                            label: toolInfo?.name || toolId,
+                            description: toolInfo?.description || '',
+                            toolRef: { tool_id: toolId, name: toolInfo?.name || toolId },
+                            stepType: 'TOOL_CALL',
+                            required: true,
+                        },
+                    });
+                }
             });
-            // Also remove edges connected to removed nodes
-            if (toRemoveIds.length > 0) {
-                setEdges(prev => prev.filter(e =>
-                    !toRemoveIds.includes(e.source) && !toRemoveIds.includes(e.target)
-                ));
-            }
-        }
-    }, [plannedTools, loadingLibraries, tools]);
+            const unplanned = (n: Node) =>
+                n.id.startsWith('tool-') && n.data.toolRef && !plannedIds.has(n.data.toolRef.tool_id);
+            if (toAdd.length === 0 && !prev.some(unplanned)) return prev;
+            return [...prev.filter(n => !unplanned(n)), ...toAdd];
+        });
+    }, [plannedTools, loadingLibraries, tools, setNodes]);
+
+    // An edge whose node is gone is dropped, whatever removed the node.
+    useEffect(() => {
+        const ids = new Set(nodes.map(n => n.id));
+        setEdges(prev => {
+            const kept = prev.filter(e => ids.has(e.source) && ids.has(e.target));
+            return kept.length === prev.length ? prev : kept;
+        });
+    }, [nodes, setEdges]);
     // ── Validation ────────────────────────────────────────────────────────────
     const validationIssues = useMemo(() => validateGraph(nodes, edges), [nodes, edges]);
     const issuesByNode = useMemo(() => {

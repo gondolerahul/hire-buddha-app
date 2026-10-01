@@ -7,6 +7,7 @@ import { EntityFlow } from './EntityFlow';
 import { Node, Edge } from 'reactflow';
 import { apiClient } from '@/services/api.client';
 import './EntityConfigurationTabs.css';
+import { overlayConfig } from '@/utils/entityConfig';
 
 const GEMINI_VOICES = [
     'Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Orbit', 'Zephyr', 'Leda',
@@ -65,6 +66,11 @@ const HITL_TRIGGER_TYPES: { value: HITLTriggerType; label: string; description: 
     { value: 'CUSTOM', label: 'Custom Expression', description: 'Pause when a custom expression evaluates to true' },
 ];
 
+// The entity's JSON config columns, each saved as the stored value with the
+// builder's edits laid over it (FE-25).
+const CONFIG_COLUMNS = ['identity', 'logic_gate', 'planning', 'capabilities', 'governance',
+    'io_contract', 'observability', 'hierarchy'] as const;
+
 interface EntityConfigurationTabsProps {
     entity?: HierarchicalEntity;
     onSave: (entityData: any) => void;
@@ -82,6 +88,7 @@ interface CompanyOption {
 
 export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = ({ entity, onSave, onCancel, userRole, userCompanyId, onCompanyChange }) => {
     const [activeTab, setActiveTab] = useState('basics');
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // TAB 1: BASICS — "What is this entity?"
@@ -170,7 +177,49 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
         }
         return { nodes, edges };
     };
-    const initialGraph = buildInitialGraph();
+    // The stored static plan, drawn as the graph (null when there is none).
+    const buildGraphFromPlan = (): { nodes: Node[]; edges: Edge[] } | null => {
+        if (!entity?.planning?.static_plan?.steps?.length) return null;
+        const steps = entity.planning.static_plan.steps;
+        const nodes: Node[] = steps.map((step: any, idx: number) => ({
+            id: step.step_id || crypto.randomUUID(),
+            type: step.type === 'CHILD_ENTITY_INVOCATION' ? 'entityNode' : step.type === 'TOOL_CALL' ? 'toolNode' : 'defaultNode',
+            position: { x: 400, y: 100 + idx * 150 },
+            data: {
+                label: step.name, description: step.description, required: step.required,
+                entityRef: step.target?.entity_id ? { id: step.target.entity_id } : undefined,
+                toolRef: step.target?.tool_id ? { tool_id: step.target.tool_id } : undefined,
+                stepType: step.type,
+                // The stored step, so saving keeps what the canvas does not
+                // show — prompt_template, reasoning_hint, exit conditions (FE-25).
+                step,
+            }
+        }));
+        // Edges are the steps' declared dependencies, so they round-trip.
+        // Only a plan that declares none is drawn as a chain, as before.
+        const ids = new Set(nodes.map(n => n.id));
+        const declared = steps.some((s: any) => (s.target?.input_dependencies || []).length > 0);
+        const edges: Edge[] = [];
+        if (declared) {
+            steps.forEach((step: any, idx: number) => {
+                for (const dep of step.target?.input_dependencies || []) {
+                    if (ids.has(dep)) {
+                        edges.push({ id: `e${dep}-${nodes[idx].id}`, source: dep, target: nodes[idx].id, animated: true, label: 'SEQUENTIAL' });
+                    }
+                }
+            });
+        } else {
+            for (let i = 0; i < nodes.length - 1; i++) {
+                edges.push({ id: `e${nodes[i].id}-${nodes[i + 1].id}`, source: nodes[i].id, target: nodes[i + 1].id, animated: true, label: 'SEQUENTIAL' });
+            }
+        }
+        return { nodes, edges };
+    };
+
+    // Built once: the plan's steps when there are any, else the children. The
+    // form remounts per entity (FE-23); an effect keyed on the entity's id used
+    // to replace the first graph after the first paint.
+    const [initialGraph] = useState(() => buildGraphFromPlan() ?? buildInitialGraph());
     const [hierarchyNodes, setHierarchyNodes] = useState<Node[]>(initialGraph.nodes);
     const [hierarchyEdges, setHierarchyEdges] = useState<Edge[]>(initialGraph.edges);
 
@@ -318,29 +367,6 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     const [showPlanningPrompt, setShowPlanningPrompt] = useState(false);
     const [showReviewPrompt, setShowReviewPrompt] = useState(false);
 
-    // ── Initialize hierarchy from entity ──────────────────────────────────────
-    useEffect(() => {
-        if (entity?.planning?.static_plan?.steps && entity.planning.static_plan.steps.length > 0) {
-            const steps = entity.planning.static_plan.steps;
-            const nodes: Node[] = steps.map((step: any, idx: number) => ({
-                id: step.step_id || crypto.randomUUID(),
-                type: step.type === 'CHILD_ENTITY_INVOCATION' ? 'entityNode' : step.type === 'TOOL_CALL' ? 'toolNode' : 'defaultNode',
-                position: { x: 400, y: 100 + idx * 150 },
-                data: {
-                    label: step.name, description: step.description, required: step.required,
-                    entityRef: step.target?.entity_id ? { id: step.target.entity_id } : undefined,
-                    toolRef: step.target?.tool_id ? { tool_id: step.target.tool_id } : undefined,
-                    stepType: step.type,
-                }
-            }));
-            setHierarchyNodes(nodes);
-            const edges: Edge[] = [];
-            for (let i = 0; i < nodes.length - 1; i++) {
-                edges.push({ id: `e${nodes[i].id}-${nodes[i + 1].id}`, source: nodes[i].id, target: nodes[i + 1].id, animated: true, label: 'SEQUENTIAL' });
-            }
-            setHierarchyEdges(edges);
-        }
-    }, [entity?.id]);
 
     // ── Handlers ──────────────────────────────────────────────────────────────
     const addTag = () => { if (tagInput.trim() && !tags.includes(tagInput.trim())) { setTags([...tags, tagInput.trim()]); setTagInput(''); } };
@@ -565,30 +591,62 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
 
     // ── Convert graph → steps/children ───────────────────────────────────────
     const convertNodesToSteps = (nodes: Node[], edges: Edge[]) =>
-        nodes.filter(n => n.id !== 'root').map((node, idx) => ({
-            step_id: node.id, order: idx + 1, name: node.data.label,
-            description: node.data.description || '',
-            type: node.data.entityRef ? 'CHILD_ENTITY_INVOCATION' : node.data.toolRef ? 'TOOL_CALL' : (node.data.stepType || 'ACTION'),
-            target: {
-                entity_id: node.data.entityRef?.id, tool_id: node.data.toolRef?.tool_id,
-                prompt_template: !node.data.entityRef && !node.data.toolRef ? node.data.description : undefined,
-                input_dependencies: edges.filter(e => e.target === node.id).map(e => e.source),
-            },
-            required: node.data.required ?? true,
-        }));
+        nodes.filter(n => n.id !== 'root').map((node, idx) => {
+            // A node loaded from a stored step keeps that step's fields; the
+            // canvas overrides only what it edits (FE-25).
+            const original = node.data.step || {};
+            const isRef = !!(node.data.entityRef || node.data.toolRef);
+            // A step's instruction is its prompt_template. The canvas edits the
+            // description, which seeds the template of a new step and replaces
+            // a stored one only when the description was changed.
+            const descriptionEdited = (node.data.description || '') !== (original.description || '');
+            const promptTemplate = isRef
+                ? original.target?.prompt_template
+                : (original.target?.prompt_template && !descriptionEdited
+                    ? original.target.prompt_template
+                    : node.data.description);
+            return {
+                ...original,
+                step_id: node.id, order: idx + 1, name: node.data.label,
+                description: node.data.description || '',
+                type: node.data.entityRef ? 'CHILD_ENTITY_INVOCATION' : node.data.toolRef ? 'TOOL_CALL' : (node.data.stepType || 'ACTION'),
+                target: {
+                    ...(original.target || {}),
+                    entity_id: node.data.entityRef?.id, tool_id: node.data.toolRef?.tool_id,
+                    prompt_template: promptTemplate,
+                    input_dependencies: edges.filter(e => e.target === node.id).map(e => e.source),
+                },
+                required: node.data.required ?? true,
+            };
+        });
 
-    const extractChildrenFromGraph = (nodes: Node[], edges: Edge[]) =>
-        nodes.filter(n => n.data.entityRef).map(n => ({
+    const extractChildrenFromGraph = (nodes: Node[], edges: Edge[]) => {
+        const stored = new Map((entity?.hierarchy?.children || []).map((c: any) => [c.child_id, c]));
+        return nodes.filter(n => n.data.entityRef).map(n => ({
+            ...(stored.get(n.data.entityRef.id) || {}),
             child_id: n.data.entityRef.id, child_type: n.data.entityRef.type,
             relationship: edges.find(e => e.target === n.id)?.label || 'SEQUENTIAL',
         }));
+    };
 
     // ── Save Handler ─────────────────────────────────────────────────────────
     const handleSave = () => {
+        setSaveError(null);
+        // A malformed schema used to throw out of this handler, so Save did
+        // nothing and said nothing (FE-06).
+        let ioContract: { input_schema: any; output_schema: any };
+        try {
+            ioContract = { input_schema: JSON.parse(inputSchema), output_schema: JSON.parse(outputSchema) };
+        } catch (err: any) {
+            setActiveTab('basics');
+            setSaveError(`The input or output schema is not valid JSON: ${err?.message || err}`);
+            return;
+        }
+
         // Auto-generate display_name as "Name - Role"
         const autoDisplayName = personaRole ? `${name} - ${personaRole}` : name;
 
-        const entityData = {
+        const built = {
             name,
             display_name: autoDisplayName,
             type,
@@ -679,10 +737,19 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                 hitl_checkpoints: hitlCheckpoints, checkpoint_every_n_steps: checkpointEveryNSteps,
             },
 
-            io_contract: { input_schema: JSON.parse(inputSchema), output_schema: JSON.parse(outputSchema) },
+            io_contract: ioContract,
             observability: { log_level: logLevel, log_thoughts: logThoughts, track_cost: trackCost },
             hierarchy: { children: extractChildrenFromGraph(hierarchyNodes, hierarchyEdges), is_atomic: hierarchyNodes.length === 0 },
         };
+        // Each config column is the stored one with the builder's edits laid
+        // over it: settings the builder has no control for survive a save
+        // (FE-25). A new entity has nothing to keep.
+        const entityData: any = { ...built };
+        if (entity) {
+            for (const column of CONFIG_COLUMNS) {
+                entityData[column] = overlayConfig((entity as any)[column], (built as any)[column]);
+            }
+        }
         onSave(entityData);
     };
 
@@ -1772,6 +1839,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
             </div>
 
             <div className="tabs-footer">
+                {saveError && <div className="error-banner" role="alert">{saveError}</div>}
                 <JellyButton variant="ghost" onClick={onCancel}>Cancel</JellyButton>
                 <JellyButton roseGold onClick={handleSave}>Save Entity</JellyButton>
             </div>
