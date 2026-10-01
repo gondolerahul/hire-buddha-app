@@ -26,3 +26,16 @@ export const API_BASE_URL: string = configured || LOCAL_API;
 
 /** The API's origin (no `/api/v1`), for URLs built outside apiClient — downloads, previews. */
 export const API_ORIGIN: string = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+
+/**
+ * A URL the browser loads itself (`<audio src>`, `<a href download>`) for an
+ * API path such as `/api/v1/artifacts/{id}/download`. The browser sends no
+ * Authorization header there, so the access token goes in `?token=` — read
+ * from storage now, so it is the one apiClient last refreshed, not the one
+ * the page had when it was opened.
+ */
+export const authedApiUrl = (path: string): string => {
+    const url = `${API_ORIGIN}${path}`;
+    const token = localStorage.getItem('access_token');
+    return token ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : url;
+};

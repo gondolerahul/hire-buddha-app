@@ -2,11 +2,13 @@
  * A readable message from an API error.
  *
  * FastAPI answers most errors with `detail: string`, but a validation error
- * (422) with `detail: [{loc, msg}, ...]` — an array React cannot render.
+ * (422) with `detail: [{loc, msg}, ...]` — an array React cannot render — and
+ * some routes with `detail: {code, message}`.
  */
 export function apiErrorMessage(err: any, fallback: string): string {
     const detail = err?.response?.data?.detail;
     if (typeof detail === 'string') return detail;
+    if (typeof detail?.message === 'string') return detail.message;
     if (Array.isArray(detail)) {
         return detail
             .map((d: any) => {

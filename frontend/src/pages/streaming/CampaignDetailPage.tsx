@@ -1,12 +1,11 @@
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { ArrowLeft, Download, Info, RefreshCw, AlertCircle } from 'lucide-react';
 import './CampaignsPage.css';
 import './CampaignDetailPage.css';
-import { API_BASE_URL } from '@/config/api';
+import { apiClient } from '@/services/api.client';
 import { MobileAnalyticsPanel } from './MobileAnalyticsPanel';
 
 interface CampaignCallRecord {
@@ -23,7 +22,6 @@ interface CampaignCallRecord {
 
 export const CampaignDetailPage: React.FC = () => {
     const { campaignId } = useParams<{ campaignId: string }>();
-    const { token } = useAuth();
     const navigate = useNavigate();
     const [campaign, setCampaign] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -53,11 +51,7 @@ export const CampaignDetailPage: React.FC = () => {
     const fetchCampaign = async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!response.ok) throw new Error('Campaign not found');
-            const data = await response.json();
+            const { data } = await apiClient.get(`/campaigns/${campaignId}`);
             setCampaign(data);
             setError(null);
         } catch (err) {
@@ -70,14 +64,8 @@ export const CampaignDetailPage: React.FC = () => {
 
     const downloadReport = async () => {
         try {
-            const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}/download`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) throw new Error('Failed to download report');
-
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
+            const { data: blob } = await apiClient.get(`/campaigns/${campaignId}/download`, { responseType: 'blob' });
+            const url= window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `Campaign_Report_${(campaign?.name || 'campaign').replace(/\s+/g, '_')}.xlsx`;
@@ -179,7 +167,6 @@ export const CampaignDetailPage: React.FC = () => {
                             <p className="header-sub">Reps dial leads from their phones and merge in the AI agent.</p>
                             <MobileAnalyticsPanel
                                 campaignId={campaign.id}
-                                token={token}
                                 live={campaign.status === 'running'}
                             />
                         </div>

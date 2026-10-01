@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { phonePoolService } from '@/services/platform.service';
 import './PhonePool.css';
-import { API_BASE_URL } from '@/config/api';
+import { apiClient } from '@/services/api.client';
 
 interface PhoneNumberEntry {
     id: string;
@@ -46,7 +46,7 @@ interface Company {
 }
 
 const PhonePool: React.FC = () => {
-    const { user, token } = useAuth();
+    const { user } = useAuth();
     const [numbers, setNumbers] = useState<PhoneNumberEntry[]>([]);
     const [agents, setAgents] = useState<Agent[]>([]);
     const [customers, setCustomers] = useState<CustomerCompany[]>([]);
@@ -109,12 +109,9 @@ const PhonePool: React.FC = () => {
     const fetchAgents = async () => {
         try {
             // Fetch only ACTIVE, voice-enabled agents for assignment
-            const response = await fetch(
-                `${API_BASE_URL}/ai/entities?type=AGENT&voice_enabled=true&status=ACTIVE`,
-                { headers: { 'Authorization': `Bearer ${token}` } }
-            );
-            if (!response.ok) return;
-            const data = await response.json();
+            const { data } = await apiClient.get('/ai/entities', {
+                params: { type: 'AGENT', voice_enabled: true, status: 'ACTIVE' },
+            });
             setAgents(Array.isArray(data) ? data : data.entities || data.data || []);
         } catch (err) {
             console.error('Error fetching agents:', err);
@@ -124,27 +121,20 @@ const PhonePool: React.FC = () => {
     const fetchCustomers = async () => {
         try {
             const results: CustomerCompany[] = [];
-            // Fetch tenants
-            const tenantRes = await fetch(
-                `${API_BASE_URL}/companies/tenants`,
-                { headers: { 'Authorization': `Bearer ${token}` } }
-            );
-            if (tenantRes.ok) {
-                const tenantData = await tenantRes.json();
+            // Tenants, and partners for app_admin; either list may be refused on its own
+            const [tenantRes, partnerRes] = await Promise.allSettled([
+                apiClient.get('/companies/tenants'),
+                isAdmin ? apiClient.get('/companies/partners') : Promise.reject(new Error('not admin')),
+            ]);
+            if (tenantRes.status === 'fulfilled') {
+                const tenantData = tenantRes.value.data;
                 const tenants = Array.isArray(tenantData) ? tenantData : tenantData.data || [];
                 results.push(...tenants.map((c: any) => ({ id: c.id, name: c.name, type: 'TENANT' })));
             }
-            // Fetch partners (app_admin only)
-            if (isAdmin) {
-                const partnerRes = await fetch(
-                    `${API_BASE_URL}/companies/partners`,
-                    { headers: { 'Authorization': `Bearer ${token}` } }
-                );
-                if (partnerRes.ok) {
-                    const partnerData = await partnerRes.json();
-                    const partners = Array.isArray(partnerData) ? partnerData : partnerData.data || [];
-                    results.push(...partners.map((c: any) => ({ id: c.id, name: c.name, type: 'PARTNER' })));
-                }
+            if (partnerRes.status === 'fulfilled') {
+                const partnerData = partnerRes.value.data;
+                const partners = Array.isArray(partnerData) ? partnerData : partnerData.data || [];
+                results.push(...partners.map((c: any) => ({ id: c.id, name: c.name, type: 'PARTNER' })));
             }
             setCustomers(results);
         } catch (err) {
@@ -161,12 +151,7 @@ const PhonePool: React.FC = () => {
 
     const fetchCompanies = async () => {
         try {
-            const response = await fetch(
-                `${API_BASE_URL}/companies`,
-                { headers: { 'Authorization': `Bearer ${token}` } }
-            );
-            if (!response.ok) return;
-            const data = await response.json();
+            const { data } = await apiClient.get('/companies');
             setCompanies(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error('Error fetching companies:', err);

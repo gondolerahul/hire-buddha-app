@@ -4,8 +4,8 @@ import { JellyButton } from '@/components/ui';
 import { X, Upload, CheckCircle, AlertCircle, Smartphone, Server } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
 import { HierarchicalEntity, EntityType } from '@/types';
+import { apiErrorMessage } from '@/utils/apiError';
 import './CampaignCreateModal.css';
-import { API_BASE_URL } from '@/config/api';
 
 interface CampaignCreateModalProps {
     isOpen: boolean;
@@ -43,20 +43,8 @@ interface CompanyUser {
 
 const MOBILE_ROLES = ['tenant_admin', 'tenant_user'];
 
-/** FastAPI errors are either {"detail": "text"} or {"detail": {"code", "message"}}. */
-const errorMessage = async (response: Response, fallback: string) => {
-    try {
-        const body = await response.json();
-        if (typeof body.detail === 'string') return body.detail;
-        if (body.detail?.message) return body.detail.message;
-    } catch {
-        // non-JSON body
-    }
-    return `${fallback} (${response.status})`;
-};
-
 export const CampaignCreateModal: React.FC<CampaignCreateModalProps> = ({ isOpen, onClose, onSuccess }) => {
-    const { token, user } = useAuth();
+    const { user } = useAuth();
     const [agents, setAgents] = useState<HierarchicalEntity[]>([]);
     const [users, setUsers] = useState<CompanyUser[]>([]);
     const [loading, setLoading] = useState(false);
@@ -115,10 +103,6 @@ export const CampaignCreateModal: React.FC<CampaignCreateModalProps> = ({ isOpen
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const picked = e.target.files?.[0];
         if (!picked) return;
-        if (!token) {
-            setError('Authentication token not found. Please log in again.');
-            return;
-        }
         setFile(picked);
         setLoading(true);
         setError('');
@@ -127,15 +111,12 @@ export const CampaignCreateModal: React.FC<CampaignCreateModalProps> = ({ isOpen
         const formData = new FormData();
         formData.append('file', picked);
         try {
-            const response = await fetch(`${API_BASE_URL}/campaigns/upload-contacts`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: formData,
+            const { data } = await apiClient.post('/campaigns/upload-contacts', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
             });
-            if (!response.ok) throw new Error(await errorMessage(response, 'Failed to upload contacts'));
-            setReport(await response.json());
-        } catch (err: any) {
-            setError(err.message || 'Error processing file');
+            setReport(data);
+        } catch (err) {
+            setError(apiErrorMessage(err, 'Failed to upload contacts'));
             setFile(null);
         } finally {
             setLoading(false);
@@ -159,16 +140,11 @@ export const CampaignCreateModal: React.FC<CampaignCreateModalProps> = ({ isOpen
                 execution_mode: mode,
             };
             if (mode === 'mobile_conference' && assignees.length > 0) body.assignee_user_ids = assignees;
-            const response = await fetch(`${API_BASE_URL}/campaigns`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-            if (!response.ok) throw new Error(await errorMessage(response, 'Failed to create campaign'));
+            await apiClient.post('/campaigns', body);
             onSuccess();
             onClose();
-        } catch (err: any) {
-            setError(err.message || 'Error creating campaign');
+        } catch (err) {
+            setError(apiErrorMessage(err, 'Failed to create campaign'));
         } finally {
             setLoading(false);
         }

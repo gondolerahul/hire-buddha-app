@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '@/config/api';
+import { apiClient } from '@/services/api.client';
 
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -55,19 +55,12 @@ export const oauthService = {
         }
 
         // Send code to backend for token exchange
-        const response = await fetch(`${API_BASE_URL}/auth/oauth/${provider}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ code, redirect_uri: REDIRECT_URI }),
-        });
-
-        if (!response.ok) {
+        let data;
+        try {
+            ({ data } = await apiClient.post(`/auth/oauth/${provider}`, { code, redirect_uri: REDIRECT_URI }));
+        } catch {
             throw new Error('Failed to authenticate with OAuth provider');
         }
-
-        const data = await response.json();
 
         // Store tokens
         localStorage.setItem('access_token', data.access_token);

@@ -13,7 +13,7 @@ import { ExecutionRun, RunStatus, EntityType, LLMInteractionLog, ToolInteraction
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { AgentLoopExecutionDetail } from '@/components/agent/AgentLoopExecutionDetail';
 import './ExecutionDetail.css';
-import { API_BASE_URL } from '@/config/api';
+import { API_BASE_URL, API_ORIGIN } from '@/config/api';
 
 const _API_BASE = API_BASE_URL;
 
@@ -29,8 +29,9 @@ const downloadArtifactFile = async (fileUrl: string, filename?: string) => {
             });
             blob = response.data as Blob;
         } else {
-            // Static file path (e.g. /artifact/system-generated/...) — no auth needed
-            const response = await fetch(fileUrl);
+            // Static file path (e.g. /artifact/system-generated/...) — no auth needed,
+            // but it is the API's, not the app's, when the two are on different origins
+            const response = await fetch(`${API_ORIGIN}${fileUrl}`);
             if (!response.ok) throw new Error('Download failed');
             blob = await response.blob();
         }

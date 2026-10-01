@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { Plus, Play, Pause, Square, Info, RefreshCw, PhoneForwarded, Download, RotateCcw, Smartphone } from 'lucide-react';
 import { CampaignCreateModal } from './CampaignCreateModal';
 import './CampaignsPage.css';
-import { API_BASE_URL } from '@/config/api';
+import { apiClient } from '@/services/api.client';
+import { apiErrorMessage } from '@/utils/apiError';
 
 interface Campaign {
     id: string;
@@ -24,7 +24,6 @@ interface Campaign {
 }
 
 export const CampaignsPage: React.FC = () => {
-    const { token } = useAuth();
     const navigate = useNavigate();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [loading, setLoading] = useState(true);
@@ -59,10 +58,7 @@ export const CampaignsPage: React.FC = () => {
     const fetchCampaigns = async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/campaigns`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
+            const { data } = await apiClient.get('/campaigns');
             setCampaigns(data.campaigns || []);
         } catch (error) {
             console.error('Error fetching campaigns:', error);
@@ -74,14 +70,8 @@ export const CampaignsPage: React.FC = () => {
     const downloadInterestedLeads = async () => {
         setDownloadingInterested(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/campaigns/interested/download`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) throw new Error('Failed to download interested leads');
-
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
+            const { data: blob } = await apiClient.get('/campaigns/interested/download', { responseType: 'blob' });
+            const url= window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = 'Interested_Leads.xlsx';
@@ -103,19 +93,12 @@ export const CampaignsPage: React.FC = () => {
         }
         setRetryingFailed(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/campaigns/retry-failed`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) throw new Error('Failed to retry calls');
-
-            const data = await response.json();
+            const { data } = await apiClient.post('/campaigns/retry-failed');
             alert(data.message);
             await fetchCampaigns(false);
         } catch (error) {
             console.error('Error retrying failed calls:', error);
-            alert('Failed to retry failed calls');
+            alert(apiErrorMessage(error, 'Failed to retry failed calls'));
         } finally {
             setRetryingFailed(false);
         }
@@ -124,17 +107,11 @@ export const CampaignsPage: React.FC = () => {
     const updateStatus = async (campaignId: string, status: string) => {
         setActionLoading(campaignId);
         try {
-            const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}/status?status=${status}`, {
-                method: 'PATCH',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) throw new Error('Failed to update status');
-
+            await apiClient.patch(`/campaigns/${campaignId}/status`, null, { params: { status } });
             await fetchCampaigns(false);
         } catch (error) {
             console.error('Error updating campaign status:', error);
-            alert('Failed to update campaign status');
+            alert(apiErrorMessage(error, 'Failed to update campaign status'));
         } finally {
             setActionLoading(null);
         }

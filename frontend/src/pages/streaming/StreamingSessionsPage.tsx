@@ -1,10 +1,10 @@
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
 import { GlassCard } from '@/components/ui';
 import './StreamingSessionsPage.css';
-import { API_BASE_URL } from '@/config/api';
+import { authedApiUrl } from '@/config/api';
+import { apiClient } from '@/services/api.client';
 
 interface VoiceSession {
     id: string;
@@ -59,7 +59,6 @@ interface Stats {
 }
 
 export const StreamingSessionsPage: React.FC = () => {
-    const { token } = useAuth();
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'voice' | 'whatsapp' | 'stats'>('voice');
     const [voiceSessions, setVoiceSessions] = useState<VoiceSession[]>([]);
@@ -81,10 +80,7 @@ export const StreamingSessionsPage: React.FC = () => {
     const fetchVoiceSessions = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/streaming/voice-sessions`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
+            const { data } = await apiClient.get('/streaming/voice-sessions');
             setVoiceSessions(data.sessions || []);
         } catch (error) {
             console.error('Error fetching voice sessions:', error);
@@ -96,10 +92,7 @@ export const StreamingSessionsPage: React.FC = () => {
     const fetchWhatsAppSessions = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/streaming/whatsapp-sessions`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
+            const { data } = await apiClient.get('/streaming/whatsapp-sessions');
             setWhatsAppSessions(data.sessions || []);
         } catch (error) {
             console.error('Error fetching WhatsApp sessions:', error);
@@ -111,10 +104,7 @@ export const StreamingSessionsPage: React.FC = () => {
     const fetchStats = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/streaming/stats?days=7`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
+            const { data } = await apiClient.get('/streaming/stats', { params: { days: 7 } });
             setStats(data);
         } catch (error) {
             console.error('Error fetching stats:', error);
@@ -129,10 +119,7 @@ export const StreamingSessionsPage: React.FC = () => {
                 ? `voice-sessions/${sessionId}`
                 : `whatsapp-sessions/${sessionId}`;
 
-            const response = await fetch(`${API_BASE_URL}/streaming/${endpoint}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
+            const { data } = await apiClient.get(`/streaming/${endpoint}`);
             setSelectedSession({ ...data, type });
         } catch (error) {
             console.error('Error fetching session details:', error);
@@ -403,7 +390,7 @@ export const StreamingSessionsPage: React.FC = () => {
                                 <div className="detail-row">
                                     <span>File:</span>
                                     <a
-                                        href={`${API_BASE_URL?.replace('/api/v1', '')}${selectedSession.recording_url}`}
+                                        href={authedApiUrl(selectedSession.recording_url)}
                                         target="_blank"
                                         rel="noreferrer"
                                         download={selectedSession.recording_file_name || 'recording'}

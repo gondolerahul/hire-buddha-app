@@ -193,6 +193,9 @@ The backend accepts it (`get_current_user_from_query`).
 The run page's live stream does the same: `EventSource` cannot send headers, so
 `/ai/executions/{id}/stream?token=…` carries the access token too.
 
+Since FE-29 (2026-10-01) the artifact preview and the call-recording links build that URL in
+one place, `authedApiUrl` in `config/api.ts`.
+
 **Fix:** fetch the preview with the `Authorization` header and show it from a `blob:` URL, or
 have the API mint a short-lived, single-artifact (or single-stream) token.
 
@@ -278,7 +281,10 @@ get a blank page instead of a validation message.
 
 ### FE-07 — Half the pages bypass `apiClient` and lose token refresh
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — worse than recorded: the pages did
+not just miss the refresh, they kept sending the *expired* token after the rest of the app
+had refreshed it. They took `token` from `useAuth()`, which is read once at mount and never
+updated by `apiClient`'s refresh.
 
 `apiClient` implements the 401 → refresh → retry interceptor. Everything in
 `pages/streaming/` and the lookups in `PhonePool.tsx` use raw `fetch`.
@@ -290,9 +296,31 @@ on. The user sees one area of the product break for no visible reason.
 - [`frontend/src/pages/streaming/`](../../../frontend/src/pages/streaming/)
 - [`frontend/src/pages/PhonePool.tsx`](../../../frontend/src/pages/PhonePool.tsx)
 
+**Done (2026-10-01).** Every raw `fetch` to the API now goes through `apiClient`: the
+sessions, campaigns, campaign detail, call detail, campaign-create and mobile-analytics pages,
+`PhonePool`'s lookups and the OAuth code exchange. Downloads use `responseType: 'blob'`, the
+contact upload `multipart/form-data`; errors are read with `apiErrorMessage`, which now also
+reads `detail.message` (the campaign routes' `{code, message}` errors). `PhonePool` asks for
+tenants and partners together and keeps whichever it is allowed. `MobileAnalyticsPanel` no
+longer takes a `token` prop. URLs the browser loads itself (a recording's `<audio>`/`<a>`)
+come from `authedApiUrl` in `config/api.ts`, which reads the current token when called (see
+FE-29). The one `fetch` left is `ExecutionDetail`'s download of a static `/artifact/...` file,
+which needs no token; it now goes to `API_ORIGIN` rather than the app's origin.
+`PhoneNumbersPage` was not converted: it is not mounted (FE-30).
+
+**Evidence:** live on :3020, with an expired access token and a live refresh token in
+storage, then opening `/streaming/sessions` and its Statistics tab. Old page: the app's own
+calls got 401, refreshed and retried (200), but the page's `voice-sessions` and `stats` went
+out with the expired token from `useAuth` — 401, 401, 401, no retry — and the Statistics tab
+crashed into the error boundary (`Cannot read properties of undefined (reading
+'total_calls')`: it rendered the 401 body as stats). New page: the same steps load both, and
+setting an expired token while the page was open gave `stats` 401 → `POST /auth/refresh` 200 →
+`stats` 200. `/streaming/campaigns` and `/phone-numbers` (all five lookups) load with 200s. No
+unit test: the frontend has no test runner yet (FE-03).
+
 ---
 
-### FE-08 — Two effects have wrong dependency arrays
+### FE-08— Two effects have wrong dependency arrays
 
 **✅ Verified · Medium** · **Status: fixed (2026-10-01)** — both effects now update state with
 an updater instead of a copy from the render they were created in, and the lint rule passes
@@ -464,6 +492,28 @@ Basics — kept `meta_review_interval: 5`, kept step 1's real prompt, and kept s
 defaults the form fills (personality sliders, `bio` from the description, `null` → empty).
 The entity was restored afterwards. No unit test: the frontend has no test runner yet
 (FE-03); the helpers in `utils/entityConfig.ts` are pure and ready for one.
+
+---
+
+### FE-29 — The session list's recording link always answers 401
+
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — found while fixing FE-07.
+
+The session detail on `/streaming/sessions` links to the call recording as
+`${API_BASE_URL minus /api/v1}${recording_url}`, a plain `<a href>` to
+`/api/v1/artifacts/{id}/download`. A link sends no `Authorization` header and this one had no
+`?token=`, so the download endpoint refused it: the link could never work. `CallDetailPage`
+added the token, but the one `useAuth` read at mount — expired after 30 minutes on an open
+page.
+
+- [`frontend/src/pages/streaming/StreamingSessionsPage.tsx`](../../../frontend/src/pages/streaming/StreamingSessionsPage.tsx) — the recording link
+- [`frontend/src/pages/streaming/CallDetailPage.tsx`](../../../frontend/src/pages/streaming/CallDetailPage.tsx) — `getRecordingUrl`
+
+**Fix:** `config/api.ts` exports `authedApiUrl(path)`: the API origin plus the path plus
+`?token=` with the access token in storage at the time it is called — the one `apiClient`
+last refreshed. Both pages and the artifact preview use it, so FE-28's fix lands in one place.
+**Evidence:** in the browser, the download URL without a token answered 401 and the
+`authedApiUrl` one 404 (authenticated; the id was made up).
 
 ---
 
@@ -695,7 +745,9 @@ absence of memoisation costs the most.
 
 ### FE-I6 — Route everything through `apiClient`
 
-**Effect: medium.** [FE-07](#fe-07--half-the-pages-bypass-apiclient-and-lose-token-refresh).
+**Status: done (2026-10-01)** — see FE-07.
+
+**Effect: medium.**[FE-07](#fe-07--half-the-pages-bypass-apiclient-and-lose-token-refresh).
 The streaming pages and `PhonePool` are the exceptions. Converting them gives those pages
 401-refresh-retry, consistent error handling and one place to add request timing.
 

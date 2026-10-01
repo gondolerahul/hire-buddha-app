@@ -622,10 +622,14 @@ Three real limitations of this implementation:
 2. **The `catch` only covers the refresh call.** If `refresh_token` is absent
    entirely, no redirect happens — the caller just receives the 401 and usually
    `console.error`s it.
-3. **Only `apiClient` gets this.** Every raw `fetch()` in `pages/streaming/*`,
-   `PhonePool.tsx` and `oauth.service.ts` bypasses the interceptors completely:
-   they read the token from `useAuth()` and set the header by hand, and they get
-   no refresh-and-retry on 401.
+3. **Only `apiClient` gets this** — which since FE-07 (2026-10-01) is every API
+   call. The streaming pages, `PhonePool` and `oauth.service.ts` used raw
+   `fetch()` with the token from `useAuth()`, which is read at mount and not
+   updated by a refresh, so they kept sending an expired token. Do not take the
+   token from `useAuth()` for a request. A URL the browser loads itself
+   (`<audio src>`, `<a href>`, `<img>`) cannot carry the header: build it with
+   `authedApiUrl(path)` from `config/api.ts`, which adds `?token=` from storage
+   (see FE-28 for why that is still not ideal).
 
 ### 5.4 Logout
 
@@ -677,29 +681,26 @@ flowchart LR
     S3 --> AXI
     S4 --> AXI
     AXI --> GW
-    P4 -->|"raw fetch, bypasses everything"| GW
+    P4 --> AXI
     EV --> GW
 ```
 
-There are three tiers, and all three are in active use:
+There are three tiers; the first two are in use:
 
 | Tier | Example | When it is used |
 |------|---------|-----------------|
 | Service module | `creditsService.getBalance()` | Most pages. The intended pattern. |
 | Direct `apiClient` from a page | `apiClient.get('/ai/entities')` in `EntityFlow` | Common for one-off endpoints nobody bothered to wrap. |
-| Raw `fetch()` | all of `pages/streaming/*`, `PhonePool.tsx` line 112+ | Legacy. **Avoid.** No auth refresh, no shared base config. |
+| Raw `fetch()` | none for the API since FE-07 (2026-10-01); only `ExecutionDetail`'s download of a public `/artifact/...` file | **Avoid.** No auth refresh, no shared base config. |
 
 ### 6.2 The base URL
 
-One line, in one file:
-
-```ts
-// frontend/src/services/api.client.ts:3
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://gateway.hirebuddha.com/api/v1';
-```
-
-The fallback points at production. If you forget your `.env`, a local dev build
-will silently talk to the live gateway.
+One file, [`config/api.ts`](../../frontend/src/config/api.ts), exports
+`API_BASE_URL` (from `VITE_API_BASE_URL`, falling back to
+`http://localhost:8000/api/v1` with a console warning — it used to fall back to
+the production gateway, FE-04), `API_ORIGIN` (the same without `/api/v1`) and
+`authedApiUrl(path)` (an API URL with `?token=`, for things the browser loads
+itself). `apiClient` uses `API_BASE_URL`; nothing else reads the variable.
 
 ### 6.3 Error handling — there isn't a normaliser
 

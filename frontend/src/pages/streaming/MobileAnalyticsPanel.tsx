@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { API_BASE_URL } from '@/config/api';
+import { apiClient } from '@/services/api.client';
 import './MobileAnalyticsPanel.css';
 
 /** Shapes from GET /campaigns/{id}/mobile-analytics (docs/mobile-dialer-app/07-analytics.md). */
@@ -47,12 +47,11 @@ const humanize = (s: string) => s.replace(/_/g, ' ').replace(/^\w/, c => c.toUpp
 
 interface Props {
     campaignId: string;
-    token: string | null;
     /** Poll while a rep is running the campaign. */
     live: boolean;
 }
 
-export const MobileAnalyticsPanel: React.FC<Props> = ({ campaignId, token, live }) => {
+export const MobileAnalyticsPanel: React.FC<Props> = ({ campaignId, live })=> {
     const [data, setData] = useState<MobileAnalytics | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -60,17 +59,14 @@ export const MobileAnalyticsPanel: React.FC<Props> = ({ campaignId, token, live 
         let cancelled = false;
         const load = async () => {
             try {
-                const response = await fetch(`${API_BASE_URL}/campaigns/${campaignId}/mobile-analytics`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (!response.ok) throw new Error(`Analytics unavailable (${response.status})`);
-                const json = await response.json();
+                const { data: json } = await apiClient.get(`/campaigns/${campaignId}/mobile-analytics`);
                 if (!cancelled) {
                     setData(json);
                     setError(null);
                 }
             } catch (err: any) {
-                if (!cancelled) setError(err.message);
+                const status = err?.response?.status;
+                if (!cancelled) setError(status ? `Analytics unavailable (${status})` : err.message);
             }
         };
         load();
@@ -79,7 +75,7 @@ export const MobileAnalyticsPanel: React.FC<Props> = ({ campaignId, token, live 
             cancelled = true;
             if (interval) clearInterval(interval);
         };
-    }, [campaignId, token, live]);
+    }, [campaignId, live]);
 
     if (error && !data) return <div className="mobile-analytics-error">{error}</div>;
     if (!data) return <div className="mobile-analytics-loading">Loading mobile analytics…</div>;

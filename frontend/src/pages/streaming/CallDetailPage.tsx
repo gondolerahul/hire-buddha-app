@@ -1,7 +1,6 @@
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
 import { GlassCard } from '@/components/ui';
 import {
   ArrowLeft, Phone, PhoneOutgoing, PhoneIncoming, Clock,
@@ -9,7 +8,9 @@ import {
   AlertCircle, Loader2, User, Bot, Calendar, Hash, Save
 } from 'lucide-react';
 import './CallDetailPage.css';
-import { API_BASE_URL } from '@/config/api';
+import { authedApiUrl } from '@/config/api';
+import { apiClient } from '@/services/api.client';
+import { apiErrorMessage } from '@/utils/apiError';
 
 interface TranscriptTurn {
   turn_number: number;
@@ -50,7 +51,6 @@ interface SessionDetail {
 export const CallDetailPage: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { token } = useAuth();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,19 +68,14 @@ export const CallDetailPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/streaming/voice-sessions/${sessionId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (!response.ok) throw new Error('Failed to fetch session');
-      const data = await response.json();
+      const { data } = await apiClient.get(`/streaming/voice-sessions/${sessionId}`);
       setSession(data);
       // Initialize manual next action from persisted state
       if (data.next_action) {
         setManualNextAction(data.next_action);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Failed to fetch session'));
     } finally {
       setLoading(false);
     }
@@ -103,10 +98,7 @@ export const CallDetailPage: React.FC = () => {
 
   const getRecordingUrl = () => {
     if (!session?.recording_url) return null;
-    const base = API_BASE_URL?.replace('/api/v1', '') || '';
-    const url = `${base}${session.recording_url}`;
-    // Append JWT token for authentication (the download endpoint supports ?token=)
-    return token ? `${url}${url.includes('?') ? '&' : '?'}token=${token}` : url;
+    return authedApiUrl(session.recording_url);
   };
 
   const togglePlayback = () => {
@@ -137,25 +129,15 @@ export const CallDetailPage: React.FC = () => {
   };
 
   const saveNextAction = async () => {
-    if (!sessionId || !token) return;
+    if (!sessionId) return;
     setSavingAction(true);
     setActionSaved(false);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/streaming/voice-sessions/${sessionId}/next-action`,
-        {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ next_action: manualNextAction }),
-        }
-      );
-      if (response.ok) {
-        setActionSaved(true);
-        setTimeout(() => setActionSaved(false), 3000);
-      }
+      await apiClient.patch(`/streaming/voice-sessions/${sessionId}/next-action`, {
+        next_action: manualNextAction,
+      });
+      setActionSaved(true);
+      setTimeout(() => setActionSaved(false), 3000);
     } catch (err) {
       console.error('Failed to save next action:', err);
     } finally {
