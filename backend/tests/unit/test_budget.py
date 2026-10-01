@@ -51,10 +51,9 @@ def test_exhausted_triggers_on_any_axis() -> None:
     assert b.which_exhausted() == "usd"
 
 
-def test_can_afford_respects_caps() -> None:
-    b = Budget(usd_max=Decimal("1.0"), usd_used=Decimal("0.8"))
-    assert b.can_afford(expected_usd=Decimal("0.1"))
-    assert not b.can_afford(expected_usd=Decimal("0.3"))
+def test_can_afford_is_gone() -> None:
+    """AK-12: it had no caller; the credit guard and ``exhausted()`` decide."""
+    assert not hasattr(Budget(), "can_afford")
 
 
 def test_snapshot_restore_roundtrip() -> None:

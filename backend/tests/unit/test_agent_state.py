@@ -8,7 +8,6 @@ import pytest
 
 from src.ai.core.agent_state import (
     AgentState,
-    Hypothesis,
     Observation,
     Reflection,
     Subgoal,
@@ -103,7 +102,6 @@ def test_snapshot_roundtrip_preserves_state() -> None:
     s.iteration = 7
     s.add_subgoal("g1", priority=1)
     s.add_subgoal("g2", priority=2)
-    s.hypotheses.append(Hypothesis(id="h1", claim="lattice is fast", confidence=0.7))
     s.reflections.append(Reflection(iteration=7, scope="run",
                                      what_worked="x", what_didnt="",
                                      cause_hypothesis="", proposed_change="",
@@ -119,7 +117,6 @@ def test_snapshot_roundtrip_preserves_state() -> None:
     assert restored.iteration == 7
     assert restored.entity_type == EntityType.AGENT
     assert [g.description for g in restored.open_subgoals] == ["g1", "g2"]
-    assert restored.hypotheses[0].claim == "lattice is fast"
     assert restored.reflections[0].what_worked == "x"
     assert restored.budget.usd_used == Decimal("0.5")
     assert restored.completed_step_ids == {"p1"}
@@ -140,3 +137,14 @@ async def test_materialise_then_absorb_is_noop_for_extra_data() -> None:
     assert s.context_state["new"] == "fresh"
     # __agent_state__ marker is NOT round-tripped back.
     assert "__agent_state__" not in s.context_state
+
+
+def test_a_snapshot_written_before_hypotheses_were_removed_still_restores() -> None:
+    """AK-09: ``hypotheses`` was written by nothing and is gone. A suspended
+    run's snapshot taken before the removal still carries the key; restore
+    ignores it rather than failing the resume."""
+    snap = _make_state().snapshot()
+    snap["hypotheses"] = [{"id": "h1", "claim": "x", "evidence_node_ids": [], "confidence": 0.5}]
+    restored = AgentState.restore(snap)
+    assert not hasattr(restored, "hypotheses")
+    assert "hypotheses" not in restored.snapshot()

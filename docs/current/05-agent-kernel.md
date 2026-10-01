@@ -248,12 +248,6 @@ classDiagram
         +str blocked_on
         +bool achieved
     }
-    class Hypothesis {
-        +str id
-        +str claim
-        +list evidence_node_ids
-        +float confidence
-    }
     class Blocker {
         +str kind
         +str detail
@@ -284,7 +278,6 @@ classDiagram
     }
     class Budget
     AgentState "1" --> "*" Subgoal : open_subgoals + achieved
-    AgentState "1" --> "*" Hypothesis : hypotheses
     AgentState "1" --> "*" Blocker : blockers
     AgentState "1" --> "0..1" Action : last_action
     AgentState "1" --> "0..1" Observation : last_observation
@@ -295,7 +288,6 @@ classDiagram
 | Type | Meaning | Who creates it |
 |------|---------|----------------|
 | `Subgoal` | A unit of intent. `blocked_on` is a free-text note; `priority` sorts them (higher first by convention, though nothing sorts automatically). | `AgentState.add_subgoal` at bootstrap from `entity.goal`; `SupervisorVerdict.proposed_subgoals` on REPLAN. |
-| `Hypothesis` | A claim with CORTEX evidence node ids and a confidence. **Declared but never written by any production code path** — reserved. |
 | `Blocker` | Why the agent is stuck. `kind` is one of `missing_tool`, `missing_data`, `awaiting_hitl`, `budget`, `error`. | Only `AgentState.apply_observation` when `outcome == "blocked"` — see the gotcha in §18. |
 | `Action` | What the loop just dispatched. Written every iteration at [agent_loop.py:569](../../backend/src/ai/core/agent_loop.py:569). |
 | `Observation` | The typed reading of an `ActionResult`. `outcome` is `success` / `partial` / `fail` / `blocked`; `novelty_score` 0..1; `goal_delta_estimate` -1..1. | `Observer.parse`. |
@@ -356,7 +348,6 @@ is built locally in `_iteration` and handed to the `Reflector`
 | `open_subgoals` | `list[Subgoal]` | `add_subgoal`, supervisor REPLAN | Strategist, Perceiver, critics | yes |
 | `achieved` | `list[Subgoal]` | `achieve_subgoal` | `_final_status` indirectly | yes |
 | `blockers` | `list[Blocker]` | `apply_observation` | SupervisorCritic prompt | yes |
-| `hypotheses` | `list[Hypothesis]` | *nothing* | *nothing* | yes |
 | `last_action` | `Action?` | `_iteration` step 4 | Perceiver summary | yes |
 | `last_observation` | `Observation?` | `apply_observation` | Perceiver, `_final_output`, replan | yes |
 | `reflections` | `list[Reflection]` | `_iteration` step 7 | Perceiver (last 3) | yes, last 20 |
@@ -510,11 +501,12 @@ CTE over the run subtree in `_sync_budget_tokens`
 ([agent_loop.py:838](../../backend/src/ai/core/agent_loop.py:838)) so a
 delegating parent does not report zero tokens.
 
-> `Budget.can_afford(...)` exists and is fully implemented, but **nothing in
-> `src/` calls it**. The `budget.py` module docstring also claims "the Critic
-> skips itself when pressure is high" — it does not. The critic degrades on a
-> *cost-share* rule (`critic_cost / run_cost > 0.20`), not on pressure
-> ([critic_pipeline.py:545](../../backend/src/ai/planning/critic_pipeline.py:545)).
+> The critic pipeline does not read budget pressure: it degrades on a
+> *cost-share* rule (`critic_cost / run_cost > governance.critic_cost_share_pct`,
+> default 0.20). `Budget.can_afford`, which nothing called, and
+> `AgentState.hypotheses`, which nothing wrote, were deleted on 2026-10-01
+> (AK-12, AK-09); the `budget.py` docstring no longer claims the critic skips on
+> pressure (AK-13).
 
 ---
 
@@ -1937,7 +1929,6 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
   `apply_observation` when `observation.outcome == "blocked"`, and
   `Observer._outcome` can only return `success`, `partial` or `fail`. The
   SupervisorCritic renders blockers into its prompt, so it always sees none.
-- **`state.hypotheses` is never written by anything.**
 - **The pre-critic almost never runs.** Any move with a `plan_fragment` gets a
   synthetic `PASS`. In practice that is every plan-driven iteration — so the
   pre-critic only sees `Recursive` moves and no-fragment `SingleStep` moves.
@@ -1957,8 +1948,6 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 - **Executors that use the loop's shared session can corrupt it.**
   `SingleStepExecutor` opens its own `AsyncSessionLocal` for exactly this
   reason; `DAGExecutor` and `ChildEntityExecutor` still use the passed-in `db`.
-- **`Budget.can_afford` is unused**, and the `budget.py` docstring's claim that
-  the critic self-skips on pressure is wrong — it degrades on cost share.
 - **`RunStatus.WAITING_ON_CHILDREN` is not terminal**, but the arq idempotency
   guard's `_TERMINAL` set correctly excludes it, so a resume dispatch still
   works.

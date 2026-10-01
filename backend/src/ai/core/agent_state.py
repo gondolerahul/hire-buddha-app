@@ -28,7 +28,6 @@ from src.ai.schemas.enums import EntityType
 __all__ = [
     "ExecutorName",
     "Subgoal",
-    "Hypothesis",
     "Blocker",
     "Action",
     "Observation",
@@ -64,14 +63,6 @@ class Subgoal:
     priority: int = 0
     blocked_on: Optional[str] = None
     achieved: bool = False
-
-
-@dataclass
-class Hypothesis:
-    id: str
-    claim: str
-    evidence_node_ids: list[str] = field(default_factory=list)   # CORTEX node UUIDs as strings
-    confidence: float = 0.5
 
 
 @dataclass
@@ -184,7 +175,6 @@ class AgentState:
     open_subgoals: list[Subgoal] = field(default_factory=list)
     achieved: list[Subgoal] = field(default_factory=list)
     blockers: list[Blocker] = field(default_factory=list)
-    hypotheses: list[Hypothesis] = field(default_factory=list)
 
     last_action: Optional[Action] = None
     last_observation: Optional[Observation] = None
@@ -395,7 +385,6 @@ class AgentState:
             "open_subgoals": [asdict(g) for g in self.open_subgoals],
             "achieved": [asdict(g) for g in self.achieved],
             "blockers": [asdict(b) for b in self.blockers],
-            "hypotheses": [asdict(h) for h in self.hypotheses],
             "last_action": asdict(self.last_action) if self.last_action else None,
             "last_observation": asdict(self.last_observation) if self.last_observation else None,
             "reflections": [asdict(r) for r in self.reflections[-20:]],
@@ -432,7 +421,6 @@ class AgentState:
             open_subgoals=[Subgoal(**s) for s in snapshot.get("open_subgoals", [])],
             achieved=[Subgoal(**s) for s in snapshot.get("achieved", [])],
             blockers=[Blocker(**b) for b in snapshot.get("blockers", [])],
-            hypotheses=[Hypothesis(**h) for h in snapshot.get("hypotheses", [])],
             reflections=[Reflection(**r) for r in snapshot.get("reflections", [])],
             cortex_cursor=UUID(snapshot["cortex_cursor"]) if snapshot.get("cortex_cursor") else None,
             cortex_tree_id=UUID(snapshot["cortex_tree_id"]) if snapshot.get("cortex_tree_id") else None,

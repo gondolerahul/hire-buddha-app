@@ -2,9 +2,10 @@
 ai.core.budget — Typed Budget (Phase 11 Track 2).
 
 The Budget is a first-class object the AgentLoop reads on every
-iteration. Strategist consults ``pressure`` and ``can_afford``; the
-Critic skips itself when pressure is high; the loop terminates when
-``exhausted()``.
+iteration. The step prompt and the retry picker read ``pressure``; the loop
+terminates when ``exhausted()``. The critic pipeline does not read pressure:
+it degrades on its share of the run's cost (``governance.critic_cost_share_pct``),
+not on budget pressure (AK-13).
 
 The four axes are intentionally independent — any one hitting 100%
 triggers ``exhausted()``. Code that needs to know *which* axis blew
@@ -131,26 +132,6 @@ class Budget:
 
     def exhausted(self) -> bool:
         return self.which_exhausted() is not None
-
-    def can_afford(
-        self,
-        *,
-        expected_usd: Decimal | float | None = None,
-        expected_tokens: int = 0,
-        expected_s: int = 0,
-    ) -> bool:
-        """Would the post-consume state still be < 100% on every axis?"""
-        usd_after = self.usd_used + _to_decimal(expected_usd or 0)
-        tokens_after = self.tokens_used + expected_tokens
-        wall_after = self.wall_used_s + expected_s
-
-        if self.usd_max > 0 and usd_after > self.usd_max:
-            return False
-        if self.tokens_max > 0 and tokens_after > self.tokens_max:
-            return False
-        if self.wall_max_s > 0 and wall_after > self.wall_max_s:
-            return False
-        return True
 
     # ------------------------------------------------------------------
     # Consumption
