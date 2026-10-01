@@ -1,6 +1,6 @@
 # 09. Tools & the Tool Registry
 
-> **What this document covers:** every tool an AI entity can call on HireBuddha — how tools are declared, discovered, advertised to the LLM, executed, retried, sandboxed, metered and billed — plus a complete catalogue of all 85 registered tools (97 until 2026-10-01, when the 12 `quora`, `x_ads` and `youtube_ads` tools were deleted — TL-23…TL-25).
+> **What this document covers:** every tool an AI entity can call on HireBuddha — how tools are declared, discovered, advertised to the LLM, executed, retried, sandboxed, metered and billed — plus a complete catalogue of all 86 registered tools (97 until 2026-10-01, when the 12 `quora`, `x_ads` and `youtube_ads` tools were deleted — TL-23…TL-25 — and `meta_spec_critic` was registered — TX-04).
 > **Who should read it:** anyone adding a tool, debugging a tool call, reviewing sandbox security, or tracing where a dollar of tool cost came from.
 > **Prerequisites:** [05 — Agent kernel](05-agent-kernel.md) for the loop that decides *when* to call a tool, and [03 — Data model](03-data-model.md) for `ExecutionRun` / `HierarchicalEntity`. Helpful but not required: [04 — Auth, RBAC & tenancy](04-auth-rbac-tenancy.md).
 
@@ -42,7 +42,7 @@ class that subclasses `Tool` in
 `description`, and a JSON schema, and implements one async method that takes a
 string and returns a string.
 
-All 85 built-in tools register themselves into one in-memory dictionary at
+All 86 built-in tools register themselves into one in-memory dictionary at
 import time in [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py).
 Nothing is dynamically loaded from disk or from the database at runtime.
 
@@ -123,7 +123,7 @@ class ToolRegistry:
 ```
 
 Registration happens as an import side effect. Importing
-`src.ai.tools` runs 85 `ToolRegistry.register(SomeTool())` statements
+`src.ai.tools` runs 86 `ToolRegistry.register(SomeTool())` statements
 ([tools/\_\_init\_\_.py:42](../../backend/src/ai/tools/__init__.py:42) onwards).
 Because they are module-level singletons, **a tool instance is shared across all
 tenants and all concurrent runs in a worker** — never store per-call state on
@@ -302,7 +302,7 @@ Three execution entry points exist, in increasing order of capability:
 | Method | Signature | Who overrides it |
 |--------|-----------|------------------|
 | `run` | `(input_data: str) -> str` | mandatory; often just delegates to `run_with_context` |
-| `run_with_context` | `(input_data: str, context: dict) -> str` | ~75 of the 85 tools — anything needing `company_id`, `user_id`, `run_id`, `agent_id` |
+| `run_with_context` | `(input_data: str, context: dict) -> str` | ~76 of the 86 tools — anything needing `company_id`, `user_id`, `run_id`, `agent_id` |
 | `run_typed` | `(params: ToolParams) -> ToolResult` | only `web_search` and `scraper_tool` today |
 
 `supports_context()` returns whether the subclass overrode `run_with_context`,
@@ -613,7 +613,7 @@ Step by step:
 
 ## 5. The complete tool catalogue
 
-85 tools are registered globally. Below is every one of them. Columns:
+86 tools are registered globally. Below is every one of them. Columns:
 **Status** is the `ToolStatus`; **SKU / cost** is what §18 resolves for billing
 (`—` means no cost entry exists and the call bills $0).
 
@@ -674,7 +674,7 @@ Legend for external dependency: `—` = pure local compute.
 | `google_calendar_create_event` | general | [crm/crm_tools.py:258](../../backend/src/ai/tools/crm/crm_tools.py:258) | Creates a calendar event for a site visit | `title`, `start_datetime`, `description`, attendees | Google Calendar, service account or OAuth2 refresh | ACTIVE | — |
 | `crm_update_lead` | general | [crm/crm_tools.py:445](../../backend/src/ai/tools/crm/crm_tools.py:445) | Writes call outcome and next action back to the tenant CRM | `lead_id`, `call_outcome`, `summary` | tenant HTTP API, provider `crm_tenant` | ACTIVE | — |
 
-### 5.7 `meta/` — 8 registered tools plus 1 unregistered
+### 5.7 `meta/` — 9 registered tools
 
 | Tool id | Category | File | What it does | Key parameters | External dependency | Status | SKU / cost |
 |---|---|---|---|---|---|---|---|
@@ -686,7 +686,7 @@ Legend for external dependency: `—` = pure local compute.
 | `agent_introspect` | general | [meta/agent_introspect.py](../../backend/src/ai/tools/meta/agent_introspect.py) | Reports own budget, pressure, iteration, subgoals, rules, CORTEX viewport | `include_failures`, `failure_days` | Postgres | ACTIVE | — |
 | `agent_reflect` | general | [meta/agent_reflect.py](../../backend/src/ai/tools/meta/agent_reflect.py) | Persists a structured learning as a CANDIDATE rule | `learning`, `kind`, `confidence` | Postgres | ACTIVE | — |
 | `tool_synthesis` | general | [meta/tool_synthesis.py](../../backend/src/ai/tools/meta/tool_synthesis.py) | LLM writes a brand-new tool; validated, sandbox-tested, red-teamed, saved as DRAFT | a `ToolSpec` JSON payload (base `input` schema) | LLM plus sandbox | EXPERIMENTAL | LLM cost of the pipeline |
-| `meta_spec_critic` | general | [meta/spec_critic.py](../../backend/src/ai/tools/meta/spec_critic.py) | Reviews a draft entity spec, returns PASS / REVISE / BLOCK | `mode`, `spec`, `search_top_k`, `platform_manifest_hash` | LLM | **not registered** — instantiated directly by [meta/board/critic.py:72](../../backend/src/ai/meta/board/critic.py:72) and [api/admin.py:454](../../backend/src/ai/api/admin.py:454) | LLM cost |
+| `meta_spec_critic` | general | [meta/spec_critic.py](../../backend/src/ai/tools/meta/spec_critic.py) | Reviews a draft entity spec, returns PASS / REVISE / BLOCK | `mode`, `spec`, `search_top_k`, `platform_manifest_hash` | LLM | EXPERIMENTAL; registered since 2026-10-01 (TX-04). The Board's critic and the admin route also call it directly | LLM cost |
 
 ### 5.8 `social/` — 52 tools across 13 platforms
 
@@ -755,7 +755,6 @@ tenant's ad budget.
 
 | Class | File | Why it is not registered |
 |---|---|---|
-| `MetaSpecCriticTool` | [meta/spec_critic.py](../../backend/src/ai/tools/meta/spec_critic.py) | Driven directly by the Meta-Agent Board, not by an LLM function call |
 | `SandboxedSynthesizedTool` | [sandbox/synthesized_tool.py](../../backend/src/ai/tools/sandbox/synthesized_tool.py) | Created by the synthesis pipeline, registered tenant-scoped as DRAFT |
 
 ---
@@ -1969,7 +1968,7 @@ reading the backend's `.env` file off the host filesystem.
 |---|---|---|
 | [tools/base.py](../../backend/src/ai/tools/base.py) | 202 | `Tool`, `ToolParams`, `ToolResult`, `ToolStatus`, `ToolRegistry` |
 | [governance/tool_access.py](../../backend/src/ai/governance/tool_access.py) | 225 | `ToolAccess`, `ToolDenied`, `grants_of`, `injected_meta_tools` — the one decision on whether a tool may run (§2.3) |
-| [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py) | 245 | imports and registers all 85 tools at import time |
+| [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py) | 245 | imports and registers all 86 tools at import time |
 | [tools/README.md](../../backend/src/ai/tools/README.md) | 72 | package map — note the `ToolStatus` list is stale |
 | [tools/resilience.py](../../backend/src/ai/tools/resilience.py) | 403 | `FailureKind`, `classify_tool_failure`, `ToolResilience` |
 | [tool_executor.py](../../backend/src/ai/tool_executor.py) | 383 | resolution through `ToolAccess`, typed and legacy dispatch, `ToolResult` dataclass, trace spans |
@@ -2047,9 +2046,6 @@ reading the backend's `.env` file off the host filesystem.
 - **`terminal` scans all of `/tmp` to depth 3 after every command** looking for
   new `.pptx/.docx/.xlsx/.pdf` files to auto-register. Any document another
   process writes to `/tmp` during that window gets attributed to this run.
-
-- **`meta_spec_critic` is a `Tool` that is not in the registry.** It is
-  instantiated directly. Do not expect to find it via `ToolRegistry.get_tool`.
 
 - **Social tokens for 5 of 13 platforms cannot be refreshed.** No entry in
   `PLATFORM_REFRESH_CONFIG` means the connection dies when the access token

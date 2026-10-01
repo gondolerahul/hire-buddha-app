@@ -173,7 +173,7 @@ ToolRegistry.register(SnapchatAdsManageAudiencesTool())
 from src.ai.tools.meta import (
     MetaRegistrySearchTool, MetaSchemaValidatorTool,
     MetaEntityCreatorTool, MetaEntityExecutorTool,
-    MetaPlatformIntrospectTool,
+    MetaPlatformIntrospectTool, MetaSpecCriticTool,
     AgentIntrospectTool, AgentReflectTool,
     ToolSynthesisTool,
 )
@@ -190,6 +190,8 @@ ToolRegistry.register(AgentReflectTool())
 # tools.experimental.tool_synthesis opt-in to be visible, plus the in-tool
 # is_meta_agent + meta_agent.tool_synthesis_enabled kill-switch gates.
 ToolRegistry.register(ToolSynthesisTool())
+# Spec critic (TX-04) — EXPERIMENTAL; the Board's critic calls it directly.
+ToolRegistry.register(MetaSpecCriticTool())
 
 __all__ = [
     "Tool", "ToolRegistry",
@@ -236,7 +238,7 @@ __all__ = [
     # Meta-Agent tools
     "MetaPlatformIntrospectTool", "MetaRegistrySearchTool",
     "MetaSchemaValidatorTool", "MetaEntityCreatorTool",
-    "MetaEntityExecutorTool", "ToolSynthesisTool",
+    "MetaEntityExecutorTool", "ToolSynthesisTool", "MetaSpecCriticTool",
     "AgentIntrospectTool", "AgentReflectTool",
 ]
 

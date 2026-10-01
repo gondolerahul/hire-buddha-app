@@ -188,7 +188,7 @@ noted here because the `usage` field is what an entity author actually sets.
 
 ### TX-04 — `meta_spec_critic` is a `Tool` that is not in the registry
 
-**📄 Doc-reported · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-01, P3.10)** — registered as `EXPERIMENTAL` (an entity needs a grant and its company's opt-in); the Board critic and the admin route still call it directly as platform code. `tests/unit/test_tool_status.py`.
 
 It is instantiated directly rather than registered, so `ToolRegistry.get_tool` will never
 find it. Anyone auditing "which tools can run" from the registry will miss it, and anyone

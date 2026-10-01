@@ -107,3 +107,14 @@ async def test_granted_deprecated_tool_still_runs(registered) -> None:
     that uses it does not break the day it is deprecated."""
     access = await _access(False, "old_test")
     assert isinstance(access.resolve("old_test"), _DeprecatedTool)
+
+
+@pytest.mark.asyncio
+async def test_the_spec_critic_is_a_registered_experimental_tool() -> None:
+    """It was a Tool outside the registry: an audit of what can run missed it (TX-04)."""
+    import src.ai.tools  # noqa: F401 — registers the built-ins
+    tool = ToolRegistry.get_tool("meta_spec_critic")
+    assert tool is not None and tool.status == ToolStatus.EXPERIMENTAL
+    access = await _access(False, "meta_spec_critic")
+    denied = access.resolve("meta_spec_critic")
+    assert isinstance(denied, ToolDenied) and denied.reason == "opt_in_required"

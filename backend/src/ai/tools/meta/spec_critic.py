@@ -45,7 +45,7 @@ import logging
 from typing import Any, Optional
 from uuid import UUID
 
-from src.ai.tools.base import Tool
+from src.ai.tools.base import Tool, ToolStatus
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,10 @@ def _normalise_verdict(parsed: dict[str, Any]) -> dict[str, Any]:
 
 class MetaSpecCriticTool(Tool):
     name = "meta_spec_critic"
+    # Registered like every tool, so an audit of the registry finds it (TX-04).
+    # EXPERIMENTAL: an entity needs a grant and its company's opt-in. The Board
+    # critic and the admin route call it directly, as platform code.
+    status = ToolStatus.EXPERIMENTAL
     description = (
         "Reviews a draft HierarchicalEntity spec for failure modes BEFORE "
         "the Promoter can flip the entity to ACTIVE. Input JSON: "
