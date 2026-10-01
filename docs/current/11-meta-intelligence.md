@@ -289,7 +289,10 @@ REUSE / ADAPT / COMPOSE — those decisions are already reuse.
 `if candidates`. If the daily limit is hit and there is nothing to adapt, the
 decision stays `CREATE` and the actual block happens later, in
 `MetaEntityCreatorTool`. The Curator's downgrade is an optimisation, not the
-enforcement point.
+enforcement point. A semantic-duplicate hit names the existing entity in the
+rationale — `'<existing_entity_name>' (<existing_entity_id>, similarity <score>)`,
+the keys `check_semantic_duplicate` returns — so the human reviewing the
+decision knows which entity to adapt.
 
 > ⚠️ Both anti-sprawl calls are wrapped in bare `except Exception: pass`. A
 > failing gate silently allows the original decision through. The hard

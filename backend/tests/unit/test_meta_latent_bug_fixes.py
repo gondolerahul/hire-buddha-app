@@ -117,6 +117,56 @@ async def test_curator_creation_gate_downgrades_create_to_adapt(monkeypatch) -> 
     assert "Daily creation limit reached" in decision.rationale
 
 
+class _DuplicateSprawl(_FakeSprawl):
+    """Creation is allowed, but the spec is a near-duplicate of an existing entity.
+
+    Returns exactly the keys the real ``AntiSprawlGuard.check_semantic_duplicate``
+    returns on a hit.
+    """
+
+    async def check_creation_allowed(
+        self,
+        meta_agent_user_id: Optional[UUID] = None,
+        daily_limit: int = 10,
+    ) -> dict[str, Any]:
+        return {"allowed": True}
+
+    async def check_semantic_duplicate(
+        self,
+        description: str,
+        required_tools: List[str],
+        preferred_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "is_duplicate": True,
+            "existing_entity_id": "11111111-2222-3333-4444-555555555555",
+            "existing_entity_name": "Invoice Summariser",
+            "similarity_score": 0.93,
+            "message": "Near-duplicate detected",
+        }
+
+
+@pytest.mark.asyncio
+async def test_curator_duplicate_rationale_names_the_existing_entity(monkeypatch) -> None:
+    """MI-10: the rationale a reviewer reads names the duplicate, not ``?``."""
+    monkeypatch.setattr(
+        "src.ai.meta.registry_search_service.RegistrySearchService", _FakeSearch
+    )
+    monkeypatch.setattr("src.ai.meta.anti_sprawl.AntiSprawlGuard", _DuplicateSprawl)
+    monkeypatch.setattr(
+        "src.ai.meta.meta_intelligence_tree.MetaIntelligenceTree", _FakeMetaTree
+    )
+
+    decision = await Curator(db=object(), company_id=uuid4()).decide(
+        {"description": "summarise invoices", "preferred_type": "SKILL"}
+    )
+
+    assert decision.decision == "ADAPT"
+    assert "11111111-2222-3333-4444-555555555555" in decision.rationale
+    assert "Invoice Summariser" in decision.rationale
+    assert "?" not in decision.rationale
+
+
 # ---------------------------------------------------------------------------
 # Bug 2 — IO-compat scoring awaits AsyncSession.get
 # ---------------------------------------------------------------------------

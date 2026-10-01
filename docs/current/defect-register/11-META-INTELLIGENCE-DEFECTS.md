@@ -270,7 +270,7 @@ version passes before publication. Otherwise delete the package and its flags.
 
 | ID | Problem | Notes | Status |
 |---|---|---|---|
-| **MI-10** | Curator ↔ anti-sprawl key mismatch | The guard returns `existing_entity_id`; the Curator reads `dup.get('similar_id','?')`. The rationale shown to a human **always displays `?`** instead of the duplicate's id — which is the one piece of information the reviewer needs | ✅ Verified |
+| **MI-10** | Curator ↔ anti-sprawl key mismatch | The guard returns `existing_entity_id`; the Curator reads `dup.get('similar_id','?')`. The rationale shown to a human **always displays `?`** instead of the duplicate's id — which is the one piece of information the reviewer needs | **✅ Verified · High** · **Status: fixed (2026-10-01)** — the Curator reads `existing_entity_id` / `existing_entity_name` / `similarity_score`; the rationale names the duplicate (`test_curator_duplicate_rationale_names_the_existing_entity`) |
 | **MI-11** | The MetaIntelligenceTree has no `entity_id` | Any query filtering on `entity_id` finds nothing. The correct filter is `scope_level=TENANT`. Easy to get wrong, and the failure is an empty result rather than an error | 📄 Doc-reported |
 | **MI-12** | The README says six tree sections; there are seven | `composition` is missing from the README table | ✅ Verified · **fixed (2026-10-01)** — the README lists all seven and notes the Board has no caller (MI-20) |
 | **MI-13** | `meta_spec_critic` is a `Tool` outside the registry | Instantiated directly, so `ToolRegistry.get_tool` never finds it. Also recorded as [TX-04](09-TOOLS-DEFECTS.md#tx-04--meta_spec_critic-is-a-tool-that-is-not-in-the-registry) | 📄 Doc-reported |

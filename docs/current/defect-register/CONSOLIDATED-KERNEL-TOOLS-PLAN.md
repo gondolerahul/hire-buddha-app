@@ -647,6 +647,7 @@ reads that sum. `_sync_budget_cost` and the `max()` reconciliation are deleted.
 | 4.5 | Reformat retries visible (span + log kind) | EP-24/EP-I10 |
 | 4.6 | One resolver per run (price cache) | TX-I1/TL-33 |
 | 4.7 | An `LLMInteractionLog` for planner and critic calls | LP-I9 |
+| 4.8 | The `cost_charged` SSE frame the frontend reducer already handles is emitted when a run's usage row is written (today nothing produces it) | AK-11 (remainder) |
 
 ### P5 — Versions and assets (R2, doc phases 1–2)
 
@@ -798,4 +799,14 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 
 | Phase | Ids | Commit | Evidence |
 |---|---|---|---|
-| — | Consolidation and plan | (this commit) | Baseline recorded in §1 |
+| — | Consolidation and plan | `c2db18a` | Baseline recorded in §1 |
+| P0.1 | AK-11, AK-I10 | `2c98a48` | `test_sse_event_contract.py` fails on the old map |
+| P0.2–0.3 | AK-10 | `eecad67` | `test_feature_flag_census.py` fails with 23 names on the old code; stub executors gone |
+| P0.4 | AK-09, AK-12, AK-13 | `e97b0ed` | An old snapshot with `hypotheses` still restores |
+| P0.6 | LP-02, LP-14, LP-13 | `9bc0157` | Grep: no importer |
+| P0.5 | AK-14, EP-16, EP-17, LP-16, MI-12 | `ddd4912` | — |
+| P0.7 | TL-22…TL-27 | `1dc9f60` | Registry 97 → 85; `test_deleted_tools_stay_gone.py` |
+| P0.8 | TL-29, TL-63, TX-05 | `15995a2` | `test_tool_hygiene.py`: `image_paths` advertised, one workspace root |
+| P0.9 | PC-26, TL-64 | `1a2747d` | `test_cost_estimator.py` fails on a baseline key the registry does not know |
+| P0.10 | EP-13, EP-15 | `c60b028` | Migration round-trips; a finalised run has `execution_time_ms` |
+| P0.11 | MI-10 | (this commit) | `test_curator_duplicate_rationale_names_the_existing_entity` fails on the old code |

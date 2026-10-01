@@ -99,11 +99,21 @@ class Curator:
                     preferred_type=spec_dict.get("preferred_type"),
                 )
                 if isinstance(dup, dict) and dup.get("is_duplicate"):
-                    decision = "ADAPT" if candidates else decision
-                    rationale = (
-                        f"Semantic duplicate found: {dup.get('similar_id','?')}; "
-                        f"adapting."
+                    # The keys AntiSprawlGuard.check_semantic_duplicate returns
+                    # on a hit — the reviewer needs to know which entity.
+                    dup_ref = (
+                        f"'{dup.get('existing_entity_name') or 'unnamed'}' "
+                        f"({dup.get('existing_entity_id')}, similarity "
+                        f"{dup.get('similarity_score')})"
                     )
+                    if candidates:
+                        decision = "ADAPT"
+                        rationale = f"Semantic duplicate found: {dup_ref}; adapting."
+                    else:
+                        rationale = (
+                            f"Semantic duplicate found: {dup_ref}; "
+                            f"no candidate to adapt."
+                        )
             except Exception:                                               # pragma: no cover
                 pass
 
