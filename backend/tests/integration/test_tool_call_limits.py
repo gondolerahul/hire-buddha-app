@@ -26,10 +26,14 @@ class _Counter(Tool):
     description = "counts its calls"
 
     def __init__(self):
-        self.calls = 0
+        self.log: list[str] = []  # a registered tool is frozen (TX-02)
 
-    async def run(self, input_data):  # noqa: ARG002
-        self.calls += 1
+    @property
+    def calls(self) -> int:
+        return len(self.log)
+
+    async def run(self, input_data):
+        self.log.append(input_data)
         return f"call {self.calls}"
 
 

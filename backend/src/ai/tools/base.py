@@ -91,6 +91,23 @@ class Tool(ABC):
     description: str
     status: ToolStatus = ToolStatus.ACTIVE
 
+    # One registered instance serves every run of every company at once, so a
+    # tool must keep nothing per call on ``self`` (TX-02). Registration freezes
+    # the instance: an attribute write after it raises, at the moment of the
+    # mistake, instead of leaking one run's company or credential into another.
+    def __setattr__(self, name: str, value: Any) -> None:
+        if self.__dict__.get("_frozen"):
+            raise AttributeError(
+                f"tool '{getattr(self, 'name', type(self).__name__)}' is shared by every run "
+                f"and may not keep per-call state: set '{name}' in a local or read it from "
+                "the execution context (TX-02)"
+            )
+        super().__setattr__(name, value)
+
+    def freeze(self) -> None:
+        """Make the instance read-only (done by ``ToolRegistry`` on registration)."""
+        object.__setattr__(self, "_frozen", True)
+
     @abstractmethod
     async def run(self, input_data: str) -> str:
         """Execute the tool with the given input.
@@ -181,12 +198,14 @@ class ToolRegistry:
 
     @classmethod
     def register(cls, tool: Tool) -> None:
-        """Register a tool in the global registry."""
+        """Register a tool in the global registry (and freeze it, TX-02)."""
+        tool.freeze()
         cls._tools[tool.name] = tool
 
     @classmethod
     def register_tenant_tool(cls, company_id: UUID, tool: Tool) -> None:
         """Register a tool scoped to a specific company."""
+        tool.freeze()
         cid = str(company_id)
         if cid not in cls._tenant_tools:
             cls._tenant_tools[cid] = {}

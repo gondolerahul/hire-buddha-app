@@ -127,7 +127,11 @@ Registration happens as an import side effect. Importing
 ([tools/\_\_init\_\_.py:42](../../backend/src/ai/tools/__init__.py:42) onwards).
 Because they are module-level singletons, **a tool instance is shared across all
 tenants and all concurrent runs in a worker** — never store per-call state on
-`self`.
+`self`. Since 2026-10-01 (TX-02) registration freezes the instance: an attribute
+write after `register`/`register_tenant_tool` raises `AttributeError`, so the
+mistake fails where it is made instead of leaking one run's company or credential
+into another. Set what a tool needs in `__init__`; per-call values live in locals
+or come from the execution context (§3.2).
 
 Tenant-scoped tools exist but only one code path creates them (the MCP adapter
 was the other; it was deleted with its package on 2026-10-01, TL-22):
@@ -1997,8 +2001,9 @@ reading the backend's `.env` file off the host filesystem.
   the legacy string path instead. Your typed tool will "work" while quietly
   never using its types.
 
-- **Tool instances are process-wide singletons.** Never assign per-call state to
-  `self`; two concurrent runs share the object.
+- **Tool instances are process-wide singletons, and frozen once registered.**
+  `self.x = …` in a tool method raises (TX-02); a test double that counts calls
+  keeps them in a list or dict made in `__init__`.
 
 - **A run's tool calls are its `tool_interaction_logs` rows.** The per-run limits
   (§17) count them, so a test that inserts log rows for a run changes what that

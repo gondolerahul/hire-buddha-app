@@ -146,7 +146,7 @@ visible one is a lie. This is a prerequisite for the TL-01 fix, alongside
 
 ### TX-02 — Tool instances are process-wide singletons
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.6)** — `ToolRegistry.register` and `register_tenant_tool` freeze the instance (`Tool.freeze`); an attribute write after registration raises `AttributeError` naming TX-02. No built-in tool wrote to `self` outside `__init__` (an AST scan of `src/ai/tools`); `tests/unit/test_tool_freeze.py` checks all 85 are frozen and a leaky tool fails at the write.
 
 `ToolRegistry.register(tool)` stores the **instance**: `cls._tools[tool.name] = tool`.
 There is one object per tool for the life of the process, shared by every concurrent run

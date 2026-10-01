@@ -27,13 +27,17 @@ class _Spy(Tool):
 
     def __init__(self, name: str, output: str = "ok", status: ToolStatus = ToolStatus.ACTIVE):
         self.name = name
-        self.output = output
         self.status = status
-        self.calls = 0
+        # A registered tool is frozen (TX-02): the spy's state lives in a dict.
+        self.state = {"output": output, "calls": 0}
+
+    @property
+    def calls(self) -> int:
+        return self.state["calls"]
 
     async def run(self, input_data: str) -> str:
-        self.calls += 1
-        return self.output
+        self.state["calls"] += 1
+        return self.state["output"]
 
 
 @pytest.fixture
@@ -218,7 +222,7 @@ async def test_a_tool_switched_off_by_an_admin_does_not_run(spies):
 
 @pytest.mark.asyncio
 async def test_a_fallback_the_entity_was_not_granted_does_not_run(spies):
-    spies["granted"].output = "Error: upstream exploded"
+    spies["granted"].state["output"] = "Error: upstream exploded"
     access = await _access({"tool_id": "p31_granted"})
     reformat = AsyncMock(return_value=None)
     res = ToolResilience(reformat_fn=reformat, access=access,
@@ -230,7 +234,7 @@ async def test_a_fallback_the_entity_was_not_granted_does_not_run(spies):
 
 @pytest.mark.asyncio
 async def test_a_granted_fallback_runs(spies):
-    spies["granted"].output = "Error: upstream exploded"
+    spies["granted"].state["output"] = "Error: upstream exploded"
     access = await _access({"tool_id": "p31_granted"}, {"tool_id": "p31_fallback"})
     res = ToolResilience(reformat_fn=AsyncMock(return_value=None), access=access,
                          fallback_table=lambda *_a: ("p31_fallback", "x"))
