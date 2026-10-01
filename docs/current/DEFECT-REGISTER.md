@@ -463,8 +463,8 @@ up a launch.
 | **D-35** | Run status transitions are advisory | `validate_transition` warns but never blocks; illegal states are reachable | ✅ fixed (2026-10-01) — DM-17: the run model refuses an illegal status write; terminal statuses are final; cancel and the loop's final write cannot overwrite each other |
 | **D-36** | Agent selection is `LIMIT 1` with no `ORDER BY` | Non-deterministic agent choice, in three separate call sites | 📄 Doc |
 | **D-37** | No credit holds | Cost accrues during a run and settles at the end, so one run can overdraw | ✅ fixed (2026-09-30, `c1eecb9`) — BC-06: a run holds its estimated bill; the BC-05 breaker stops it at the wallet |
-| **D-38** | Frontend has no error boundary | One render throw blanks the entire page | 📄 Doc |
-| **D-39** | `npm run lint` fails — no ESLint config exists | The `lint` script is defined in `package.json`; no config file is present. No lint gate at all | ✅ Verified |
+| **D-38** | Frontend has no error boundary | One render throw blanks the entire page | ✅ fixed (2026-10-01, `547cca5`) — FE-01: an `ErrorBoundary` around the routes and each page's content |
+| **D-39** | `npm run lint` fails — no ESLint config exists | The `lint` script is defined in `package.json`; no config file is present. No lint gate at all | ✅ fixed (2026-10-01) — FE-02: `.eslintrc.cjs`; `npm run lint` passes with no warnings |
 | **D-40** | No frontend test runner | Two `.test.ts` files import `vitest`, which is not configured | 📄 Doc |
 
 ---

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { JellyButton } from '@/components/ui';
 import { X, Layers } from 'lucide-react';
@@ -21,13 +21,7 @@ export const EntityBuilder: React.FC = () => {
     const [entity, setEntity] = useState<HierarchicalEntity | undefined>(undefined);
     const [targetCompanyId, setTargetCompanyId] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (id) {
-            fetchEntity();
-        }
-    }, [id]);
-
-    const fetchEntity = async () => {
+    const fetchEntity = useCallback(async () => {
         try {
             setLoading(true);
             const { data } = await apiClient.get<HierarchicalEntity>(`/ai/entities/${id}`);
@@ -38,7 +32,13 @@ export const EntityBuilder: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
+
+    useEffect(() => {
+        if (id) {
+            fetchEntity();
+        }
+    }, [id, fetchEntity]);
 
     const handleSave = async (entityData: any) => {
         setLoading(true);

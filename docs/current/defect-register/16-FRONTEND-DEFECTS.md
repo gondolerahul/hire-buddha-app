@@ -89,7 +89,8 @@ broken" into "this page is broken".
 
 ### FE-02 — `npm run lint` cannot run
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — `frontend/.eslintrc.cjs` exists and
+`npm run lint` passes with `--max-warnings 0`.
 
 `package.json` declares:
 
@@ -111,6 +112,31 @@ exhaustive-deps rule exists for.
 - Also recorded as **D-39** in the platform register
 
 **Fix:** add `.eslintrc.cjs`. Every plugin is already installed.
+
+**Done (2026-10-01).** The config extends `eslint:recommended`,
+`@typescript-eslint/recommended` and `react-hooks/recommended`. Two rules are off, each with
+its reason in the file: `no-explicit-any` (about 230 uses, mostly API payloads — typing them
+is [FE-I7](#fe-i7--generate-the-api-types-from-the-backend)'s job) and
+`react-refresh/only-export-components` (it guards HMR boundaries, and `hmr` is off). With the
+config in place the first run found 33 problems besides `any`:
+
+- **13 effects with missing dependencies** — beyond FE-08's two. Each loader is now a
+  `useCallback` with its real inputs, and the effect depends on it. Two were real
+  stale-closure bugs: `PhonePool` fetched partners and companies only if the user was an
+  admin *at first render*, and `IntegrationsPage`'s loader read `currentUser` from the render
+  it was created in (it is split: integrations on mount, email connections when the user
+  is known). `EntityFlow` lays out the graph it was first given, through a ref, rather than
+  depending on prop arrays that default to a new `[]` every render.
+- 11 `eslint-disable` comments for `no-alert`/`no-console`, rules this config does not
+  enable (removed); one `prefer-const` (`AgentLoopExecutionDetail`'s poll timer is now a
+  `const` set before the first tick); three needless regex escapes.
+
+**Evidence:** without the config `npm run lint` exits 2 ("No ESLint configuration found");
+with it, exit 0 and no warnings. Live on :3020, every page whose effect changed —
+platform management, integrations, phone numbers, CORTEX explorer and tree, the entity
+builder and its Hierarchy canvas, execute, a finished run, call and campaign detail —
+fetched each resource once (twice under StrictMode) and did not repeat; the finished run's
+poll stopped after the first tick; the canvas laid out the stored plan.
 
 ---
 
@@ -324,7 +350,8 @@ unit test: the frontend has no test runner yet (FE-03).
 
 **✅ Verified · Medium** · **Status: fixed (2026-10-01)** — both effects now update state with
 an updater instead of a copy from the render they were created in, and the lint rule passes
-on both.
+on both. With a lint config in place (FE-02) the rule found 13 more effects; they are fixed
+there.
 
 - `MainLayout`: the groups holding the current page are computed during render
   (`activeGroupKey`) and opened with `setOpenSubmenus(prev => …)`, so a submenu toggled in

@@ -1,5 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { companyService } from '@/services/company.service';
 import { userService } from '@/services/user.service';
@@ -40,7 +40,7 @@ export const PlatformManagement: React.FC = () => {
     const [editingCompany, setEditingCompany] = useState<Company | undefined>(undefined);
     const [editingUser, setEditingUser] = useState<User | undefined>(undefined);
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
@@ -72,11 +72,11 @@ export const PlatformManagement: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [activeTab]);
 
     useEffect(() => {
         fetchData();
-    }, [activeTab]);
+    }, [fetchData]);
 
     const handleToggleCompanyStatus = async (company: Company) => {
         try {

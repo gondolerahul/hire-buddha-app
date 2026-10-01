@@ -41,11 +41,7 @@ export const CortexTreeDetail: React.FC = () => {
     const [contentLoading, setContentLoading] = useState(false);
     const [showContent, setShowContent] = useState(false);
 
-    useEffect(() => {
-        if (treeId) loadTree();
-    }, [treeId]);
-
-    const loadTree = async () => {
+    const loadTree = useCallback(async () => {
         if (!treeId) return;
         setLoading(true);
         try {
@@ -60,7 +56,11 @@ export const CortexTreeDetail: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [treeId]);
+
+    useEffect(() => {
+        if (treeId) loadTree();
+    }, [treeId, loadTree]);
 
     const navigateTo = useCallback(async (nodeId: string) => {
         if (!treeId) return;

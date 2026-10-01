@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { GlassCard, GlassInput, JellyButton } from '@/components/ui';
 import { Play, ArrowLeft, Loader, Cpu, Zap, Activity, Info, AlertTriangle } from 'lucide-react';
@@ -17,11 +17,7 @@ export const ExecutionPage: React.FC = () => {
     const [executing, setExecuting] = useState(false);
     const [error, setError] = useState('');
 
-    useEffect(() => {
-        fetchDetails();
-    }, [id]);
-
-    const fetchDetails = async () => {
+    const fetchDetails = useCallback(async () => {
         try {
             const { data } = await apiClient.get<HierarchicalEntity>(`/ai/entities/${id}`);
             setEntity(data);
@@ -68,7 +64,11 @@ export const ExecutionPage: React.FC = () => {
             console.error('Failed to fetch details:', error);
             setError('Failed to load execution target');
         }
-    };
+    }, [id]);
+
+    useEffect(() => {
+        fetchDetails();
+    }, [fetchDetails]);
 
     const handleExecute = async () => {
         setError('');

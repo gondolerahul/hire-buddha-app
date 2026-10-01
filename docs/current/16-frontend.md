@@ -89,12 +89,14 @@ From [`package.json`](../../frontend/package.json):
 |--------|---------|--------------|
 | `npm run dev` | `vite` | Dev server on port 3000, all interfaces |
 | `npm run build` | `tsc && vite build` | Type-check first, then bundle to `dist/` |
-| `npm run lint` | `eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` | **Broken — see below** |
+| `npm run lint` | `eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` | Lint with zero warnings allowed; config in `.eslintrc.cjs` |
 | `npm run preview` | `vite preview` | Serve the built `dist/` locally |
 
-> **`npm run lint` does not work.** There is no `.eslintrc*` or `eslint.config.js`
-> anywhere in `frontend/`. The ESLint packages are in `devDependencies` but
-> unconfigured, so the script fails on a missing config. Nothing in CI runs it.
+> **`npm run lint` passes** since FE-02 (2026-10-01): `.eslintrc.cjs` extends the
+> recommended ESLint, TypeScript and React-hooks sets, with `no-explicit-any` off
+> (typing debt, FE-I7) and `react-refresh/only-export-components` off (HMR is
+> off). A new effect must list what it reads — make a loader a `useCallback`
+> and depend on it. Nothing in CI runs the script yet.
 > Note: `vite.config.ts` is the only Vite config. A compiled `vite.config.js`
 > beside it would win (Vite loads `.js` first) — they are gitignored since FE-27.
 > The only type/quality gate that actually runs is the `tsc` step inside
@@ -2357,7 +2359,6 @@ Concretely:
   every change.
 - **Production runs `npm run dev`.** Apache proxies `app.hirebuddha.com` to the
   Vite dev server on port 3000. Nothing builds or serves `dist/`.
-- **`npm run lint` fails** — there is no ESLint config file in the repo.
 - **There is no test runner.** Two `.test.ts` files exist and import `vitest`,
   which is not installed. They are also excluded from `tsc`.
 - **`react-hook-form` and `zod` are dependencies but unused.** So are `date-fns`

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
     Settings,
@@ -33,26 +33,21 @@ export const IntegrationsPage: React.FC = () => {
     const [isEmailWizardOpen, setIsEmailWizardOpen] = useState(false);
     const [emailLoading, setEmailLoading] = useState(false);
 
-    const fetchData = async () => {
+    const fetchIntegrations = useCallback(async () => {
         try {
             setLoading(true);
             const data = await integrationService.getIntegrations();
             setIntegrations(data);
             setError(null);
-
-            // Also fetch email connections if user is loaded
-            if (currentUser?.company_id) {
-                fetchEmailConnections();
-            }
         } catch (err) {
             setError('Failed to load integrations');
             console.error(err);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    const fetchEmailConnections = async () => {
+    const fetchEmailConnections = useCallback(async () => {
         try {
             setEmailLoading(true);
             const data = await emailService.getConnections();
@@ -62,27 +57,35 @@ export const IntegrationsPage: React.FC = () => {
         } finally {
             setEmailLoading(false);
         }
-    };
+    }, []);
 
-    const fetchUser = async () => {
+    const fetchUser = useCallback(async () => {
         try {
             const user = await authService.getCurrentUser();
             setCurrentUser(user);
         } catch (err) {
             console.error('Failed to fetch user', err);
         }
+    }, []);
+
+    // Refresh: the integrations, and the email connections once the user is known
+    const fetchData = () => {
+        fetchIntegrations();
+        if (currentUser?.company_id) {
+            fetchEmailConnections();
+        }
     };
 
     useEffect(() => {
-        fetchData();
+        fetchIntegrations();
         fetchUser();
-    }, []);
+    }, [fetchIntegrations, fetchUser]);
 
     useEffect(() => {
         if (currentUser?.company_id) {
             fetchEmailConnections();
         }
-    }, [currentUser]);
+    }, [currentUser, fetchEmailConnections]);
 
     const handleDelete = async (id: string) => {
         if (!window.confirm('Are you sure you want to delete this integration?')) return;

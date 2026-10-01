@@ -43,7 +43,6 @@ export const RiskAndExitPage: React.FC = () => {
             setExit(e);
             setDecisions(d);
         } catch (err) {
-            // eslint-disable-next-line no-console
             console.warn('[RiskAndExit] refresh failed', err);
         } finally {
             setLoading(false);
@@ -240,7 +239,6 @@ const DecisionLogSection: React.FC<{
             setOpen(false);
             await onAppended();
         } catch (err: any) {
-            // eslint-disable-next-line no-alert
             alert(`append failed: ${err?.response?.data?.detail ?? err}`);
         } finally {
             setBusy(false);

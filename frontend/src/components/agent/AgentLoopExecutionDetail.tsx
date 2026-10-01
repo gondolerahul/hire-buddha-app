@@ -47,7 +47,6 @@ export const AgentLoopExecutionDetail: React.FC<Props> = ({
     useEffect(() => {
         let cancelled = false;
         let polls = 0;
-        let timer: number | undefined;
         setLoading(true);
         const tick = async () => {
             const [state, hrs, trace] = await Promise.all([
@@ -63,14 +62,14 @@ export const AgentLoopExecutionDetail: React.FC<Props> = ({
             polls += 1;
             // Stop once the loop is done, or after ~5 min as a safety cap.
             if ((state && (state as any).done) || polls > 100) {
-                if (timer !== undefined) window.clearInterval(timer);
+                window.clearInterval(timer);
             }
         };
+        const timer = window.setInterval(tick, 3000);
         void tick();
-        timer = window.setInterval(tick, 3000);
         return () => {
             cancelled = true;
-            if (timer !== undefined) window.clearInterval(timer);
+            window.clearInterval(timer);
         };
     }, [runId]);
 

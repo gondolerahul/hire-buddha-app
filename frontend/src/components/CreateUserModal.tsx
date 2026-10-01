@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { GlassCard, GlassInput, JellyButton } from './ui';
 import { UserRole, Company, User } from '../types';
@@ -30,6 +30,21 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const fetchAvailableCompanies = useCallback(async () => {
+        try {
+            if (currentUser?.role === 'app_admin') {
+                const partners = await companyService.getPartners();
+                const tenants = await companyService.getTenants();
+                setCompanies([...partners, ...tenants]);
+            } else if (currentUser?.role === 'partner_admin') {
+                const tenants = await companyService.getTenants();
+                setCompanies(tenants);
+            }
+        } catch (err) {
+            console.error('Failed to fetch companies', err);
+        }
+    }, [currentUser]);
+
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
@@ -54,22 +69,7 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
             }
             setError(null);
         }
-    }, [isOpen, currentUser, initialData]);
-
-    const fetchAvailableCompanies = async () => {
-        try {
-            if (currentUser?.role === 'app_admin') {
-                const partners = await companyService.getPartners();
-                const tenants = await companyService.getTenants();
-                setCompanies([...partners, ...tenants]);
-            } else if (currentUser?.role === 'partner_admin') {
-                const tenants = await companyService.getTenants();
-                setCompanies(tenants);
-            }
-        } catch (err) {
-            console.error('Failed to fetch companies', err);
-        }
-    };
+    }, [isOpen, currentUser, initialData, fetchAvailableCompanies]);
 
     if (!isOpen) return null;
 

@@ -5,7 +5,7 @@ import { parseServerDate } from '@/utils/datetime';
  * Lists all CORTEX cognitive trees for the current company.
  * Provides actions to view/resume/suspend trees and navigate their structure.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cortexService, CortexTree } from '@/services/cortex.service';
 import { JellyButton } from '@/components/ui';
@@ -25,11 +25,7 @@ export const CortexExplorer: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState<string>('');
 
-    useEffect(() => {
-        loadTrees();
-    }, [statusFilter]);
-
-    const loadTrees = async () => {
+    const loadTrees = useCallback(async () => {
         setLoading(true);
         try {
             const data = await cortexService.listTrees(undefined, statusFilter || undefined);
@@ -39,7 +35,11 @@ export const CortexExplorer: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [statusFilter]);
+
+    useEffect(() => {
+        loadTrees();
+    }, [loadTrees]);
 
     const handleSuspend = async (treeId: string, e: React.MouseEvent) => {
         e.stopPropagation();

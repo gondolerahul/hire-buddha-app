@@ -125,7 +125,9 @@ file as a ratchet.
 
 ### TS-04 — `npm run lint` cannot run, and there is no frontend test runner
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: half fixed (2026-10-01)** — `npm run lint` runs and passes
+([FE-02](16-FRONTEND-DEFECTS.md#fe-02--npm-run-lint-cannot-run)); the test runner
+([FE-03](16-FRONTEND-DEFECTS.md#fe-03--there-is-no-test-runner)) is still open.
 
 `package.json` declares a `lint` script and installs `eslint`, `@typescript-eslint/*`,
 `eslint-plugin-react-hooks` and `eslint-plugin-react-refresh`. There is **no ESLint config

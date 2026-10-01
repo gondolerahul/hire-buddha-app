@@ -136,7 +136,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                 setCompanies(companyList);
             }).catch(() => {});
         }
-    }, [userRole]);
+    }, [isAdminOrPartner]);
 
     const handleCompanyChange = (companyId: string) => {
         setSelectedCompanyId(companyId);

@@ -139,9 +139,11 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
     const [loadingLibraries, setLoadingLibraries] = useState(true);
     const [entitySearch, setEntitySearch] = useState('');
 
-    useEffect(() => { fetchLibraries(); }, []);
+    // The graph as this component first received it: the library load lays it
+    // out once. (The props default to a new [] on every render.)
+    const initialGraph = useRef({ nodes: initialNodes, edges: initialEdges });
 
-    const fetchLibraries = async () => {
+    const fetchLibraries = useCallback(async () => {
         try {
             const [entitiesRes, toolsRes] = await Promise.all([
                 apiClient.get<HierarchicalEntity[]>('/ai/entities'),
@@ -170,19 +172,22 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
             }));
 
             // Auto-layout initial nodes with dagre if they came from hierarchy
-            if (initialNodes.length > 0) {
+            const { nodes: firstNodes, edges: firstEdges } = initialGraph.current;
+            if (firstNodes.length > 0) {
                 setNodes(prev => {
-                    const layouted = applyDagreLayout(prev, initialEdges, 'TB');
+                    const layouted = applyDagreLayout(prev, firstEdges, 'TB');
                     return layouted.nodes;
                 });
-                setEdges(initialEdges.map(e => ({ ...e, type: 'relationship', animated: e.label === 'PARALLEL' })));
+                setEdges(firstEdges.map(e => ({ ...e, type: 'relationship', animated: e.label === 'PARALLEL' })));
             }
         } catch (error) {
             console.error('Failed to fetch libraries:', error);
         } finally {
             setLoadingLibraries(false);
         }
-    };
+    }, [setNodes, setEdges]);
+
+    useEffect(() => { fetchLibraries(); }, [fetchLibraries]);
 
     // ── Sync PLANNED/BOTH tools onto canvas ──────────────────────────────────
     // Works on the current nodes (an updater, not the render's `nodes`, which

@@ -117,11 +117,9 @@ const SkillCandidatesTab: React.FC = () => {
         setPromoting((s) => new Set(s).add(id));
         try {
             const result = await metaService.promoteSkillCandidate(id);
-            // eslint-disable-next-line no-alert
             alert(`Promoted to SKILL entity ${result.name} (${result.entity_id.slice(0, 8)}) — status ${result.status}`);
             reload();
         } catch (e) {
-            // eslint-disable-next-line no-alert
             alert(`promote failed: ${e}`);
         } finally {
             setPromoting((s) => {
@@ -203,7 +201,6 @@ const PromptCandidatesTab: React.FC = () => {
             await metaService.approvePromptCandidate(id);
             reload();
         } catch (e) {
-            // eslint-disable-next-line no-alert
             alert(`approve failed: ${e}`);
         } finally {
             setApproving((s) => {

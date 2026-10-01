@@ -1,5 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { ArrowLeft, Download, Info, RefreshCw, AlertCircle } from 'lucide-react';
@@ -29,9 +29,23 @@ export const CampaignDetailPage: React.FC = () => {
 
     const campaignRef = useRef<any>(null);
 
+    const fetchCampaign = useCallback(async (showLoading = true) => {
+        if (showLoading) setLoading(true);
+        try {
+            const { data } = await apiClient.get(`/campaigns/${campaignId}`);
+            setCampaign(data);
+            setError(null);
+        } catch (err) {
+            console.error('Error fetching campaign details:', err);
+            setError('Failed to load campaign details');
+        } finally {
+            if (showLoading) setLoading(false);
+        }
+    }, [campaignId]);
+
     useEffect(() => {
         fetchCampaign();
-    }, [campaignId]);
+    }, [fetchCampaign]);
 
     useEffect(() => {
         campaignRef.current = campaign;
@@ -46,21 +60,7 @@ export const CampaignDetailPage: React.FC = () => {
             }
         }, 5000);
         return () => clearInterval(interval);
-    }, [campaignId]);
-
-    const fetchCampaign = async (showLoading = true) => {
-        if (showLoading) setLoading(true);
-        try {
-            const { data } = await apiClient.get(`/campaigns/${campaignId}`);
-            setCampaign(data);
-            setError(null);
-        } catch (err) {
-            console.error('Error fetching campaign details:', err);
-            setError('Failed to load campaign details');
-        } finally {
-            if (showLoading) setLoading(false);
-        }
-    };
+    }, [fetchCampaign]);
 
     const downloadReport = async () => {
         try {

@@ -55,7 +55,6 @@ export const FeatureFlagsProvider: React.FC<{ children: React.ReactNode }> = ({
             } catch (err) {
                 // Silently fall back to defaults; pages will use their
                 // local `defaultValue` instead.
-                // eslint-disable-next-line no-console
                 console.warn('[FeatureFlags] fetch failed', err);
             } finally {
                 setLoaded(true);

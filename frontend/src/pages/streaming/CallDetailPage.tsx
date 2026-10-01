@@ -1,5 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui';
 import {
@@ -60,11 +60,7 @@ export const CallDetailPage: React.FC = () => {
   const [actionSaved, setActionSaved] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  useEffect(() => {
-    if (sessionId) fetchSession();
-  }, [sessionId]);
-
-  const fetchSession = async () => {
+  const fetchSession = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -79,7 +75,11 @@ export const CallDetailPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (sessionId) fetchSession();
+  }, [sessionId, fetchSession]);
 
   const formatDuration = (seconds?: number) => {
     if (!seconds) return '—';
@@ -121,8 +121,8 @@ export const CallDetailPage: React.FC = () => {
       if (lower.includes('action') || lower.includes('follow') || lower.includes('next step')) {
         inActions = true;
       }
-      if (inActions && (line.startsWith('-') || line.startsWith('•') || /^\d+[\.\)]/.test(line.trim()))) {
-        actionLines.push(line.replace(/^[-•\d.\)]+\s*/, '').trim());
+      if (inActions && (line.startsWith('-') || line.startsWith('•') || /^\d+[.)]/.test(line.trim()))) {
+        actionLines.push(line.replace(/^[-•\d.)]+\s*/, '').trim());
       }
     }
     return actionLines;

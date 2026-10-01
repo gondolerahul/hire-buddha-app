@@ -173,7 +173,6 @@ const AdminTab: React.FC<AdminTabProps> = ({ isAppAdmin, companyId, onChange }) 
             await reload();
             onChange();
         } catch (e: any) {
-            // eslint-disable-next-line no-alert
             alert(`toggle failed: ${e?.response?.data?.detail ?? e}`);
         } finally {
             setBusy(null);
@@ -181,7 +180,6 @@ const AdminTab: React.FC<AdminTabProps> = ({ isAppAdmin, companyId, onChange }) 
     };
 
     const deleteRow = async (row: FeatureFlagRow) => {
-        // eslint-disable-next-line no-alert
         if (!window.confirm(`Delete ${row.scope} override for ${row.flag_key}?`)) return;
         setBusy(row.id);
         try {
@@ -192,7 +190,6 @@ const AdminTab: React.FC<AdminTabProps> = ({ isAppAdmin, companyId, onChange }) 
             await reload();
             onChange();
         } catch (e: any) {
-            // eslint-disable-next-line no-alert
             alert(`delete failed: ${e?.response?.data?.detail ?? e}`);
         } finally {
             setBusy(null);
@@ -309,7 +306,6 @@ const CreateOverrideForm: React.FC<CreateFormProps> = ({
             try {
                 value_json = JSON.parse(valueJsonText);
             } catch (err) {
-                // eslint-disable-next-line no-alert
                 alert('value_json is not valid JSON');
                 return;
             }
@@ -327,7 +323,6 @@ const CreateOverrideForm: React.FC<CreateFormProps> = ({
             setFlagKey('');
             setValueJsonText('');
         } catch (e: any) {
-            // eslint-disable-next-line no-alert
             alert(`create failed: ${e?.response?.data?.detail ?? e}`);
         } finally {
             setBusy(false);

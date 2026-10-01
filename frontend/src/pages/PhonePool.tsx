@@ -106,7 +106,7 @@ const PhonePool: React.FC = () => {
         }
     }, [statusFilter, providerFilter]);
 
-    const fetchAgents = async () => {
+    const fetchAgents = useCallback(async () => {
         try {
             // Fetch only ACTIVE, voice-enabled agents for assignment
             const { data } = await apiClient.get('/ai/entities', {
@@ -116,9 +116,9 @@ const PhonePool: React.FC = () => {
         } catch (err) {
             console.error('Error fetching agents:', err);
         }
-    };
+    }, []);
 
-    const fetchCustomers = async () => {
+    const fetchCustomers = useCallback(async () => {
         try {
             const results: CustomerCompany[] = [];
             // Tenants, and partners for app_admin; either list may be refused on its own
@@ -140,23 +140,23 @@ const PhonePool: React.FC = () => {
         } catch (err) {
             console.error('Error fetching customers:', err);
         }
-    };
+    }, [isAdmin]);
 
-    useEffect(() => { fetchNumbers(); }, [fetchNumbers]);
-    useEffect(() => {
-        fetchAgents();
-        fetchCustomers();
-        if (isAdmin) fetchCompanies();
-    }, []);
-
-    const fetchCompanies = async () => {
+    const fetchCompanies = useCallback(async () => {
         try {
             const { data } = await apiClient.get('/companies');
             setCompanies(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error('Error fetching companies:', err);
         }
-    };
+    }, []);
+
+    useEffect(() => { fetchNumbers(); }, [fetchNumbers]);
+    useEffect(() => {
+        fetchAgents();
+        fetchCustomers();
+        if (isAdmin) fetchCompanies();
+    }, [fetchAgents, fetchCustomers, fetchCompanies, isAdmin]);
 
     const handleSync = async () => {
         setSyncing(true);
