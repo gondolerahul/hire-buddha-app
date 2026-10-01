@@ -17,7 +17,7 @@ import { CreateIntegrationModal } from '../components/CreateIntegrationModal';
 import { EmailConnectionWizard } from '../components/EmailConnectionWizard';
 import { emailService, EmailConnection } from '../services/email.service';
 import { JellyButton, GlassCard } from '@/components/ui';
-import { Mail, Globe } from 'lucide-react';
+import { Mail } from 'lucide-react';
 
 
 import './IntegrationsPage.css';

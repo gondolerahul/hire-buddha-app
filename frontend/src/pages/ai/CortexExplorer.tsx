@@ -19,10 +19,6 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
     archived: { label: 'Archived', color: '#6b7280', icon: <Archive size={12} /> },
 };
 
-const TYPE_ICONS: Record<string, string> = {
-    root: '🌳', knowledge: '📚', finding: '🔬', task: '📋', output: '📝', checkpoint: '📌',
-};
-
 export const CortexExplorer: React.FC = () => {
     const navigate = useNavigate();
     const [trees, setTrees] = useState<CortexTree[]>([]);

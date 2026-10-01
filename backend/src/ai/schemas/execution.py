@@ -66,6 +66,7 @@ class ToolInteractionLogResponse(BaseModel):
     id: UUID
     tool_id: str
     tool_name: str
+    step_name: Optional[str] = None
     provider: Optional[str] = None
     input_parameters: Optional[Dict[str, Any]] = None
     output_result: Optional[Any] = None

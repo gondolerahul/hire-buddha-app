@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Search, Plus, Wrench, Edit, Trash2, Power, RefreshCw,
-    AlertTriangle, X, Package, Zap, Settings
+    AlertTriangle, Package, Zap
 } from 'lucide-react';
 import { toolService, ToolRegistryEntry, ToolRegistryEntryCreate, ToolRegistryEntryUpdate } from '@/services/tool.service';
 import { JellyButton } from '@/components/ui/JellyButton';

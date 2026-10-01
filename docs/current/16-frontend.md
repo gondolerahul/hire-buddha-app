@@ -96,7 +96,8 @@ From [`package.json`](../../frontend/package.json):
 > anywhere in `frontend/`. The ESLint packages are in `devDependencies` but
 > unconfigured, so the script fails on a missing config. Nothing in CI runs it.
 > The only type/quality gate that actually runs is the `tsc` step inside
-> `npm run build`.
+> `npm run build` — and until FE-26 that step failed with 22 errors, so the
+> production build did not complete.
 
 ### 2.2 Dependencies worth knowing
 
@@ -1704,10 +1705,12 @@ const agentLoopEnabled = useFeatureFlag('agent_loop.enabled', {
   with `── AGENT: name ──` separator rows and `└ ` prefixes
   (`flattenChildSteps`). Clicking a step opens `StepDetailPanel` with the step
   output and its LLM interactions.
-- **LLM log attribution** works by matching `LLMInteractionLog.step_name` to the
-  step label. Tool logs have no `step_name`, so `getStepToolLogs` is a stub that
-  literally `return false;` — tool calls are never attributed to a step in the
-  legacy UI.
+- **Log attribution** works by matching `step_name` to the step label, for LLM
+  logs and — since FE-10 — tool logs (`tool_interaction_logs.step_name`, written
+  by both tool paths in `step_executor`). The timeline shows each step's tool-call
+  count, and `StepDetailPanel` lists its tool calls with input and output. Tool
+  logs are collected from child runs too. Calls logged before FE-10 have no step
+  and are not attributed.
 - **Artifact detection** (`getArtifactPath`) regex-scans `result_data`, every
   tool log output, and the final output for four different path patterns —
   `/api/v1/artifacts/{uuid}/download`, absolute `/artifact/...`, relative
@@ -2231,10 +2234,10 @@ page is its own chunk. But:
 |-------|----------|
 | Three `<Navigate>` redirects emit a literal `:id` | `router/index.tsx:213,214,227` |
 | `JSON.parse` on the IO-contract textareas has no try/catch — bad JSON silently kills the save | `EntityConfigurationTabs.tsx:682` |
-| `getStepToolLogs` is a stub returning `false` for everything | `ExecutionDetail.tsx:83` |
+| ~~`getStepToolLogs` is a stub returning `false` for everything~~ — fixed (FE-10): tool logs carry `step_name` | `ExecutionDetail.tsx:83` |
 | `MainLayout`'s submenu-auto-open effect mutates a copy of `openSubmenus` but omits it from the dependency array | `MainLayout.tsx:152-166` |
 | `EntityFlow`'s planned-tool sync effect reads `nodes` without depending on it | `EntityFlow.tsx:188-241` |
-| The `response` variable from `authService.login/register` is assigned and never used (would fail `noUnusedLocals` if it were a `const` in a checked position) | `useAuth.tsx:44,74` |
+| ~~The `response` variable from `authService.login/register` is assigned and never used~~ — removed (FE-16; it did fail `noUnusedLocals`) | `useAuth.tsx:44,74` |
 | No error boundary anywhere — a render throw blanks the whole app | app-wide |
 | No `<Suspense>` boundary below the router, so a slow chunk blanks the shell too | `router/index.tsx:116` |
 | Google/Microsoft login buttons have no handler | `LoginPage.tsx:76-85` |

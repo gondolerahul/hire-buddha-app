@@ -1,6 +1,7 @@
 """orm/execution.py — Execution-run ORM and its child interaction logs."""
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -17,10 +18,14 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm.base import NO_VALUE
 
 from src.common.database import Base
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.auth.models import Company, User
@@ -85,6 +90,28 @@ class ExecutionRun(Base):
     tool_logs: Mapped[list["ToolInteractionLog"]] = relationship("ToolInteractionLog", back_populates="run")
 
 
+@event.listens_for(ExecutionRun.status, "set", retval=True)
+def _enforce_run_transition(target: ExecutionRun, value: Any, oldvalue: Any, initiator: Any) -> Any:
+    """Refuse an illegal run-status change; keep the old status (DM-17).
+
+    Every ORM write of ``ExecutionRun.status`` passes here. A change the state
+    machine (``schemas.enums.VALID_TRANSITIONS``) does not allow is refused —
+    the attribute keeps its old value and a warning is logged — rather than
+    raised, so the rest of the caller's write (a cancelled run's cost and
+    result, say) still lands. A status that was never loaded cannot be checked
+    and is let through; so are Core ``UPDATE`` statements, which bypass the ORM.
+    """
+    if oldvalue is NO_VALUE or oldvalue is None:
+        return value
+    from src.ai.schemas.enums import validate_transition
+
+    old, new = str(getattr(oldvalue, "value", oldvalue)), str(getattr(value, "value", value))
+    if validate_transition(old, new):
+        return value
+    logger.warning("run %s: refused status change %s -> %s; it stays %s", target.id, old, new, old)
+    return oldvalue
+
+
 class LLMInteractionLog(Base):
     __tablename__ = "llm_interaction_logs"
 
@@ -113,6 +140,8 @@ class ToolInteractionLog(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False, index=True)  # DM-06
     tool_id: Mapped[str] = mapped_column(String, nullable=False)
     tool_name: Mapped[str] = mapped_column(String, nullable=False)
+    # The plan step that made the call, as on llm_interaction_logs (FE-10).
+    step_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     provider: Mapped[str | None] = mapped_column(String, nullable=True)
     input_parameters: Mapped[Any] = mapped_column(JSON, nullable=True)
     output_result: Mapped[Any] = mapped_column(JSON, nullable=True)

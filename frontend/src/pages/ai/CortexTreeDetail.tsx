@@ -9,8 +9,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { cortexService, CortexTree, CortexViewport, CortexNodeContent } from '@/services/cortex.service';
 import { JellyButton } from '@/components/ui';
 import {
-    Brain, ChevronRight, ChevronLeft, ArrowUp, Eye, FileText,
-    BookOpen, Search, Target, Pause, Play, Download, Hash, Clock,
+    Brain, ChevronRight, ChevronLeft, ArrowUp, FileText,
+    BookOpen, Pause, Play, Download, Hash,
     Layers, TreePine, CheckCircle, AlertCircle, Loader,
 } from 'lucide-react';
 import './CortexTreeDetail.css';

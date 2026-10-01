@@ -152,3 +152,26 @@ async def test_a_fixed_cost_charge_appears_in_the_usage_breakdown(db):
     by_service = {c["service"]: c for c in report["channels"]}
     assert by_service["image_generation"]["category"] == "TOOL"
     assert by_service["image_generation"]["total_cost_usd"] == 0.04
+
+
+@pytest.mark.asyncio
+async def test_a_tool_call_records_the_step_that_made_it(db, monkeypatch):
+    """FE-10: tool logs had no step_name, so the run page could not attribute them."""
+    from src.ai.models import ToolInteractionLog
+    from src.ai.schemas import PlanStep, StepType
+    from src.ai.schemas.planning import PlanStepTarget
+    from src.ai.tool_executor import ToolExecutor, ToolResult
+
+    async def _fake_tools(calls, extra_context=None, **_):
+        return [ToolResult(tool=calls[0]["tool"], args={}, output="5", success=True, latency_ms=3)]
+
+    monkeypatch.setattr(ToolExecutor, "execute_tools", staticmethod(_fake_tools))
+    company, run = await _tenant_run(db)
+    entity = (await db.execute(select(HierarchicalEntity).where(
+        HierarchicalEntity.id == run.entity_id))).scalar_one()
+    step = PlanStep(step_id="s1", name="Add the numbers", type=StepType.TOOL_CALL,
+                    target=PlanStepTarget(tool_id="calculator", prompt_template="2+3"))
+    await _executor(db, company)._execute_tool_call(run, entity, step, {})
+    logs = (await db.execute(select(ToolInteractionLog).where(
+        ToolInteractionLog.run_id == run.id))).scalars().all()
+    assert [(l.tool_id, l.step_name) for l in logs] == [("calculator", "Add the numbers")]

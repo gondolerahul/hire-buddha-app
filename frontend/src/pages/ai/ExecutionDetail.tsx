@@ -81,11 +81,10 @@ const StepTimeline: React.FC<{
     const getStepLLMLogs = (stepName: string) =>
         llmLogs.filter(l => l.step_name === stepName);
 
+    // Tool calls carry the step that made them (FE-10 — this used to be a
+    // stub that matched nothing, because tool logs had no step_name).
     const getStepToolLogs = (stepName: string) =>
-        toolLogs.filter(l => {
-            // Match tool logs by name similarity (tool logs don't have step_name)
-            return false; // We rely on LLM logs' step_name for filtering
-        });
+        toolLogs.filter(l => l.step_name === stepName);
 
     return (
         <div className="step-timeline">
@@ -96,6 +95,7 @@ const StepTimeline: React.FC<{
             <div className="timeline-track">
                 {steps.map((step, idx) => {
                     const stepLogs = getStepLLMLogs(step.step || step.step_id || `step_${idx}`);
+                    const stepToolLogs = getStepToolLogs(step.step || step.step_id || `step_${idx}`);
                     const isSelected = selectedStep === (step.step || `step_${idx}`);
                     const stepTokens = stepLogs.reduce((sum, l) => sum + l.prompt_tokens + l.completion_tokens, 0);
                     const stepCost = stepLogs.reduce((sum, l) => sum + (l.cost_usd || 0), 0);
@@ -123,6 +123,11 @@ const StepTimeline: React.FC<{
                                                 <MessageSquare size={10} /> {stepLogs.length} LLM calls
                                             </span>
                                         )}
+                                        {stepToolLogs.length > 0 && (
+                                            <span className="step-stat">
+                                                <Wrench size={10} /> {stepToolLogs.length} tool calls
+                                            </span>
+                                        )}
                                         {stepTokens > 0 && (
                                             <span className="step-stat">
                                                 <Database size={10} /> {stepTokens.toLocaleString()} tokens
@@ -148,11 +153,13 @@ const StepTimeline: React.FC<{
 const StepDetailPanel: React.FC<{
     step: StepResult;
     llmLogs: LLMInteractionLog[];
+    toolLogs: ToolInteractionLog[];
     onClose: () => void;
-}> = ({ step, llmLogs, onClose }) => {
+}> = ({ step, llmLogs, toolLogs, onClose }) => {
     const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
     const stepLogs = llmLogs.filter(l => l.step_name === step.step);
+    const stepToolLogs = toolLogs.filter(l => l.step_name === step.step);
 
     return (
         <div className="step-detail-panel">
@@ -179,6 +186,48 @@ const StepDetailPanel: React.FC<{
                     )}
                 </div>
             </div>
+
+            {/* Tool calls made by this step */}
+            {stepToolLogs.length > 0 && (
+                <div className="panel-section">
+                    <h4>Tool Calls ({stepToolLogs.length})</h4>
+                    <div className="llm-logs-list">
+                        {stepToolLogs.map((log) => (
+                            <div key={log.id} className="llm-log-card">
+                                <div
+                                    className="log-card-header"
+                                    onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+                                >
+                                    <div className="log-card-info">
+                                        {log.success
+                                            ? <CheckCircle size={14} className="text-success" />
+                                            : <XCircle size={14} className="text-error" />}
+                                        <span className="log-model">{log.tool_name}</span>
+                                    </div>
+                                    <div className="log-card-stats">
+                                        {log.latency_ms != null && <span>{log.latency_ms}ms</span>}
+                                        {expandedLogId === log.id ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </div>
+                                </div>
+                                {expandedLogId === log.id && (
+                                    <div className="log-card-body">
+                                        <div className="io-section">
+                                            <label className="io-label">Input</label>
+                                            <pre className="io-content prompt">{JSON.stringify(log.input_parameters ?? {}, null, 2)}</pre>
+                                        </div>
+                                        <div className="io-section">
+                                            <label className="io-label">{log.success ? 'Output' : 'Error'}</label>
+                                            <pre className="io-content response">
+                                                {String(log.error_message || log.output_result || '').slice(0, 4000)}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* LLM Interactions for this step */}
             {stepLogs.length > 0 && (
@@ -754,7 +803,10 @@ export const ExecutionDetail: React.FC = () => {
         ? collectChildLLMLogs(run.child_runs)
         : [];
     const llmLogs: LLMInteractionLog[] = [...parentLLMLogs, ...childLLMLogs];
-    const toolLogs: ToolInteractionLog[] = run?.tool_logs || [];
+    // Child runs' tool calls too: their steps are in the timeline.
+    const collectToolLogs = (r: ExecutionRun): ToolInteractionLog[] =>
+        [...(r.tool_logs || []), ...(r.child_runs || []).flatMap(collectToolLogs)];
+    const toolLogs: ToolInteractionLog[] = run ? collectToolLogs(run) : [];
 
     // Get the selected step details
     const selectedStepData = selectedStep
@@ -953,6 +1005,7 @@ export const ExecutionDetail: React.FC = () => {
                                         <StepDetailPanel
                                             step={selectedStepData}
                                             llmLogs={llmLogs}
+                                            toolLogs={toolLogs}
                                             onClose={() => setSelectedStep(null)}
                                         />
                                     )}

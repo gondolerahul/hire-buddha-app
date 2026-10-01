@@ -35,12 +35,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 4 | **Now** — all four are small |
+| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 5 | **Now** — all five are small |
 | [T1](#3-t1--broken-behaviour) | Broken behaviour | 9 | Before the next release |
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 5 | Free |
 | [T3](#5-t3--performance) | Performance | 7 | When the page in question is next touched |
 
-**Total: 25 defects, 10 improvements.**
+**Total: 26 defects, 10 improvements.**
 
 The three to read first:
 
@@ -132,6 +132,26 @@ Two knock-on effects:
 - Also recorded as **D-40** in the platform register
 
 **Fix:** `npm i -D vitest jsdom`, add `"test": "vitest run"`, drop the `exclude`.
+
+---
+
+### FE-26 — The production build fails
+
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — found 2026-10-01 while starting this
+register.
+
+`npm run build` is `tsc && vite build`, and `tsc` failed with 22 errors, so no production
+bundle could be built from the repository (`main` included):
+
+| Errors | Where | Cause |
+|---|---|---|
+| 5 | `EntityConfigurationTabs.tsx` | The builder reads `reasoning_config.execution_mode`, `goal_validation_interval`, `confidence_threshold`, `max_replanning_attempts`, `self_reflection_enabled`; the backend declares them (`ai/schemas/reasoning.py`), the TypeScript type did not |
+| 4 | `CortexExplorer.tsx` | `JellyButton.onClick` was typed `() => void`, but the page passes the click event to stop it bubbling (which works at runtime); and an unused `TYPE_ICONS` |
+| 13 | `CortexTreeDetail`, `ToolManagement`, `IntegrationsPage`, `ExecutionDetail`, `useAuth` | Unused imports and variables under `noUnusedLocals` — including FE-10's stub and FE-16 |
+
+**Fix (2026-10-01):** the five fields are on the `reasoning_config` type; `JellyButton`'s
+`onClick` receives the event; the unused names are gone. **Evidence:** `npx tsc --noEmit`
+reports 0 errors (22 before) and `npm run build` completes.
 
 ---
 
@@ -248,7 +268,8 @@ The root cause is upstream: all `DateTime` columns are naive
 
 ### FE-10 — `getStepToolLogs` is a stub returning `false`
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the stub could not work: tool logs
+had no `step_name` to match on (LLM logs do).
 
 A function used by the execution detail view returns `false` for everything, so the tool
 logs it is meant to surface never appear.
@@ -258,6 +279,15 @@ Combined with [EP-21](06-EXECUTION-PIPELINE-DEFECTS.md#ep-21--the-execution-deta
 independent kinds of evidence about what a run actually did.
 
 - [`frontend/src/pages/ai/ExecutionDetail.tsx:83`](../../../frontend/src/pages/ai/ExecutionDetail.tsx:83)
+
+**Fix (2026-10-01):** `tool_interaction_logs.step_name` (migration `fe10_tool_log_step_name`),
+written by both tool paths in `step_executor` and returned by the API. The run page's timeline
+shows each step's tool-call count, and the step panel lists its tool calls with input and
+output (or error); tool logs are collected from child runs as well. Calls logged before the
+change have no step. **Evidence:** `tests/integration/test_tool_metering.py::
+test_a_tool_call_records_the_step_that_made_it` — a `calculator` step named *Add the
+numbers* logs its call under that name; `npm run build` type-checks the page. Not shown
+live: a run with tool calls needs Vertex, whose credentials had expired.
 
 ---
 
@@ -333,10 +363,10 @@ nodes so they round-trip.
 | ID | Delete | Notes | Status |
 |---|---|---|---|
 | **FE-12** | `react-hook-form`, `zod`, `@hookform/resolvers`, `date-fns` | Four dependencies with **zero imports** anywhere in `src/`. Confirmed by grep. The frontend README claims they are used | ✅ Verified |
-| **FE-13** | [`pages/assets/AssetLibrary.tsx`](../../../frontend/src/pages/assets/AssetLibrary.tsx) | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx`. Also [PO-13](01-PRODUCT-OVERVIEW-DEFECTS.md#4-t2--dead-code-and-dead-surfaces) | ✅ Verified |
+| **FE-13** | `pages/assets/AssetLibrary.tsx` | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx`. Also [PO-13](01-PRODUCT-OVERVIEW-DEFECTS.md#4-t2--dead-code-and-dead-surfaces) | ✅ fixed (2026-09-29, `9719f1b`) by PO-13 — deleted with its CSS and `asset.service.ts` |
 | **FE-14** | Six unmounted agent-kernel components | `PlanCandidatesCompare`, three `SupervisorAndBandit` widgets, `ProvenanceRibbon`, and the `cortex-helpers` module. All fully built, none mounted anywhere | 📄 Doc-reported |
 | **FE-15** | The duplicate `.gap-1` rules | Defined three times in `global.css` (lines 312, 480, 579). The last wins, with the wrong value | 📄 Doc-reported |
-| **FE-16** | The unused `response` variable in `useAuth` | Assigned from `authService.login` / `register` and never read. Would fail `noUnusedLocals` in a checked position | 📄 Doc-reported |
+| **FE-16** | The unused `response` variable in `useAuth` | Assigned from `authService.login` / `register` and never read. Would fail `noUnusedLocals` in a checked position | ✅ fixed (2026-10-01) — it did fail the build (FE-26); the `register` one went with AU-08 (`8842901`), the `login` one with FE-26 |
 
 > Before deleting a component, confirm nothing imports it:
 > `grep -rn "<ComponentName" frontend/src --include=*.tsx`

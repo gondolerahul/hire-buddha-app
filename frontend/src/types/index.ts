@@ -75,7 +75,6 @@ export enum RunStatus {
     RUNNING = 'RUNNING',
     COMPLETED = 'COMPLETED',
     FAILED = 'FAILED',
-    REPAIRING = 'REPAIRING',
     REFINING = 'REFINING',
 }
 
@@ -182,6 +181,12 @@ export interface LogicGate {
         top_p?: number;
         max_tokens?: number;
         reasoning_mode: 'REACT' | 'CHAIN_OF_THOUGHT' | 'REFLECTION' | 'TREE_OF_THOUGHTS';
+        // Declared by the backend's ReasoningConfig (ai/schemas/reasoning.py).
+        execution_mode?: 'STANDARD' | 'AUTONOMOUS' | string;
+        goal_validation_interval?: number;
+        confidence_threshold?: number;
+        max_replanning_attempts?: number;
+        self_reflection_enabled?: boolean;
     };
     retry_policy: {
         max_retries: number;
@@ -387,6 +392,10 @@ export interface ToolInteractionLog {
     run_id: string;
     tool_id: string;
     tool_name: string;
+    /** The plan step that made the call (FE-10); null on calls logged before it existed. */
+    step_name?: string | null;
+    input_parameters?: Record<string, any> | null;
+    error_message?: string | null;
     output_result?: any;
     success: boolean;
     latency_ms?: number;
