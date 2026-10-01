@@ -305,7 +305,8 @@ Defined at [orm/execution.py:46](../../backend/src/ai/orm/execution.py:46).
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
 | `entity_id` | UUID FK→hierarchical_entities.id | no | — | What ran |
-| `parent_run_id` | UUID FK→self | yes | — | Set for child runs; used to exclude children from billing settlement |
+| `parent_run_id` | UUID FK→self | yes | — | Structure only: the run that dispatched this one as a child (a `CHILD_ENTITY_INVOCATION` or a CORTEX RECURSE subtree). Children are not admitted or settled on their own |
+| `retry_of_run_id` | UUID FK→self | yes | — | The run a retry or refinement repeats (EP-03). A retry is a top-level run: admitted, metered and settled |
 | `company_id` | UUID FK→companies.id | no | — | Tenant |
 | `user_id` | UUID FK→users.id | yes | — | Who triggered it |
 | `status` | String | yes | `PENDING` | See [§11.2](#112-run-status-lifecycle) |
@@ -325,7 +326,7 @@ Defined at [orm/execution.py:46](../../backend/src/ai/orm/execution.py:46).
 
 Indexes (DM-05, 2026-09-30): `ix_execution_runs_company_created (company_id, created_at)`
 — the run list's filter and sort —, `ix_execution_runs_entity_created (entity_id,
-created_at)`, `ix_execution_runs_parent_run_id`, plus the idempotency partial index. Before
+created_at)`, `ix_execution_runs_parent_run_id`, `ix_execution_runs_retry_of_run_id`. Before
 DM-05 there was no index on `company_id` or `entity_id` and every list query scanned.
 `uq_execution_runs_id_company (id, company_id)` exists only as the target of the child tables'
 composite key (DM-09).

@@ -106,6 +106,7 @@ class ExecutionRunSummary(BaseModel):
     id: UUID
     entity_id: UUID
     parent_run_id: Optional[UUID]
+    retry_of_run_id: Optional[UUID] = None  # the run this one retries or refines (EP-03)
     company_id: UUID
     status: RunStatus
     error_message: Optional[str]

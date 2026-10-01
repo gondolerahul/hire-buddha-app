@@ -1024,7 +1024,8 @@ entity `status` (a `DRAFT` or `ARCHIVED` entity runs happily); credit balance
 |--------|----------|---------|
 | `id` | insert | Run identity; the SSE channel is `execution:{id}`. |
 | `entity_id` | insert | What is being run. |
-| `parent_run_id` | insert (children, retries, refines) | Tree edge. |
+| `parent_run_id` | insert (child runs only) | Tree edge: the run that dispatched this one. |
+| `retry_of_run_id` | insert (retries, refines) | The run this one repeats (EP-03). |
 | `company_id` / `user_id` | insert | Tenant + actor. |
 | `status` | insert `PENDING`, then by the loop | See the state machine below. |
 | `input_data` | insert | The request payload, plus `feature_flags` stamped by the worker, plus `__reuse_outputs__` / `__skip_steps__` / `__refinement_feedback__` on a refine. |
@@ -1104,13 +1105,17 @@ leaves the run `CANCELLED` (it reloads the row, locked, before its final write).
 
 | Operation | Creates a new run? | Key mechanism |
 |-----------|:------------------:|---------------|
-| `POST /executions/{id}/retry` | ✅ `parent_run_id = old.id` | Copies `input_data` + `context_state` forward so completed step keys are skipped; carries `__cortex_tree_id__` so the CORTEX tree is resumed, not recreated. Requires `FAILED` or `COMPLETED` ([service.py:549](../../backend/src/ai/service.py:549)). |
-| `POST /executions/{id}/refine` | ✅ `parent_run_id = old.id` | An LLM reads the user feedback plus the step list and returns which `step_id`s must re-run; downstream dependents cascade in; the rest are passed as `__skip_steps__` + `__reuse_outputs__`. Requires `COMPLETED` ([service.py:617](../../backend/src/ai/service.py:617)). |
+| `POST /executions/{id}/retry` | ✅ `retry_of_run_id = old.id` | Copies `input_data` + `context_state` forward so completed step keys are skipped; carries `__cortex_tree_id__` so the CORTEX tree is resumed, not recreated. Requires `FAILED` or `COMPLETED` ([service.py:549](../../backend/src/ai/service.py:549)). |
+| `POST /executions/{id}/refine` | ✅ `retry_of_run_id = old.id` | An LLM reads the user feedback plus the step list and returns which `step_id`s must re-run; downstream dependents cascade in; the rest are passed as `__skip_steps__` + `__reuse_outputs__`. Requires `COMPLETED` ([service.py:617](../../backend/src/ai/service.py:617)). |
 | `POST /executions/{id}/cancel` | ❌ | One `UPDATE … WHERE status NOT IN (terminal)` sets `CANCELLED`, then publishes `{"type":"cancelled","status":"CANCELLED"}` so the SSE stream closes. The loop re-reads status at the top of each iteration and aborts. No-op on an already-terminal run, including one that finished after the request loaded it ([service.py:482](../../backend/src/ai/service.py:482)). |
 
-> Retry/refine set `parent_run_id` to the *previous run of the same entity*,
-> not to a structural parent. So `parent_run_id` overloads two meanings, and a
-> retry chain shows up in `GET /executions/{id}` as nested `child_runs`.
+> A retry or refinement is a **top-level run of its own**: `retry_of_run_id`
+> points at the run it repeats and `parent_run_id` stays empty, so it is admitted
+> against the wallet, stopped by the breaker and settled like any run, and it is
+> listed. Before EP-03 both wrote the previous run into `parent_run_id`, which
+> made every structural reader treat the retry as a child: no credit hold, no
+> breaker, no settlement, hidden from the run list, nested under the original as
+> a `child_run`. Migration `ep03_retry_of_run_id` moved the existing rows.
 
 ---
 
@@ -2222,8 +2227,6 @@ sequenceDiagram
 - **`convert_to_template` misses plan-only children.** It walks `parent_id` and
   `hierarchy.children` but not `static_plan.steps[].target.entity_id`, unlike
   `clone_template`, which walks all three.
-- **`parent_run_id` means two different things**: a structural child run, *or*
-  the previous run in a retry/refine chain.
 - **The Execution Detail page finds files by regex, not by `run_id`.** A tool
   that does not print its artifact URL into its output produces an invisible
   file. `pdf_generator` also leaves `run_id = NULL` and writes the file twice.

@@ -432,7 +432,8 @@ export interface HumanApproval {
 export interface ExecutionRun {
     id: string;
     entity_id: string;
-    parent_run_id?: string;
+    parent_run_id?: string;   // structure: the run that dispatched this one as a child
+    retry_of_run_id?: string; // the run this one retries or refines
     company_id: string;
     status: RunStatus;
     input_data?: any;

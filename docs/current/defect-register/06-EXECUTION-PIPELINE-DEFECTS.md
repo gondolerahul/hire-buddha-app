@@ -119,7 +119,12 @@ resolvable if it names one.
 
 ### EP-03 — `parent_run_id` means two different things
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: fixed (2026-10-01)** — `execution_runs.retry_of_run_id`
+holds the retry/refine chain and `parent_run_id` means structure only; retry and refine
+write the new column, so a retry is admitted, metered, settled and listed like any
+top-level run. Migration `ep03_retry_of_run_id` moved the existing rows: refinements
+(`__refinement_feedback__`) and same-entity rows without a RECURSE `subtree_root_id`
+(`tests/integration/test_retry_is_not_a_child.py`).
 
 The same column carries two unrelated relationships:
 

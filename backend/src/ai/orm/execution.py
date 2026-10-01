@@ -51,13 +51,19 @@ class ExecutionRun(Base):
         Index("ix_execution_runs_company_created", "company_id", "created_at"),
         Index("ix_execution_runs_entity_created", "entity_id", "created_at"),
         Index("ix_execution_runs_parent_run_id", "parent_run_id"),
+        Index("ix_execution_runs_retry_of_run_id", "retry_of_run_id"),
         # Target of the child tables' (run_id, company_id) key (DM-09).
         UniqueConstraint("id", "company_id", name="uq_execution_runs_id_company"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
+    # Structure only: the run that dispatched this one as a child (a
+    # CHILD_ENTITY_INVOCATION, or a CORTEX RECURSE subtree).
     parent_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True)
+    # The run a retry or refinement repeats (EP-03). A retry is a top-level run
+    # of its own: admitted, metered and settled like any other.
+    retry_of_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     status: Mapped[str | None] = mapped_column(String, default="PENDING")
@@ -90,7 +96,9 @@ class ExecutionRun(Base):
 
     company: Mapped["Company"] = relationship("Company")
     entity: Mapped["HierarchicalEntity"] = relationship("HierarchicalEntity", back_populates="execution_runs")
-    parent_run: Mapped["ExecutionRun | None"] = relationship("ExecutionRun", remote_side=[id], backref="child_runs")
+    parent_run: Mapped["ExecutionRun | None"] = relationship(
+        "ExecutionRun", remote_side=[id], backref="child_runs", foreign_keys=[parent_run_id],
+    )
     llm_logs: Mapped[list["LLMInteractionLog"]] = relationship("LLMInteractionLog", back_populates="run")
     usage_logs: Mapped[list["UsageLog"]] = relationship("UsageLog", back_populates="run")
     human_approvals: Mapped[list["HumanApproval"]] = relationship("HumanApproval", back_populates="run")

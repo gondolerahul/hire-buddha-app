@@ -496,7 +496,9 @@ class AIService:
           - entity_id and input_data from the failed run
           - context_state with completed step IDs (so they are skipped)
           - cortex_tree_id from context_state (so the CORTEX tree is resumed)
-          - parent_run_id pointing to the failed run for traceability
+          - retry_of_run_id pointing to the failed run (EP-03). It is a
+            top-level run of its own — admitted, metered and settled — not a
+            child of the run it repeats.
         """
         from sqlalchemy.orm import selectinload
 
@@ -528,7 +530,7 @@ class AIService:
             entity_id=failed_run.entity_id,
             input_data=retry_input,
             context_state=ctx,  # Carry forward completed step markers
-            parent_run_id=failed_run.id,  # Link for traceability
+            retry_of_run_id=failed_run.id,
             status="PENDING",
             trace_id=uuid4(),
         )
@@ -662,7 +664,7 @@ class AIService:
             entity_id=original_run.entity_id,
             input_data=refine_input,
             context_state={},  # Fresh context — reused outputs will be injected at execution time
-            parent_run_id=original_run.id,
+            retry_of_run_id=original_run.id,
             status="PENDING",
             trace_id=uuid4(),
         )
