@@ -967,11 +967,13 @@ def clone_entity_fields(src: HierarchicalEntity) -> dict:
     remap step would mutate template data."""
 ```
 
-`convert_to_template` ([service.py:991](../../backend/src/ai/service.py:991)) is
-the mirror image (app_admin only) but uses only paths A and B — a template made
-this way from a plan-only hierarchy will be missing children, which is exactly
-the failure the dispatch composition check reports with *"If it came from a
-template, clone the complete template first."*
+`convert_to_template` is the mirror image (app_admin only). Both walk the tree
+with one helper, `AIService._collect_tree`, over all three paths (EP-19: the
+conversion used to skip static-plan targets, so a child named only by a plan
+step was missing from the template and every clone). `remap_entity_refs`
+rewrites the copies' references on deep copies: it used to edit the stored JSON
+in place, which SQLAlchemy saw as no change, so templates and clones kept
+pointing at the source's children in the database.
 
 ---
 
@@ -2244,9 +2246,6 @@ sequenceDiagram
   Editing an entity changes behaviour for runs already in flight.
 - **Templates have `company_id = NULL`** — they are global. Only `app_admin` can
   create or edit them, but any user can clone them.
-- **`convert_to_template` misses plan-only children.** It walks `parent_id` and
-  `hierarchy.children` but not `static_plan.steps[].target.entity_id`, unlike
-  `clone_template`, which walks all three.
 - **The Execution Detail page finds files by regex, not by `run_id`.** A tool
   that does not print its artifact URL into its output produces an invisible
   file. `pdf_generator` also leaves `run_id = NULL` and writes the file twice.

@@ -61,13 +61,17 @@ def remap_entity_refs(
         new_uuid = old_to_new_id.get(old_uuid)
         return str(new_uuid) if new_uuid else val
 
+    # Work on deep copies and assign them back. Mutating the stored JSON in
+    # place made the old and new values equal, so SQLAlchemy wrote nothing and
+    # the clone kept pointing at the source's children (EP-19).
     modified = False
 
     # --- planning.static_plan.steps[].target.entity_id ---
-    planning = entity.planning
+    planning = copy.deepcopy(entity.planning)
     if planning and isinstance(planning, dict):
         static_plan = planning.get("static_plan")
         if static_plan and isinstance(static_plan, dict):
+            planning_modified = False
             for step in static_plan.get("steps", []):
                 target = step.get("target") if isinstance(step, dict) else None
                 if target and isinstance(target, dict):
@@ -76,12 +80,13 @@ def remap_entity_refs(
                         new_eid = _remap_uuid(old_eid)
                         if new_eid != old_eid:
                             target["entity_id"] = new_eid
-                            modified = True
-            if modified:
-                entity.planning = {**planning}
+                            planning_modified = True
+            if planning_modified:
+                entity.planning = planning
+                modified = True
 
     # --- hierarchy.children[].child_id ---
-    hierarchy = entity.hierarchy
+    hierarchy = copy.deepcopy(entity.hierarchy)
     if hierarchy and isinstance(hierarchy, dict):
         hierarchy_modified = False
         for child_ref in hierarchy.get("children", []):
@@ -93,7 +98,7 @@ def remap_entity_refs(
                         child_ref["child_id"] = new_cid
                         hierarchy_modified = True
         if hierarchy_modified:
-            entity.hierarchy = {**hierarchy}
+            entity.hierarchy = hierarchy
             modified = True
 
     return modified

@@ -819,4 +819,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P1.8 | EP-03 | `a797ac4` | `test_retry_is_not_a_child.py`: retry and refine fail on the old code; the backfill test runs the migration's SQL on rows in the old shape; migration round-trips |
 | P1.9 | EP-06, EP-28 | `94070b3` | `test_run_depth.py` (fails to collect on the old code), `test_run_depth_db.py` (child and RECURSE refusals fail on the old code; the migration test runs its SQL on old-shape rows); migration round-trips |
 | P1.10 | AK-07 | `cf36bbf` | Re-verified: no fan-out happened (one child per move, sequential), and a mixed ready set sent a child step to the DAG executor, which failed it. `test_child_fan_out.py`, `test_strategist.py`: 4 fail on the old code |
-| P1.11 | EP-09 | (this commit) | `test_entity_status.py`: all 5 fail on the old code |
+| P1.11 | EP-09 | `fe8a233` | `test_entity_status.py`: all 5 fail on the old code |
+| P1.12 | EP-19 | (this commit) | `test_template_tree.py` fails on the old code; it also found the in-place remap that never reached the database |

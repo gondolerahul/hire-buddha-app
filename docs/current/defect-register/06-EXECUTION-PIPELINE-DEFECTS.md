@@ -418,7 +418,12 @@ duplication directly causes earlier and more aggressive trimming of real data.
 
 ### EP-19 — `convert_to_template` misses plan-only children
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-01)** — both conversion and
+cloning walk the tree with one helper over all three paths. Fixing it showed a worse
+fault behind it: `remap_entity_refs` edited the stored JSON in place, so SQLAlchemy
+saw no change and templates and clones kept pointing at the source's children in the
+database (the in-memory objects looked right). It now works on deep copies
+(`tests/integration/test_template_tree.py` reads the stored rows).
 
 `clone_template` walks three discovery paths: the `parent_id` FK, `hierarchy.children`,
 and `static_plan.steps[].target.entity_id`.

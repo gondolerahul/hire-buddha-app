@@ -874,6 +874,40 @@ class AIService:
 
     # ── Template Management ────────────────────────────────────────────────
 
+    async def _collect_tree(self, root: HierarchicalEntity, scope) -> list[HierarchicalEntity]:
+        """Every descendant of ``root`` within ``scope``, parents before children.
+
+        A child is found the three ways an entity names one: a row whose
+        ``parent_id`` is the entity, ``hierarchy.children``, and the target of a
+        static-plan CHILD_ENTITY_INVOCATION (``composition.child_references``).
+        Template conversion walked only the first two, so a child named only by
+        a plan step was left out of every template made from it (EP-19).
+        """
+        from src.ai.governance.composition import child_references
+
+        visited: set[UUID] = {root.id}
+        ordered: list[HierarchicalEntity] = []
+        queue = [root]
+        while queue:
+            entity = queue.pop(0)
+            found = list((await self.db.execute(
+                select(HierarchicalEntity).where(HierarchicalEntity.parent_id == entity.id, scope)
+            )).scalars().all())
+            for ref in child_references(entity.hierarchy, entity.planning):
+                if ref.entity_id is None or ref.entity_id in visited:
+                    continue
+                child = (await self.db.execute(
+                    select(HierarchicalEntity).where(HierarchicalEntity.id == ref.entity_id, scope)
+                )).scalar_one_or_none()
+                if child is not None:
+                    found.append(child)
+            for child in found:
+                if child.id not in visited:
+                    visited.add(child.id)
+                    ordered.append(child)
+                    queue.append(child)
+        return ordered
+
     async def convert_to_template(self, entity_id: UUID, company_id: UUID, user_id: UUID) -> HierarchicalEntity:
         """
         Deep-clone an existing entity (and all its children) into a parallel
@@ -896,52 +930,8 @@ class AIService:
         if source.is_template:
             raise HTTPException(status_code=400, detail="Entity is already a template")
 
-        # 2. Collect all children recursively (follows BOTH parent_id FK and hierarchy.children JSON)
-        async def _collect_children(entity: HierarchicalEntity, visited: set[UUID] | None = None) -> list[HierarchicalEntity]:
-            if visited is None:
-                visited = set()
-            visited.add(entity.id)
-            children: list[HierarchicalEntity] = []
-
-            # Path A: entities whose parent_id points to this entity
-            res = await self.db.execute(
-                select(HierarchicalEntity).where(
-                    HierarchicalEntity.parent_id == entity.id,
-                    HierarchicalEntity.company_id == company_id,
-                )
-            )
-            for child in res.scalars().all():
-                if child.id not in visited:
-                    children.append(child)
-
-            # Path B: entity IDs referenced in hierarchy.children JSON
-            hierarchy = entity.hierarchy
-            if hierarchy and isinstance(hierarchy, dict):
-                for child_ref in hierarchy.get("children", []):
-                    if isinstance(child_ref, dict):
-                        child_id_str = child_ref.get("child_id")
-                        if child_id_str:
-                            try:
-                                child_uuid = UUID(str(child_id_str))
-                            except (ValueError, AttributeError):
-                                continue
-                            if child_uuid not in visited:
-                                cres = await self.db.execute(
-                                    select(HierarchicalEntity).where(
-                                        HierarchicalEntity.id == child_uuid,
-                                    )
-                                )
-                                child_entity = cres.scalar_one_or_none()
-                                if child_entity:
-                                    children.append(child_entity)
-
-            # Recurse into each child
-            grandchildren = []
-            for child in children:
-                grandchildren.extend(await _collect_children(child, visited))
-            return children + grandchildren
-
-        all_children = await _collect_children(source)
+        # 2. Every descendant, found the three ways an entity names a child (EP-19).
+        all_children = await self._collect_tree(source, HierarchicalEntity.company_id == company_id)
 
         # 3. Clone fields helper
         old_to_new_id: dict[UUID, UUID] = {}
@@ -1021,75 +1011,8 @@ class AIService:
         if not template:
             raise HTTPException(status_code=404, detail="Template not found")
 
-        # 2. Collect all child entities via THREE discovery paths:
-        #    A) parent_id FK pointing to this entity (+ is_template filter)
-        #    B) hierarchy.children JSON (load by ID directly — trusted reference)
-        #    C) planning.static_plan.steps[].target.entity_id for CHILD_ENTITY_INVOCATION
-        async def _collect_children(entity: HierarchicalEntity, visited: set[UUID] | None = None) -> list[HierarchicalEntity]:
-            if visited is None:
-                visited = set()
-            visited.add(entity.id)
-            children: list[HierarchicalEntity] = []
-            seen_ids: set[UUID] = set()
-
-            async def _try_add(child_uuid: UUID):
-                """Load an entity by ID and add it if not already visited."""
-                if child_uuid in visited or child_uuid in seen_ids:
-                    return
-                cres = await self.db.execute(
-                    select(HierarchicalEntity).where(
-                        HierarchicalEntity.id == child_uuid,
-                        HierarchicalEntity.is_template == True,
-                    )
-                )
-                child_entity = cres.scalar_one_or_none()
-                if child_entity:
-                    children.append(child_entity)
-                    seen_ids.add(child_uuid)
-
-            # Path A: entities whose parent_id points to this entity
-            res = await self.db.execute(
-                select(HierarchicalEntity).where(
-                    HierarchicalEntity.parent_id == entity.id,
-                    HierarchicalEntity.is_template == True,
-                )
-            )
-            for child in res.scalars().all():
-                if child.id not in visited:
-                    children.append(child)
-                    seen_ids.add(child.id)
-
-            # Path B: entity IDs referenced in hierarchy.children JSON
-            hierarchy = entity.hierarchy
-            if hierarchy and isinstance(hierarchy, dict):
-                for child_ref in hierarchy.get("children", []):
-                    if isinstance(child_ref, dict):
-                        child_id_str = child_ref.get("child_id")
-                        if child_id_str:
-                            try:
-                                await _try_add(UUID(str(child_id_str)))
-                            except (ValueError, AttributeError):
-                                continue
-
-            # Path C: entity IDs in CHILD_ENTITY_INVOCATION steps
-            planning = entity.planning
-            if planning and isinstance(planning, dict):
-                for step in (planning.get("static_plan") or {}).get("steps", []):
-                    if step.get("type") == "CHILD_ENTITY_INVOCATION":
-                        eid = (step.get("target") or {}).get("entity_id")
-                        if eid:
-                            try:
-                                await _try_add(UUID(str(eid)))
-                            except (ValueError, AttributeError):
-                                continue
-
-            # Recurse into each child
-            grandchildren = []
-            for child in children:
-                grandchildren.extend(await _collect_children(child, visited))
-            return children + grandchildren
-
-        all_children = await _collect_children(template)
+        # 2. Every descendant template, found the three ways an entity names a child.
+        all_children = await self._collect_tree(template, HierarchicalEntity.is_template == True)
         logger.info(
             f"clone_template: discovered {len(all_children)} child entities "
             f"for template '{template.name}' (id={template.id})"
