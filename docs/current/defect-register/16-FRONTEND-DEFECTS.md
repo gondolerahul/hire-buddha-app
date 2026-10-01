@@ -422,7 +422,9 @@ live: a run with tool calls needs Vertex, whose credentials had expired.
 
 ### FE-11 — The social login buttons do nothing
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the buttons start a sign-in that
+completes, shown only for a configured provider; PKCE follows when the API accepts a
+`code_verifier` (the auth session is adding it).
 
 The Google and Microsoft buttons on the login page have **no handler**. They render, they
 look clickable, and clicking them does nothing.
@@ -431,6 +433,38 @@ The backend has an OAuth path (`get_or_create_oauth_user`, `POST /auth/oauth/{pr
 so the feature is half-built rather than absent.
 
 - [`frontend/src/pages/auth/LoginPage.tsx:76`](../../../frontend/src/pages/auth/LoginPage.tsx:76)–85
+
+Worse than recorded — wiring the buttons alone would not have worked, and would have been
+unsafe:
+
+- **No `state`, and the callback read `state` as the provider name.** The authorize URLs
+  sent no `state`, so every real callback arrived without one and failed *Invalid OAuth
+  state*. And a crafted `/auth/callback?state=google&code=<the attacker's code>` would have
+  been accepted, signing the victim into the attacker's account (login CSRF). Reported by
+  the auth session alongside [AU-23](04-AUTH-RBAC-TENANCY-DEFECTS.md), its backend half.
+- The button images (`/google-icon.svg`, `/microsoft-icon.svg`) do not exist — the frontend
+  has no `public/` directory.
+- Microsoft's scopes lacked `User.Read`, which the API's call to Graph `/me` needs.
+
+**Done (2026-10-01).** `oauth.service.ts`: `configuredProviders()` lists the providers whose
+`VITE_*_CLIENT_ID` is set and is not the `.env.example` placeholder; `begin(provider)` keeps
+a random 32-byte `state` with the provider in sessionStorage and returns the authorize URL
+(Google's `prompt=consent`/`access_type=offline` dropped — the API wants no Google refresh
+token); `handleCallback()` takes the state out (single use), refuses a callback whose state
+does not match, then exchanges the code with the stored provider and shows the API's error
+if the exchange fails. `OAuthCallback` finishes once even when StrictMode runs the effect
+twice (the code is single-use too). `LoginPage` renders a button per configured provider,
+with inline icons, and no divider when there are none.
+
+**Evidence:** on :3020. With the placeholder ids the login page has no divider and no
+buttons. With a test Google id in the local env: one *Google* button; `begin('google')`
+gave an `accounts.google.com` URL whose 64-hex `state` matches the stored one, with
+`redirect_uri` `/auth/callback`; `begin('microsoft')` refused (not configured). A callback
+with no sign-in started, and one with another state, showed *This sign-in was not started
+from this browser* and made no exchange call; with the matching state, one
+`POST /auth/oauth/google` went out and the API's `400 Failed to get token from Google` (the
+code was fake) was shown before returning to the login page. The state was gone after each.
+No unit test: FE-03.
 
 ---
 

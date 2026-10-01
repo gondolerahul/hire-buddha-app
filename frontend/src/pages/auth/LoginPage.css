@@ -103,9 +103,10 @@
     padding: var(--spacing-4);
 }
 
-.oauth-button img {
+.oauth-button svg {
     width: 20px;
     height: 20px;
+    flex-shrink: 0;
 }
 
 .auth-footer {

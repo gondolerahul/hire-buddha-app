@@ -1,34 +1,25 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui';
 import { Loader } from 'lucide-react';
 import { oauthService } from '@/services/oauth.service';
 
 export const OAuthCallbackPage: React.FC = () => {
     const [error, setError] = useState('');
-    const [searchParams] = useSearchParams();
     const navigate = useNavigate();
+    // The state is single-use and so is the code: finish once, even when
+    // StrictMode runs the effect twice.
+    const started = useRef(false);
 
     useEffect(() => {
-        const handleOAuthCallback = async () => {
-            const provider = searchParams.get('state') as 'google' | 'microsoft';
-
-            if (!provider) {
-                setError('Invalid OAuth state');
-                return;
-            }
-
-            try {
-                await oauthService.handleCallback(provider);
-                // Redirect is handled in the service
-            } catch (err: any) {
-                setError(err.message || 'Authentication failed');
-                setTimeout(() => navigate('/login'), 3000);
-            }
-        };
-
-        handleOAuthCallback();
-    }, [searchParams, navigate]);
+        if (started.current) return;
+        started.current = true;
+        oauthService.handleCallback().catch((err: Error) => {
+            // The service redirects on success
+            setError(err.message || 'Authentication failed');
+            setTimeout(() => navigate('/login'), 3000);
+        });
+    }, [navigate]);
 
     return (
         <div className="auth-page">

@@ -644,13 +644,25 @@ sends the user to `/login`.
 
 ### 5.5 OAuth
 
-[`oauth.service.ts`](../../frontend/src/services/oauth.service.ts) implements a
-full Google/Microsoft authorization-code flow and
-[`OAuthCallback.tsx`](../../frontend/src/pages/auth/OAuthCallback.tsx) handles
-the return leg. **But the Google and Microsoft buttons on `LoginPage` have no
-`onClick`** ([`LoginPage.tsx:76-85`](../../frontend/src/pages/auth/LoginPage.tsx:76))
-— they render and do nothing. The OAuth path is unreachable from the UI as
-shipped.
+[`oauth.service.ts`](../../frontend/src/services/oauth.service.ts) runs the
+Google/Microsoft authorization-code flow (FE-11):
+
+1. `LoginPage` shows a button for each provider `configuredProviders()` returns —
+   those whose `VITE_GOOGLE_CLIENT_ID` / `VITE_MICROSOFT_CLIENT_ID` is set and is
+   not the `.env.example` placeholder. With none, there is no "or continue with".
+2. The button calls `start(provider)`: `begin()` keeps a random `state` with the
+   provider in sessionStorage (`oauth_state`) and the browser goes to the
+   provider, which returns to `/auth/callback`.
+3. [`OAuthCallback.tsx`](../../frontend/src/pages/auth/OAuthCallback.tsx) calls
+   `handleCallback()` once. The stored state is removed (single use) and must
+   equal the returned one — otherwise nothing is exchanged — and the code goes
+   to `POST /auth/oauth/{provider}` with the stored provider. The API signs in
+   only an address the provider verified (AU-23); its tokens are stored and the
+   page goes to `/dashboard`.
+
+PKCE is the remaining step: it needs the API to forward a `code_verifier`, and a
+`code_challenge` must never be sent without one (Microsoft then refuses the
+exchange).
 
 ---
 
