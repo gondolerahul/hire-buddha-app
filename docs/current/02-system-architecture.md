@@ -937,7 +937,6 @@ in a `try/except ImportError` in case `arq.cron` is unavailable.
 | `skill_promotion_scan` | `weekday=6, hour=4, minute=30` — Sunday 04:30 UTC | Scans up to 500 recently-active entities for repeated tool chains and proposes skill candidates. Human approval required. |
 | `meta_agent_prompt_evolution` | `weekday=0, hour=5, minute=0` — Monday 05:00 UTC | Writes prompt-update candidates into the `MetaIntelligenceTree`. **Never auto-applies** — an admin must POST the approve endpoint. |
 | `kpi_rollup_refresh` | `minute={7}` — hourly at xx:07 | `REFRESH MATERIALIZED VIEW CONCURRENTLY kpi_daily_rollup`, falling back to a plain refresh if the unique index is missing. |
-| `cost_estimator_refresh` | `hour=2, minute=30` — nightly 02:30 UTC | Computes a median cost per tool from the last 30 days of `tool_interaction_logs` (minimum 20 samples) and updates `cost_estimator.TOOL_BASELINE_COST` in-process. |
 
 ### Dreaming and graph maintenance
 

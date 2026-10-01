@@ -39,7 +39,6 @@ from src.ai.core.arq_jobs import (
     skill_promotion_scan,
     meta_agent_prompt_evolution,
     kpi_rollup_refresh,
-    cost_estimator_refresh,
 )
 from src.ai.campaign_worker import (
     execute_campaign_task,
@@ -128,9 +127,6 @@ try:
         # Hourly KPI rollup refresh (xx:07 to spread
         # load away from other top-of-hour crons).
         cron(traced_job(kpi_rollup_refresh), minute={7}),
-        # /9: Nightly cost-estimator baseline refresh from
-        # telemetry (02:30 UTC — quiet hour, follows the daily aggregate).
-        cron(traced_job(cost_estimator_refresh), hour=2, minute=30),
         # Mobile dialer: expire stale call attempts + reconcile unidentified AI legs.
         cron(traced_job(mobile_housekeeping_job), minute={1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56}),
         # Billing (BC-04): renew expired daily credits and reap abandoned

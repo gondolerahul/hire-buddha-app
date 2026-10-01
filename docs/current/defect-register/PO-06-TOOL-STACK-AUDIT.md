@@ -377,7 +377,9 @@ it.
 
 ### TL-64 — The cost estimator's tool names don't match the registry
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-01)** — keys are `excel_tool` and
+`sandbox_code`; `browser_tool` and `xlsx_engine` are gone; a test fails on a key the
+registry does not know. (With PC-26.)
 
 `planning/cost_estimator.TOOL_BASELINE_COST` keys on `excel`, `sandbox_executor`,
 `browser_tool` and `xlsx_engine`

@@ -2,11 +2,17 @@
 ai.planning.cost_estimator — Phase 11 Track 7 deterministic cost & latency
 estimation for plan steps.
 
-Pure functions over plan-step dicts. The numbers here are conservative
-seed values harvested from the last 30 days of telemetry at the time
-Track 7 shipped. A nightly cron (``cost_estimator_refresh``) is
-specified in the plan but deferred to Track 9; until then these
-baselines drive the ``cost_estimate_within_budget`` invariant.
+Pure functions over plan-step dicts. A tool with a price is estimated at
+exactly that price (``tool_cost_resolver.TOOL_FIXED_COST``); the baselines
+below cover tools with no price, as conservative seed values. They drive the
+``cost_estimate_within_budget`` invariant and a run's credit hold
+(``CreditGuard.estimate``, which also averages the entity's recent bills).
+
+There is no telemetry refresh: the nightly ``cost_estimator_refresh`` cron read
+a column that never existed and is deleted (PC-26). Tool calls are charged a
+fixed price each, so a per-tool median would only restate the price. Keys are
+registered tool names — a test fails on a name the registry does not know
+(TL-64).
 """
 from __future__ import annotations
 
@@ -25,18 +31,17 @@ from src.ai.governance.tool_cost_resolver import TOOL_FIXED_COST
 
 TOOL_BASELINE_COST: dict[str, Decimal] = {
     "batch_web_search": Decimal("0.015"),
-    "browser_tool":     Decimal("0.05"),
     "calculator":       Decimal("0.001"),
     "docx_tool":        Decimal("0.01"),
     "email_classify":   Decimal("0.002"),
     "email_draft":      Decimal("0.01"),
     "email_ingest":     Decimal("0.001"),
-    "excel":            Decimal("0.005"),
+    "excel_tool":       Decimal("0.005"),
     "file_writer":      Decimal("0.001"),
     "headless_browser": Decimal("0.05"),
     "pdf_generator":    Decimal("0.01"),
     "pptx_tool":        Decimal("0.01"),
-    "sandbox_executor": Decimal("0.02"),
+    "sandbox_code":     Decimal("0.02"),
     "scraper_tool":     Decimal("0.02"),
     "video_edit":       Decimal("0.01"),
     "video_add_sound":  Decimal("0.01"),

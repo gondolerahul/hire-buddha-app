@@ -1380,7 +1380,6 @@ WorkerSettings.cron_jobs = [
     cron(skill_promotion_scan, weekday=6, hour=4, minute=30),
     cron(meta_agent_prompt_evolution, weekday=0, hour=5, minute=0),
     cron(kpi_rollup_refresh, minute={7}),
-    cron(cost_estimator_refresh, hour=2, minute=30),
 ]
 ```
 

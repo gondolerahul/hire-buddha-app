@@ -776,7 +776,7 @@ The older document lists prices for things that are not actually metered. Concre
 
 | Claim in the old doc | Reality |
 |---|---|
-| `docx_tool` $0.01, `pptx_tool` $0.01, `excel` $0.005 | These are `TOOL_BASELINE_COST` **planner estimates**, not charges. No SKU, no `TOOL_FIXED_COST` entry, no `usage_logs` row. |
+| `docx_tool` $0.01, `pptx_tool` $0.01, `excel_tool` $0.005 | These are `TOOL_BASELINE_COST` **planner estimates**, not charges. No SKU, no `TOOL_FIXED_COST` entry, no `usage_logs` row. |
 | `email_ingest` $0.001, `email_classify` $0.002, `email_draft` $0.01 | Same — estimator baselines only. Email is never billed. |
 | `calculator` $0.001, `file_writer` $0.001 | Same. |
 | "Unknown / unregistered tool $0.01 fallback" | The `$0.01` is `_DEFAULT_TOOL_COST` in the **estimator**. The *charging* fallback is `$0.00` with a warning. |

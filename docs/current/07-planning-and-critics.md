@@ -570,7 +570,7 @@ Track 7 plan was never built.
 
 | Step type | Cost rule |
 |-----------|-----------|
-| `TOOL_CALL` | `TOOL_BASELINE_COST[tool_id]`, default `$0.01`. Range: `calculator` `$0.001` → `video_generate` `$0.10`. |
+| `TOOL_CALL` | A priced tool: its price (`TOOL_FIXED_COST`, from `ToolCostResolver`). Otherwise `TOOL_BASELINE_COST[tool_id]`, default `$0.01`. Keys are registered tool names (TL-64); there is no telemetry refresh (the nightly `cost_estimator_refresh`, which read a column that never existed, was deleted — PC-26). |
 | `CHILD_ENTITY_INVOCATION` | flat `$0.10` |
 | `THOUGHT` / `ACTION` / `RECURSE` | `$0.005 × MODEL_PRICE_FACTOR[model]`. Factors run `gemini-2.5-flash-lite` `0.5` → `claude-opus-4-1` `8.0`. |
 | `READ` / `NAVIGATE` / `WRITE` | `$0.001` |

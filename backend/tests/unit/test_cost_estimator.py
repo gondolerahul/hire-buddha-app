@@ -95,3 +95,24 @@ def test_estimate_latency_sums_table() -> None:
 def test_estimate_latency_unknown_step_default() -> None:
     plan = [{"type": "TOOL_CALL", "target": {"tool_id": "ghost"}}]
     assert estimate_latency_s(plan) >= 1
+
+
+def test_every_baseline_names_a_registered_tool() -> None:
+    """TL-64: keys like ``excel``, ``sandbox_executor`` and ``browser_tool``
+    matched no tool, so their estimates silently fell back to the default."""
+    import src.ai.tools  # noqa: F401 — registers every tool
+    from src.ai.tools.base import ToolRegistry
+
+    unknown = sorted(set(TOOL_BASELINE_COST) - set(ToolRegistry._tools))
+    assert not unknown, f"baselines for tools the registry does not know: {unknown}"
+
+
+def test_the_broken_estimator_refresh_cron_is_gone() -> None:
+    """PC-26: the nightly refresh read tool_interaction_logs.cost_usd, which
+    never existed, so every run errored and refreshed nothing."""
+    from src.ai import worker
+    from src.ai.core import arq_jobs
+
+    assert not hasattr(arq_jobs, "cost_estimator_refresh")
+    names = [getattr(getattr(c, "coroutine", None), "__name__", "") for c in worker.WorkerSettings.cron_jobs]
+    assert not any("cost_estimator" in n for n in names)

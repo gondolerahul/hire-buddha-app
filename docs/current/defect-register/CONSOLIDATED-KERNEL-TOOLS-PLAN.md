@@ -568,7 +568,7 @@ numbers become right (EP-15, PC-26).
 | 0.6 | LLM dead code | LP-02/LP-14, LP-13 | Delete `LLMResponse.cost_usd` and `core/reasoning/` | Grep: no importer |
 | 0.7 | Tool deletions | TL-23…TL-27, TL-22 | Delete `quora`, `x_ads`, `youtube_ads` (12 tools; `quora` leaves `VALID_PLATFORMS` and the refresh table), `xlsx_engine.py`, `templates/docx/`, `tools/mcp/` | Registry 97 → 85; tests for deleted code removed |
 | 0.8 | Small tool hygiene | TL-29, TL-63, TX-05 | One `_sandbox_base_dir`; delete the stale `get_function_schema` (keep the one advertising `image_paths`); tenant-tool registration logs at DEBUG | Schema test: `image_paths` advertised |
-| 0.9 | Cost estimator | PC-26/TL-64 | `cost_estimator_refresh` reads median tool cost from `usage_logs` (`attribution='tool'`, `log_metadata->>'tool'`); estimator keys use registry names | Integration test on Postgres: the refresh updates a baseline |
+| 0.9 | Cost estimator | PC-26/TL-64 | Delete `cost_estimator_refresh` (D11): tool calls are charged a fixed price each, so a per-tool median only restates the price the estimator already reads from the resolver; the job persisted nothing. Estimator keys use registry names | A test fails on a baseline key the registry does not know |
 | 0.10 | Run row hygiene | EP-13, EP-15 | Drop `execution_runs.idempotency_key`/`span_id` (migration); write `execution_time_ms` at finalisation | Schema census passes; finalised run has the field |
 | 0.11 | Curator key | MI-10 | Read `existing_entity_id` | Unit test |
 
@@ -758,6 +758,7 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D8 | Social: 12 unworkable tools deleted; the other 52 collapse into one `social_api` primitive with per-platform operations and SKILLs carrying the platform knowledge | The skill-first doc's highest-leverage item; no entity uses any social tool today |
 | D9 | Versions and assets exist for every level (`entity_versions`, `entity_assets`), not a SKILL-only table | R1 forbids a SKILL-only mechanism; EP-10 needs it for every entity |
 | D10 | A declared flag must have a reader. Unread flags are wired at a one-line choke point or deleted; a census test enforces it | Pattern 2 in the register README |
+| D11 | `cost_estimator_refresh` is deleted, not repaired (PC-26) | Tool charges are fixed per call (a median restates the price); the job never persisted its result; `CreditGuard.estimate` already learns from the entity's recent bills |
 
 ---
 
