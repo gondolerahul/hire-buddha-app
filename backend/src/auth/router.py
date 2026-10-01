@@ -150,6 +150,11 @@ def _verified_email(provider: str, user_info: dict) -> str | None:
     return email.strip().lower() if email else None
 
 
+def _pkce(request: OAuthRequest) -> dict[str, str]:
+    """The PKCE verifier for the token request, when the SPA sent one."""
+    return {"code_verifier": request.code_verifier} if request.code_verifier else {}
+
+
 @router.post("/oauth/{provider}", response_model=Token)
 async def oauth_login(
     provider: str,
@@ -165,6 +170,7 @@ async def oauth_login(
             "code": request.code,
             "grant_type": "authorization_code",
             "redirect_uri": request.redirect_uri,
+            **_pkce(request),
         }
         async with httpx.AsyncClient() as client:
             token_res = await client.post(token_url, data=data)
@@ -188,6 +194,7 @@ async def oauth_login(
             "code": request.code,
             "grant_type": "authorization_code",
             "redirect_uri": request.redirect_uri,
+            **_pkce(request),
         }
         async with httpx.AsyncClient() as client:
             token_res = await client.post(token_url, data=data)

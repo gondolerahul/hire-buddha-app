@@ -24,6 +24,9 @@ class _FakeResponse:
         return self._body
 
 
+TOKEN_REQUESTS: list[dict] = []  # what each fake token exchange was sent
+
+
 def _fake_client(user_info: dict):
     class FakeClient:
         def __init__(self, *a, **kw):
@@ -36,6 +39,7 @@ def _fake_client(user_info: dict):
             return False
 
         async def post(self, url, data=None):
+            TOKEN_REQUESTS.append(dict(data or {}))
             return _FakeResponse(200, {"access_token": "provider-token"})
 
         async def get(self, url, headers=None):
@@ -71,10 +75,11 @@ def login(monkeypatch):
 
     app.dependency_overrides[get_db] = _db
 
-    async def call(provider: str, user_info: dict):
+    async def call(provider: str, user_info: dict, **extra: str):
         monkeypatch.setattr(auth_router.httpx, "AsyncClient", _fake_client(user_info))
         async with _RealClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
-            res = await c.post(f"/api/v1/auth/oauth/{provider}", json={"code": "x", "redirect_uri": "http://r"})
+            res = await c.post(f"/api/v1/auth/oauth/{provider}",
+                               json={"code": "x", "redirect_uri": "http://r", **extra})
         return res, list(linked)
 
     return call
@@ -97,3 +102,16 @@ async def test_google_requires_a_verified_email(login):
     assert res.status_code == 400 and linked == []
     res, linked = await login("google", {"email": "Owner@customer.com", "email_verified": True, "name": "o"})
     assert res.status_code == 200 and linked == ["owner@customer.com"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider, profile", [
+    ("google", {"email": "o@customer.com", "email_verified": True}),
+    ("microsoft", {"userPrincipalName": "o@customer.com"}),
+])
+async def test_a_pkce_verifier_is_forwarded_to_the_token_endpoint(login, provider, profile):
+    TOKEN_REQUESTS.clear()
+    assert (await login(provider, profile, code_verifier="v" * 43))[0].status_code == 200
+    assert (await login(provider, profile))[0].status_code == 200
+    assert TOKEN_REQUESTS[0]["code_verifier"] == "v" * 43
+    assert "code_verifier" not in TOKEN_REQUESTS[1]

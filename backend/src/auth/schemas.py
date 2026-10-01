@@ -51,6 +51,9 @@ class LogoutRequest(BaseModel):
 class OAuthRequest(BaseModel):
     code: str
     redirect_uri: str
+    # PKCE (RFC 7636): the verifier for the code_challenge the authorize request
+    # sent. Forwarded to the provider's token endpoint when given.
+    code_verifier: Optional[str] = None
 
 class TokenData(BaseModel):
     email: Optional[str] = None
