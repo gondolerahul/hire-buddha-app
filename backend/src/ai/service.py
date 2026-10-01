@@ -507,7 +507,9 @@ class AIService:
         
         The new run inherits:
           - entity_id and input_data from the failed run
-          - context_state with completed step IDs (so they are skipped)
+          - the failed run's plan (``dynamic_plan``), and the outputs of the
+            steps it finished, under ``__reuse_outputs__``: the loop marks
+            those steps done and runs only the rest (EP-29)
           - cortex_tree_id from context_state (so the CORTEX tree is resumed)
           - retry_of_run_id pointing to the failed run (EP-03). It is a
             top-level run of its own — admitted, metered and settled — not a
@@ -535,6 +537,14 @@ class AIService:
         ctx = failed_run.context_state or {}
         if "__cortex_tree_id__" in ctx:
             retry_input["cortex_tree_id"] = ctx["__cortex_tree_id__"]
+        from src.ai.core.step_results import REUSE_OUTPUTS_KEY
+        finished = {
+            str(s["step_id"]): s.get("output", "")
+            for s in ((failed_run.result_data or {}).get("steps") or [])
+            if isinstance(s, dict) and s.get("step_id") and not s.get("error")
+        }
+        if finished:
+            retry_input[REUSE_OUTPUTS_KEY] = finished
 
         # 3. Create the retry run
         retry_run = ExecutionRun(
@@ -542,7 +552,9 @@ class AIService:
             user_id=user_id,
             entity_id=failed_run.entity_id,
             input_data=retry_input,
-            context_state=ctx,  # Carry forward completed step markers
+            context_state=ctx,
+            # The same plan, so the finished steps' ids match (EP-29).
+            dynamic_plan=failed_run.dynamic_plan,
             retry_of_run_id=failed_run.id,
             status="PENDING",
             trace_id=uuid4(),
@@ -663,7 +675,7 @@ class AIService:
         # 5. Build input_data for the refinement run
         refine_input = dict(original_run.input_data or {})
         refine_input["__refinement_feedback__"] = refine_in.feedback
-        refine_input["__reuse_outputs__"] = reuse_outputs
+        refine_input["__reuse_outputs__"] = reuse_outputs  # step_results.REUSE_OUTPUTS_KEY
         refine_input["__skip_steps__"] = skip_steps
 
         # Pass CORTEX tree ID for tree reuse

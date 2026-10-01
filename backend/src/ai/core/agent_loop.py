@@ -44,7 +44,9 @@ from src.ai.core.observer import Observer
 from src.ai.core.perceiver import Perceiver
 from src.ai.core.reflector import Reflector
 from src.ai.core.strategist import Strategist
-from src.ai.core.step_results import record_step_result, record_child_step_result
+from src.ai.core.step_results import (
+    REUSE_OUTPUTS_KEY, record_child_step_result, record_step_result, reuse_step_outputs,
+)
 from src.ai.core.run_outcome import failed_steps_summary, final_status
 from src.ai.core.stuck_runs import SUSPENDED_AT_KEY, cancel_open_children, utc_now_iso
 from src.ai.core.trace import current_recorder, span
@@ -775,9 +777,11 @@ class AgentLoop:
         # no input and the agent drifts onto stale episodic memory.
         run_input = run.input_data if isinstance(run.input_data, dict) else {}
         for key, value in run_input.items():
-            if key in ("feature_flags", "cortex_tree_id", "subtree_root_id"):
+            if key in ("feature_flags", "cortex_tree_id", "subtree_root_id", REUSE_OUTPUTS_KEY, "__skip_steps__"):
                 continue  # internal plumbing, not task input
             state.context_state.setdefault(key, value)
+        # A retry or refine carries the steps it does not need to run again.
+        reuse_step_outputs(state, run_input.get(REUSE_OUTPUTS_KEY))
 
         # Seed a single root subgoal so DONE never triggers prematurely
         # on a goal-only AGENT without subgoals.
@@ -800,6 +804,8 @@ class AgentLoop:
         if tree is not None:
             state.cortex_tree_id = tree.id
             state.cortex_working_root_id = tree.root_node_id
+            # Children and retries share the tree through this key (EP-29).
+            state.context_state["__cortex_tree_id__"] = str(tree.id)
 
         # The memory read path — what past runs learned reaches this one.
         self.memory = await assemble_run_memory(
@@ -1077,26 +1083,11 @@ class AgentLoop:
         from datetime import datetime
         run_id = self._run_id or getattr(run, "id", None)
         try:
-            # Flush any still-pending writes from the final iteration BEFORE
-            # reloading. The last loop body may have left uncommitted work on
-            # the shared session — e.g. the planner's ``run.total_cost_usd``
-            # bump + its ``LLMInteractionLog``, or a critic usage row that a
-            # later per-iteration commit would normally have captured. A blind
-            # ``rollback()`` here discarded all of it, which is how agent_loop
-            # runs ended up with ``$0`` total_cost_usd and ZERO
-            # ``llm_interaction_logs`` despite real planner/critic spend (and
-            # then ``settle_billing`` short-circuited at $0, leaving
-            # ``billed_amount`` NULL). Commit first to persist that work; only
-            # if the session is genuinely half-open/errored does the commit
-            # raise, in which case we fall back to ``rollback()`` so the
-            # subsequent reload still succeeds.
-            #
-            # After this, reload a fully-populated instance: the passed-in
-            # ``run`` has expired attributes, and reading them
-            # (e.g. ``run.result_data``) would trigger a synchronous lazy-load
-            # on the async session → MissingGreenlet. A fresh SELECT loads
-            # every column up front so the writes below are pure in-memory
-            # mutations.
+            # Commit the final iteration's pending work (planner cost, its
+            # LLM log, critic usage) before reloading — a blind rollback here
+            # once lost it all and billed $0 — and fall back to rollback only
+            # if the session is broken. Then reload: the passed-in ``run`` has
+            # expired attributes, and lazy-loading them raises MissingGreenlet.
             try:
                 await self.db.commit()
             except Exception:                                              # pragma: no cover
@@ -1131,6 +1122,8 @@ class AgentLoop:
                 int(synced_tokens or 0),
                 int(fresh.total_tokens or 0),
             )
+            if state.cortex_tree_id:  # read by retry and refine (EP-29)
+                fresh.context_state = {**(fresh.context_state or {}), "__cortex_tree_id__": str(state.cortex_tree_id)}
             if error:
                 fresh.error_message = error[:1000]
             # Mirror the legacy engine's result_data shape

@@ -1122,8 +1122,18 @@ leaves the run `CANCELLED` (it reloads the row, locked, before its final write).
 
 | Operation | Creates a new run? | Key mechanism |
 |-----------|:------------------:|---------------|
-| `POST /executions/{id}/retry` | ✅ `retry_of_run_id = old.id` | Copies `input_data` + `context_state` forward so completed step keys are skipped; carries `__cortex_tree_id__` so the CORTEX tree is resumed, not recreated. Requires `FAILED` or `COMPLETED` ([service.py:549](../../backend/src/ai/service.py:549)). |
-| `POST /executions/{id}/refine` | ✅ `retry_of_run_id = old.id` | An LLM reads the user feedback plus the step list and returns which `step_id`s must re-run; downstream dependents cascade in; the rest are passed as `__skip_steps__` + `__reuse_outputs__`. Requires `COMPLETED` ([service.py:617](../../backend/src/ai/service.py:617)). |
+| `POST /executions/{id}/retry` | ✅ `retry_of_run_id = old.id` | Copies `input_data` and the failed run's plan (`dynamic_plan`), and passes the outputs of the steps it finished (its `result_data["steps"]` entries without `error`) as `__reuse_outputs__`; carries `cortex_tree_id` from the run's `context_state["__cortex_tree_id__"]` so the CORTEX tree is resumed, not recreated (EP-29). Requires `FAILED` or `COMPLETED`. |
+| `POST /executions/{id}/refine` | ✅ `retry_of_run_id = old.id` | An LLM reads the user feedback plus the step list and returns which `step_id`s must re-run; downstream dependents cascade in; the rest are passed as `__skip_steps__` + `__reuse_outputs__`. Requires `COMPLETED`. |
+
+**Reused steps** (EP-29). At bootstrap the loop reads `__reuse_outputs__`
+(`step_results.REUSE_OUTPUTS_KEY`, `{step_id: output}`) and, for each step of
+the run's plan it names, marks the step complete, puts the output in the
+context under the step's id and name, and records a `result_data["steps"]`
+entry with `"reused": true` (`step_results.reuse_step_outputs`). Only the rest
+of the plan runs. Before EP-29 nothing read the key (nor the context the retry
+copied), so retries and refines re-ran every step. The run's tree id is
+written to `context_state["__cortex_tree_id__"]` when the loop opens the tree
+and kept on the row at finalisation, which is where retry and refine read it.
 | `POST /executions/{id}/cancel` | ❌ | One `UPDATE … WHERE status NOT IN (terminal)` sets `CANCELLED`, then publishes `{"type":"cancelled","status":"CANCELLED"}` so the SSE stream closes. The loop re-reads status at the top of each iteration and aborts. No-op on an already-terminal run, including one that finished after the request loaded it ([service.py:482](../../backend/src/ai/service.py:482)). |
 
 > A retry or refinement is a **top-level run of its own**: `retry_of_run_id`
@@ -1562,7 +1572,7 @@ starts from a copy of the parent context and then edits it hard:
 | Action | Keys | Why |
 |--------|------|-----|
 | Drop | `__redis__` | Live client, not JSON-serializable — would poison the INSERT. |
-| Propagate | `cortex_tree_id` from `__cortex_tree_id__` | Parent and children share one CORTEX tree. |
+| Propagate | `cortex_tree_id` from `__cortex_tree_id__` | Parent and children share one CORTEX tree. The loop writes the key when it opens the run's tree (EP-29); before that nothing wrote it and every child opened a tree of its own. |
 | Override | `input` | Set to the **rendered** `prompt_template`, so the child's `{{input}}` is the real upstream data, not the original topic string. |
 | Strip | every `step_N` key (regex `^step_\d+$`) | Otherwise the child's own `step_1` looks already-completed and gets skipped. |
 | Strip | `__memory__`, `__episodic_memory__`, `__semantic_context__`, `__memory_context__`, `__context_sources__`, `__completed_steps__`, `__goal_check_counter__` | Parent episodic history made child agents replay past actions instead of doing the current task. |

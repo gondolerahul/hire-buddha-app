@@ -68,3 +68,35 @@ def record_child_step_result(state: Any, step_id: str, output: str,
     if child_run_id:
         entry["child_run_id"] = str(child_run_id)
     state.step_results.append(entry)
+
+
+# Run input key: ``{step_id: output}`` of steps a retry or refine does not run
+# again. ``retry_execution`` fills it from the failed run's successful steps,
+# ``refine_execution`` from the steps the feedback leaves unchanged (EP-29).
+REUSE_OUTPUTS_KEY = "__reuse_outputs__"
+
+
+def reuse_step_outputs(state: Any, reuse: Any) -> list[str]:
+    """Pre-complete the plan's steps listed in ``reuse``: mark them done, put
+    their output in the context under the step's id and name, and record them
+    in ``step_results``. Steps not in the run's plan are ignored."""
+    if not isinstance(reuse, dict) or not reuse:
+        return []
+    reused: list[str] = []
+    for step in state.plan_steps:
+        sid = str(step.get("step_id") or step.get("id") or "")
+        if not sid or sid not in reuse:
+            continue
+        output = reuse[sid]
+        state.mark_step_complete(sid)
+        state.context_state[sid] = output
+        if step.get("name"):
+            state.context_state.setdefault(str(step["name"]), output)
+        state.step_results.append({
+            "step": step.get("name") or sid, "step_id": sid,
+            "type": str(step.get("type") or ""), "output": str(output or "")[:8000],
+            "reused": True,
+        })
+        reused.append(sid)
+    return reused
+

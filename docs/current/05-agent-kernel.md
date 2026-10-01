@@ -1505,7 +1505,7 @@ inventory is [core/INTERNAL_KEYS.md](../../backend/src/ai/core/INTERNAL_KEYS.md)
 | `subtree_root_id` | parent run when spawning a child | `CortexService` scoping | child run |
 | `__memory__` | `MemoryAssemblyService` | `prompt_utils.build_sandwich_prompt` | per iteration |
 | `__cortex_viewport__` | `CortexService.get_viewport` | `prompt_utils` | per CORTEX op |
-| `__cortex_tree_id__` | `CortexService.create_tree` | CORTEX ops | run |
+| `__cortex_tree_id__` | `AgentLoop._compose` when it opens the run's tree; kept on `run.context_state` at finalisation (EP-29) | child dispatch, retry, refine, `agent_reflect`, `CortexBridge` | run |
 | `__cortex_cursor__` | `CortexService.navigate` | CORTEX ops | per iteration |
 | `__cortex_knowledge__` | `cortex_bridge.ingest_tool_result` | CORTEX ops | run |
 | `__context_sources__` | design-time upload | `MemoryAssemblyService` | run |

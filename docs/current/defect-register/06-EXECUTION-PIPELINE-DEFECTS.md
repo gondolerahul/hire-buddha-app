@@ -580,8 +580,13 @@ the row.
 
 ### EP-29 — The CORTEX tree id is never put into the context, so children and retries never share the tree
 
-**✅ Verified · High** · **Status: open** — found 2026-10-01 while rewriting
-`INTERNAL_KEYS.md` (EP-16).
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — found 2026-10-01 while rewriting
+`INTERNAL_KEYS.md` (EP-16). `_compose` writes `__cortex_tree_id__` into the context when
+it opens the tree, and `_persist_final` keeps it on `run.context_state`; a retry copies
+the failed run's plan and passes its finished steps as `__reuse_outputs__`, which the
+loop now pre-completes at bootstrap (`step_results.reuse_step_outputs`). Refine's
+`__reuse_outputs__` had no reader either and is honoured the same way. Tests:
+`tests/unit/test_run_resume_state.py`, `tests/integration/test_retry_resumes.py`.
 
 `create_child_run` propagates the parent's tree to a child only
 `if "__cortex_tree_id__" in context`; `retry_execution` and `refine_execution` carry

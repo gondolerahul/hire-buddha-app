@@ -833,4 +833,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P2.5 | EP-25 | `a67d11f` | `test_step_prompt.py` (collection fails on the old code: the prompt assembly is now `compose_step_prompt`; the old constants lack `__agent_state__`) |
 | P2.6 | PC-25 | `cce42ea` | `test_plan_request.py` (collection fails on the old code: no `run_request`) |
 | P2.7 | PC-18 (PC-I5) | `94dcdb7` | `test_step_ids.py`: both fail on the old code — the dependent step never becomes ready |
-| P2.8 | PC-19 | (this commit) | `test_plan_invariants.py`: the two dict-shaped cases fail on the old code; the Meta board validator had the same compare |
+| P2.8 | PC-19 | `a13c2a8` | `test_plan_invariants.py`: the two dict-shaped cases fail on the old code; the Meta board validator had the same compare |
+| P2.11 | EP-29 | (this commit) | `test_run_resume_state.py`, `test_retry_resumes.py`: all 3 fail on the old code. Also: refine's `__reuse_outputs__` had no reader, so refines re-ran every step too |

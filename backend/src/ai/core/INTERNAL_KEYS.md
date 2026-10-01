@@ -30,7 +30,7 @@ Re-checked against the code on 2026-10-01. **No writer** means nothing in
 | `__goal_check_counter__` | `StepEngine`'s GoalGuard check | the same | How many goal checks have run |
 | `tool_call_counts` | `StepExecutorService` (reset per step) | `ToolExecutor` | Per-tool call counts (TL-11: reset per step, not per run) |
 | `company_id`, `user_id` | the step executor's tool context | tools | Tenant scoping |
-| `__cortex_tree_id__` | **no writer** | child dispatch, retry, refine, `agent_reflect`, `CortexBridge` | So a child never shares its parent's tree and a retry never resumes it — EP-29 |
+| `__cortex_tree_id__` | `AgentLoop._compose` (when it opens the run's tree), and `_persist_final` onto `run.context_state` | child dispatch, retry, refine, `agent_reflect`, `CortexBridge` | Had no writer until EP-29, so a child never shared its parent's tree and a retry never resumed it |
 | `__cortex_cursor__` | **no writer** | `agent_introspect`, `agent_reflect`, `CortexBridge` | `AgentState.cortex_cursor` is never set either — AK-05 |
 | `__context_sources__` | **no writer** | `prompt_context_block` | Design-time context sources never reach this key |
 | `__completed_steps__` | **no writer** | — | Step completion lives in `AgentState.completed_step_ids` (EP-16) |
