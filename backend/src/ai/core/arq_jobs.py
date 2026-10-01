@@ -1086,6 +1086,3 @@ async def cost_estimator_refresh(ctx: dict[str, Any]) -> dict[str, Any]:
         logger.error(f"cost_estimator_refresh error: {e}")
         return {"error": str(e)}
 
-
-# ---------------------------------------------------------------------------
-# RecursiveReasoningEngine — extends ExecutionEngine with Goal Trees

@@ -47,9 +47,9 @@
 | [T0](#2-t0--tenant-boundary-and-correctness) | Tenant boundary and correctness | 5 | Before the first paying tenant |
 | [T1](#3-t1--config-that-does-nothing) | Config that does nothing | 8 | Each is a decision: wire it or remove it from the UI |
 | [T2](#4-t2--dead-columns-and-dead-docs) | Dead columns and dead docs | 6 | **Now** — free |
-| [T3](#5-t3--traps-in-the-step-engine) | Traps in the step engine | 9 | When the area is next touched |
+| [T3](#5-t3--traps-in-the-step-engine) | Traps in the step engine | 10 | When the area is next touched |
 
-**Total: 28 defects, 10 improvements.** (EP-26…EP-28 were found on 2026-10-01 while consolidating registers 05–11; see [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).)
+**Total: 29 defects, 10 improvements.** (EP-26…EP-29 were found on 2026-10-01 while consolidating registers 05–11; see [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).)
 
 The three to read first:
 
@@ -357,8 +357,8 @@ explanation.
 | **EP-13** | `ExecutionRun.idempotency_key` and `span_id` | Dead columns. Both have partial indexes maintained for them | 📄 Doc-reported |
 | **EP-14** | `ToolInteractionLog.idempotency_key` | Same — dead column, indexed | 📄 Doc-reported |
 | **EP-15** | `ExecutionRun.execution_time_ms` | Never written by the loop path. Derive from `completed_at - started_at`. Any dashboard reading it shows nulls | 📄 Doc-reported |
-| **EP-16** | `__completed_steps__` in `INTERNAL_KEYS.md` | Documented and never written. The live mechanism is `AgentState.completed_step_ids`. The doc is stale and misleads anyone debugging step completion | 📄 Doc-reported |
-| **EP-17** | The stale `core/README.md` | Documents `execution_engine.py` and `recursive_engine.py`, neither of which exists. Same entry as [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified |
+| **EP-16** | `__completed_steps__` in `INTERNAL_KEYS.md` | Documented and never written. The live mechanism is `AgentState.completed_step_ids`. The doc is stale and misleads anyone debugging step completion | ✅ Verified · **fixed (2026-10-01)** — `INTERNAL_KEYS.md` rewritten from the code; it now marks every key with no writer (eleven of them) |
+| **EP-17** | The stale `core/README.md` | Documents `execution_engine.py` and `recursive_engine.py`, neither of which exists. Same entry as [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified · **fixed (2026-10-01)** with AK-14 |
 | **EP-28** | `governance.execution_limits.max_recursion_depth` | A second copy of `governance.max_recursion_depth` with no reader at all (the first is read only into prompt text — [EP-06](#ep-06--max_recursion_depth-is-a-sentence-in-a-prompt)). Two settings for one limit, the same split as [PC-17](07-PLANNING-AND-CRITICS-DEFECTS.md#pc-17--two-different-goal_validation_interval-settings) | ✅ Verified · **open** — found 2026-10-01 |
 
 ---
@@ -542,6 +542,35 @@ a real static plan nobody authored.
 
 **Fix:** compute the display plan in the response, for any level, and never assign it to
 the row.
+
+---
+
+### EP-29 — The CORTEX tree id is never put into the context, so children and retries never share the tree
+
+**✅ Verified · High** · **Status: open** — found 2026-10-01 while rewriting
+`INTERNAL_KEYS.md` (EP-16).
+
+`create_child_run` propagates the parent's tree to a child only
+`if "__cortex_tree_id__" in context`; `retry_execution` and `refine_execution` carry
+it forward the same way; `agent_reflect` and `CortexBridge` read it. **Nothing writes
+that key.** The loop opens the run's tree into the typed `AgentState.cortex_tree_id`
+and never mirrors it into the context dict the executors take. So every child run
+opens a tree of its own (the manifest and `06-execution-pipeline.md` §8 say parent
+and children share one), and a retry or refine starts a fresh tree instead of
+resuming the failed run's.
+
+Related, in the same retry path: `retry_execution` copies `failed_run.context_state`
+"so completed step keys are skipped", but the loop never writes `context_state` at
+finalisation (only `_persist_suspended` does, for its snapshot), and `_bootstrap_state`
+seeds only `run.input_data` — so a retry re-runs every step.
+
+- [`ai/step_executor.py`](../../../backend/src/ai/step_executor.py) — `create_child_run`
+- [`ai/service.py`](../../../backend/src/ai/service.py) — `retry_execution`, `refine_execution`
+- [`ai/core/agent_loop.py`](../../../backend/src/ai/core/agent_loop.py) — `_compose` (sets the typed field only), `_persist_final`
+
+**Fix:** the loop writes `__cortex_tree_id__` into the context when it opens the run's
+tree; a retry carries the tree id and pre-completes the steps the failed run finished,
+from its `result_data["steps"]`.
 
 ---
 

@@ -272,7 +272,7 @@ version passes before publication. Otherwise delete the package and its flags.
 |---|---|---|---|
 | **MI-10** | Curator ↔ anti-sprawl key mismatch | The guard returns `existing_entity_id`; the Curator reads `dup.get('similar_id','?')`. The rationale shown to a human **always displays `?`** instead of the duplicate's id — which is the one piece of information the reviewer needs | ✅ Verified |
 | **MI-11** | The MetaIntelligenceTree has no `entity_id` | Any query filtering on `entity_id` finds nothing. The correct filter is `scope_level=TENANT`. Easy to get wrong, and the failure is an empty result rather than an error | 📄 Doc-reported |
-| **MI-12** | The README says six tree sections; there are seven | `composition` is missing from the README table | 📄 Doc-reported |
+| **MI-12** | The README says six tree sections; there are seven | `composition` is missing from the README table | ✅ Verified · **fixed (2026-10-01)** — the README lists all seven and notes the Board has no caller (MI-20) |
 | **MI-13** | `meta_spec_critic` is a `Tool` outside the registry | Instantiated directly, so `ToolRegistry.get_tool` never finds it. Also recorded as [TX-04](09-TOOLS-DEFECTS.md#tx-04--meta_spec_critic-is-a-tool-that-is-not-in-the-registry) | 📄 Doc-reported |
 | **MI-14** | Synthesised tools register tenant-scoped and are unreachable | `tool_synthesis_pipeline` registers a `DRAFT` tool with `register_tenant_tool`. The executor never passes `company_id`, so the tool cannot be resolved even in the process that registered it — see [TL-10](TOOL-LAYER-DEFECTS.md#tl-10--tenant-scoped-tools-are-unreachable-by-construction) | ✅ Verified |
 

@@ -15,9 +15,9 @@ HierarchicalEntities.
 | `meta_cognition_migration.py` | Pre-deploy backfill: preserves explicit `registry_search` / `self_modification` for AGENT/PROCESS entities that relied on the old auto-on default. |
 | `registry_search_service.py` | Phase-aware structural + semantic search over existing entities. |
 | `anti_sprawl.py` | Per-company AntiSprawlGuard: blocks CREATE on near-duplicates / over-cap counts. |
-| `meta_intelligence_tree.py` | Platform-scoped IntelligenceTree (per company). 6 sections: anti-patterns, spec patterns, test failures, curator decisions, tool reliability, prompt candidates. LRU-pruned at 200 rows / section. |
+| `meta_intelligence_tree.py` | Platform-scoped IntelligenceTree (per company). 7 sections (`SECTIONS`): anti-patterns, spec patterns, test failures, curator decisions, tool reliability, prompt candidates, composition graph. LRU-pruned at 200 rows / section (MI-15). |
 | `skill_library.py` | Detects repeated successful tool chains across recent runs and writes `skill_candidate` nodes for HITL promotion. |
-| `board/` | The 7 roles. See below. |
+| `board/` | The 7 roles. See below. **No production caller** — the Meta-Agent creates entities through `meta_entity_creator`; only `ToolSmith` is used, by tool synthesis (MI-20). |
 
 ### `meta/board/` — Architecture Board roles
 

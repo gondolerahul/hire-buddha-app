@@ -39,10 +39,10 @@
 | Source registers consolidated | 8 (05, 06, 07, 09, 10, 11, TOOL-LAYER, PO-06) |
 | Defect entries in the sources | 189 |
 | Improvement entries in the sources | 60 |
-| Distinct defects after merging duplicates | **166** (23 merges), plus 4 new = **170** |
+| Distinct defects after merging duplicates | **166** (23 merges), plus 5 new = **171** |
 | Already fixed before this consolidation | 10 fully (AK-15, EP-11, PC-04, PC-16, PC-23, PC-24, LP-06, LP-25, TL-19, TL-06) and 2 in part (the queue half of AK-07, the `ToolCostResolver` half of TX-I1) |
 | Found stale while re-verifying | 1 (AK-I7) |
-| New defects found while re-verifying | **4** new entries (EP-26, EP-27, EP-28, MI-20) and **5** existing entries found worse than recorded (LP-01, EP-03, EP-01, PC-18, AK-10) |
+| New defects found while re-verifying | **5** new entries (EP-26, EP-27, EP-28, EP-29, MI-20) and **5** existing entries found worse than recorded (LP-01, EP-03, EP-01, PC-18, AK-10) |
 | Product requirements folded in | 2 (R1 six-level hierarchy, R2 skill-first tool stack) |
 | Phases | 12 (P0 … P11) |
 
@@ -99,7 +99,7 @@ The ten things to read first, in consequence order:
 | 🆕 | Found while re-verifying for this consolidation |
 
 New defects found today keep their register's prefix with the next free number:
-**EP-26, EP-27, EP-28** (register 06) and **MI-20** (register 11). The worse faces of LP-01 and EP-03 are recorded
+**EP-26, EP-27, EP-28, EP-29** (register 06) and **MI-20** (register 11). The worse faces of LP-01 and EP-03 are recorded
 on those entries.
 
 ---
@@ -256,6 +256,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **PC-25** | — | The dynamic planner never sees the run's request — only the entity's standing goal | High | ✅ | P2 |
 | **PC-18** | PC-I5 | `_assign_step_ids` rewrites every step id but not the `{{step_n}}` placeholders. **New face:** nor `target.input_dependencies`, so a dependent step never becomes ready and the plan ends with it unrun | High | ✅ + 🆕 | P2 |
 | **PC-19** | — | `all_required_tools_in_capabilities` compares `str(dict)` with tool ids, so it fails for every tool-bearing entity | Medium | ✅ | P2 |
+| **EP-29** | — | `__cortex_tree_id__` is never written into the context, so a child never shares its parent's CORTEX tree and a retry/refine never resumes it; a retry also re-runs every step (the loop never persists `context_state`) | High | 🆕 | P2 |
 | **LP-01** | LP-I3 | `cost_unit` substring matching: `per_1k_tokens` → divisor 1 (1000×). **New face:** `per_1M_tokens` / `per_1m_tokens` → divisor 1 too (1,000,000×). No validation on write | Critical | ✅ + 🆕 | P2 |
 
 ### WS-C — Cost: one write path
@@ -611,6 +612,7 @@ entity of every level does its work instead of spinning or claiming success.
 | 2.8 | Tool invariant compares ids | PC-19 | Normalise `{"tool_id": …}` dicts |
 | 2.9 | Stuck-run sweeper | AK-03 | A cron finalises runs in `WAITING_ON_CHILDREN` past their governance timeout as `FAILED`, settles them, and releases holds; `resume` stays idempotent |
 | 2.10 | `cost_unit` | LP-01 | Normalise (`_`/`-`/spaces, case) and parse `per_1k`, `per_1m`, `per_million`, `per_1000`, `per token/second/call`; reject unknown units on integration write |
+| 2.11 | The tree id reaches children and retries; a retry resumes completed steps | EP-29 | The loop writes `__cortex_tree_id__` when it opens the run's tree; retry pre-completes the failed run's finished steps from `result_data["steps"]` |
 
 ### P3 — One tool entry point (security)
 

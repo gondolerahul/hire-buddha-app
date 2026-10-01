@@ -1,64 +1,58 @@
-# `INTERNAL_CONTEXT_KEYS` — the legacy `context_state` bridge
+# `INTERNAL_CONTEXT_KEYS` — the `context_state` bridge
 
-`AgentLoop` reasons over a typed `AgentState`. Legacy code paths
-(`ExecutionEngine.execute_run`, the per-step executors, the
-context-source ingestor) still pass a `context_state: dict` around.
-`INTERNAL_CONTEXT_KEYS` is the canonical set of keys that MUST be
-stripped before:
+`AgentLoop` reasons over a typed `AgentState`. The per-step executors, the
+tool executor and the memory assembler still take a plain `context_state: dict`;
+the loop copies state into it (`AgentState.materialise_context_dict`) and back
+(`absorb_context_dict`) around every executor call. `INTERNAL_CONTEXT_KEYS` is
+the set of keys in that dict that are loop plumbing, not task data: the step
+executor leaves them out of the "Available Context from Previous Steps" block it
+appends to a step's prompt, and out of a tool's fallback input.
 
-  * sending a payload to an LLM as the *user input*, and
-  * persisting it back into `ExecutionRun.context`.
-
-These are intra-loop plumbing values. They never belong in a prompt
-or in a billing log.
-
-Source of truth: `backend/src/ai/constants.py::INTERNAL_CONTEXT_KEYS`.
+Source of truth: `backend/src/ai/constants.py::INTERNAL_CONTEXT_KEYS`. Replacing
+the dict with typed state is AK-21 in the
+[consolidated plan](../../../../docs/current/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
 
 ## Inventory
 
-| Key | Writer | Reader | Lifecycle | Notes |
-|-----|--------|--------|-----------|-------|
-| `input` | the caller that triggered the run (HTTP route, cron, gateway, parent run) | every step type | entire run | The user-facing prompt; promoted into the typed `AgentState.context_state["input"]` for compatibility. |
-| `cortex_tree_id` | `AgentLoop._bootstrap_state` / `ExecutionEngine.execute_run` | `step_executor`, `CortexService` | entire run | UUID of the run's CORTEX tree. |
-| `subtree_root_id` | parent run when spawning a child via `RECURSE` | `CortexService(scoped_subtree_root_id=...)` | child run | Pins the child's CORTEX writes to a subtree. |
-| `__memory__` | `run_memory.assemble_run_memory` (via `MemoryAssemblyService`) | `step_executor.prompt_context_block` → sandwich layer 9 | run (assembled once) | Concatenated, ready-to-inject memory block. |
-| `__cortex_viewport__` | `CortexService.get_viewport(...)` | `prompt_utils` | per CORTEX op | Rendered viewport text (now bounded by `max_chars`). |
-| `__cortex_tree_id__` | `CortexService.create_tree` | CORTEX ops | run | Mirror of `cortex_tree_id` for older callers. |
-| `__cortex_cursor__` | `CortexService.navigate` | CORTEX ops | per iteration | Where the agent's viewport currently sits. |
-| `__cortex_knowledge__` | `cortex_bridge.ingest_tool_result` | CORTEX ops | run | Knowledge-subtree handle. |
-| `__context_sources__` | design-time context-source upload | `MemoryAssemblyService` | run | List of `{type, id, page_range}`. |
-| `__episodic_memory__` | `run_memory.assemble_run_memory` (`EpisodicTreeService` recent + topical) | `RunMemory.similar_runs` (Perceiver) | run (assembled once) | List of past-episode dicts. |
-| `__semantic_context__` | `KnowledgeTreeService` semantic search | `prompt_utils` | per iteration | Top-K knowledge refs. |
-| `__memory_context__` | unified memory rollup (v2 path) | `prompt_utils` | per iteration | Composite of the four domains. |
-| `__completed_steps__` | `step_executor.store_step_output` | `step_executor`, planner adapt | run | Ordered list of completed-step dicts; consumed by `PlannerService.adapt_plan`. |
-| `tool_call_counts` | `ToolExecutor` per-run budget | `ToolExecutor` | run | Mutates in place; rate-limits per (run, tool). |
-| `company_id` | router / arq job | every layer | run | Tenant scoping. |
-| `user_id` | router / arq job | every layer | run | Tenant scoping. |
-| `__intelligence__` | `IntelligenceTreeService.get_applicable_rules` | `prompt_utils` | per iteration | List of rule dicts. |
-| `__experience__` | `ExperienceTreeService.get_suggestions` | `prompt_utils` | per iteration | Learned execution patterns. |
-| `__episodic__` | `EpisodicTreeService.get_recent_episodes` (v2 path) | `prompt_utils` | per iteration | Same shape as `__episodic_memory__`; v2 path uses this key. |
-| `__knowledge_refs__` | `KnowledgeTreeService.search` | `prompt_utils` | per iteration | Top-K knowledge ref dicts. |
-| `__execution_metadata__` | `AgentLoop._bootstrap_state` | meta-cognition prompts | run | `{iteration, budget_pressure, open_subgoals}` mirror so legacy prompts can introspect. |
-| `__intelligence_rules__` | `run_memory.assemble_run_memory` (via `MemoryAssemblyService`) | `RunMemory` (Perceiver → supervisor critic), `PlannerService` (`PlanContext.intelligence_rules`) | run (assembled once) | Rule dicts (`title`, `rule`, `type`, `confidence`). |
-| `__alignment_correction__` | GoalGuard shim / `CriticPipeline.alignment` | retry step | iteration N+1 | Correction hint from a failed alignment check. |
-| `__goal_check_counter__` | GoalGuard shim | GoalGuard shim | run | Counts how many alignment checks have run; throttles cadence. |
+Re-checked against the code on 2026-10-01. **No writer** means nothing in
+`src/` puts the key into a context today — readers always see it absent.
+
+| Key | Writer | Reader | Notes |
+|-----|--------|--------|-------|
+| `input` | the caller that triggered the run (HTTP route, cron, gateway, parent run) | every step type | The run's request. Seeded into `AgentState.context_state` from `run.input_data` at bootstrap |
+| `cortex_tree_id` | the caller (a parent's child dispatch, retry, refine) | `run_memory.open_run_tree` | Resume this CORTEX tree instead of creating one |
+| `subtree_root_id` | the CORTEX `RECURSE` factory | `CortexService(scoped_subtree_root_id=...)` | Pins a RECURSE child's writes to a subtree |
+| `__memory__` | `run_memory.assemble_run_memory` | `step_executor.prompt_context_block` (sandwich layer 9) | Rendered memory block, assembled once per run |
+| `__episodic_memory__` | `memory.assembler` | `RunMemory.similar_runs` (Perceiver) | Past-episode dicts |
+| `__intelligence_rules__` | `run_memory.assemble_run_memory` | `RunMemory` (Perceiver, supervisor critic), `PlannerService` | Rule dicts (`title`, `rule`, `type`, `confidence`) |
+| `__cortex_viewport__` | `CortexBridge` | CORTEX step prompts | Rendered viewport text |
+| `__alignment_correction__` | `StepEngine`'s GoalGuard check | the re-executed step | Correction hint from a failed goal check |
+| `__goal_check_counter__` | `StepEngine`'s GoalGuard check | the same | How many goal checks have run |
+| `tool_call_counts` | `StepExecutorService` (reset per step) | `ToolExecutor` | Per-tool call counts (TL-11: reset per step, not per run) |
+| `company_id`, `user_id` | the step executor's tool context | tools | Tenant scoping |
+| `__cortex_tree_id__` | **no writer** | child dispatch, retry, refine, `agent_reflect`, `CortexBridge` | So a child never shares its parent's tree and a retry never resumes it — EP-29 |
+| `__cortex_cursor__` | **no writer** | `agent_introspect`, `agent_reflect`, `CortexBridge` | `AgentState.cortex_cursor` is never set either — AK-05 |
+| `__context_sources__` | **no writer** | `prompt_context_block` | Design-time context sources never reach this key |
+| `__completed_steps__` | **no writer** | — | Step completion lives in `AgentState.completed_step_ids` (EP-16) |
+| `__execution_metadata__`, `__intelligence__` | **no writer** | `agent_introspect` | |
+| `__semantic_context__`, `__memory_context__`, `__cortex_knowledge__`, `__experience__`, `__episodic__`, `__knowledge_refs__` | **no writer** | — | Names reserved by earlier memory designs |
+
+`__agent_state__` — the loop's `{iteration, budget_pressure, open_subgoals}`
+echo, written by `materialise_context_dict` — is **not** in the set, so it is
+rendered into step prompts as if it were a previous step's output (EP-25).
 
 ## Invariants
 
-1. **Keys here are mutually exclusive with prompt input.**
-   `prompt_utils._scrub_internal_keys` MUST strip every member before
-   concatenating user-facing fields.
-2. **Adding a new key requires updating both `constants.py` AND this
-   table** (enforced by Track 9 unit test `test_internal_keys_documented`).
-3. **Removing a key requires a deprecation cycle** — at least one
-   release of `pop(... , None)` with a warning before the underlying
-   producer is removed.
-4. The keys are *additive across releases* — readers MUST tolerate
-   absence and use sensible defaults rather than KeyError.
+1. **These keys are plumbing.** They never belong in a prompt's task data or in
+   a billing log. There is no shared scrub helper: the step executor filters by
+   `INTERNAL_CONTEXT_KEYS` inline where it builds the context block and a tool's
+   fallback input (`prompt_utils._scrub_internal_keys`, cited by older docs, never
+   existed — LP-16).
+2. **Adding a key** means adding it to `constants.py` and to this table.
+3. **Readers must tolerate absence** and use sensible defaults, never `KeyError`.
 
 ## See also
 
 - `backend/src/ai/constants.py` — the source of truth.
-- `backend/src/ai/core/prompt_utils.py` — where the scrub happens.
-- `docs/phase11/plan/01_overview_and_principles.md` §4 — the typed
-  `AgentState` envelope replacing this dict for new code.
+- `backend/src/ai/step_executor.py` — where the filtering happens.
+- `docs/current/05-agent-kernel.md` — the typed `AgentState` envelope.
