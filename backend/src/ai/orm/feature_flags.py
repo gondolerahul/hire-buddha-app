@@ -16,8 +16,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Index, JSON, String, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, Index, String, text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.common.database import Base
@@ -43,6 +43,6 @@ class FeatureFlag(Base):
     entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     flag_key: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    value_json: Mapped[Any] = mapped_column(JSON, nullable=True)
+    value_json: Mapped[Any] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=text("now()"))

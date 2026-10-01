@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, event
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, ORMExecuteState, Session, mapped_column, relationship, with_loader_criteria
 
 from src.common.database import Base
@@ -31,7 +31,7 @@ class HierarchicalEntity(Base):
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     goal: Mapped[str | None] = mapped_column(Text, nullable=True)  # Entity's objective, used in prompt generation
-    tags: Mapped[Any] = mapped_column(JSON, nullable=True)
+    tags: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Template fields
     is_template: Mapped[bool | None] = mapped_column(Boolean, default=False)  # True = blueprint, not executable
@@ -39,15 +39,17 @@ class HierarchicalEntity(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     # Unified structure fields
-    identity: Mapped[Any] = mapped_column(JSON, nullable=True)
-    hierarchy: Mapped[Any] = mapped_column(JSON, nullable=True)
-    logic_gate: Mapped[Any] = mapped_column(JSON, nullable=True)
-    planning: Mapped[Any] = mapped_column(JSON, nullable=True)
-    capabilities: Mapped[Any] = mapped_column(JSON, nullable=True)
-    governance: Mapped[Any] = mapped_column(JSON, nullable=True)
+    identity: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    hierarchy: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    logic_gate: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    planning: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    capabilities: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    governance: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    # Stays JSON (DM-13): the schemas' property order is the Execute form's field
+    # order and the output's section order; JSONB would re-sort the keys.
     io_contract: Mapped[Any] = mapped_column(JSON, nullable=True)
-    observability: Mapped[Any] = mapped_column(JSON, nullable=True)
-    metadata_extensions: Mapped[Any] = mapped_column(JSON, nullable=True)
+    observability: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    metadata_extensions: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

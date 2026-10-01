@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import UniqueConstraint, Boolean, DateTime, ForeignKey, JSON, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.common.database import Base
@@ -39,9 +39,11 @@ class ToolRegistryEntry(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., "browser", "social", "document", "utility"
     tool_type: Mapped[str] = mapped_column(String, nullable=False, default="BUILT_IN")  # BUILT_IN | CUSTOM
+    # Stays JSON (DM-13): an authored JSON Schema, shown back in the editor and
+    # sent to the model as written; JSONB would re-sort its properties.
     function_schema: Mapped[Any] = mapped_column(JSON, nullable=True)  # OpenAI-compatible function schema
     is_enabled: Mapped[bool | None] = mapped_column(Boolean, default=True)
-    configuration: Mapped[Any] = mapped_column(JSON, nullable=True)  # Custom config (API keys ref, etc.)
+    configuration: Mapped[Any] = mapped_column(JSONB, nullable=True)  # Custom config (API keys ref, etc.)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

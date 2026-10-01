@@ -6,8 +6,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, JSON, Numeric, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.common.database import Base
@@ -31,7 +31,7 @@ class UsageLog(Base):
     sku_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("integration_registry.id"), nullable=True)
     raw_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
     calculated_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
-    log_metadata: Mapped[Any] = mapped_column(JSON, nullable=True)
+    log_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
     # Structured attribution tag for cost breakdown (see services/cost_attribution.py).
     attribution: Mapped[str] = mapped_column(String(40), nullable=False, server_default="tool")
 

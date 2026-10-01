@@ -6,8 +6,8 @@ Each company can connect multiple social media accounts across platforms.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, JSON, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from src.common.database import Base
 
@@ -45,8 +45,8 @@ class SocialConnection(Base):
     platform_page_id = Column(String(255), nullable=True)  # page/org ID for Page-level tokens
 
     # OAuth metadata
-    scopes = Column(JSON, nullable=True, default=list)  # granted OAuth scopes
-    oauth_metadata = Column(JSON, nullable=True)  # extra platform-specific data (e.g. ad_account_id)
+    scopes = Column(JSONB, nullable=True, default=list)  # granted OAuth scopes
+    oauth_metadata = Column(JSONB, nullable=True)  # extra platform-specific data (e.g. ad_account_id)
 
     # Status
     is_active = Column(Boolean, nullable=False, default=True)

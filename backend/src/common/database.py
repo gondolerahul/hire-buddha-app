@@ -1,6 +1,33 @@
+import json
+from typing import Any
+
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from src.common.config import settings
+
+
+def _without_nul(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {_without_nul(k): _without_nul(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_without_nul(v) for v in value]
+    return value
+
+
+def json_serializer(value: Any) -> str:
+    """JSON for the driver, with NUL characters dropped (DM-13).
+
+    ``jsonb`` rejects the ``\\u0000`` escape ``json.dumps`` writes for a NUL,
+    and one in a tool's output would fail the whole flush. The common case
+    pays one substring check.
+    """
+    text = json.dumps(value)
+    if "\\u0000" not in text:
+        return text
+    return json.dumps(_without_nul(value))
+
 
 # ── Connection Pool Configuration ──────────────────────────────────────────
 # Deep Research spawns recursive parallel child sessions:
@@ -23,6 +50,7 @@ engine = create_async_engine(
     pool_timeout=60,      # Up from default 30s — give parallel steps more time
     pool_recycle=1800,
     pool_pre_ping=True,
+    json_serializer=json_serializer,
 )
 
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)

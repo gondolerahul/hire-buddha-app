@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Numeric, ForeignKey, UniqueConstraint, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Boolean, DateTime, Text, Numeric, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from src.common.database import Base
 
@@ -41,7 +41,7 @@ class IntegrationRegistry(Base):
     encrypted_api_key = Column(Text, nullable=True)
     internal_cost = Column(Numeric(18, 6), nullable=False)
     cost_unit = Column(String, nullable=False)
-    service_metadata = Column(JSON, nullable=True)
+    service_metadata = Column(JSONB, nullable=True)
     # service_metadata fields by provider:
     #   google/gemini (Vertex AI — default): {"project_id": "...", "region": "us-central1"}
     #   google/gemini (AI Studio — Live models): {"use_ai_studio": true}

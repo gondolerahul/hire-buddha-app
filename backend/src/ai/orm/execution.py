@@ -22,7 +22,7 @@ from sqlalchemy import (
     event,
     select,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.base import NO_VALUE
 
@@ -61,9 +61,11 @@ class ExecutionRun(Base):
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     status: Mapped[str | None] = mapped_column(String, default="PENDING")
-    input_data: Mapped[Any] = mapped_column(JSON, nullable=True)
-    dynamic_plan: Mapped[Any] = mapped_column(JSON, nullable=True)
-    result_data: Mapped[Any] = mapped_column(JSON, nullable=True)
+    input_data: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    dynamic_plan: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    result_data: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    # Stays JSON (DM-13): key order is step order — the step executor keeps the
+    # most recent steps when it trims — and a resumed run reads it back.
     context_state: Mapped[Any] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -150,7 +152,7 @@ class LLMInteractionLog(Base):
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), default=0)
     reasoning_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     step_name: Mapped[str | None] = mapped_column(String, nullable=True)  # Associates this log with a specific plan step
-    log_metadata: Mapped[Any] = mapped_column(JSON, nullable=True)
+    log_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="llm_logs")
@@ -172,12 +174,12 @@ class ToolInteractionLog(Base):
     # The plan step that made the call, as on llm_interaction_logs (FE-10).
     step_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     provider: Mapped[str | None] = mapped_column(String, nullable=True)
-    input_parameters: Mapped[Any] = mapped_column(JSON, nullable=True)
-    output_result: Mapped[Any] = mapped_column(JSON, nullable=True)
+    input_parameters: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    output_result: Mapped[Any] = mapped_column(JSONB, nullable=True)
     success: Mapped[bool | None] = mapped_column(Boolean, default=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    log_metadata: Mapped[Any] = mapped_column(JSON, nullable=True)
+    log_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # Step-level dedup
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -200,9 +202,9 @@ class HumanApproval(Base):
     status: Mapped[str | None] = mapped_column(String, default="PENDING")  # PENDING, APPROVED, REJECTED, TIMEOUT
     requested_by: Mapped[str | None] = mapped_column(String, nullable=True)
     responded_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    context_snapshot: Mapped[Any] = mapped_column(JSON, nullable=True)
+    context_snapshot: Mapped[Any] = mapped_column(JSONB, nullable=True)
     reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    notification_channels: Mapped[Any] = mapped_column(JSON, nullable=True)
+    notification_channels: Mapped[Any] = mapped_column(JSONB, nullable=True)
     timeout_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requested_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

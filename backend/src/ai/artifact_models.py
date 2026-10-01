@@ -13,9 +13,9 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Integer, Boolean, DateTime, ForeignKey,
-    Numeric, JSON, BigInteger
+    Numeric, BigInteger
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from src.common.database import Base
 from src.ai.models import HierarchicalEntity, ExecutionRun
@@ -55,7 +55,7 @@ class Artifact(Base):
     purpose = Column(Text, nullable=True)              # Human-readable description
     generated_by = Column(String(200), nullable=True)  # Tool / agent / process name (e.g. 'image_generation', 'pdf_generator')
 
-    artifact_metadata = Column(JSON, nullable=True)    # Extra info (dimensions, call SID, model used, etc.)
+    artifact_metadata = Column(JSONB, nullable=True)    # Extra info (dimensions, call SID, model used, etc.)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -108,7 +108,7 @@ class CallContent(Base):
     transcript_text = Column(Text, nullable=True)
     summary_text = Column(Text, nullable=True)
     sentiment = Column(String(20), nullable=True)    # positive | neutral | negative
-    content_metadata = Column(JSON, nullable=True)
+    content_metadata = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

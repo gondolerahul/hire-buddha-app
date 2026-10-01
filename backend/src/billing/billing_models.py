@@ -5,9 +5,9 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Integer, Boolean, DateTime, Date,
-    ForeignKey, Numeric, JSON, Index, UniqueConstraint, text
+    ForeignKey, Numeric, Index, UniqueConstraint, text
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from src.common.database import Base
 
@@ -140,7 +140,7 @@ class PaymentTransaction(Base):
     transaction_type = Column(String(30), nullable=False)       # topup | subscription_charge
     status = Column(String(20), nullable=False, default="pending")  # pending | success | failed
     credits_awarded = Column(Numeric(12, 4), nullable=True)
-    transaction_metadata = Column(JSON, nullable=True)
+    transaction_metadata = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

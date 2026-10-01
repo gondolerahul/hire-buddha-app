@@ -127,7 +127,7 @@ graph TB
 | Primary keys | `UUID(as_uuid=True)`, Python-side `default=uuid.uuid4` | `cortex_edges.id` and `feature_flags.id` were created with a `gen_random_uuid()` server default in their migrations |
 | Timestamps | `created_at = DateTime, default=datetime.utcnow`; `updated_at` adds `onupdate=datetime.utcnow` | Naive `DateTime` — **no timezone**. Everything is UTC by convention, not by type. `usage_logs` calls its column `timestamp`, `conversation_history` too |
 | Soft delete | Only `hierarchical_entities` has one: `deleted_at` + `status='DELETED'` | Everything else is a hard delete or never deleted |
-| JSON | `JSON` (generic) on older tables, `JSONB` on newer ones | `execution_trace_events.payload`, all CORTEX JSON, all voice/campaign JSON are JSONB |
+| JSON | `JSONB` everywhere since DM-13 (2026-10-01), except three `json` columns whose key order is content: `execution_runs.context_state`, `hierarchical_entities.io_contract`, `tool_registry_entries.function_schema` | `jsonb` re-sorts object keys and rejects the `\u0000` escape; the engine's `json_serializer` ([database.py](../../backend/src/common/database.py)) drops NUL characters. `tests/unit/test_json_columns.py` fails if a new `json` column appears without a reason |
 | Reserved-word dodges | SQLAlchemy reserves `metadata` on the declarative class, so no column may be called `metadata` | Each such column has the name of the attribute that maps it: `campaign_metadata`, `call_metadata`, `edge_metadata` (renamed from `metadata` in DM-14), `log_metadata`, `artifact_metadata`. `tests/unit/test_metadata_columns.py` fails if a `metadata` column reappears |
 | Money | `Numeric` with explicit scale, never float | `Numeric(10,4)` run cost, `Numeric(18,6)` usage cost, `Numeric(14,6)` billed amount |
 | Declarative base | `src.common.database.Base` for host tables; `cortex_memory.db.Base` for the three CORTEX tables | Alembic's `target_metadata` is a **list** of both — see [§14](#14-migrations-with-alembic) |
@@ -254,19 +254,19 @@ AGENT or PROCESS. Defined at [orm/entity.py:22](../../backend/src/ai/orm/entity.
 | `display_name` | String | yes | — | UI label |
 | `description` | Text | yes | — | |
 | `goal` | Text | yes | — | The objective; injected into generated prompts |
-| `tags` | JSON | yes | — | Array of strings. `tags[0]` is the "primary tag" used by the KPI rollup |
+| `tags` | JSONB | yes | — | Array of strings. `tags[0]` is the "primary tag" used by the KPI rollup |
 | `is_template` | Boolean | yes | `False` | Blueprint, not executable |
 | `template_source_id` | UUID FK→self | yes | — | Which template this was cloned from |
 | `created_by` | UUID FK→users.id | yes | — | |
-| `identity` | JSON | yes | — | Persona. See [§5](#5-inside-the-entity-json-columns) |
-| `hierarchy` | JSON | yes | — | Children + composition |
-| `logic_gate` | JSON | yes | — | Model, retry, review, context policy |
-| `planning` | JSON | yes | — | Static plan + dynamic planning + loop control |
-| `capabilities` | JSON | yes | — | Tools, memory, context engineering, meta-cognition |
-| `governance` | JSON | yes | — | Cost/time caps and HITL checkpoints |
-| `io_contract` | JSON | yes | — | Input/output JSON schemas |
-| `observability` | JSON | yes | — | Log level and cost-tracking toggles |
-| `metadata_extensions` | JSON | yes | — | Free-form; holds per-entity feature-flag overrides and `is_meta_agent` |
+| `identity` | JSONB | yes | — | Persona. See [§5](#5-inside-the-entity-json-columns) |
+| `hierarchy` | JSONB | yes | — | Children + composition |
+| `logic_gate` | JSONB | yes | — | Model, retry, review, context policy |
+| `planning` | JSONB | yes | — | Static plan + dynamic planning + loop control |
+| `capabilities` | JSONB | yes | — | Tools, memory, context engineering, meta-cognition |
+| `governance` | JSONB | yes | — | Cost/time caps and HITL checkpoints |
+| `io_contract` | JSON | yes | — | Input/output JSON schemas. Stays `json` (DM-13): property order is the Execute form's field order and the output's section order, and `jsonb` would re-sort it |
+| `observability` | JSONB | yes | — | Log level and cost-tracking toggles |
+| `metadata_extensions` | JSONB | yes | — | Free-form; holds per-entity feature-flag overrides and `is_meta_agent` |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 | `deleted_at` | DateTime | yes | — | Soft-delete timestamp; NULL means live |
 
@@ -309,10 +309,10 @@ Defined at [orm/execution.py:46](../../backend/src/ai/orm/execution.py:46).
 | `company_id` | UUID FK→companies.id | no | — | Tenant |
 | `user_id` | UUID FK→users.id | yes | — | Who triggered it |
 | `status` | String | yes | `PENDING` | See [§11.2](#112-run-status-lifecycle) |
-| `input_data` | JSON | yes | — | The request payload handed to the entity |
-| `dynamic_plan` | JSON | yes | — | The plan the planner produced (list of plan steps); falls back to the static plan when absent |
-| `result_data` | JSON | yes | — | `{"output": "...", "steps": [...]}` — written in [agent_loop.py:1119](../../backend/src/ai/core/agent_loop.py:1119) |
-| `context_state` | JSON | yes | — | Carried-forward step outputs; a suspended run stores its resumable snapshot under key `__agent_state_snapshot__` |
+| `input_data` | JSONB | yes | — | The request payload handed to the entity |
+| `dynamic_plan` | JSONB | yes | — | The plan the planner produced (list of plan steps); falls back to the static plan when absent |
+| `result_data` | JSONB | yes | — | `{"output": "...", "steps": [...]}` — written in [agent_loop.py:1119](../../backend/src/ai/core/agent_loop.py:1119) |
+| `context_state` | JSON | yes | — | Carried-forward step outputs; a suspended run stores its resumable snapshot under key `__agent_state_snapshot__`. Stays `json` (DM-13): key order is step order, which the step executor's trim relies on after a resume |
 | `error_message` | Text | yes | — | Truncated to 1000 chars |
 | `total_cost_usd` | Numeric(10,4) | yes | `0` | Internal provider cost |
 | `billed_amount` | Numeric(14,6) | yes | — | Result of the TB billing formula — the user-facing charge |
@@ -351,7 +351,7 @@ Defined at [orm/execution.py:132](../../backend/src/ai/orm/execution.py:132).
 | `cost_usd` | Numeric(10,6) | yes | `0` | |
 | `reasoning_mode` | String | yes | — | `REACT` / `CHAIN_OF_THOUGHT` / deprecated modes |
 | `step_name` | String | yes | — | Ties the call to a plan step |
-| `log_metadata` | JSON | yes | — | Free-form extras |
+| `log_metadata` | JSONB | yes | — | Free-form extras |
 | `created_at` | DateTime | yes | utcnow | |
 
 Indexes: `ix_llm_interaction_logs_run_id` — the run page filters on `run_id` (DM-06,
@@ -371,12 +371,12 @@ Defined at [orm/execution.py:159](../../backend/src/ai/orm/execution.py:159).
 | `tool_id` | String | no | — | Registry id, e.g. `web_search` |
 | `tool_name` | String | no | — | |
 | `provider` | String | yes | — | Backing vendor |
-| `input_parameters` | JSON | yes | — | Arguments as sent |
-| `output_result` | JSON | yes | — | Raw tool return |
+| `input_parameters` | JSONB | yes | — | Arguments as sent |
+| `output_result` | JSONB | yes | — | Raw tool return |
 | `success` | Boolean | yes | `True` | |
 | `error_message` | Text | yes | — | |
 | `latency_ms` | Integer | yes | — | |
-| `log_metadata` | JSON | yes | — | |
+| `log_metadata` | JSONB | yes | — | |
 | `idempotency_key` | String(255) | yes | — | Partial index `idx_tool_logs_idemp` where NOT NULL |
 | `created_at` | DateTime | yes | utcnow | |
 
@@ -398,9 +398,9 @@ Defined at [orm/execution.py:187](../../backend/src/ai/orm/execution.py:187).
 | `status` | String | yes | `PENDING` | `PENDING` / `APPROVED` / `REJECTED` / `TIMEOUT` |
 | `requested_by` | String | yes | — | Free text (component name), not a FK |
 | `responded_by` | UUID FK→users.id | yes | — | Reviewer |
-| `context_snapshot` | JSON | yes | — | What the reviewer was shown |
+| `context_snapshot` | JSONB | yes | — | What the reviewer was shown |
 | `reviewer_notes` | Text | yes | — | |
-| `notification_channels` | JSON | yes | — | e.g. `["email","dashboard"]` |
+| `notification_channels` | JSONB | yes | — | e.g. `["email","dashboard"]` |
 | `timeout_ms` | Integer | yes | — | |
 | `requested_at` | DateTime | yes | utcnow | |
 | `responded_at` | DateTime | yes | — | |
@@ -456,9 +456,9 @@ Defined at [orm/tools.py:26](../../backend/src/ai/orm/tools.py:26).
 | `description` | Text | yes | — | |
 | `category` | String | yes | — | `browser`, `social`, `document`, `utility`, … |
 | `tool_type` | String | no | `BUILT_IN` | `BUILT_IN`, `CUSTOM` (app_admin-created, APP company) or `SYNTHESIZED` (meta-agent, per tenant); indexed |
-| `function_schema` | JSON | yes | — | OpenAI-compatible function-calling schema |
+| `function_schema` | JSON | yes | — | OpenAI-compatible function-calling schema. Stays `json` (DM-13): an authored schema, shown back in the editor as written |
 | `is_enabled` | Boolean | yes | `True` | |
-| `configuration` | JSON | yes | — | Custom config (credential refs etc.) |
+| `configuration` | JSONB | yes | — | Custom config (credential refs etc.) |
 | `created_by` | UUID FK→users.id | yes | — | |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 
@@ -764,7 +764,7 @@ is a row here. Defined at [config/models.py:27](../../backend/src/config/models.
 | `encrypted_api_key` | Text | yes | — | AES-256-GCM ciphertext via `common/security.py` |
 | `internal_cost` | Numeric(18,6) | no | — | Provider cost per `cost_unit` |
 | `cost_unit` | String | no | — | Drives the divisor: strings containing `1m token`/`million` → 1e6, `1k token` or `1000 char` → 1e3, otherwise 1 ([usage_service.py:91](../../backend/src/ai/usage_service.py:91)) |
-| `service_metadata` | JSON | yes | — | Provider-specific. Vertex: `{"project_id","region"}`. AI Studio: `{"use_ai_studio": true}`. Azure: `{"azure_endpoint","api_version","deployment_name"}` |
+| `service_metadata` | JSONB | yes | — | Provider-specific. Vertex: `{"project_id","region"}`. AI Studio: `{"use_ai_studio": true}`. Azure: `{"azure_endpoint","api_version","deployment_name"}` |
 | `status` | String | yes | `active` | Only `active` rows are used for pricing |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 
@@ -802,7 +802,7 @@ system caused it. Defined at [orm/usage.py:24](../../backend/src/ai/orm/usage.py
 | `sku_id` | UUID FK→integration_registry.id | no | — | What was consumed |
 | `raw_quantity` | Numeric(18,6) | no | — | Tokens, seconds, characters, calls |
 | `calculated_cost` | Numeric(18,6) | no | — | `internal_cost * raw_quantity / divisor` |
-| `log_metadata` | JSON | yes | — | Free-form context, e.g. `embedding_phase: ingestion\|retrieval` |
+| `log_metadata` | JSONB | yes | — | Free-form context, e.g. `embedding_phase: ingestion\|retrieval` |
 | `attribution` | String(40) | no | server `tool` | Closed enum — see [§11.7](#117-cost-attribution-tags) |
 
 Index `ix_usage_logs_attribution`.
@@ -920,7 +920,7 @@ Defined at [billing_models.py:127](../../backend/src/billing/billing_models.py:1
 | `transaction_type` | String(30) | no | — | `topup` or `subscription_charge` |
 | `status` | String(20) | no | `pending` | `pending` / `success` / `failed` |
 | `credits_awarded` | Numeric(12,4) | yes | — | |
-| `transaction_metadata` | JSON | yes | — | |
+| `transaction_metadata` | JSONB | yes | — | |
 | `created_at` / `updated_at` | DateTime | no | utcnow | |
 
 The `wallet` relationship is a **viewonly** join on `company_id` — there is no FK
@@ -1208,7 +1208,7 @@ Defined at [artifact_models.py:102](../../backend/src/ai/artifact_models.py:102)
 | `transcript_text` | Text | yes | — | |
 | `summary_text` | Text | yes | — | |
 | `sentiment` | String(20) | yes | — | `positive` / `neutral` / `negative` |
-| `content_metadata` | JSON | yes | — | |
+| `content_metadata` | JSONB | yes | — | |
 | `created_at` | DateTime | no | utcnow | |
 
 ---
@@ -1247,7 +1247,7 @@ Defined at [artifact_models.py:34](../../backend/src/ai/artifact_models.py:34).
 | `mime_type` | String(100) | yes | — | |
 | `purpose` | Text | yes | — | Human-readable reason |
 | `generated_by` | String(200) | yes | — | Tool/agent name, e.g. `image_generation` |
-| `artifact_metadata` | JSON | yes | — | Dimensions, call SID, model used, … |
+| `artifact_metadata` | JSONB | yes | — | Dimensions, call SID, model used, … |
 | `created_at` | DateTime | no | utcnow | |
 
 Indexes: company, campaign, agent, origin, file_category, created_at.
@@ -1288,8 +1288,8 @@ Defined at [social_models.py:25](../../backend/src/ai/social_models.py:25).
 | `token_expires_at` | DateTime | yes | — | NULL = never expires |
 | `platform_user_id` | String(255) | yes | — | e.g. LinkedIn URN |
 | `platform_page_id` | String(255) | yes | — | Page/org id for page-level tokens |
-| `scopes` | JSON | yes | `list` | Granted OAuth scopes |
-| `oauth_metadata` | JSON | yes | — | Platform extras, e.g. `ad_account_id` |
+| `scopes` | JSONB | yes | `list` | Granted OAuth scopes |
+| `oauth_metadata` | JSONB | yes | — | Platform extras, e.g. `ad_account_id` |
 | `is_active` | Boolean | no | `True` | |
 | `status` | String(50) | no | `active` | `active` / `token_expired` / `revoked` / `error` |
 | `last_used_at` | DateTime | yes | — | |
@@ -1320,7 +1320,7 @@ flag at its default".
 | `entity_id` | UUID | yes | — | NULL = not entity-scoped. No FK |
 | `flag_key` | String(128) | no | — | e.g. `agent_loop.budget_aware_react` |
 | `enabled` | Boolean | no | `false` | |
-| `value_json` | JSON | yes | — | For numeric/complex flags |
+| `value_json` | JSONB | yes | — | For numeric/complex flags |
 | `created_at` / `updated_at` | DateTime | no | `now()` | |
 
 Three **partial unique indexes** enforce one row per (flag, scope) tier, which is needed
