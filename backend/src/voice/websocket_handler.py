@@ -952,29 +952,13 @@ class BaseStreamHandler:
         while self.is_running and time.time() < min(self._agent_playback_until, deadline):
             await asyncio.sleep(0.2)
 
-    async def _tool_access(self):
-        """What this call's agent may run, and what its tools are told about
-        the call — read once per session (P3.1, P3.2)."""
-        if getattr(self, "_access", None) is None:
-            from sqlalchemy import select
-            from src.ai.models import HierarchicalEntity
-            from src.ai.governance.tool_access import ExecutionContext, ToolAccess
-            company_id = self.voice_session.company_id
-            entity = (await self.db.execute(
-                select(HierarchicalEntity).where(
-                    HierarchicalEntity.id == self.voice_session.agent_id,
-                    HierarchicalEntity.company_id == company_id,
-                )
-            )).scalar_one_or_none()
-            # No agent in this company: nothing is granted, every call is refused.
-            self._access = await ToolAccess.load(
-                self.db, company_id, entity, meta_tools=False,
-            ) if entity is not None else ToolAccess(company_id=company_id)
-            self._tool_context = ExecutionContext.for_session(
-                company_id, entity, user_id=self.voice_session.customer_id,
-                campaign_id=(self.voice_session.session_metadata or {}).get("campaign_id"),
-            )
-        return self._access
+    def _tool_calls(self):
+        """The call's tool calls: resolved, logged and charged against one run
+        per call (P3.1, P3.2, TL-20)."""
+        if getattr(self, "_voice_tools", None) is None:
+            from src.voice.tool_calls import VoiceToolCalls
+            self._voice_tools = VoiceToolCalls(self.db, self.voice_session)
+        return self._voice_tools
 
     async def _handle_tool_call(self, tool_call):
         """
@@ -988,8 +972,6 @@ class BaseStreamHandler:
         corresponding FunctionCall — otherwise the API rejects it and
         Gemini hangs waiting for the response (causing long silences).
         """
-        from src.ai.tool_executor import ToolExecutor
-
         # Preserve original FunctionCall objects for their `id` field
         original_fcs = list(tool_call.function_calls)
 
@@ -1086,14 +1068,7 @@ class BaseStreamHandler:
         logger.info(f"Executing {len(function_calls)} tool call(s): "
                     f"{[c['name'] for c in function_calls]}")
 
-        access = await self._tool_access()
-        results = await ToolExecutor.execute_from_function_calls(
-            function_calls, extra_context=self._tool_context.as_tool_context(),
-            access=access,
-        )
-        for result in results:
-            if not result.skipped:
-                access.record(result.tool)  # the session's call limits (TL-11)
+        results = await self._tool_calls().run_calls(function_calls)
 
         # Log tool results for observability
         for fc_dict, result in zip(function_calls, results):
@@ -1549,9 +1524,17 @@ class BaseStreamHandler:
                     except Exception as _sum_err:
                         logger.warning(f"Post-call summary generation failed: {_sum_err}")
 
-                    # Usage + billing
+                    # Usage + billing. The call's tool calls are charged with it
+                    # (TL-20): their run is closed here and its cost joins the total.
+                    tool_cost = Decimal("0")
+                    if getattr(self, "_voice_tools", None) is not None:
+                        try:
+                            tool_cost = await self._voice_tools.finish(session)
+                        except Exception as _tool_err:
+                            logger.warning(f"Closing the call's tool run failed: {_tool_err}")
                     usage_logger = VoiceUsageLogger(session)
                     usage = await usage_logger.log_voice_session_usage(
+                        tool_cost=tool_cost,
                         session_id=self.session_id,
                         company_id=self.voice_session.company_id,
                         provider=self.voice_session.provider,

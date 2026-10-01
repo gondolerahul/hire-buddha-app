@@ -549,7 +549,7 @@ Adding one priced tool means editing four files.
 
 ### TL-20 — Voice tool calls are unattributed and unbilled
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.7)** — [`voice/tool_calls.py`](../../../backend/src/voice/tool_calls.py): a call's first tool call opens an `ExecutionRun` for it; every call resolves through the agent's `ToolAccess`, carries the run id in its `ExecutionContext`, is logged in `tool_interaction_logs` (refusals marked) and, when it succeeds, priced by `ToolCostResolver` into `usage_logs` on the run. At call end the run is closed with its tool cost and that cost joins the call's charged total. `tests/integration/test_voice_tool_calls.py`.
 
 The voice handler builds `extra_context` with only `company_id` and `user_id` — **no
 `run_id`, no `agent_id`** — and runs no cost block at all. A voice agent can call

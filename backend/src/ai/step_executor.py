@@ -126,6 +126,27 @@ def llm_step_result(step_name: str, output: str, response: Any, reasoning_mode: 
     return result
 
 
+def log_tool_call(db: Any, run_id: Any, step_name: str, access: Any, tr: Any,
+                  input_parameters: Any, latency_ms: int) -> None:
+    """One ``tool_interaction_logs`` row per call, on every path that runs a
+    tool (steps and voice). A call that ran counts toward the run's limits
+    (``ToolAccess.record``); a refused call is logged as refused and does not
+    (TL-11)."""
+    db.add(ToolInteractionLog(
+        run_id=run_id,
+        tool_id=tr.tool,
+        tool_name=tr.tool,
+        step_name=step_name[:100],
+        input_parameters=input_parameters,
+        output_result=str(tr.output),
+        success=tr.success,
+        latency_ms=latency_ms,
+        log_metadata={"refused": tr.skip_reason} if tr.skipped else None,
+    ))
+    if not tr.skipped:
+        access.record(tr.tool)
+
+
 class StepExecutorService:
     """Handles individual step execution: THOUGHT, TOOL_CALL, CHILD_ENTITY_INVOCATION.
 
@@ -464,22 +485,8 @@ class StepExecutorService:
 
     def _log_tool_call(self, run: ExecutionRun, step: PlanStep, access: Any, tr: Any,
                        input_parameters: Any, latency_ms: int) -> None:
-        """One ``tool_interaction_logs`` row per call. A call that ran counts
-        toward the run's limits (``ToolAccess.record``); a refused call is
-        logged as refused and does not (TL-11)."""
-        self.db.add(ToolInteractionLog(
-            run_id=run.id,
-            tool_id=tr.tool,
-            tool_name=tr.tool,
-            step_name=(getattr(step, "name", "") or "")[:100],
-            input_parameters=input_parameters,
-            output_result=str(tr.output),
-            success=tr.success,
-            latency_ms=latency_ms,
-            log_metadata={"refused": tr.skip_reason} if tr.skipped else None,
-        ))
-        if not tr.skipped:
-            access.record(tr.tool)
+        log_tool_call(self.db, run.id, getattr(step, "name", "") or "", access, tr,
+                      input_parameters, latency_ms)
 
     async def _charge_tool(self, run: 'ExecutionRun', tool_id: str, latency_ms: int = 0) -> Decimal:
         """Price one tool call through ToolCostResolver — the one price table

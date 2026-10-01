@@ -272,11 +272,14 @@ class ExecutionContext:
     @classmethod
     def for_session(
         cls, company_id: Any, entity: Any, *, user_id: Any = None, campaign_id: Any = None,
+        run_id: Any = None,
     ) -> "ExecutionContext":
-        """The context of a tool call in a live session (voice), outside a run."""
+        """The context of a tool call in a live session (voice); ``run_id`` is
+        the run the session's tool calls are logged and charged to (TL-20)."""
         return cls(
             company_id=str(company_id),
             user_id=str(user_id) if user_id else None,
+            run_id=str(run_id) if run_id else None,
             agent_id=str(entity.id) if getattr(entity, "id", None) is not None else None,
             entity_name=str(getattr(entity, "name", "") or ""),
             is_meta_agent=bool(_meta_extensions(entity).get("is_meta_agent")),

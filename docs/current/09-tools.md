@@ -220,7 +220,7 @@ required argument — there is no way to run a tool by name alone:
 | ReAct / chain-of-thought step (`StepExecutorService._execute_thought`) | per step | `llm` |
 | `TOOL_CALL` plan step (`_execute_tool_call`) | per step | `plan` |
 | `ToolResilience` retries and fallbacks | the caller's | the original call's — a fallback the entity was not granted is refused |
-| Voice (`agent_loader` advertisement, `websocket_handler` calls) | per call session, without the meta tools (they need a run) | `llm` |
+| Voice (`agent_loader` advertisement, `voice/tool_calls.py` calls) | per call session, without the meta tools; the session's calls are logged and charged to one run per call (TL-20) | `llm` |
 
 Advertisement and execution use the same rule, so nothing is offered that would be
 refused. A refusal reaches the model as `Error: tool 'x' is not granted to this
@@ -324,7 +324,7 @@ builds — `ExecutionContext.for_run(run, entity, run_context)` on both step pat
 
 | Key | From |
 |---|---|
-| `company_id`, `user_id`, `run_id` | the run row (voice: the session; `user_id` is `"default"` when there is none) |
+| `company_id`, `user_id`, `run_id` | the run row (voice: the session and the call's run; `user_id` is `"default"` when there is none) |
 | `agent_id`, `entity_id`, `__entity_id__` | the entity |
 | `__entity_name__` | the entity's name |
 | `__is_meta_agent__` | the entity's `metadata_extensions.is_meta_agent` |

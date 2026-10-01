@@ -70,7 +70,8 @@ class VoiceUsageLogger:
         duration_seconds: int,
         audio_input_seconds: Optional[int] = None,
         audio_output_seconds: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        tool_cost: Decimal = Decimal("0"),
     ) -> VoiceUsage:
         """
         Log usage for a completed voice session.
@@ -83,6 +84,9 @@ class VoiceUsageLogger:
             audio_input_seconds: Audio sent to LLM (optional, defaults to full duration)
             audio_output_seconds: Audio received from LLM (optional, defaults to full duration)
             metadata: Additional metadata to log
+            tool_cost: The call's tool calls, already logged per call against
+                the call's run (``voice.tool_calls``, TL-20); counted in the
+                total so the call's one charge includes them
             
         Returns:
             The total cost in USD and its telephony part
@@ -153,7 +157,11 @@ class VoiceUsageLogger:
         except Exception as e:
             logger.error(f"Failed to log LLM output usage: {e}")
         
-        # 4. Update voice session total cost
+        # 4. The call's tool calls (each has its own usage_logs row on the run).
+        if tool_cost and tool_cost > 0:
+            total_cost += Decimal(str(tool_cost))
+
+        # 5. Update voice session total cost
         try:
             await self._update_session_total_cost(session_id, total_cost)
             logger.info(f"Updated voice session {session_id} total cost: ${total_cost}")

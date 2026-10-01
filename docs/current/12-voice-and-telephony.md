@@ -498,7 +498,7 @@ sequenceDiagram
     participant F as LiveClientFactory
     participant C as GeminiLiveClient
     participant S as Live session
-    participant TE as ToolExecutor
+    participant VT as VoiceToolCalls
 
     H->>F: create_client(system_instruction, voice_config, ...)
     F->>F: resolve_model_for_task("speech_to_speech")
@@ -514,8 +514,9 @@ sequenceDiagram
         S-->>H: server_content.input_transcription / output_transcription
     end
     S-->>H: response.tool_call.function_calls
-    H->>TE: execute_from_function_calls(calls, extra_context)
-    TE-->>H: List[ToolResult]
+    H->>VT: run_calls(calls) - first call opens the call's ExecutionRun
+    VT->>VT: ToolAccess.resolve each, run, log against the run, charge
+    VT-->>H: List[ToolResult]
     H->>S: send_tool_response(FunctionResponse(id=fc.id, name, response))
     Note over H,S: The `id` MUST be echoed back or Gemini hangs waiting
 ```
@@ -524,6 +525,19 @@ sequenceDiagram
 
 - `email_address` is stripped from `email_send` / `email_draft` args, because the model invents fake sender addresses like `customer.email@example.com` and the connection lookup then fails. The tool falls back to the company default.
 - The synthetic `end_call` tool is intercepted before it reaches the registry (see §12).
+
+**Tool calls have a run** (since 2026-10-01, TL-20). [`VoiceToolCalls`](../../backend/src/voice/tool_calls.py)
+opens one `ExecutionRun` per call at its first tool call (the voice agent, `input_data`
+`{"channel": "voice", "voice_session_id": …}`). Each call resolves through the agent's
+`ToolAccess` (its granted tools only — no meta tools; refusals as in
+[09 §2.3](09-tools.md#23-tool-access--the-one-resolution-point)), gets an
+`ExecutionContext` with the run id, writes a `tool_interaction_logs` row and, when it
+succeeded, a priced `usage_logs` row on the run. At call end the run is closed with its
+tool cost, and `log_voice_session_usage(tool_cost=…)` adds that cost to the call's total,
+so the one charge, the billing event and `voice_sessions.total_cost_usd` include it. The
+run is never settled on its own, so nothing is billed twice. Before, tools got only a
+company and a user: no run, no log, no charge. The tool-call messages of one call share
+the handler's database session, so `VoiceToolCalls` runs them one batch at a time.
 
 **Reconnect:** there is none. A failure inside `_receive_from_live_client` logs and sets `is_running = False`, which ends the call. There is no retry, no session resumption.
 
