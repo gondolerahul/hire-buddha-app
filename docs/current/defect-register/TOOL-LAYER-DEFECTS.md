@@ -412,7 +412,7 @@ nothing reads.
 **✅ Verified · High**
 
 The executor resolves tools through `ToolRegistry.get_tool()`, which never consults the
-database. Toggling a tool off hides it from `ToolSelectionPanel` only; entities that
+database. Toggling a tool off hides it from the entity builder's tool picker only; entities that
 already reference it keep calling it. An admin who toggles a tool off will reasonably
 believe it is off.
 
@@ -420,7 +420,7 @@ Kill-switching a tool today means deleting its `ToolRegistry.register(...)` line
 redeploying.
 
 - [`ai/tool_management_router.py:94`](../../../backend/src/ai/tool_management_router.py:94) — the toggle route
-- [`frontend/src/components/ToolSelectionPanel.tsx`](../../../frontend/src/components/ToolSelectionPanel.tsx) — the only consumer
+- [`frontend/src/pages/ai/EntityConfigurationTabs.tsx:311`](../../../frontend/src/pages/ai/EntityConfigurationTabs.tsx:311) — the only consumer (the Capabilities tab; `ToolSelectionPanel`, named here before, was never mounted and was deleted under FE-30)
 - Root cause: Fault A
 
 ---

@@ -39,9 +39,9 @@ interface UseAgentEventsOptions {
  * Low-level hook: opens a single EventSource, parses every message
  * into `AgentEvent | null`, and routes to the callback.
  *
- * Auth: tokens are injected via the `?token=` query param matching the
- * existing `useSSE` convention; the backend's SSE auth middleware
- * accepts both `Authorization` headers and query tokens.
+ * Auth: an EventSource cannot send headers, so the token goes in the
+ * `?token=` query param; the backend's SSE auth middleware accepts both
+ * `Authorization` headers and query tokens.
  */
 export function useAgentEvents({
     url,
@@ -65,8 +65,7 @@ export function useAgentEvents({
                 if (parsed) eventRef.current(parsed);
                 else if (onUnknown) onUnknown(raw);
             } catch {
-                // Non-JSON payload — ignore; the legacy useSSE handler
-                // already deals with these.
+                // Non-JSON payload — ignore.
             }
         };
         source.onerror = (e) => onError?.(e);

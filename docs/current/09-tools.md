@@ -1891,10 +1891,11 @@ hand with `_BUILTIN_CATEGORIES` on the backend. `social` is in the UI list but
 **not one of the 21 entries in `_BUILTIN_CATEGORIES`**, so all 64 social tools
 land in `general`.
 
-[ToolSelectionPanel.tsx](../../frontend/src/components/ToolSelectionPanel.tsx)
-(107 lines) is the checkbox picker used inside the entity builder. It fetches
-`/ai/tools`, filters out disabled tools, and calls back with a plain array of
-tool *names* — which is what ends up in `capabilities.tools`.
+The tool picker is the entity builder's Capabilities tab
+([EntityConfigurationTabs.tsx](../../frontend/src/pages/ai/EntityConfigurationTabs.tsx)).
+It fetches `/ai/tools`, filters out disabled tools, and stores a plain array of
+tool *names* in `capabilities.tools`. (A separate, unused `ToolSelectionPanel`
+was deleted under FE-30.)
 
 ---
 
@@ -2002,7 +2003,6 @@ reading the backend's `.env` file off the host filesystem.
 | [docker/sandbox/Dockerfile](../../backend/docker/sandbox/Dockerfile) | 66 | the `hb-sandbox` image |
 | [docker/egress-proxy/tinyproxy.conf](../../backend/docker/egress-proxy/tinyproxy.conf) | 33 | `FilterDefaultDeny` proxy config |
 | [frontend/.../ToolManagement.tsx](../../frontend/src/pages/ai/ToolManagement.tsx) | 445 | admin tool registry screen |
-| [frontend/.../ToolSelectionPanel.tsx](../../frontend/src/components/ToolSelectionPanel.tsx) | 107 | tool picker inside the entity builder |
 
 ---
 

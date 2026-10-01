@@ -1142,7 +1142,6 @@ Two test files exist:
 
 | File | Covers |
 |---|---|
-| [cortex-helpers.test.ts](../../frontend/src/components/agent/cortex-helpers.test.ts) | CORTEX tree rendering helpers |
 | [useExecutionEvents.test.ts](../../frontend/src/hooks/useExecutionEvents.test.ts) | The SSE execution-event hook |
 
 > ⚠️ **No test runner is configured.** `frontend/package.json` has four scripts

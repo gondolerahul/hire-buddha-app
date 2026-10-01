@@ -1620,10 +1620,9 @@ at `/api/v1/cortex` (registered without an extra prefix in
 This API backs the **CORTEX Explorer** UI
 ([CortexExplorer.tsx](../../frontend/src/pages/ai/CortexExplorer.tsx),
 [CortexTreeDetail.tsx](../../frontend/src/pages/ai/CortexTreeDetail.tsx)) — a
-tree browser that lets an operator walk an agent's memory node by node. Helper
-logic for rendering lives in
-[cortex-helpers.ts](../../frontend/src/components/agent/cortex-helpers.ts), which
-has its own unit tests.
+tree browser that lets an operator walk an agent's memory node by node. (A
+`cortex-helpers.ts` module with unit tests existed, but nothing used it; it was
+deleted under FE-14.)
 
 See [17 — API reference](17-api-reference.md) for request/response schemas.
 

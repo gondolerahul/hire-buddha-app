@@ -1090,7 +1090,6 @@ worth knowing before you spend a day making the stream resumable.
 |------|------|---------|-----------|
 | `useAgentEvents` | [`services/events.ts`](../../frontend/src/services/events.ts) | `useExecutionEvents` | Low level. Opens one `EventSource`, JSON-parses each `message`, routes to `onEvent` or `onUnknown`. |
 | `useExecutionEvents` | [`hooks/useExecutionEvents.ts`](../../frontend/src/hooks/useExecutionEvents.ts) | `AgentLoopExecutionDetail` | Reducer over `AgentEvent`. Builds `iterations`, `iterationOrder`, `spans`, `banditUpdates`, `replans`, `costByAttribution`, `taskClass`. |
-| `useSSE` | [`hooks/useSSE.ts`](../../frontend/src/hooks/useSSE.ts) | **nothing** | Older generic hook. Closes on `data.status === 'complete'` — a lowercase value nothing publishes. Dead code. |
 
 Token injection is identical in both live hooks:
 
@@ -1496,7 +1495,6 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | [`backend/src/ai/core/arq_jobs.py:163`](../../backend/src/ai/core/arq_jobs.py:163) | — | `process_gateway_event`, the worker side of every webhook/internal event. |
 | [`frontend/src/services/events.ts`](../../frontend/src/services/events.ts) | 79 | `useAgentEvents` — the live `EventSource` hook. |
 | [`frontend/src/hooks/useExecutionEvents.ts`](../../frontend/src/hooks/useExecutionEvents.ts) | 288 | Reducer turning SSE events into the Execution Detail view model. |
-| [`frontend/src/hooks/useSSE.ts`](../../frontend/src/hooks/useSSE.ts) | 58 | Older generic SSE hook. No callers. |
 | [`deploy/apache/gateway.hirebuddha.com-le-ssl.conf`](../../deploy/apache/gateway.hirebuddha.com-le-ssl.conf) | 32 | The only vhost with WebSocket upgrade rules and a 24 h `ProxyTimeout`. |
 | [`backend/tests/e2e/test_12_unified_gateway.py`](../../backend/tests/e2e/test_12_unified_gateway.py) | 360 | ASGI-transport tests (on the API app) for health, webhooks, internal events, the bus and strategy detection. |
 | [`backend/tests/unit/test_single_port_app.py`](../../backend/tests/unit/test_single_port_app.py) | 155 | Every edge route is on the API; no catch-all; one CORS list; WebSockets untraced; rate limit and its exemptions. |

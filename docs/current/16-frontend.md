@@ -517,7 +517,7 @@ Active-state detection is `location.pathname.startsWith(path)`, which means
 
 | Key | Written by | Read by |
 |-----|-----------|---------|
-| `access_token` | `auth.service.ts` login/register/refresh, `api.client.ts` refresh interceptor, `oauth.service.ts` callback | `api.client.ts` request interceptor, `useSSE`, `services/events.ts`, `authService.isAuthenticated()` |
+| `access_token` | `auth.service.ts` login/register/refresh, `api.client.ts` refresh interceptor, `oauth.service.ts` callback | `api.client.ts` request interceptor, `services/events.ts`, `authedApiUrl` in `config/api.ts`, `authService.isAuthenticated()` |
 | `refresh_token` | same three | `api.client.ts` refresh interceptor |
 
 Using `localStorage` rather than an httpOnly cookie means any XSS on the page
@@ -1094,7 +1094,6 @@ Copy that habit.
 
 | Hook | File | Status |
 |------|------|--------|
-| `useSSE` | [`hooks/useSSE.ts`](../../frontend/src/hooks/useSSE.ts) | **Dead code.** Nothing imports it. 58 lines. |
 | `useAgentEvents` | [`services/events.ts`](../../frontend/src/services/events.ts) | The live one. Used by `useExecutionEvents`. |
 
 Both authenticate by appending `?token=<access_token>` to the URL, because the
@@ -1127,9 +1126,9 @@ useEffect(() => {
 
 **Reconnection:** there is none written by hand. `EventSource` has built-in
 automatic reconnection with an exponential-ish browser-managed backoff, and the
-code does not `close()` on error, so the browser keeps retrying. The older dead
-`useSSE` did the opposite — it called `eventSource.close()` inside `onerror`,
-permanently killing the stream on the first blip.
+code does not `close()` on error, so the browser keeps retrying. (The older
+`useSSE` did the opposite — it closed the stream on the first error. It was
+never used and was deleted under FE-30.)
 
 **Cleanup** is a single `source.close()` in the effect teardown, keyed on `url`.
 Passing `url = null` tears the connection down; that is the documented way to
@@ -1507,22 +1506,18 @@ is noted.
 
 ### 10.8 Dead code you can delete
 
-These files compile and are never reached:
+One file compiles and is never reached:
 
-| File | Lines | Why it is dead |
+| File | Lines | Why it is unreached |
 |------|-------|----------------|
-| [`pages/reports/BillingReport.tsx`](../../frontend/src/pages/reports/BillingReport.tsx) | 171 | Never routed, never imported. |
-| [`pages/streaming/PhoneNumbersPage.tsx`](../../frontend/src/pages/streaming/PhoneNumbersPage.tsx) | 516 | Superseded by `PhonePool.tsx`; `/streaming/phone-numbers` redirects away. Still exported from `streaming/index.ts`. |
-| [`components/ToolSelectionPanel.tsx`](../../frontend/src/components/ToolSelectionPanel.tsx) | 107 | Its job was absorbed into the Capabilities tab. Nothing imports it. |
-| [`components/agent/PlanCandidatesCompare.tsx`](../../frontend/src/components/agent/PlanCandidatesCompare.tsx) | 131 | Fully built modal; never mounted anywhere. |
-| [`components/agent/SupervisorAndBandit.tsx`](../../frontend/src/components/agent/SupervisorAndBandit.tsx) | 201 | `SupervisorVerdictCard`, `CriticCostShareGauge`, `BanditArmsPanel` — all three unused. |
-| `ProvenanceRibbon` in `components/agent/AgentKernel.tsx` | ~30 | Exported, never used. |
-| `components/agent/cortex-helpers.ts` | 46 | Only its own test imports it. |
-| [`hooks/useSSE.ts`](../../frontend/src/hooks/useSSE.ts) | 58 | Superseded by `useAgentEvents`. |
+| [`pages/reports/BillingReport.tsx`](../../frontend/src/pages/reports/BillingReport.tsx) | 171 | Never routed, never imported. Kept: it is the client-facing billing report, and whether it ships is PO-22's product decision. |
 
-That is roughly **1,250 lines of unreferenced code** (`AssetLibrary.tsx` and `asset.service.ts` were deleted under PO-13), plus their CSS. Worth
-noting that `agent.service.getPlanCandidates` and `getBanditState` exist purely
-to feed the two unmounted components.
+The rest of what this table listed was deleted on 2026-10-01: `PlanCandidatesCompare`,
+`SupervisorAndBandit`, `ProvenanceRibbon` and `cortex-helpers` (FE-14), and
+`PhoneNumbersPage`, `ToolSelectionPanel` and `useSSE` (FE-30) — about 1,100 lines plus
+their CSS. (`AssetLibrary.tsx` and `asset.service.ts` went under PO-13.)
+`agent.service.getPlanCandidates` and `getBanditState` are kept: they describe API
+endpoints that exist, though no page calls them now.
 
 ---
 
@@ -1763,12 +1758,9 @@ written into the map second.
 | `CriticVerdictChip` | `AgentKernel.tsx:155` | `IterationCard` | yes |
 | `FailureTagChip` | `AgentKernel.tsx:199` | `IterationCard` | yes |
 | `RetryStrategyBadge` | `AgentKernel.tsx:216` | `IterationCard` | yes |
-| `ProvenanceRibbon` | `AgentKernel.tsx:241` | — | **no** |
 | `AgentStatePanel` | `AgentStatePanel.tsx` | `AgentLoopExecutionDetail` | yes |
 | `IterationCard` | `IterationCard.tsx` | `AgentLoopExecutionDetail` | yes |
 | `SpanTree` / `SpanRow` | `SpanTree.tsx` | `IterationCard` | yes |
-| `PlanCandidatesCompare` | `PlanCandidatesCompare.tsx` | — | **no** |
-| `SupervisorVerdictCard`, `CriticCostShareGauge`, `BanditArmsPanel` | `SupervisorAndBandit.tsx` | — | **no** |
 
 `SpanTree` recursively renders `SpanRow` with a `--depth` CSS variable for
 indentation. Each row shows a kind icon (`🔄 ⚙️ ▸ 🧬 🔧 🧠 ⚖️`), status,
@@ -2160,14 +2152,14 @@ attach.
 **There is no test runner configured.** `package.json` has no `test` script, and
 neither `vitest` nor `jest` appears in `package.json` or `package-lock.json`.
 
-Two test files exist and both import from `vitest`:
+One test file exists, and it imports from `vitest` (a second, `cortex-helpers.test.ts`,
+tested dead code and was deleted with it under FE-14):
 
 | File | Lines | What it tests |
 |------|-------|---------------|
 | [`hooks/useExecutionEvents.test.ts`](../../frontend/src/hooks/useExecutionEvents.test.ts) | 127 | 8 cases over the pure `executionEventReducer` — iteration slices, four critic verdicts, resume, bandit/replan accumulation, cost summing, task class, unknown events, reset |
-| [`components/agent/cortex-helpers.test.ts`](../../frontend/src/components/agent/cortex-helpers.test.ts) | 63 | 8 cases over `extractProvenance` and `extractRuleStatus` |
 
-The first file even documents the missing setup in its header:
+It even documents the missing setup in its header:
 
 ```ts
 // frontend/src/hooks/useExecutionEvents.test.ts:4
@@ -2177,11 +2169,10 @@ The first file even documents the missing setup in its header:
 
 Two consequences worth knowing:
 
-- `tsconfig.json` **excludes** `*.test.ts`, so these files are not type-checked
+- `tsconfig.json` **excludes** `*.test.ts`, so the file is not type-checked
   by `npm run build`. `useExecutionEvents.test.ts`'s local `_INITIAL` object is
   already missing the `spans` field that was later added to
   `ExecutionEventState` — it would not compile if it were checked.
-- `cortex-helpers.ts` is only imported by its own test. It is tested dead code.
 
 To make the tests runnable: `npm i -D vitest jsdom`, add
 `"test": "vitest run"` to scripts, and drop the `exclude` from `tsconfig.json`
@@ -2339,7 +2330,6 @@ Concretely:
 | [`src/hooks/useFeatureFlag.ts`](../../frontend/src/hooks/useFeatureFlag.ts) | 146 | Flag context, 5-level resolution, 60s polling |
 | [`src/hooks/useExecutionEvents.ts`](../../frontend/src/hooks/useExecutionEvents.ts) | 288 | SSE reducer for the agent loop |
 | [`src/hooks/useTheme.tsx`](../../frontend/src/hooks/useTheme.tsx) | 41 | Light/dark toggle |
-| [`src/hooks/useSSE.ts`](../../frontend/src/hooks/useSSE.ts) | 58 | Dead — superseded by `useAgentEvents` |
 | [`src/services/api.client.ts`](../../frontend/src/services/api.client.ts) | 70 | The axios instance + interceptors |
 | [`src/services/events.ts`](../../frontend/src/services/events.ts) | 79 | `useAgentEvents` EventSource hook |
 | [`src/types/index.ts`](../../frontend/src/types/index.ts) | 432 | Product domain types |
@@ -2370,34 +2360,28 @@ Concretely:
   which is not installed. They are also excluded from `tsc`.
 - **`react-hook-form` and `zod` are dependencies but unused.** So are `date-fns`
   and all three `@react-three/*` packages. The frontend README claims otherwise.
-- **Two different API base env vars.** `VITE_API_BASE_URL` must include
-  `/api/v1`; `VITE_API_URL` must not, because the code appends it. The second is
-  undocumented in `.env.example`.
-- **If you forget `.env`, dev talks to production.** The `api.client.ts` fallback
-  is `https://gateway.hirebuddha.com/api/v1`.
+- **`VITE_API_BASE_URL` must include `/api/v1`.** Without it the app talks to
+  `http://localhost:8000/api/v1` and says so on the console (it used to fall
+  back to production, FE-04).
 - **`window.location.href` after login**, not `navigate()` — the app fully
   reloads, so any post-login `navigate()` you write is dead code.
-- **Half the pages bypass `apiClient`.** Everything in `pages/streaming/` and
-  the lookups in `PhonePool.tsx` use raw `fetch` and therefore get no
-  401-refresh-retry.
+- **Do not take the token from `useAuth()` for a request.** It is read at mount
+  and a refresh does not update it; call the API through `apiClient`, and build
+  `<audio>`/`<a>`/`<img>` URLs with `authedApiUrl` (FE-07).
 - **Timestamps must go through `parseServerDate`.** The backend emits naive UTC
   ISO strings; `new Date(s)` parses them as browser-local and is wrong by your
   UTC offset. Import from `@/utils/datetime`.
-- **Three legacy redirects are broken** — `<Navigate to="/…/:id">` does not
-  interpolate. Copy the `ExecutionRedirect` component pattern if you need one.
+- **`<Navigate to="/…/:id">` does not interpolate the parameter.** Use
+  `ParamRedirect` in `router/index.tsx` (FE-05).
 - **The sidebar and the router are separate lists.** Adding a route does not add
   a nav item, and their role predicates can drift (`/reports/costing` did,
   until PO-04).
 - **`useState(entity?.x)` in `EntityConfigurationTabs` only reads the prop
   once.** Any change that lets that component mount before the entity loads will
   silently render an empty form.
-- **Six agent-kernel components are fully built and never mounted** —
-  `PlanCandidatesCompare`, the three `SupervisorAndBandit` widgets,
-  `ProvenanceRibbon`, and the `cortex-helpers` module.
-- **The WebGL background never sleeps.** 6,300 matrix writes per frame plus a
-  full-screen bloom pass, with no visibility or reduced-motion check, and its
-  `requestAnimationFrame` is never cancelled on unmount.
-- **There is no error boundary.** One render throw anywhere blanks the page.
+- **A render error is caught per page.** `ErrorBoundary` wraps the routes and
+  each page's content, so a throw shows a message and a retry instead of a blank
+  app (FE-01) — but the rest of the page is gone until the user retries.
 
 ---
 

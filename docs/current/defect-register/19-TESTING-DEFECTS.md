@@ -218,7 +218,7 @@ the `spans` field added later to `ExecutionEventState`.
 So the frontend has two test files that cannot execute and would not compile.
 
 - [`frontend/src/hooks/useExecutionEvents.test.ts`](../../../frontend/src/hooks/useExecutionEvents.test.ts)
-- [`frontend/src/components/agent/cortex-helpers.test.ts`](../../../frontend/src/components/agent/cortex-helpers.test.ts)
+- `frontend/src/components/agent/cortex-helpers.test.ts` — deleted 2026-10-01 with the unused module it tested ([FE-14](16-FRONTEND-DEFECTS.md#4-t2--dead-code-and-unused-dependencies))
 
 ---
 
