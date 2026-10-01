@@ -834,4 +834,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P2.6 | PC-25 | `cce42ea` | `test_plan_request.py` (collection fails on the old code: no `run_request`) |
 | P2.7 | PC-18 (PC-I5) | `94dcdb7` | `test_step_ids.py`: both fail on the old code — the dependent step never becomes ready |
 | P2.8 | PC-19 | `a13c2a8` | `test_plan_invariants.py`: the two dict-shaped cases fail on the old code; the Meta board validator had the same compare |
-| P2.11 | EP-29 | (this commit) | `test_run_resume_state.py`, `test_retry_resumes.py`: all 3 fail on the old code. Also: refine's `__reuse_outputs__` had no reader, so refines re-ran every step too |
+| P2.11 | EP-29 | `72c2479` | `test_run_resume_state.py`, `test_retry_resumes.py`: all 3 fail on the old code. Also: refine's `__reuse_outputs__` had no reader, so refines re-ran every step too |
+| **P2 done** | AK-01, AK-03, LP-01, LP-03, LP-04, LP-19, TL-51, TL-52, EP-25, EP-29, PC-18, PC-19, PC-25 | — | Unit 1499 passed (+ the 2 known failures), integration 228 passed, on a clean checkout of the P2 head |
