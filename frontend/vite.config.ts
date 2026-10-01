@@ -17,6 +17,19 @@ export default defineConfig(({ mode }) => {
 
     return {
         plugins: [react()],
+        build: {
+            rollupOptions: {
+                output: {
+                    // Shared libraries get their own chunks, named and stable,
+                    // instead of wherever Rollup's heuristics put them (FE-22).
+                    manualChunks: {
+                        'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+                        'vendor-charts': ['recharts'],
+                        'vendor-flow': ['reactflow', 'dagre'],
+                    },
+                },
+            },
+        },
         resolve: {
             alias: {
                 '@': path.resolve(__dirname, './src'),

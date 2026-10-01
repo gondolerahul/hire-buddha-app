@@ -600,7 +600,21 @@ every tab switch.
 
 ### FE-22 — `recharts` may be duplicated across 13 chunks
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the duplication did not hold: Rollup
+had already hoisted `recharts` into one shared chunk (`BarChart`, 344 KB). The rest did:
+
+- `vite.config.ts` names the shared vendor chunks — `vendor-react` (react, react-dom,
+  react-router-dom), `vendor-charts` (recharts), `vendor-flow` (reactflow, dagre) — so the
+  layout is stable rather than heuristic. The built `index.html` preloads only the entry
+  (89 KB) and `vendor-react` (163 KB); charts and the flow editor load with their pages.
+- Razorpay Checkout is no longer a blocking `<script>` in `index.html`; `utils/razorpay.ts`
+  loads it once, when a payment starts on the wallet page.
+- The Google Fonts stylesheet is preloaded and applied on load (`display=swap`), with a
+  `<noscript>` fallback, instead of blocking the first paint.
+
+**Evidence:** the build output and `dist/index.html` above; in the browser a fresh page had no
+Razorpay script, `loadRazorpay()` loaded it and returned the same instance on a second call,
+and the fonts link had become a stylesheet.
 
 `React.lazy` per route is right, and each page is its own chunk. But there is no
 `manualChunks` configuration, so whether `recharts` is hoisted into a shared chunk or copied
@@ -645,7 +659,9 @@ would have been caught automatically.
 
 ### FE-I2 — Stop the polls
 
-**Effect: large, immediate.** [FE-19](#fe-19--the-execution-poll-never-stops). Clear the
+**Status: done (2026-10-01)** — see FE-19.
+
+**Effect: large, immediate.**[FE-19](#fe-19--the-execution-poll-never-stops). Clear the
 interval on terminal status. Then, when the SSE stream gains replay
 ([GW-I7](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-i7--give-sse-an-event-id-and-a-short-replay-buffer)),
 the polling can be removed entirely rather than merely stopped.
@@ -661,6 +677,8 @@ It also gives request deduplication, which fixes the `EntityFlow` N+1 without ch
 component at all.
 
 ### FE-I4 — Lazy-load the background and make it sleep
+
+**Status: done (2026-10-01)** — see FE-17.
 
 **Effect: large for first paint and battery.**
 [FE-17](#fe-17--the-webgl-background-never-sleeps). Four changes: cancel the RAF, pause on
@@ -700,7 +718,9 @@ One list, with `showInNav` and `allowedRoles` per entry, makes that drift imposs
 
 ### FE-I9 — Add `manualChunks` for the shared vendor libraries
 
-**Effect: medium.** [FE-22](#fe-22--recharts-may-be-duplicated-across-13-chunks). An explicit
+**Status: done (2026-10-01)** — see FE-22.
+
+**Effect: medium.**[FE-22](#fe-22--recharts-may-be-duplicated-across-13-chunks). An explicit
 vendor chunk for `recharts`, `react`, `react-dom` and `react-router-dom` makes the bundle
 layout deterministic instead of dependent on Rollup heuristics. Also defer the Razorpay
 script to the wallet page.

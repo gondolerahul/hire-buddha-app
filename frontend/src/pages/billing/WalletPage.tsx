@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Wallet, CreditCard, CheckCircle, AlertTriangle, RefreshCw, Star } from 'lucide-react';
 import { creditsService, CreditBalance, Subscription } from '@/services/credits.service';
 import './WalletPage.css';
+import { loadRazorpay } from '@/utils/razorpay';
 
 
 
@@ -77,8 +78,14 @@ export const WalletPage: React.FC = () => {
         try {
             const order = await creditsService.initiateTopUp(amt);
             // Open Razorpay checkout
-            if ((window as any).Razorpay) {
-                const rzp = new (window as any).Razorpay({
+            let Razorpay: any;
+            try {
+                Razorpay = await loadRazorpay();
+            } catch {
+                Razorpay = null;
+            }
+            if (Razorpay) {
+                const rzp = new Razorpay({
                     key: order.key_id,
                     amount: amt * 100,
                     currency: order.currency,
@@ -103,7 +110,7 @@ export const WalletPage: React.FC = () => {
                 });
                 rzp.open();
             } else {
-                setError('Razorpay is not loaded. Please configure Razorpay keys in Integration Registry.');
+                setError('Razorpay Checkout could not be loaded. Check the connection and try again.');
             }
         } catch (e: any) {
             setError(e?.response?.data?.detail || 'Top-up initiation failed');
@@ -119,8 +126,14 @@ export const WalletPage: React.FC = () => {
             const checkout = await creditsService.createSubscription(tier);
 
             // Step 2: Razorpay checkout authorises the recurring mandate and takes the first charge
-            if ((window as any).Razorpay) {
-                const rzp = new (window as any).Razorpay({
+            let Razorpay: any;
+            try {
+                Razorpay = await loadRazorpay();
+            } catch {
+                Razorpay = null;
+            }
+            if (Razorpay) {
+                const rzp = new Razorpay({
                     key: checkout.key_id,
                     subscription_id: checkout.razorpay_subscription_id,
                     name: 'HireBuddha',
@@ -144,7 +157,7 @@ export const WalletPage: React.FC = () => {
                 });
                 rzp.open();
             } else {
-                setError('Razorpay is not loaded. Please configure Razorpay keys in Integration Registry.');
+                setError('Razorpay Checkout could not be loaded. Check the connection and try again.');
             }
         } catch (e: any) {
             setError(e?.response?.data?.detail || 'Subscription initiation failed');
