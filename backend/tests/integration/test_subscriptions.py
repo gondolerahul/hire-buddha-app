@@ -368,3 +368,22 @@ async def test_changing_a_tiers_fee_retires_its_plan(db, rzp):
         res = await client.put(f"/api/v1/credits/subscription-tiers/{tier.id}", json={"monthly_fee": 99})
     assert res.status_code == 200
     assert (await db.get(SubscriptionTier, tier.id)).razorpay_plan_id is None
+
+
+@pytest.mark.asyncio
+async def test_the_tier_list_says_which_tiers_are_active(db, rzp):
+    """BC-30: is_active was missing, so the admin page labelled every tier
+    'Archived', and archived tiers were never listed for the admin to restore."""
+    active, archived = await _tier(db), await _tier(db)
+    archived.is_active = False
+    await db.flush()
+    async with _client(db, await _company(db), role="app_admin") as admin:
+        everything = (await admin.get("/api/v1/credits/subscription-tiers",
+                                       params={"include_inactive": "true"})).json()
+    async with _client(db, await _company(db), role="tenant_admin") as tenant:
+        offered = (await tenant.get("/api/v1/credits/subscription-tiers",
+                                    params={"include_inactive": "true"})).json()
+    by_id = {t["id"]: t for t in everything}
+    assert by_id[str(active.id)]["is_active"] is True
+    assert by_id[str(archived.id)]["is_active"] is False
+    assert str(archived.id) not in {t["id"] for t in offered}

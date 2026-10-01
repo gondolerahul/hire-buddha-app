@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -176,13 +176,16 @@ async def verify_topup(
 
 @router.get("/subscription-tiers", summary="List available subscription tiers")
 async def list_subscription_tiers(
+    include_inactive: bool = Query(False, description="app_admin only: archived tiers too"),
     current_user: User = Depends(get_current_user),  # BC-20: was open to anyone
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(SubscriptionTier).where(SubscriptionTier.is_active == True).order_by(SubscriptionTier.tier_level)
-    )
-    tiers = result.scalars().all()
+    # The Billing Settings page manages archived tiers too (BC-30); everyone
+    # else sees the plans on offer.
+    stmt = select(SubscriptionTier).order_by(SubscriptionTier.tier_level)
+    if not (include_inactive and current_user.role == "app_admin"):
+        stmt = stmt.where(SubscriptionTier.is_active == True)
+    tiers = (await db.execute(stmt)).scalars().all()
     return [
         {
             "id": str(t.id),
@@ -190,6 +193,7 @@ async def list_subscription_tiers(
             "tier_level": t.tier_level,
             "monthly_fee": float(t.monthly_fee),
             "bonus_pct": float(t.bonus_pct),
+            "is_active": t.is_active,
         }
         for t in tiers
     ]

@@ -42,11 +42,11 @@
 | [T0](#2-t0--money-moves-incorrectly) | Money moves incorrectly | 8 | 8 | 0 |
 | [T1](#3-t1--metering-that-under--or-double-counts) | Metering that under- or double-counts | 8 | 8 | 0 |
 | [T2](#4-t2--gates-and-jobs-that-never-run) | Gates and jobs that never run | 5 | 5 | 0 |
-| [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 8 | 7 | 1 |
+| [T3](#5-t3--schema-access-and-dead-weight) | Schema, access and dead weight | 9 | 8 | 1 |
 
-**Total: 29 defects (28 fixed, 1 won't fix), 10 improvements (8 done, 1 done for tools, 1 partly
+**Total: 30 defects (29 fixed, 1 won't fix), 10 improvements (8 done, 1 done for tools, 1 partly
 done).** Worked 2026-09-30 on branch `roadmap-development-defect-fixes`; three defects were
-found on the way and added (BC-27, BC-28, BC-29).
+found on the way and added (BC-27, BC-28, BC-29), and BC-30 on 2026-10-01.
 
 | ID | Defect | Status |
 |---|---|---|
@@ -79,6 +79,7 @@ found on the way and added (BC-27, BC-28, BC-29).
 | BC-27 | Concurrent deductions overwrite each other *(new)* | ✅ fixed `6ee7034` |
 | BC-28 | Subscribing always fails with 422 *(new)* | ✅ fixed `fe8f1a6` |
 | BC-29 | Any custom-API registry row prices every tool *(new)* | ✅ fixed `d71918d` |
+| BC-30 | Every subscription tier shows as "Archived" *(new)* | ✅ fixed |
 
 | ID | Improvement | Status |
 |---|---|---|
@@ -791,6 +792,24 @@ and a fair indicator of how much of that file has been reviewed.
 
 - [`backend/pyproject.toml:32`](../../../backend/pyproject.toml:32)
 - [`billing/credits_router.py`](../../../backend/src/billing/credits_router.py) — the duplicate key
+
+---
+
+### BC-30 — Every subscription tier shows as "Archived"
+
+**✅ Verified · Low** · **Status: fixed (2026-10-01)** — found 2026-10-01 while verifying BC-21
+on the Billing Settings page.
+
+`GET /credits/subscription-tiers` returned no `is_active`, so the admin page — which labels a
+tier `Active` or `Archived` from it — showed all three active tiers as **Archived**. And it
+returned only active tiers, so a tier the admin archived disappeared and could never be
+reactivated from the page.
+
+**Fix (2026-10-01):** each tier carries `is_active`; `include_inactive=true` lists archived
+tiers too, for `app_admin` only (the wallet page still sees only the plans on offer). The
+Billing Settings page asks for them. **Evidence:**
+`test_subscriptions.py::test_the_tier_list_says_which_tiers_are_active`; live, the page shows
+Starter, Growth and Scale as **Active**.
 
 ---
 

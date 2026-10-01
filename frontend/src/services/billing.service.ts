@@ -138,8 +138,11 @@ export const billingService = {
     },
 
     // Subscription Tiers
+    // Every tier, archived ones included: this is the admin's management list.
     getSubscriptionTiers: async (): Promise<SubscriptionTier[]> => {
-        const { data } = await apiClient.get<SubscriptionTier[]>('/credits/subscription-tiers');
+        const { data } = await apiClient.get<SubscriptionTier[]>('/credits/subscription-tiers', {
+            params: { include_inactive: true },
+        });
         return data;
     },
 
