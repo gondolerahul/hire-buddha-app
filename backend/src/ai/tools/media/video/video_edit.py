@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from src.ai.tools.base import Tool, ToolStatus
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, ToolStatus, context_company_id
 from src.ai.tools.media.video import _ffmpeg
 from src.ai.tools.media.video._ffmpeg import FFmpegError
 from src.ai.tools.media.video._support import (
@@ -91,7 +91,9 @@ class VideoEditTool(Tool):
             return json.dumps(
                 {"error": f"Unknown operation '{operation}'. Expected one of {list(_OPERATIONS)}."}
             )
-        company_id = context.get("company_id") if context else params.get("company_id")
+        company_id = context_company_id(context)
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
         inputs: List[str] = params.get("inputs") or []
 
         # extend is pure planning math — no ffmpeg, no inputs required.

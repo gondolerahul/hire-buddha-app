@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.ai.tools.base import Tool
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 
 # Artifact root for system-generated files
 BASE_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
@@ -72,8 +72,11 @@ class DocumentSaveTool(Tool):
         if not doc_format:
             return json.dumps({"error": "Missing 'format' (pptx/docx/xlsx/pdf)"})
 
-        # Resolve company_id from context (needed to locate the sandbox).
-        company_id = (context or {}).get("company_id", params.get("company_id", "default"))
+        # The company comes from the execution context only (TL-03); it
+        # locates the sandbox.
+        company_id = context_company_id(context)
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
 
         # (B) Resolve the source path. The sandbox executes with the company
         # sandbox dir (/tmp/sandbox/<company_id>) as its working directory, so a

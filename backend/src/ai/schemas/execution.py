@@ -11,6 +11,8 @@ from src.ai.schemas.entity import HierarchicalEntityResponse
 from src.ai.schemas.enums import RunStatus
 
 __all__ = [
+    "RESERVED_INPUT_KEYS",
+    "reserved_input_keys",
     "ExecutionRunCreate",
     "ExecutionRefineRequest",
     "CSATRequest",
@@ -23,9 +25,34 @@ __all__ = [
 ]
 
 
+# Keys a caller may not put in ``input_data``: the platform reads them as
+# control, not as task input — attach to a CORTEX tree, override a feature
+# flag, claim an identity or a runtime. Any ``__``-prefixed key is reserved too.
+# Retry, refine and child runs write such keys themselves; they build their rows
+# directly, not through ``ExecutionRunCreate`` (TL-53).
+RESERVED_INPUT_KEYS: frozenset[str] = frozenset({
+    "feature_flags", "cortex_tree_id", "subtree_root_id",
+    "company_id", "user_id", "run_id", "agent_id", "entity_id",
+    "container_runtime", "persistent_browser",
+})
+
+
+def reserved_input_keys(input_data: Dict[str, Any]) -> List[str]:
+    """The keys of ``input_data`` only the platform may set."""
+    return sorted(str(k) for k in input_data if str(k).startswith("__") or k in RESERVED_INPUT_KEYS)
+
+
 class ExecutionRunCreate(BaseModel):
     entity_id: UUID
     input_data: Dict[str, Any]
+
+    @field_validator("input_data")
+    @classmethod
+    def _no_platform_keys(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        reserved = reserved_input_keys(value)
+        if reserved:
+            raise ValueError(f"input_data may not set platform keys: {', '.join(reserved)}")
+        return value
 
 
 class CSATRequest(BaseModel):

@@ -285,18 +285,9 @@ class ToolExecutor:
                 return _refused(call["tool"], {"input": call.get("input", "")}, tool)
             _start = datetime.now(timezone.utc)
             try:
-                tool_input = call["input"]
-                if extra_context:
-                    try:
-                        input_dict = json.loads(tool_input) if isinstance(tool_input, str) else tool_input
-                        if isinstance(input_dict, dict):
-                            input_dict.update(extra_context)
-                            tool_input = json.dumps(input_dict)
-                    except Exception:
-                        pass
-                # Use run_with_context to pass execution context (company_id, user_id)
-                # so tools can look up API keys from the integration registry
-                output = await tool.run_with_context(tool_input, context=extra_context)
+                # The tool's input is the plan's; who the call is for travels
+                # only in ``context`` (an ExecutionContext, P3.2), never in params.
+                output = await tool.run_with_context(call["input"], context=extra_context)
                 _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
                 return ToolResult(
                     tool=call["tool"],

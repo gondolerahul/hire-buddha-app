@@ -32,6 +32,23 @@ class ToolStatus(str, Enum):
 logger = logging.getLogger(__name__)
 
 
+NO_CONTEXT_ERROR = (
+    "this tool runs only inside a run or a session: it was called without an "
+    "execution context, so it has no company"
+)
+
+
+def context_company_id(context: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The call's company, from the platform-built execution context only.
+
+    A tool never takes its tenant from its own parameters — the model writes
+    those (TL-03). Without a context there is no company, and the tool refuses
+    the call (``NO_CONTEXT_ERROR``) rather than guess one.
+    """
+    cid = (context or {}).get("company_id")
+    return str(cid) if cid else None
+
+
 # ---------------------------------------------------------------------------
 # Typed Tool Protocol
 # ---------------------------------------------------------------------------

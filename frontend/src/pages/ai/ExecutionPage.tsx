@@ -6,6 +6,15 @@ import { apiClient } from '@/services/api.client';
 import { HierarchicalEntity } from '@/types';
 import './ExecutionPage.css';
 
+// Names the platform fills itself; run input may not set them (the API answers
+// 422). Mirrors RESERVED_INPUT_KEYS in backend/src/ai/schemas/execution.py.
+const PLATFORM_KEYS = new Set([
+    'feature_flags', 'cortex_tree_id', 'subtree_root_id',
+    'company_id', 'user_id', 'run_id', 'agent_id', 'entity_id',
+    'container_runtime', 'persistent_browser',
+]);
+const isPlatformKey = (name: string) => name.startsWith('__') || PLATFORM_KEYS.has(name);
+
 export const ExecutionPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -26,7 +35,7 @@ export const ExecutionPage: React.FC = () => {
             // Extract variables from IO Contract if available (canonical source of user inputs)
             if (data.io_contract?.input_schema?.properties) {
                 Object.keys(data.io_contract.input_schema.properties).forEach(key => {
-                    allVars.add(key);
+                    if (!isPlatformKey(key)) allVars.add(key);
                 });
             }
 
@@ -46,7 +55,7 @@ export const ExecutionPage: React.FC = () => {
                     const matches = promptTemplate.matchAll(regex);
                     for (const match of matches) {
                         // Only add user-facing variables, not internal step references
-                        if (!stepRefPattern.test(match[1]) && !planStepIds.has(match[1])) {
+                        if (!stepRefPattern.test(match[1]) && !planStepIds.has(match[1]) && !isPlatformKey(match[1])) {
                             allVars.add(match[1]);
                         }
                     }

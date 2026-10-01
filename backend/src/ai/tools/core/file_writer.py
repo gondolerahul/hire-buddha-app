@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from src.ai.tools.base import Tool
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 
 
 class FileWriterTool(Tool):
@@ -42,10 +42,9 @@ class FileWriterTool(Tool):
             purpose = params.get("purpose", "AI-generated text document")
             generated_by = params.get("generated_by", "file_writer")
 
-            if context:
-                company_id = context.get("company_id") or params.get("company_id", "default")
-            else:
-                company_id = params.get("company_id", "default")
+            company_id = context_company_id(context)
+            if not company_id:
+                return f"Error: {NO_CONTEXT_ERROR}"
 
             # Determine file category
             ext = os.path.splitext(filename)[1].lower()

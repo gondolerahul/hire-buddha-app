@@ -405,12 +405,10 @@ class StepExecutorService:
                     else:
                         raw_input = ""
             
-            extra_context = {
-                "company_id": str(run.company_id),
-                "user_id": str(run.user_id) if run.user_id else "default",
-                "run_id": str(run.id),
-                "agent_id": str(entity.id) if entity is not None else None,
-            }
+            # What the tool is told about the call: built by the platform from
+            # the run and the entity, never from run input (TL-53, P3.2).
+            from src.ai.governance.tool_access import ExecutionContext
+            extra_context = ExecutionContext.for_run(run, entity, context).as_tool_context()
 
             # One set of rules for a failed call on every path (TL-51): the
             # reformat retry and the fallback chain run only for a call that
@@ -727,14 +725,11 @@ class StepExecutorService:
         # Inject model_override into config so reasoning methods can forward it
         config["__model_override"] = model_override
 
-        # Common tool executor setup
-        extra_context = {
-            **filtered_context,
-            "company_id": str(run.company_id),
-            "user_id": str(run.user_id) if run.user_id else "default",
-            "run_id": str(run.id),
-            "agent_id": str(entity.id) if entity is not None else None,
-        }
+        # What a tool is told about the call: built by the platform from the
+        # run and the entity. The step's context — which holds the run's input
+        # — is not spread into it (TL-53, P3.2).
+        from src.ai.governance.tool_access import ExecutionContext
+        extra_context = ExecutionContext.for_run(run, entity, context).as_tool_context()
         context['tool_call_counts'] = {}  # Always reset per step to prevent stale counts on retry/resume
 
         all_tool_results = []

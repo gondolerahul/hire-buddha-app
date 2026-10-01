@@ -669,14 +669,16 @@ read-only state the introspection tools need (`__agent_state__`,
 is what tools receive. Run input never merges into it (TL-53). Separately, the API
 refuses (422) reserved keys in `input_data` — `__`-prefixed and the control keys
 `feature_flags`, `cortex_tree_id`, `subtree_root_id`, `container_runtime`,
-`persistent_browser`, `persona`, `company_id`, `user_id`, `run_id`, `agent_id` — so they
-can only be written by the platform (retry, refine, child runs).
+`persistent_browser`, `company_id`, `user_id`, `run_id`, `agent_id`, `entity_id` — so they
+can only be written by the platform (retry, refine, child runs). (`persona` was on the
+first draft of this list; it is left out as built, because once tools stop reading run
+input it is an ordinary task word.)
 
 **Commit order** (each one commit, a failing test first):
 
 1. P3.1 — `ToolGrant`, `ToolAccess`, the executor signatures (TL-50, TL-10, TL-12, TX-03, TL-13, TL-14)
 2. P3.2 — `ExecutionContext`; reserved input keys; `params["company_id"]` fallbacks removed from every tool (TL-53, TL-65, TL-03)
-3. P3.3 — per-run call counts stored on the run's context (not reset per step); `rate_limit_per_run` from the grant; `max_tool_calls` refuses (TL-11, TL-21)
+3. P3.3 — per-run call counts stored on the run's context (not reset per step); `rate_limit_per_run` from the grant; `max_tool_calls` refuses (TL-11, TL-21). Found while doing P3.2: `meta_entity_creator`'s "max 3 runtime creations per execution" counts in the tool's context dict, which `ToolResilience` copies per call — the count restarts every call and the limit never fires. Same root cause as TL-11; it becomes a per-run limit on that tool here
 4. P3.4 — credentials from the connection row only; `ScraperTool.run_typed` forwards context (TL-04/TL-56, TL-05)
 5. P3.5 — no global symlink; `common/net_guard.py` SSRF guard (scheme, DNS resolve, private/loopback/link-local/ULA/metadata refused, redirects re-checked) for scraper and browser; `tools/paths.py` confining model paths to the tenant workspace; WeasyPrint fetcher that refuses `file:` and guarded hosts, image resolution scoped to the company (TL-07, TL-08, TL-54, TL-55)
 6. P3.6 — registration freezes the instance (TX-02)

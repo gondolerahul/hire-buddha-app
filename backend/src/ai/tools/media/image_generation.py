@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from src.ai.tools.base import Tool
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 
 logger = logging.getLogger(__name__)
 
@@ -181,11 +181,10 @@ class ImageGenerationTool(Tool):
         reference_image_path = params.get("reference_image_path")
 
         # Pull company/user from context (injected by ToolExecutor)
-        company_id = None
-        user_id = None
-        if context:
-            company_id = context.get("company_id") or params.get("company_id")
-            user_id = context.get("user_id") or params.get("user_id")
+        company_id = context_company_id(context)
+        user_id = (context or {}).get("user_id")
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
 
         if not prompt:
             return json.dumps({"error": "Missing required parameter: 'prompt'"})

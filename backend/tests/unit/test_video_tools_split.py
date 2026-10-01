@@ -20,6 +20,15 @@ from src.ai.tools.media.video.video_generate import VideoGenerateTool
 from src.ai.tools.sandbox.runtime import ExecResult
 
 
+# The platform's execution context: a tool called without one has no company
+# and refuses the call (TL-03).
+_CTX = {"company_id": "00000000-0000-0000-0000-0000000000c1", "run_id": "r1"}
+
+
+async def _run(tool, payload: str) -> str:
+    return await tool.run_with_context(payload, context=_CTX)
+
+
 class _FakeExec:
     """Records every (argv) it is asked to run; returns a canned ExecResult."""
 
@@ -147,7 +156,7 @@ def test_calculate_segments_cover_duration(total: int) -> None:
 @pytest.mark.asyncio
 async def test_edit_extend_is_pure_planning(fake_ffmpeg: _FakeExec) -> None:
     tool = VideoEditTool()
-    res = json.loads(await tool.run(json.dumps({"operation": "extend", "length_seconds": 20})))
+    res = json.loads(await _run(tool, json.dumps({"operation": "extend", "length_seconds": 20})))
     assert res["operation"] == "extend"
     assert sum(res["segment_plan"]) == 20
     assert fake_ffmpeg.calls == []  # no ffmpeg for a planning op
@@ -159,7 +168,7 @@ async def test_edit_concat_invokes_ffmpeg(fake_ffmpeg: _FakeExec, tmp_path) -> N
     clips = [_make_clip(tmp_path, "a.mp4"), _make_clip(tmp_path, "b.mp4")]
     out = str(tmp_path / "merged.mp4")
     res = json.loads(
-        await tool.run(json.dumps({"operation": "concat", "inputs": clips, "output_path": out}))
+        await _run(tool, json.dumps({"operation": "concat", "inputs": clips, "output_path": out}))
     )
     assert res["video_path"] == out
     assert fake_ffmpeg.calls  # ffmpeg ran
@@ -168,7 +177,7 @@ async def test_edit_concat_invokes_ffmpeg(fake_ffmpeg: _FakeExec, tmp_path) -> N
 @pytest.mark.asyncio
 async def test_edit_unknown_operation_errors() -> None:
     tool = VideoEditTool()
-    res = json.loads(await tool.run(json.dumps({"operation": "frobnicate"})))
+    res = json.loads(await _run(tool, json.dumps({"operation": "frobnicate"})))
     assert "error" in res
 
 
@@ -176,7 +185,7 @@ async def test_edit_unknown_operation_errors() -> None:
 async def test_edit_trim_requires_one_input(fake_ffmpeg: _FakeExec, tmp_path) -> None:
     tool = VideoEditTool()
     clips = [_make_clip(tmp_path, "a.mp4"), _make_clip(tmp_path, "b.mp4")]
-    res = json.loads(await tool.run(json.dumps({"operation": "trim", "inputs": clips})))
+    res = json.loads(await _run(tool, json.dumps({"operation": "trim", "inputs": clips})))
     assert "error" in res
 
 
@@ -184,7 +193,7 @@ async def test_edit_trim_requires_one_input(fake_ffmpeg: _FakeExec, tmp_path) ->
 async def test_edit_missing_input_file_errors() -> None:
     tool = VideoEditTool()
     res = json.loads(
-        await tool.run(json.dumps({"operation": "concat", "inputs": ["/nope/missing.mp4"]}))
+        await _run(tool, json.dumps({"operation": "concat", "inputs": ["/nope/missing.mp4"]}))
     )
     assert "not found" in res["error"]
 
@@ -196,7 +205,7 @@ async def test_edit_missing_input_file_errors() -> None:
 async def test_generate_rejects_over_single_segment() -> None:
     tool = VideoGenerateTool()
     res = json.loads(
-        await tool.run(json.dumps({"prompt": "a cat", "length_seconds": 20}))
+        await _run(tool, json.dumps({"prompt": "a cat", "length_seconds": 20}))
     )
     assert res["error"] == "length_exceeds_single_segment"
     assert res["max_segment_seconds"] == _support.MAX_SEGMENT_SECONDS
@@ -205,7 +214,7 @@ async def test_generate_rejects_over_single_segment() -> None:
 @pytest.mark.asyncio
 async def test_generate_requires_prompt() -> None:
     tool = VideoGenerateTool()
-    res = json.loads(await tool.run(json.dumps({"length_seconds": 5})))
+    res = json.loads(await _run(tool, json.dumps({"length_seconds": 5})))
     assert "error" in res
 
 
@@ -219,7 +228,7 @@ async def test_add_sound_replace_builds_mux(fake_ffmpeg: _FakeExec, tmp_path) ->
     audio = _make_clip(tmp_path, "a.m4a")
     out = str(tmp_path / "withsound.mp4")
     res = json.loads(
-        await tool.run(
+        await _run(tool, 
             json.dumps(
                 {
                     "video_path": video,
@@ -242,7 +251,7 @@ async def test_add_sound_tts_unavailable_is_structured(tmp_path) -> None:
     tool = VideoAddSoundTool()
     video = _make_clip(tmp_path, "v.mp4")
     res = json.loads(
-        await tool.run(json.dumps({"video_path": video, "source": "tts", "text": "hi"}))
+        await _run(tool, json.dumps({"video_path": video, "source": "tts", "text": "hi"}))
     )
     assert res["error"] == "tts_provider_unavailable"
 
@@ -252,7 +261,7 @@ async def test_add_sound_missing_audio_file_errors(tmp_path) -> None:
     tool = VideoAddSoundTool()
     video = _make_clip(tmp_path, "v.mp4")
     res = json.loads(
-        await tool.run(
+        await _run(tool, 
             json.dumps({"video_path": video, "source": "file", "audio_path": "/nope.m4a"})
         )
     )

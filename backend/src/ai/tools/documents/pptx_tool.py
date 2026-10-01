@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.ai.tools.base import Tool
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 
 try:
     from pptx import Presentation
@@ -143,7 +143,9 @@ class PptxTool(Tool):
                 s.notes_slide.notes_text_frame.text = notes
 
         # Save
-        company_id = (context or {}).get("company_id", params.get("company_id", "default"))
+        company_id = context_company_id(context)
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
         date_str = datetime.utcnow().strftime("%Y-%m-%d")
         output_dir = BASE_DIR / str(company_id) / date_str
         output_dir.mkdir(parents=True, exist_ok=True)

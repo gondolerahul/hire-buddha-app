@@ -12,7 +12,7 @@ import tempfile
 from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
-from src.ai.tools.base import Tool
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 
 
 def _sanitize_filename(raw: str, max_length: int = 80) -> str:
@@ -225,13 +225,12 @@ class PDFGeneratorTool(Tool):
                         "filename": _safe_filename,
                     }
 
-            # Inject company_id / user_id from execution context so image resolution
-            # can search the correct tenant artifact directory
-            if context:
-                if context.get("company_id") and not params.get("company_id"):
-                    params["company_id"] = context["company_id"]
-                if context.get("user_id") and not params.get("user_id"):
-                    params["user_id"] = context["user_id"]
+            # The company and user come from the execution context only — a
+            # model-supplied company_id used to win here (TL-03).
+            company_id = context_company_id(context)
+            if not company_id:
+                return json.dumps({"error": NO_CONTEXT_ERROR})
+            user_id = str((context or {}).get("user_id") or "default")
             
             # Validate required parameters
             content = params.get("content")
@@ -248,8 +247,6 @@ class PDFGeneratorTool(Tool):
             # Optional parameters
             author = params.get("author", "HireBuddha Research Agent")
             subject = params.get("subject", "Research Report")
-            company_id = params.get("company_id", "default")
-            user_id = params.get("user_id", "default")
             image_paths = params.get("image_paths", [])
             purpose = params.get("purpose", f"PDF document: {title}")
             generated_by = params.get("generated_by", "pdf_generator")

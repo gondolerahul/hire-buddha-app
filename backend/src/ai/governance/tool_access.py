@@ -12,12 +12,17 @@ Every execution and advertisement path resolves tools here, never in
   ``tools.experimental.<name>`` (``EXPERIMENTAL``/``DRAFT``) — TL-13.
 
 The company's own (tenant) tools resolve before the platform's — TL-10.
+
+What a tool is told about its call — company, user, run, entity — is an
+:class:`ExecutionContext` the platform builds (P3.2). Run input never reaches it
+(TL-53), so a caller cannot choose the tenant, the meta-agent gate (TL-65) or a
+runtime knob through ``input_data``.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Literal, Optional, Union
+from typing import Any, Iterable, Literal, Mapping, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -27,7 +32,18 @@ from src.ai.tools.base import Tool, ToolRegistry, ToolStatus
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ToolGrant", "ToolDenied", "ToolAccess", "Via", "grants_of", "injected_meta_tools"]
+__all__ = [
+    "ToolGrant", "ToolDenied", "ToolAccess", "Via", "grants_of", "injected_meta_tools",
+    "ExecutionContext", "LOOP_STATE_KEYS",
+]
+
+# Loop-owned state a tool may read (the introspection and reflection tools).
+# The loop writes these into the run's context; run input cannot (see
+# ``schemas.execution.RESERVED_INPUT_KEYS``), so passing them on does not pass
+# the caller's data on.
+LOOP_STATE_KEYS: tuple[str, ...] = (
+    "__agent_state__", "__execution_metadata__", "__cortex_tree_id__", "__cortex_cursor__",
+)
 
 Via = Literal["llm", "plan"]
 
@@ -165,6 +181,86 @@ class ToolAccess:
             tool=name, reason=reason,
             message=f"Error: tool '{name}' {why}. Tools available to you: {granted}.",
         )
+
+
+@dataclass(frozen=True)
+class ExecutionContext:
+    """What a tool is told about its call, built by the platform (P3.2).
+
+    Tools read tenancy, identity and the meta-agent gate from here and nowhere
+    else — never from their own parameters (TL-03) or from run input (TL-53).
+    Each call gets a fresh dict from :meth:`as_tool_context`, so a tool that
+    writes to its context changes nothing for the next call.
+    """
+    company_id: str
+    user_id: Optional[str] = None
+    run_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    entity_name: str = ""
+    is_meta_agent: bool = False
+    max_runtime_creations: int = 3
+    campaign_id: Optional[str] = None
+    loop_state: Mapping[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def for_run(
+        cls, run: Any, entity: Any, run_context: Optional[Mapping[str, Any]] = None,
+    ) -> "ExecutionContext":
+        """The context of a tool call inside ``run``, for ``entity``."""
+        meta = _meta_extensions(entity)
+        state = run_context or {}
+        return cls(
+            company_id=str(run.company_id),
+            user_id=str(run.user_id) if getattr(run, "user_id", None) else None,
+            run_id=str(run.id),
+            agent_id=str(entity.id) if getattr(entity, "id", None) is not None else None,
+            entity_name=str(getattr(entity, "name", "") or ""),
+            is_meta_agent=bool(meta.get("is_meta_agent")),
+            max_runtime_creations=_max_runtime_creations(entity),
+            loop_state={k: state[k] for k in LOOP_STATE_KEYS if k in state},
+        )
+
+    @classmethod
+    def for_session(
+        cls, company_id: Any, entity: Any, *, user_id: Any = None, campaign_id: Any = None,
+    ) -> "ExecutionContext":
+        """The context of a tool call in a live session (voice), outside a run."""
+        return cls(
+            company_id=str(company_id),
+            user_id=str(user_id) if user_id else None,
+            agent_id=str(entity.id) if getattr(entity, "id", None) is not None else None,
+            entity_name=str(getattr(entity, "name", "") or ""),
+            is_meta_agent=bool(_meta_extensions(entity).get("is_meta_agent")),
+            campaign_id=str(campaign_id) if campaign_id else None,
+        )
+
+    def as_tool_context(self) -> dict[str, Any]:
+        ctx: dict[str, Any] = {
+            "company_id": self.company_id,
+            "user_id": self.user_id or "default",
+            "run_id": self.run_id,
+            "agent_id": self.agent_id,
+            "entity_id": self.agent_id,
+            "__entity_id__": self.agent_id,
+            "__entity_name__": self.entity_name,
+            "__is_meta_agent__": self.is_meta_agent,
+            "__meta_max_runtime_creations__": self.max_runtime_creations,
+            "campaign_id": self.campaign_id,
+        }
+        ctx.update(self.loop_state)
+        return ctx
+
+
+def _meta_extensions(entity: Any) -> Mapping[str, Any]:
+    meta = getattr(entity, "metadata_extensions", None)
+    return meta if isinstance(meta, Mapping) else {}
+
+
+def _max_runtime_creations(entity: Any) -> int:
+    caps = getattr(entity, "capabilities", None)
+    meta = (caps or {}).get("meta_cognition") if isinstance(caps, Mapping) else None
+    value = meta.get("max_runtime_creations") if isinstance(meta, Mapping) else None
+    return int(value) if isinstance(value, int) else 3
 
 
 # ---------------------------------------------------------------------------

@@ -953,21 +953,27 @@ class BaseStreamHandler:
             await asyncio.sleep(0.2)
 
     async def _tool_access(self):
-        """What this call's agent may run — read once per session (P3.1)."""
+        """What this call's agent may run, and what its tools are told about
+        the call — read once per session (P3.1, P3.2)."""
         if getattr(self, "_access", None) is None:
             from sqlalchemy import select
             from src.ai.models import HierarchicalEntity
-            from src.ai.governance.tool_access import ToolAccess
+            from src.ai.governance.tool_access import ExecutionContext, ToolAccess
+            company_id = self.voice_session.company_id
             entity = (await self.db.execute(
                 select(HierarchicalEntity).where(
                     HierarchicalEntity.id == self.voice_session.agent_id,
-                    HierarchicalEntity.company_id == self.voice_session.company_id,
+                    HierarchicalEntity.company_id == company_id,
                 )
             )).scalar_one_or_none()
             # No agent in this company: nothing is granted, every call is refused.
             self._access = await ToolAccess.load(
-                self.db, self.voice_session.company_id, entity, meta_tools=False,
-            ) if entity is not None else ToolAccess(company_id=self.voice_session.company_id)
+                self.db, company_id, entity, meta_tools=False,
+            ) if entity is not None else ToolAccess(company_id=company_id)
+            self._tool_context = ExecutionContext.for_session(
+                company_id, entity, user_id=self.voice_session.customer_id,
+                campaign_id=(self.voice_session.session_metadata or {}).get("campaign_id"),
+            )
         return self._access
 
     async def _handle_tool_call(self, tool_call):
@@ -1080,14 +1086,10 @@ class BaseStreamHandler:
         logger.info(f"Executing {len(function_calls)} tool call(s): "
                     f"{[c['name'] for c in function_calls]}")
 
-        extra_context = {
-            "company_id": str(self.voice_session.company_id),
-            "user_id": str(self.voice_session.customer_id),
-        }
-
+        access = await self._tool_access()
         results = await ToolExecutor.execute_from_function_calls(
-            function_calls, extra_context=extra_context,
-            access=await self._tool_access(),
+            function_calls, extra_context=self._tool_context.as_tool_context(),
+            access=access,
         )
 
         # Log tool results for observability

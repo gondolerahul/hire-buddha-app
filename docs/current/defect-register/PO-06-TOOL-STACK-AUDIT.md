@@ -196,7 +196,7 @@ accordingly; do not bill a failed call. Ultimately subsumed by the typed contrac
 
 ### TL-53 — Run input is trusted as tool execution context
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.2)** — tools receive an [`ExecutionContext`](../../../backend/src/ai/governance/tool_access.py) the platform builds from the run and the entity; the step context (which holds the run input) is no longer spread into it, and the plan-step path no longer merges the context into the tool's input. `ExecutionRunCreate` refuses `__`-prefixed and control keys (`feature_flags`, `cortex_tree_id`, `container_runtime`, identity keys, …) with a 422. Evidence: on the old step executor a ReAct tool saw the caller's `container_runtime: False`, `persona: ../../other` and `__is_meta_agent__: True`; `tests/unit/test_tool_context.py`.
 
 `ExecutionRunCreate.input_data` is an unconstrained `Dict[str, Any]`
 ([schemas/execution.py:28](../../../backend/src/ai/schemas/execution.py:28)) stored
@@ -401,7 +401,7 @@ the four-price-table problem (TL-19).
 
 ### TL-65 — `__is_meta_agent__` is never set, so its gates never see a real meta-agent
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, P3.2)** — [`ExecutionContext`](../../../backend/src/ai/governance/tool_access.py) sets `__is_meta_agent__` from the entity's `metadata_extensions.is_meta_agent`, and run input can no longer set it.
 
 `tool_synthesis` refuses unless `context["__is_meta_agent__"]` is truthy
 ([tool_synthesis.py:58](../../../backend/src/ai/tools/meta/tool_synthesis.py:58)), and

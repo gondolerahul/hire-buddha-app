@@ -166,7 +166,7 @@ per-call harness replay with a `SkillRunner` that execs into the long-lived cont
 
 ### TL-03 — LLM-supplied `company_id` is accepted as the tenant boundary
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.2)** — every `params.get("company_id")` fallback is gone (email ×4, social base, video ×3, image, docx, pptx, excel, document_save, file_writer, pdf_generator); tools read the company with `context_company_id(context)` and refuse a call without a context (`NO_CONTEXT_ERROR`). The executor no longer copies the context into tool params either.
 
 The pattern `context.get("company_id") if context else params.get("company_id")` — or a
 variant — appears across the email, social, video, document and file tools. Any path
@@ -367,6 +367,13 @@ caller resets it per **step**.
 - [`ai/tool_executor.py:101`](../../../backend/src/ai/tool_executor.py:101) — the read
 - Callers that never write it: [`ai/step_executor.py:900`](../../../backend/src/ai/step_executor.py:900), [`ai/tools/resilience.py:277`](../../../backend/src/ai/tools/resilience.py:277), [`voice/websocket_handler.py:998`](../../../backend/src/voice/websocket_handler.py:998)
 - [`ai/step_executor.py:859`](../../../backend/src/ai/step_executor.py:859) — the per-step reset
+
+> **Update 2026-10-01 — worse than recorded.** `meta_entity_creator`'s "max 3
+> runtime creations per execution" for non-Meta-Agents counts in the tool's
+> `context` dict (`__meta_runtime_creations_<company>__`). `ToolResilience` (on by
+> default) copies that dict for every call, so the count restarts at 0 on each call
+> and the limit never fires. Same root cause; fixed with this entry in P3.3 of the
+> [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
 
 ---
 

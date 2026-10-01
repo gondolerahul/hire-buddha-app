@@ -22,7 +22,7 @@ from typing import Dict, Any, Optional
 import os
 import re
 
-from src.ai.tools.base import Tool
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,9 @@ class EmailIngestTool(Tool):
             return json.dumps({"error": "Invalid JSON input"})
 
         # Resolve credentials
-        company_id = context.get("company_id") if context else params.get("company_id")
+        company_id = context_company_id(context)
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
         
         imap_host = params.get("imap_host") or resolved.get("imap_host")
@@ -301,7 +303,9 @@ class EmailClassifyTool(Tool):
             return json.dumps({"error": "Invalid JSON input"})
 
         # Resolve credentials
-        company_id = context.get("company_id") if context else params.get("company_id")
+        company_id = context_company_id(context)
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
 
         imap_host = params.get("imap_host") or resolved.get("imap_host")
@@ -399,7 +403,9 @@ class EmailDraftTool(Tool):
             return json.dumps({"error": "Invalid JSON input"})
 
         # Resolve credentials
-        company_id = context.get("company_id") if context else params.get("company_id")
+        company_id = context_company_id(context)
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
 
         imap_host = params.get("imap_host") or resolved.get("imap_host")
@@ -518,7 +524,9 @@ class EmailSendTool(Tool):
             return json.dumps({"error": "Invalid JSON input"})
 
         # Resolve credentials
-        company_id = context.get("company_id") if context else params.get("company_id")
+        company_id = context_company_id(context)
+        if not company_id:
+            return json.dumps({"error": NO_CONTEXT_ERROR})
         resolved = await _resolve_connection(company_id, params.get("email_address"))
 
         smtp_host = params.get("smtp_host") or resolved.get("smtp_host")

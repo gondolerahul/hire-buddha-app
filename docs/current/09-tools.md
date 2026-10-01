@@ -306,21 +306,45 @@ by comparing the bound function to the base one.
 
 ### 3.2 The `context` dict
 
-The step executor injects the same four keys on every call
-([step_executor.py:296](../../backend/src/ai/step_executor.py:296)):
+> **Since 2026-10-01 (P3.2, TL-53, TL-65, TL-03).** Before, the ReAct path spread
+> the whole step context — which holds the run's input — into the tool context,
+> so `container_runtime: false`, `persona` or `__is_meta_agent__: true` in
+> `input_data` reached every tool; `__is_meta_agent__` itself was never set by the
+> platform; and a dozen tools fell back to a `company_id` the model wrote into
+> their parameters.
 
-```python
-extra_context = {
-    "company_id": str(run.company_id),
-    "user_id":    str(run.user_id) if run.user_id else "default",
-    "run_id":     str(run.id),
-    "agent_id":   str(entity.id) if entity is not None else None,
-}
-```
+What a tool is told about its call is an
+[`ExecutionContext`](../../backend/src/ai/governance/tool_access.py) the platform
+builds — `ExecutionContext.for_run(run, entity, run_context)` on both step paths,
+`ExecutionContext.for_session(...)` for voice. Each call gets a fresh dict:
 
-In the REACT path the whole filtered step context is merged in as well, so a
-tool may see arbitrary extra keys. Meta tools additionally look for
-`__is_meta_agent__` and `__entity_name__`.
+| Key | From |
+|---|---|
+| `company_id`, `user_id`, `run_id` | the run row (voice: the session; `user_id` is `"default"` when there is none) |
+| `agent_id`, `entity_id`, `__entity_id__` | the entity |
+| `__entity_name__` | the entity's name |
+| `__is_meta_agent__` | the entity's `metadata_extensions.is_meta_agent` |
+| `__meta_max_runtime_creations__` | the entity's `capabilities.meta_cognition.max_runtime_creations` (default 3) |
+| `campaign_id` | voice only: the session's campaign |
+| `__agent_state__`, `__execution_metadata__`, `__cortex_tree_id__`, `__cortex_cursor__` | the loop's state for this run (`LOOP_STATE_KEYS`) |
+
+Nothing else reaches a tool: not the run's input, not the step's outputs (those
+reach the model through the prompt), not a runtime knob. The tool's own input is
+exactly what the model or the plan step passed — the context is no longer merged
+into it.
+
+**Tenancy comes from the context only.** A tool reads its company with
+`context_company_id(context)` ([tools/base.py](../../backend/src/ai/tools/base.py)).
+Called without a context — `run()`, or any caller that is not the platform — it
+returns `NO_CONTEXT_ERROR` instead of using a `company_id` from its parameters.
+
+**The API refuses platform keys in run input** (422):
+`ExecutionRunCreate.input_data` may not set a `__`-prefixed key or any of
+`RESERVED_INPUT_KEYS` (`feature_flags`, `cortex_tree_id`, `subtree_root_id`,
+`company_id`, `user_id`, `run_id`, `agent_id`, `entity_id`, `container_runtime`,
+`persistent_browser`) — [schemas/execution.py](../../backend/src/ai/schemas/execution.py).
+Retry, refine, child and tree-resume runs write such keys themselves; they build
+their rows directly.
 
 ### 3.3 The JSON schema a tool advertises
 
@@ -1336,8 +1360,11 @@ Entities created at runtime by a non-Meta-Agent are tagged
 `metadata_extensions.runtime_created = true` and
 `created_by_entity = <caller name>` so the lineage is auditable.
 
-The counter lives in the mutable `context` dict, so it resets when the context
-resets. It bounds proliferation *within one execution*, not across a campaign.
+> **Correction (2026-10-01):** the counter lives in the tool's `context` dict, and
+> `ToolResilience` (on by default) copies that dict for every call, so the count
+> restarts at 0 on each call and the limit never fires. It becomes a per-run call
+> limit on `meta_entity_creator` in P3.3 (see TL-11 in the
+> [consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md)).
 
 `tool_synthesis` is the sharpest edge and carries four independent gates:
 

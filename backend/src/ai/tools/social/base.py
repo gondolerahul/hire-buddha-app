@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from src.ai.tools.base import Tool, ToolStatus
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, ToolStatus, context_company_id
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +62,9 @@ class SocialMediaTool(Tool):
             return json.dumps({"error": "Invalid JSON input"})
 
         # Resolve credentials from social_connections table
-        company_id = context.get("company_id") if context else params.get("company_id")
+        company_id = context_company_id(context)
         if not company_id:
-            return json.dumps({
-                "error": "No company_id in context. Cannot resolve social media credentials."
-            })
+            return json.dumps({"error": NO_CONTEXT_ERROR})
 
         from src.ai.social_connection_service import resolve_connection
 
