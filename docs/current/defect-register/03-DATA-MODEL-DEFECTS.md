@@ -378,7 +378,8 @@ old code; the schema census passes with the new key.
 
 ### DM-09 — Log tables have no tenant column, so an unjoined query sees everything
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** for the run's three log tables and
+`execution_trace_events`; the other parent-scoped tables are unchanged (see below).
 
 There is no row-level security and no global query filter. Tenant isolation is a
 `WHERE company_id = ...` written by hand in every service method.
@@ -404,6 +405,37 @@ key**, so nothing stops it drifting from the run's real owner.
 **Fix:** add a denormalised `company_id` to the high-traffic log tables and index it.
 Redundancy is the right trade here — a forgotten join becomes a wrong-but-scoped query
 instead of a cross-tenant leak.
+
+**Done (2026-10-01), with DM-I2.** Revision `dm09_log_company_id`:
+
+- `llm_interaction_logs`, `tool_interaction_logs` and `human_approvals` each gain
+  `company_id NOT NULL`, backfilled from the run. The key `(run_id, company_id) →
+  execution_runs(id, company_id)` replaces the plain `run_id` key, so the copy cannot
+  differ from the run's company (target: `uq_execution_runs_id_company`). Indexed
+  `(company_id, created_at)` on the two logs and `(company_id, status)` on approvals.
+- The six writers pass only `run_id`, as before. A `before_insert` hook on the three
+  models copies the run's company when it is not given, so a new writer cannot forget it.
+- `execution_trace_events.company_id` gets the same composite key (`ON DELETE CASCADE`).
+  Its plain `run_id` key stays, because its company may be NULL.
+- Readers that joined the run only to scope by company now filter on the column: the
+  approvals inbox and answer (`AIService`) and the LLM-performance and tool-efficacy
+  reports.
+- **Deploy note:** code from before this revision cannot write these logs to a migrated
+  database (it inserts no `company_id`). Migrate and restart the API and both workers
+  together.
+
+**Left as is:** `campaign_calls`, `call_content`, `cortex_nodes` and `cortex_edges` are still
+scoped through their parent. They are not run logs, and the CORTEX search SQL is DM-I6's
+subject.
+
+**Evidence:** `tests/integration/test_log_company_scope.py` (real Postgres) checks that a
+log written with only `run_id` gets the run's company, that each of the three tables and
+trace events refuse another company's id, and that the approvals inbox and both reports
+return only the caller's rows unjoined while a run still loads its logs. 5 of 6 fail on
+the old code, which cannot write to the new schema. The fresh-database schema census
+passes, and the migration was run up, down and up on the local database. Live on the API:
+a run's page loads its 7 LLM and 9 tool logs, and `/ai/approvals/pending` plus the
+llm-performance, tool-efficacy and hitl-overview reports answer 200.
 
 ---
 
@@ -618,6 +650,8 @@ three fastest-growing tables in the database and none of them is indexed on the 
 every query filters by. Do this before anything else in this file.
 
 ### DM-I2 — Denormalise `company_id` onto the log tables
+
+**Status: done (2026-10-01)** — DM-09.
 
 **Effect: large.** See [DM-09](#dm-09--log-tables-have-no-tenant-column-so-an-unjoined-query-sees-everything).
 Adding `company_id` to `llm_interaction_logs`, `tool_interaction_logs` and

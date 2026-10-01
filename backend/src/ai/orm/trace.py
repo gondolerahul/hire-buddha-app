@@ -26,6 +26,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -99,4 +100,8 @@ class ExecutionTraceEvent(Base):
         Index("ix_execution_trace_events_run_parent", "run_id", "parent_span_id"),
         # span_id lookup for the close-update.
         Index("ix_execution_trace_events_span", "span_id"),
+        # company_id must be the run's (DM-09). It may be NULL (a recorder
+        # without one), so the plain run_id key above stays as well.
+        ForeignKeyConstraint(["run_id", "company_id"], ["execution_runs.id", "execution_runs.company_id"],
+                             name="fk_execution_trace_events_run_company", ondelete="CASCADE"),
     )

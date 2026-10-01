@@ -817,8 +817,7 @@ class AIService:
     async def get_pending_approvals(self, company_id: UUID) -> list[HumanApproval]:
         result = await self.db.execute(
             select(HumanApproval)
-            .join(ExecutionRun)
-            .where(ExecutionRun.company_id == company_id, HumanApproval.status == "PENDING")
+            .where(HumanApproval.company_id == company_id, HumanApproval.status == "PENDING")
             .order_by(HumanApproval.requested_at.desc())
         )
         return result.scalars().all()
@@ -828,15 +827,14 @@ class AIService:
     ) -> HumanApproval:
         """Record a reviewer's decision on one of the company's pending approvals.
 
-        Scoped like ``get_pending_approvals``: through the run's company. Only a
+        Scoped like ``get_pending_approvals``: by the approval's company. Only a
         PENDING approval can be answered, once — the conditional UPDATE makes a
         second answer, or an answer after the worker timed out, a 409.
         """
         from sqlalchemy import update
 
         approval = (await self.db.execute(
-            select(HumanApproval).join(ExecutionRun)
-            .where(HumanApproval.id == approval_id, ExecutionRun.company_id == company_id)
+            select(HumanApproval).where(HumanApproval.id == approval_id, HumanApproval.company_id == company_id)
         )).scalar_one_or_none()
         if not approval:
             raise HTTPException(status_code=404, detail="Approval request not found")

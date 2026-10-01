@@ -299,7 +299,7 @@ selectin loader copies a statement's options into its own query: a criteria adde
 ### 4.2 `execution_runs`
 
 Purpose: one row per invocation of an entity, including recursive child invocations.
-Defined at [orm/execution.py:38](../../backend/src/ai/orm/execution.py:38).
+Defined at [orm/execution.py:46](../../backend/src/ai/orm/execution.py:46).
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
@@ -329,16 +329,19 @@ Indexes (DM-05, 2026-09-30): `ix_execution_runs_company_created (company_id, cre
 — the run list's filter and sort —, `ix_execution_runs_entity_created (entity_id,
 created_at)`, `ix_execution_runs_parent_run_id`, plus the idempotency partial index. Before
 DM-05 there was no index on `company_id` or `entity_id` and every list query scanned.
+`uq_execution_runs_id_company (id, company_id)` exists only as the target of the child tables'
+composite key (DM-09).
 
 ### 4.3 `llm_interaction_logs`
 
 Purpose: one row per LLM call, with the full prompt and response.
-Defined at [orm/execution.py:81](../../backend/src/ai/orm/execution.py:81).
+Defined at [orm/execution.py:132](../../backend/src/ai/orm/execution.py:132).
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
-| `run_id` | UUID FK→execution_runs.id | no | — | |
+| `run_id` | UUID | no | — | The run. With `company_id`, FK→`execution_runs(id, company_id)` (DM-09) |
+| `company_id` | UUID | no | the run's | The run's company, copied so a query is scoped without a join. Filled from the run on insert when a writer omits it; the composite key keeps it equal to the run's |
 | `model_provider` | String | no | — | `google`, `anthropic`, `azure_openai`, … |
 | `model_name` | String | no | — | |
 | `input_prompt` | Text | no | — | Full prompt text |
@@ -351,18 +354,20 @@ Defined at [orm/execution.py:81](../../backend/src/ai/orm/execution.py:81).
 | `log_metadata` | JSON | yes | — | Free-form extras |
 | `created_at` | DateTime | yes | utcnow | |
 
-Index `ix_llm_interaction_logs_run_id` — every query filters on `run_id` (DM-06, 2026-09-30;
-before, none beyond the PK).
+Indexes: `ix_llm_interaction_logs_run_id` — the run page filters on `run_id` (DM-06,
+2026-09-30; before, none beyond the PK) — and `ix_llm_interaction_logs_company_created
+(company_id, created_at)` for the reports (DM-09).
 
 ### 4.4 `tool_interaction_logs`
 
 Purpose: one row per tool invocation.
-Defined at [orm/execution.py:102](../../backend/src/ai/orm/execution.py:102).
+Defined at [orm/execution.py:159](../../backend/src/ai/orm/execution.py:159).
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
-| `run_id` | UUID FK→execution_runs.id | no | — | |
+| `run_id` | UUID | no | — | The run. With `company_id`, FK→`execution_runs(id, company_id)` (DM-09) |
+| `company_id` | UUID | no | the run's | The run's company, copied so a query is scoped without a join. Filled from the run on insert when a writer omits it; the composite key keeps it equal to the run's |
 | `tool_id` | String | no | — | Registry id, e.g. `web_search` |
 | `tool_name` | String | no | — | |
 | `provider` | String | yes | — | Backing vendor |
@@ -375,18 +380,20 @@ Defined at [orm/execution.py:102](../../backend/src/ai/orm/execution.py:102).
 | `idempotency_key` | String(255) | yes | — | Partial index `idx_tool_logs_idemp` where NOT NULL |
 | `created_at` | DateTime | yes | utcnow | |
 
-Index `ix_tool_interaction_logs_run_id` (DM-06). `human_approvals` and `usage_logs` got the
-same `run_id` index in the same revision, `dm05_run_indexes`.
+Indexes: `ix_tool_interaction_logs_run_id` (DM-06) and `ix_tool_interaction_logs_company_created
+(company_id, created_at)` (DM-09). `human_approvals` and `usage_logs` got the same `run_id`
+index in the same revision as DM-06, `dm05_run_indexes`.
 
 ### 4.5 `human_approvals`
 
 Purpose: one row per HITL checkpoint that paused a run.
-Defined at [orm/execution.py:122](../../backend/src/ai/orm/execution.py:122).
+Defined at [orm/execution.py:187](../../backend/src/ai/orm/execution.py:187).
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
-| `run_id` | UUID FK→execution_runs.id | no | — | |
+| `run_id` | UUID | no | — | The run. With `company_id`, FK→`execution_runs(id, company_id)` (DM-09) |
+| `company_id` | UUID | no | the run's | The run's company, copied so a query is scoped without a join. Filled from the run on insert when a writer omits it; the composite key keeps it equal to the run's |
 | `checkpoint_trigger` | String | no | — | One of the `HITLTriggerType` values |
 | `status` | String | yes | `PENDING` | `PENDING` / `APPROVED` / `REJECTED` / `TIMEOUT` |
 | `requested_by` | String | yes | — | Free text (component name), not a FK |
@@ -398,17 +405,20 @@ Defined at [orm/execution.py:122](../../backend/src/ai/orm/execution.py:122).
 | `requested_at` | DateTime | yes | utcnow | |
 | `responded_at` | DateTime | yes | — | |
 
+Indexes: `ix_human_approvals_run_id` (DM-06) and `ix_human_approvals_company_status
+(company_id, status)` — the approvals inbox is a company's `PENDING` rows (DM-09).
+
 ### 4.6 `execution_trace_events`
 
 Purpose: append-only span tree giving per-iteration transparency into a run. Purely
 observability — deliberately kept out of CORTEX memory so it can be pruned
-independently. Defined at [orm/trace.py:53](../../backend/src/ai/orm/trace.py:53).
+independently. Defined at [orm/trace.py:51](../../backend/src/ai/orm/trace.py:51).
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
 | `run_id` | UUID FK→execution_runs.id ON DELETE CASCADE | no | — | |
-| `company_id` | UUID | yes | — | Denormalised, **no FK** |
+| `company_id` | UUID | yes | — | The run's company. Since DM-09 a composite key `(run_id, company_id) → execution_runs(id, company_id) ON DELETE CASCADE` keeps it equal to the run's when set; the plain `run_id` key stays because it may be NULL |
 | `span_id` | UUID | no | — | Stable identity used by the close-update |
 | `parent_span_id` | UUID | yes | — | NULL for run-root (iteration) spans |
 | `iteration` | Integer | yes | — | Loop iteration number |
@@ -1685,14 +1695,15 @@ def _company_scope(user: User, requested_company: Optional[UUID]) -> Optional[UU
 
 | Scoping | Tables |
 |---|---|
-| **NOT NULL `company_id`** | `users`, `hierarchical_entities`, `execution_runs`, `documents`, `source_trust_scores`, `integration_registry`, `model_task_defaults`, `usage_logs`, `credit_wallets` (also UNIQUE), `subscriptions`, `payment_transactions`, `billing_events`, `voice_sessions`, `whatsapp_sessions`, `conversation_history`, `campaigns`, `lead_queue`, `call_logs`, `artifacts`, `email_connections`, `social_connections`, `cortex_trees` |
+| **NOT NULL `company_id`** | `users`, `hierarchical_entities`, `execution_runs`, `llm_interaction_logs`, `tool_interaction_logs`, `human_approvals` (each kept equal to its run's by a composite key, DM-09), `documents`, `source_trust_scores`, `integration_registry`, `model_task_defaults`, `usage_logs`, `credit_wallets` (also UNIQUE), `subscriptions`, `payment_transactions`, `billing_events`, `voice_sessions`, `whatsapp_sessions`, `conversation_history`, `campaigns`, `lead_queue`, `call_logs`, `artifacts`, `email_connections`, `social_connections`, `cortex_trees` |
 | **Nullable `company_id`** (NULL = platform-wide) | `tool_registry_entries` (NULL = built-in system tool), `billing_config` (NULL = global default), `feature_flags` (NULL = global flag), `phone_numbers` (NULL = unclaimed inventory) |
-| **Denormalised, no FK** | `execution_trace_events.company_id` |
-| **Reached only via a parent** | `refresh_tokens` (via user), `llm_interaction_logs`, `tool_interaction_logs`, `human_approvals` (via run), `campaign_calls` (via campaign), `call_content` (via call_log), `cortex_nodes`, `cortex_edges` (via tree) |
+| **Nullable, kept equal to the run's** | `execution_trace_events.company_id` (composite key since DM-09) |
+| **Reached only via a parent** | `refresh_tokens` (via user), `campaign_calls` (via campaign), `call_content` (via call_log), `cortex_nodes`, `cortex_edges` (via tree) |
 | **Global master data** | `subscription_tiers`, `alembic_version` |
 
-Consequence: any query on `llm_interaction_logs` or `cortex_nodes` that does not join
-through its parent has **no tenant filter at all**. Always join.
+Consequence: any query on `campaign_calls` or `cortex_nodes` that does not join through
+its parent has **no tenant filter at all**. Always join. The run's three log tables were
+in this row until DM-09 (2026-10-01): they now carry `company_id`, so filter on it directly.
 
 ---
 
@@ -1934,7 +1945,7 @@ Full chronological list, in dependency order:
 | 59 | `dm04_billing_event_unique` | `bc01_payment_txn_unique` | Merges duplicate `billing_events` rows, then `uq_billing_events_period_grouping` (DM-04) |
 
 Revisions after 59 (billing's `bc03`, `bc06`, `bc07`; auth's `au10`, `au05`, `au08`; data
-model's `dm08`, `dm10`, …) follow one chain — `alembic history` lists them; each revision's
+model's `dm08`, `dm10`, …, `dm09_log_company_id`) follow one chain — `alembic history` lists them; each revision's
 docstring says what it does and which defect it closes.
 
 Revisions 53 and 54 run their `.sql` file through `migrations/sql_script.py`. Until

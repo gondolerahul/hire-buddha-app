@@ -11,14 +11,17 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     JSON,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
+    event,
+    select,
 )
-from sqlalchemy import event
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.base import NO_VALUE
@@ -48,6 +51,8 @@ class ExecutionRun(Base):
         Index("ix_execution_runs_company_created", "company_id", "created_at"),
         Index("ix_execution_runs_entity_created", "entity_id", "created_at"),
         Index("ix_execution_runs_parent_run_id", "parent_run_id"),
+        # Target of the child tables' (run_id, company_id) key (DM-09).
+        UniqueConstraint("id", "company_id", name="uq_execution_runs_id_company"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -112,11 +117,29 @@ def _enforce_run_transition(target: ExecutionRun, value: Any, oldvalue: Any, ini
     return oldvalue
 
 
+def run_company_key(table: str, **kw: Any) -> ForeignKeyConstraint:
+    """``(run_id, company_id) → execution_runs(id, company_id)`` (DM-09).
+
+    The child row's ``company_id`` is a copy of its run's, so a query can be
+    scoped without joining the run — a forgotten join is then still scoped
+    rather than cross-tenant. The composite key keeps the copy equal to the
+    run's company; it also does the job of a plain ``run_id`` key.
+    """
+    return ForeignKeyConstraint(["run_id", "company_id"], ["execution_runs.id", "execution_runs.company_id"],
+                                name=f"fk_{table}_run_company", **kw)
+
+
 class LLMInteractionLog(Base):
     __tablename__ = "llm_interaction_logs"
+    __table_args__ = (
+        run_company_key("llm_interaction_logs"),
+        Index("ix_llm_interaction_logs_company_created", "company_id", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False, index=True)  # DM-06
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)  # DM-06
+    # The run's company; filled from the run on insert when not given (DM-09).
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     model_provider: Mapped[str] = mapped_column(String, nullable=False)
     model_name: Mapped[str] = mapped_column(String, nullable=False)
     input_prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -135,9 +158,15 @@ class LLMInteractionLog(Base):
 
 class ToolInteractionLog(Base):
     __tablename__ = "tool_interaction_logs"
+    __table_args__ = (
+        run_company_key("tool_interaction_logs"),
+        Index("ix_tool_interaction_logs_company_created", "company_id", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False, index=True)  # DM-06
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)  # DM-06
+    # The run's company; filled from the run on insert when not given (DM-09).
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     tool_id: Mapped[str] = mapped_column(String, nullable=False)
     tool_name: Mapped[str] = mapped_column(String, nullable=False)
     # The plan step that made the call, as on llm_interaction_logs (FE-10).
@@ -157,9 +186,16 @@ class ToolInteractionLog(Base):
 
 class HumanApproval(Base):
     __tablename__ = "human_approvals"
+    __table_args__ = (
+        run_company_key("human_approvals"),
+        # The approvals inbox: a company's PENDING requests.
+        Index("ix_human_approvals_company_status", "company_id", "status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=False, index=True)  # DM-06
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)  # DM-06
+    # The run's company; filled from the run on insert when not given (DM-09).
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     checkpoint_trigger: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str | None] = mapped_column(String, default="PENDING")  # PENDING, APPROVED, REJECTED, TIMEOUT
     requested_by: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -173,3 +209,20 @@ class HumanApproval(Base):
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="human_approvals")
     reviewer: Mapped["User | None"] = relationship("User")
+
+
+def _company_from_run(mapper: Any, connection: Any, target: Any) -> None:
+    """Copy the run's company onto a new child row that was not given one (DM-09).
+
+    The writers pass ``run_id``; this saves each of them from also looking up
+    the company, and a new writer from forgetting to.
+    """
+    if target.company_id is None and target.run_id is not None:
+        runs = ExecutionRun.__table__
+        target.company_id = connection.execute(
+            select(runs.c.company_id).where(runs.c.id == target.run_id)
+        ).scalar_one_or_none()
+
+
+for _child in (LLMInteractionLog, ToolInteractionLog, HumanApproval):
+    event.listen(_child, "before_insert", _company_from_run)

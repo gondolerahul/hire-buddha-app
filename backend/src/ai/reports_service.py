@@ -110,7 +110,6 @@ class ReportsService:
         """LLM latency, token usage, cost, model breakdown."""
         since = datetime.utcnow() - timedelta(days=days)
 
-        # Join to filter by company
         q = select(
             LLMInteractionLog.model_provider,
             LLMInteractionLog.model_name,
@@ -119,11 +118,10 @@ class ReportsService:
             func.sum(LLMInteractionLog.prompt_tokens).label("total_prompt_tokens"),
             func.sum(LLMInteractionLog.completion_tokens).label("total_completion_tokens"),
             func.sum(LLMInteractionLog.cost_usd).label("total_cost"),
-        ).join(ExecutionRun, LLMInteractionLog.run_id == ExecutionRun.id) \
-         .where(LLMInteractionLog.created_at >= since)
+        ).where(LLMInteractionLog.created_at >= since)
 
         if company_id:
-            q = q.where(ExecutionRun.company_id == company_id)
+            q = q.where(LLMInteractionLog.company_id == company_id)
 
         q = q.group_by(
             LLMInteractionLog.model_provider,
@@ -147,13 +145,12 @@ class ReportsService:
 
         # Latency percentiles (simplified)
         lat_q = select(LLMInteractionLog.latency_ms) \
-            .join(ExecutionRun, LLMInteractionLog.run_id == ExecutionRun.id) \
             .where(
                 LLMInteractionLog.created_at >= since,
                 LLMInteractionLog.latency_ms.isnot(None),
             )
         if company_id:
-            lat_q = lat_q.where(ExecutionRun.company_id == company_id)
+            lat_q = lat_q.where(LLMInteractionLog.company_id == company_id)
 
         lat_result = await self.db.execute(lat_q)
         latencies = sorted([r[0] for r in lat_result.all() if r[0] is not None])
@@ -189,11 +186,10 @@ class ReportsService:
             func.count(ToolInteractionLog.id).label("calls"),
             func.sum(case((ToolInteractionLog.success == True, 1), else_=0)).label("successes"),
             func.avg(ToolInteractionLog.latency_ms).label("avg_latency_ms"),
-        ).join(ExecutionRun, ToolInteractionLog.run_id == ExecutionRun.id) \
-         .where(ToolInteractionLog.created_at >= since)
+        ).where(ToolInteractionLog.created_at >= since)
 
         if company_id:
-            q = q.where(ExecutionRun.company_id == company_id)
+            q = q.where(ToolInteractionLog.company_id == company_id)
 
         q = q.group_by(ToolInteractionLog.tool_name, ToolInteractionLog.provider) \
              .order_by(desc("calls"))
