@@ -137,7 +137,7 @@ server: {
     proxy: {
         '/api':      { target, changeOrigin: true, secure: false },
         '/reports':  { target, changeOrigin: true, bypass: spaPageLoad },
-        '/artifact': { target, changeOrigin: true },
+        '^/artifact/': { target, changeOrigin: true },  // a RegExp key
     },
 },
 ```
@@ -155,7 +155,9 @@ Things to know:
 3. **`/reports` page loads stay in the SPA.** The API's static report mount and
    the SPA's `/reports/*` pages share the prefix; `spaPageLoad` serves
    `index.html` to a request that accepts HTML, so reloading a report page works
-   (FE-24).
+   (FE-24). The `/artifact` proxy is the RegExp `^/artifact/` instead, so the
+   SPA's `/artifacts` page is not taken for the API's static mount (FE-31). A
+   new proxy key must not be a prefix of a route the SPA owns.
 4. **Path aliases are declared twice** — once in `vite.config.ts` for the
    bundler and once in `tsconfig.json` for the type checker. If you add an
    alias you must add it in both files or one of the two will break.

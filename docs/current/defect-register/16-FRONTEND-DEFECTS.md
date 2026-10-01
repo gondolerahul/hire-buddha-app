@@ -407,6 +407,26 @@ so the feature is half-built rather than absent.
 
 ---
 
+### FE-31 — Reloading the Artifacts page shows the API's 404
+
+**✅ Verified · Low** · **Status: fixed (2026-10-01)** — found while checking FE-29.
+
+The dev server proxied the bare prefix `/artifact` to the API's static mount, and a prefix
+also matches `/artifacts` — the SPA's own page. So a full load of `/artifacts` (a reload, a
+bookmark, a pasted link) showed `{"detail":"Not Found"}` from the API instead of the app;
+only in-app navigation reached it. The same trap as FE-24, with a different prefix.
+
+- [`frontend/vite.config.ts`](../../../frontend/vite.config.ts) — the `/artifact` proxy
+
+**Fix:** the key is the RegExp `^/artifact/` — the static mount's files are all under the
+slash, and the page is not. No `Accept` heuristic is needed, so an `<iframe>` or a link to a
+static file still reaches the API. **Evidence:** `curl -H "Accept: text/html"` on :3020 —
+before: `/artifacts` → 404 `application/json`; after a dev-server restart: `/artifacts` → 200
+`text/html` (the SPA), `/artifact/does-not-exist.txt` → the API's JSON 404 (still proxied),
+`/api/v1/health` → 200.
+
+---
+
 ### FE-24 — Reloading any `/reports/*` page proxies the browser to the gateway
 
 **✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the `/reports` proxy has a `bypass`:

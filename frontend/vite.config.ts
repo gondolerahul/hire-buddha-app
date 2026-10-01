@@ -64,7 +64,9 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     bypass: spaPageLoad,
                 },
-                '/artifact': {
+                // Anchored with the slash: a bare '/artifact' prefix also took
+                // the SPA's own /artifacts page (FE-31).
+                '^/artifact/': {
                     target,
                     changeOrigin: true,
                 },
