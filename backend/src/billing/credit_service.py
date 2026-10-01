@@ -34,9 +34,11 @@ from src.billing.billing_models import CreditHold, CreditWallet
 from src.billing.billing_service import BillingService
 
 
-# Minimum credit thresholds by entity type.
+# Minimum credit thresholds by entity level (schemas/levels.py).
 # Execution is blocked if the available balance is below this amount.
 MINIMUM_EXECUTION_THRESHOLDS = {
+    "GRAPH":   Decimal("2.00"),   # The business: runs its departments
+    "LOOP":    Decimal("1.00"),   # A department: runs its processes
     "PROCESS": Decimal("0.50"),   # Deep Research etc. — typically costs $0.50–$2.00
     "AGENT":   Decimal("0.05"),   # Single-agent runs
     "SKILL":   Decimal("0.02"),   # Lightweight skill invocations

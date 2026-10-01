@@ -937,11 +937,13 @@ Note the credit grant equals the **monthly fee in dollars**, one-for-one, plus t
 
 ### 8.1 The threshold table
 
-Execution is refused outright when the balance is below a per-entity-type floor — [credit_service.py:26](../../backend/src/billing/credit_service.py:26):
+Execution is refused outright when the balance is below a per-level floor — [credit_service.py](../../backend/src/billing/credit_service.py) (one entry per level of the hierarchy, R1):
 
 ```python
 # backend/src/billing/credit_service.py
 MINIMUM_EXECUTION_THRESHOLDS = {
+    "GRAPH":   Decimal("2.00"),   # The business: runs its departments
+    "LOOP":    Decimal("1.00"),   # A department: runs its processes
     "PROCESS": Decimal("0.50"),   # Deep Research etc. — typically costs $0.50–$2.00
     "AGENT":   Decimal("0.05"),   # Single-agent runs
     "SKILL":   Decimal("0.02"),   # Lightweight skill invocations

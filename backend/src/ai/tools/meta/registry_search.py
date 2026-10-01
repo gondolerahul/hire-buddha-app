@@ -24,6 +24,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
+from src.ai.schemas.enums import EntityType
 from src.ai.tools.base import Tool
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class MetaRegistrySearchTool(Tool):
     description = (
         "Search the agent registry for existing agents that match a requirement. "
         "Input: JSON with 'intent' (required description), 'required_tools' (list of tool IDs), "
-        "'preferred_type' (ACTION|SKILL|AGENT|PROCESS), 'complexity_class' (LOW|MEDIUM|HIGH), "
+        "'preferred_type' (ACTION|SKILL|AGENT|PROCESS|LOOP|GRAPH), 'complexity_class' (LOW|MEDIUM|HIGH), "
         "and 'tags' (list). Returns ranked candidates with match type "
         "(REUSE/ADAPT/COMPOSE/CREATE) and rationale."
     )
@@ -102,7 +103,7 @@ class MetaRegistrySearchTool(Tool):
                     },
                     "preferred_type": {
                         "type": "string",
-                        "enum": ["ACTION", "SKILL", "AGENT", "PROCESS"],
+                        "enum": [t.value for t in EntityType],
                         "description": "Preferred entity type",
                     },
                     "complexity_class": {

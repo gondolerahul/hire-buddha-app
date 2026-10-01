@@ -122,6 +122,8 @@ class _Entity:
         ("SKILL", True, False),
         ("AGENT", True, True),
         ("PROCESS", True, True),
+        ("LOOP", True, True),
+        ("GRAPH", True, True),
     ],
 )
 def test_matrix_defaults(etype: str, introspect: bool, reflect: bool) -> None:

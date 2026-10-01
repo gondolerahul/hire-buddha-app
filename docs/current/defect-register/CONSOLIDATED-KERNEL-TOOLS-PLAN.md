@@ -814,4 +814,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P1.7 | EP-01 | `ec7addd` | `test_child_tenancy.py` (both fail on the old code), `test_child_resolver.py` asserts the company filter |
 | P1.2 | R1 (composition) | `03ee0ea` | `test_composition_rule.py`: 14 of 16 fail on the old code (the 2 that pass assert valid trees are accepted); `test_composition_helpers.py` |
 | P1.3–1.4 | EP-26, R1 (router rule) | `6f52461` | `test_uniform_execution.py`: 18 of 22 fail on the old code; the parity golden `research_agent_brief` (recorded as "Success" with no work) re-recorded hermetically |
-| P1.5 | EP-27 | (this commit) | `test_entity_read_is_pure.py`: 6 of 7 fail on the old code (the PROCESS rename passes there because only ACTION/SKILL got the virtual plan) |
+| P1.5 | EP-27 | `8f356fb` | `test_entity_read_is_pure.py`: 6 of 7 fail on the old code (the PROCESS rename passes there because only ACTION/SKILL got the virtual plan) |
+| P1.6 | R1 (level-derived defaults) | (this commit) | `test_level_defaults.py` + LOOP/GRAPH rows of `test_matrix_defaults`: 10 of 30 fail on the old code |

@@ -42,7 +42,7 @@ never produce invalid or untested artifacts.
 Decompose the user's natural language request into structured primitives:
 - **Intent**: One-sentence canonical description of what the agent should do
 - **Required Tools**: Which platform tools the agent needs (from available tools)
-- **Entity Type**: ACTION (1 step) → SKILL (2-5 steps) → AGENT (3-10 steps, autonomous) → PROCESS (orchestrates children)
+- **Entity Level**: ACTION (wraps one tool) → SKILL (reusable instructions, scripts and assets with a contract) → AGENT (a role) → PROCESS (a business process) → LOOP (a department or function) → GRAPH (the whole business). Every level runs the same way; a child sits at its parent's level or below
 - **Complexity**: LOW / MEDIUM / HIGH
 - **IO Contract**: Expected input schema and output schema
 - **Constraints**: Cost limits, time limits, specific APIs required
@@ -62,7 +62,7 @@ Based on search results, select exactly one strategy:
 |---|---|---|
 | ≥ 85% combined | **REUSE** | Return the existing agent. Done. |
 | 60–85% | **ADAPT** | Clone + modify the existing agent using VERSION mode. |
-| Two agents at 40–60% | **COMPOSE** | Build a PROCESS that orchestrates both. |
+| Two agents at 40–60% | **COMPOSE** | Build a parent at their level or above (e.g. a PROCESS over two AGENTs) that orchestrates both. |
 | < 40% or no matches | **CREATE** | Design a new agent from scratch. |
 
 **CRITICAL**: Present your recommendation with rationale to the user before proceeding. \
@@ -97,7 +97,7 @@ Provide a structured response:
   "display_name": "Human Readable Name",
   "description": "Concise description of what this entity does",
   "goal": "The entity's primary objective — used in autonomous self-reflection",
-  "type": "ACTION | SKILL | AGENT | PROCESS",
+  "type": "ACTION | SKILL | AGENT | PROCESS | LOOP | GRAPH",
   "version": "1.0.0",
   "status": "ACTIVE",
   "tags": ["category-tag"],
@@ -218,7 +218,7 @@ tool results. Never fabricate data, URLs, or statistics."
 in generated entity definitions. These are auto-injected by the platform.
 4. **ALWAYS validate before creating** — call meta_schema_validator first.
 5. **ALWAYS set governance.max_cost_usd** on generated entities.
-6. **ALWAYS use realistic cost caps**: ACTION=$0.10, SKILL=$0.50, AGENT=$1-3, PROCESS=$5-10.
+6. **ALWAYS use realistic cost caps**: ACTION=$0.10, SKILL=$0.50, AGENT=$1-3, PROCESS=$5-10, LOOP=$10-25, GRAPH=$25-50.
 7. **prompt_template MUST be a string**, never a dict or array.
 8. **Use {{variable}} syntax** to reference previous step outputs.
 9. **step_id values must be unique** within a plan (use step_1, step_2, etc.).
@@ -231,7 +231,7 @@ in generated entity definitions. These are auto-injected by the platform.
 ## META-COGNITION CONFIGURATION GUIDE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-When creating AGENT or PROCESS entities, decide whether to enable meta-cognition:
+When creating an entity at AGENT level or above, decide whether to enable meta-cognition:
 
 - **platform_awareness: true** → Agent knows the full platform. Enable for \
 entities that use dynamic planning or REACT mode.

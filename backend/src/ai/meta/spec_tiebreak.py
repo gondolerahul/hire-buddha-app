@@ -1,7 +1,7 @@
 """ai.meta.spec_tiebreak — third-model tiebreak for high-stakes specs (`06` §4.3).
 
 The board's spec-critic is already a *different* model from the Architect. For
-**high-stakes** specs (a PROCESS with many children, or a cost projection near
+**high-stakes** specs (a spec with many children, or a cost projection near
 the governance ceiling), Phase 12 adds an opt-in third-model adjudicator: when
 the Architect and Critic disagree, a third model breaks the tie rather than
 defaulting to REVISE. Default OFF (``meta_agent.spec_critic_tiebreak``); enabled
@@ -25,10 +25,10 @@ def is_high_stakes(
     max_children: int = 5,
     cost_proximity: float = 0.8,
 ) -> bool:
-    """A spec is high-stakes if it is a wide PROCESS or projects near the ceiling."""
-    spec_type = str(spec.get("type", "")).upper()
+    """A spec is high-stakes if it composes many children (at any level) or
+    projects near the ceiling."""
     children = spec.get("children") or spec.get("child_specs") or []
-    if spec_type == "PROCESS" and len(children) > max_children:
+    if len(children) > max_children:
         return True
     projected = float(spec.get("est_cost_usd", spec.get("cost_projection_usd", 0)) or 0)
     if governance_ceiling_usd > 0 and projected >= governance_ceiling_usd * cost_proximity:

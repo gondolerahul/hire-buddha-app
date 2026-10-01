@@ -8,7 +8,7 @@ Returns a typed report so the Promoter's gate G2 can simply check
 Implemented checks::
 
   1. json_shape_ok                  — name / type / goal / planning / logic_gate present
-  2. entity_type_valid              — one of ACTION / SKILL / AGENT / PROCESS
+  2. entity_type_valid              — one of the six levels (EntityType)
   3. no_cycle_in_children           — child IDs do not include the parent
   4. all_tools_listed_in_caps       — every TOOL_CALL step's tool appears in capabilities.tools
   5. plan_step_ids_unique           — no duplicate step_id values
@@ -22,7 +22,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-_VALID_TYPES = {"ACTION", "SKILL", "AGENT", "PROCESS"}
+from src.ai.schemas.enums import EntityType
+
+_VALID_TYPES = {t.value for t in EntityType}
 
 
 @dataclass

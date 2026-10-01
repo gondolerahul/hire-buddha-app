@@ -37,17 +37,21 @@ __all__ = ["backfill_meta_cognition", "main"]
 
 
 async def backfill_meta_cognition(db: AsyncSession) -> int:
-    """Backfill explicit meta_cognition.* for AGENT/PROCESS entities.
+    """Backfill explicit meta_cognition.* for entities at AGENT level and above.
 
     Returns the number of entities mutated. Idempotent: an entity with
     *any* explicit ``meta_cognition`` block is left untouched.
     """
     # Lazy import to avoid heavy ORM dependency at module-import time.
     from src.ai.orm.entity import HierarchicalEntity
+    from src.ai.schemas.enums import EntityType
+    from src.ai.schemas.levels import entity_level
 
     rows = (await db.execute(
         select(HierarchicalEntity).where(
-            HierarchicalEntity.type.in_(["AGENT", "PROCESS"]),
+            HierarchicalEntity.type.in_(
+                [t.value for t in EntityType if entity_level(t) >= entity_level(EntityType.AGENT)]
+            ),
         )
     )).scalars().all()
 

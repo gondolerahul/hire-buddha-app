@@ -442,7 +442,7 @@ class ValidatorReport:
 | # | Check | What it asserts | Failure reason |
 |---|---|---|---|
 | 1 | `json_shape_ok` | `name`, `type`, `goal` all present | `missing fields: …` |
-| 2 | `entity_type_valid` | `type` ∈ {ACTION, SKILL, AGENT, PROCESS} | `unknown entity type: X` |
+| 2 | `entity_type_valid` | `type` is one of the six levels (`EntityType`: ACTION … GRAPH) | `unknown entity type: X` |
 | 3 | `no_cycle_in_children` | No child references the parent's own id | `child references parent id` |
 | 4 | `all_tools_listed_in_capabilities` | Every `TOOL_CALL` step's `tool_id` appears in `capabilities.tools` | `tools used but not declared: …` |
 | 5 | `plan_step_ids_unique` | No duplicate `step_id` | `duplicate step_ids: …` |

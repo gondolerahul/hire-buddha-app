@@ -777,23 +777,27 @@ which plans again or **fails the run with the reason**. Before R1 (EP-26) a
 planless PROCESS, LOOP or GRAPH idled through no-op iterations to the cap, and a
 goal-only AGENT was `COMPLETED` with output "Success" having done nothing.
 
-### Where behaviour still forks on the level
+### What derives from the level
 
-Nothing about the type is polymorphic — the same `AgentLoop`, the same
-`StepEngine`, the same `StepExecutorService` run every level. What still differs
-is a handful of **explicit branches**, which R1 replaces with one rule each
-(plan P1; `LOOP` and `GRAPH` take none of the branches below until then):
+The level changes **no** code path: the same `AgentLoop`, `StepEngine` and
+`StepExecutorService` run every level, with the same planning, critics and
+limits. A handful of defaults are derived from it, each in one place:
 
-| Branch | ACTION | SKILL | AGENT | PROCESS |
-|--------|:------:|:-----:|:-----:|:-------:|
-| `self_introspection` auto-on | — | ✅ | ✅ | ✅ |
-| `reflection` auto-on | — | — | ✅ | ✅ |
-| `can_have_children` in the platform manifest | ❌ | ❌ | ❌ | ✅ |
+| Default | Rule | Where |
+|---|---|---|
+| Credit floor to start a run | ACTION $0.01 · SKILL $0.02 · AGENT $0.05 · PROCESS $0.50 · LOOP $1.00 · GRAPH $2.00 | `credit_service.MINIMUM_EXECUTION_THRESHOLDS` |
+| `self_introspection` auto-on | level ≥ SKILL | `resolve_meta_cognition` |
+| `reflection` auto-on | level ≥ AGENT | `resolve_meta_cognition` |
+| What it may compose (the Meta-Agent's manifest) | entities at its level or below | `PlatformSchemaCompiler._compile_entity_types` |
+
+Before R1, behaviour forked on `type` in nine places — a virtual plan on read
+for ACTION/SKILL, a default step for ACTION/SKILL only, `Recursive` for AGENT
+only, router enforcement for PROCESS and tool-less AGENTs, the child pre-flight
+for PROCESS only, and a manifest in which only PROCESS "can have children".
 
 Everything else — `hierarchy.children`, `CHILD_ENTITY_INVOCATION` steps, tools,
-CORTEX — is available to **any** type. The BI seed proves it: its SKILLs each
-invoke child ACTIONs, and its AGENTs each invoke child SKILLs, even though the
-manifest says only PROCESS `can_have_children`.
+CORTEX — is available at **any** level. The BI seed shows the hierarchy at work:
+its SKILLs each invoke child ACTIONs, and its AGENTs each invoke child SKILLs.
 
 ```mermaid
 flowchart TD
@@ -818,23 +822,13 @@ flowchart TD
     C2 -->|TOOL_CALL| T2["sandbox_executor"]
 ```
 
-The intended semantics, from the platform manifest
-([platform_schema_compiler.py:198](../../backend/src/ai/meta/platform_schema_compiler.py:198)):
-
-| Type | Intent | Typical steps |
-|------|--------|---------------|
-| `ACTION` | Atomic unit of work — one LLM step or one tool call. | 1 |
-| `SKILL` | Reusable multi-step capability. | 2–5 |
-| `AGENT` | Autonomous reasoning entity with tools + memory; supports goal-driven expansion. | 3–10 |
-| `PROCESS` | Orchestrator that coordinates children via `CHILD_ENTITY_INVOCATION`. | 2–20 |
-
-And the composition rules the manifest hands to the Meta-Agent
-([platform_schema_compiler.py:430](../../backend/src/ai/meta/platform_schema_compiler.py:430)):
-children live in `hierarchy.children[].child_id`; invocation targets must be
-same-company; children share the parent CORTEX tree via `__cortex_tree_id__`;
-independent steps run in parallel; step outputs are referenced as `{{step_id}}`;
-depth is capped by `governance.max_recursion_depth` (which, as noted, is not
-actually enforced).
+What the platform manifest hands the Meta-Agent
+([`PlatformSchemaCompiler._compile_entity_types`](../../backend/src/ai/meta/platform_schema_compiler.py)
+and `_compile_composition_rules`) is generated from the level model: each of the
+six levels with what it maps to and the levels it may compose, and the
+composition rule itself — a child at its parent's level or below, in the same
+company, with no cycle, enforced on create/update, before a run and when a child
+run starts.
 
 ---
 

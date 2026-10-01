@@ -152,10 +152,11 @@ class PlatformSchemaCompiler:
         lines.append("")
 
         # 3. Entity Type Hierarchy
-        lines.append("## Entity Types (composition hierarchy)")
+        lines.append("## Entity Levels (a child sits at its parent's level or below)")
         for et in schema.get("entity_types", []):
-            children = "Can have children" if et.get("can_have_children") else "Leaf node"
-            lines.append(f"- **{et['type']}**: {et['description'][:120]} ({children})")
+            composes = ", ".join(et.get("may_compose") or [])
+            lines.append(f"- **{et['type']}** (level {et.get('level')}): "
+                         f"{et['description'][:120]} May compose: {composes}.")
         lines.append("")
 
         # 4. Reasoning & Execution Modes
@@ -196,38 +197,19 @@ class PlatformSchemaCompiler:
     # ------------------------------------------------------------------
 
     def _compile_entity_types(self) -> List[Dict[str, Any]]:
-        """Extract entity types from schemas.py enums with semantic descriptions."""
+        """The six levels (``schemas/levels.py``), lowest first. Every level runs
+        through the same loop; what differs is what it maps to and what it may
+        compose — entities at its own level or below (R1)."""
+        from src.ai.schemas.levels import ENTITY_TYPES_BY_LEVEL, LEVEL_DESCRIPTIONS, entity_level
+
         return [
             {
-                "type": "ACTION",
-                "description": "Atomic unit of work. Single LLM reasoning step or tool call. "
-                               "Cannot have children. Always has exactly one step in its plan.",
-                "can_have_children": False,
-                "typical_step_count": "1",
-            },
-            {
-                "type": "SKILL",
-                "description": "Reusable multi-step capability. Can chain multiple "
-                               "TOOL_CALL and ACTION steps. No child entities.",
-                "can_have_children": False,
-                "typical_step_count": "2-5",
-            },
-            {
-                "type": "AGENT",
-                "description": "Autonomous reasoning entity with tools, memory, and "
-                               "optional CORTEX cognitive tree. Supports AUTONOMOUS execution "
-                               "mode with self-reflection and goal validation.",
-                "can_have_children": False,
-                "typical_step_count": "3-10",
-            },
-            {
-                "type": "PROCESS",
-                "description": "Orchestration entity that coordinates child entities "
-                               "(AGENTs, SKILLs) via CHILD_ENTITY_INVOCATION steps. "
-                               "Supports DAG execution with parallel branches.",
-                "can_have_children": True,
-                "typical_step_count": "2-20",
-            },
+                "type": t.value,
+                "level": entity_level(t),
+                "description": LEVEL_DESCRIPTIONS[t],
+                "may_compose": [c.value for c in ENTITY_TYPES_BY_LEVEL if entity_level(c) <= entity_level(t)],
+            }
+            for t in ENTITY_TYPES_BY_LEVEL
         ]
 
     # ------------------------------------------------------------------
@@ -430,7 +412,12 @@ class PlatformSchemaCompiler:
 
     def _compile_composition_rules(self) -> List[str]:
         return [
-            "PROCESS entities contain child AGENTs/SKILLs via hierarchy.children[].child_id",
+            "Levels: ACTION (a tool wrapper) < SKILL < AGENT (a role) < PROCESS < LOOP "
+            "(a department) < GRAPH (the business); every level runs the same way",
+            "A child sits at its parent's level or below, in the same company, with no "
+            "cycle — enforced on create/update, before a run, and when a child run starts",
+            "Any entity names children via hierarchy.children[].child_id, a child's "
+            "parent_id, or CHILD_ENTITY_INVOCATION steps",
             "CHILD_ENTITY_INVOCATION steps MUST have target.entity_id pointing to a valid "
             "HierarchicalEntity within the same company_id scope",
             "Children share the parent's CORTEX tree via __cortex_tree_id__ context propagation",
@@ -876,13 +863,18 @@ def resolve_meta_cognition(entity: Any) -> Dict[str, Any]:
         config["registry_search"] = True
         config["self_modification"] = True
 
-    # Introspection defaults per the §1 matrix (only when not explicitly set):
-    #   self-introspection → SKILL (r/o) + AGENT + PROCESS
-    #   reflection         → AGENT + PROCESS (SKILL is run-scoped only)
+    # Introspection defaults by level (only when not explicitly set; R1):
+    #   self-introspection from SKILL up (a SKILL reads only its own run),
+    #   reflection from AGENT up (a SKILL is run-scoped only).
+    from src.ai.schemas.levels import entity_level
+    try:
+        level = entity_level(entity_type)
+    except (KeyError, ValueError):
+        level = 0
     if config["self_introspection"] is None:
-        config["self_introspection"] = entity_type in ("SKILL", "AGENT", "PROCESS")
+        config["self_introspection"] = level >= entity_level("SKILL")
     if config["reflection"] is None:
-        config["reflection"] = entity_type in ("AGENT", "PROCESS")
+        config["reflection"] = level >= entity_level("AGENT")
 
     return config
 
