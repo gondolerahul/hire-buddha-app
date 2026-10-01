@@ -195,11 +195,7 @@ class AgentLoop:
         except Exception:
             await self.db.rollback()
 
-        # Reconcile a plan up front when the loop has none. Without this a
-        # dynamic-planning PROCESS/AGENT enters the loop with no plan_steps, the
-        # Strategist defaults to SingleStep-with-no-fragment, and the old
-        # fallback handed the WHOLE run to ExecutionEngine.execute_run —
-        # defeating the loop and re-billing (Phase 11 AgentLoop incident #2).
+        # Reconcile a plan up front when the loop has none (see _ensure_plan).
         await self._ensure_plan(state)
 
         return await self._drive(run, state, run_id)
@@ -950,19 +946,16 @@ class AgentLoop:
         """Reconcile a plan once when the loop has none.
 
         ``_extract_plan_steps`` only finds steps for entities with a
-        pre-existing ``run.dynamic_plan`` or a ``static_plan``. A PROCESS/AGENT
-        configured for *dynamic* planning (``static_plan.enabled=False``,
-        ``dynamic_planning.enabled=True``) enters the loop with
-        ``state.plan_steps == []``. The Strategist then defaults to
-        SingleStep-with-no-fragment, which used to hand the entire run to the
-        legacy ``execute_run`` (BUG 1). Reconciling here populates
+        pre-existing ``run.dynamic_plan`` or a ``static_plan``; an entity
+        configured for *dynamic* planning enters the loop with
+        ``state.plan_steps == []``. Reconciling here populates
         ``state.plan_steps`` (and persists ``run.dynamic_plan``) so the
         Strategist's plan-driven branch dispatches one ready step per iteration
         — CHILD_ENTITY_INVOCATION steps via ChildEntity, others via SingleStep.
 
         Best-effort: any failure leaves the loop on its existing (empty) plan;
         a recursive AGENT still expands its goal, and other entities wind down
-        via the no-op + iteration cap rather than the old full-run fallback.
+        via the no-op + iteration cap.
         """
         if state.plan_steps:
             return
