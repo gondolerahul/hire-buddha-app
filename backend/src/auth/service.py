@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import hashlib
 import uuid
 import secrets
-from sqlalchemy import or_, update
+from sqlalchemy import func, or_, update
 
 from src.auth.schemas import UserCreate, UserLogin, UserCreateAdmin, UserUpdate
 from src.auth.roles import Role, USER_ADMIN_ROLES, assignable_roles
@@ -388,10 +388,18 @@ async def logout(db: AsyncSession, token: str, all_sessions: bool = False) -> No
 
 
 async def get_or_create_oauth_user(db: AsyncSession, email: str, full_name: str) -> User:
-    result = await db.execute(select(User).filter(User.email == email))
+    """The account for a provider-verified ``email``, created if there is none.
+
+    The provider has proved the address, so an existing account that was never
+    verified is marked verified (AU-23).
+    """
+    result = await db.execute(select(User).filter(func.lower(User.email) == email.lower()))
     user = result.scalars().first()
-    
+
     if user:
+        if not user.is_verified:
+            user.is_verified = True
+            await db.commit()
         return user
         
     # Create new user

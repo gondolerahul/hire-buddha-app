@@ -130,6 +130,26 @@ async def logout(request: LogoutRequest, response: Response, db: AsyncSession = 
     response.status_code = status.HTTP_204_NO_CONTENT
     return None
 
+def _verified_email(provider: str, user_info: dict) -> str | None:
+    """The address the provider vouches for, or None; never one a tenant admin typed (AU-23).
+
+    An OAuth login signs into the account with this email if one exists, so the
+    email must be one the provider has verified. Google says so in
+    ``email_verified``. Microsoft's ``mail`` is an attribute any Entra tenant's
+    admin can set to anyone's address — logging in through ``common`` with it
+    took over that address's account. ``userPrincipalName`` must be in a
+    domain the user's tenant has verified (or the user's own Microsoft
+    account), so that is the identity.
+    """
+    if provider == "google":
+        if user_info.get("email_verified") is not True:
+            raise HTTPException(status_code=400, detail="Google has not verified this email address")
+        email = user_info.get("email")
+    else:
+        email = user_info.get("userPrincipalName")
+    return email.strip().lower() if email else None
+
+
 @router.post("/oauth/{provider}", response_model=Token)
 async def oauth_login(
     provider: str,
@@ -157,9 +177,9 @@ async def oauth_login(
                 headers={"Authorization": f"Bearer {token_data['access_token']}"}
             )
             user_info = user_info_res.json()
-            email = user_info.get("email")
+            email = _verified_email(provider, user_info)
             name = user_info.get("name")
-            
+
     elif provider == "microsoft":
         token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
         data = {
@@ -180,7 +200,7 @@ async def oauth_login(
                 headers={"Authorization": f"Bearer {token_data['access_token']}"}
             )
             user_info = user_info_res.json()
-            email = user_info.get("mail") or user_info.get("userPrincipalName")
+            email = _verified_email(provider, user_info)
             name = user_info.get("displayName")
     else:
         raise HTTPException(status_code=400, detail="Unsupported provider")

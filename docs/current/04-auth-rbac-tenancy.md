@@ -1199,11 +1199,12 @@ Provider configuration comes from raw `os.getenv` inside the handler, not from `
 | `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | [router.py:135-136](../../backend/src/auth/router.py:135) |
 | `VITE_GOOGLE_CLIENT_ID` / `VITE_MICROSOFT_CLIENT_ID` | [oauth.service.ts:3-4](../../frontend/src/services/oauth.service.ts:3) |
 
-Three problems with this flow, all visible in the code:
+Three problems with this flow, all visible in the code. The third is fixed (AU-23,
+2026-10-01); the first two are open in the frontend:
 
 1. **The login-page buttons are not wired.** [LoginPage.tsx:76-85](../../frontend/src/pages/auth/LoginPage.tsx:76) renders "Google" and "Microsoft" buttons with **no `onClick` handler**, and does not import `oauthService`. `oauthService` is referenced only by `OAuthCallback.tsx`. The flow is unreachable from the UI as written.
-2. **`state` is used as a provider label, not as a CSRF nonce.** `state: 'google'` is guessable and constant, so it provides no CSRF protection on the callback. The OAuth spec's whole point for `state` is unpredictability.
-3. **Account linking is by email with no verification of provider trust.** `get_or_create_oauth_user` matches on email alone ([service.py:221](../../backend/src/auth/service.py:221)). If an attacker can get a provider to assert an email that already exists as a password account, they take over that account. Microsoft's `userPrincipalName` fallback ([router.py:152](../../backend/src/auth/router.py:152)) is especially loose.
+2. **There is no `state` at all.** `oauth.service.ts` sends none, so nothing protects the callback from a forged redirect (login CSRF). `OAuthCallback.tsx` reads `state` as the provider name, so even a genuine callback fails with "Invalid OAuth state". It needs a random `state`, kept in `sessionStorage` and compared on return, plus PKCE.
+3. ~~**Account linking is by email with no verification of provider trust.**~~ **Fixed (AU-23).** The login signs into the existing account with the provider's email, so the email must be one the provider vouches for. `_verified_email` ([router.py](../../backend/src/auth/router.py)) takes Google's `email` only when `email_verified` is true. For Microsoft it takes `userPrincipalName`, whose domain the tenant must have verified, and never `mail`. Any Entra tenant admin can set `mail` to anyone's address, and `mail` used to come first. The lookup is case-insensitive. An existing unverified account that signs in this way is marked verified.
 
 ### 12.2 Flow B — social connections (agent posting credentials)
 

@@ -40,12 +40,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--privilege-escalation-and-open-doors) | Privilege escalation and open doors | 5 | **Now** — before any real customer data exists |
-| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 6 | Before relying on the control |
+| [T0](#2-t0--privilege-escalation-and-open-doors) | Privilege escalation and open doors | 6 | **Now** — before any real customer data exists |
+| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 8 | Before relying on the control |
 | [T2](#4-t2--missing-pieces) | Missing pieces | 5 | Before launch |
 | [T3](#5-t3--inconsistency-and-dead-weight) | Inconsistency and dead weight | 6 | When the area is next touched |
 
-**Total: 22 defects, 10 improvements.**
+**Total: 25 defects, 10 improvements.** (AU-23 to AU-25 were found on 2026-10-01, while fixing the rest.)
 
 The three to read before anything else:
 
@@ -300,6 +300,50 @@ registered user with several sessions: after `POST /auth/logout` session A's ref
 B's current refresh token and access token both got 401; `all_sessions` from session C
 made session D's access token and refresh token 401, and a new login worked.
 
+### AU-23 — An OAuth login can sign in as any existing account
+
+**✅ Verified · Critical** · **Status: backend fixed (2026-10-01); the frontend half is open**
+— found 2026-10-01 while recording new defects. The design doc listed the ingredients
+(§12.1, items 2 and 3), but no register entry did.
+
+`POST /auth/oauth/{provider}` exchanges the code, reads the provider's profile, and signs
+into **the existing account with that email**. It created one only if none existed. Two
+inputs made that email attacker-controlled:
+
+- **Microsoft:** the email was `mail or userPrincipalName` from Graph `/me`, through the
+  `common` authority, which accepts any Entra tenant. `mail` is an attribute the user's own
+  tenant admin sets to any string. An attacker with a free tenant sets it to the victim's
+  address and signs in as the victim. It was not a fallback problem: `mail` came first.
+- **Google:** `email` was used without checking `email_verified`.
+
+The endpoint is live whenever the provider's client id and secret are set, even though no
+UI reaches it (below).
+
+**Fixed (backend):** `_verified_email` in `auth/router.py` takes Google's `email` only
+when `email_verified` is true (otherwise 400). For Microsoft it takes `userPrincipalName`,
+whose domain must be one the user's tenant has verified, or the user's own Microsoft
+account. It never takes `mail`. The address is lower-cased, and `get_or_create_oauth_user`
+matches it case-insensitively. An existing account that never verified its email is marked
+verified, because the provider has just proved it. Before, the account got a token that
+every route then refused.
+
+**Open (frontend; register 16):**
+- The SPA sends **no `state`**. `oauth.service.ts` builds both authorize URLs without one,
+  so the callback cannot reject a forged redirect (login CSRF). `OAuthCallback.tsx` also
+  reads `state` as the provider name, so the callback fails ("Invalid OAuth state") even on
+  a genuine login.
+- The Login page's Google and Microsoft buttons have no `onClick`.
+
+The fix there is a random `state` (with the provider inside it) kept in `sessionStorage`
+and compared on return, plus PKCE.
+
+**Evidence:** `tests/unit/test_oauth_identity.py` drives the real router against a fake
+provider. A Microsoft profile with `mail=victim@…` and a different UPN signs in as the
+UPN. A Google profile with `email_verified=false` is a 400 and links nothing.
+`tests/integration/test_oauth_account_link.py` checks that an existing unverified
+`…@Example.com` account is found from `…@example.com` and verified. All three fail on the
+old code.
+
 ---
 
 ## 3. T1 — Controls that are not enforced
@@ -524,6 +568,38 @@ permanently empty. Nothing errors; the data is just blank.
 
 **Fix:** have the gateway read `SECRET_KEY` from the shared settings object. See also
 [SA-20](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-20--both-shared-secrets-ship-as-change-me-in-production).
+
+### AU-24 — The credential-encryption key has a public default
+
+**✅ Verified · High** · **Status: open** — found 2026-10-01.
+
+`ENCRYPTION_MASTER_KEY` defaults to `"your-default-dev-key-must-be-32-bytes"`
+([config.py](../../../backend/src/common/config.py)). It encrypts every stored third-party
+credential: integration API keys, SMTP/IMAP passwords, social access and refresh tokens. A
+deployment whose environment omits it starts normally and encrypts everything with a key
+that is in this repository. Nothing warns. And `security.py` does not derive the AES key:
+it truncates the string to 32 bytes or pads it with NULs, so a short passphrase becomes a
+weak key.
+
+**Fix:** refuse to start when the key is unset or equals the default (`SECRET_KEY` already
+has no default), and derive the AES key with HKDF. Both change which key existing
+ciphertexts were made with. Any environment that ran on the default needs its stored
+credentials re-encrypted, which is why this is not fixed in passing. Decide the rotation
+first.
+
+### AU-25 — Social-connection client secrets are stored in plaintext
+
+**✅ Verified · Medium** · **Status: open** — found 2026-10-01.
+
+`POST /api/social-connections` encrypts the access and refresh tokens, but its
+`oauth_metadata` field is documented as "client_id, client_secret, etc." and stored
+as-is in `social_connections.oauth_metadata`. Token refresh reads `client_secret` from
+there ([social_connection_service.py](../../../backend/src/ai/social_connection_service.py)).
+The app's OAuth client secret therefore sits next to tokens that are encrypted, in a column
+that is not. The API does not return it, but anyone who can read the table has it.
+
+**Fix:** store `client_secret` with `encrypt_api_key`, or better, keep platform client
+credentials in the integration registry (already encrypted), not per connection.
 
 ---
 
