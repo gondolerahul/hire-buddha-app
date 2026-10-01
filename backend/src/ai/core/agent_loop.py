@@ -46,6 +46,7 @@ from src.ai.core.reflector import Reflector
 from src.ai.core.strategist import Strategist
 from src.ai.core.step_results import record_step_result, record_child_step_result
 from src.ai.core.run_outcome import failed_steps_summary, final_status
+from src.ai.core.stuck_runs import SUSPENDED_AT_KEY, cancel_open_children, utc_now_iso
 from src.ai.core.trace import current_recorder, span
 from src.ai.orm.execution import ExecutionRun
 from src.ai.planning.critic_pipeline import (
@@ -272,7 +273,7 @@ class AgentLoop:
             error=last_error,
         ).to_dict()
 
-    async def resume(self, run_id: UUID) -> dict[str, Any]:
+    async def resume(self, run_id: UUID, *, expire_reason: Optional[str] = None) -> dict[str, Any]:
         """Resume a parent run suspended on async child dispatch.
 
         Rehydrates ``AgentState`` from the snapshot persisted at suspend, folds
@@ -280,7 +281,9 @@ class AgentLoop:
         child cost), and continues the loop via ``_drive``. If children are
         still pending, re-persists WAITING and returns. A no-op if the run is
         not actually WAITING_ON_CHILDREN (idempotent against duplicate resume
-        jobs / legacy children whose parent never suspended).
+        jobs / legacy children whose parent never suspended). With
+        ``expire_reason`` (the stuck-run sweeper, AK-03) the children still
+        running are cancelled and the run ends FAILED with that reason.
         """
         self._run_id = run_id
         set_sse_redis(self.redis)
@@ -310,6 +313,9 @@ class AgentLoop:
 
         # Fold terminal children; bail back to WAITING if any are still running.
         all_terminal, any_failed = await self._fold_children(state)
+        if expire_reason:
+            await cancel_open_children(self.db, state, expire_reason)
+            all_terminal = any_failed = True
         if not all_terminal:
             await self._persist_suspended(run, state)
             return {"run_id": str(run_id), "status": RunStatus.WAITING_ON_CHILDREN.value,
@@ -328,6 +334,7 @@ class AgentLoop:
             # Mirror the inline path: a failed child fails the parent step.
             state.done = True
             state.next_decision = "ABORT"
+            state.abort_reason = expire_reason or ""
 
         await event_async("agent.loop.resumed", run_id=str(run_id),
                           iteration=state.iteration, from_iteration=state.iteration,
@@ -1168,6 +1175,7 @@ class AgentLoop:
                 return
             cs = dict(fresh.context_state or {})
             cs["__agent_state_snapshot__"] = state.snapshot()
+            cs[SUSPENDED_AT_KEY] = utc_now_iso()
             fresh.context_state = cs
             fresh.status = RunStatus.WAITING_ON_CHILDREN.value
             fresh.total_cost_usd = Decimal(str(max(

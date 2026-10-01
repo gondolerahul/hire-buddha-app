@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # Child runs have their own queue and worker (SA-07); this many run at
     # once across all parents, and the rest wait in the queue.
     CHILD_WORKER_MAX_JOBS: int = 10
+    # A parent suspended on its children (AK-03): when every child is done but
+    # its resume never arrived, the sweeper re-enqueues the resume after the
+    # grace; a parent still waiting after the timeout is failed and settled.
+    WAITING_RESUME_GRACE_SECONDS: int = 120
+    WAITING_ON_CHILDREN_TIMEOUT_SECONDS: int = 3600
 
     # Phase 12 `02` S4 — per-tenant container sandbox. OFF by default;
     # SubprocessRuntime stays the dev/CI default and the production rollback.

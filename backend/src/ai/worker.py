@@ -35,6 +35,7 @@ from src.ai.core.arq_jobs import (
     resume_execution,
     resume_parent_run,
     cortex_resume_scheduled,
+    sweep_stuck_runs,
     critic_calibration_job,
     skill_promotion_scan,
     meta_agent_prompt_evolution,
@@ -113,6 +114,9 @@ try:
     from arq.cron import cron
     WorkerSettings.cron_jobs = [
         cron(traced_job(cortex_resume_scheduled), minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
+        # Parents stuck WAITING_ON_CHILDREN: re-enqueue a lost resume, or fail
+        # and settle a parent that waited past the timeout (AK-03).
+        cron(traced_job(sweep_stuck_runs), minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}),
         # C: Auto-schedule dreaming every 6 hours
         cron(traced_job(dreaming_cron_trigger), hour={0, 6, 12, 18}, minute={15}),
         # Daily semantic-graph maintenance: decay stale edges, prune the weakest.

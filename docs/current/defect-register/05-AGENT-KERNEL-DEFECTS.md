@@ -148,7 +148,13 @@ the budget reads the sum. Cause **C** above.
 
 ### AK-03 — A suspended run skips finalisation entirely
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — the `sweep_stuck_runs` cron
+(`core/stuck_runs.py`, every 5 minutes) re-enqueues the resume of a parent whose
+children are all done (lost resume, after `WAITING_RESUME_GRACE_SECONDS`), and
+expires a parent waiting past `WAITING_ON_CHILDREN_TIMEOUT_SECONDS` through
+`AgentLoop.resume(…, expire_reason=…)`: open children cancelled, run `FAILED` with
+the reason, billing settled, hold released. A late resume stays a no-op. Test:
+`tests/integration/test_stuck_runs.py`.
 
 When a run suspends to wait on children, `_drive` returns **before** `_finalize_bandit`,
 the dreaming trigger, `_persist_final` and billing settlement.

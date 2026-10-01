@@ -215,6 +215,7 @@ run-level orchestration is the loop's job.
 | `resume_parent_run` | [arq_jobs.py:701](../../backend/src/ai/core/arq_jobs.py:701) | Calls `AgentLoop.resume(parent_run_id)` after a child finishes. |
 | `resume_execution` | [arq_jobs.py:685](../../backend/src/ai/core/arq_jobs.py:685) | Legacy checkpoint resume; calls `AgentLoop.run` again. |
 | `cortex_resume_scheduled` | [arq_jobs.py:735](../../backend/src/ai/core/arq_jobs.py:735) | Cron; wakes suspended CORTEX trees by creating new runs. |
+| `sweep_stuck_runs` | [arq_jobs.py](../../backend/src/ai/core/arq_jobs.py), [stuck_runs.py](../../backend/src/ai/core/stuck_runs.py) | Cron, every 5 minutes; parents stuck in `WAITING_ON_CHILDREN` (AK-03, §9). |
 | Gateway / campaigns | [service.py:927](../../backend/src/ai/service.py:927), [cortex_bridge.py:357](../../backend/src/ai/memory/cortex_bridge.py:357) | Also enqueue `run_execution_recursive`. |
 
 ---
@@ -1182,7 +1183,21 @@ Key details:
   `settle_billing` (`_settle_billing` returns immediately when `parent_run_id`
   is set).
 - **A failed or cancelled child fails the parent.** `_fold_children` returns
-  `any_failed=True`, and `resume` sets `done=True, next_decision="ABORT"`.
+  `any_failed=True` and marks the child's step failed, and `resume` sets
+  `done=True, next_decision="ABORT"`.
+- **A lost resume does not strand the parent** (AK-03). `_persist_suspended`
+  stamps `context_state["__suspended_at__"]`. The `sweep_stuck_runs` cron
+  (`core/stuck_runs.sweep_waiting_runs`) looks at every `WAITING_ON_CHILDREN`
+  run: when every awaited child is terminal and the parent has waited longer
+  than `WAITING_RESUME_GRACE_SECONDS` (120), the resume was lost and is
+  enqueued again; otherwise, a parent that has waited longer than
+  `WAITING_ON_CHILDREN_TIMEOUT_SECONDS` (3600) is expired —
+  `resume(run_id, expire_reason=…)` folds the finished children, cancels the
+  ones still running (their steps fail), and ends the run `FAILED` with the
+  reason through the normal finalisation, so billing settles and the credit
+  hold is released. A run with no stamp (suspended before this change)
+  counts from `started_at`. Before the sweeper, such a parent
+  sat in `WAITING_ON_CHILDREN` forever: never finalised, billed or failed.
 - **Ready children run together, up to the cap** (AK-07). When the plan's next
   ready step is a child, the Strategist puts the ready child steps — at most
   `governance.max_concurrent_children` (default `DEFAULT_MAX_CONCURRENT_CHILDREN
@@ -1204,6 +1219,7 @@ stateDiagram-v2
     WAITING_ON_CHILDREN --> RUNNING: all children terminal
     RUNNING --> COMPLETED: decide DONE
     RUNNING --> FAILED: ABORT or a child failed
+    WAITING_ON_CHILDREN --> FAILED: sweeper, waited past the timeout
     COMPLETED --> [*]
     FAILED --> [*]
 ```

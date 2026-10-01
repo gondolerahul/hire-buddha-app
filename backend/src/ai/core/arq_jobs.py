@@ -679,6 +679,19 @@ async def resume_parent_run(ctx: dict[str, Any], parent_run_id_str: str) -> dict
         await redis_pool.close()
 
 
+async def sweep_stuck_runs(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Cron: runs stuck in WAITING_ON_CHILDREN (AK-03, see ``core/stuck_runs``)."""
+    from src.ai.core.stuck_runs import sweep_waiting_runs
+    from src.common.config import settings
+
+    async with AsyncSessionLocal() as db:
+        return await sweep_waiting_runs(
+            db, ctx.get("redis"),
+            grace_s=settings.WAITING_RESUME_GRACE_SECONDS,
+            timeout_s=settings.WAITING_ON_CHILDREN_TIMEOUT_SECONDS,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Scheduled CORTEX wake-ups — Arq cron job
 # ---------------------------------------------------------------------------
