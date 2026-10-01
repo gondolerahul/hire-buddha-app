@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, Integer, Numeric, Text
+from sqlalchemy import CheckConstraint, Column, String, Boolean, ForeignKey, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -26,6 +26,8 @@ class Company(Base):
 
 class User(Base):
     __tablename__ = "users"
+    # One account per address whatever its case (AU-26); inputs are lower-cased.
+    __table_args__ = (CheckConstraint("email = lower(email)", name="ck_users_email_lowercase"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, unique=True, index=True, nullable=False)

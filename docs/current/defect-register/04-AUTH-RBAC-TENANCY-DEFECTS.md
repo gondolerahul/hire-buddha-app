@@ -41,11 +41,11 @@
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
 | [T0](#2-t0--privilege-escalation-and-open-doors) | Privilege escalation and open doors | 6 | **Now** — before any real customer data exists |
-| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 8 | Before relying on the control |
+| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 9 | Before relying on the control |
 | [T2](#4-t2--missing-pieces) | Missing pieces | 5 | Before launch |
 | [T3](#5-t3--inconsistency-and-dead-weight) | Inconsistency and dead weight | 6 | When the area is next touched |
 
-**Total: 25 defects, 10 improvements.** (AU-23 to AU-25 were found on 2026-10-01, while fixing the rest.)
+**Total: 26 defects, 10 improvements.** (AU-23 to AU-26 were found on 2026-10-01, while fixing the rest.)
 
 The three to read before anything else:
 
@@ -600,6 +600,29 @@ that is not. The API does not return it, but anyone who can read the table has i
 
 **Fix:** store `client_secret` with `encrypt_api_key`, or better, keep platform client
 credentials in the integration registry (already encrypted), not per connection.
+
+### AU-26 — One person could hold two accounts, one per letter case
+
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — found 2026-10-01 while fixing AU-23.
+
+`ix_users_email` is unique on the address as typed, and Pydantic's `EmailStr` lower-cases
+only the domain. So `Owner@x.com` and `owner@x.com` registered as two accounts, with two
+workspaces and two wallets. Every lookup (login, resend verification, forgot password) was
+an exact match, so signing in needed the case used at sign-up. The login throttle already
+keyed on the lower-cased address, so it counted both spellings together while the lookups
+treated them as different accounts.
+
+**Fixed:** an `Email` type in `auth/schemas.py` lower-cases the address on every input
+that carries one: register, admin create, login, resend verification and forgot password.
+OAuth lower-cases too (AU-23). Revision `au26_email_lowercase` lower-cases stored addresses
+and adds `CHECK (email = lower(email))`. If two accounts already differ only in case, it
+stops and names them, because merging accounts is a decision. The local database had none.
+
+**Evidence:** `tests/integration/test_email_case.py`: inputs are lower-cased; a second
+sign-up in another case is a 400 and an upper-case login finds the account; the database
+refuses a mixed-case row. The first two fail on the old code. Live: registering
+`AU26-…@Example.com` returned `au26-…@example.com`, the same address in lower case got
+"Email already registered", and an upper-case login reached the account (403, unverified).
 
 ---
 

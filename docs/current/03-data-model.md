@@ -193,7 +193,7 @@ Purpose: one login. Defined at [auth/models.py:28](../../backend/src/auth/models
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
-| `email` | String | no | — | **Unique + indexed** (`ix_users_email`). Globally unique, not per-company |
+| `email` | String | no | — | **Unique + indexed** (`ix_users_email`). Globally unique, not per-company. Lower-case: `CHECK (email = lower(email))` and every input is lower-cased (AU-26) |
 | `full_name` | String | no | — | |
 | `hashed_password` | String | no | — | bcrypt hash via `common/security.py` |
 | `company_id` | UUID FK→companies.id | no | — | Tenant |

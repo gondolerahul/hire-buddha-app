@@ -96,7 +96,7 @@ erDiagram
     }
     USERS {
         uuid id PK
-        string email UK "indexed unique"
+        string email UK "indexed unique, lower-case (AU-26)"
         string full_name
         string hashed_password "argon2"
         uuid company_id FK "NOT NULL"
@@ -220,7 +220,7 @@ sequenceDiagram
 
 | Endpoint | Does |
 |---|---|
-| `POST /auth/register` | Creates the workspace and its **unverified** `tenant_admin`; emails a verification link; returns `201 {email, message}` — **no tokens** |
+| `POST /auth/register` | Creates the workspace and its **unverified** `tenant_admin`; emails a verification link; returns `201 {email, message}` — **no tokens**. Every address is lower-cased on the way in, so one account per address in any case (AU-26) |
 | `GET /auth/verify-email?token=` | Verifies the address (unchanged) |
 | `POST /auth/resend-verification {email}` | `202`, the same answer whether or not the address has an unverified account |
 | `POST /auth/forgot-password {email}` | `202`, the same answer for any address; emails a reset link to an active account |

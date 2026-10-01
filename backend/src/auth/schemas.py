@@ -1,11 +1,16 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional, List, Dict, Any, Literal
+from pydantic import AfterValidator, BaseModel, EmailStr
+from typing import Annotated, Optional, List, Dict, Any, Literal
 from uuid import UUID
 
 from src.auth.roles import Role
 
+# An address as accounts store it: lower case (AU-26). ``EmailStr`` lower-cases
+# only the domain, so "Owner@x.com" and "owner@x.com" were two accounts, and a
+# login had to match the case used at sign-up.
+Email = Annotated[EmailStr, AfterValidator(str.lower)]
+
 class UserCreate(BaseModel):
-    email: EmailStr
+    email: Email
     password: str
     full_name: str
 
@@ -14,7 +19,7 @@ class UserCreateAdmin(UserCreate):
     role: Role
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: Email
     password: str
 
 class Token(BaseModel):
@@ -26,7 +31,7 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 class EmailRequest(BaseModel):
-    email: EmailStr
+    email: Email
 
 
 class PasswordResetRequest(BaseModel):
