@@ -68,6 +68,7 @@ class DAGExecutor:
 
         cost = Decimal("0")
         completed: list[str] = []
+        failed: dict[str, str] = {}
         errored = False
         last_output = ""
         for r in results or []:
@@ -77,7 +78,9 @@ class DAGExecutor:
                 errored = True
             cost += Decimal(str(r.get("cost_usd", 0) or 0))
             sid = str(r.get("step_id") or r.get("id") or "")
-            if sid:
+            if sid and r.get("error"):
+                failed[sid] = str(r.get("error"))
+            elif sid:
                 completed.append(sid)
             out = r.get("output")
             if out:
@@ -90,6 +93,7 @@ class DAGExecutor:
             success=not errored,
             error="; ".join(str(r.get("error")) for r in (results or []) if isinstance(r, dict) and r.get("error"))[:500],
             completed_step_ids=completed,
+            failed_steps=failed,
         )
 
     # ------------------------------------------------------------------

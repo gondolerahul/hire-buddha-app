@@ -190,6 +190,11 @@ class AgentState:
     # Plan state cached on bootstrap from ExecutionRun.dynamic_plan.
     plan_steps: list[dict[str, Any]] = field(default_factory=list)
     completed_step_ids: set[str] = field(default_factory=set)
+    # Steps that ran and failed, mapped to their error. A failed step is also in
+    # ``completed_step_ids`` (it ran; it is not re-dispatched by readiness), so
+    # the run's final status reads this to tell "ran" from "worked" (AK-01). A
+    # later success of the same step (a corrective retry) clears its entry.
+    failed_steps: dict[str, str] = field(default_factory=dict)
 
     # Per-step result summary, mirroring the legacy engine's
     # ``result_data["steps"]``. Each entry is ``{"step", "step_id", "type",
@@ -322,6 +327,32 @@ class AgentState:
     def mark_step_complete(self, step_id: str) -> None:
         if step_id:
             self.completed_step_ids.add(step_id)
+            self.failed_steps.pop(step_id, None)
+
+    def mark_step_failed(self, step_id: str, error: str = "") -> None:
+        if step_id:
+            self.completed_step_ids.add(step_id)
+            self.failed_steps[step_id] = error or "step failed"
+
+    def plan_outcome(self) -> Literal["NO_PLAN", "ALL", "SOME", "NONE"]:
+        """How the plan's steps came out: every required step succeeded
+        (``ALL``), some step succeeded (``SOME``), or none did (``NONE``)."""
+        ids: list[tuple[str, bool]] = []
+        for step in self.plan_steps:
+            sid = str(step.get("step_id") or step.get("id") or "")
+            if sid:
+                ids.append((sid, step.get("required", True) is not False))
+        if not ids:
+            return "NO_PLAN"
+        succeeded = {
+            sid for sid, _ in ids
+            if sid in self.completed_step_ids and sid not in self.failed_steps
+        }
+        if not succeeded:
+            return "NONE"
+        if all(sid in succeeded for sid, required in ids if required):
+            return "ALL"
+        return "SOME"
 
     def next_step_is_child_invocation(self) -> bool:
         ready = self.plan_ready_steps()
@@ -401,6 +432,7 @@ class AgentState:
             "chosen_executor": self.chosen_executor,
             "plan_steps": list(self.plan_steps),
             "completed_step_ids": sorted(self.completed_step_ids),
+            "failed_steps": dict(self.failed_steps),
             "step_results": list(self.step_results),
             "awaiting_children": list(self.awaiting_children),
             "context_state": dict(self.context_state),
@@ -436,6 +468,7 @@ class AgentState:
             chosen_executor=snapshot.get("chosen_executor"),
             plan_steps=list(snapshot.get("plan_steps", [])),
             completed_step_ids=set(snapshot.get("completed_step_ids", [])),
+            failed_steps=dict(snapshot.get("failed_steps", {})),
             step_results=list(snapshot.get("step_results", [])),
             awaiting_children=list(snapshot.get("awaiting_children", [])),
             context_state=dict(snapshot.get("context_state", {})),

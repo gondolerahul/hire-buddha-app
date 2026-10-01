@@ -46,6 +46,9 @@ class ActionResult:
     success: bool = True
     error: str = ""
     completed_step_ids: list[str] = field(default_factory=list)
+    # Steps that ran and failed this call, mapped to their error (AK-01). They
+    # are NOT in ``completed_step_ids``; the loop records them as failed.
+    failed_steps: dict[str, str] = field(default_factory=dict)
     context_state_delta: dict[str, Any] = field(default_factory=dict)
     # Async child dispatch: when non-empty, the executor dispatched child run(s)
     # as isolated jobs instead of running them inline, and the AgentLoop must

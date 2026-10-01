@@ -64,6 +64,7 @@ class SingleStepExecutor:
         cost = Decimal("0")
         last_output = ""
         completed: list[str] = []
+        failed: dict[str, str] = {}
         errored = False
         error_msg = ""
 
@@ -101,6 +102,7 @@ class SingleStepExecutor:
                     step_type=_step_type,
                     instruction=getattr(step_obj, "instruction", None) or getattr(step_obj, "description", None),
                 ) as _step_span:
+                    step_id = str(getattr(step_obj, "step_id", None) or step_obj.name or "")
                     try:
                         result = await engine._execute_step_wrapper(run, entity, step_obj, ctx)
                     except Exception as exc:                               # noqa: BLE001
@@ -108,12 +110,20 @@ class SingleStepExecutor:
                         error_msg = f"{type(exc).__name__}: {exc}"
                         logger.warning("[SingleStepExecutor] step failed: %s", error_msg)
                         _step_span.set_error(error_msg)
+                        if step_id:
+                            failed[step_id] = error_msg
                         break
 
-                    step_id = str(getattr(step_obj, "step_id", None) or step_obj.name or "")
+                    step_error = str(result.get("error") or "")
                     if step_id:
                         ctx[step_id] = result.get("output") or result.get("result") or ""
-                        completed.append(step_id)
+                        if step_error:
+                            failed[step_id] = step_error
+                        else:
+                            completed.append(step_id)
+                    if step_error:
+                        errored = True
+                        error_msg = step_error
                     last_output = result.get("output", last_output) or last_output
                     cost += Decimal(str(result.get("cost_usd", 0) or 0))
                     _step_span.set_output(result.get("output") or result.get("result") or "")
@@ -141,6 +151,7 @@ class SingleStepExecutor:
             success=not errored,
             error=error_msg,
             completed_step_ids=completed,
+            failed_steps=failed,
         )
 
     async def _no_plan_noop(self, state: AgentState) -> ActionResult:

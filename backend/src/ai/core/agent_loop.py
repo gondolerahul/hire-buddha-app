@@ -45,6 +45,7 @@ from src.ai.core.perceiver import Perceiver
 from src.ai.core.reflector import Reflector
 from src.ai.core.strategist import Strategist
 from src.ai.core.step_results import record_step_result, record_child_step_result
+from src.ai.core.run_outcome import failed_steps_summary, final_status
 from src.ai.core.trace import current_recorder, span
 from src.ai.orm.execution import ExecutionRun
 from src.ai.planning.critic_pipeline import (
@@ -216,8 +217,10 @@ class AgentLoop:
                 outcome_status = self._final_status(state)
                 last_output = self._final_output(state)
                 total_cost = float(state.budget.usd_used)
-                if outcome_status == RunStatus.FAILED.value and state.abort_reason:
-                    last_error = state.abort_reason
+                if outcome_status == RunStatus.FAILED.value:
+                    last_error = state.abort_reason or failed_steps_summary(state)
+                elif outcome_status == RunStatus.PARTIAL_COMPLETE.value and state.failed_steps:
+                    last_error = failed_steps_summary(state)
         except CreditExhaustedError as exc:
             # Out of credit mid-run: stop, keep and bill the work done (BC-05).
             outcome_status = RunStatus.PARTIAL_COMPLETE.value
@@ -364,7 +367,13 @@ class AgentLoop:
             if child_run.result_data:
                 output = str(child_run.result_data.get("output", "") or child_run.result_data)
             if step_id:
-                state.mark_step_complete(step_id)
+                if status in (RunStatus.FAILED.value, RunStatus.CANCELLED.value):
+                    state.mark_step_failed(
+                        step_id,
+                        f"child run {status}: {getattr(child_run, 'error_message', None) or ''}".strip(),
+                    )
+                else:
+                    state.mark_step_complete(step_id)
                 state.context_state[step_id] = output
                 record_child_step_result(
                     state, step_id, output, child.get("run_id"),
@@ -594,6 +603,9 @@ class AgentLoop:
         for sid in action_result.completed_step_ids:
             state.mark_step_complete(sid)
             record_step_result(state, move, sid, action_result)
+        for sid, err in action_result.failed_steps.items():
+            state.mark_step_failed(sid, err)
+            record_step_result(state, move, sid, action_result, error=err)
 
         # 5. Observe
         observation = self.observer.parse(action_result, state)
@@ -1401,6 +1413,7 @@ class AgentLoop:
             if new_plan:
                 state.plan_steps = list(new_plan)
                 state.completed_step_ids = set()
+                state.failed_steps = {}
             await event_async(
                 "agent.replan.triggered",
                 run_id=str(state.run_id),
@@ -1465,21 +1478,7 @@ class AgentLoop:
             rationale=queued.get("rationale", "queued retry"),
         )
 
-    @staticmethod
-    def _final_status(state: AgentState) -> str:
-        # A status set out of band (operator cancellation) wins so the abort
-        # below doesn't relabel a CANCELLED run as a generic FAILED.
-        if state.external_status:
-            return state.external_status
-        if state.next_decision == "ABORT":
-            return RunStatus.FAILED.value
-        if state.next_decision == "PAUSE_HITL":
-            return RunStatus.PAUSED.value
-        if state.all_subgoals_achieved() or (
-            state.has_plan() and not state.plan_ready_steps()
-        ):
-            return RunStatus.COMPLETED.value
-        return RunStatus.PARTIAL_COMPLETE.value
+    _final_status = staticmethod(final_status)
 
     @staticmethod
     def _final_output(state: AgentState) -> str:

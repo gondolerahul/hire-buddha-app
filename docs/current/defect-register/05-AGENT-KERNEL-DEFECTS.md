@@ -78,7 +78,12 @@ fixing the twenty-one.
 
 ### AK-01 — A run where every step failed can report `COMPLETED`
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01)** — executors report failed
+steps in `ActionResult.failed_steps`, the state keeps them in `failed_steps`, and
+`run_outcome.final_status` returns `COMPLETED` only when every required step
+succeeded, `FAILED` when none did, `PARTIAL_COMPLETE` otherwise. Found on the way:
+`SingleStepExecutor` reported a step whose result carried `error` as a success.
+Test: `tests/unit/test_run_final_status.py`.
 
 `_final_status` decides the run's outcome like this:
 

@@ -355,7 +355,8 @@ is built locally in `_iteration` and handed to the `Reflector`
 | `cortex_working_root_id` | `UUID?` | `_setup_cortex` | `_snapshot`, critic record persist | yes |
 | `chosen_executor` | `ExecutorName?` | `_iteration` step 2 | Reflector text | yes |
 | `plan_steps` | `list[dict]` | `_extract_plan_steps`, `_ensure_plan`, RecursiveExecutor, `_handle_replan` | Strategist, `step_results` | yes |
-| `completed_step_ids` | `set[str]` | `mark_step_complete` | `plan_ready_steps`, `_final_status` | yes, as sorted list |
+| `completed_step_ids` | `set[str]` | `mark_step_complete`, `mark_step_failed` | `plan_ready_steps`, `plan_outcome` | yes, as sorted list |
+| `failed_steps` | `dict[str, str]` | `mark_step_failed` (cleared by `mark_step_complete`) | `plan_outcome`, `failed_steps_summary` | yes |
 | `step_results` | `list[dict]` | `record_step_result` / `record_child_step_result` | `_persist_final` → `result_data["steps"]` | yes |
 | `awaiting_children` | `list[dict]` | executor `awaiting_children` | `resume`, `_fold_children` | yes |
 | `suspend_requested` | `bool` | `_iteration` on async dispatch | `_loop`, `_drive` | **no** — recomputed |
@@ -1343,9 +1344,9 @@ stateDiagram-v2
     PENDING --> RUNNING: AgentLoop.run sets status and started_at
     RUNNING --> WAITING_ON_CHILDREN: executor returned awaiting_children
     WAITING_ON_CHILDREN --> RUNNING: resume, all children terminal
-    RUNNING --> COMPLETED: decide DONE, or plan fully complete
-    RUNNING --> PARTIAL_COMPLETE: loop ended with work left but no abort
-    RUNNING --> FAILED: ABORT, or an unhandled exception in _drive
+    RUNNING --> COMPLETED: every required plan step succeeded
+    RUNNING --> PARTIAL_COMPLETE: some steps succeeded, not every required one
+    RUNNING --> FAILED: ABORT, no plan step succeeded, or an unhandled exception
     RUNNING --> PAUSED: supervisor recommended PAUSE
     RUNNING --> CANCELLED: operator cancelled, preserved via external_status
     COMPLETED --> [*]
@@ -1355,29 +1356,46 @@ stateDiagram-v2
     CANCELLED --> [*]
 ```
 
-`_final_status` is the whole mapping, and it is short:
+`final_status` (`core/run_outcome.py`; `AgentLoop._final_status` points at it)
+is the whole mapping. With a plan, the **steps' outcomes** decide, not "no step
+is left ready" — a failed step is not ready either (AK-01):
 
 ```python
-# backend/src/ai/core/agent_loop.py
-@staticmethod
-def _final_status(state: AgentState) -> str:
+# backend/src/ai/core/run_outcome.py
+def final_status(state: AgentState) -> str:
     if state.external_status:
         return state.external_status
     if state.next_decision == "ABORT":
         return RunStatus.FAILED.value
     if state.next_decision == "PAUSE_HITL":
         return RunStatus.PAUSED.value
-    if state.all_subgoals_achieved() or (
-        state.has_plan() and not state.plan_ready_steps()
-    ):
+    outcome = state.plan_outcome()          # ALL / SOME / NONE / NO_PLAN
+    if outcome == "ALL":
+        return RunStatus.COMPLETED.value
+    if outcome == "NONE":
+        return RunStatus.FAILED.value
+    if outcome == "NO_PLAN" and state.all_subgoals_achieved():
         return RunStatus.COMPLETED.value
     return RunStatus.PARTIAL_COMPLETE.value
 ```
 
+`plan_outcome` reads `completed_step_ids` and `failed_steps`. A step succeeded
+when it is in the first and not the second. `ALL` means every step with
+`required` not `False` succeeded; `NONE` means no step succeeded. Executors
+report a step whose result carries `error` (or that raised) in
+`ActionResult.failed_steps`; the loop calls `mark_step_failed`, which also puts
+the step in `completed_step_ids` so readiness does not re-dispatch it. A later
+success of the same step (a corrective retry) clears the failure. A child run
+that ends `FAILED` or `CANCELLED` marks its parent step failed on fold. When the
+run ends `FAILED` or `PARTIAL_COMPLETE` with failed steps and no abort reason,
+`error_message` lists them, and each failed step's `result_data["steps"]` entry
+carries `error`.
+
 | Termination cause | Where | `next_decision` | Final status |
 |---|---|---|---|
 | All subgoals achieved, no plan | `decide_next` | `DONE` | `COMPLETED` |
-| Plan fully complete | `decide_next` | `DONE` | `COMPLETED` |
+| Every plan step ran, every required one succeeded | `decide_next` | `DONE` | `COMPLETED` |
+| Every plan step ran, some failed | `decide_next` | `DONE` | `PARTIAL_COMPLETE` (none succeeded: `FAILED`), `error_message` lists the failed steps |
 | Budget exhausted (any axis) | `decide_next` **and** `_loop` | `ABORT` | `FAILED` |
 | Hard iteration cap (`max_iterations`, default 50) | `_loop` top | `ABORT` | `FAILED` |
 | Pre-critic circuit breaker (3 consecutive `BLOCK`) | `_iteration` phase 3 | `ABORT` | `FAILED` |
@@ -1387,7 +1405,7 @@ def _final_status(state: AgentState) -> str:
 | Operator cancel | `_check_cancelled` | `ABORT` | `external_status`, i.e. `CANCELLED` |
 | A child run failed | `resume` after `_fold_children` | `ABORT` | `FAILED` |
 | Unhandled exception anywhere in `_loop` | `_drive` except block | — | `FAILED`, with `error_message` |
-| Loop ended with ready steps remaining and no abort | fallthrough | `CONTINUE` | `PARTIAL_COMPLETE` |
+| Loop ended with ready steps remaining and no abort | fallthrough | `CONTINUE` | `PARTIAL_COMPLETE` (no step succeeded: `FAILED`) |
 | Suspended on children | `_drive` early return | unchanged | `WAITING_ON_CHILDREN` (not terminal) |
 
 Two things about the suspend path: it returns **before** `_finalize_bandit`,
@@ -1835,7 +1853,7 @@ Concrete values you would expect after iteration 1:
 | `reflection` | `Reflection(iteration=1, scope="run", what_worked="executor=SingleStep produced output (novelty=0.60)", confidence=0.65)` — **not persisted**, scope is `run` |
 | `decision` | `Decision(next="DONE", reason="all plan steps completed")` |
 | `state.done` | `True` |
-| final status | `COMPLETED` (`has_plan()` true, `plan_ready_steps()` empty) |
+| final status | `COMPLETED` (`plan_outcome()` is `ALL`: `step_1` succeeded) |
 | `run.result_data` | `{"output": "The post argues ...", "steps": [ ... ]}` |
 | SSE frames seen by the browser | `iteration_start`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `iteration_end`, `run_end` — plus `span_open`/`span_close` pairs for the executor, step, tool and LLM spans |
 
@@ -1948,10 +1966,6 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 - **`RunStatus.WAITING_ON_CHILDREN` is not terminal**, but the arq idempotency
   guard's `_TERMINAL` set correctly excludes it, so a resume dispatch still
   works.
-- **`_final_status` can report `COMPLETED` for a run where every step failed** —
-  it only checks that no *ready* steps remain, not that they succeeded. Step
-  failures show up in `result_data["steps"]` and the health records, not in the
-  run status.
 
 ---
 

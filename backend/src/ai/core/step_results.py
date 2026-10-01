@@ -37,7 +37,7 @@ def find_plan_step(steps: Any, step_id: Any) -> Optional[dict[str, Any]]:
 
 
 def record_step_result(state: Any, move: Any, step_id: str,
-                       action_result: Any) -> None:
+                       action_result: Any, error: str = "") -> None:
     """Append a per-step summary for a step completed inline this iteration."""
     step = find_plan_step(getattr(move, "plan_fragment", None), step_id)
     entry: dict[str, Any] = {
@@ -49,6 +49,8 @@ def record_step_result(state: Any, move: Any, step_id: str,
     child_ids = getattr(action_result, "children_run_ids", None) or []
     if child_ids:
         entry["child_run_id"] = str(child_ids[0])
+    if error:
+        entry["error"] = error[:1000]
     state.step_results.append(entry)
 
 
