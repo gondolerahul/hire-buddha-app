@@ -74,8 +74,6 @@ class LLMResponse:
     model_name: str = ""
     provider: str = ""
     finish_reason: str = "stop"
-
-    @property
-    def cost_usd(self) -> float:
-        """Estimated cost — placeholder for future per-model pricing."""
-        return 0.0
+    # No ``cost_usd``: a response does not know its price. Cost is the
+    # attributed ``usage_logs`` row written from the SKU lookup; a property that
+    # always returned 0.0 here invited callers to bill nothing (LP-02).

@@ -100,7 +100,9 @@ field.
 
 ### LP-02 — `LLMResponse.cost_usd` is hardcoded to zero
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — the property is deleted (with
+LP-14). The router no longer stamps its zero onto the LLM span, and the CORTEX host
+provider reports `0.0` explicitly, since the host prices a call from its `usage_logs` row.
 
 ```python
 @property
@@ -385,8 +387,8 @@ debugging.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **LP-13** | `src/ai/core/reasoning/` | Registers `REACT` and `CHAIN_OF_THOUGHT` strategies. `get_reasoning` is defined and exported and has **no callers** — the step executor branches on the mode string directly. The adapters also pass a `config=` kwarg the router silently swallows | ✅ Verified |
-| **LP-14** | `LLMResponse.cost_usd` | See [LP-02](#lp-02--llmresponsecost_usd-is-hardcoded-to-zero). Deleting it is the fix | ✅ Verified |
+| **LP-13** | `src/ai/core/reasoning/` | Registers `REACT` and `CHAIN_OF_THOUGHT` strategies. `get_reasoning` is defined and exported and has **no callers** — the step executor branches on the mode string directly. The adapters also pass a `config=` kwarg the router silently swallows | ✅ Verified · **fixed (2026-10-01)** — deleted |
+| **LP-14** | `LLMResponse.cost_usd` | See [LP-02](#lp-02--llmresponsecost_usd-is-hardcoded-to-zero). Deleting it is the fix | ✅ Verified · **fixed (2026-10-01)** with LP-02 |
 | **LP-15** | `routing_mode` | See [LP-08](#lp-08--routing_mode-is-stored-returned-and-never-read). Remove the column, the schema fields and the disabled UI control — or build the fallback router it implies | ✅ Verified |
 | **LP-16** | The `_scrub_internal_keys` reference in `INTERNAL_KEYS.md` | `prompt_utils._scrub_internal_keys` does not exist. Scrubbing is inline in the step executor only. The doc sends readers to a function that was never written | 📄 Doc-reported |
 

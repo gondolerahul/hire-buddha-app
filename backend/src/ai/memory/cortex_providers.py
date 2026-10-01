@@ -68,7 +68,9 @@ class HostLLMProvider:
             model=getattr(resp, "model_name", "") or "",
             input_tokens=int(getattr(resp, "prompt_tokens", 0) or 0),
             output_tokens=int(getattr(resp, "completion_tokens", 0) or 0),
-            cost_usd=float(getattr(resp, "cost_usd", 0) or 0),
+            # The host prices a call from its usage_logs row, not the response
+            # (LP-02), so the package is told nothing here.
+            cost_usd=0.0,
             raw=resp,
         )
 

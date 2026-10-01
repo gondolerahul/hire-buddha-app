@@ -37,10 +37,6 @@ def _record_llm_span(sp, resp: "LLMResponse") -> None:
             function_calls=getattr(resp, "function_calls", None),
             thinking_tokens=getattr(resp, "thinking_tokens", None),
         )
-        try:
-            sp.set_cost(getattr(resp, "cost_usd", 0) or 0)
-        except Exception:
-            pass
     except Exception:
         pass
 

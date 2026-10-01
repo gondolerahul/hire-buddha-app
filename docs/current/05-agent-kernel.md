@@ -110,7 +110,6 @@ graph TB
     end
     subgraph ADAPT["Adapters"]
         EX["executors/ registry"]
-        RS["reasoning/ registry"]
         SE["StepEngine"]
     end
     subgraph OUT["Telemetry"]
@@ -1205,43 +1204,33 @@ stateDiagram-v2
 
 ## 10. Reasoning strategies
 
-[reasoning/](../../backend/src/ai/core/reasoning/) is a second small registry,
-keyed by `ReasoningMode`. A reasoning strategy changes **how a single step's
-LLM call is made**, not how the loop iterates.
+A reasoning mode changes **how a single step's LLM call is made**, not how the
+loop iterates. The step executor branches on the mode string itself
+(`StepExecutorService._execute_thought`); there is no registry. The
+`core/reasoning/` registry that used to sit beside the executors registered
+`REACT` and `CHAIN_OF_THOUGHT` adapters that nothing ever retrieved, and was
+deleted on 2026-10-01 (LP-13).
 
 ```mermaid
 flowchart LR
-    STEP["step_executor builds prompts"] --> MODE{"ReasoningMode"}
-    MODE -- REACT --> RA["ReactReasoning - router.call_llm_react"]
-    MODE -- CHAIN_OF_THOUGHT --> CA["ChainOfThoughtReasoning - router.call_llm"]
-    MODE -- REFLECTION --> DEP1["deprecated - superseded by the loop Reflector"]
-    MODE -- TREE_OF_THOUGHTS --> DEP2["deprecated - superseded by DebateExecutor"]
+    STEP["step_executor builds prompts"] --> MODE{"reasoning mode"}
+    MODE -- REACT --> RA["router.call_llm_react"]
+    MODE -- CHAIN_OF_THOUGHT --> CA["router.call_llm_react with a thinking/answer frame"]
+    MODE -- REFLECTION --> DEP1["deprecated - runs REACT; the loop Reflector replaces it"]
+    MODE -- TREE_OF_THOUGHTS --> DEP2["deprecated - runs REACT; DebateExecutor replaces it"]
     RA --> TOOLS["multi-turn tool loop, MAX_REACT_TURNS = 12"]
-    CA --> ONE["single completion"]
 ```
 
-| Mode | Registered? | What it changes | Example prompt shape |
-|------|-------------|-----------------|----------------------|
-| `REACT` | yes — [react.py](../../backend/src/ai/core/reasoning/react.py) | Multi-turn: the model may call tools, see results, and continue. Delegates to `llm_router.call_llm_react` with `tool_schemas` and an `execute_tool_fn` callback. Capped at `MAX_REACT_TURNS = 12` ([constants.py:63](../../backend/src/ai/constants.py:63)). | System: sandwich prompt including `## Available Tools` and `## Execution Constraints` (with the budget lines). User: task + prior step context. Model replies with a tool call; the runner executes it, appends the result, and re-prompts. |
-| `CHAIN_OF_THOUGHT` | yes — [chain_of_thought.py](../../backend/src/ai/core/reasoning/chain_of_thought.py) | One completion, no tools. `tool_schemas` and `execute_tool_fn` are accepted and ignored (`# noqa: ARG002`). | System: sandwich prompt, no tools layer. User: task. One response; `text = resp.output or resp.content`. |
-| `REFLECTION` | **no** | Deprecated by decision D-3. The loop's `Reflector` plus post-critic and corrective retry cover in-loop self-correction; a separate per-step reflection mode double-bills. Entities still set to it keep working with a deprecation warning. | *n/a — no adapter registered* |
-| `TREE_OF_THOUGHTS` | **no** | Deprecated as a *per-entity* mode. Its multi-candidate value was reframed as the Strategist-selected, per-step `DebateExecutor`. | Under Debate: N system prompts of the form `"{base}\n\nYou are debating as {persona}. Produce your single best answer to the task."` at temperatures `base + 0.1*i`, then a judge prompt that picks a winner index. |
+| Mode | What it changes | Example prompt shape |
+|------|-----------------|----------------------|
+| `REACT` | Multi-turn: the model may call tools, see results, and continue. `llm_router.call_llm_react` with `tool_schemas` and an `execute_tool_fn` callback. Capped at `MAX_REACT_TURNS = 12` ([constants.py](../../backend/src/ai/constants.py)). | System: sandwich prompt including `## Available Tools` and `## Execution Constraints` (with the budget lines). User: task + prior step context. Model replies with a tool call; the runner executes it, appends the result, and re-prompts. |
+| `CHAIN_OF_THOUGHT` | The same ReAct call with a `<thinking>`/`<answer>` frame appended to the system prompt; the `<answer>` block is the output. | System: sandwich prompt + reasoning instructions. User: task. |
+| `REFLECTION` | Deprecated by decision D-3. The loop's `Reflector` plus post-critic and corrective retry cover in-loop self-correction. An entity still set to it runs `REACT`, with a warning. | *n/a* |
+| `TREE_OF_THOUGHTS` | Deprecated as a *per-entity* mode. Its multi-candidate value was reframed as the Strategist-selected, per-step `DebateExecutor`. An entity still set to it runs `REACT`. | Under Debate: N system prompts of the form `"{base}\n\nYou are debating as {persona}. Produce your single best answer to the task."` at temperatures `base + 0.1*i`, then a judge prompt that picks a winner index. |
 
-The `core/reasoning/__init__.py` docstring is explicit:
-
-```python
-# backend/src/ai/core/reasoning/__init__.py
-"""
-Importing this package registers the two surviving per-step reasoning
-modes (REACT, CHAIN_OF_THOUGHT). Per decision D-3 the former REFLECTION
-and TREE_OF_THOUGHTS per-entity modes are retired ...
-"""
-```
-
-`ReasoningMode` in [schemas/enums.py:90](../../backend/src/ai/schemas/enums.py:90)
+`ReasoningMode` in [schemas/enums.py](../../backend/src/ai/schemas/enums.py)
 still declares all four values plus a `DEPRECATED_REASONING_MODES` frozenset, so
-old entity rows keep validating. `get_reasoning(ReasoningMode.REFLECTION)` will
-raise `LookupError`.
+old entity rows keep validating.
 
 The Strategist can override reasoning **per step** via `Move.reasoning_hint`,
 read from the plan step's `reasoning_hint` or legacy `reasoning_mode` key
@@ -1893,7 +1882,6 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 | [core/executors/recursive.py](../../backend/src/ai/core/executors/recursive.py) | 95 | Goal → plan for goal-only AGENTs. |
 | [core/executors/child_entity.py](../../backend/src/ai/core/executors/child_entity.py) | 191 | Async child dispatch. |
 | [core/executors/debate.py](../../backend/src/ai/core/executors/debate.py) | 368 | N-candidate debate plus an LLM judge. |
-| [core/reasoning/](../../backend/src/ai/core/reasoning/) | 169 total | `Reasoning` protocol + `REACT` and `CHAIN_OF_THOUGHT` adapters. |
 | [constants.py](../../backend/src/ai/constants.py) | 88 | `INTERNAL_CONTEXT_KEYS`, `MAX_REACT_TURNS`, context thresholds. |
 | [core/INTERNAL_KEYS.md](../../backend/src/ai/core/INTERNAL_KEYS.md) | — | Doc-enforced inventory of the internal context keys. |
 

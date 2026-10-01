@@ -653,7 +653,6 @@ classDiagram
         +str model_name
         +str provider
         +str finish_reason
-        +cost_usd() float
     }
     class LLMRouter {
         +AsyncSession db
@@ -1344,16 +1343,10 @@ if all_tool_results:
 | Azure OpenAI | `response.usage.prompt_tokens` | `response.usage.completion_tokens` |
 | Anthropic | `response.usage.input_tokens` | `response.usage.output_tokens` |
 
-All three default to `0` when usage is missing. `LLMResponse.cost_usd` is a
-**hardcoded `0.0` placeholder** — never use it for money:
-
-```python
-# backend/src/ai/llm/types.py
-@property
-def cost_usd(self) -> float:
-    """Estimated cost — placeholder for future per-model pricing."""
-    return 0.0
-```
+All three default to `0` when usage is missing. `LLMResponse` carries **no
+cost**: a response does not know its price. The `cost_usd` property that always
+returned `0.0` was deleted on 2026-10-01 (LP-02) — a missing attribute is an
+immediate error, a zero is a silent one. Price a call from its `usage_logs` row.
 
 ### 12.2 The two-SKU model
 
@@ -2022,15 +2015,14 @@ Checklist for the adapter itself, learned from the three that exist:
     that can pick up unrelated providers.
 21. **The TTL cache is per process and only busted locally.** After a key
     rotation, other workers serve the old key for up to 60 seconds.
-22. **`LLMResponse.cost_usd` is hardcoded `0.0`.** Never bill from it.
+22. ~~**`LLMResponse.cost_usd` is hardcoded `0.0`.**~~ Deleted (LP-02, 2026-10-01).
 23. **`service_category` is free text** and the values in the model's own column
     comment (`IMAGE_GEN`, `VIDEO_GEN`) are not the values the code queries for.
 24. **`prompt_utils._scrub_internal_keys` does not exist** despite what
     `INTERNAL_KEYS.md` says. Scrubbing is inline in the step executor only.
-25. **`src/ai/core/reasoning/` registers REACT and CHAIN_OF_THOUGHT strategies
-    that nothing ever retrieves.** `get_reasoning` has no callers; the step
-    executor branches on the mode string directly. It is dead code, and the
-    adapters pass a `config=` kwarg the router silently swallows.
+25. ~~**`src/ai/core/reasoning/` registers REACT and CHAIN_OF_THOUGHT strategies
+    that nothing ever retrieves.**~~ Deleted (LP-13, 2026-10-01); the step
+    executor branches on the mode string directly.
 26. **The credentials guide's API paths lack `/v1`.** The real prefix is
     `/api/v1/config/...`.
 27. **Multimodal input does not work.** Adapters only build text parts. The
