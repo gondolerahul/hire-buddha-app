@@ -36,9 +36,20 @@ class IntegrationRegistryBase(BaseModel):
     service_metadata: Optional[dict] = None
     status: str = "active"
 
+def _known_cost_unit(value: Optional[str]) -> Optional[str]:
+    """A registry price must name a unit the billing code can divide by;
+    an unknown one used to price "per one" and over-bill (LP-01)."""
+    if value is not None:
+        from src.ai.usage_service import parse_cost_unit
+        parse_cost_unit(value)  # ValueError → 422
+    return value
+
+
 class IntegrationRegistryCreate(IntegrationRegistryBase):
     company_id: UUID
     api_key: str = Field(..., alias="api_key")
+
+    _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
 
 class IntegrationRegistryUpdate(BaseModel):
     provider_name: Optional[str] = None
@@ -51,6 +62,8 @@ class IntegrationRegistryUpdate(BaseModel):
     service_metadata: Optional[dict] = None
     status: Optional[str] = None
     api_key: Optional[str] = None
+
+    _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
 
 class IntegrationRegistryResponse(IntegrationRegistryBase):
     id: UUID

@@ -135,7 +135,7 @@ erDiagram
 | `component_type` | str | What the `internal_cost` is *per*. | `input_token`, `output_token`, `minute`, `image` |
 | `encrypted_api_key` | text | AES-256-GCM ciphertext, base64. Never returned by the API. | `q0Z...` |
 | `internal_cost` | numeric(18,6) | Platform's raw cost per `cost_unit`. | `0.30` |
-| `cost_unit` | str | Divisor selector. **String matching — see the trap in §12.3.** | `1M Tokens` |
+| `cost_unit` | str | What `internal_cost` is quoted for, parsed by `parse_cost_unit` (§12.3); unknown units are rejected on write. | `1M Tokens`, `per_1k_tokens` |
 | `service_metadata` | JSON | Everything provider-specific that is not secret. | `{"project_id": "...", "region": "us-central1"}` |
 | `status` | str | Only `active` rows are ever selected. | `active` |
 
@@ -1374,43 +1374,31 @@ billed. If `gemini-3.1-pro-preview-in` is not registered, the run produces
 `No registry entry for SKU 'gemini-3.1-pro-preview-in' — input cost not tracked`
 and bills nothing.
 
-### 12.3 The cost formula — and the `cost_unit` trap
-
-```python
-# backend/src/ai/usage_service.py
-divisor = Decimal("1.0")
-if registry_entry.cost_unit:
-    unit_lower = registry_entry.cost_unit.lower()
-    if "1m token" in unit_lower or "per_million" in unit_lower or "million" in unit_lower:
-        divisor = Decimal("1000000.0")
-    elif "1k token" in unit_lower:
-        divisor = Decimal("1000.0")
-    elif "1000 char" in unit_lower:
-        divisor = Decimal("1000.0")
-
-calculated_cost = (registry_entry.internal_cost * Decimal(str(raw_quantity))) / divisor
-```
+### 12.3 The cost formula and `cost_unit`
 
 ```
-calculated_cost = internal_cost * token_count / divisor
+calculated_cost = internal_cost * raw_quantity / unit_divisor(cost_unit)
 ```
 
-| `cost_unit` value | Matches? | Divisor |
+`unit_divisor` is `parse_cost_unit(cost_unit).quantity`
+([usage_service.py](../../backend/src/ai/usage_service.py)). The parser
+normalises case and separators (`_`, `-`, spaces, thousands commas), then reads
+`[per] [<number>][k|m|thousand|million] <noun>`:
+
+| `cost_unit` | Divisor | Noun |
 |---|---|---|
-| `1M Tokens` (frontend default) | `"1m token"` ✅ | 1,000,000 |
-| `per_million_tokens` | `"per_million"` ✅ | 1,000,000 |
-| `1K Tokens` | `"1k token"` ✅ | 1,000 |
-| `1000 chars` | `"1000 char"` ✅ | 1,000 |
-| **`per_1k_tokens`** | ❌ underscore, not a space | **1.0** |
-| `per_minute`, `per_image`, `per_page` | ❌ | 1.0 |
+| `per_1k_tokens`, `per-1K-tokens`, `per 1000 tokens` | 1,000 | token |
+| `per_1M_tokens`, `per_1m_tokens`, `1M Tokens`, `per_million_tokens`, `per 1,000,000 tokens` | 1,000,000 | token |
+| `per_1000_characters`, `1000 chars` | 1,000 | character |
+| `per_minute`, `second`, `per_call`, `flat_fee`, `per_image`, `per_page`, `per_query`, … | 1 | as named |
 
-> ⚠️ **`per_1k_tokens` does not match anything.** The substring test is
-> `"1k token" in "per_1k_tokens"` — space versus underscore — so it falls
-> through to `divisor = 1.0` and over-charges by **1000×**. Every curl example
-> in
-> [AI_MODEL_CREDENTIALS_GUIDE.md](../../docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md)
-> uses `per_1k_tokens`. Anyone who copy-pasted the guide has 1000×-inflated LLM
-> costs. Use `1M Tokens` (the value the UI defaults to) or `1K Tokens`.
+An unknown unit is **rejected**: `IntegrationRegistryCreate` / `Update`
+validate `cost_unit` (422). A row stored before that check is logged
+(`Unknown cost_unit …`) and priced per one unit. Before LP-01 the divisor came
+from substring tests that missed `per_1k_tokens` (the form the credentials guide
+uses: 1000× over-billed) and `per_1M_tokens` (1,000,000× over), and nothing
+validated the field. The voice audio path (`VoiceUsageLogger`) uses the same
+parser.
 
 ### 12.4 Where the rows are written
 
@@ -1962,15 +1950,15 @@ Checklist for the adapter itself, learned from the three that exist:
 | [frontend/src/pages/ai-config/AIModelConfigPage.tsx](../../frontend/src/pages/ai-config/AIModelConfigPage.tsx) | 298 | task-default editor |
 | [frontend/src/pages/IntegrationsPage.tsx](../../frontend/src/pages/IntegrationsPage.tsx) | 339 | integration list |
 | [frontend/src/components/CreateIntegrationModal.tsx](../../frontend/src/components/CreateIntegrationModal.tsx) | 333 | create/edit form |
-| [docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md](../../docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md) | 1334 | operator setup guide — accurate on GCP/Azure setup, wrong on `cost_unit` and API paths |
+| [docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md](../../docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md) | 1334 | operator setup guide — accurate on GCP/Azure setup and on `cost_unit` (its `per_1k_tokens` now prices correctly, LP-01); wrong on API paths |
 
 ---
 
 ## 19. Gotchas and things that surprise newcomers
 
-1. **`cost_unit: "per_1k_tokens"` over-bills by 1000×.** The divisor matcher
-   looks for `"1k token"` with a space. Every example in the credentials guide
-   uses the underscore form. Use `1M Tokens`.
+1. **`cost_unit` is parsed and validated** (LP-01). `per_1k_tokens`,
+   `per_1M_tokens` and `1M Tokens` all price correctly; a unit the parser does
+   not know is refused when the registry row is written.
 2. **`routing_mode` does nothing.** No code reads it. There is no fallback
    router; the UI button is disabled for a reason.
 3. **There is no retry, no timeout, no provider fallback in the LLM layer.** A
@@ -2053,4 +2041,4 @@ Checklist for the adapter itself, learned from the three that exist:
 - [17 — API reference](17-api-reference.md) — the full `/config/*` surface.
 - [docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md](../../docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md)
   — operator-facing GCP and Azure setup. Accurate on cloud setup; correct the
-  `cost_unit` and `/api/v1` issues noted above as you follow it.
+  `/api/v1` issues noted above as you follow it.

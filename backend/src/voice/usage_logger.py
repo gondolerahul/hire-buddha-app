@@ -226,12 +226,17 @@ class VoiceUsageLogger:
             logger.warning(f"No active SKU found: {sku_name} for company {company_id}")
             return None
         
-        cost_unit = (registry_entry.cost_unit or "").lower().strip()
-        
-        if "per_minute" in cost_unit or "per minute" in cost_unit:
+        from src.ai.usage_service import parse_cost_unit
+        try:
+            unit = parse_cost_unit(registry_entry.cost_unit)
+        except ValueError:
+            logger.error("Unknown cost_unit %r on SKU %s", registry_entry.cost_unit, sku_name)
+            unit = None
+
+        if unit is not None and unit.noun == "minute":
             # ── Per-minute billing (ceiling-rounded) ──────────────────
             duration_minutes = Decimal(str(math.ceil(audio_seconds / 60.0)))
-            calculated_cost = registry_entry.internal_cost * duration_minutes
+            calculated_cost = registry_entry.internal_cost * duration_minutes / unit.quantity
             raw_quantity = duration_minutes
             log_extra = {
                 "billing_mode": "per_minute",
@@ -243,8 +248,8 @@ class VoiceUsageLogger:
             tokens_per_second = Decimal("167")
             estimated_tokens = tokens_per_second * Decimal(str(audio_seconds))
             cost_divisor = Decimal("1000000")
-            if "1k" in cost_unit:
-                cost_divisor = Decimal("1000")
+            if unit is not None and unit.noun == "token":
+                cost_divisor = unit.quantity
             calculated_cost = (registry_entry.internal_cost * estimated_tokens) / cost_divisor
             raw_quantity = estimated_tokens
             log_extra = {

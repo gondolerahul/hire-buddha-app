@@ -67,7 +67,12 @@ The three to read first:
 
 ### LP-01 — `cost_unit: per_1k_tokens` over-bills by 1000×
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01)** — `parse_cost_unit` normalises
+case and separators and reads `[per] [n][k|m|thousand|million] <noun>`; `unit_divisor`
+(used by `UsageService`, `ToolCostResolver`, and now `VoiceUsageLogger`) is its quantity.
+`IntegrationRegistryCreate`/`Update` reject an unknown unit (422). The new face held: on
+the old code `per_1M_tokens` / `per_1m_tokens` divided by 1 as well. Test:
+`tests/unit/test_cost_unit.py`.
 
 The divisor is chosen by substring matching on `cost_unit`:
 

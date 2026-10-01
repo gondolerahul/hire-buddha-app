@@ -407,43 +407,43 @@ The tool path is different again: `ToolCostResolver` and the inline copies in `s
 
 ### 3.4 Cost units and divisors
 
-`UsageService` normalises `raw_quantity` by inspecting `cost_unit` as a **lower-cased substring match** — [usage_service.py:89](../../backend/src/ai/usage_service.py:89):
+Every metering path divides by `unit_divisor(cost_unit)`, which is
+`parse_cost_unit(cost_unit).quantity` —
+[usage_service.py](../../backend/src/ai/usage_service.py) (LP-01):
 
 ```python
 # backend/src/ai/usage_service.py
-divisor = Decimal("1.0")
-if registry_entry.cost_unit:
-    unit_lower = registry_entry.cost_unit.lower()
-    if "1m token" in unit_lower or "per_million" in unit_lower or "million" in unit_lower:
-        divisor = Decimal("1000000.0")
-    elif "1k token" in unit_lower:
-        divisor = Decimal("1000.0")
-    elif "1000 char" in unit_lower:
-        divisor = Decimal("1000.0")
-
-calculated_cost = (registry_entry.internal_cost * Decimal(str(raw_quantity))) / divisor
+calculated_cost = (registry_entry.internal_cost * Decimal(str(raw_quantity))) / unit_divisor(registry_entry.cost_unit)
 ```
 
-| `cost_unit` string (case-insensitive substring) | Divisor | `raw_quantity` is | Typical SKU |
-|---|---|---|---|
-| `1M Tokens`, `per_million`, anything containing `million` | 1,000,000 | tokens or characters | `{model}-in`, `{model}-out` |
-| `1K Tokens` | 1,000 | tokens | small-volume models |
-| `1000 chars` | 1,000 | characters | character-priced TTS |
-| `second` | 1 | seconds | `sandbox-runtime` |
-| `per_minute`, `per minute` | 1 | minutes (already ceilinged) | telephony |
-| `per_call`, `flat_fee`, or anything unmatched | 1 | `1.0` | `serp-api-key`, `firecrawl-api` |
+The parser normalises case and separators and reads
+`[per] [<number>][k|m|thousand|million] <noun>`; registry writes reject a unit
+it does not know (a row stored earlier is logged and priced per one unit).
 
-⚠️ Two traps. First, **`per_minute` is not special-cased in `UsageService`** — it only works because the caller (`VoiceUsageLogger`) has already converted seconds to whole minutes and looks at `cost_unit` itself. Second, the divisor logic is not reused by the tool path: `ToolCostResolver` and `step_executor` take `internal_cost` **as-is** and ignore `cost_unit` entirely, so a tool SKU priced "per 1M calls" would be charged a million times over.
+| `cost_unit` | Divisor | `raw_quantity` is | Typical SKU |
+|---|---|---|---|
+| `1M Tokens`, `per_1m_tokens`, `per_million_tokens` | 1,000,000 | tokens or characters | `{model}-in`, `{model}-out` |
+| `per_1k_tokens`, `1K Tokens` | 1,000 | tokens | small-volume models |
+| `per_1000_characters`, `1000 chars` | 1,000 | characters | character-priced TTS |
+| `second` | 1 | seconds | `sandbox-runtime` |
+| `per_minute` | 1 | minutes (already ceilinged) | telephony |
+| `per_call`, `flat_fee`, `per_query`, `per_image` | 1 | `1.0` | `serp-api-key`, `firecrawl-api` |
+
+`per_minute` is not special-cased in `UsageService` — the caller
+(`VoiceUsageLogger`) converts seconds to whole minutes and reads the parsed
+unit's noun itself. The tool path (`ToolCostResolver`) prices one call as
+`internal_cost / unit_divisor(cost_unit)`, so a tool SKU quoted "per 1000
+calls" is divided correctly.
 
 ```mermaid
 flowchart TD
     A["raw_quantity"] --> B{"who is metering?"}
     B -->|"UsageService.log_usage"| C["divisor from cost_unit"]
     B -->|"VoiceUsageLogger telephony"| D["ceil seconds divided by 60 - divisor 1"]
-    B -->|"VoiceUsageLogger audio"| E{"cost_unit contains per_minute?"}
+    B -->|"VoiceUsageLogger audio"| E{"parsed noun is minute?"}
     E -->|yes| D
-    E -->|no| F["estimate 167 tokens per second - divide by 1M or 1K"]
-    B -->|"ToolCostResolver / step_executor"| G["divisor always 1 - cost_unit ignored"]
+    E -->|no| F["estimate 167 tokens per second - divide by the parsed token quantity, default 1M"]
+    B -->|"ToolCostResolver"| G["internal_cost / unit_divisor per call"]
     C --> H["calculated_cost"]
     D --> H
     F --> H
