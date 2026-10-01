@@ -830,4 +830,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P2.10 | LP-01 (LP-I3) | `92cdeaa` | On the old code `unit_divisor` misprices `per_1k_tokens`, `per_1M_tokens`, `per_1m_tokens` (probe); `test_cost_unit.py` (collection fails on the old code: no `parse_cost_unit`) |
 | **P2 first half done** | AK-01, AK-03, LP-19, TL-51, TL-52, LP-01 | — | Unit 1474 passed (+ the 2 known failures), integration 227 passed |
 | P2.3, P2.2b | LP-03 (LP-I1), LP-04 | `5e38ec3` | `test_llm_retry.py` (collection fails on the old code: no `retry` module). Retry is per provider call, not per ReAct loop, so a turn's tools never re-run; SDK retries off |
-| P2.5 | EP-25 | (this commit) | `test_step_prompt.py` (collection fails on the old code: the prompt assembly is now `compose_step_prompt`; the old constants lack `__agent_state__`) |
+| P2.5 | EP-25 | `a67d11f` | `test_step_prompt.py` (collection fails on the old code: the prompt assembly is now `compose_step_prompt`; the old constants lack `__agent_state__`) |
+| P2.6 | PC-25 | (this commit) | `test_plan_request.py` (collection fails on the old code: no `run_request`) |

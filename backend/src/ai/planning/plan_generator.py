@@ -59,6 +59,37 @@ class PlanContext:
     # them the LLM invents child ids (PC-24).
     child_roster: str = ""
     known_child_ids: Optional[set[str]] = None
+    # What this run was asked to do. ``goal`` is the entity's standing goal;
+    # without the request every plan was made blind to the task (PC-25).
+    request: str = ""
+
+
+_REQUEST_CHARS = 4000
+
+
+def run_request(input_data: Optional[dict[str, Any]]) -> str:
+    """The run's request as text: ``input``, or else the caller's own keys
+    (internal ``__…__`` keys and plumbing stripped)."""
+    from src.ai.constants import INTERNAL_CONTEXT_KEYS
+
+    data = input_data or {}
+    value: Any = data.get("input")
+    if value is None:
+        value = {k: v for k, v in data.items()
+                 if k not in INTERNAL_CONTEXT_KEYS and not str(k).startswith("__")}
+    if value in (None, "", {}, []):
+        return ""
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    return text.strip()[:_REQUEST_CHARS]
+
+
+def request_section(request: str) -> str:
+    return (
+        f"## Request\n{request}\n\nThis run was asked to do the request above; the goal "
+        "is the entity's standing purpose. Plan to fulfil the request, and give each "
+        "child step the part of it that child needs (``{{input}}`` in its "
+        "prompt_template passes the whole request)."
+    )
 
 
 @dataclass
@@ -301,6 +332,8 @@ class PlanGenerator:
     def _build_prompt(self, ctx: PlanContext, *, temperature: float) -> str:
         parts: list[str] = []
         parts.append(f"## Goal\n{ctx.goal or self._goal_from_entity(ctx.entity)}")
+        if ctx.request:
+            parts.append(request_section(ctx.request))
         if ctx.child_roster:
             parts.append(ctx.child_roster)
         if ctx.proposed_subgoals:
@@ -485,6 +518,7 @@ class PlanGenerator:
             chosen, scores, reasoning = await self.judge.pick(
                 ranked,
                 goal=ctx.goal or self._goal_from_entity(ctx.entity),
+                request=ctx.request,
                 intelligence_rules=ctx.intelligence_rules,
                 anti_patterns=ctx.anti_patterns,
                 company_id=ctx.company_id,

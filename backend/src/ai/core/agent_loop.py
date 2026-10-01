@@ -49,6 +49,7 @@ from src.ai.core.run_outcome import failed_steps_summary, final_status
 from src.ai.core.stuck_runs import SUSPENDED_AT_KEY, cancel_open_children, utc_now_iso
 from src.ai.core.trace import current_recorder, span
 from src.ai.orm.execution import ExecutionRun
+from src.ai.planning.plan_generator import run_request
 from src.ai.planning.critic_pipeline import (
     CriticPipeline,
     NoOpCriticPipeline,
@@ -1416,7 +1417,7 @@ class AgentLoop:
                         if state.last_observation else ""
                     ),
                 },
-                goal=new_goal,
+                goal=new_goal, request=run_request(state.context_state),
             )
             if new_plan:
                 state.plan_steps = list(new_plan)

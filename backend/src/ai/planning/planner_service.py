@@ -95,7 +95,7 @@ class PlannerService:
         and selects via PlanJudge. Stores the chosen plan + alternates
         in ``_plan_meta`` so the frontend can render the compare modal.
         """
-        from src.ai.planning.plan_generator import PlanContext, PlanGenerator
+        from src.ai.planning.plan_generator import PlanContext, PlanGenerator, run_request
 
         try:
             # Through the resolver, so a company or global row overrides it.
@@ -114,6 +114,7 @@ class PlannerService:
             intelligence_rules=list((input_data or {}).get("__intelligence_rules__") or []),
             company_id=self.company_id,
             goal=getattr(entity, "goal", "") or "",
+            request=run_request(input_data),
             child_roster=child_roster,
             known_child_ids=known_child_ids,
         )
@@ -277,6 +278,7 @@ class PlannerService:
         completed_steps: list[dict[str, Any]],
         failed_step: dict[str, Any],
         goal: str,
+        request: str = "",
     ) -> List[dict[str, Any]]:
         """Mid-execution re-planning (autonomous loop).
 
@@ -304,6 +306,7 @@ class PlannerService:
                     entity=None,
                     static_plan={"steps": list(original_plan or [])},
                     goal=goal or "",
+                    request=request,
                     failed_step=failed_step or {},
                 )
                 gen = PlanGenerator(llm_router=self.llm, db=self.db)

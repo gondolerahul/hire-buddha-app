@@ -61,6 +61,7 @@ class PlanJudge:
         candidates: list[Any],
         *,
         goal: str = "",
+        request: str = "",
         intelligence_rules: Optional[list[Any]] = None,
         anti_patterns: Optional[list[Any]] = None,
         company_id: Optional[Any] = None,
@@ -75,6 +76,9 @@ class PlanJudge:
         prompt_parts: list[str] = []
         if goal:
             prompt_parts.append(f"## Goal\n{goal}")
+        if request:
+            # Judge the plans against what the run was asked to do (PC-25).
+            prompt_parts.append(f"## Request\n{request}")
         if intelligence_rules:
             rules_block = "\n".join(
                 f"  - {self._render_rule(r)}" for r in list(intelligence_rules)[:5]

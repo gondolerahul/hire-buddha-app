@@ -360,7 +360,8 @@ The user prompt is assembled section-by-section by `_build_prompt`:
 
 | Section | Present when | Content |
 |---------|-------------|---------|
-| `## Goal` | always | `ctx.goal`, else `entity.goal` |
+| `## Goal` | always | `ctx.goal`, else `entity.goal` — the entity's standing purpose |
+| `## Request` | the run has a request | `ctx.request` = `run_request(input_data)`: `input`, else the caller's own keys (internal `__…__` keys stripped), at most 4000 chars, plus a line telling the model to plan for the request and pass each child the part it needs (`{{input}}` passes all of it). Set on the reconcile path and on replan (`adapt_plan(request=…)` from the loop). PlanJudge's prompt carries the same section. Before PC-25 neither prompt had it, so plans were made from the standing goal alone |
 | `## Available Child Entities` | the entity has live children | `ctx.child_roster`, rendered by `describe_entity_children`: each child's name, type, exact `entity_id`, role, goal and tools. `PlannerService._child_roster` builds it on the reconcile path (PC-24) |
 | `## Proposed subgoals (replan)` | supervisor proposed subgoals | one bullet per subgoal description |
 | `## Previous attempt` | `ctx.failed_step` set | failed step name + first 200 chars of the error |

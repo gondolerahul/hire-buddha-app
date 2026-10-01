@@ -476,7 +476,10 @@ report-writer ids, in that order, and the run delegated to them.
 
 ### PC-25 — The dynamic planner never sees the user's request
 
-**✅ Verified · High** · **Status: open** — found 2026-09-29 on a live deep-research run.
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — found 2026-09-29 on a live
+deep-research run. `PlanContext.request` (`run_request(input_data)`) renders as
+`## Request` in the plan prompt and the PlanJudge prompt, on reconcile and on replan.
+Test: `tests/unit/test_plan_request.py`.
 
 `PlanContext` carries `input_data`, but `PlanGenerator._build_prompt` never renders it.
 The `## Goal` section is `ctx.goal`, which `PlannerService` fills with the **entity's**
