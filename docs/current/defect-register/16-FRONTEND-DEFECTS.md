@@ -33,14 +33,66 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | **Now** — all small |
-| [T1](#3-t1--broken-behaviour) | Broken behaviour | 9 | Before the next release |
-| [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 5 | Free |
-| [T3](#5-t3--performance) | Performance | 7 | When the page in question is next touched |
+| Tier | Theme | Count | Fixed | Open |
+|---|---|---|---|---|
+| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | 5 | 2 |
+| [T1](#3-t1--broken-behaviour) | Broken behaviour | 11 | 11 | 0 |
+| [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 5 | 1 |
+| [T3](#5-t3--performance) | Performance | 7 | 6 | 1 |
 
-**Total: 28 defects, 10 improvements.**
+**Total: 31 defects (27 fixed, 4 open), 10 improvements (5 done, 1 partly done, 4 open).**
+Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
+way and added (FE-26 to FE-31). Three of the four open ones wait on a package change this
+session's permission check refused — installing `vitest` (FE-03) and
+`@tanstack/react-query` (FE-21), uninstalling the unused packages (FE-12); FE-28 needs a
+short-lived token from the API.
+
+| ID | Defect | Status |
+|---|---|---|
+| FE-01 | There is no error boundary | ✅ fixed `547cca5` |
+| FE-02 | `npm run lint` cannot run | ✅ fixed `eac9f2f` |
+| FE-03 | There is no test runner | open — needs `vitest` installed |
+| FE-04 | If you forget `.env`, development talks to production | ✅ fixed `50dac40` |
+| FE-05 | Three legacy redirects emit a literal `:id` | ✅ fixed `547cca5` |
+| FE-06 | Bad JSON in the IO-contract fields silently kills the save | ✅ fixed `0dbd5ef` |
+| FE-07 | Half the pages bypass `apiClient` and lose token refresh | ✅ fixed `cb3026f` |
+| FE-08 | Two effects have wrong dependency arrays | ✅ fixed `0dbd5ef` (13 more in `eac9f2f`) |
+| FE-09 | Timestamps are wrong unless routed through a helper | ✅ fixed `7a61fb1` |
+| FE-10 | `getStepToolLogs` is a stub returning `false` | ✅ fixed `141a4df` |
+| FE-11 | The social login buttons do nothing | ✅ fixed `1fffde8` |
+| FE-12 | Unused dependencies | open — needs `npm uninstall` |
+| FE-13 | `AssetLibrary.tsx` is dead | ✅ fixed `9719f1b` (PO-13) |
+| FE-14 | Six unmounted agent-kernel components | ✅ fixed `8cb6dac` |
+| FE-15 | The duplicate `.gap-1` rules | ✅ fixed `8cb6dac` |
+| FE-16 | The unused `response` variable in `useAuth` | ✅ fixed `141a4df`, `8842901` |
+| FE-17 | The WebGL background never sleeps | ✅ fixed `428ff7c` |
+| FE-18 | `ExecutionDetail` walks the whole run tree on every render | ✅ fixed `3d1dcec` |
+| FE-19 | The execution poll never stops | ✅ fixed `3d1dcec` |
+| FE-20 | `EntityConfigurationTabs` re-renders everything on every keystroke | ✅ fixed `d32d412` |
+| FE-21 | No caching layer, and fan-out on mount | open — needs `@tanstack/react-query` |
+| FE-22 | `recharts` may be duplicated across 13 chunks | ✅ fixed `abcebdb` |
+| FE-23 | `useState(entity?.x)` only reads the prop once | ✅ fixed `0dbd5ef` |
+| FE-24 | Reloading any `/reports/*` page proxies the browser to the gateway | ✅ fixed `50dac40` |
+| FE-25 | Saving from the entity builder rewrites config it does not show | ✅ fixed `0dbd5ef` |
+| FE-26 | The production build fails *(new)* | ✅ fixed `141a4df` |
+| FE-27 | A compiled `vite.config.js` shadows `vite.config.ts` *(new)* | ✅ fixed `50dac40` |
+| FE-28 | Artifact previews put the access token in the URL *(new)* | open — needs a short-lived token from the API |
+| FE-29 | The session list's recording link always answers 401 *(new)* | ✅ fixed `cb3026f` |
+| FE-30 | Three more unreferenced files *(new)* | ✅ fixed `a7db850` |
+| FE-31 | Reloading the Artifacts page shows the API's 404 *(new)* | ✅ fixed `c222808` |
+
+| ID | Improvement | Status |
+|---|---|---|
+| FE-I1 | Error boundary, lint config, test runner | ◐ two of three — the test runner is FE-03 |
+| FE-I2 | Stop the polls | ✅ done `3d1dcec` |
+| FE-I3 | Adopt a query cache | open — FE-21 |
+| FE-I4 | Lazy-load the background and make it sleep | ✅ done `428ff7c` |
+| FE-I5 | Memoise the two heavy components | ✅ done `3d1dcec`, `d32d412` |
+| FE-I6 | Route everything through `apiClient` | ✅ done `cb3026f` |
+| FE-I7 | Generate the API types from the backend | open |
+| FE-I8 | Derive the sidebar from the router | open |
+| FE-I9 | Add `manualChunks` for the shared vendor libraries | ✅ done `abcebdb` |
+| FE-I10 | Build the frontend for production | open — same as SA-I1 |
 
 The three to read first:
 
@@ -57,7 +109,7 @@ The three to read first:
 
 ### FE-01 — There is no error boundary
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — `components/ErrorBoundary.tsx` wraps
+**✅ Verified · High** · **Status: fixed (2026-10-01, `547cca5`)** — `components/ErrorBoundary.tsx` wraps
 the router (*The application hit an error…*) and, inside `MainLayout`, each page (*This page
 hit an error…*, with **Try again** and **Reload**); the page boundary clears itself when the
 route changes. A `<Suspense>` inside `MainLayout` means a page chunk still loading shows
@@ -89,7 +141,7 @@ broken" into "this page is broken".
 
 ### FE-02 — `npm run lint` cannot run
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — `frontend/.eslintrc.cjs` exists and
+**✅ Verified · High** · **Status: fixed (2026-10-01, `eac9f2f`)** — `frontend/.eslintrc.cjs` exists and
 `npm run lint` passes with `--max-warnings 0`.
 
 `package.json` declares:
@@ -142,9 +194,15 @@ poll stopped after the first tick; the canvas laid out the stored plan.
 
 ### FE-03 — There is no test runner
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open (2026-10-01)** — the fix needs
+`npm i -D vitest jsdom @testing-library/react @testing-library/dom`, which this session's
+permission check refused (a change to shared dependencies); it waits for the user. Since
+FE-14 one test file is left (`cortex-helpers.test.ts` went with the dead module). When the
+runner is in: fix `_INITIAL` in `useExecutionEvents.test.ts` (it lacks `spans`), drop the
+`*.test.ts` exclude from `tsconfig.json`, and give `utils/entityConfig.ts` and
+`utils/datetime.ts` — both pure — their first tests.
 
-Two `.test.ts` files exist and both import from `vitest`. Neither `vitest` nor `jest`
+Two `.test.ts` files exist and both import from `vitest`.Neither `vitest` nor `jest`
 appears anywhere in `package.json`. There is no `test` script.
 
 `useExecutionEvents.test.ts` even documents the missing setup in its own header:
@@ -170,7 +228,7 @@ Two knock-on effects:
 
 ### FE-26 — The production build fails
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — found 2026-10-01 while starting this
+**✅ Verified · High** · **Status: fixed (2026-10-01, `141a4df`)** — found 2026-10-01 while starting this
 register.
 
 `npm run build` is `tsc && vite build`, and `tsc` failed with 22 errors, so no production
@@ -190,7 +248,7 @@ reports 0 errors (22 before) and `npm run build` completes.
 
 ### FE-27 — A compiled `vite.config.js` shadows `vite.config.ts`
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — found 2026-10-01 while fixing FE-24.
+**✅ Verified · High** · **Status: fixed (2026-10-01, `50dac40`)** — found 2026-10-01 while fixing FE-24.
 
 `vite.config.js` and `vite.config.d.ts` — output of the composite `tsconfig.node.json` — were
 committed next to `vite.config.ts`, with both `*.tsbuildinfo` files. Vite loads
@@ -229,7 +287,7 @@ have the API mint a short-lived, single-artifact (or single-stream) token.
 
 ### FE-04 — If you forget `.env`, development talks to production
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — worse than recorded: besides
+**✅ Verified · High** · **Status: fixed (2026-10-01, `50dac40`)** — worse than recorded: besides
 `config/api.ts`, `ExecutionDetail.tsx` carried its own copy of the production fallback, the
 artifact download and preview URLs used the undocumented `VITE_API_URL` (empty → a relative
 `/api/...` URL), and the dev server proxied `/api`, `/reports` and `/artifact` to
@@ -267,7 +325,7 @@ Costing Report and Billing Settings loaded with the local data); an API-style re
 
 ### FE-05 — Three legacy redirects emit a literal `:id`
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — a `ParamRedirect` fills the route's
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `547cca5`)** — a `ParamRedirect` fills the route's
 `:params` into the target (`ExecutionRedirect` uses it too). **Evidence:** live,
 `/agents/<id>` landed on `/ai/entities/edit/<id>` and `/execute/process/<id>` on
 `/ai/execute/<id>`.
@@ -291,7 +349,7 @@ and builds the target.
 
 ### FE-06 — Bad JSON in the IO-contract fields silently kills the save
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the schemas are parsed in a
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `0dbd5ef`)** — the schemas are parsed in a
 `try`; on bad JSON the builder switches to the Basics tab, shows *The input or output schema
 is not valid JSON: …* beside Save, and sends nothing. **Evidence:** live, `{bad json` in the
 input schema of `report-writer` showed the message, the page stayed, and no request was made.
@@ -307,7 +365,7 @@ get a blank page instead of a validation message.
 
 ### FE-07 — Half the pages bypass `apiClient` and lose token refresh
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — worse than recorded: the pages did
+**✅ Verified · High** · **Status: fixed (2026-10-01, `cb3026f`)** — worse than recorded: the pages did
 not just miss the refresh, they kept sending the *expired* token after the rest of the app
 had refreshed it. They took `token` from `useAuth()`, which is read once at mount and never
 updated by `apiClient`'s refresh.
@@ -348,7 +406,7 @@ unit test: the frontend has no test runner yet (FE-03).
 
 ### FE-08— Two effects have wrong dependency arrays
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — both effects now update state with
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `0dbd5ef`)** — both effects now update state with
 an updater instead of a copy from the render they were created in, and the lint rule passes
 on both. With a lint config in place (FE-02) the rule found 13 more effects; they are fixed
 there.
@@ -381,7 +439,7 @@ does not appear on the canvas.
 
 ### FE-09 — Timestamps are wrong unless routed through a helper
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the lint gate now refuses a
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `7a61fb1`)** — the lint gate now refuses a
 `new Date(value)` or `Date.parse` outside `utils/datetime.ts`.
 
 The backend emits **naive UTC** ISO strings. `new Date(s)` parses them as browser-local, so
@@ -414,7 +472,7 @@ reported `new Date(s)` and `Date.parse(s)` and passed `new Date()`; `npm run lin
 
 ### FE-10 — `getStepToolLogs` is a stub returning `false`
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the stub could not work: tool logs
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `141a4df`)** — the stub could not work: tool logs
 had no `step_name` to match on (LLM logs do).
 
 A function used by the execution detail view returns `false` for everything, so the tool
@@ -439,7 +497,7 @@ live: a run with tool calls needs Vertex, whose credentials had expired.
 
 ### FE-11 — The social login buttons do nothing
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the buttons start a sign-in that
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `1fffde8`)** — the buttons start a sign-in that
 completes, shown only for a configured provider; PKCE follows when the API accepts a
 `code_verifier` (the auth session is adding it).
 
@@ -487,7 +545,7 @@ No unit test: FE-03.
 
 ### FE-31 — Reloading the Artifacts page shows the API's 404
 
-**✅ Verified · Low** · **Status: fixed (2026-10-01)** — found while checking FE-29.
+**✅ Verified · Low** · **Status: fixed (2026-10-01, `c222808`)** — found while checking FE-29.
 
 The dev server proxied the bare prefix `/artifact` to the API's static mount, and a prefix
 also matches `/artifacts` — the SPA's own page. So a full load of `/artifacts` (a reload, a
@@ -507,7 +565,7 @@ before: `/artifacts` → 404 `application/json`; after a dev-server restart: `/a
 
 ### FE-24 — Reloading any `/reports/*` page proxies the browser to the gateway
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the `/reports` proxy has a `bypass`:
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `50dac40`)** — the `/reports` proxy has a `bypass`:
 a request that accepts `text/html` (a page load) is served the SPA's `index.html`; everything
 else still goes to the API's static mount. **Evidence:** a full load of
 `http://localhost:3020/reports/costing` rendered the Costing Report (signed in as the
@@ -536,7 +594,7 @@ function).
 
 ### FE-25 — Saving from the entity builder rewrites config it does not show
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — the builder saves the stored entity
+**✅ Verified · High** · **Status: fixed (2026-10-01, `0dbd5ef`)** — the builder saves the stored entity
 with its edits laid over it; plan steps round-trip. Found 2026-09-29 while fixing PO-09.
 
 `EntityConfigurationTabs.handleSave` rebuilds every config column from the builder's own
@@ -595,7 +653,7 @@ The entity was restored afterwards. No unit test: the frontend has no test runne
 
 ### FE-29 — The session list's recording link always answers 401
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — found while fixing FE-07.
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `cb3026f`)** — found while fixing FE-07.
 
 The session detail on `/streaming/sessions` links to the call recording as
 `${API_BASE_URL minus /api/v1}${recording_url}`, a plain `<a href>` to
@@ -619,11 +677,11 @@ last refreshed. Both pages and the artifact preview use it, so FE-28's fix lands
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **FE-12** | `react-hook-form`, `zod`, `@hookform/resolvers`, `date-fns` | Four dependencies with **zero imports** anywhere in `src/`. Confirmed by grep. The frontend README claims they are used | ✅ Verified |
+| **FE-12** | `react-hook-form`, `zod`, `@hookform/resolvers`, `date-fns` | Four dependencies with **zero imports** anywhere in `src/`. Confirmed by grep. The frontend README claims they are used | open (2026-10-01) — re-confirmed, and three more: `@react-three/drei`, `@react-three/fiber` and `@react-three/postprocessing` have no imports either (the background is plain `three`), and their React 19 peer dependency makes a plain `npm install` fail against React 18. The `npm uninstall` was refused by this session's permission check; it waits for the user |
 | **FE-13** | `pages/assets/AssetLibrary.tsx` | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx`. Also [PO-13](01-PRODUCT-OVERVIEW-DEFECTS.md#4-t2--dead-code-and-dead-surfaces) | ✅ fixed (2026-09-29, `9719f1b`) by PO-13 — deleted with its CSS and `asset.service.ts` |
-| **FE-14** | Six unmounted agent-kernel components | `PlanCandidatesCompare`, three `SupervisorAndBandit` widgets, `ProvenanceRibbon`, and the `cortex-helpers` module. All fully built, none mounted anywhere | ✅ fixed (2026-10-01) — confirmed unreferenced and deleted: `PlanCandidatesCompare` and `SupervisorAndBandit` (with their CSS), the `ProvenanceRibbon` export and its CSS in `AgentKernel`, and `cortex-helpers` with its test. The `agent.service` methods and types they used are kept — they describe API endpoints that exist |
-| **FE-15** | The duplicate `.gap-1` rules | Defined three times in `global.css` (lines 312, 480, 579). The last wins, with the wrong value | ✅ fixed (2026-10-01) — the second block was a full duplicate of the `.gap-*` scale and is gone, as is the third `.gap-1` (`--spacing-4`); the five icon-and-text uses get `--spacing-1` as named |
-| **FE-30** | Three more unreferenced files | Found 2026-10-01 while fixing FE-07, listed in the design doc's dead-code table but not here: `pages/streaming/PhoneNumbersPage.tsx` (516 lines; `/streaming/phone-numbers` has redirected to `PhonePool` since the first commit), `components/ToolSelectionPanel.tsx` (107; the builder's Capabilities tab does its job, with the same disabled-tool filter) and `hooks/useSSE.ts` (58; superseded by `useAgentEvents`) | ✅ fixed (2026-10-01) — confirmed unreferenced and deleted with their CSS and the `PhoneNumbersPage` export; build passes. `pages/reports/BillingReport.tsx` is also unrouted but is kept: it is the client-facing billing report whose future is [PO-22](01-PRODUCT-OVERVIEW-DEFECTS.md#po-22--costing-and-billing-reports-are-the-same-query)'s, a product decision |
+| **FE-14** | Six unmounted agent-kernel components | `PlanCandidatesCompare`, three `SupervisorAndBandit` widgets, `ProvenanceRibbon`, and the `cortex-helpers` module. All fully built, none mounted anywhere | ✅ fixed (2026-10-01, `8cb6dac`) — confirmed unreferenced and deleted: `PlanCandidatesCompare` and `SupervisorAndBandit` (with their CSS), the `ProvenanceRibbon` export and its CSS in `AgentKernel`, and `cortex-helpers` with its test. The `agent.service` methods and types they used are kept — they describe API endpoints that exist |
+| **FE-15** | The duplicate `.gap-1` rules | Defined three times in `global.css` (lines 312, 480, 579). The last wins, with the wrong value | ✅ fixed (2026-10-01, `8cb6dac`) — the second block was a full duplicate of the `.gap-*` scale and is gone, as is the third `.gap-1` (`--spacing-4`); the five icon-and-text uses get `--spacing-1` as named |
+| **FE-30** | Three more unreferenced files | Found 2026-10-01 while fixing FE-07, listed in the design doc's dead-code table but not here: `pages/streaming/PhoneNumbersPage.tsx` (516 lines; `/streaming/phone-numbers` has redirected to `PhonePool` since the first commit), `components/ToolSelectionPanel.tsx` (107; the builder's Capabilities tab does its job, with the same disabled-tool filter) and `hooks/useSSE.ts` (58; superseded by `useAgentEvents`) | ✅ fixed (2026-10-01, `a7db850`) — confirmed unreferenced and deleted with their CSS and the `PhoneNumbersPage` export; build passes. `pages/reports/BillingReport.tsx` is also unrouted but is kept: it is the client-facing billing report whose future is [PO-22](01-PRODUCT-OVERVIEW-DEFECTS.md#po-22--costing-and-billing-reports-are-the-same-query)'s, a product decision |
 | **FE-16** | The unused `response` variable in `useAuth` |Assigned from `authService.login` / `register` and never read. Would fail `noUnusedLocals` in a checked position | ✅ fixed (2026-10-01) — it did fail the build (FE-26); the `register` one went with AU-08 (`8842901`), the `login` one with FE-26 |
 
 > Before deleting a component, confirm nothing imports it:
@@ -635,7 +693,7 @@ last refreshed. Both pages and the artifact preview use it, so FE-28's fix lands
 
 ### FE-17 — The WebGL background never sleeps
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — all four:
+**✅ Verified · High** · **Status: fixed (2026-10-01, `428ff7c`)** — all four:
 
 - the animation frame's id is kept and cancelled on unmount (the loop used to reschedule
   itself forever), and the geometries, materials, composer and renderer are disposed;
@@ -673,7 +731,7 @@ paint on every visit.
 
 ### FE-18 — `ExecutionDetail` walks the whole run tree on every render
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — the artifact search, the step
+**✅ Verified · High** · **Status: fixed (2026-10-01, `3d1dcec`)** — the artifact search, the step
 flattening and the LLM- and tool-log collection are module-level pure functions, combined in
 `deriveRunView(run)` and computed with `useMemo` once per fetched run. **Evidence:** the legacy
 view of a finished deep-research run (switched to it for the test through its per-run flag,
@@ -693,7 +751,7 @@ plus a regex sweep every three seconds, indefinitely.
 
 ### FE-19 — The execution poll never stops
 
-**✅ Verified · High** · **Status: fixed (2026-10-01)** — the interval runs only while the run is
+**✅ Verified · High** · **Status: fixed (2026-10-01, `3d1dcec`)** — the interval runs only while the run is
 not in a terminal state (`COMPLETED`, `FAILED`, `PARTIAL_COMPLETE`, `CANCELLED`) and restarts if
 a refine makes it live again. Found on the way: the old interval refreshed only an explicit
 list of states that left out `WAITING_ON_CHILDREN`, so a parent waiting on its children stopped
@@ -718,7 +776,7 @@ background load.
 
 ### FE-20 — `EntityConfigurationTabs` re-renders everything on every keystroke
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the costly part, the tool list,
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `d32d412`)** — the costly part, the tool list,
 no longer re-renders on a keystroke; the filter lists are memoised. The component is still
 one 1,800-line function — see the note below.
 
@@ -755,7 +813,10 @@ for a few milliseconds per keystroke in a dev build.
 
 ### FE-21 — No caching layer, and fan-out on mount
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: open (2026-10-01)** — confirmed: `PhonePool` makes five
+requests on mount, and `EntityFlow` fetches every entity and every tool each time the
+Hierarchy tab mounts. The product owner chose `@tanstack/react-query` (FE-I3); installing it
+was refused by this session's permission check, so it waits for the user.
 
 | Pattern | Where |
 |---|---|
@@ -771,7 +832,7 @@ every tab switch.
 
 ### FE-22 — `recharts` may be duplicated across 13 chunks
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the duplication did not hold: Rollup
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `abcebdb`)** — the duplication did not hold: Rollup
 had already hoisted `recharts` into one shared chunk (`BarChart`, 344 KB). The rest did:
 
 - `vite.config.ts` names the shared vendor chunks — `vendor-react` (react, react-dom,
@@ -798,7 +859,7 @@ into each of the 13 report chunks is left to Rollup's defaults.
 
 ### FE-23 — `useState(entity?.x)` only reads the prop once
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — confirmed a live race, not only a
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `0dbd5ef`)** — confirmed a live race, not only a
 latent one: on an edit route the builder rendered the form *before* the fetch started (with
 `entity` undefined), and only recovered because the loading spinner happened to unmount it.
 Now the edit route starts in the loading state; the form is keyed on the entity's id, so a
@@ -818,6 +879,9 @@ a real entity.
 ## 6. Improvements
 
 ### FE-I1 — Add an error boundary, a lint config and a test runner
+
+**Status: two of three (2026-10-01)** — the error boundary (FE-01) and the lint config
+(FE-02) are in; the test runner is FE-03.
 
 **Effect: large, and it is one afternoon.**
 [FE-01](#fe-01--there-is-no-error-boundary),
