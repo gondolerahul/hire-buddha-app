@@ -316,7 +316,10 @@ appear in the builder.
 
 ### PC-18 — `_assign_step_ids` breaks the LLM's own placeholders
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: fixed (2026-10-01)** — `assign_step_ids` rewrites
+`{{old}}` / `{{old.…}}` placeholders in every string and `target.input_dependencies` in
+the same pass as the ids. The new face held: the dependencies were not rewritten either,
+so a dependent step never became ready. Test: `tests/unit/test_step_ids.py`.
 
 The planner asks the LLM for a plan whose steps reference each other with `{{step_1}}`
 placeholders. `_assign_step_ids` then rewrites **every** generated `step_id`.

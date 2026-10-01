@@ -8,6 +8,7 @@ injection, and step-id generation.
 import copy
 import json
 import logging
+import re
 from uuid import UUID, uuid4
 from typing import Any, List, Optional, cast
 
@@ -17,6 +18,49 @@ from src.ai.llm.router import LLMRouter
 from src.ai.usage_service import UsageService
 
 logger = logging.getLogger(__name__)
+
+
+def assign_step_ids(steps: list[dict[str, Any]], start_from: int = 1) -> list[dict[str, Any]]:
+    """Give the steps fresh sequential ids, and move every reference with them.
+
+    The planner's own steps refer to each other by id: ``{{step_1}}`` /
+    ``{{step_1.output}}`` placeholders in any string, and
+    ``target.input_dependencies``. Renaming the ids alone left the placeholders
+    unresolved and the dependencies pointing at ids no step had, so a
+    dependent step never became ready and the plan ended with it unrun (PC-18).
+    """
+    renamed: dict[str, str] = {}
+    for i, s in enumerate(steps):
+        new_id = f"step_{start_from + i}_{str(uuid4())[:8]}"
+        old_id = str(s.get("step_id") or s.get("id") or "")
+        if old_id and old_id not in renamed:
+            renamed[old_id] = new_id
+        s["step_id"] = new_id
+        s["order"] = start_from + i
+    if not renamed:
+        return steps
+    placeholder = re.compile(
+        r"\{\{\s*(" + "|".join(re.escape(k) for k in sorted(renamed, key=len, reverse=True))
+        + r")((?:\.[^}]*)?)\s*\}\}"
+    )
+
+    def _rewrite(value: Any) -> Any:
+        if isinstance(value, str):
+            return placeholder.sub(lambda m: "{{" + renamed[m.group(1)] + m.group(2) + "}}", value)
+        if isinstance(value, list):
+            return [_rewrite(v) for v in value]
+        if isinstance(value, dict):
+            return {k: _rewrite(v) for k, v in value.items()}
+        return value
+
+    for s in steps:
+        for key, value in list(s.items()):
+            if key not in ("step_id", "id"):
+                s[key] = _rewrite(value)
+        target = s.get("target")
+        if isinstance(target, dict) and isinstance(target.get("input_dependencies"), list):
+            target["input_dependencies"] = [renamed.get(str(d), d) for d in target["input_dependencies"]]
+    return steps
 
 
 class PlannerService:
@@ -321,11 +365,7 @@ class PlannerService:
         return remaining
 
     def _assign_step_ids(self, steps: list[dict[str, Any]], start_from: int = 1) -> list[dict[str, Any]]:
-        """Assign sequential step_ids to a list of step dicts."""
-        for i, s in enumerate(steps):
-            s["step_id"] = f"step_{start_from + i}_{str(uuid4())[:8]}"
-            s["order"] = start_from + i
-        return steps
+        return assign_step_ids(steps, start_from)
 
     # ------------------------------------------------------------------
     # Private: Routing enforcement (router PROCESS/AGENT with children)

@@ -224,10 +224,13 @@ Two notes a newcomer will trip on:
 * The **legacy v1 single-shot planner was deleted** in the "cut-C5"
   consolidation. If `planner.v2_enabled` is off, or v2 errors, the *static plan*
   is the only fallback — there is no other dynamic path.
-* `_assign_step_ids` **rewrites every `step_id`** to
-  `step_{n}_{8-hex}` and re-numbers `order`. Any `step_id` the LLM invented is
-  discarded at this point, which is why `{{step_1}}`-style references inside
-  generated prompt templates are fragile.
+* `_assign_step_ids` (`planner_service.assign_step_ids`) **rewrites every
+  `step_id`** to `step_{n}_{8-hex}` and re-numbers `order`, and moves every
+  reference in the same pass (PC-18): `{{old}}` / `{{old.output}}` placeholders
+  in any string of any step, and `target.input_dependencies`. Before PC-18 only
+  the ids changed, so a dependent step's placeholders did not resolve and its
+  dependency named an id no step had — it never became ready and the plan ended
+  with it unrun.
 
 ### 3.3 Router enforcement
 
@@ -2198,9 +2201,6 @@ them.
 * **The post critic never sees intelligence rules.** `intelligence_reader` is
   hard-coded to `None` in `_build_real_critic_pipeline`, so `intel_rules`
   is always `"(none)"`.
-* **`_assign_step_ids` rewrites every generated `step_id`**, which is why
-  `{{step_1}}` placeholders authored by the LLM stop resolving on the dynamic
-  path.
 * **`all_required_tools_in_capabilities` stringifies tool dicts** and therefore
   fails for real tool-bearing entities (§6.1).
 * **`PlanGenerator` never emits its telemetry.** It is always constructed
