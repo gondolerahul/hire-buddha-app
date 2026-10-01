@@ -190,8 +190,11 @@ The backend accepts it (`get_current_user_from_query`).
 
 - [`frontend/src/pages/artifacts/Artifacts.tsx`](../../../frontend/src/pages/artifacts/Artifacts.tsx) — `getPreviewUrl`
 
+The run page's live stream does the same: `EventSource` cannot send headers, so
+`/ai/executions/{id}/stream?token=…` carries the access token too.
+
 **Fix:** fetch the preview with the `Authorization` header and show it from a `blob:` URL, or
-have the API mint a short-lived, single-artifact download token.
+have the API mint a short-lived, single-artifact (or single-stream) token.
 
 ---
 
@@ -508,7 +511,12 @@ paint on every visit.
 
 ### FE-18 — `ExecutionDetail` walks the whole run tree on every render
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — the artifact search, the step
+flattening and the LLM- and tool-log collection are module-level pure functions, combined in
+`deriveRunView(run)` and computed with `useMemo` once per fetched run. **Evidence:** the legacy
+view of a finished deep-research run (switched to it for the test through its per-run flag,
+then switched back) rendered *Execution Steps (2)* with the child agent's header row; the
+file passes the hooks lint rule.
 
 1,111 lines with **zero** `useMemo`, `useCallback` or `React.memo`.
 `findArtifactInTree`, `flattenChildSteps` and `collectChildLLMLogs` all run on every render
@@ -523,7 +531,14 @@ plus a regex sweep every three seconds, indefinitely.
 
 ### FE-19 — The execution poll never stops
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — the interval runs only while the run is
+not in a terminal state (`COMPLETED`, `FAILED`, `PARTIAL_COMPLETE`, `CANCELLED`) and restarts if
+a refine makes it live again. Found on the way: the old interval refreshed only an explicit
+list of states that left out `WAITING_ON_CHILDREN`, so a parent waiting on its children stopped
+updating; every non-terminal state now refreshes. The agent-loop panel's own poll already
+stops when the loop reports done. **Evidence:** on a finished run, the network log shows only
+the page's initial fetch (twice, React StrictMode in development) over 10 s, on both the
+agent-loop and the legacy view.
 
 The interval in the legacy body is created once with `[id]` dependencies and only **skips
 work** when the status is terminal. The timer itself keeps firing forever.

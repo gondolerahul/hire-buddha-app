@@ -1,5 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { GlassCard, JellyButton } from '@/components/ui';
 import {
@@ -309,7 +309,7 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
             const apiArtifactMatch = s.match(/\/api\/v1\/(?:ai\/)?artifacts\/([0-9a-f-]{36})\/download/);
             if (apiArtifactMatch) {
                 // Try to extract filename from nearby text: "• filename.ext" before the URL
-                const fnMatch = s.match(/[•\-]\s*([\w][\w .()-]+\.(?:pptx|docx|xlsx|pdf|csv|html|png|jpg|svg))\s*\(/i);
+                const fnMatch = s.match(/[•-]\s*([\w][\w .()-]+\.(?:pptx|docx|xlsx|pdf|csv|html|png|jpg|svg))\s*\(/i);
                 const filename = fnMatch ? fnMatch[1].trim() : 'document';
                 return `__artifact_api__${apiArtifactMatch[1]}__${filename}`;
             }
@@ -344,7 +344,7 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
                         if (parsed.pdf_path) return scanStr(parsed.pdf_path) || parsed.pdf_path;
                         if (parsed.file_path) return scanStr(parsed.file_path) || parsed.file_path;
                         if (parsed.document_path) return scanStr(parsed.document_path) || parsed.document_path;
-                    } catch { }
+                    } catch { /* not JSON: scanned as text below */ }
                     const found = scanStr(raw);
                     if (found) return found;
                 }
@@ -361,7 +361,7 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
                 if (parsed.pdf_path) return scanStr(parsed.pdf_path) || parsed.pdf_path;
                 if (parsed.file_path) return scanStr(parsed.file_path) || parsed.file_path;
                 if (parsed.document_path) return scanStr(parsed.document_path) || parsed.document_path;
-            } catch { }
+            } catch { /* not JSON: scanned as text below */ }
             const found = scanStr(raw);
             if (found) return found;
         }
@@ -567,6 +567,150 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
 };
 
 // ─── Main Execution Detail Page ─────────────────────────────────────────────
+// Helper to extract artifact path from a run (delegates to shared function in TraceNode)
+const getArtifactPath = (run: ExecutionRun): string | null => {
+    const scanStr = (s: string): string | null => {
+        if (!s) return null;
+        // Pattern 1: Auto-registered artifact download URL: /api/v1/artifacts/{uuid}/download or /api/v1/ai/artifacts/{uuid}/download
+        const apiArtifactMatch = s.match(/\/api\/v1\/(?:ai\/)?artifacts\/([0-9a-f-]{36})\/download/);
+        if (apiArtifactMatch) {
+            const fnMatch = s.match(/[•-]\s*([\w][\w .()-]+\.(?:pptx|docx|xlsx|pdf|csv|html|png|jpg|svg))\s*\(/i);
+            const filename = fnMatch ? fnMatch[1].trim() : 'document';
+            return `__artifact_api__${apiArtifactMatch[1]}__${filename}`;
+        }
+        // Pattern 2: Absolute path with artifact/
+        const extPattern = new RegExp(`\\/[^\\s"']*\\/artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
+        const absMatch = s.match(extPattern);
+        if (absMatch) return `artifact/${absMatch[1]}`;
+        // Pattern 3: Relative artifact path
+        const relPattern = new RegExp(`artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
+        const relMatch = s.match(relPattern);
+        if (relMatch) return `artifact/${relMatch[1]}`;
+        // Pattern 4: Legacy /tmp path
+        const tmpMatch = s.match(/\/tmp\/research_reports\/[a-zA-Z0-9_.-]+\.pdf/);
+        if (tmpMatch) return tmpMatch[0];
+        return null;
+    };
+
+    const { result_data: resultData, tool_logs: toolLogs } = run;
+    if (resultData?.pdf_path) return scanStr(resultData.pdf_path) || resultData.pdf_path;
+    if (resultData?.file_path) return scanStr(resultData.file_path) || resultData.file_path;
+    if (resultData?.document_path) return scanStr(resultData.document_path) || resultData.document_path;
+
+    if (toolLogs) {
+        for (const log of toolLogs) {
+            if (log.output_result) {
+                const raw = typeof log.output_result === 'string'
+                    ? log.output_result
+                    : JSON.stringify(log.output_result);
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (parsed.download_url) return scanStr(parsed.download_url) || parsed.download_url;
+                    if (parsed.document_path) return scanStr(parsed.document_path) || parsed.document_path;
+                    if (parsed.pdf_path) return scanStr(parsed.pdf_path) || parsed.pdf_path;
+                    if (parsed.file_path) return scanStr(parsed.file_path) || parsed.file_path;
+                } catch { /* not JSON: scanned as text below */ }
+                const found = scanStr(raw);
+                if (found) return found;
+            }
+        }
+    }
+
+    if (resultData?.output) {
+        const raw = typeof resultData.output === 'string'
+            ? resultData.output
+            : JSON.stringify(resultData.output);
+        const found = scanStr(raw);
+        if (found) return found;
+    }
+
+    return null;
+};
+
+// Recursively find artifact in the entire tree
+const findArtifactInTree = (run: ExecutionRun): string | null => {
+    const path = getArtifactPath(run);
+    if (path) return path;
+
+    if (run.child_runs) {
+        for (const child of run.child_runs) {
+            const childPath = findArtifactInTree(child);
+            if (childPath) return childPath;
+        }
+    }
+    return null;
+};
+
+// ── Issue 2: Flatten child entity steps into the Step Timeline ──────────
+// Recursively collect steps from child_runs with entity context
+const flattenChildSteps = (childRuns: ExecutionRun[]): StepResult[] => {
+    const flattened: StepResult[] = [];
+    for (const child of childRuns) {
+        const entityLabel = `${child.entity?.type || 'CHILD'}: ${child.entity?.name || 'Unknown'}`;
+        // Add a separator/header step for this child entity
+        flattened.push({
+            step: `── ${entityLabel} ──`,
+            step_id: `__child_header_${child.id}`,
+            type: child.entity?.type || 'CHILD_ENTITY',
+            output: `Status: ${child.status}${child.execution_time_ms ? ` | Duration: ${(child.execution_time_ms / 1000).toFixed(1)}s` : ''}`,
+        });
+        // Add the child's own steps
+        const childSteps: StepResult[] = child.result_data?.steps || [];
+        for (const cs of childSteps) {
+            flattened.push({
+                ...cs,
+                step: `  └ ${cs.step || 'Unnamed'}`,
+                step_id: cs.step_id ? `${child.id}_${cs.step_id}` : undefined,
+            });
+        }
+        // Recurse into grandchildren
+        if (child.child_runs && child.child_runs.length > 0) {
+            flattened.push(...flattenChildSteps(child.child_runs));
+        }
+    }
+    return flattened;
+};
+
+// Recursively collect LLM logs from child runs
+const collectChildLLMLogs = (childRuns: ExecutionRun[]): LLMInteractionLog[] => {
+    const logs: LLMInteractionLog[] = [];
+    for (const child of childRuns) {
+        if (child.llm_logs) logs.push(...child.llm_logs);
+        if (child.child_runs) logs.push(...collectChildLLMLogs(child.child_runs));
+    }
+    return logs;
+};
+
+// Child runs' tool calls too: their steps are in the timeline.
+const collectToolLogs = (r: ExecutionRun): ToolInteractionLog[] =>
+    [...(r.tool_logs || []), ...(r.child_runs || []).flatMap(collectToolLogs)];
+
+/**
+ * What the page shows that is derived from the run: the artifact, the step
+ * timeline and the logs, gathered across the whole child-run tree. It walks
+ * every child run and regex-scans every tool output, so the page computes it
+ * once per fetched run (FE-18), not on every render.
+ */
+const deriveRunView = (run: ExecutionRun | null) => {
+    if (!run) {
+        return { globalArtifactPath: null as string | null, steps: [] as StepResult[],
+                 llmLogs: [] as LLMInteractionLog[], toolLogs: [] as ToolInteractionLog[] };
+    }
+    const parentSteps: StepResult[] = run.result_data?.steps || [];
+    const childSteps: StepResult[] = run.child_runs && run.child_runs.length > 0
+        ? flattenChildSteps(run.child_runs)
+        : [];
+    return {
+        globalArtifactPath: findArtifactInTree(run),
+        steps: [...parentSteps, ...childSteps],
+        llmLogs: [...(run.llm_logs || []), ...(run.child_runs ? collectChildLLMLogs(run.child_runs) : [])],
+        toolLogs: collectToolLogs(run),
+    };
+};
+
+// A run in one of these states is finished: nothing on the page will change.
+const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'PARTIAL_COMPLETE', 'CANCELLED']);
+
 export const ExecutionDetail: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -575,7 +719,6 @@ export const ExecutionDetail: React.FC = () => {
     const [retrying, setRetrying] = useState(false);
     const [selectedStep, setSelectedStep] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'steps' | 'tree'>('steps');
-    const runRef = useRef<ExecutionRun | null>(null);
 
     // Phase 11 Track 2 — flip to new AgentLoop layout per-run when on.
     const agentLoopEnabled = useFeatureFlag('agent_loop.enabled', {
@@ -592,26 +735,7 @@ export const ExecutionDetail: React.FC = () => {
     const [refining, setRefining] = useState(false);
     const [refineError, setRefineError] = useState('');
 
-    // Update ref whenever run changes
-    useEffect(() => {
-        runRef.current = run;
-    }, [run]);
-
-    useEffect(() => {
-        fetchRun();
-    }, [id]);
-
-    // Set up polling interval only once
-    useEffect(() => {
-        const interval = setInterval(() => {
-            if (runRef.current?.status === RunStatus.RUNNING || runRef.current?.status === RunStatus.PENDING || (runRef.current?.status as string) === 'PAUSED' || (runRef.current?.status as string) === 'RESUMING' || runRef.current?.status === RunStatus.REFINING) {
-                fetchRun();
-            }
-        }, 3000);
-        return () => clearInterval(interval);
-    }, [id]); // Only recreate if execution ID changes
-
-    const fetchRun = async () => {
+    const fetchRun = useCallback(async () => {
         try {
             const { data } = await apiClient.get<ExecutionRun>(`/ai/executions/${id}`);
             setRun(data);
@@ -620,7 +744,24 @@ export const ExecutionDetail: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
+
+    useEffect(() => {
+        fetchRun();
+    }, [fetchRun]);
+
+    // Poll only while the run can still change (FE-19). The interval used to
+    // run for as long as the page was open — about 1.3 requests a second with
+    // the agent-loop panel, all night for a tab left open — skipping work on a
+    // finished run; and its list of states to refresh left out
+    // WAITING_ON_CHILDREN, so a parent waiting on children stopped updating.
+    // A refine moves the run out of a terminal state and restarts the poll.
+    const live = !run || !TERMINAL_STATUSES.has(String(run.status));
+    useEffect(() => {
+        if (!live) return;
+        const interval = setInterval(fetchRun, 3000);
+        return () => clearInterval(interval);
+    }, [live, fetchRun]);
 
     const handleRetry = async () => {
         if (!run || retrying) return;
@@ -653,81 +794,8 @@ export const ExecutionDetail: React.FC = () => {
         }
     };
 
-    // Helper to extract artifact path from a run (delegates to shared function in TraceNode)
-    const getArtifactPath = (run: ExecutionRun): string | null => {
-        const scanStr = (s: string): string | null => {
-            if (!s) return null;
-            // Pattern 1: Auto-registered artifact download URL: /api/v1/artifacts/{uuid}/download or /api/v1/ai/artifacts/{uuid}/download
-            const apiArtifactMatch = s.match(/\/api\/v1\/(?:ai\/)?artifacts\/([0-9a-f-]{36})\/download/);
-            if (apiArtifactMatch) {
-                const fnMatch = s.match(/[•\-]\s*([\w][\w .()-]+\.(?:pptx|docx|xlsx|pdf|csv|html|png|jpg|svg))\s*\(/i);
-                const filename = fnMatch ? fnMatch[1].trim() : 'document';
-                return `__artifact_api__${apiArtifactMatch[1]}__${filename}`;
-            }
-            // Pattern 2: Absolute path with artifact/
-            const extPattern = new RegExp(`\\/[^\\s"']*\\/artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
-            const absMatch = s.match(extPattern);
-            if (absMatch) return `artifact/${absMatch[1]}`;
-            // Pattern 3: Relative artifact path
-            const relPattern = new RegExp(`artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
-            const relMatch = s.match(relPattern);
-            if (relMatch) return `artifact/${relMatch[1]}`;
-            // Pattern 4: Legacy /tmp path
-            const tmpMatch = s.match(/\/tmp\/research_reports\/[a-zA-Z0-9_.-]+\.pdf/);
-            if (tmpMatch) return tmpMatch[0];
-            return null;
-        };
-
-        const { result_data: resultData, tool_logs: toolLogs } = run;
-        if (resultData?.pdf_path) return scanStr(resultData.pdf_path) || resultData.pdf_path;
-        if (resultData?.file_path) return scanStr(resultData.file_path) || resultData.file_path;
-        if (resultData?.document_path) return scanStr(resultData.document_path) || resultData.document_path;
-
-        if (toolLogs) {
-            for (const log of toolLogs) {
-                if (log.output_result) {
-                    const raw = typeof log.output_result === 'string'
-                        ? log.output_result
-                        : JSON.stringify(log.output_result);
-                    try {
-                        const parsed = JSON.parse(raw);
-                        if (parsed.download_url) return scanStr(parsed.download_url) || parsed.download_url;
-                        if (parsed.document_path) return scanStr(parsed.document_path) || parsed.document_path;
-                        if (parsed.pdf_path) return scanStr(parsed.pdf_path) || parsed.pdf_path;
-                        if (parsed.file_path) return scanStr(parsed.file_path) || parsed.file_path;
-                    } catch { }
-                    const found = scanStr(raw);
-                    if (found) return found;
-                }
-            }
-        }
-
-        if (resultData?.output) {
-            const raw = typeof resultData.output === 'string'
-                ? resultData.output
-                : JSON.stringify(resultData.output);
-            const found = scanStr(raw);
-            if (found) return found;
-        }
-
-        return null;
-    };
-
-    // Recursively find artifact in the entire tree
-    const findArtifactInTree = (run: ExecutionRun): string | null => {
-        const path = getArtifactPath(run);
-        if (path) return path;
-
-        if (run.child_runs) {
-            for (const child of run.child_runs) {
-                const childPath = findArtifactInTree(child);
-                if (childPath) return childPath;
-            }
-        }
-        return null;
-    };
-
-    const globalArtifactPath = run ? findArtifactInTree(run) : null;
+    // Derived once per fetched run (FE-18).
+    const { globalArtifactPath, steps, llmLogs, toolLogs } = useMemo(() => deriveRunView(run), [run]);
     const globalArtifactUrl = globalArtifactPath
         ? globalArtifactPath.startsWith('__artifact_api__')
             ? (() => {
@@ -748,64 +816,6 @@ export const ExecutionDetail: React.FC = () => {
         }
         return globalArtifactPath.split('/').pop() || 'document';
     })();
-
-    // ── Issue 2: Flatten child entity steps into the Step Timeline ──────────
-    // Recursively collect steps from child_runs with entity context
-    const flattenChildSteps = (childRuns: ExecutionRun[]): StepResult[] => {
-        const flattened: StepResult[] = [];
-        for (const child of childRuns) {
-            const entityLabel = `${child.entity?.type || 'CHILD'}: ${child.entity?.name || 'Unknown'}`;
-            // Add a separator/header step for this child entity
-            flattened.push({
-                step: `── ${entityLabel} ──`,
-                step_id: `__child_header_${child.id}`,
-                type: child.entity?.type || 'CHILD_ENTITY',
-                output: `Status: ${child.status}${child.execution_time_ms ? ` | Duration: ${(child.execution_time_ms / 1000).toFixed(1)}s` : ''}`,
-            });
-            // Add the child's own steps
-            const childSteps: StepResult[] = child.result_data?.steps || [];
-            for (const cs of childSteps) {
-                flattened.push({
-                    ...cs,
-                    step: `  └ ${cs.step || 'Unnamed'}`,
-                    step_id: cs.step_id ? `${child.id}_${cs.step_id}` : undefined,
-                });
-            }
-            // Recurse into grandchildren
-            if (child.child_runs && child.child_runs.length > 0) {
-                flattened.push(...flattenChildSteps(child.child_runs));
-            }
-        }
-        return flattened;
-    };
-
-    // Recursively collect LLM logs from child runs
-    const collectChildLLMLogs = (childRuns: ExecutionRun[]): LLMInteractionLog[] => {
-        const logs: LLMInteractionLog[] = [];
-        for (const child of childRuns) {
-            if (child.llm_logs) logs.push(...child.llm_logs);
-            if (child.child_runs) logs.push(...collectChildLLMLogs(child.child_runs));
-        }
-        return logs;
-    };
-
-    // Extract steps from result_data + child runs
-    const parentSteps: StepResult[] = run?.result_data?.steps || [];
-    const childSteps: StepResult[] = run?.child_runs && run.child_runs.length > 0
-        ? flattenChildSteps(run.child_runs)
-        : [];
-    const steps: StepResult[] = [...parentSteps, ...childSteps];
-
-    // Aggregate LLM logs from parent + all child runs
-    const parentLLMLogs: LLMInteractionLog[] = run?.llm_logs || [];
-    const childLLMLogs: LLMInteractionLog[] = run?.child_runs
-        ? collectChildLLMLogs(run.child_runs)
-        : [];
-    const llmLogs: LLMInteractionLog[] = [...parentLLMLogs, ...childLLMLogs];
-    // Child runs' tool calls too: their steps are in the timeline.
-    const collectToolLogs = (r: ExecutionRun): ToolInteractionLog[] =>
-        [...(r.tool_logs || []), ...(r.child_runs || []).flatMap(collectToolLogs)];
-    const toolLogs: ToolInteractionLog[] = run ? collectToolLogs(run) : [];
 
     // Get the selected step details
     const selectedStepData = selectedStep
