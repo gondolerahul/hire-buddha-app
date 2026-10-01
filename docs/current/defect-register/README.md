@@ -49,7 +49,7 @@ something that works but costs more than it should.
 | 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 | 10 |
 | 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 31 (30 fixed, 1 won't fix) | 10 (8 done, 1 done for tools, 1 partly) |
 | 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 | 10 |
-| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 31 (27 fixed, 4 open) | 10 (5 done, 1 partly, 4 open) |
+| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 31 (28 fixed, 3 open) | 10 (5 done, 1 partly, 4 open) |
 | 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 | 10 |
 | 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 23 | 10 |
 | 19 | [Testing & quality gates](19-TESTING-DEFECTS.md) | [19](../19-testing.md) | 19 | 10 |

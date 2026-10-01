@@ -442,7 +442,7 @@ no reason to defer any of it.
 | **D-27** | `gateway/main.py` | Dead; only `gateway/app.py` is served | ✅ fixed (2026-09-30) — deleted; `gateway/app.py` too, merged into the API (SA-11) |
 | **D-28** | The legacy `assets` table + its two redirect shims | The artifacts migration said it would drop `assets` and never did | 📄 Doc-reported · table dropped 2026-10-01 (DM-10); the shims are PO-13's |
 | **D-29** | Duplicate `"meta_agent.board_routing"` key | Declared twice at [`feature_flags.py:53`](../../backend/src/ai/core/feature_flags.py:53) and [`:71`](../../backend/src/ai/core/feature_flags.py:71). Harmless — second wins — but it makes the file look unreviewed | ✅ Verified |
-| **D-30** | Unused frontend deps + stale READMEs | `react-hook-form`, `zod`, `date-fns` installed and unused. `core/README.md` documents the deleted `execution_engine.py` | 📄 Doc-reported — the dependencies are FE-12 (re-confirmed 2026-10-01, plus the three `@react-three/*` packages; the uninstall waits for the user) |
+| **D-30** | Unused frontend deps + stale READMEs | `react-hook-form`, `zod`, `date-fns` installed and unused. `core/README.md` documents the deleted `execution_engine.py` | 📄 Doc-reported — the dependencies are FE-12 (re-confirmed 2026-10-01, plus the three `@react-three/*` packages; fixed `dc21c2f`) |
 
 > Before each deletion, confirm there is no remaining importer:
 > `grep -rn "<module_name>" backend/src frontend/src --include=*.py --include=*.ts --include=*.tsx`
@@ -465,7 +465,7 @@ up a launch.
 | **D-37** | No credit holds | Cost accrues during a run and settles at the end, so one run can overdraw | ✅ fixed (2026-09-30, `c1eecb9`) — BC-06: a run holds its estimated bill; the BC-05 breaker stops it at the wallet |
 | **D-38** | Frontend has no error boundary | One render throw blanks the entire page | ✅ fixed (2026-10-01, `547cca5`) — FE-01: an `ErrorBoundary` around the routes and each page's content |
 | **D-39** | `npm run lint` fails — no ESLint config exists | The `lint` script is defined in `package.json`; no config file is present. No lint gate at all | ✅ fixed (2026-10-01) — FE-02: `.eslintrc.cjs`; `npm run lint` passes with no warnings |
-| **D-40** | No frontend test runner | Two `.test.ts` files import `vitest`, which is not configured | ✅ Verified — open (2026-10-01): FE-03 waits on installing `vitest`, which this session's permission check refused |
+| **D-40** | No frontend test runner | Two `.test.ts` files import `vitest`, which is not configured | ✅ Verified — open (2026-10-01): FE-03 — `vitest` is installed (`dc21c2f`) but not yet wired in (no `test` script) |
 
 ---
 

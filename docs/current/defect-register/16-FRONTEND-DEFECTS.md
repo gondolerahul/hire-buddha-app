@@ -37,21 +37,21 @@
 |---|---|---|---|---|
 | [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | 5 | 2 |
 | [T1](#3-t1--broken-behaviour) | Broken behaviour | 11 | 11 | 0 |
-| [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 5 | 1 |
+| [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 6 | 0 |
 | [T3](#5-t3--performance) | Performance | 7 | 6 | 1 |
 
-**Total: 31 defects (27 fixed, 4 open), 10 improvements (5 done, 1 partly done, 4 open).**
+**Total: 31 defects (28 fixed, 3 open), 10 improvements (5 done, 1 partly done, 4 open).**
 Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
-way and added (FE-26 to FE-31). Three of the four open ones wait on a package change this
-session's permission check refused — installing `vitest` (FE-03) and
-`@tanstack/react-query` (FE-21), uninstalling the unused packages (FE-12); FE-28 needs a
-short-lived token from the API.
+way and added (FE-26 to FE-31). The user ran two of the package changes this session's
+permission check refused, committed in `dc21c2f`: the unused packages are gone (FE-12) and
+`vitest` is installed (FE-03 still needs it wired in). FE-21 waits on
+`@tanstack/react-query`; FE-28 needs a short-lived token from the API.
 
 | ID | Defect | Status |
 |---|---|---|
 | FE-01 | There is no error boundary | ✅ fixed `547cca5` |
 | FE-02 | `npm run lint` cannot run | ✅ fixed `eac9f2f` |
-| FE-03 | There is no test runner | open — needs `vitest` installed |
+| FE-03 | There is no test runner | open — `vitest` installed `dc21c2f`; needs a `test` script and the `tsconfig` exclude dropped |
 | FE-04 | If you forget `.env`, development talks to production | ✅ fixed `50dac40` |
 | FE-05 | Three legacy redirects emit a literal `:id` | ✅ fixed `547cca5` |
 | FE-06 | Bad JSON in the IO-contract fields silently kills the save | ✅ fixed `0dbd5ef` |
@@ -60,7 +60,7 @@ short-lived token from the API.
 | FE-09 | Timestamps are wrong unless routed through a helper | ✅ fixed `7a61fb1` |
 | FE-10 | `getStepToolLogs` is a stub returning `false` | ✅ fixed `141a4df` |
 | FE-11 | The social login buttons do nothing | ✅ fixed `1fffde8`, `c61a44c` |
-| FE-12 | Unused dependencies | open — needs `npm uninstall` |
+| FE-12 | Unused dependencies | ✅ fixed `dc21c2f` |
 | FE-13 | `AssetLibrary.tsx` is dead | ✅ fixed `9719f1b` (PO-13) |
 | FE-14 | Six unmounted agent-kernel components | ✅ fixed `8cb6dac` |
 | FE-15 | The duplicate `.gap-1` rules | ✅ fixed `8cb6dac` |
@@ -194,9 +194,9 @@ poll stopped after the first tick; the canvas laid out the stored plan.
 
 ### FE-03 — There is no test runner
 
-**✅ Verified · High** · **Status: open (2026-10-01)** — the fix needs
-`npm i -D vitest jsdom @testing-library/react @testing-library/dom`, which this session's
-permission check refused (a change to shared dependencies); it waits for the user. Since
+**✅ Verified · High** · **Status: open (2026-10-01)** — `vitest`, `jsdom` and
+`@testing-library/react` / `dom` are installed (`dc21c2f`, run by the user after this
+session's permission check refused it); the runner is not wired in yet. Since
 FE-14 one test file is left (`cortex-helpers.test.ts` went with the dead module). When the
 runner is in: fix `_INITIAL` in `useExecutionEvents.test.ts` (it lacks `spans`), drop the
 `*.test.ts` exclude from `tsconfig.json`, and give `utils/entityConfig.ts` and
@@ -688,7 +688,7 @@ last refreshed. Both pages and the artifact preview use it, so FE-28's fix lands
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **FE-12** | `react-hook-form`, `zod`, `@hookform/resolvers`, `date-fns` | Four dependencies with **zero imports** anywhere in `src/`. Confirmed by grep. The frontend README claims they are used | open (2026-10-01) — re-confirmed, and three more: `@react-three/drei`, `@react-three/fiber` and `@react-three/postprocessing` have no imports either (the background is plain `three`), and their React 19 peer dependency makes a plain `npm install` fail against React 18. The `npm uninstall` was refused by this session's permission check; it waits for the user |
+| **FE-12** | `react-hook-form`, `zod`, `@hookform/resolvers`, `date-fns` | Four dependencies with **zero imports** anywhere in `src/`. Confirmed by grep. The frontend README claims they are used | open (2026-10-01) — re-confirmed, and three more: `@react-three/drei`, `@react-three/fiber` and `@react-three/postprocessing` have no imports either (the background is plain `three`), and their React 19 peer dependency made a plain `npm install` fail against React 18. ✅ fixed `dc21c2f` — all seven uninstalled; lint, `tsc` and `vite build` pass |
 | **FE-13** | `pages/assets/AssetLibrary.tsx` | 314 lines, not routed, imported by nothing but its own CSS. Replaced by `Artifacts.tsx`. Also [PO-13](01-PRODUCT-OVERVIEW-DEFECTS.md#4-t2--dead-code-and-dead-surfaces) | ✅ fixed (2026-09-29, `9719f1b`) by PO-13 — deleted with its CSS and `asset.service.ts` |
 | **FE-14** | Six unmounted agent-kernel components | `PlanCandidatesCompare`, three `SupervisorAndBandit` widgets, `ProvenanceRibbon`, and the `cortex-helpers` module. All fully built, none mounted anywhere | ✅ fixed (2026-10-01, `8cb6dac`) — confirmed unreferenced and deleted: `PlanCandidatesCompare` and `SupervisorAndBandit` (with their CSS), the `ProvenanceRibbon` export and its CSS in `AgentKernel`, and `cortex-helpers` with its test. The `agent.service` methods and types they used are kept — they describe API endpoints that exist |
 | **FE-15** | The duplicate `.gap-1` rules | Defined three times in `global.css` (lines 312, 480, 579). The last wins, with the wrong value | ✅ fixed (2026-10-01, `8cb6dac`) — the second block was a full duplicate of the `.gap-*` scale and is gone, as is the third `.gap-1` (`--spacing-4`); the five icon-and-text uses get `--spacing-1` as named |

@@ -115,13 +115,12 @@ From [`package.json`](../../frontend/package.json):
 | `framer-motion` | ^10.16 | Only 3 files: `GlassCard`, `GlassInput`, `JellyButton` |
 | `lucide-react` | ^0.294 | All icons |
 | `three` | ^0.182 | `AnimatedBackground` |
-| `date-fns` | ^3.0 | Declared; **not imported anywhere in `src/`** |
-| `react-hook-form` + `zod` + `@hookform/resolvers` | | Declared; **not imported anywhere in `src/`** (see [§17](#17-forms-and-validation)) |
-| `@react-three/fiber`, `@react-three/drei`, `@react-three/postprocessing` | | Declared; **not imported anywhere in `src/`** — the background uses raw `three` |
 
-Roughly 6 declared dependencies are dead weight in the bundle graph. They are
-not tree-shaken away by accident — they are simply never imported, so Vite
-never pulls them in, but they do slow `npm install`.
+Dev-only: `vitest`, `jsdom` and `@testing-library/react` / `dom` (installed, not yet wired
+to a `test` script — FE-03).
+
+`date-fns`, `react-hook-form`, `zod`, `@hookform/resolvers` and the three `@react-three/*`
+packages were declared but never imported; they were removed in `dc21c2f` (FE-12).
 
 ### 2.3 Vite config
 
@@ -2105,9 +2104,8 @@ displacement into the vertex shader so the CPU loop disappears.
 ## 17. Forms and validation
 
 > **There are no React Hook Form or Zod forms in this codebase.** `react-hook-form`,
-> `zod` and `@hookform/resolvers` are all in `package.json`, and the frontend
-> `README.md` advertises "Forms: React Hook Form + Zod" — but grepping `src/`
-> for `react-hook-form`, `zodResolver` or `from 'zod'` returns **zero hits**.
+> `zod` and `@hookform/resolvers` were declared in `package.json` but never imported,
+> and were removed in `dc21c2f` (FE-12).
 
 Every form is hand-rolled: controlled `useState` per field, an `onSubmit` that
 calls `e.preventDefault()`, a `loading` boolean, and an `error` string.
@@ -2372,10 +2370,8 @@ Concretely:
   every change.
 - **Production runs `npm run dev`.** Apache proxies `app.hirebuddha.com` to the
   Vite dev server on port 3000. Nothing builds or serves `dist/`.
-- **There is no test runner.** Two `.test.ts` files exist and import `vitest`,
-  which is not installed. They are also excluded from `tsc`.
-- **`react-hook-form` and `zod` are dependencies but unused.** So are `date-fns`
-  and all three `@react-three/*` packages. The frontend README claims otherwise.
+- **There is no test script yet.** `vitest` is installed, but `package.json` has no
+  `test` script and `tsconfig.json` still excludes `*.test.ts` (FE-03).
 - **`VITE_API_BASE_URL` must include `/api/v1`.** Without it the app talks to
   `http://localhost:8000/api/v1` and says so on the console (it used to fall
   back to production, FE-04).

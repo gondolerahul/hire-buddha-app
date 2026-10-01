@@ -18,11 +18,11 @@
 > **AU-24** and **AU-25** open (AU-24 waits on a key-rotation decision); AU-I2…I6 done,
 > AU-I9 partly, AU-I1/I7/I8/I10 open. Registers 01 and 02 are as the third session left
 > them (**PO-07** open). Register 14 is done — 30 fixed, BC-22 won't fix (a pricing choice);
-> 8 of 10 improvements done, BC-I3 done for tools only, BC-I8 partly. Register 16 has 27
-> fixed and four open: **FE-03**, **FE-12** and **FE-21** wait on package changes (install
-> `vitest`, uninstall the unused packages, install `@tanstack/react-query`) that the
-> session's permission check refused, so they need the user; **FE-28** needs a short-lived
-> download/stream token from the API. Resume on the product owner's next pick. (End of the third
+> 8 of 10 improvements done, BC-I3 done for tools only, BC-I8 partly. Register 16 has 28
+> fixed and three open. The user ran two of the refused package changes (`dc21c2f`): FE-12
+> is fixed and `vitest` is installed, so **FE-03** only needs wiring in (a `test` script,
+> drop the `tsconfig` exclude). **FE-21** still waits on the user installing
+> `@tanstack/react-query`; **FE-28** needs a short-lived download/stream token from the API. Resume on the product owner's next pick. (End of the third
 > session, for reference: register 02 done, SA-I1/I3/I7/I8/I9 open.) Left running locally, started with
 > `start_services.ps1`: Docker, the API (:8000), both Arq workers and the frontend
 > (:3000); `stop_services.ps1` stops them. The previous session's `-alt` servers
@@ -350,7 +350,7 @@ Found in the fourth session and recorded, not fixed:
 | PC-26 | [07](07-PLANNING-AND-CRITICS-DEFECTS.md) | The nightly `cost_estimator_refresh` reads `tool_interaction_logs.cost_usd`, which does not exist; it has never refreshed anything |
 | IN-23 | [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | The OTLP exporter retries `localhost:4317` for about a minute when nothing listens, stalling every `--reload` and worker stop |
 | BC-31 | [14](14-BILLING-AND-CREDITS-DEFECTS.md) | The daily credit job's error handler read an expired instance; fixed by the other session (`3473bb5`) |
-| e2e suite | — | `tests/e2e` assumed the old register/login contract (tokens on register, 9-character passwords); a separate session is updating it |
+| e2e suite | — | `tests/e2e` assumed the old register/login contract (tokens on register, 9-character passwords). Updated by a separate session, committed in `3352625`; see §8 |
 
 On 2026-09-29 the memory register (08) was reviewed with the product owner.
 - MC-04, MC-08, MC-17 and MC-20 were removed by product decision; MC-20's facts moved into
@@ -485,6 +485,16 @@ and are not regressions:
 `tests/integration/test_cost_attribution.py` has 2 failures locally only, because the
 registry seed already created the embedding SKU the tests insert. `tests/e2e/` needs a
 fully running environment and is not part of the baseline.
+
+The e2e suite was brought up to the verified-email contract in `3352625`. It runs in-process
+(ASGI) against the local database, forces every test onto one event loop (pytest-asyncio
+0.23.8 ignores `pytest.ini`'s loop scope), captures emails, and deletes only the rows its run
+created. `test_01`–`test_03` pass (36). Known failures elsewhere in the suite, none from auth:
+`test_14` (no `/bin/bash` on Windows), `test_15` (Playwright not installed), `test_10`/`test_11`
+(still call the removed `/api/v1/assets`), `test_08` monthly billing (BC-04 dropped the
+`processed` key), `test_04` tenant LLM integration (tenants may not add one), `test_06` search
+(needs fresh ADC), and `test_04b`/`test_05b` (fixtures never defined). `test_08`'s crons touch
+every company, so do not run the whole suite against a database you share casually.
 
 Other gates:
 
@@ -621,8 +631,8 @@ run that is looping.
   does not update it. Use `apiClient`, and `authedApiUrl` for URLs the browser loads
   itself (FE-07).
 - **Package changes need the user.** `npm install` / `npm uninstall` in `frontend/` were
-  refused by the session's permission check, and the three `@react-three/*` packages'
-  React 19 peer dependency makes a plain `npm install` fail against React 18 (FE-12).
+  refused by the session's permission check. The three `@react-three/*` packages, whose
+  React 19 peer dependency broke a plain `npm install`, are gone since `dc21c2f` (FE-12).
 - **The Vite dev server does not pick up `vite.config.ts` or `.env*` edits** — restart it.
   `hmr` is off, so reload the page after a source change.
 - **The API runs with `--reload`.** While another session edits backend files it can stop
