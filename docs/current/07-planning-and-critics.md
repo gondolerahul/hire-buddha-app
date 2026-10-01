@@ -1347,6 +1347,11 @@ event, folds `aligned`/`drift` into the `StepHealthRecord`, and passes the
 `Verdicts` bundle to the `Reflector`. **Nothing else.** In the AgentLoop path a
 misaligned step does **not** trigger a retry, a correction hint, or a re-run.
 The `AlignmentVerdict.correction_hint` field is populated but never consumed.
+Its cost is recorded (since 2026-10-02, P4.2, PC-03): the verifier writes its usage rows
+with the run id (so the run's bill includes the check, P4.1) and returns their cost, which
+lands on `AlignmentVerdict.cost_usd`, `StepHealthRecord.alignment_cost_usd` and the
+`agent.critic.alignment` event. Before, the verdict had no cost field and the check showed
+as free.
 
 ### 11.2 Cadence throttling: `__goal_check_counter__`
 

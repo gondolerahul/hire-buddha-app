@@ -132,6 +132,9 @@ class AlignmentVerdict:
     aligned: bool = True
     drift: float = 0.0
     correction_hint: str = ""
+    # What the check cost (its usage rows already carry the run, P4.1); on the
+    # verdict so the health record and telemetry show it (PC-03).
+    cost_usd: Decimal = field(default_factory=lambda: Decimal("0"))
 
 
 @dataclass

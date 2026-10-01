@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+from decimal import Decimal
 from typing import Any, Dict, Optional
 from uuid import UUID
 
@@ -114,31 +115,35 @@ class GoalAlignmentVerifier:
                 max_tokens=500,
             )
 
+            cost = Decimal("0")
             try:
                 from src.ai.usage_service import UsageService
                 svc = UsageService(self.db)
                 model = getattr(response, "model_name", "") or ""
                 if model:
+                    rows = []
                     if response.prompt_tokens:
-                        await svc.log_usage(
+                        rows.append(await svc.log_usage(
                             company_id=self.company_id,
                             service_sku=f"{model}-in",
                             raw_quantity=float(response.prompt_tokens),
                             execution_id=self.run_id,
                             attribution="critic_align",
-                        )
+                        ))
                     if response.completion_tokens:
-                        await svc.log_usage(
+                        rows.append(await svc.log_usage(
                             company_id=self.company_id,
                             service_sku=f"{model}-out",
                             raw_quantity=float(response.completion_tokens),
                             execution_id=self.run_id,
                             attribution="critic_align",
-                        )
+                        ))
+                    cost = sum((Decimal(str(r.calculated_cost)) for r in rows if r is not None),
+                               Decimal("0"))
             except Exception:                                                    # pragma: no cover
                 pass
 
-            return self._parse_response(response.output)
+            return {**self._parse_response(response.output), "cost_usd": cost}
 
         except Exception as e:
             logger.warning(f"Goal alignment verification failed: {e}")

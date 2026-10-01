@@ -635,7 +635,7 @@ class AgentLoop:
         await event_async(
             "agent.critic.alignment",
             run_id=str(state.run_id), iteration=state.iteration,
-            aligned=align.aligned, drift=align.drift,
+            aligned=align.aligned, drift=align.drift, cost_usd=float(align.cost_usd),
         )
         await event_async(
             "agent.critic.supervisor",

@@ -437,6 +437,7 @@ class RealCriticPipeline:
                 aligned=aligned,
                 drift=drift,
                 correction_hint=str(result.get("correction_hint", "")),
+                cost_usd=Decimal(str(result.get("cost_usd") or 0)),
             )
         except Exception as exc:                                            # noqa: BLE001
             logger.warning("alignment critic failed: %s", exc)
@@ -444,6 +445,7 @@ class RealCriticPipeline:
 
         record.alignment_aligned = verdict.aligned
         record.alignment_drift = verdict.drift
+        record.alignment_cost_usd = verdict.cost_usd
         return verdict
 
     # ------------------------------------------------------------------
