@@ -13,6 +13,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+from src.ai.llm.retry import call_provider
 from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
 from src.ai.llm.base import BaseLLMAdapter
 
@@ -71,6 +72,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             return AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=base_url,
+                max_retries=0,  # retries are ai/llm/retry.py's (LP-03)
             )
 
         # ── Case 2: AI Foundry project endpoints (*.services.ai.azure.com) ──
@@ -92,6 +94,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             return AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=base_url,
+                max_retries=0,  # retries are ai/llm/retry.py's (LP-03)
             )
 
         # ── Case 1: Classic Azure OpenAI (*.openai.azure.com) ──
@@ -111,6 +114,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             api_key=self.api_key,
             azure_endpoint=cleaned,
             api_version=api_version,
+            max_retries=0,  # retries are ai/llm/retry.py's (LP-03)
         )
 
     def _get_deployment(self) -> str:
@@ -208,12 +212,12 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             kwargs_extra["tool_choice"] = "auto"
 
         start = time.monotonic()
-        response = await client.chat.completions.create(
+        response = await call_provider(lambda: client.chat.completions.create(
             model=self._get_deployment(),
             messages=oai_messages,
             top_p=top_p,
             **kwargs_extra,
-        )
+        ), what=f"azure_openai {self.model_name}")
         latency_ms = int((time.monotonic() - start) * 1000)
 
         choice = response.choices[0]
@@ -269,13 +273,13 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         finish_reason = "stop"
         for turn in range(max_react_turns):
             start = time.monotonic()
-            response = await client.chat.completions.create(
+            response = await call_provider(lambda: client.chat.completions.create(
                 model=self._get_deployment(),
                 messages=messages,
                 tools=tool_defs if tool_defs else [],
                 tool_choice="auto" if tool_defs else "none",
                 **completion_args,
-            )
+            ), what=f"azure_openai {self.model_name} (react turn {turn + 1})")
             latency_ms = int((time.monotonic() - start) * 1000)
             total_latency += latency_ms
 

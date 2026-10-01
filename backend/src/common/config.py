@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # its resume never arrived, the sweeper re-enqueues the resume after the
     # grace; a parent still waiting after the timeout is failed and settled.
     WAITING_RESUME_GRACE_SECONDS: int = 120
+    # Every LLM provider call (one per generate, one per ReAct turn) gets this
+    # timeout and up to this many attempts on 408/429/5xx/timeouts, with
+    # exponential backoff and jitter (LP-03, ai/llm/retry.py).
+    LLM_CALL_TIMEOUT_SECONDS: float = 300.0
+    LLM_CALL_MAX_ATTEMPTS: int = 3
+    LLM_RETRY_BASE_SECONDS: float = 1.0
+    LLM_RETRY_MAX_DELAY_SECONDS: float = 30.0
     WAITING_ON_CHILDREN_TIMEOUT_SECONDS: int = 3600
 
     # Phase 12 `02` S4 — per-tenant container sandbox. OFF by default;

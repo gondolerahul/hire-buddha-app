@@ -754,41 +754,33 @@ _PREFIXES = (
 )
 ```
 
-### 7.4 Fallback, retry and timeouts — there are none
+### 7.4 Retry and timeouts
 
-This is worth stating plainly because the naming ("Router", "Fallback Router")
-suggests otherwise.
+Every network call to a provider goes through `call_provider`
+([ai/llm/retry.py](../../backend/src/ai/llm/retry.py), LP-03): one per
+`generate`, one per ReAct **turn**. Retrying per call, never per ReAct loop,
+is deliberate — re-running a loop would re-run the tools its earlier turns
+called, writes included.
 
 | Concern | Status in [ai/llm/](../../backend/src/ai/llm/) |
 |---|---|
+| Request timeout | `asyncio.wait_for` on each attempt, `LLM_CALL_TIMEOUT_SECONDS` (300). A timeout raises `LLMTimeoutError` ("no answer within …"). |
+| Retry | up to `LLM_CALL_MAX_ATTEMPTS` (3) attempts on a timeout, a connection error, or HTTP 408/409/425/429/5xx/529 (`status_code` / `code` / `response.status_code`, or an exception named like `RateLimit…`, `…Timeout…`, `APIConnectionError`). Anything else — 400, 401, 403, 404, a validation error — is raised at once. |
+| Backoff | exponential with full jitter from `LLM_RETRY_BASE_SECONDS` (1 s), capped at `LLM_RETRY_MAX_DELAY_SECONDS` (30 s), never shorter than the response's `Retry-After`. Each retry logs a warning naming the attempt. |
+| SDK retries | off (`max_retries=0` on the OpenAI/Azure and Anthropic clients; `google-genai` has none by default), so the two policies do not multiply. |
 | Provider fallback | **Not implemented.** One task type → one integration → one provider. |
-| Retry on 429/5xx | **Not implemented.** No `tenacity`, no backoff loop. Exceptions propagate to the caller. |
-| Request timeout | **Not set.** Each SDK's own default applies (`google-genai` and `openai` both default to their library timeouts). |
 | Circuit breaking | **Not implemented.** |
 | Streaming | **Not implemented** for text. No `generate_content_stream`, no `stream=True`. Streaming exists only in the voice/Live path (§14) and in the gateway's HTTP proxy. |
 
-The only error handling in the whole layer is a Gemini SDK-version workaround:
+The Gemini SDK can fail to parse a `finish_reason` newer than it knows (a
+pydantic `ValidationError`). `GeminiAdapter._sdk_validation_error` turns it into
+a `RuntimeError` naming the model, in `generate` **and** in the ReAct loop, and
+it is not retried (LP-04). Before LP-04 the log said "retrying with raw HTTP"
+(nothing retried), and the ReAct loop treated the error as a normal end of turn,
+returning whatever text it had.
 
-```python
-# backend/src/ai/llm/gemini_adapter.py
-except Exception as e:
-    if "ValidationError" in type(e).__name__ and "finish_reason" in str(e):
-        logger.warning(f"SDK finish_reason validation error (non-fatal), retrying with raw HTTP: {e}")
-        raise RuntimeError(
-            f"Gemini SDK validation error for model {self.model_name}. "
-            f"Consider upgrading google-genai (current: 0.4.0). Error: {e}"
-        ) from e
-    raise
-```
-
-The log line says "retrying with raw HTTP" but the code immediately re-raises.
-There is no raw-HTTP retry. In the ReAct loop the same condition is treated as
-end-of-turn (`break`) instead, which silently truncates the loop.
-
-Resilience is therefore a *caller* responsibility. Retry lives in the agent
-kernel and the tool layer, not here — see
-[05 — Agent kernel](05-agent-kernel.md) and
-[09 — Tools](09-tools.md).
+Provider calls made outside the router — `image_generation`, the voice
+`gemini_text` and session helpers — are not covered by this policy.
 
 ### 7.5 Tracing
 
@@ -1312,7 +1304,7 @@ Loop-control differences that matter:
 | Turn cap | `max_react_turns`, default 10 from the base signature; step executor passes `MAX_REACT_TURNS = 12` | same | same |
 | Result → call pairing | by **name** | by **`_id`** (correct) | by **name** |
 | Success flag reaches the model | ✅ `{"output": ..., "success": ...}` | ❌ only `str(output)` | ❌ only `str(output)` |
-| Unknown `finish_reason` | breaks the loop and returns what it has | n/a | n/a |
+| SDK cannot parse `finish_reason` | raises `RuntimeError` (LP-04) | n/a | n/a |
 | Tokens | summed across turns | summed across turns | summed across turns |
 | Loop exhaustion | `finish_reason = FINISH_MAX_TURNS` (`"MAX_TURNS"`), `hit_turn_limit` true | same | same |
 
@@ -1961,8 +1953,8 @@ Checklist for the adapter itself, learned from the three that exist:
    not know is refused when the registry row is written.
 2. **`routing_mode` does nothing.** No code reads it. There is no fallback
    router; the UI button is disabled for a reason.
-3. **There is no retry, no timeout, no provider fallback in the LLM layer.** A
-   429 from Azure propagates straight up.
+3. **Retries and timeouts are per provider call** (LP-03): a 429 or 5xx is
+   retried up to 3 times with backoff; there is still no provider fallback.
 4. **Anthropic is unreachable.** The adapter is complete, the factory wires it,
    the docs explain how to configure it — and the `anthropic` package is not a
    dependency. First call raises `RuntimeError`.

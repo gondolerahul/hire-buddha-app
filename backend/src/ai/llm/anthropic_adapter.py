@@ -12,6 +12,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.ai.llm.retry import call_provider
 from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
 from src.ai.llm.base import BaseLLMAdapter
 
@@ -38,7 +39,8 @@ class AnthropicAdapter(BaseLLMAdapter):
                 "service_metadata.project_id is required for Anthropic via Vertex AI. "
                 "Please configure the Anthropic integration with your GCP project ID."
             )
-        return anthropic.AsyncAnthropicVertex(project_id=project, region=region)
+        # Retries are ai/llm/retry.py's (LP-03); the SDK's own would multiply them.
+        return anthropic.AsyncAnthropicVertex(project_id=project, region=region, max_retries=0)
 
     def _build_messages(self, system_prompt: str, messages: List[Dict]) -> Tuple[str, List]:
         """Convert unified format to Anthropic messages format."""
@@ -95,7 +97,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             kwargs_extra["tools"] = self.get_tool_declarations(tools)
 
         start = time.monotonic()
-        response = await client.messages.create(
+        response = await call_provider(lambda: client.messages.create(
             model=self.model_name,
             system=system_prompt,
             messages=anthropic_messages,
@@ -103,7 +105,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             temperature=temperature,
             top_p=top_p,
             **kwargs_extra,
-        )
+        ), what=f"anthropic {self.model_name}")
         latency_ms = int((time.monotonic() - start) * 1000)
 
         output = ""
@@ -153,14 +155,14 @@ class AnthropicAdapter(BaseLLMAdapter):
         finish_reason = "stop"
         for turn in range(max_react_turns):
             start = time.monotonic()
-            response = await client.messages.create(
+            response = await call_provider(lambda: client.messages.create(
                 model=self.model_name,
                 system=system_prompt,
                 messages=messages,
                 max_tokens=max_tokens or 8096,
                 temperature=temperature,
                 tools=tool_defs if tool_defs else [],
-            )
+            ), what=f"anthropic {self.model_name} (react turn {turn + 1})")
             latency_ms = int((time.monotonic() - start) * 1000)
             total_latency += latency_ms
             total_prompt += response.usage.input_tokens

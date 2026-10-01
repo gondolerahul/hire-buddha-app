@@ -131,7 +131,12 @@ one.
 
 ### LP-03 — There is no retry, timeout or fallback anywhere in the LLM layer
 
-**📄 Doc-reported · Critical**
+**📄 Doc-reported · Critical** · **Status: fixed (2026-10-01) for retry and timeout** —
+`ai/llm/retry.call_provider` wraps every provider call (each `generate`, each ReAct
+turn): a per-attempt timeout and up to 3 attempts on timeouts, connection errors and
+408/409/425/429/5xx/529, with exponential backoff, full jitter and `Retry-After`;
+SDK-level retries are off. Provider fallback and circuit breaking remain unbuilt (P9).
+Test: `tests/unit/test_llm_retry.py`.
 
 | Concern | Status |
 |---|---|
@@ -159,7 +164,10 @@ on the platform.
 
 ### LP-04 — The one error handler logs a retry it does not perform
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: fixed (2026-10-01)** — the SDK validation error
+becomes a `RuntimeError` in `generate` and in the ReAct loop alike
+(`GeminiAdapter._sdk_validation_error`), logged as an error with no retry claim; the
+loop no longer ends silently on it. Test: `tests/unit/test_llm_retry.py`.
 
 The only error handling in the layer is a Gemini SDK-version workaround:
 
