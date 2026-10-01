@@ -32,7 +32,8 @@ The tool layer already has the deepest coverage in the set. Two registers stand:
 This audit does **not** restate those 55 entries. It does three things:
 
 1. **§2** re-verifies them against the current code and flags what has moved.
-2. **§3** records **18 new defects** (TL-50…TL-67) the two passes did not capture.
+2. **§3** records **18 new defects** (TL-50…TL-67) the two passes did not capture, plus
+   **TL-68**, found 2026-10-01 during the consolidated plan's P3 live run.
 3. **§4** is the prioritised fix list the product owner asked for.
 
 New defects keep the `TL-nn` series so they live in one namespace; the full entries are
@@ -459,6 +460,24 @@ not catch it because the capability list contains the same wrong name.)
 
 **Fix:** correct the names in the seed and fixture; add the schema/registry contract test
 (TX-I9) so a capability naming an unregistered tool fails CI.
+
+### TL-68 — `calculator` cannot be called by a model: its schema and its parser disagree
+
+**✅ Verified · High** · **Status: open** — found 2026-10-01 during the P3 live run of the
+[consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md); fixed in P6 with the registry contract test.
+
+`calculator` advertises `{"expression": "<string>"}`
+([calculator.py:130](../../../backend/src/ai/tools/core/calculator.py:130)), but its `run()`
+parses the **whole input string** as a Python expression
+([calculator.py:113](../../../backend/src/ai/tools/core/calculator.py:113)). A model calls it
+with `{"expression": "17*23"}`; the executor's string path serialises the args
+(`'{"expression": "17*23"}'`), `ast.parse` sees a dict literal, and the tool answers
+`Error: Unsupported expression type: Dict`. Every native call fails; only a plan step whose
+template is a bare expression works. Confirmed live 2026-10-01 (run
+`ad8e1313-c99c-47b5-aa56-cc706606c1a2`), and by the P3.1 probe on the old executor.
+
+**Fix:** parse `expression` out of a JSON object; and the contract test (TX-I9, P6) that calls
+every registered tool with an input built from its own advertised schema.
 
 ---
 

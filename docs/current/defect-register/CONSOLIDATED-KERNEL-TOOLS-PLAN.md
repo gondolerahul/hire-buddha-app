@@ -309,6 +309,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-34** | — | Built-in tool metadata drifts from code forever | Medium | ✅ | P6 |
 | **TL-35** | TX-I8 | `_BUILTIN_CATEGORIES` covers 22 of 97 tools | Low | ✅ | P6 |
 | **TX-I9** | — | No contract test over the registry (advertised vs read parameters) | — | open | P6 |
+| **TL-68** | — | `calculator` advertises `expression` but parses the whole input string; every native call fails (found in the P3 live run) | High | 🆕 | P6 |
 | **TL-63** | — | `pdf_generator` defines `get_function_schema` twice | Low | ✅ | P0 |
 | **TL-29** | — | `_sandbox_base_dir` duplicated across two modules | Low | 🔁 | P0 |
 | **TX-05** | — | `register_tenant_tool` logs at INFO per registration | Low | ✅ | P0 |
@@ -729,7 +730,7 @@ reads that sum. `_sync_budget_cost` and the `max()` reconciliation are deleted.
 | 6.7 | One artifact write path with run/agent ids; run page lists artifacts by `run_id` | TL-59/EP-21 |
 | 6.8 | Correctness: trim fallback, async blocking calls, IMAP UIDs, timeout cap, browser single-shot contract, batch search contract and per-sub-query billing | TL-31, TL-32/TL-57, TL-58, TL-61, TL-62, TL-60 |
 | 6.9 | Packaging and data: declare the four dependencies; correct seed tool names; metadata sync updates; categories from the package | TL-66, TL-67, TL-34, TL-35 |
-| 6.10 | Contract test over the registry | TX-I9 |
+| 6.10 | Contract test over the registry; `calculator` reads its advertised `expression` | TX-I9, TL-68 |
 | 6.11 | Reference arguments for subject data (`ContactRef`, `LeadRef`, `ArtifactRef`) — design and the email/CRM half | TL-09 |
 
 ### P7 — Self-correction that corrects
@@ -891,3 +892,15 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P2.8 | PC-19 | `a13c2a8` | `test_plan_invariants.py`: the two dict-shaped cases fail on the old code; the Meta board validator had the same compare |
 | P2.11 | EP-29 | `72c2479` | `test_run_resume_state.py`, `test_retry_resumes.py`: all 3 fail on the old code. Also: refine's `__reuse_outputs__` had no reader, so refines re-ran every step too |
 | **P2 done** | AK-01, AK-03, LP-01, LP-03, LP-04, LP-19, TL-51, TL-52, EP-25, EP-29, PC-18, PC-19, PC-25 | — | Unit 1499 passed (+ the 2 known failures), integration 228 passed, on a clean checkout of the P2 head |
+| — | P3 detailed design | `21386dc` | Written into §8 P3 before P3.1. On this Windows machine the local database was at `au26_email_lowercase`; the four P0–P1 migrations were applied (`alembic upgrade head`) before the integration gates |
+| P3.1 | TL-50, TL-10, TL-12, TX-03, TL-13, TL-14 (EP-02, TX-06, MI-14) | `21386dc` | On the old executor an entity granted nothing ran `calculator` and a bad name returned the 2,019-character catalogue; `test_tool_access.py` (collection fails on the old code). Live on the dev DB: real entities are offered exactly their grants; switching off `web_search` through a real row refused it |
+| P3.2 | TL-53, TL-65, TL-03 | `43fd6f8` | Old step executor handed a ReAct tool the caller's `container_runtime`, `persona` and `__is_meta_agent__`; `test_tool_context.py`. Found: the creation cap counter never fired (recorded on TL-11) |
+| P3.3 | TL-11, TL-21 (EP-07) | `73afd55` | Old code ran a tool granted `rate_limit_per_run: 2`, `max_tool_calls: 1` three times; `test_tool_limits.py`, `test_tool_call_limits.py` (Postgres, three real `TOOL_CALL` steps) |
+| P3.4 | TL-04, TL-56, TL-05 | `e7d3ad0` | Old `email_send` connected to `smtp.attacker` with the model's password; `test_tool_credentials.py` |
+| P3.5 | TL-07, TL-08, TL-54, TL-55 | `6d32f3a` | Old `excel_tool` opened the backend `.env`; old browser check let `169.254.169.254` through; `test_tool_paths_and_fetches.py`. Found: tools write their first copy under `backend/src/artifact` (recorded on TL-59) |
+| P3.6 | TX-02 (TX-I4) | `1c01eb4` | `test_tool_freeze.py`: all 85 built-ins frozen; a leaky tool fails at the write |
+| P3.7 | TL-20 | `66fe8bc` | `test_voice_tool_calls.py` (Postgres): a voice tool call has a run, a log and a charge; the cost reaches the call's total |
+| P3.8 | TL-06 (remainder) | `4953d81` | `test_tool_registry_tenancy.py`: no `configuration` on the list; only `app_admin` reads it |
+| P3.9 | TX-01, TL-01 (part), TL-02 (part) | `9ef850e` | `test_container_runtime.py`, `test_tool_synthesis.py`. TL-01's default flip and TL-02's harness rework stay in P11 |
+| P3.10 | TX-04 (MI-13) | `b5b1467` | `test_tool_status.py`; the registry has 86 tools |
+| **P3 done** | TL-50, TL-10, TL-12, TX-03, TL-13, TL-14, TL-53, TL-65, TL-03, TL-11, TL-21, TL-04, TL-56, TL-05, TL-07, TL-08, TL-54, TL-55, TX-02, TL-20, TL-06, TX-01, TX-04 (TL-01, TL-02 in part) | — | Unit 1589 passed + 6 known failures (the Windows doc-factory path test now passes); integration 227 passed + the 2 known local failures. **Live**, through the restarted worker (run `ad8e1313…`): an `ACTION` granted only `calculator` with `max_tool_calls: 1` had its second call refused `call_budget` and logged as refused. The live run also found **TL-68** (new): `calculator` cannot be called natively — scheduled in P6 (6.10) |

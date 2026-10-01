@@ -28,6 +28,17 @@
 > (:3000); `stop_services.ps1` stops them. The previous session's `-alt` servers
 > (:8010 API, :3010 frontend) also run; its stale Arq worker was stopped while
 > testing the stop script.
+>
+> **Registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 (2026-10-01, later sessions):**
+> these are worked as one plan, not one defect at a time —
+> [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), with the
+> product owner's R1 (six-level hierarchy) and R2 (skill-first tool stack). Its §12
+> progress log is the status of record. **P0–P3 are done** (P3, the tool entry point and
+> tool security, ended at `b5b1467`); **next is P4** (one cost write path). On this
+> machine the P0–P1 migrations were applied during P3 (`alembic upgrade head`, now
+> `ep06_run_depth`) and both workers restarted. The unit baseline is now **6** known
+> failures (the doc-factory Windows path test passes since P3.5). New entry from P3's live
+> run: **TL-68** (`calculator` cannot be called natively; fixed in P6).
 
 ---
 
