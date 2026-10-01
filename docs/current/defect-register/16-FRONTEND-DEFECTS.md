@@ -35,12 +35,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 5 | **Now** — all five are small |
+| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | **Now** — all small |
 | [T1](#3-t1--broken-behaviour) | Broken behaviour | 9 | Before the next release |
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 5 | Free |
 | [T3](#5-t3--performance) | Performance | 7 | When the page in question is next touched |
 
-**Total: 26 defects, 10 improvements.**
+**Total: 28 defects, 10 improvements.**
 
 The three to read first:
 
@@ -155,9 +155,47 @@ reports 0 errors (22 before) and `npm run build` completes.
 
 ---
 
+### FE-27 — A compiled `vite.config.js` shadows `vite.config.ts`
+
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — found 2026-10-01 while fixing FE-24.
+
+`vite.config.js` and `vite.config.d.ts` — output of the composite `tsconfig.node.json` — were
+committed next to `vite.config.ts`, with both `*.tsbuildinfo` files. Vite loads
+`vite.config.js` **before** `vite.config.ts`, so any edit to the `.ts` (a proxy, a port, a test
+setting) is silently ignored until someone recompiles. The two happened to match.
+
+**Fix (2026-10-01):** the compiled files are deleted and gitignored; `tsconfig.node.json`
+writes its output to `node_modules/.tmp/tsconfig.node` (a referenced project may not use
+`noEmit`). **Evidence:** the FE-24 proxy change, made in `vite.config.ts` only, took effect
+on the next dev-server start.
+
+---
+
+### FE-28 — Artifact previews put the access token in the URL
+
+**✅ Verified · Medium** · **Status: open** — found 2026-10-01 while fixing FE-04.
+
+`Artifacts.tsx`'s `getPreviewUrl` builds
+`/api/v1/artifacts/{id}/download?token=<access token>` for previews that cannot send headers
+(`<img>`, `<iframe>`). A token in a query string is written to proxy and server access logs
+and to browser history, and is sent in the `Referer` header of any request the preview makes.
+The backend accepts it (`get_current_user_from_query`).
+
+- [`frontend/src/pages/artifacts/Artifacts.tsx`](../../../frontend/src/pages/artifacts/Artifacts.tsx) — `getPreviewUrl`
+
+**Fix:** fetch the preview with the `Authorization` header and show it from a `blob:` URL, or
+have the API mint a short-lived, single-artifact download token.
+
+---
+
 ### FE-04 — If you forget `.env`, development talks to production
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — worse than recorded: besides
+`config/api.ts`, `ExecutionDetail.tsx` carried its own copy of the production fallback, the
+artifact download and preview URLs used the undocumented `VITE_API_URL` (empty → a relative
+`/api/...` URL), and the dev server proxied `/api`, `/reports` and `/artifact` to
+`gateway.hirebuddha.com` — so even a correctly configured local app sent those requests to
+production.
 
 `api.client.ts` falls back to `https://gateway.hirebuddha.com/api/v1` when no base URL is
 configured.
@@ -174,6 +212,15 @@ it — and the second is undocumented in `.env.example`.
 **Fix:** fall back to `http://localhost:8000/api/v1` and warn on the console. A wrong local
 URL is a five-second fix; a production write is not. *(Port corrected 2026-09-30: the gateway on
 8001 was merged into the API on 8000.)*
+
+**Done (2026-10-01):** `config/api.ts` falls back to `http://localhost:8000/api/v1` and warns
+on the console; it also exports `API_ORIGIN`, which the artifact download and preview URLs
+use instead of `VITE_API_URL` (gone), and `ExecutionDetail` uses `API_BASE_URL` instead of its
+own fallback. The dev-server proxies target `VITE_PROXY_TARGET`, default
+`http://localhost:8000`. `.env.example` documents both. **Evidence:** a dev server on :3020
+with `VITE_API_BASE_URL=/api/v1` served the app through the proxy to the local API (the
+Costing Report and Billing Settings loaded with the local data); an API-style request to
+`/reports/…` reached the local API (JSON 404), not the gateway.
 
 ---
 
@@ -307,7 +354,12 @@ so the feature is half-built rather than absent.
 
 ### FE-24 — Reloading any `/reports/*` page proxies the browser to the gateway
 
-**✅ Verified · Medium** · **Status: open** — found 2026-09-29 while verifying PO-04.
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — the `/reports` proxy has a `bypass`:
+a request that accepts `text/html` (a page load) is served the SPA's `index.html`; everything
+else still goes to the API's static mount. **Evidence:** a full load of
+`http://localhost:3020/reports/costing` rendered the Costing Report (signed in as the
+`app_admin`); `curl -H "Accept: text/html"` got the SPA, `Accept: application/json` the API.
+Found 2026-09-29 while verifying PO-04.
 
 The Vite dev server proxies every path starting with `/reports` to
 `http://gateway.hirebuddha.com` — meant for the backend's static `/reports` mount (generated

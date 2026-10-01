@@ -95,6 +95,8 @@ From [`package.json`](../../frontend/package.json):
 > **`npm run lint` does not work.** There is no `.eslintrc*` or `eslint.config.js`
 > anywhere in `frontend/`. The ESLint packages are in `devDependencies` but
 > unconfigured, so the script fails on a missing config. Nothing in CI runs it.
+> Note: `vite.config.ts` is the only Vite config. A compiled `vite.config.js`
+> beside it would win (Vite loads `.js` first) — they are gitignored since FE-27.
 > The only type/quality gate that actually runs is the `tsc` step inside
 > `npm run build` — and until FE-26 that step failed with 22 errors, so the
 > production build did not complete.
@@ -124,59 +126,58 @@ never pulls them in, but they do slow `npm install`.
 [`vite.config.ts`](../../frontend/vite.config.ts):
 
 ```ts
-// frontend/vite.config.ts
+// frontend/vite.config.ts (abridged)
+const env = loadEnv(mode, process.cwd(), '')
+const target = env.VITE_PROXY_TARGET || 'http://localhost:8000'
 server: {
     allowedHosts: ["dev.hirebuddha.com", "app.hirebuddha.com"],
     hmr: false, // Completely disable HMR for testing
     host: '0.0.0.0',
     port: 3000,
     proxy: {
-        '/api':      { target: 'http://gateway.hirebuddha.com', changeOrigin: true, secure: false },
-        '/reports':  { target: 'http://gateway.hirebuddha.com', changeOrigin: true },
-        '/artifact': { target: 'http://gateway.hirebuddha.com', changeOrigin: true },
+        '/api':      { target, changeOrigin: true, secure: false },
+        '/reports':  { target, changeOrigin: true, bypass: spaPageLoad },
+        '/artifact': { target, changeOrigin: true },
     },
 },
 ```
 
-Three things surprise newcomers here:
+Things to know:
 
 1. **Hot module replacement is switched off** (`hmr: false`, with a comment
    saying "for testing"). Every code change means a manual browser refresh.
-2. **The dev proxy is rarely exercised.** The axios client uses an *absolute*
-   base URL from `VITE_API_BASE_URL`, so requests go straight to the gateway
-   host and never hit the Vite proxy. The proxy only matters for relative URLs
-   — which happens in exactly one place: the artifact/report download links
-   built in `ExecutionDetail` (`/api/v1/artifacts/...`, `/artifact/...`,
-   `/reports/...`).
-3. **Path aliases are declared twice** — once in `vite.config.ts` for the
+2. **The proxies target the local API by default** (`VITE_PROXY_TARGET`,
+   default `http://localhost:8000`). Until FE-04 they pointed at
+   `gateway.hirebuddha.com`, so a local app's relative URLs reached production.
+   They matter when `VITE_API_BASE_URL` is relative (`/api/v1` — handy for a
+   second dev server on a port the API's CORS list does not allow) and for the
+   static `/artifact/...` and `/reports/...` links.
+3. **`/reports` page loads stay in the SPA.** The API's static report mount and
+   the SPA's `/reports/*` pages share the prefix; `spaPageLoad` serves
+   `index.html` to a request that accepts HTML, so reloading a report page works
+   (FE-24).
+4. **Path aliases are declared twice** — once in `vite.config.ts` for the
    bundler and once in `tsconfig.json` for the type checker. If you add an
    alias you must add it in both files or one of the two will break.
+5. **`vite.config.ts` is the only Vite config.** A compiled `vite.config.js`
+   beside it would win (Vite loads `.js` first); the compiler's output goes to
+   `node_modules/.tmp` and `vite.config.js` is gitignored (FE-27).
 
 ### 2.4 Environment variables
 
-Every `VITE_*` variable referenced anywhere in `src/`:
+Every `VITE_*` variable referenced anywhere in `src/` or `vite.config.ts`:
 
 | Variable | Where it is read | Default if unset | Notes |
 |----------|------------------|------------------|-------|
-| `VITE_API_BASE_URL` | [`api.client.ts:3`](../../frontend/src/services/api.client.ts:3), [`ExecutionDetail.tsx:17`](../../frontend/src/pages/ai/ExecutionDetail.tsx:17), `oauth.service.ts:57`, and 20+ raw `fetch()` calls in `pages/streaming/` and `PhonePool.tsx` | `https://gateway.hirebuddha.com/api/v1` (only in `api.client.ts` and `ExecutionDetail.tsx`) | Must **include** the `/api/v1` suffix |
-| `VITE_GOOGLE_CLIENT_ID` | [`oauth.service.ts:3`](../../frontend/src/services/oauth.service.ts:3) | none (`undefined`) | Google OAuth |
-| `VITE_MICROSOFT_CLIENT_ID` | [`oauth.service.ts:4`](../../frontend/src/services/oauth.service.ts:4) | none | Microsoft OAuth |
-| `VITE_API_URL` | [`artifact.service.ts:83`](../../frontend/src/services/artifact.service.ts:83), `Artifacts.tsx:193` | `''` | **A second, different base URL** — this one must *not* include `/api/v1` because the code appends it |
+| `VITE_API_BASE_URL` | [`config/api.ts`](../../frontend/src/config/api.ts) — `API_BASE_URL` and `API_ORIGIN`, which `api.client.ts`, `ExecutionDetail.tsx`, the artifact URLs and the raw `fetch()` calls use | `http://localhost:8000/api/v1`, with a console warning (FE-04) | Must **include** the `/api/v1` suffix; may be relative (`/api/v1`) to go through the dev proxy |
+| `VITE_PROXY_TARGET` | `vite.config.ts` | `http://localhost:8000` | Where the dev server proxies `/api`, `/reports`, `/artifact` |
+| `VITE_GOOGLE_CLIENT_ID` | [`oauth.service.ts`](../../frontend/src/services/oauth.service.ts) | none (`undefined`) | Google OAuth |
+| `VITE_MICROSOFT_CLIENT_ID` | [`oauth.service.ts`](../../frontend/src/services/oauth.service.ts) | none | Microsoft OAuth |
 
-`.env.example` only documents three of the four:
-
-```env
-# frontend/.env.example
-VITE_API_BASE_URL=http://localhost:8000/api/v1
-VITE_GOOGLE_CLIENT_ID=your_google_client_id_here
-VITE_MICROSOFT_CLIENT_ID=your_microsoft_client_id_here
-```
-
-> **Gotcha:** `VITE_API_URL` is undocumented and unset in practice, so
-> `artifactService.getDownloadUrl()` returns a relative `/api/v1/artifacts/…`
-> path. That path only resolves because Apache and the Vite proxy both forward
-> `/api` to the gateway. There is also a `(window as any).__API_BASE__` escape
-> hatch checked first — nothing in the repo ever sets it.
+`VITE_API_URL` — a second base URL without `/api/v1`, read only by the artifact
+download and preview links, undocumented and unset in practice — is gone (FE-04):
+those links use `API_ORIGIN`, derived from `VITE_API_BASE_URL`. So is the
+`window.__API_BASE__` escape hatch nothing set.
 
 ### 2.5 TypeScript config
 

@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Compiler output that must not sit beside vite.config.ts: Vite loads a
+# vite.config.js first, so a stale one silently overrides the .ts (FE-27).
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

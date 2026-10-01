@@ -15,8 +15,7 @@ import { AgentLoopExecutionDetail } from '@/components/agent/AgentLoopExecutionD
 import './ExecutionDetail.css';
 import { API_BASE_URL } from '@/config/api';
 
-const _API_BASE = (API_BASE_URL as string)
-    || 'https://gateway.hirebuddha.com/api/v1';
+const _API_BASE = API_BASE_URL;
 
 // Authenticated file download — uses apiClient (with auto token-refresh)
 // for /api/ routes, falls back to direct fetch for static artifact paths.

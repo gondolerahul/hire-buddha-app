@@ -8,6 +8,7 @@ import {
 import { artifactService, Artifact, ArtifactListFilters } from '@/services/artifact.service';
 import { apiClient } from '@/services/api.client';
 import './Artifacts.css';
+import { API_ORIGIN } from '@/config/api';
 
 const FILE_CATEGORY_OPTIONS = [
     { value: '', label: 'All Types' },
@@ -190,7 +191,7 @@ export const Artifacts: React.FC = () => {
     };
 
     const getPreviewUrl = (artifact: Artifact) => {
-        const base = import.meta.env.VITE_API_URL || '';
+        const base = API_ORIGIN;
         const token = localStorage.getItem('access_token') || '';
         return `${base}/api/v1/artifacts/${artifact.id}/download?token=${token}`;
     };

@@ -1,4 +1,5 @@
 import { apiClient } from './api.client';
+import { API_ORIGIN } from '@/config/api';
 
 export interface Artifact {
     id: string;
@@ -80,7 +81,7 @@ export const artifactService = {
     },
 
     getDownloadUrl: (id: string): string => {
-        const base = (window as any).__API_BASE__ || import.meta.env.VITE_API_URL || '';
+        const base = API_ORIGIN;
         return `${base}/api/v1/artifacts/${id}/download`;
     },
 };
