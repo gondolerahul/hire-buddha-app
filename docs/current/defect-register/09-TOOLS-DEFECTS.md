@@ -268,6 +268,8 @@ together.
 
 ### TX-I3 — Delete twelve tools before optimising anything
 
+**Done (2026-10-01)** — TL-23…TL-27 and TL-22: the registry holds 85 tools.
+
 **Effect: large, and it is a deletion.** `quora` (4), `x_ads` (4) and `youtube_ads` (4) are
 written against APIs that do not exist or cannot work as coded. Removing them takes the
 registry from 98 tools to 86 and removes ~1,600 lines with `xlsx_engine.py` and the docx

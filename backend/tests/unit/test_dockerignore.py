@@ -47,7 +47,7 @@ def test_kept_out_of_the_image(path):
 
 
 @pytest.mark.parametrize("path", [
-    "src/main.py", "cortex_memory/__init__.py", "templates/docx/coral_energy.docx",
+    "src/main.py", "cortex_memory/__init__.py", "scripts/seed_sandbox_sku.py",
     "pyproject.toml", "poetry.lock", "alembic.ini", "migrations/env.py", ".env.example",
 ])
 def test_the_application_still_goes_in(path):

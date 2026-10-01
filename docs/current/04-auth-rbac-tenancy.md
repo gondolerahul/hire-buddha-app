@@ -1254,9 +1254,9 @@ Storage details:
 | Format | `base64(12-byte nonce ‖ ciphertext ‖ GCM tag)` |
 | Refresh threshold | `TOKEN_REFRESH_THRESHOLD_MINUTES = 10` ([social_connection_service.py:68](../../backend/src/ai/social_connection_service.py:68)) |
 | Platforms with refresh config | `linkedin`, `twitter`, `facebook`, `instagram`, `google_ads`, `youtube`, `tiktok`, `reddit` |
-| `VALID_PLATFORMS` (create allow-list) | the above plus `quora`, minus none — 9 entries at [social_router.py:65](../../backend/src/ai/social_router.py:65) |
+| `VALID_PLATFORMS` (create allow-list) | the same eight ([social_router.py](../../backend/src/ai/social_router.py)); `quora` left with its tools on 2026-10-01 (TL-23) |
 
-Note `quora` is in `VALID_PLATFORMS` but has no entry in `PLATFORM_REFRESH_CONFIG`, so its tokens can be stored but never refreshed. Note also that `client_secret` for each platform is stored **inside `oauth_metadata`**, a plain JSONB column — unlike the tokens, it is **not encrypted**.
+Note that `client_secret` for each platform is stored **inside `oauth_metadata`**, a plain JSONB column — unlike the tokens, it is **not encrypted**.
 
 ### 12.3 Flow C — email connections (app passwords, not OAuth)
 

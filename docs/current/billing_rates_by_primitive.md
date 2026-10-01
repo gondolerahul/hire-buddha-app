@@ -347,7 +347,6 @@ SANDBOX_SKU_COST_PER_SECOND=0.00005 .venv/bin/python -m scripts.seed_sandbox_sku
 | `docx_tool` | — | **$0.01** | Word document generation |
 | `pptx_tool` | — | **$0.01** | PowerPoint generation |
 | `excel` | — | **$0.005** | Excel spreadsheet generation |
-| `xlsx_engine` | — | **$0.01** | Advanced Excel generation |
 
 ### Code References
 
@@ -515,7 +514,6 @@ Every usage row in `usage_logs` is tagged with an **attribution** value for cost
 | `meta_spec_critic` | Meta-specification critic |
 | `test_driver` | Test-driver framework calls |
 | `sandbox` | Sandbox runtime metering |
-| `mcp` | MCP (Model Context Protocol) calls |
 
 Unknown attributions automatically fall back to `tool` with a logged warning, ensuring no charge is ever silently dropped.
 

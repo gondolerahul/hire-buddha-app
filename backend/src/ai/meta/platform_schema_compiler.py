@@ -357,9 +357,8 @@ class PlatformSchemaCompiler:
             "code": ["sandbox_code", "terminal_tool"],
             "browser": ["headless_browser"],
             "social": ["linkedin", "twitter", "facebook", "instagram", "youtube",
-                       "tiktok", "reddit", "quora", "pinterest"],
-            "ads": ["google_ads", "meta_ads", "linkedin_ads", "youtube_ads",
-                    "x_ads", "snapchat_ads"],
+                       "tiktok", "reddit", "pinterest"],
+            "ads": ["google_ads", "meta_ads", "linkedin_ads", "snapchat_ads"],
             "crm": ["crm_update_lead", "google_calendar", "get_current_datetime"],
             "utility": ["calculator"],
         }

@@ -1,6 +1,6 @@
 # 09. Tools & the Tool Registry
 
-> **What this document covers:** every tool an AI entity can call on HireBuddha — how tools are declared, discovered, advertised to the LLM, executed, retried, sandboxed, metered and billed — plus a complete catalogue of all 98 registered tools.
+> **What this document covers:** every tool an AI entity can call on HireBuddha — how tools are declared, discovered, advertised to the LLM, executed, retried, sandboxed, metered and billed — plus a complete catalogue of all 85 registered tools (97 until 2026-10-01, when the 12 `quora`, `x_ads` and `youtube_ads` tools were deleted — TL-23…TL-25).
 > **Who should read it:** anyone adding a tool, debugging a tool call, reviewing sandbox security, or tracing where a dollar of tool cost came from.
 > **Prerequisites:** [05 — Agent kernel](05-agent-kernel.md) for the loop that decides *when* to call a tool, and [03 — Data model](03-data-model.md) for `ExecutionRun` / `HierarchicalEntity`. Helpful but not required: [04 — Auth, RBAC & tenancy](04-auth-rbac-tenancy.md).
 
@@ -17,11 +17,11 @@
 7. [`documents/` — the generation pipeline](#7-documents--the-generation-pipeline)
 8. [`email/` — IMAP and SMTP](#8-email--imap-and-smtp)
 9. [`media/` — images and video](#9-media--images-and-video)
-10. [`social/` — 16 platforms, 64 tools](#10-social--16-platforms-64-tools)
+10. [`social/` — 13 platforms, 52 tools](#10-social--13-platforms-52-tools)
 11. [`crm/` — the tenant CRM bridge](#11-crm--the-tenant-crm-bridge)
 12. [`sandbox/` — code, terminal, browser and the trust boundary](#12-sandbox--code-terminal-browser-and-the-trust-boundary)
 13. [`meta/` — tools that build the platform](#13-meta--tools-that-build-the-platform)
-14. [`mcp/` — Model Context Protocol](#14-mcp--model-context-protocol)
+14. [`mcp/` — deleted](#14-mcp--deleted)
 15. [`resilience.py` — retries and recovery](#15-resiliencepy--retries-and-recovery)
 16. [`tool_fallback.py` — the substitution table](#16-tool_fallbackpy--the-substitution-table)
 17. [Tool budgets and rate limits](#17-tool-budgets-and-rate-limits)
@@ -42,7 +42,7 @@ class that subclasses `Tool` in
 `description`, and a JSON schema, and implements one async method that takes a
 string and returns a string.
 
-All 98 built-in tools register themselves into one in-memory dictionary at
+All 85 built-in tools register themselves into one in-memory dictionary at
 import time in [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py).
 Nothing is dynamically loaded from disk or from the database at runtime.
 
@@ -119,20 +119,20 @@ class ToolRegistry:
 ```
 
 Registration happens as an import side effect. Importing
-`src.ai.tools` runs 98 `ToolRegistry.register(SomeTool())` statements
+`src.ai.tools` runs 85 `ToolRegistry.register(SomeTool())` statements
 ([tools/\_\_init\_\_.py:42](../../backend/src/ai/tools/__init__.py:42) onwards).
 Because they are module-level singletons, **a tool instance is shared across all
 tenants and all concurrent runs in a worker** — never store per-call state on
 `self`.
 
-Tenant-scoped tools exist but only two code paths create them:
+Tenant-scoped tools exist but only one code path creates them (the MCP adapter
+was the other; it was deleted with its package on 2026-10-01, TL-22):
 
 | Caller | What it registers |
 |--------|-------------------|
-| [mcp/adapter.py:165](../../backend/src/ai/tools/mcp/adapter.py:165) | one `MCPToolAdapter` per permitted MCP server tool |
-| [meta/tool_synthesis_pipeline.py:95](../../backend/src/ai/meta/tool_synthesis_pipeline.py:95) | a `SandboxedSynthesizedTool` for a freshly synthesized DRAFT tool |
+| [meta/tool_synthesis_pipeline.py](../../backend/src/ai/meta/tool_synthesis_pipeline.py) | a `SandboxedSynthesizedTool` for a freshly synthesized DRAFT tool |
 
-Both are in-process only. Restart the worker and the tenant tools are gone
+It is in-process only. Restart the worker and the tenant tools are gone
 until something re-binds them.
 
 ### 2.2 Tool status values
@@ -163,7 +163,7 @@ Who carries which status today:
 
 | Status | Tools |
 |--------|-------|
-| `EXPERIMENTAL` | all 64 `social/` tools (set on the `SocialMediaTool` base class), `video_generate`, `video_edit`, `video_add_sound`, `tool_synthesis`, every `MCPToolAdapter` |
+| `EXPERIMENTAL` | all 52 `social/` tools (set on the `SocialMediaTool` base class), `video_generate`, `video_edit`, `video_add_sound`, `tool_synthesis` |
 | `DEPRECATED` | none registered (`video_generation`, the last one, was deleted on 2026-09-29, PO-17) |
 | `DRAFT` | `SandboxedSynthesizedTool` instances |
 | `ACTIVE` | everything else — all of `core/`, `documents/`, `email/`, `crm/`, `sandbox/`, `image_generation`, and the meta tools other than `tool_synthesis` |
@@ -298,7 +298,7 @@ Three execution entry points exist, in increasing order of capability:
 | Method | Signature | Who overrides it |
 |--------|-----------|------------------|
 | `run` | `(input_data: str) -> str` | mandatory; often just delegates to `run_with_context` |
-| `run_with_context` | `(input_data: str, context: dict) -> str` | ~85 of the 98 tools — anything needing `company_id`, `user_id`, `run_id`, `agent_id` |
+| `run_with_context` | `(input_data: str, context: dict) -> str` | ~75 of the 85 tools — anything needing `company_id`, `user_id`, `run_id`, `agent_id` |
 | `run_typed` | `(params: ToolParams) -> ToolResult` | only `web_search` and `scraper_tool` today |
 
 `supports_context()` returns whether the subclass overrode `run_with_context`,
@@ -581,7 +581,7 @@ Step by step:
 
 ## 5. The complete tool catalogue
 
-98 tools are registered globally. Below is every one of them. Columns:
+85 tools are registered globally. Below is every one of them. Columns:
 **Status** is the `ToolStatus`; **SKU / cost** is what §18 resolves for billing
 (`—` means no cost entry exists and the call bills $0).
 
@@ -606,7 +606,6 @@ Legend for external dependency: `—` = pure local compute.
 | `pptx_tool` | document | [documents/pptx_tool.py](../../backend/src/ai/tools/documents/pptx_tool.py) | create / read / update PowerPoint decks | `action`, `filename`, `title`, `slides[]`, `file_path` | `python-pptx` | ACTIVE | — |
 | `excel_tool` | document | [documents/excel.py](../../backend/src/ai/tools/documents/excel.py) | `read_rows` / `get_columns` / `list_sheets` / `create` / `update` on xlsx and csv | `action`, `file_path`, `headers[]`, `data[][]`, `update_cells[]` | `openpyxl` | ACTIVE | — |
 | `document_save` | document | [documents/document_save.py](../../backend/src/ai/tools/documents/document_save.py) | Copies a sandbox-produced file into artifact storage and registers it | `source_path`, `filename`, `format`, `purpose` | local disk | ACTIVE | — |
-| *(not a tool)* `XlsxEngine` | — | [documents/xlsx_engine.py](../../backend/src/ai/tools/documents/xlsx_engine.py) | Themed spreadsheet rendering library — 4 themes, KPI cards, native charts | n/a | `openpyxl` | n/a | priced at `$0.01` in the planner only |
 
 ### 5.3 `email/` — 4 tools
 
@@ -657,9 +656,9 @@ Legend for external dependency: `—` = pure local compute.
 | `tool_synthesis` | general | [meta/tool_synthesis.py](../../backend/src/ai/tools/meta/tool_synthesis.py) | LLM writes a brand-new tool; validated, sandbox-tested, red-teamed, saved as DRAFT | a `ToolSpec` JSON payload (base `input` schema) | LLM plus sandbox | EXPERIMENTAL | LLM cost of the pipeline |
 | `meta_spec_critic` | general | [meta/spec_critic.py](../../backend/src/ai/tools/meta/spec_critic.py) | Reviews a draft entity spec, returns PASS / REVISE / BLOCK | `mode`, `spec`, `search_top_k`, `platform_manifest_hash` | LLM | **not registered** — instantiated directly by [meta/board/critic.py:72](../../backend/src/ai/meta/board/critic.py:72) and [api/admin.py:454](../../backend/src/ai/api/admin.py:454) | LLM cost |
 
-### 5.8 `social/` — 64 tools across 16 platforms
+### 5.8 `social/` — 52 tools across 13 platforms
 
-All 64 inherit `status = ToolStatus.EXPERIMENTAL` from
+All 52 inherit `status = ToolStatus.EXPERIMENTAL` from
 [social/base.py:48](../../backend/src/ai/tools/social/base.py:48), resolve
 credentials from `social_connections`, and have **no billing SKU** — a social
 API call costs the platform `$0` in HireBuddha's ledger even when it spends the
@@ -699,10 +698,6 @@ tenant's ad budget.
 | `reddit_search` | reddit | reddit.py | Search posts | `query` |
 | `reddit_manage_comments` | reddit | reddit.py | Reply, delete, vote | `action`, `thing_id` |
 | `reddit_get_analytics` | reddit | reddit.py | Karma and post stats | `analytics_type` |
-| `quora_search_questions` | quora | [social/quora.py](../../backend/src/ai/tools/social/quora.py) | Search questions | `query` |
-| `quora_post_answer` | quora | quora.py | Post an answer | `question_id`, `answer_text` |
-| `quora_get_spaces` | quora | quora.py | List or join Spaces | `action` |
-| `quora_get_analytics` | quora | quora.py | Answer views and upvotes | `analytics_type` |
 | `pinterest_create_pin` | pinterest | [social/pinterest.py](../../backend/src/ai/tools/social/pinterest.py) | Create a pin | `board_id`, `media_source_url` |
 | `pinterest_manage_boards` | pinterest | pinterest.py | Create, list, delete boards | `action` |
 | `pinterest_get_analytics` | pinterest | pinterest.py | Pin or account analytics | `analytics_type` |
@@ -719,14 +714,6 @@ tenant's ad budget.
 | `linkedin_sales_get_lead` | linkedin_sales_navigator | linkedin_sales_nav.py | Lead detail | `lead_id` |
 | `linkedin_sales_save_lead` | linkedin_sales_navigator | linkedin_sales_nav.py | Save to a list | `lead_id`, `list_id` |
 | `linkedin_sales_get_lists` | linkedin_sales_navigator | linkedin_sales_nav.py | Manage lead lists | `action` |
-| `youtube_ads_create_campaign` | youtube_ads | [social/youtube_ads.py](../../backend/src/ai/tools/social/youtube_ads.py) | Video campaign via Google Ads v17 | `customer_id`, `name`, `budget_amount_micros` |
-| `youtube_ads_manage_ad_groups` | youtube_ads | youtube_ads.py | Ad groups | `action`, `customer_id` |
-| `youtube_ads_report` | youtube_ads | youtube_ads.py | Performance report | `customer_id` |
-| `youtube_ads_manage_targeting` | youtube_ads | youtube_ads.py | Targeting criteria | `action`, `customer_id`, `ad_group_id` |
-| `x_ads_create_campaign` | x_ads | [social/x_ads.py](../../backend/src/ai/tools/social/x_ads.py) | X Ads campaign | `account_id`, `name`, `objective` |
-| `x_ads_manage_line_items` | x_ads | x_ads.py | Line items / ad groups | `action`, `account_id` |
-| `x_ads_report` | x_ads | x_ads.py | Segmented report | `account_id`, `entity`, `entity_ids` |
-| `x_ads_manage_audiences` | x_ads | x_ads.py | Tailored audiences | `action`, `account_id` |
 | `snapchat_ads_create_campaign` | snapchat_ads | [social/snapchat_ads.py](../../backend/src/ai/tools/social/snapchat_ads.py) | Snap campaign | `ad_account_id`, `name`, `objective` |
 | `snapchat_ads_manage_ad_squads` | snapchat_ads | snapchat_ads.py | Ad squads | `action`, `ad_account_id` |
 | `snapchat_ads_report` | snapchat_ads | snapchat_ads.py | Performance report | `ad_account_id`, `entity`, `entity_id` |
@@ -737,9 +724,7 @@ tenant's ad budget.
 | Class | File | Why it is not registered |
 |---|---|---|
 | `MetaSpecCriticTool` | [meta/spec_critic.py](../../backend/src/ai/tools/meta/spec_critic.py) | Driven directly by the Meta-Agent Board, not by an LLM function call |
-| `MCPToolAdapter` | [mcp/adapter.py](../../backend/src/ai/tools/mcp/adapter.py) | Created dynamically per MCP server binding, registered tenant-scoped |
 | `SandboxedSynthesizedTool` | [sandbox/synthesized_tool.py](../../backend/src/ai/tools/sandbox/synthesized_tool.py) | Created by the synthesis pipeline, registered tenant-scoped as DRAFT |
-| `XlsxEngine` | [documents/xlsx_engine.py](../../backend/src/ai/tools/documents/xlsx_engine.py) | Plain library — not a `Tool` subclass at all |
 
 ---
 
@@ -836,23 +821,11 @@ embed them, resolving bare filenames by searching
 `artifact/system-generated/{company}/{user}/images`, then
 `{company}/images`, then `generated_images`, then a recursive glob.
 
-**`xlsx_engine.py`** (400 lines) is *not* a registered tool. It is a
-deterministic rendering library: four named themes
-(`midnight_executive`, `forest_moss`, `coral_energy`, `charcoal_minimal`) and
-helpers `add_sheet`, `apply_theme`, `add_kpi_card`, `add_native_chart`,
-`format_currency/percent/number`, `add_conditional_format`, `setup_dashboard`,
-`save`. **Nothing in the backend imports it** — the only reference outside the
-file is a price entry in
-[planning/cost_estimator.py:43](../../backend/src/ai/planning/cost_estimator.py:43).
-The intent (per `docs/phase8/`) was for sandbox-generated code to import it; in
-practice the Document Factory scripts are what get symlinked into the sandbox.
-
-**`backend/templates/docx/`** contains three theme templates —
-`midnight_executive.docx`, `coral_energy.docx`, `charcoal_minimal.docx`, ~36 KB
-each. A repo-wide grep finds **zero** code references to this directory. Treat
-it as unwired assets from the Phase 8 document-toolkit design, not as a live
-template system. `docx_tool._create` always starts from a blank
-`Document()`.
+**`xlsx_engine.py`** (a 400-line themed spreadsheet library nothing imported) and
+**`backend/templates/docx/`** (three theme templates no code referenced) were
+deleted on 2026-10-01 (TL-26, TL-27). `docx_tool._create` starts from a blank
+`Document()`; themed rendering, if wanted, belongs in a SKILL's assets (see the
+[consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md), R2).
 
 ---
 
@@ -963,7 +936,7 @@ container runtime is on, and is metered as compute rather than as an LLM call.
 
 ---
 
-## 10. `social/` — 16 platforms, 64 tools
+## 10. `social/` — 13 platforms, 52 tools
 
 ```mermaid
 flowchart TD
@@ -1029,20 +1002,21 @@ tool fails and a human must reconnect.
 | `youtube` | `googleapis.com/youtube/v3` | upload, playlists, analytics, comments | OAuth2 refresh token | yes |
 | `tiktok` | `open.tiktokapis.com/v2` | publish, list videos, analytics, comments | OAuth2 | yes |
 | `reddit` | `oauth.reddit.com` | post, search, comments, analytics | OAuth2 | yes |
-| `quora` | `api.quora.com/v1` | search, answer, spaces, analytics | OAuth2 bearer | **no** |
 | `pinterest` | `api.pinterest.com/v5` | pin, boards, analytics, search | OAuth2 bearer | **no** |
 | `meta_ads` | `graph.facebook.com/v22.0` | campaign, ad sets, insights, audiences | OAuth2 bearer | **no** |
 | `linkedin_ads` | `api.linkedin.com/rest` | campaign, creatives, report, DMP segments | OAuth2 bearer | **no** |
 | `linkedin_sales_navigator` | `api.linkedin.com/rest/salesNavigator` | lead search, lead detail, save, lists | OAuth2 bearer | **no** |
-| `youtube_ads` | `googleads.googleapis.com/v17` | campaign, ad groups, report, targeting | OAuth2 bearer | **no** |
-| `x_ads` | `ads-api.x.com/12` | campaign, line items, report, audiences | OAuth2 bearer | **no** |
 | `snapchat_ads` | `adsapi.snapchat.com/v1` | campaign, ad squads, report, SAM audiences | OAuth2 bearer | **no** |
 
 Two more caveats the package README states plainly
-([tools/README.md:36](../../backend/src/ai/tools/README.md:36)): none of the 64
-are wired to a production entity, and several are unfinished. `quora` in
-particular points at `api.quora.com/v1`, which is not a public API surface.
-`youtube_ads` targets Google Ads **v17** while `google_ads` targets **v18**.
+([tools/README.md](../../backend/src/ai/tools/README.md)): none of the 52
+are wired to a production entity, and several are unfinished. Three platforms
+were deleted on 2026-10-01 because they could not work as written: `quora`
+(4 tools against `api.quora.com/v1`, which is not a public API — TL-23), `x_ads`
+(OAuth2 bearer and JSON where the X Ads API needs OAuth 1.0a and form encoding —
+TL-24) and `youtube_ads` (Google Ads v17 while `google_ads` uses v18, and
+`customer_id` from the model — TL-25; a YouTube campaign is a `VIDEO` campaign
+in the `google_ads` family).
 
 ---
 
@@ -1384,62 +1358,14 @@ is an explicit allow-list, and `network_policy` is one of `none` (default),
 
 ---
 
-## 14. `mcp/` — Model Context Protocol
+## 14. `mcp/` — deleted
 
-```mermaid
-sequenceDiagram
-    participant Caller
-    participant B as bind_mcp_server
-    participant C as MCPClient - Protocol only, no concrete transport in repo
-    participant R as ToolRegistry
-    participant A as MCPToolAdapter
-
-    Caller->>B: company_id plus MCPServerBinding
-    B->>C: list_tools
-    C-->>B: MCPToolDescriptor list with annotations
-    loop each descriptor
-        B->>B: binding.permits - tool_allow and write_allow checks
-        alt permitted
-            B->>A: construct adapter named mcp__SERVER__TOOL
-            B->>R: register_tenant_tool company_id adapter
-        else refused
-            B->>B: log MCP bind skipping - policy
-        end
-    end
-    Caller->>A: run_with_context
-    A->>C: call_tool name arguments
-    C-->>A: MCPCallResult text plus is_error
-    A->>A: CostLedger.add attribution mcp
-```
-
-**What is implemented:**
-
-- `MCPToolDescriptor` / `MCPCallResult` / `MCPClient` — a small transport-agnostic
-  Protocol ([mcp/client.py](../../backend/src/ai/tools/mcp/client.py), 54 lines).
-- `MCPToolAdapter` — a real `Tool` subclass that namespaces the tool as
-  `mcp__{server}__{tool}`, forwards the server's `input_schema` as the function
-  schema, and meters each call to `CostLedger` with `attribution="mcp"`.
-- `MCPServerBinding.permits` — a read-only-first policy. A descriptor whose
-  annotations say `destructiveHint`, or that does not say `readOnlyHint`, is
-  refused unless its name appears in `write_allow`.
-- `bind_mcp_server` — lists, filters and registers adapters as EXPERIMENTAL
-  tenant tools.
-
-**What is stubbed or missing:**
-
-- **There is no concrete `MCPClient`.** `MCPClient` is a `Protocol`; no stdio,
-  HTTP or SSE implementation exists in the repo.
-- **Nothing calls `bind_mcp_server` in production.** Grepping the backend, the
-  only callers are in
-  [tests/unit/test_mcp_adapter.py](../../backend/tests/unit/test_mcp_adapter.py),
-  which uses a fake client.
-- There is no configuration surface — no `mcp_servers` table, no admin UI, no
-  settings entry — for declaring which MCP servers a company has.
-
-So MCP is a complete, tested *adapter layer* waiting for a transport and a
-configuration story. To make it live you would need: a concrete client, a place
-to store per-company server configs and credentials, and a call to
-`bind_mcp_server` during worker or run startup.
+The `tools/mcp/` package — a transport-agnostic `MCPClient` Protocol, an
+`MCPToolAdapter` and `bind_mcp_server` — was deleted on 2026-10-01 (TL-22). It
+had no concrete client (no stdio, HTTP or SSE transport), no configuration
+surface, and no production caller: only its unit test bound a server, with a
+fake client. Git keeps it. If MCP servers become a customer requirement, they
+fit the skill-first model as one authenticated primitive per server family.
 
 ---
 
@@ -1807,12 +1733,11 @@ sequenceDiagram
     BS-->>CS: consume credits
 ```
 
-Three other metering paths exist alongside this one:
+Two other metering paths exist alongside this one:
 
 | Path | Where | Attribution |
 |---|---|---|
 | Sandbox runtime seconds | [sandbox/metering.py](../../backend/src/ai/tools/sandbox/metering.py) | `UsageService.log_usage` against `SANDBOX_COST_SKU` (default `sandbox-runtime`, `cost_unit=second`), attribution `SANDBOX` |
-| MCP per-call | [mcp/adapter.py:113](../../backend/src/ai/tools/mcp/adapter.py:113) | `CostLedger.add` with `binding.cost_per_call_usd`, attribution `MCP` |
 | Image generation self-billing | [media/image_generation.py:372](../../backend/src/ai/tools/media/image_generation.py:372) | `BillingService.record_billing_event` plus `CreditService.consume` |
 
 **Double-charge risk:** `image_generation` self-bills `$0.04` *and* is in both
@@ -1822,7 +1747,7 @@ Whether that lands twice depends on whether the company has an active
 definitely does. Worth verifying against [14 — Billing & credits](14-billing-and-credits.md)
 before trusting a per-image figure.
 
-**A tool with no SKU is free to the platform's ledger.** All 64 social tools,
+**A tool with no SKU is free to the platform's ledger.** All 52 social tools,
 all four email tools, all four CRM tools and every document tool resolve to
 `$0`. `crm_update_lead` can write to a customer CRM and `linkedin_create_post`
 can publish to a company page, and neither leaves a cost line.
@@ -1888,7 +1813,7 @@ a raw JSON schema textarea, a delete confirmation, and a "sync built-in" button.
 Its `CATEGORIES` list — `browser`, `document`, `email`, `execution`, `media`,
 `search`, `social`, `utility`, `custom`, `general` — must be kept in sync by
 hand with `_BUILTIN_CATEGORIES` on the backend. `social` is in the UI list but
-**not one of the 21 entries in `_BUILTIN_CATEGORIES`**, so all 64 social tools
+**not one of the 21 entries in `_BUILTIN_CATEGORIES`**, so all 52 social tools
 land in `general`.
 
 The tool picker is the entity builder's Capabilities tab
@@ -1916,7 +1841,7 @@ was deleted under FE-30.)
 | `image_generation` | yes — Vertex | yes | **yes — real dollars** | model must be a configured task default; self-bills and consumes credits |
 | `video_generate` | yes — Vertex Veo | yes | **yes — real dollars** | 8 s per clip |
 | `video_edit`, `video_add_sound` | no | yes | compute only | 300 s ffmpeg timeout |
-| 64 × `social/*` | yes — 16 third-party APIs | no | **yes — the tenant's ad budget** | OAuth token scoping only. EXPERIMENTAL status is not enforced at execution |
+| 52 × `social/*` | yes — 13 third-party APIs | no | **yes — the tenant's ad budget** | OAuth token scoping only. EXPERIMENTAL status is not enforced at execution |
 | `crm/*` | yes — tenant endpoints, Google | no | no | credentials scoped by `company_id` |
 | `sandbox_code` | **yes — unrestricted under the default runtime** | yes — anywhere the OS user can write | compute | see §12.2 |
 | `terminal` | **yes — unrestricted under the default runtime** | yes | compute | 13-pattern blocklist |
@@ -1924,7 +1849,6 @@ was deleted under FE-30.)
 | `meta_entity_creator` | no | no | indirectly — creates agents that spend | 3-per-execution limit, daily cap, semantic dedupe |
 | `meta_entity_executor` | no | no | **yes — triggers a child run** | hard `$1.00` cap |
 | `tool_synthesis` | no directly | no | yes — LLM calls | Meta-Agent only, kill switch, AST validator, sandbox test, red team, DRAFT-only registration |
-| `mcp__*` | yes — via MCP server | depends | yes | read-only-first policy, per-company allow-list |
 
 ### 20.2 The five findings a reviewer should escalate
 
@@ -1964,7 +1888,7 @@ Credentials never live in tool code. Every path resolves them per call:
 | Source table | Decryption | Consumers |
 |---|---|---|
 | `integration_registry.encrypted_api_key` | `common.security.decrypt_api_key` (AES-256-GCM) | `web_search`, `scraper_tool`, `image_generation`, `crm/*` |
-| `social_connections.encrypted_access_token` / `encrypted_refresh_token` | same | all 64 social tools via `resolve_connection` |
+| `social_connections.encrypted_access_token` / `encrypted_refresh_token` | same | all 52 social tools via `resolve_connection` |
 | `email_connections.encrypted_app_password` | same | all four email tools |
 
 The sandbox runtimes build an explicit minimal `env` (`PATH`, `HOME`, `TMPDIR`,
@@ -1980,7 +1904,7 @@ reading the backend's `.env` file off the host filesystem.
 | File | Lines | What it does |
 |---|---|---|
 | [tools/base.py](../../backend/src/ai/tools/base.py) | 249 | `Tool`, `ToolParams`, `ToolResult`, `ToolStatus`, `ToolRegistry`, visibility gate |
-| [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py) | 269 | imports and registers all 98 tools at import time |
+| [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py) | 245 | imports and registers all 85 tools at import time |
 | [tools/README.md](../../backend/src/ai/tools/README.md) | 72 | package map — note the `ToolStatus` list is stale |
 | [tools/resilience.py](../../backend/src/ai/tools/resilience.py) | 403 | `FailureKind`, `classify_tool_failure`, `ToolResilience` |
 | [tool_executor.py](../../backend/src/ai/tool_executor.py) | 346 | typed and legacy dispatch, `ToolResult` dataclass, `call_counts` enforcement, trace spans |
@@ -1999,7 +1923,6 @@ reading the backend's `.env` file off the host filesystem.
 | [tools/sandbox/metering.py](../../backend/src/ai/tools/sandbox/metering.py) | 65 | sandbox-seconds usage attribution |
 | [tools/sandbox/sandbox_provision.py](../../backend/src/ai/tools/sandbox/sandbox_provision.py) | 107 | symlinks Document Factory scripts into each tenant sandbox |
 | [tools/social/base.py](../../backend/src/ai/tools/social/base.py) | 173 | `SocialMediaTool` — credentials, HTTP helper, EXPERIMENTAL default |
-| [tools/mcp/adapter.py](../../backend/src/ai/tools/mcp/adapter.py) | 166 | `MCPServerBinding`, `MCPToolAdapter`, `bind_mcp_server` |
 | [docker/sandbox/Dockerfile](../../backend/docker/sandbox/Dockerfile) | 66 | the `hb-sandbox` image |
 | [docker/egress-proxy/tinyproxy.conf](../../backend/docker/egress-proxy/tinyproxy.conf) | 33 | `FilterDefaultDeny` proxy config |
 | [frontend/.../ToolManagement.tsx](../../frontend/src/pages/ai/ToolManagement.tsx) | 445 | admin tool registry screen |
@@ -2049,9 +1972,6 @@ reading the backend's `.env` file off the host filesystem.
 
 - **A "custom tool" created through the API is inert.** There is no loader.
 
-- **`backend/templates/docx/` and `xlsx_engine.py` are unreferenced.** Both are
-  leftovers from the Phase 8 document-toolkit design.
-
 - **`sandbox_code` writes files to a `/tmp/sandbox/output` symlink** shared
   across the process, pointing at whichever company most recently executed
   ([sandbox_executor.py:129](../../backend/src/ai/tools/sandbox/sandbox_executor.py:129)).
@@ -2065,7 +1985,7 @@ reading the backend's `.env` file off the host filesystem.
 - **`meta_spec_critic` is a `Tool` that is not in the registry.** It is
   instantiated directly. Do not expect to find it via `ToolRegistry.get_tool`.
 
-- **Social tokens for 8 of 16 platforms cannot be refreshed.** No entry in
+- **Social tokens for 5 of 13 platforms cannot be refreshed.** No entry in
   `PLATFORM_REFRESH_CONFIG` means the connection dies when the access token
   expires and a human must reconnect.
 

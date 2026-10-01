@@ -99,8 +99,6 @@ from src.ai.tools.social import (
     TikTokGetAnalyticsTool, TikTokManageCommentsTool,
     RedditCreatePostTool, RedditSearchTool,
     RedditManageCommentsTool, RedditGetAnalyticsTool,
-    QuoraSearchQuestionsTool, QuoraPostAnswerTool,
-    QuoraGetSpacesTool, QuoraGetAnalyticsTool,
     PinterestCreatePinTool, PinterestManageBoardsTool,
     PinterestGetAnalyticsTool, PinterestSearchPinsTool,
     MetaAdsCreateCampaignTool, MetaAdsManageAdsetsTool,
@@ -109,10 +107,6 @@ from src.ai.tools.social import (
     LinkedInAdsReportTool, LinkedInAdsManageAudiencesTool,
     LinkedInSalesSearchLeadsTool, LinkedInSalesGetLeadTool,
     LinkedInSalesSaveLeadTool, LinkedInSalesGetListsTool,
-    YouTubeAdsCreateCampaignTool, YouTubeAdsManageAdGroupsTool,
-    YouTubeAdsReportTool, YouTubeAdsManageTargetingTool,
-    XAdsCreateCampaignTool, XAdsManageLineItemsTool,
-    XAdsReportTool, XAdsManageAudiencesTool,
     SnapchatAdsCreateCampaignTool, SnapchatAdsManageAdSquadsTool,
     SnapchatAdsReportTool, SnapchatAdsManageAudiencesTool,
 )
@@ -152,10 +146,6 @@ ToolRegistry.register(RedditCreatePostTool())
 ToolRegistry.register(RedditSearchTool())
 ToolRegistry.register(RedditManageCommentsTool())
 ToolRegistry.register(RedditGetAnalyticsTool())
-ToolRegistry.register(QuoraSearchQuestionsTool())
-ToolRegistry.register(QuoraPostAnswerTool())
-ToolRegistry.register(QuoraGetSpacesTool())
-ToolRegistry.register(QuoraGetAnalyticsTool())
 ToolRegistry.register(PinterestCreatePinTool())
 ToolRegistry.register(PinterestManageBoardsTool())
 ToolRegistry.register(PinterestGetAnalyticsTool())
@@ -174,14 +164,6 @@ ToolRegistry.register(LinkedInSalesSearchLeadsTool())
 ToolRegistry.register(LinkedInSalesGetLeadTool())
 ToolRegistry.register(LinkedInSalesSaveLeadTool())
 ToolRegistry.register(LinkedInSalesGetListsTool())
-ToolRegistry.register(YouTubeAdsCreateCampaignTool())
-ToolRegistry.register(YouTubeAdsManageAdGroupsTool())
-ToolRegistry.register(YouTubeAdsReportTool())
-ToolRegistry.register(YouTubeAdsManageTargetingTool())
-ToolRegistry.register(XAdsCreateCampaignTool())
-ToolRegistry.register(XAdsManageLineItemsTool())
-ToolRegistry.register(XAdsReportTool())
-ToolRegistry.register(XAdsManageAudiencesTool())
 ToolRegistry.register(SnapchatAdsCreateCampaignTool())
 ToolRegistry.register(SnapchatAdsManageAdSquadsTool())
 ToolRegistry.register(SnapchatAdsReportTool())
@@ -237,8 +219,6 @@ __all__ = [
     "TikTokGetAnalyticsTool", "TikTokManageCommentsTool",
     "RedditCreatePostTool", "RedditSearchTool",
     "RedditManageCommentsTool", "RedditGetAnalyticsTool",
-    "QuoraSearchQuestionsTool", "QuoraPostAnswerTool",
-    "QuoraGetSpacesTool", "QuoraGetAnalyticsTool",
     "PinterestCreatePinTool", "PinterestManageBoardsTool",
     "PinterestGetAnalyticsTool", "PinterestSearchPinsTool",
     "MetaAdsCreateCampaignTool", "MetaAdsManageAdsetsTool",
@@ -248,10 +228,6 @@ __all__ = [
     # Social
     "LinkedInSalesSearchLeadsTool", "LinkedInSalesGetLeadTool",
     "LinkedInSalesSaveLeadTool", "LinkedInSalesGetListsTool",
-    "YouTubeAdsCreateCampaignTool", "YouTubeAdsManageAdGroupsTool",
-    "YouTubeAdsReportTool", "YouTubeAdsManageTargetingTool",
-    "XAdsCreateCampaignTool", "XAdsManageLineItemsTool",
-    "XAdsReportTool", "XAdsManageAudiencesTool",
     "SnapchatAdsCreateCampaignTool", "SnapchatAdsManageAdSquadsTool",
     "SnapchatAdsReportTool", "SnapchatAdsManageAudiencesTool",
     # CRM integration tools

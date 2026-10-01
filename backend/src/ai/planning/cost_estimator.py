@@ -41,7 +41,6 @@ TOOL_BASELINE_COST: dict[str, Decimal] = {
     "video_edit":       Decimal("0.01"),
     "video_add_sound":  Decimal("0.01"),
     "web_search":       Decimal("0.005"),
-    "xlsx_engine":      Decimal("0.01"),
 }
 
 _DEFAULT_TOOL_COST: Decimal = Decimal("0.01")

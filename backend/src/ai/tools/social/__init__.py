@@ -57,12 +57,6 @@ from src.ai.tools.social.reddit import (
     RedditManageCommentsTool,
     RedditGetAnalyticsTool,
 )
-from src.ai.tools.social.quora import (
-    QuoraSearchQuestionsTool,
-    QuoraPostAnswerTool,
-    QuoraGetSpacesTool,
-    QuoraGetAnalyticsTool,
-)
 from src.ai.tools.social.pinterest import (
     PinterestCreatePinTool,
     PinterestManageBoardsTool,
@@ -88,18 +82,6 @@ from src.ai.tools.social.linkedin_sales_nav import (
     LinkedInSalesGetLeadTool,
     LinkedInSalesSaveLeadTool,
     LinkedInSalesGetListsTool,
-)
-from src.ai.tools.social.youtube_ads import (
-    YouTubeAdsCreateCampaignTool,
-    YouTubeAdsManageAdGroupsTool,
-    YouTubeAdsReportTool,
-    YouTubeAdsManageTargetingTool,
-)
-from src.ai.tools.social.x_ads import (
-    XAdsCreateCampaignTool,
-    XAdsManageLineItemsTool,
-    XAdsReportTool,
-    XAdsManageAudiencesTool,
 )
 from src.ai.tools.social.snapchat_ads import (
     SnapchatAdsCreateCampaignTool,
@@ -134,9 +116,6 @@ __all__ = [
     # Reddit
     "RedditCreatePostTool", "RedditSearchTool",
     "RedditManageCommentsTool", "RedditGetAnalyticsTool",
-    # Quora
-    "QuoraSearchQuestionsTool", "QuoraPostAnswerTool",
-    "QuoraGetSpacesTool", "QuoraGetAnalyticsTool",
     # Pinterest
     "PinterestCreatePinTool", "PinterestManageBoardsTool",
     "PinterestGetAnalyticsTool", "PinterestSearchPinsTool",
@@ -149,12 +128,6 @@ __all__ = [
     # LinkedIn Sales Navigator
     "LinkedInSalesSearchLeadsTool", "LinkedInSalesGetLeadTool",
     "LinkedInSalesSaveLeadTool", "LinkedInSalesGetListsTool",
-    # YouTube Ads
-    "YouTubeAdsCreateCampaignTool", "YouTubeAdsManageAdGroupsTool",
-    "YouTubeAdsReportTool", "YouTubeAdsManageTargetingTool",
-    # X Ads
-    "XAdsCreateCampaignTool", "XAdsManageLineItemsTool",
-    "XAdsReportTool", "XAdsManageAudiencesTool",
     # Snapchat Ads
     "SnapchatAdsCreateCampaignTool", "SnapchatAdsManageAdSquadsTool",
     "SnapchatAdsReportTool", "SnapchatAdsManageAudiencesTool",

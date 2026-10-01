@@ -615,7 +615,7 @@ one-release redirect shims outside the tree (`/api/v1/ai/phase11/*` in `main.py`
 
 **Rule 6 — `tools/` root.** Only `__init__.py`, `base.py`, `resilience.py` and
 `README.md` may sit at `src/ai/tools/`. Every concrete tool lives in a
-subpackage (`core/`, `crm/`, `documents/`, `email/`, `mcp/`, `media/`, `meta/`,
+subpackage (`core/`, `crm/`, `documents/`, `email/`, `media/`, `meta/`,
 `sandbox/`, `social/`).
 
 Run it manually with `python backend/scripts/lint_ai_layout.py`.
@@ -638,7 +638,7 @@ Run it manually with `python backend/scripts/lint_ai_layout.py`.
 | `ai/meta/` | Meta-Agent board, tool synthesis, anti-sprawl, skill library. | `meta_intelligence_tree.py`, `skill_library.py`, `tool_synthesis_pipeline.py`, `tool_red_team.py`, `tool_validator.py`, `platform_schema_compiler.py`, `prompt_evolution.py`, `anti_sprawl.py`, `board/` |
 | `ai/governance/` | Cost gates, HITL, rate limiting. | `governance_service.py` (credit circuit breaker, child credit gate), `rate_limiter.py` (Redis sliding window), `tool_cost_resolver.py` |
 | `ai/llm/` | Provider adapters behind one router. | `router.py` (`LLMRouter`), `base.py`, `types.py`, `gemini_adapter.py`, `anthropic_adapter.py`, `azure_adapter.py` |
-| `ai/tools/` | Tool registry shell plus nine tool subpackages. | Root: `base.py`, `resilience.py`. Subpackages: `core/` (search, scraper, calculator, file_writer), `documents/`, `email/`, `crm/`, `media/`, `mcp/`, `meta/`, `sandbox/`, `social/` (17 platform adapters) |
+| `ai/tools/` | Tool registry shell plus eight tool subpackages. | Root: `base.py`, `resilience.py`. Subpackages: `core/` (search, scraper, calculator, file_writer), `documents/`, `email/`, `crm/`, `media/`, `meta/`, `sandbox/`, `social/` (13 platform adapters) |
 | `ai/orm/` | SQLAlchemy models for the AI domain. | `entity.py`, `execution.py`, `memory.py`, `document.py`, `tools.py`, `trace.py`, `trust.py`, `usage.py` |
 | `ai/schemas/` | Pydantic request/response and internal contracts. | `entity.py`, `execution.py`, `planning.py`, `capabilities.py`, `governance.py`, `io_contract.py`, `reasoning.py`, `enums.py` |
 | `ai/services/` | Extracted service modules (post-restructure landing zone). | `cost_attribution.py`, `attributed_usage.py` |

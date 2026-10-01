@@ -570,7 +570,9 @@ iteration and cost budget.
 
 ### TL-22 — The MCP layer has no transport, no config, and no caller
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01)** — decided: deleted (`tools/mcp/`,
+its test and the `mcp` cost attribution) until there is a customer; decision D7 in the
+[consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
 
 `MCPClient` is a `Protocol` with no concrete implementation anywhere in the repo — no
 stdio, HTTP or SSE transport. `bind_mcp_server` is called only from
@@ -597,11 +599,11 @@ roughly 86, and remove ~1,600 lines.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **TL-23** | [`ai/tools/social/quora.py`](../../../backend/src/ai/tools/social/quora.py) — 4 tools | Targets `https://api.quora.com/v1`. Quora publishes no such public API — no search, answers, spaces or analytics endpoints exist to call. There is nothing to fix; the surface is fabricated. If Quora presence matters, do it via `headless_browser` under an explicit automation policy | ✅ Verified |
-| **TL-24** | [`ai/tools/social/x_ads.py`](../../../backend/src/ai/tools/social/x_ads.py) — 4 tools | Uses OAuth2 bearer headers and JSON bodies; the X Ads API expects OAuth 1.0a request signing and form-encoded parameters. Every call will 401 or 400. This is a rewrite, not a patch — delete until there is a customer | ✅ Verified |
-| **TL-25** | [`ai/tools/social/youtube_ads.py`](../../../backend/src/ai/tools/social/youtube_ads.py) — 4 tools | Pinned to Google Ads **v17** while `google_ads` uses **v18**; takes `customer_id` from the model; no `login-customer-id` header for MCC access. A YouTube campaign is a `VIDEO` `advertisingChannelType` — fold into the `google_ads` family and four tools become zero | ✅ Verified |
-| **TL-26** | [`ai/tools/documents/xlsx_engine.py`](../../../backend/src/ai/tools/documents/xlsx_engine.py) | ~400 lines, **zero imports** anywhere in `backend/src`. Its only reference is a price entry naming it in `planning/cost_estimator.py`. If the themed rendering is wanted, it belongs in the Document Factory's sandbox scripts where generated code can import it | ✅ Verified |
-| **TL-27** | `backend/templates/docx/*.docx` | Three theme templates, ~36 KB each, **zero code references**. `DocxTool._create` always starts from a blank `Document()` | ✅ Verified |
+| **TL-23** | [`ai/tools/social/quora.py`](../../../backend/src/ai/tools/social/quora.py) — 4 tools | Targets `https://api.quora.com/v1`. Quora publishes no such public API — no search, answers, spaces or analytics endpoints exist to call. There is nothing to fix; the surface is fabricated. If Quora presence matters, do it via `headless_browser` under an explicit automation policy | ✅ Verified · **fixed (2026-10-01)** — deleted; `quora` also left `VALID_PLATFORMS` |
+| **TL-24** | [`ai/tools/social/x_ads.py`](../../../backend/src/ai/tools/social/x_ads.py) — 4 tools | Uses OAuth2 bearer headers and JSON bodies; the X Ads API expects OAuth 1.0a request signing and form-encoded parameters. Every call will 401 or 400. This is a rewrite, not a patch — delete until there is a customer | ✅ Verified · **fixed (2026-10-01)** — deleted |
+| **TL-25** | [`ai/tools/social/youtube_ads.py`](../../../backend/src/ai/tools/social/youtube_ads.py) — 4 tools | Pinned to Google Ads **v17** while `google_ads` uses **v18**; takes `customer_id` from the model; no `login-customer-id` header for MCC access. A YouTube campaign is a `VIDEO` `advertisingChannelType` — fold into the `google_ads` family and four tools become zero | ✅ Verified · **fixed (2026-10-01)** — deleted |
+| **TL-26** | [`ai/tools/documents/xlsx_engine.py`](../../../backend/src/ai/tools/documents/xlsx_engine.py) | ~400 lines, **zero imports** anywhere in `backend/src`. Its only reference is a price entry naming it in `planning/cost_estimator.py`. If the themed rendering is wanted, it belongs in the Document Factory's sandbox scripts where generated code can import it | ✅ Verified · **fixed (2026-10-01)** — deleted, with its estimator price |
+| **TL-27** | `backend/templates/docx/*.docx` | Three theme templates, ~36 KB each, **zero code references**. `DocxTool._create` always starts from a blank `Document()` | ✅ Verified · **fixed (2026-10-01)** — deleted |
 | **TL-28** | [`ai/governance/rate_limiter.py`](../../../backend/src/ai/governance/rate_limiter.py) | `RedisRateLimiter` — a correct sliding-window implementation with a documented `"tool:search:company_123"` key example and **zero call sites**. Either wire it in as the per-tenant quota (there is none today) or delete it | ✅ Verified |
 | **TL-29** | Duplicate `_sandbox_base_dir()` | Defined **twice** in [`ai/tools/sandbox/runtime.py`](../../../backend/src/ai/tools/sandbox/runtime.py); the second silently shadows the first. Harmless — they are identical — but it makes the module look unreviewed | ✅ Verified |
 | **TL-30** | One of the two `ToolResult` classes | The Pydantic one at [`ai/tools/base.py:48`](../../../backend/src/ai/tools/base.py:48) and the dataclass at [`ai/tool_executor.py:39`](../../../backend/src/ai/tool_executor.py:39) share a name and no fields. Collapse to one type with a typed output envelope. Blocked on [TL-41](#tl-41--four-dispatch-paths-and-the-typed-one-fails-silently) | ✅ Verified |

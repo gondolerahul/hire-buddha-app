@@ -1232,35 +1232,33 @@ most**, so here are all three real counts.
 
 | Count | What it is | Source |
 |-------|-----------|--------|
-| **16** | platform modules under `tools/social/` | `facebook, google_ads, instagram, linkedin, linkedin_ads, linkedin_sales_nav, meta_ads, pinterest, quora, reddit, snapchat_ads, tiktok, twitter, x_ads, youtube, youtube_ads` |
-| **64** | tool classes registered — exactly 4 per module | `grep -c "^ToolRegistry.register(" backend/src/ai/tools/__init__.py` → 98 total, 34 non-social |
-| **9** | platforms you can actually store a connection for | `VALID_PLATFORMS` in [social_router.py:65](../../backend/src/ai/social_router.py:65) |
-| **8** | platforms whose OAuth tokens can be auto-refreshed | `PLATFORM_REFRESH_CONFIG` in [social_connection_service.py:23](../../backend/src/ai/social_connection_service.py:23) — Quora is missing |
+| **13** | platform modules under `tools/social/` | `facebook, google_ads, instagram, linkedin, linkedin_ads, linkedin_sales_nav, meta_ads, pinterest, reddit, snapchat_ads, tiktok, twitter, youtube` (`quora`, `x_ads` and `youtube_ads` were deleted on 2026-10-01 — TL-23…TL-25) |
+| **52** | tool classes registered — exactly 4 per module | `grep -c "^ToolRegistry.register(" backend/src/ai/tools/__init__.py` → 85 total, 33 non-social |
+| **8** | platforms you can actually store a connection for | `VALID_PLATFORMS` in [social_router.py](../../backend/src/ai/social_router.py) |
+| **8** | platforms whose OAuth tokens can be auto-refreshed | `PLATFORM_REFRESH_CONFIG` in [social_connection_service.py](../../backend/src/ai/social_connection_service.py) — the same eight |
 
 ```python
 # backend/src/ai/social_router.py
 VALID_PLATFORMS = {"linkedin", "twitter", "facebook", "instagram", "google_ads",
-                   "youtube", "tiktok", "reddit", "quora"}
+                   "youtube", "tiktok", "reddit"}
 ```
 
 ```mermaid
 flowchart TD
-    M16["16 platform modules - 64 tool classes"]
+    M16["13 platform modules - 52 tool classes"]
     EXP["All inherit SocialMediaTool with status EXPERIMENTAL"]
     FLAG{"company sets tools.experimental.{tool_id} true"}
     VIS["tool visible to that company's agents"]
     HID["tool hidden - get_visible_tools_for_company filters it out"]
 
     CONN["social_connections table"]
-    V9["9 platforms accepted by POST /api/social-connections"]
+    V9["8 platforms accepted by POST /api/social-connections"]
     R8["8 platforms with an OAuth refresh config"]
-    NOREF["quora - stored but never auto-refreshed"]
 
     M16 --> EXP --> FLAG
     FLAG -->|"yes"| VIS
     FLAG -->|"no - the default"| HID
     CONN --> V9 --> R8
-    V9 --> NOREF
 ```
 
 The gating is one line on the base class

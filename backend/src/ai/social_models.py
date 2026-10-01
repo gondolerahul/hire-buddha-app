@@ -20,7 +20,7 @@ class SocialConnection(Base):
     AI-driven content publishing, analytics, comment management, etc.
 
     Supported platforms: linkedin, twitter, facebook, instagram, google_ads,
-    youtube, tiktok, reddit, quora (future phases).
+    youtube, tiktok, reddit (future phases).
     """
     __tablename__ = "social_connections"
     __table_args__ = (

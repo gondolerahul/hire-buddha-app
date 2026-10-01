@@ -646,7 +646,6 @@ Every `usage_logs` row carries an `attribution` string so the dashboard can answ
 | `meta_spec_critic` | Meta spec critic tool | ✅ | [spec_critic.py:240](../../backend/src/ai/tools/meta/spec_critic.py:240) |
 | `embedding` | Embedding generation | ✅ | [embedding_service.py:368](../../backend/src/ai/memory/embedding_service.py:368) |
 | `sandbox` | Sandbox runtime seconds | ✅ | [metering.py:62](../../backend/src/ai/tools/sandbox/metering.py:62) |
-| `mcp` | MCP tool calls | ✅ | [mcp/adapter.py:132](../../backend/src/ai/tools/mcp/adapter.py:132) |
 | `tool` | Everything else — the **server default** | ✅ | default column value |
 | `actor_step` | Intended for step LLM calls | ❌ never written | — |
 | `reformat_retry` | Intended for the reformat path | ❌ never written | — |
@@ -767,7 +766,6 @@ One row per billable thing. "Metered" means a `usage_logs` row and/or a `run.tot
 | Document generation — PDF | `pdf-generator` | per call | tool cost lookup | ⚠️ registry-only |
 | Document generation — DOCX / PPTX / XLSX | **none** | — | — | ❌ **not metered** |
 | Email ingest / classify / draft | **none** | — | — | ❌ **not metered** |
-| MCP tool calls | binding's `cost_per_call_usd` | per call | [mcp/adapter.py:113](../../backend/src/ai/tools/mcp/adapter.py:113) | ✅ `mcp` tag |
 | Payments (Razorpay) | `razorpay_keys` | — | credentials only | ❌ not a cost SKU |
 
 "⚠️ registry-only" means: the tool is charged **only** if you seed a matching `integration_registry` row for that specific company. There is no APP-company fallback on the tool path and no fixed-cost default, so an unseeded tenant runs these tools for free.
@@ -778,7 +776,7 @@ The older document lists prices for things that are not actually metered. Concre
 
 | Claim in the old doc | Reality |
 |---|---|
-| `docx_tool` $0.01, `pptx_tool` $0.01, `excel` $0.005, `xlsx_engine` $0.01 | These are `TOOL_BASELINE_COST` **planner estimates**, not charges. No SKU, no `TOOL_FIXED_COST` entry, no `usage_logs` row. |
+| `docx_tool` $0.01, `pptx_tool` $0.01, `excel` $0.005 | These are `TOOL_BASELINE_COST` **planner estimates**, not charges. No SKU, no `TOOL_FIXED_COST` entry, no `usage_logs` row. |
 | `email_ingest` $0.001, `email_classify` $0.002, `email_draft` $0.01 | Same — estimator baselines only. Email is never billed. |
 | `calculator` $0.001, `file_writer` $0.001 | Same. |
 | "Unknown / unregistered tool $0.01 fallback" | The `$0.01` is `_DEFAULT_TOOL_COST` in the **estimator**. The *charging* fallback is `$0.00` with a warning. |

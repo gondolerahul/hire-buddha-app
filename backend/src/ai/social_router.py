@@ -62,8 +62,9 @@ class SocialConnectionListResponse(BaseModel):
     count: int
 
 
+# quora left with its tools (TL-23): Quora publishes no API they could call.
 VALID_PLATFORMS = {"linkedin", "twitter", "facebook", "instagram", "google_ads",
-                   "youtube", "tiktok", "reddit", "quora"}
+                   "youtube", "tiktok", "reddit"}
 
 
 # ---------------------------------------------------------------------------
