@@ -2,12 +2,13 @@
 
 > **What this document is:** the state of the defect-fixing work on branch
 > `roadmap-development-defect-fixes`. It covers what was fixed, what became invalid, and
-> how to pick the work up in a new session. It spans three sessions: the 2026-09-28 →
+> how to pick the work up in a new session. It spans five sessions: the 2026-09-28 →
 > 2026-09-29 memory/planner session; the 2026-09-29 → 2026-09-30 session that added
 > the HITL, entity-config and health-endpoint fixes and the PO-06 tool-stack audit; and
 > the 2026-09-30 session that worked register 02 (System Architecture) and merged every
 > endpoint onto port 8000; and the 2026-09-30 → 2026-10-01 session that worked registers
-> 03 (Data Model) and 04 (Auth, RBAC and Tenancy).
+> 03 (Data Model) and 04 (Auth, RBAC and Tenancy); and, alongside it in the same checkout,
+> a session that worked registers 14 (Billing and Credits) and 16 (Frontend).
 > **It does not choose what to fix next.** Defects are fixed one at a time, as the
 > product owner names them. The registers in this folder are the backlog.
 >
@@ -16,7 +17,12 @@
 > partly, DM-I3/I5/I6/I10 open. Register 04 has 22 fixed, AU-16 and AU-19 won't fix, and
 > **AU-24** and **AU-25** open (AU-24 waits on a key-rotation decision); AU-I2…I6 done,
 > AU-I9 partly, AU-I1/I7/I8/I10 open. Registers 01 and 02 are as the third session left
-> them (**PO-07** open). Resume on the product owner's next pick. (End of the third
+> them (**PO-07** open). Register 14 is done — 30 fixed, BC-22 won't fix (a pricing choice);
+> 8 of 10 improvements done, BC-I3 done for tools only, BC-I8 partly. Register 16 has 27
+> fixed and four open: **FE-03**, **FE-12** and **FE-21** wait on package changes (install
+> `vitest`, uninstall the unused packages, install `@tanstack/react-query`) that the
+> session's permission check refused, so they need the user; **FE-28** needs a short-lived
+> download/stream token from the API. Resume on the product owner's next pick. (End of the third
 > session, for reference: register 02 done, SA-I1/I3/I7/I8/I9 open.) Left running locally, started with
 > `start_services.ps1`: Docker, the API (:8000), both Arq workers and the frontend
 > (:3000); `stop_services.ps1` stops them. The previous session's `-alt` servers
@@ -46,7 +52,7 @@
 |---|---|
 | Branch | `roadmap-development-defect-fixes`, cut from `main` at `9896b8b` |
 | Commits on the branch | Listed below, **none pushed** |
-| Working tree | Clean, apart from two spreadsheets the product owner is editing: `Consolidated-Defect-Register.xlsx` and `HireBuddha-Roadmap-Backlog.xlsx`. Leave them uncommitted. Another session may have uncommitted frontend work in progress |
+| Working tree | Clean, apart from two spreadsheets the product owner is editing: `Consolidated-Defect-Register.xlsx` and `HireBuddha-Roadmap-Backlog.xlsx`. Leave them uncommitted |
 | Alembic head | `au26_email_lowercase`; the local database is at it |
 | Host tests | 1315 passed, 7 known failures (see [§8](#8-testing)) |
 | Integration tests | 181 passed, 2 known failures (`test_cost_attribution.py`) |
@@ -140,6 +146,52 @@ its registers.
 | `a65d18d` | AU-23 — an OAuth login signs in only as a provider-verified address |
 | `aa7045d` | AU-26 — one account per address in any letter case |
 | `a10d41e` | AU-23 follow-up — the OAuth code exchange forwards a PKCE `code_verifier` (for FE-11) |
+
+The billing and frontend session (registers 14 and 16), oldest first. The product owner's
+calls for it: renewal is **Razorpay Subscriptions** (recurring mandates), pricing writes are
+**`app_admin` only**, the social-login buttons are **wired and shown only when a client id is
+configured**, and all four large items were wanted — the Razorpay webhook, credit holds,
+the builder's save overlay, and `react-query` (the last one waits on the package install).
+
+| Commit | Change |
+|---|---|
+| `f7e8d69` | BC-01 — a top-up credits the order's amount, once |
+| `6ee7034` | BC-02, BC-27 — every paid-for bucket is spendable; concurrent deductions are row-locked |
+| `01a5386` | BC-I5 — Razorpay's webhook (`POST /api/v1/credits/razorpay/webhook`) credits top-ups, once |
+| `fe8f1a6` | BC-03, BC-04, BC-16, BC-28 — subscriptions are Razorpay Subscriptions; only a payment grants credits |
+| `e46bff3` | BC-04, BC-15, BC-18 — the billing crons run on the worker; the daily one is safe to re-run; abandoned checkouts are reaped |
+| `c1eecb9` | BC-05, BC-06, BC-14 — a run is admitted on credit, holds it (`credit_holds`) and stops when it runs out (`CreditGuard`) |
+| `d1fd54a` | BC-05/BC-06 live evidence through the worker |
+| `d71918d` | BC-07…BC-11, BC-17, BC-29 — every tool call priced once by `ToolCostResolver`, with a `usage_logs` line |
+| `77d0dd2` | BC-12, BC-13 — price overrides change the charge; minutes round one way |
+| `7e706b3` | BC-19, BC-20, BC-21, BC-26 — pricing is `app_admin`'s to read and write, range-checked |
+| `52bd614` | BC-25 — the unused Stripe dependency removed |
+| `141a4df` | FE-26, FE-10, FE-16 — the production build passes; the run page shows each step's tool calls |
+| `50dac40` | FE-04, FE-24, FE-27 — development talks to the local API; report pages reload |
+| `8bfa93b` | BC-30 — the tier list says which tiers are active |
+| `547cca5` | FE-01, FE-05 — an error boundary per page; legacy links keep their id |
+| `0dbd5ef` | FE-25, FE-06, FE-08, FE-23 — the builder's save keeps what it does not show |
+| `3d1dcec` | FE-19, FE-18 — the run page stops polling a finished run and derives its views once |
+| `428ff7c` | FE-17 — the WebGL background sleeps, stops, and loads after the app |
+| `abcebdb` | FE-22 — named vendor chunks; Razorpay and the fonts no longer block every page |
+| `8cb6dac` | FE-14, FE-15 — unmounted agent-kernel components deleted; one `.gap-1` |
+| `cb3026f` | FE-07, FE-29 — every API call goes through `apiClient`; browser-loaded URLs carry the current token |
+| `a7db850` | FE-30 — three more unreferenced files deleted |
+| `c222808` | FE-31 — reloading `/artifacts` shows the app |
+| `eac9f2f` | FE-02 — `frontend/.eslintrc.cjs`; `npm run lint` passes; 13 effect dependencies fixed |
+| `3473bb5` | BC-31 — one company's failure no longer ends the daily credit job |
+| `1fffde8` | FE-11 — Google and Microsoft sign-in, with a checked `state` |
+| `7a61fb1` | FE-09 — lint refuses a timestamp parsed without `parseServerDate` |
+| `d32d412` | FE-20 — the entity editor's tool list is memoised |
+| `457c26c` | Register 16 close-out |
+| `c61a44c` | FE-11 — PKCE |
+
+Not verified live in that session, for want of an account or credentials: the Razorpay API
+calls themselves (order, subscription, plan and invoice — the webhook and verification paths
+were exercised with signed test payloads), a real Google or Microsoft sign-in (no client
+ids configured; the flow was exercised up to the code exchange), and the in-run credit
+breaker stopping a real LLM run (Vertex ADC had expired — run
+`gcloud auth application-default login`).
 
 ---
 
@@ -561,3 +613,21 @@ run that is looping.
   aside.
 - **ADC expires.** "Reauthentication is needed" from every LLM call means
   `gcloud auth application-default login` again.
+- **Frontend gates:** from `frontend/`, `npm run lint` (zero warnings allowed) and
+  `npx tsc --noEmit -p tsconfig.json`; `npx vite build` for the bundle. The lint refuses
+  `new Date(<value>)` and `Date.parse` outside `utils/datetime.ts` (FE-09) and effects
+  that omit what they read (FE-02).
+- **Never take the token from `useAuth()` for a request.** It is read at mount; a refresh
+  does not update it. Use `apiClient`, and `authedApiUrl` for URLs the browser loads
+  itself (FE-07).
+- **Package changes need the user.** `npm install` / `npm uninstall` in `frontend/` were
+  refused by the session's permission check, and the three `@react-three/*` packages'
+  React 19 peer dependency makes a plain `npm install` fail against React 18 (FE-12).
+- **The Vite dev server does not pick up `vite.config.ts` or `.env*` edits** — restart it.
+  `hmr` is off, so reload the page after a source change.
+- **The API runs with `--reload`.** While another session edits backend files it can stop
+  answering for about a minute; wait for `GET /api/v1/health` before concluding anything.
+- **Money moves through `PaymentService`.** A top-up, a webhook event and a subscription
+  charge are each credited once, keyed on the Razorpay payment id; `credit_service` takes a
+  row lock (`lock_wallet`) for every balance change. A run's estimated bill is held in
+  `credit_holds` while it runs, and free credit excludes other runs' holds.

@@ -47,9 +47,9 @@ something that works but costs more than it should.
 | 11 | [Meta-intelligence & the Board](11-META-INTELLIGENCE-DEFECTS.md) | [11](../11-meta-intelligence.md) | 19 | 10 |
 | 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 | 10 |
 | 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 | 10 |
-| 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 26 | 10 |
+| 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 31 (30 fixed, 1 won't fix) | 10 (8 done, 1 done for tools, 1 partly) |
 | 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 | 10 |
-| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 25 | 10 |
+| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 31 (27 fixed, 4 open) | 10 (5 done, 1 partly, 4 open) |
 | 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 | 10 |
 | 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 23 | 10 |
 | 19 | [Testing & quality gates](19-TESTING-DEFECTS.md) | [19](../19-testing.md) | 19 | 10 |
@@ -57,7 +57,7 @@ something that works but costs more than it should.
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 | — |
 | — | [**Tool stack audit (PO-06)**](PO-06-TOOL-STACK-AUDIT.md) | [09](../09-tools.md) | 18 (TL-50…TL-67) | — |
 
-**492 defects, 202 improvements.**
+**503 defects, 202 improvements.**
 
 Related: [`../DEFECT-REGISTER.md`](../DEFECT-REGISTER.md) is the earlier platform-wide list
 (45 items, `D-nn`). Every one of its entries reappears in the module register that owns it,
@@ -71,11 +71,11 @@ Ranked by consequence, not by how hard they are to fix. Six of the ten are small
 
 | # | Finding | Where | Why it matters |
 |---|---|---|---|
-| 1 | **The wallet is credited with an amount the client chooses**, with no replay guard | [BC-01](14-BILLING-AND-CREDITS-DEFECTS.md#bc-01--the-client-chooses-how-much-to-credit-its-own-wallet) | Verify a $1 payment, claim $1000, repeat |
+| 1 | **The wallet is credited with an amount the client chooses**, with no replay guard | [BC-01](14-BILLING-AND-CREDITS-DEFECTS.md#bc-01--the-client-chooses-how-much-to-credit-its-own-wallet) | Verify a $1 payment, claim $1000, repeat. **Fixed 2026-09-30** |
 | 2 | **Any admin can promote themselves to `app_admin`** | [AU-01](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-01--any-admin-can-promote-themselves-to-app_admin) | One PATCH; `app_admin` then bypasses every tenant filter. **Fixed 2026-09-30** |
 | 3 | **The email-connection API has no authentication** | [AU-02](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-02--the-email-connection-api-has-no-authentication-at-all) | Five routes managing SMTP/IMAP credentials, open. **Fixed 2026-09-30** |
 | 4 | **CORTEX is write-only** — memory is recorded and never read back into a prompt | [MC-01](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-01--cortex-is-write-only-on-the-live-path) | An agent's tenth run knows what its first run knew. **Fixed 2026-09-28** |
-| 5 | **Three of the four credit gates have no callers** | [BC-05](14-BILLING-AND-CREDITS-DEFECTS.md#bc-05--three-of-the-four-credit-gates-have-no-callers) | No pre-run gate, no in-run breaker. Both are written and tested |
+| 5 | **Three of the four credit gates have no callers** | [BC-05](14-BILLING-AND-CREDITS-DEFECTS.md#bc-05--three-of-the-four-credit-gates-have-no-callers) | No pre-run gate, no in-run breaker. Both are written and tested. **Fixed 2026-09-30** |
 | 6 | **No webhook signature is verified, and a failure would not block** | [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block) | Anyone who can reach the endpoint can run any tenant's agents |
 | 7 | **The default sandbox runs LLM-authored code as the backend OS user** | [TL-01](TOOL-LAYER-DEFECTS.md#tl-01--the-default-sandbox-runs-llm-authored-code-as-the-backend-os-user) + [TX-01](09-TOOLS-DEFECTS.md#tx-01--the-per-company-sandbox-flag-is-never-read) | The feature flag says "on"; the runtime default says "off"; off wins |
 | 8 | **A run where every step failed can report `COMPLETED`** | [AK-01](05-AGENT-KERNEL-DEFECTS.md#ak-01--a-run-where-every-step-failed-can-report-completed) | Runs that did nothing are billed and counted as successes |

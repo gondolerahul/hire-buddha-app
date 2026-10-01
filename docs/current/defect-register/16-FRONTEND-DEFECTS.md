@@ -59,7 +59,7 @@ short-lived token from the API.
 | FE-08 | Two effects have wrong dependency arrays | ✅ fixed `0dbd5ef` (13 more in `eac9f2f`) |
 | FE-09 | Timestamps are wrong unless routed through a helper | ✅ fixed `7a61fb1` |
 | FE-10 | `getStepToolLogs` is a stub returning `false` | ✅ fixed `141a4df` |
-| FE-11 | The social login buttons do nothing | ✅ fixed `1fffde8` |
+| FE-11 | The social login buttons do nothing | ✅ fixed `1fffde8`, `c61a44c` |
 | FE-12 | Unused dependencies | open — needs `npm uninstall` |
 | FE-13 | `AssetLibrary.tsx` is dead | ✅ fixed `9719f1b` (PO-13) |
 | FE-14 | Six unmounted agent-kernel components | ✅ fixed `8cb6dac` |
@@ -497,7 +497,7 @@ live: a run with tool calls needs Vertex, whose credentials had expired.
 
 ### FE-11 — The social login buttons do nothing
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-01, `1fffde8`; PKCE in the next commit)** — the
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, `1fffde8`, PKCE `c61a44c`)** — the
 buttons start a sign-in that completes, shown only for a configured provider, with a checked
 `state` and PKCE.
 
