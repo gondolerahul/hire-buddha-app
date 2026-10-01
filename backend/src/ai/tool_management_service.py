@@ -158,7 +158,9 @@ class ToolManagementService:
                 "tool_type": db_entry.tool_type,
                 "function_schema": db_entry.function_schema,
                 "is_enabled": db_entry.is_enabled,
-                "configuration": db_entry.configuration,
+                # No ``configuration`` on the list (TL-06): for a synthesized
+                # tool it holds the generated source and the red-team audit.
+                # ``app_admin`` reads it on the single-tool route.
                 "created_at": db_entry.created_at.isoformat() if db_entry.created_at else None,
                 "updated_at": db_entry.updated_at.isoformat() if db_entry.updated_at else None,
             })

@@ -1812,8 +1812,8 @@ Two routers expose tools.
 | Method | Path | Auth | Handler | What it does |
 |---|---|---|---|---|
 | `GET` | `/api/v1/ai/tools` | any authenticated user | [router.py:468](../../backend/src/ai/router.py:468) | merged built-in + DB list; falls back to `ToolRegistry.list_tools()` if the DB is down |
-| `GET` | `/api/v1/ai/tool-registry` | any authenticated user | [tool_management_router.py:34](../../backend/src/ai/tool_management_router.py:34) | same merged list |
-| `GET` | `/api/v1/ai/tool-registry/{tool_id}` | any authenticated user | :44 | one DB row by UUID |
+| `GET` | `/api/v1/ai/tool-registry` | any authenticated user | [tool_management_router.py:34](../../backend/src/ai/tool_management_router.py:34) | same merged list, the rows the viewer may see (DM-08), never with `configuration` (TL-06) |
+| `GET` | `/api/v1/ai/tool-registry/{tool_id}` | any authenticated user | :44 | one DB row by UUID, if visible; `configuration` only for `app_admin` (TL-06) — the tool editor reads it here |
 | `POST` | `/api/v1/ai/tool-registry` | **`app_admin`** | :59 | create a CUSTOM entry; 409 if the name collides with a built-in |
 | `PUT` | `/api/v1/ai/tool-registry/{tool_id}` | **`app_admin`** | :70 | patch any field of a row |
 | `DELETE` | `/api/v1/ai/tool-registry/{tool_id}` | **`app_admin`** | :82 | delete; 403 for `tool_type == "BUILT_IN"` |

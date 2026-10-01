@@ -47,9 +47,18 @@ async def get_tool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get a single tool by ID (404 for another tenant's tool)."""
+    """Get a single tool by ID (404 for another tenant's tool).
+
+    ``configuration`` — a synthesized tool's source and audit trail, a custom
+    tool's endpoint and key references — goes to ``app_admin`` only, the role
+    that edits tools (TL-06).
+    """
     service = ToolManagementService(db)
-    return await service.get_tool(tool_id, viewer=current_user)
+    entry = await service.get_tool(tool_id, viewer=current_user)
+    body = ToolRegistryEntryResponse.model_validate(entry)
+    if current_user.role != "app_admin":
+        body.configuration = None
+    return body
 
 
 # ---------------------------------------------------------------------------

@@ -93,7 +93,17 @@ export const ToolManagement: React.FC = () => {
         setShowModal(true);
     };
 
-    const openEditModal = (tool: ToolRegistryEntry) => {
+    const openEditModal = async (listed: ToolRegistryEntry) => {
+        // The list carries no `configuration` (TL-06); the single-tool route
+        // returns it to app_admin, the role that edits tools.
+        let tool = listed;
+        if (listed.id) {
+            try {
+                tool = await toolService.getTool(listed.id);
+            } catch {
+                tool = listed;
+            }
+        }
         setEditingTool(tool);
         setFormName(tool.name);
         setFormDisplayName(tool.display_name || '');

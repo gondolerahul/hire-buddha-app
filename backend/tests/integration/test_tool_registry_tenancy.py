@@ -88,3 +88,33 @@ async def test_another_tenants_tool_is_a_404(db):
     with pytest.raises(HTTPException) as exc:
         await ToolManagementService(db).get_tool(entry.id, viewer=SimpleNamespace(role="tenant_admin", company_id=mine.id))
     assert exc.value.status_code == 404
+
+
+# ── TL-06 remainder (P3.8): the list carries no configuration ───────────────
+
+
+@pytest.mark.asyncio
+async def test_the_list_never_carries_configuration(db):
+    from src.ai.tool_management_service import ToolManagementService
+
+    mine = await _company(db)
+    db.add(_entry(mine.id, f"t_{uuid.uuid4().hex[:6]}"))
+    await db.flush()
+    for viewer in (SimpleNamespace(role="tenant_user", company_id=mine.id),
+                   SimpleNamespace(role="app_admin", company_id=mine.id)):
+        listed = await ToolManagementService(db).list_all_tools(viewer=viewer)
+        assert listed and not any("configuration" in t for t in listed)
+
+
+@pytest.mark.asyncio
+async def test_only_app_admin_reads_a_tools_configuration(db):
+    from src.ai.tool_management_router import get_tool
+
+    mine = await _company(db)
+    entry = _entry(mine.id, f"t_{uuid.uuid4().hex[:6]}")
+    db.add(entry)
+    await db.flush()
+    owner = SimpleNamespace(role="tenant_admin", company_id=mine.id, id=uuid.uuid4())
+    admin = SimpleNamespace(role="app_admin", company_id=mine.id, id=uuid.uuid4())
+    assert (await get_tool(entry.id, db=db, current_user=owner)).configuration is None
+    assert (await get_tool(entry.id, db=db, current_user=admin)).configuration == entry.configuration

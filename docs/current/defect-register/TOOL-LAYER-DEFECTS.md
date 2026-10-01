@@ -235,7 +235,7 @@ matching `WebSearchTool`. Then delete the typed path entirely — see
 
 ### TL-06 — The tool-registry read endpoints return every tenant's rows
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed** — tenancy by DM-08 (2026-09-30, `d7fd9ac`: both routes filter to the rows the viewer may see); `configuration` on 2026-10-01 (P3.8): the list never returns it, and the single-tool route returns it to `app_admin` only (the tool editor fetches it there). `tests/integration/test_tool_registry_tenancy.py`.
 
 `list_all_tools()` executes `select(ToolRegistryEntry)` with **no company filter**, and
 `get_tool(tool_id)` loads by primary key with **no ownership check**. Both routes depend
