@@ -55,6 +55,9 @@ INTERNAL_CONTEXT_KEYS: FrozenSet[str] = frozenset({
     "__intelligence_rules__",
     "__alignment_correction__",
     "__goal_check_counter__",
+    # Loop bookkeeping (iteration, budget pressure, subgoals), not a step's
+    # output: it was rendered to the model as one (EP-25).
+    "__agent_state__",
 })
 
 # ---------------------------------------------------------------------------

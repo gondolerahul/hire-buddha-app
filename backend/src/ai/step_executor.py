@@ -47,6 +47,72 @@ def prompt_context_block(filtered_context: dict, context: dict) -> Optional[str]
     return "\n\n".join(str(p) for p in parts if p) or None
 
 
+def compose_step_prompt(step: Any, filtered_context: dict, run_input: Any) -> str:
+    """The user prompt for a THOUGHT/ACTION step: its rendered template, the
+    run's request when the template leaves it out, the previous steps'
+    outputs, and the step description."""
+    input_vars = {**filtered_context}
+    if "input" not in input_vars and run_input is not None:
+        input_vars["input"] = run_input
+    raw_template = step.target.prompt_template if step.target and step.target.prompt_template else "{{input}}"
+    user_prompt = parse_variables(raw_template, input_vars)
+
+    # ── Phase 9: Detect unresolved {{variables}} in ACTION/THOUGHT prompts ──
+    _unresolved_vars = re.findall(r'\{\{(.+?)\}\}', user_prompt)
+    if _unresolved_vars:
+        logger.warning(
+            f"Unresolved variables in prompt for step '{step.name}': {_unresolved_vars}. "
+            f"Upstream steps may have failed or not produced output."
+        )
+        user_prompt += (
+            f"\n\n⚠️ DATA_MISSING: The following data references could not be resolved: "
+            f"{', '.join(_unresolved_vars)}. "
+            f"If you cannot complete this task without this data, respond with: "
+            f"[DATA_MISSING] and explain what information is needed. "
+            f"Do NOT fabricate or hallucinate data to fill these gaps."
+        )
+
+    # The run's request reaches every step (EP-25). ``input`` is internal (it is
+    # never listed as a previous step's output below), so a template that does
+    # not reference ``{{input}}`` — a description copied into prompt_template is
+    # common — used to leave the model without the task.
+    task = str(run_input).strip() if run_input is not None else ""
+    if task and task not in user_prompt:
+        user_prompt += f"\n\n## Task\n{task}"
+
+    # ── Enrich user prompt with prior step context ──────────────────────
+    # Dynamic-plan THOUGHT/ACTION steps often have descriptions like
+    # "Extract URLs from search results" but no explicit {{step_1.output}}
+    # in their prompt_template.  Without appending the actual context data,
+    # the LLM receives the instruction but none of the data to work with.
+    _INTERNAL_KEYS = INTERNAL_CONTEXT_KEYS
+    step_outputs = {
+        k: v for k, v in filtered_context.items()
+        if k not in _INTERNAL_KEYS and v  # skip empty/None
+    }
+    if step_outputs:
+        context_block = "\n\n## Available Context from Previous Steps\n"
+        for ctx_key, ctx_val in step_outputs.items():
+            val_str = str(ctx_val)
+            # Mark failed/empty steps clearly
+            if val_str.startswith("[FAILED]") or val_str.startswith("[TOOL_EMPTY]"):
+                context_block += f"\n### ❌ {ctx_key} (FAILED)\n{val_str[:500]}\n"
+            elif val_str.startswith("[TIMEOUT]") or val_str.startswith("[ERROR]"):
+                context_block += f"\n### ⏱️ {ctx_key} (ERROR)\n{val_str[:500]}\n"
+            else:
+                # Truncate very large values to avoid overwhelming the prompt
+                if len(val_str) > 30000:
+                    val_str = val_str[:30000] + "\n... (truncated)"
+                context_block += f"\n### ✅ {ctx_key}\n{val_str}\n"
+        user_prompt += context_block
+
+    # Also include the step description as task instruction if it's not
+    # already the prompt (i.e., when prompt_template was a {{variable}} reference)
+    if step.description and step.description not in user_prompt:
+        user_prompt = f"## Current Task\n{step.description}\n\n{user_prompt}"
+    return user_prompt
+
+
 def llm_step_result(step_name: str, output: str, response: Any, reasoning_mode: str) -> dict[str, Any]:
     """The step's result dict. A ReAct loop that ran out of turns while the
     model was still calling tools was cut off, not finished: the step reports
@@ -677,55 +743,7 @@ class StepExecutorService:
         _step_hint = getattr(step, "reasoning_hint", None)
         reasoning_mode = str(_step_hint).upper() if _step_hint else "REACT"
 
-        input_vars = {**filtered_context}
-        raw_template = step.target.prompt_template if step.target and step.target.prompt_template else "{{input}}"
-        user_prompt = parse_variables(raw_template, input_vars)
-
-        # ── Phase 9: Detect unresolved {{variables}} in ACTION/THOUGHT prompts ──
-        _unresolved_vars = re.findall(r'\{\{(.+?)\}\}', user_prompt)
-        if _unresolved_vars:
-            logger.warning(
-                f"Unresolved variables in prompt for step '{step.name}': {_unresolved_vars}. "
-                f"Upstream steps may have failed or not produced output."
-            )
-            user_prompt += (
-                f"\n\n⚠️ DATA_MISSING: The following data references could not be resolved: "
-                f"{', '.join(_unresolved_vars)}. "
-                f"If you cannot complete this task without this data, respond with: "
-                f"[DATA_MISSING] and explain what information is needed. "
-                f"Do NOT fabricate or hallucinate data to fill these gaps."
-            )
-
-        # ── Enrich user prompt with prior step context ──────────────────────
-        # Dynamic-plan THOUGHT/ACTION steps often have descriptions like
-        # "Extract URLs from search results" but no explicit {{step_1.output}}
-        # in their prompt_template.  Without appending the actual context data,
-        # the LLM receives the instruction but none of the data to work with.
-        _INTERNAL_KEYS = INTERNAL_CONTEXT_KEYS
-        step_outputs = {
-            k: v for k, v in filtered_context.items()
-            if k not in _INTERNAL_KEYS and v  # skip empty/None
-        }
-        if step_outputs:
-            context_block = "\n\n## Available Context from Previous Steps\n"
-            for ctx_key, ctx_val in step_outputs.items():
-                val_str = str(ctx_val)
-                # Mark failed/empty steps clearly
-                if val_str.startswith("[FAILED]") or val_str.startswith("[TOOL_EMPTY]"):
-                    context_block += f"\n### ❌ {ctx_key} (FAILED)\n{val_str[:500]}\n"
-                elif val_str.startswith("[TIMEOUT]") or val_str.startswith("[ERROR]"):
-                    context_block += f"\n### ⏱️ {ctx_key} (ERROR)\n{val_str[:500]}\n"
-                else:
-                    # Truncate very large values to avoid overwhelming the prompt
-                    if len(val_str) > 30000:
-                        val_str = val_str[:30000] + "\n... (truncated)"
-                    context_block += f"\n### ✅ {ctx_key}\n{val_str}\n"
-            user_prompt += context_block
-
-        # Also include the step description as task instruction if it's not
-        # already the prompt (i.e., when prompt_template was a {{variable}} reference)
-        if step.description and step.description not in user_prompt:
-            user_prompt = f"## Current Task\n{step.description}\n\n{user_prompt}"
+        user_prompt = compose_step_prompt(step, filtered_context, context.get("input"))
 
         logger.debug(f"Routing via LLMRouter → task_type={task_type}, reasoning_mode={reasoning_mode}, model_override={model_override}")
         # Inject model_override into config so reasoning methods can forward it

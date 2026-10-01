@@ -38,8 +38,8 @@ Re-checked against the code on 2026-10-01. **No writer** means nothing in
 | `__semantic_context__`, `__memory_context__`, `__cortex_knowledge__`, `__experience__`, `__episodic__`, `__knowledge_refs__` | **no writer** | — | Names reserved by earlier memory designs |
 
 `__agent_state__` — the loop's `{iteration, budget_pressure, open_subgoals}`
-echo, written by `materialise_context_dict` — is **not** in the set, so it is
-rendered into step prompts as if it were a previous step's output (EP-25).
+echo, written by `materialise_context_dict` — is in the set (EP-25), so it is
+no longer rendered into step prompts as if it were a previous step's output.
 
 ## Invariants
 

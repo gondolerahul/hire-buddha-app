@@ -526,7 +526,10 @@ did not, except for the bill.
 
 ### EP-25 — A step whose template omits `{{input}}` never sees the task
 
-**✅ Verified · High** · **Status: open** — found 2026-09-29 on a live deep-research run.
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — found 2026-09-29 on a live
+deep-research run. `step_executor.compose_step_prompt` appends the run input as `## Task`
+when the rendered template does not contain it, and `__agent_state__` is in
+`INTERNAL_CONTEXT_KEYS`. Test: `tests/unit/test_step_prompt.py`.
 
 `step_executor` builds the user prompt from `step.target.prompt_template` (default
 `{{input}}`), then appends an "Available Context from Previous Steps" block built from

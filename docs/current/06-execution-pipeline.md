@@ -1218,10 +1218,21 @@ flowchart TD
     TRIM --> PV["parse_variables prompt_template, filtered_context"]
     PV --> UNRES{"unresolved {{...}} left?"}
     UNRES -- yes --> WARN["append DATA_MISSING directive - do NOT fabricate"]
-    UNRES -- no --> ENRICH
-    WARN --> ENRICH["append 'Available Context from Previous Steps' block"]
+    UNRES -- no --> REQ
+    WARN --> REQ{"run input already in the prompt?"}
+    REQ -- no --> ADDREQ["append '## Task' with the run input"]
+    REQ -- yes --> ENRICH
+    ADDREQ --> ENRICH["append 'Available Context from Previous Steps' block"]
     ENRICH --> TASK["prepend '## Current Task' from step.description"]
 ```
+
+`step_executor.compose_step_prompt` builds this prompt. **The run's request
+reaches every step** (EP-25): `input` is internal, so it is never listed among
+the previous steps' outputs; when the rendered template does not already
+contain it — a description copied into `prompt_template` is common — it is
+appended as `## Task`. Before EP-25 such a step never saw the request and
+answered "please provide the topic". `__agent_state__` (loop bookkeeping) is
+internal too, so it is no longer shown to the model as a step's output.
 
 [`parse_variables`](../../backend/src/ai/core/prompt_utils.py:15) does two
 passes: `{{var}}` first, then bare `{var}` (skipping anything that looks like

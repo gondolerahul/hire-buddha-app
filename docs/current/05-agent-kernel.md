@@ -1524,6 +1524,7 @@ inventory is [core/INTERNAL_KEYS.md](../../backend/src/ai/core/INTERNAL_KEYS.md)
 | `__intelligence_rules__` | `MemoryAssemblyService` | `prompt_utils` | per iteration |
 | `__alignment_correction__` | GoalGuard | the retried step | iteration N+1 |
 | `__goal_check_counter__` | GoalGuard | GoalGuard | run |
+| `__agent_state__` | `materialise_context_dict` | budget-aware ReAct, `agent_introspect` | per iteration |
 
 **The scrubbing rule:** before a context dict is concatenated into an LLM's
 user-facing input, every member of `INTERNAL_CONTEXT_KEYS` is filtered out.
@@ -1541,8 +1542,10 @@ step_outputs = {
 
 - [step_executor.py:267](../../backend/src/ai/step_executor.py:267) — tool
   input resolution.
-- [step_executor.py:821](../../backend/src/ai/step_executor.py:821) — the
-  "Available Context from Previous Steps" prompt block.
+- `step_executor.compose_step_prompt` — the "Available Context from Previous
+  Steps" prompt block. Because `input` is scrubbed there, the same function
+  appends it as `## Task` when the template does not already contain it
+  (EP-25).
 
 There is a second, orthogonal filter for **persistence**:
 `context_utils.sanitize_context_for_persistence`
