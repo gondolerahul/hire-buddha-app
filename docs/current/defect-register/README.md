@@ -36,11 +36,11 @@ something that works but costs more than it should.
 |---|---|---|---:|---:|
 | 01 | [Product & functional overview](01-PRODUCT-OVERVIEW-DEFECTS.md) | [01](../01-product-overview.md) | 22 (1 open, 14 resolved, 6 deferred, 1 won't fix) | 12 (deferred) |
 | 02 | [System architecture & topology](02-SYSTEM-ARCHITECTURE-DEFECTS.md) | [02](../02-system-architecture.md) | 21 (21 fixed) | 10 (3 done, 1 moot, 1 partly, 5 open) |
-| 03 | [Database & data model](03-DATA-MODEL-DEFECTS.md) | [03](../03-data-model.md) | 20 | 10 |
-| 04 | [Auth, RBAC & multi-tenancy](04-AUTH-RBAC-TENANCY-DEFECTS.md) | [04](../04-auth-rbac-tenancy.md) | 22 | 10 |
+| 03 | [Database & data model](03-DATA-MODEL-DEFECTS.md) | [03](../03-data-model.md) | 21 (20 fixed, 1 invalid) | 10 (5 done, 1 partly, 4 open) |
+| 04 | [Auth, RBAC & multi-tenancy](04-AUTH-RBAC-TENANCY-DEFECTS.md) | [04](../04-auth-rbac-tenancy.md) | 26 (22 fixed, 2 won't fix, 2 open) | 10 (5 done, 1 partly, 4 open) |
 | 05 | [The agent kernel](05-AGENT-KERNEL-DEFECTS.md) | [05](../05-agent-kernel.md) | 21 | 10 |
 | 06 | [Entities & the execution pipeline](06-EXECUTION-PIPELINE-DEFECTS.md) | [06](../06-execution-pipeline.md) | 25 | 10 |
-| 07 | [Planning, critics & self-correction](07-PLANNING-AND-CRITICS-DEFECTS.md) | [07](../07-planning-and-critics.md) | 25 | 10 |
+| 07 | [Planning, critics & self-correction](07-PLANNING-AND-CRITICS-DEFECTS.md) | [07](../07-planning-and-critics.md) | 26 | 10 |
 | 08 | [Memory, CORTEX & retrieval](08-MEMORY-AND-CORTEX-DEFECTS.md) | [08](../08-memory-and-cortex.md) | 20 (9 fixed, 11 deferred) | 11 |
 | 09 | [Tools & the tool registry](09-TOOLS-DEFECTS.md) | [09](../09-tools.md) | 6 + **[49 deep](TOOL-LAYER-DEFECTS.md)** | 10 |
 | 10 | [LLM providers & routing](10-LLM-PROVIDERS-DEFECTS.md) | [10](../10-llm-providers.md) | 25 | 10 |
@@ -51,13 +51,13 @@ something that works but costs more than it should.
 | 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 | 10 |
 | 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 25 | 10 |
 | 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 | 10 |
-| 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 22 | 10 |
+| 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 23 | 10 |
 | 19 | [Testing & quality gates](19-TESTING-DEFECTS.md) | [19](../19-testing.md) | 19 | 10 |
 | 20 | [Developer onboarding & glossary](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md) | [20](../20-onboarding-and-glossary.md) | 18 | 10 |
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 | — |
 | — | [**Tool stack audit (PO-06)**](PO-06-TOOL-STACK-AUDIT.md) | [09](../09-tools.md) | 18 (TL-50…TL-67) | — |
 
-**485 defects, 202 improvements.**
+**492 defects, 202 improvements.**
 
 Related: [`../DEFECT-REGISTER.md`](../DEFECT-REGISTER.md) is the earlier platform-wide list
 (45 items, `D-nn`). Every one of its entries reappears in the module register that owns it,
@@ -72,8 +72,8 @@ Ranked by consequence, not by how hard they are to fix. Six of the ten are small
 | # | Finding | Where | Why it matters |
 |---|---|---|---|
 | 1 | **The wallet is credited with an amount the client chooses**, with no replay guard | [BC-01](14-BILLING-AND-CREDITS-DEFECTS.md#bc-01--the-client-chooses-how-much-to-credit-its-own-wallet) | Verify a $1 payment, claim $1000, repeat |
-| 2 | **Any admin can promote themselves to `app_admin`** | [AU-01](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-01--any-admin-can-promote-themselves-to-app_admin) | One PATCH; `app_admin` then bypasses every tenant filter |
-| 3 | **The email-connection API has no authentication** | [AU-02](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-02--the-email-connection-api-has-no-authentication-at-all) | Five routes managing SMTP/IMAP credentials, open |
+| 2 | **Any admin can promote themselves to `app_admin`** | [AU-01](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-01--any-admin-can-promote-themselves-to-app_admin) | One PATCH; `app_admin` then bypasses every tenant filter. **Fixed 2026-09-30** |
+| 3 | **The email-connection API has no authentication** | [AU-02](04-AUTH-RBAC-TENANCY-DEFECTS.md#au-02--the-email-connection-api-has-no-authentication-at-all) | Five routes managing SMTP/IMAP credentials, open. **Fixed 2026-09-30** |
 | 4 | **CORTEX is write-only** — memory is recorded and never read back into a prompt | [MC-01](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-01--cortex-is-write-only-on-the-live-path) | An agent's tenth run knows what its first run knew. **Fixed 2026-09-28** |
 | 5 | **Three of the four credit gates have no callers** | [BC-05](14-BILLING-AND-CREDITS-DEFECTS.md#bc-05--three-of-the-four-credit-gates-have-no-callers) | No pre-run gate, no in-run breaker. Both are written and tested |
 | 6 | **No webhook signature is verified, and a failure would not block** | [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block) | Anyone who can reach the endpoint can run any tenant's agents |

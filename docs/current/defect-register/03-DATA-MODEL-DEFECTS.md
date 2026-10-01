@@ -34,14 +34,50 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--the-database-cannot-be-rebuilt-correctly) | The database cannot be rebuilt correctly | 4 | Now — a fresh deploy is broken today |
-| [T1](#3-t1--missing-constraints-and-indexes) | Missing constraints and indexes | 6 | Before data volume grows |
-| [T2](#4-t2--wrong-types-and-dead-tables) | Wrong types and dead tables | 6 | Opportunistically |
-| [T3](#5-t3--traps-that-produce-wrong-answers) | Traps that produce wrong answers | 5 | Document now, fix when touched |
+| Tier | Theme | Count | Fixed | Invalid |
+|---|---|---|---|---|
+| [T0](#2-t0--the-database-cannot-be-rebuilt-correctly) | The database cannot be rebuilt correctly | 4 | 4 | 0 |
+| [T1](#3-t1--missing-constraints-and-indexes) | Missing constraints and indexes | 6 | 5 | 1 |
+| [T2](#4-t2--wrong-types-and-dead-tables) | Wrong types and dead tables | 6 | 6 | 0 |
+| [T3](#5-t3--traps-that-produce-wrong-answers) | Traps that produce wrong answers | 5 | 5 | 0 |
 
-**Total: 21 defects, 10 improvements.**
+**Total: 21 defects (20 fixed, 1 invalid), 10 improvements (6 done, 4 open).** Worked
+2026-09-28 to 2026-10-01 on branch `roadmap-development-defect-fixes`. DM-21 was found on
+the way (a fresh database could not be built at all) and added.
+
+| ID | Defect | Status |
+|---|---|---|
+| DM-01 | `subscription_tiers` has no migration | ✅ fixed `fd3eb83` |
+| DM-02 | `phone_numbers` is created by a script, not a migration | ✅ fixed `fd3eb83` |
+| DM-03 | `feature_flags` has no ORM model and is optional | ✅ fixed `c9b6577` |
+| DM-04 | `billing_events` has no unique constraint | ✅ fixed `80b22ed` |
+| DM-05 | `execution_runs` has no index on `company_id` or `entity_id` | ✅ fixed `4d18973` |
+| DM-06 | Log tables have no indexes at all | ✅ fixed `4d18973` |
+| DM-07 | `document_chunks.embedding` has no ANN index | ⛔ invalid `a30bb85` (the table went with v1 memory) |
+| DM-08 | `tool_registry_entries.name` is globally unique across tenants | ✅ fixed `d7fd9ac` |
+| DM-09 | Log tables have no tenant column | ✅ fixed `a99ae44` |
+| DM-10 | The legacy `assets` table was never dropped | ✅ fixed `ae0226f` |
+| DM-11 | Numeric values stored as text | ✅ fixed `c6597db` |
+| DM-12 | Every `DateTime` column is naive | ✅ fixed `2c4bd36` (CORTEX tables are the package's) |
+| DM-13 | `JSON` on old tables, `JSONB` on new ones | ✅ fixed `8e181b2` (three `json` columns kept, with reasons) |
+| DM-14 | Three columns are literally named `metadata` | ✅ fixed `b362241` (package change to port) |
+| DM-15 | `clean_db.sql` truncates by a hand-maintained list | ✅ fixed `945f79b` |
+| DM-16 | Soft delete has no default filter | ✅ fixed `d00fbd6` |
+| DM-17 | Run status transitions are advisory | ✅ fixed `4a30627` (listener landed in `141a4df`) |
+| DM-18 | `artifacts.campaign_id` points at the wrong table | ✅ fixed `5e38d68` |
+| DM-19 | Two migration files share a filename prefix | ✅ fixed `fd3eb83` |
+| DM-20 | Some migrations are defensively idempotent | ✅ fixed `fd3eb83` |
+| DM-21 | A fresh database cannot be built at all | ✅ fixed `fd3eb83` |
+| DM-I1 | Add the indexes the queries already assume | ✅ done `4d18973` |
+| DM-I2 | Denormalise `company_id` onto the log tables | ✅ done `a99ae44` |
+| DM-I3 | Partition or archive `execution_trace_events` | open — needs a retention decision |
+| DM-I4 | Move the entity JSON columns to `JSONB` | ✅ done `8e181b2` (8 of 9) |
+| DM-I5 | One `updated_at` trigger | open |
+| DM-I6 | Give the CORTEX tables a tenant column | open — package change |
+| DM-I7 | `clean_db.sql` derives its table list | ✅ done `945f79b` |
+| DM-I8 | Cast the text-numeric columns | ✅ done `c6597db` |
+| DM-I9 | Schema census in the merge gate | partly — the census exists (`fd3eb83`); there is no CI to gate on |
+| DM-I10 | Store money as one type everywhere | open |
 
 The three worth reading first:
 
@@ -708,6 +744,11 @@ already six tables out of date.
 migration. Doing it after a year of rows is a maintenance window.
 
 ### DM-I9 — Add a schema census to the merge gate
+
+**Status: partly done (2026-09-30)** — the census exists:
+`tests/integration/test_schema_census.py` builds a database with `alembic upgrade head` and
+compares every table, column type, index and unique constraint with the models (DM-21). It
+runs with the integration suite; there is still no CI to make it a merge gate.
 
 **Effect: medium.** Compare every `__tablename__` and column against the database built
 from `alembic upgrade head` on a clean instance. That single check would have caught

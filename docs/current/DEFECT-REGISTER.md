@@ -478,8 +478,8 @@ re-litigates them.**
 |---|---|---|
 | **D-41** | Doubled `/api/v1/ai/admin/admin/*` segment | Cosmetic. Changing it breaks the admin UI for no user-visible gain |
 | **D-42** | `"sucess"` misspelled in the Tata webhook response | It is an external contract. Correcting it is a breaking change — coordinate with the provider, or never |
-| **D-43** | Naive `DateTime` columns throughout | UTC by convention. A timezone migration touches every table and buys little today |
-| **D-44** | `JSON` on older tables, `JSONB` on newer | Migrate opportunistically when a table is being changed anyway |
+| **D-43** | Naive `DateTime` columns throughout | ✅ fixed (2026-10-01, `2c4bd36`) — DM-12: the "buys little" was wrong; three call sites already read the local clock. Host columns are `timestamptz`, and Python keeps naive UTC through a driver codec |
+| **D-44** | `JSON` on older tables, `JSONB` on newer | ✅ fixed (2026-10-01, `8e181b2`) — DM-13: 27 columns are `jsonb`; three stay `json` because their key order is content |
 | **D-45** | Postgres on host port 5433, not 5432 | Deliberate — Docker maps `5433:5432`. Fix the stale `backend/.env` instead of the mapping. *`.env.example` says 5433 since 2026-09-30* |
 
 ---

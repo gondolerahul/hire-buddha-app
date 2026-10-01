@@ -6,14 +6,18 @@
 > 2026-09-29 memory/planner session; the 2026-09-29 → 2026-09-30 session that added
 > the HITL, entity-config and health-endpoint fixes and the PO-06 tool-stack audit; and
 > the 2026-09-30 session that worked register 02 (System Architecture) and merged every
-> endpoint onto port 8000.
+> endpoint onto port 8000; and the 2026-09-30 → 2026-10-01 session that worked registers
+> 03 (Data Model) and 04 (Auth, RBAC and Tenancy).
 > **It does not choose what to fix next.** Defects are fixed one at a time, as the
 > product owner names them. The registers in this folder are the backlog.
 >
-> **Where the work is paused (2026-09-30, end of the third session):** register 02 is
-> done — all 21 defects fixed; improvements SA-I2, SA-I4, SA-I10 done, SA-I5 moot, SA-I6
-> partly done, SA-I1/I3/I7/I8/I9 open. Register 01 still has **PO-07** open. Resume on
-> the product owner's next pick. Left running locally, started with
+> **Where the work is paused (2026-10-01, end of the fourth session):** register 03 is
+> done — 20 defects fixed, DM-07 invalid; improvements DM-I1/I2/I4/I7/I8 done, DM-I9
+> partly, DM-I3/I5/I6/I10 open. Register 04 has 22 fixed, AU-16 and AU-19 won't fix, and
+> **AU-24** and **AU-25** open (AU-24 waits on a key-rotation decision); AU-I2…I6 done,
+> AU-I9 partly, AU-I1/I7/I8/I10 open. Registers 01 and 02 are as the third session left
+> them (**PO-07** open). Resume on the product owner's next pick. (End of the third
+> session, for reference: register 02 done, SA-I1/I3/I7/I8/I9 open.) Left running locally, started with
 > `start_services.ps1`: Docker, the API (:8000), both Arq workers and the frontend
 > (:3000); `stop_services.ps1` stops them. The previous session's `-alt` servers
 > (:8010 API, :3010 frontend) also run; its stale Arq worker was stopped while
@@ -42,8 +46,10 @@
 |---|---|
 | Branch | `roadmap-development-defect-fixes`, cut from `main` at `9896b8b` |
 | Commits on the branch | Listed below, **none pushed** |
-| Working tree | Clean, apart from two spreadsheets the product owner is editing: `Consolidated-Defect-Register.xlsx` and `HireBuddha-Roadmap-Backlog.xlsx`. Leave them uncommitted |
-| Host tests | 1126 passed, 7 known failures (see [§8](#8-testing)) |
+| Working tree | Clean, apart from two spreadsheets the product owner is editing: `Consolidated-Defect-Register.xlsx` and `HireBuddha-Roadmap-Backlog.xlsx`. Leave them uncommitted. Another session may have uncommitted frontend work in progress |
+| Alembic head | `au26_email_lowercase`; the local database is at it |
+| Host tests | 1315 passed, 7 known failures (see [§8](#8-testing)) |
+| Integration tests | 181 passed, 2 known failures (`test_cost_attribution.py`) |
 | CORTEX package tests | 49 passed |
 | Type check, layout lint | Pass |
 
@@ -99,6 +105,42 @@ oldest first:
 | `702d772` | SA-I4 — `/api/v1/health` reports whether a worker is consuming |
 | `5fe35fd` | SA-07 — child runs have their own queue and worker |
 
+The fourth session (registers 03 — Data Model — and 04 — Auth, RBAC and Tenancy), oldest
+first. It ran alongside a second session working registers 14 (billing) and 16 (frontend)
+in the same checkout; that session's commits are interleaved on the branch and recorded in
+its registers.
+
+| Commit | Change |
+|---|---|
+| `d70675e` | AU-01 — no one raises their own role through `PATCH /users` |
+| `072b0bb` | AU-03, AU-15 — only admins rename a company; partner admins manage their tenants; no one suspends their own |
+| `ccbfc6e` | AU-02 — the email-connection API needs a user and stays in its company |
+| `ecb9ba4` | AU-04, AU-14 — only an active user's access token signs in |
+| `fd3eb83` | DM-21, DM-01, DM-02, DM-19, DM-20 — a fresh database builds from Alembic and matches the ORM (schema census) |
+| `4d18973` | DM-05, DM-06 — run and run-log indexes |
+| `80b22ed` | DM-04 — one `billing_events` row per company, month and grouping |
+| `945f79b` | DM-15 — `clean_db.sql` derives its table list and keeps built-in tools |
+| `b82cbc3` | AU-10 — refresh tokens stored as SHA-256 hashes |
+| `d00fbd6` | DM-16 — soft-deleted entities hidden by default |
+| `6127c33` | AU-05, AU-09, AU-12 — logout, logout everywhere, reuse detection (`token_version`) |
+| `8842901` | AU-06, AU-07, AU-08 — password reset, password policy and login throttle, verified sign-in |
+| `a608183` | AU-17, AU-18, AU-21 — one role guard; `app_admin` always passes |
+| `cbb8a06` | `company_router.py` line endings back to LF |
+| `f10300d` | AU-20, AU-I5, PO-I6 — one visibility rule for company-scoped reads |
+| `d7fd9ac` | DM-08 — tool names unique per company; tenants see only their tools |
+| `ae0226f` | DM-10 — legacy `assets` dropped |
+| `c6597db` | DM-11, DM-I8 — numbers stored as numbers |
+| `c9b6577` | DM-03 — `feature_flags` has a model; a missing table is logged |
+| `5e38d68` | DM-18 — `artifacts.campaign_id` references `campaigns`; uploads stay in their company |
+| `4a30627` | DM-17 — run status follows the state machine; terminal statuses are final |
+| `a99ae44` | DM-09, DM-I2 — run logs carry their run's company (composite key) |
+| `b362241` | DM-14 — no column named `metadata`; CORTEX edges keep their metadata |
+| `8e181b2` | DM-13, DM-I4 — JSONB except three order-sensitive columns |
+| `2c4bd36` | DM-12 — `timestamptz` everywhere in the host; naive UTC in Python |
+| `a65d18d` | AU-23 — an OAuth login signs in only as a provider-verified address |
+| `aa7045d` | AU-26 — one account per address in any letter case |
+| `a10d41e` | AU-23 follow-up — the OAuth code exchange forwards a PKCE `code_verifier` (for FE-11) |
+
 ---
 
 ## 2. Defects fixed in this session
@@ -151,10 +193,45 @@ that fails on the old code, plus live verification where observable.
 | **SA-I4** | A dead worker was invisible | `702d772` | Hard-killed worker → health `degraded` / worker `down` 32 s later |
 | **SA-07** | Child runs shared the default queue | `5fe35fd` | A child run waited on `children` with no child worker (health `down`, `due_jobs: 1`); the child worker ran it on start |
 
+**Fourth session (registers 03 and 04).** Same discipline: each fix has a test that
+fails on the old code (run against an export of the previous commit), the gates, and a
+live check where the defect is observable. The registers' status tables carry every ID and
+commit; the highlights:
+
+| ID | Defect | Commit | Live evidence |
+|---|---|---|---|
+| **AU-01** | A `tenant_user` could make themselves `app_admin` with one PATCH | `d70675e` | The PATCH is a 403; an admin can only assign roles at or below their own |
+| **AU-02** | Five SMTP/IMAP credential routes had no authentication | `ccbfc6e` | Unauthenticated 401; another company's connection 404 |
+| **DM-21** *(new)* | `alembic upgrade head` on an empty database failed at `m0b1e0d1a100` | `fd3eb83` | A scratch database builds; `tests/integration/test_schema_census.py` compares it with the models |
+| **AU-05 / AU-09 / AU-12** | Sessions could not be ended | `6127c33` | Logout, logout-everywhere and reuse detection checked against the live API |
+| **AU-06 / AU-08** | No password reset; `is_verified` gated nothing; no verification email was ever sent | `8842901` | Register → emailed link (logged locally, `EMAIL_LINKS_IN_LOG=true`) → verify → sign in |
+| **DM-17** | Run status was advisory; a late finish overwrote a cancel | `4a30627` | Unit and Postgres race tests |
+| **DM-09** | Run logs had no tenant column | `a99ae44` | A run's page loads its logs through the composite key; reports answer |
+| **DM-14** | `CortexEdge(metadata=…)` was silently dropped | `b362241` | No edge had stored metadata (6 of 6 empty) |
+| **DM-13** | `json`/`jsonb` split | `8e181b2` | Entities, runs and reports read live; `kpi_daily_rollup` rebuilt |
+| **DM-12** | Naive timestamps; three local-clock bugs | `2c4bd36` | KPI, wallet, stats and run endpoints live; values unchanged by the migration |
+| **AU-23** *(new)* | An OAuth login could sign in as any existing account (Microsoft `mail`) | `a65d18d` | Router test against a fake provider |
+| **AU-26** *(new)* | Two accounts per address, one per letter case | `aa7045d` | Mixed-case register → lower-case; re-register refused |
+
+Also new and fixed: the tool registry leaked other tenants' tools (with DM-08), artifact
+uploads could attach to another company's campaign or agent (with DM-18), `clean_db.sql`
+emptied the built-in tools (with DM-15), and `migrations/env.py` missed
+`phone_pool_models` (with DM-21).
+
+**Decisions taken with the product owner:** DM-12 and DM-13 done now, not deferred; AU-06
+and AU-08 built, with unverified sign-in blocked; partner admins may rename, suspend and
+reactivate their own tenants (AU-15); AU-19 (`app_user`) left as is and documented. AU-16
+(the unread refresh cookie) is won't-fix, with AU-I7 as the real change.
+
 **Package changes to port.** MC-21 and MC-22 changed the CORTEX package itself:
 `backend/cortex_memory/dreaming.py`, `episodic_tree.py` and
 `tests/test_dreaming_consolidation.py`. The package is maintained in its own repository
 (`hb-cortex-memory`); these changes must be carried back there and republished.
+DM-14 (fourth session) changed `cortex_memory/models.py` and `graph.py`: the column is
+`edge_metadata` and `create_edge` passes `edge_metadata=`. A published 0.1.0 still maps
+column `metadata` and fails against a migrated database, and a standalone database needs
+the same rename (done on the local `cortex_test`). The CORTEX tables keep naive
+`timestamp` columns (DM-12) and have no tenant column (DM-I6); both are package changes.
 
 ---
 
@@ -210,6 +287,18 @@ Found in the third session:
 | The backend image had no `.dockerignore`: `COPY . .` copied `.env` and a host `.venv` into it | **IN-22** in [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) — fixed: `backend/.dockerignore` |
 | The Dockerfile's Poetry 1.7.1 warns that the Poetry 2.x lock "might not be compatible" (it installed correctly) | Noted in the SA-21 commit |
 | `cortex_resume_scheduled` wraps `ctx['redis']` in `ArqRedis` again (MC-24, deferred) | Unchanged |
+
+Found in the fourth session and recorded, not fixed:
+
+| ID | Register | What |
+|---|---|---|
+| AU-24 | [04](04-AUTH-RBAC-TENANCY-DEFECTS.md) | `ENCRYPTION_MASTER_KEY` defaults to a string in the repo and is padded, not derived. Fixing it re-keys stored credentials — decide the rotation first |
+| AU-25 | 04 | Social-connection client secrets sit unencrypted in `oauth_metadata` |
+| AU-23 (frontend half) | 04 → FE-11 in [16](16-FRONTEND-DEFECTS.md) | The SPA sends no OAuth `state` and the buttons are unwired; the other session took it. The backend accepts a PKCE `code_verifier` |
+| PC-26 | [07](07-PLANNING-AND-CRITICS-DEFECTS.md) | The nightly `cost_estimator_refresh` reads `tool_interaction_logs.cost_usd`, which does not exist; it has never refreshed anything |
+| IN-23 | [18](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | The OTLP exporter retries `localhost:4317` for about a minute when nothing listens, stalling every `--reload` and worker stop |
+| BC-31 | [14](14-BILLING-AND-CREDITS-DEFECTS.md) | The daily credit job's error handler read an expired instance; fixed by the other session (`3473bb5`) |
+| e2e suite | — | `tests/e2e` assumed the old register/login contract (tokens on register, 9-character passwords); a separate session is updating it |
 
 On 2026-09-29 the memory register (08) was reviewed with the product owner.
 - MC-04, MC-08, MC-17 and MC-20 were removed by product decision; MC-20's facts moved into
@@ -288,10 +377,15 @@ Windows 11, Git Bash and PowerShell. All paths below are relative to the repo ro
 | Vertex AI | Application Default Credentials: `gcloud auth application-default login`. Project `hirebuddha-production`, region `us-central1` (`backend/.env`) |
 | Seeds | `db-scripts/seed_admin_user.py` (admin@hirebuddha.com), `db-scripts/seed_integration_registry.py` (gemini-2.5-flash and text-embedding-005 SKUs + task defaults). Deep-research entities: `scripts/seeds/deep_research/DeepResearchSetup/create_v2.py` |
 
-The local database is **not** buildable from Alembic alone. Migration
-`m0b1e0d1a100` fails under asyncpg (multi-statement SQL), and some ORM columns plus the
-`subscription_tiers` and `phone_numbers` tables have no migration. The local copy was
-patched by hand; a fresh database will hit the same gaps.
+A fresh database **is** buildable from Alembic since DM-21 (`fd3eb83`):
+`alembic upgrade head` on an empty database creates everything the models declare, and
+`tests/integration/test_schema_census.py` checks that on a scratch database each run.
+Restart both workers after any migration: models and schema move together (DM-09,
+DM-12, DM-14 each made the old worker code fail against the migrated database).
+
+`backend/.env` has `EMAIL_LINKS_IN_LOG=true`. With no SMTP configured locally, the
+verification and password-reset links are written to the API log, so a registered
+account can be verified by hand (AU-08: unverified accounts cannot sign in).
 
 Local gaps that make a deep-research run fail for environmental reasons:
 
@@ -321,9 +415,13 @@ From `backend/`:
 PYTHONUTF8=1 .venv/Scripts/python.exe -m pytest tests -q -p no:cacheprovider --ignore=tests/integration --ignore=tests/e2e
 ```
 
-Expected: **1126 passed, 7 failed** (1017 at the first handoff, 1059 at the second; the
-third added the single-port, ingress, internal-token, suspension, Apache, Python-version,
-tracing, heartbeat and child-queue tests). Add `OTEL_SDK_DISABLED=true` to silence the
+Expected: **1315 passed, 7 failed** (1017 at the first handoff, 1059 at the second, 1126
+at the third; the fourth added the auth, RBAC and data-model tests).
+The integration suite runs against the local Postgres in rolled-back transactions:
+`pytest tests/integration` — expect 2 failures in `test_cost_attribution.py`. Two more
+can flake when another session shares the database or the machine is loaded:
+`test_billing_crons` when a company is deleted mid-run (fixed by BC-31), and
+`test_worker_heartbeat` under heavy load. Both pass alone. Add `OTEL_SDK_DISABLED=true` to silence the
 trace exporter's retries when nothing listens on :4317. The 7 fail identically on `main`
 and are not regressions:
 
@@ -433,8 +531,31 @@ run that is looping.
 - **Unknown entity-config keys are a 422 since PO-09** (API create/update only); before,
   Pydantic dropped them silently — a mistyped setting was a
   no-op that returns `200 OK`.
-- **Shell quoting on Windows:** Python heredocs in Git Bash mangle `\n` escapes. Use the
-  editor for escape-sensitive edits.
+- **Shell quoting on Windows:** Python heredocs in Git Bash mangle `\n` escapes, and
+  `\u0000` became a real NUL in a doc once. Use the editor, or a script file, for
+  escape-sensitive edits.
+- **Timestamps are naive UTC in Python, `timestamptz` in the database (DM-12).** A codec on
+  every asyncpg connection converts both ways, and the session zone is pinned to UTC.
+  Never call `datetime.now()`, `date.today()` or `fromtimestamp()` without a zone;
+  `tests/unit/test_utc_timestamps.py` fails if you do. New columns are
+  `DateTime(timezone=True)`.
+- **An illegal run-status write is silently refused (DM-17).** The model keeps the old
+  status and logs a warning. Read the status back if it matters. Terminal statuses are
+  final.
+- **`Model(metadata=…)` is accepted and dropped** on every SQLAlchemy model (DM-14). Pass
+  the real attribute name.
+- **New JSON columns are `JSONB`** unless their key order is content (DM-13); add the
+  reason to `tests/unit/test_json_columns.py`.
+- **Log rows get their company from the run (DM-09).** `llm_interaction_logs`,
+  `tool_interaction_logs` and `human_approvals` need only `run_id`; a hook fills
+  `company_id`, and a composite key keeps it right.
+- **User emails are lower-case (AU-26).** A fixture that inserts `Owner@x.com` directly
+  fails the check constraint.
+- **Unverified accounts cannot sign in (AU-08)**, and registration returns no tokens.
+  Test users need `is_verified=True`.
+- **Two sessions in one checkout:** stage by path (or by hunk with `git apply --cached`),
+  never `git add -A`, never `git stash`. A whole-file add once swept one session's
+  half-done change into the other's commit (`141a4df`).
 - **Docker Desktop** will not start while
   `%LOCALAPPDATA%\Docker\run\userAnalyticsOtlpHttp.sock` is stale; move the `run` folder
   aside.

@@ -39,10 +39,10 @@
 |---|---|---|---|
 | [T0](#2-t0--paying-for-criticism-that-is-discarded) | Paying for criticism that is discarded | 5 | Now — this is money per run |
 | [T1](#3-t1--self-correction-that-does-not-correct) | Self-correction that does not correct | 5 | Before claiming the platform self-corrects |
-| [T2](#4-t2--built-and-never-wired) | Built and never wired | 5 | Each is a decision: wire it or delete it |
+| [T2](#4-t2--built-and-never-wired) | Built and never wired | 6 | Each is a decision: wire it or delete it |
 | [T3](#5-t3--planning-correctness) | Planning correctness | 10 | When the area is next touched |
 
-**Total: 25 defects, 10 improvements.**
+**Total: 26 defects, 10 improvements.** (PC-26 was found on 2026-10-01.)
 
 The three to read first:
 
@@ -271,6 +271,7 @@ missing is a production call site.
 | **PC-13** | `PlanGenerator.replan` | **No callers.** Re-planning goes through `PlannerService.adapt_plan`, which passes `entity=None` and therefore disables three of the eight plan invariants and skips billing the replan tokens | ✅ Verified |
 | **PC-14** | `PlanGenerator` telemetry | Always constructed as `PlanGenerator(llm_router=..., db=...)` with no `emit_event`, so **no `agent.plan.*` event ever fires**. Planning is invisible in the trace | ✅ Verified |
 | **PC-15** | Six of eight bandit arms | `PlanStyleBandit` declares eight plan styles. The selection path only ever decides `DAG_PARALLEL` vs `DAG_SEQUENTIAL`. The other arms are recorded in the table and never chosen | 📄 Doc-reported |
+| **PC-26** | `cost_estimator_refresh` | The nightly cron (02:30, scheduled in `worker.py`) is meant to refresh `planning/cost_estimator.py`'s per-tool baselines from telemetry. Its SQL reads `tool_interaction_logs.cost_usd`, which has never existed. Tool cost lives in `usage_logs`. Every run raises `column "cost_usd" does not exist`, the job logs `cost_estimator_refresh error` and returns, and the estimator keeps its seeded constants forever | ✅ Verified · **open** — found 2026-10-01 while fixing DM-09. Fix: read median cost per tool from `usage_logs` (`log_metadata->>'tool'`, `cost_usd`), or delete the job |
 
 ---
 

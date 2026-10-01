@@ -38,14 +38,55 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--privilege-escalation-and-open-doors) | Privilege escalation and open doors | 6 | **Now** — before any real customer data exists |
-| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 9 | Before relying on the control |
-| [T2](#4-t2--missing-pieces) | Missing pieces | 5 | Before launch |
-| [T3](#5-t3--inconsistency-and-dead-weight) | Inconsistency and dead weight | 6 | When the area is next touched |
+| Tier | Theme | Count | Fixed | Won't fix | Open |
+|---|---|---|---|---|---|
+| [T0](#2-t0--privilege-escalation-and-open-doors) | Privilege escalation and open doors | 6 | 6 | 0 | 0 |
+| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 9 | 7 | 0 | 2 |
+| [T2](#4-t2--missing-pieces) | Missing pieces | 5 | 4 | 1 | 0 |
+| [T3](#5-t3--inconsistency-and-dead-weight) | Inconsistency and dead weight | 6 | 5 | 1 | 0 |
 
-**Total: 26 defects, 10 improvements.** (AU-23 to AU-26 were found on 2026-10-01, while fixing the rest.)
+**Total: 26 defects (22 fixed, 2 won't fix, 2 open), 10 improvements (5 done, 1 partly, 4
+open).** Worked 2026-09-30 to 2026-10-01 on branch `roadmap-development-defect-fixes`.
+AU-23 to AU-26 were found while fixing the rest.
+
+| ID | Defect | Status |
+|---|---|---|
+| AU-01 | Any admin can promote themselves to `app_admin` | ✅ fixed `d70675e` |
+| AU-02 | The email connection API has no authentication | ✅ fixed `ccbfc6e` |
+| AU-03 | Any user can suspend their own company | ✅ fixed `072b0bb` |
+| AU-04 | `is_active` is never checked | ✅ fixed `ecb9ba4` |
+| AU-05 | Access tokens cannot be revoked | ✅ fixed `6127c33` |
+| AU-06 | Password reset does not exist in the backend | ✅ fixed `8842901` |
+| AU-07 | There is no password policy on the server | ✅ fixed `8842901` |
+| AU-08 | `is_verified` gates nothing | ✅ fixed `8842901` |
+| AU-09 | Refresh token reuse is detected and ignored | ✅ fixed `6127c33` |
+| AU-10 | Refresh tokens are stored in plaintext | ✅ fixed `b82cbc3` |
+| AU-11 | The gateway's JWT secret does not match the API's | ✅ fixed `19f57bb` (gateway deleted) |
+| AU-12 | There is no logout endpoint | ✅ fixed `6127c33` |
+| AU-13 | The internal token is compared with `!=` | ✅ fixed `19f57bb`, `8163907` |
+| AU-14 | The `type` claim is not checked on login tokens | ✅ fixed `ecb9ba4` |
+| AU-15 | Partner admins cannot manage the tenants they create | ✅ fixed `072b0bb` |
+| AU-16 | The refresh cookie nobody reads | won't fix — documented; see AU-I7 |
+| AU-17 | Two functions named `_require_admin` | ✅ fixed `a608183` |
+| AU-18 | `app_admin` can be locked out by omission | ✅ fixed `a608183` |
+| AU-19 | `app_user` is a role with almost no meaning | won't fix — product decision, documented |
+| AU-20 | Five copies of "own company plus children" | ✅ fixed `f10300d` |
+| AU-21 | The role strings exist as a comment, not an enum | ✅ fixed `a608183` |
+| AU-22 | Suspension is checked twice | ✅ fixed `15191e5` (SA-18) |
+| AU-23 | An OAuth login can sign in as any existing account | ✅ fixed `a65d18d` (backend; the SPA's `state`/PKCE is FE-11) |
+| AU-24 | The credential-encryption key has a public default | open — needs a key-rotation decision |
+| AU-25 | Social-connection client secrets are stored in plaintext | open |
+| AU-26 | One person could hold two accounts, one per letter case | ✅ fixed `aa7045d` |
+| AU-I1 | Make tenant scoping structural | open — the largest change in this register |
+| AU-I2 | One role enum, one guard | ✅ done `a608183` |
+| AU-I3 | Add `token_version` to `users` | ✅ done `6127c33` |
+| AU-I4 | Delete `CompanySuspensionMiddleware` | ✅ done `15191e5` |
+| AU-I5 | One `visible_company_ids(user)` helper | ✅ done `f10300d` |
+| AU-I6 | Rate-limit login by email | ✅ done `8842901` |
+| AU-I7 | Move refresh tokens into the cookie | open — frontend and backend together |
+| AU-I8 | An audit log for permission changes | open |
+| AU-I9 | A permission test suite from the route table | partly — `test_role_guards.py` walks every route's guard (`a608183`); no role × route matrix |
+| AU-I10 | Reduce the per-request database work | open |
 
 The three to read before anything else:
 
@@ -335,7 +376,9 @@ every route then refused.
 - The Login page's Google and Microsoft buttons have no `onClick`.
 
 The fix there is a random `state` (with the provider inside it) kept in `sessionStorage`
-and compared on return, plus PKCE.
+and compared on return, plus PKCE. The backend side of PKCE is in place: the request body
+takes an optional `code_verifier`, forwarded to the provider's token endpoint. The SPA
+work is FE-11 in register 16.
 
 **Evidence:** `tests/unit/test_oauth_identity.py` drives the real router against a fake
 provider. A Microsoft profile with `mail=victim@…` and a different UPN signs in as the
@@ -981,6 +1024,11 @@ Role change, company status change and credential deletion are three events. App
 never deleted.
 
 ### AU-I9 — Add a permission test suite generated from the route table
+
+**Status: partly done (2026-09-30)** — `tests/unit/test_role_guards.py` walks the real
+app's route table: every guard admits `app_admin` and names only real roles, and the
+converted routes keep their roles (AU-17, AU-18, AU-21). The full matrix (each route ×
+each of the six roles → allowed or 403) is still to do.
 
 **Effect: large for confidence.** `04-auth-rbac-tenancy.md` already contains a complete
 permission matrix derived from the guard code. Turning that table into a parameterised
