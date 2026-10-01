@@ -266,7 +266,7 @@ cost cap — both of which stop the run *after* the money is spent.
 
 ### EP-07 — `rate_limit_per_run` cannot fire, in three separate ways
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, P3.3, as [TL-11](TOOL-LAYER-DEFECTS.md#tl-11--the-only-enforced-rate-limit-is-never-populated))** — the limit comes from the grant and counts the run's logged calls.
 
 The enforcement branch exists in `tool_executor.py` and reads
 `call.get("rate_limit_per_run")`. It fails for three independent reasons:

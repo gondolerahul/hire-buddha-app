@@ -89,29 +89,13 @@ class MetaEntityCreatorTool(Tool):
         # ── Tier 3 Runtime Creation Governance ─────────────────────────
         # When an entity creates children at runtime (Tier 3 self-modification),
         # enforce additional governance beyond the dedicated Meta-Agent.
+        # The per-run creation limit (``meta_cognition.max_runtime_creations``)
+        # is enforced before this tool runs, by ToolAccess, from the run's own
+        # call log (TL-11): a counter kept here lived in a per-call copy of the
+        # context and never fired.
         is_meta_agent = context.get("__is_meta_agent__", False)
         if not is_meta_agent:
-            # Check runtime creation count limit
-            runtime_count_key = f"__meta_runtime_creations_{company_id}__"
-            current_count = context.get(runtime_count_key, 0)
-            max_creations = context.get("__meta_max_runtime_creations__", 3)
-            if current_count >= max_creations:
-                return json.dumps({
-                    "success": False,
-                    "error": (
-                        f"Runtime entity creation limit reached: {current_count}/{max_creations} "
-                        f"entities created in this execution. This limit prevents unbounded "
-                        f"agent proliferation during a single run."
-                    ),
-                    "gate": "runtime_creation_limit",
-                })
-            # Increment counter in context
-            context[runtime_count_key] = current_count + 1
-
-            logger.info(
-                f"Tier 3: Runtime entity creation by non-Meta-Agent "
-                f"(count={current_count + 1}/{max_creations}, mode={mode})"
-            )
+            logger.info(f"Tier 3: Runtime entity creation by non-Meta-Agent (mode={mode})")
 
             # Tag the payload with runtime provenance
             if mode == "CREATE":

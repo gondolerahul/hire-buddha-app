@@ -1091,6 +1091,9 @@ class BaseStreamHandler:
             function_calls, extra_context=self._tool_context.as_tool_context(),
             access=access,
         )
+        for result in results:
+            if not result.skipped:
+                access.record(result.tool)  # the session's call limits (TL-11)
 
         # Log tool results for observability
         for fc_dict, result in zip(function_calls, results):

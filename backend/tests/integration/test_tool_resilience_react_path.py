@@ -40,7 +40,7 @@ class _StubExecutor:
         self.string_calls: list[dict] = []
 
     async def execute_from_function_calls(
-        self, function_calls, extra_context=None, call_counts=None, **_kw,
+        self, function_calls, extra_context=None, **_kw,
     ):
         self.afc_calls.append({
             "calls": function_calls,

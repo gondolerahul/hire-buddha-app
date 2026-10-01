@@ -42,6 +42,8 @@ INTERNAL_CONTEXT_KEYS: FrozenSet[str] = frozenset({
     "__semantic_context__",
     "__memory_context__",
     "__completed_steps__",
+    # Written by runs before P3.3 (TL-11); kept so their saved contexts never
+    # render it to the model. Call counts now come from the run's tool logs.
     "tool_call_counts",
     "company_id",
     "user_id",

@@ -416,7 +416,7 @@ class StepExecutorService:
             # the entity's grants like every other call (P3.1).
             from src.ai.governance.tool_access import ToolAccess
             from src.ai.tools.resilience import ToolResilience
-            access = await ToolAccess.load(self.db, run.company_id, entity)
+            access = await ToolAccess.load(self.db, run.company_id, entity, run_id=run.id)
             tool_result = await ToolResilience(
                 reformat_fn=self._reformat_tool_input, tool_executor=ToolExecutor,
                 access=access,
@@ -429,18 +429,8 @@ class StepExecutorService:
 
             latency = int((datetime.utcnow() - start_time).total_seconds() * 1000)
             
-            # Log Tool Call — tool_result is a ToolResult dataclass, not a dict
-            log = ToolInteractionLog(
-                run_id=run.id,
-                tool_id=tool_id,
-                tool_name=tool_id,
-                step_name=(getattr(step, "name", "") or "")[:100],
-                input_parameters={"input": raw_input},
-                output_result=str(tool_result.output),
-                success=tool_result.success,
-                latency_ms=latency
-            )
-            self.db.add(log)
+            tool_result.tool = tool_id
+            self._log_tool_call(run, step, access, tool_result, {"input": raw_input}, latency)
 
             # One price lookup for every tool call (BC-11); the charge and its
             # usage_logs row are committed together below. A failed call is
@@ -471,6 +461,25 @@ class StepExecutorService:
             return result
         except Exception as e:
             return {"step": step.name, "error": str(e), "success": False}
+
+    def _log_tool_call(self, run: ExecutionRun, step: PlanStep, access: Any, tr: Any,
+                       input_parameters: Any, latency_ms: int) -> None:
+        """One ``tool_interaction_logs`` row per call. A call that ran counts
+        toward the run's limits (``ToolAccess.record``); a refused call is
+        logged as refused and does not (TL-11)."""
+        self.db.add(ToolInteractionLog(
+            run_id=run.id,
+            tool_id=tr.tool,
+            tool_name=tr.tool,
+            step_name=(getattr(step, "name", "") or "")[:100],
+            input_parameters=input_parameters,
+            output_result=str(tr.output),
+            success=tr.success,
+            latency_ms=latency_ms,
+            log_metadata={"refused": tr.skip_reason} if tr.skipped else None,
+        ))
+        if not tr.skipped:
+            access.record(tr.tool)
 
     async def _charge_tool(self, run: 'ExecutionRun', tool_id: str, latency_ms: int = 0) -> Decimal:
         """Price one tool call through ToolCostResolver — the one price table
@@ -623,11 +632,6 @@ class StepExecutorService:
 
         # Build execution constraints dict
         exec_constraints = {}
-        exec_limits = governance.get("execution_limits") or {}
-        max_tool_calls = exec_limits.get("max_tool_calls")
-        if max_tool_calls:
-            used = sum(context.get('tool_call_counts', {}).values())
-            exec_constraints["Tool calls remaining"] = f"{max_tool_calls - used} of {max_tool_calls}"
         max_cost = governance.get("max_cost_usd")
         if max_cost:
             current_cost = float(run.total_cost_usd or 0)
@@ -677,8 +681,11 @@ class StepExecutorService:
         # the platform injects — the same ``ToolAccess`` resolves every call.
         from src.ai.governance.tool_access import ToolAccess
         from src.ai.meta.platform_schema_compiler import resolve_meta_cognition
-        access = await ToolAccess.load(self.db, run.company_id, entity)
+        access = await ToolAccess.load(self.db, run.company_id, entity, run_id=run.id)
         tool_schemas = access.schemas()
+        # Enforced per call by ``access`` (TL-21); shown so the model plans within it.
+        if access.max_tool_calls is not None:
+            exec_constraints["Tool calls remaining"] = f"{access.calls_left()} of {access.max_tool_calls}"
         meta_config = resolve_meta_cognition(entity)
 
         # ── Tier 1: Platform Awareness ─────────────────────────────────
@@ -730,7 +737,6 @@ class StepExecutorService:
         # — is not spread into it (TL-53, P3.2).
         from src.ai.governance.tool_access import ExecutionContext
         extra_context = ExecutionContext.for_run(run, entity, context).as_tool_context()
-        context['tool_call_counts'] = {}  # Always reset per step to prevent stale counts on retry/resume
 
         all_tool_results = []
 
@@ -766,7 +772,6 @@ class StepExecutorService:
                         entity=entity,
                         function_call=fc,
                         extra_context=extra_context,
-                        call_counts=context.get('tool_call_counts', {}),
                         step_name=getattr(step, "name", "") or "",
                         step_description=getattr(step, "description", "") or "",
                     )
@@ -775,20 +780,10 @@ class StepExecutorService:
                     _tr_list = await ToolExecutor.execute_from_function_calls(
                         [fc],
                         extra_context=extra_context,
-                        call_counts=context.get('tool_call_counts', {}),
                         access=access,
                     )
                 for _tr in _tr_list:
-                    self.db.add(ToolInteractionLog(
-                        run_id=run.id,
-                        tool_id=_tr.tool,
-                        tool_name=_tr.tool,
-                        step_name=(getattr(step, "name", "") or "")[:100],
-                        input_parameters=_tr.args,
-                        output_result=str(_tr.output),
-                        success=_tr.success,
-                        latency_ms=_tr.latency_ms,
-                    ))
+                    self._log_tool_call(run, step, access, _tr, _tr.args, _tr.latency_ms or 0)
                     all_tool_results.append(_tr.to_dict())
                     results.append({"tool": _tr.tool, "output": _tr.output, "success": _tr.success})
 

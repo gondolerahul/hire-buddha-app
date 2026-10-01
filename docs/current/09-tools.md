@@ -415,13 +415,13 @@ sequenceDiagram
     participant DB as Postgres
 
     LLM->>SE: function_call name plus args
-    SE->>TE: execute_from_function_calls with extra_context and call_counts
-    TE->>TE: check rate_limit_per_run against call_counts
-    alt limit exceeded
-        TE-->>SE: ToolResult skipped true
+    SE->>TE: execute_from_function_calls with the ExecutionContext and ToolAccess
+    TE->>R: ToolAccess.resolve name via llm - grant, kill switch, opt-in, per-run limits
+    alt refused
+        R-->>TE: ToolDenied
+        TE-->>SE: skipped ToolResult - the tool never runs
     else allowed
-        TE->>R: ToolAccess.resolve name via llm
-        R-->>TE: Tool instance, or ToolDenied - skipped result, tool never runs
+        R-->>TE: Tool instance
         alt run_typed overridden and args is a dict
             TE->>TE: get_type_hints to find the ToolParams subclass
             TE->>T: run_typed typed_params and optional context
@@ -431,10 +431,10 @@ sequenceDiagram
             TE->>T: run_with_context raw_input and context
             T-->>TE: str
         end
-        TE->>TE: increment call_counts and measure latency
+        TE->>TE: measure latency
     end
     TE-->>SE: dataclass ToolResult
-    SE->>DB: insert tool_interaction_logs row
+    SE->>DB: insert tool_interaction_logs row - refused calls marked - and ToolAccess.record
     SE->>DB: cost lookup then bump run.total_cost_usd and insert usage_logs
     SE-->>LLM: formatted function response
 ```
@@ -1352,7 +1352,7 @@ gates stand in front of it
 
 | Gate | Where | Behaviour |
 |---|---|---|
-| Runtime creation limit | in-tool, non-Meta-Agent callers only | max 3 creations per execution (`__meta_max_runtime_creations__`), counted in the context dict |
+| Runtime creation limit | `ToolAccess`, every entity except the Meta-Agent | max `meta_cognition.max_runtime_creations` (default 3) `meta_entity_creator` calls per run, counted from the run's call log (§17) |
 | Daily creation limit | `AntiSprawlGuard.check_creation_allowed` | per-company per-day cap, returns `gate: "daily_limit"` |
 | Semantic duplicate | `AntiSprawlGuard.check_semantic_duplicate` | embedding-similarity check against existing entities, returns `gate: "semantic_duplicate"` with the existing id and score |
 
@@ -1360,11 +1360,10 @@ Entities created at runtime by a non-Meta-Agent are tagged
 `metadata_extensions.runtime_created = true` and
 `created_by_entity = <caller name>` so the lineage is auditable.
 
-> **Correction (2026-10-01):** the counter lives in the tool's `context` dict, and
-> `ToolResilience` (on by default) copies that dict for every call, so the count
-> restarts at 0 on each call and the limit never fires. It becomes a per-run call
-> limit on `meta_entity_creator` in P3.3 (see TL-11 in the
-> [consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md)).
+> **Since 2026-10-01 (P3.3):** the cap is a per-run call limit on
+> `meta_entity_creator`, enforced by `ToolAccess` from the run's call log (§17).
+> Before, the tool counted in its `context` dict, which `ToolResilience` copies for
+> every call, so the count restarted at 0 on each call and the limit never fired.
 
 `tool_synthesis` is the sharpest edge and carries four independent gates:
 
@@ -1598,19 +1597,24 @@ Behavioural notes:
 
 ## 17. Tool budgets and rate limits
 
-There are four different mechanisms, at four different layers, with very
-different teeth.
+> **Since 2026-10-01 (P3.3, TL-11, TL-21).** Before, the per-tool cap was read off
+> the function-call dict, which no caller ever filled, and its counts were reset
+> at the start of every step; `max_tool_calls` was only a line in the prompt; and
+> `meta_entity_creator`'s creation cap counted in a per-call copy of the context.
+> None of the three could fire.
+
+Three per-run limits are enforced by [`ToolAccess`](../../backend/src/ai/governance/tool_access.py)
+on every call (§2.3), and the run's cost budget by the loop:
 
 ```mermaid
 flowchart TD
-    subgraph L1["Per-run per-tool call cap - ENFORCED"]
-        A1["ToolDefinition.rate_limit_per_run in entity capabilities"] --> A2["call.rate_limit_per_run passed to execute_from_function_calls"]
-        A2 --> A3["compare against call_counts dict"]
-        A3 --> A4["ToolResult skipped true, skip_reason set, tool never runs"]
-    end
-    subgraph L2["Per-entity tool call ceiling - PROMPT ONLY"]
-        B1["governance.execution_limits.max_tool_calls"] --> B2["rendered as Tool calls remaining N of M in the prompt"]
-        B2 --> B3["no code path blocks the N plus 1 call"]
+    subgraph L1["Per-run limits - ENFORCED by ToolAccess.resolve"]
+        A0["ToolAccess.load reads the run's tool_interaction_logs rows - refused calls excluded"] --> A1["grant.rate_limit_per_run - per tool"]
+        A0 --> A2["governance.execution_limits.max_tool_calls - all tools"]
+        A0 --> A3["meta_cognition.max_runtime_creations on meta_entity_creator - not the Meta-Agent"]
+        A1 --> A4["refused: rate_limited or call_budget - skipped result, tool never runs"]
+        A2 --> A4
+        A3 --> A4
     end
     subgraph L3["Run cost budget - ENFORCED by the loop"]
         C1["governance.max_cost_usd"] --> C2["AgentLoop Budget - see doc 05"]
@@ -1621,58 +1625,26 @@ flowchart TD
     end
 ```
 
-### 17.1 `call_counts` — the one hard per-tool limit
+### 17.1 A run's calls are its log rows
 
-`context['tool_call_counts']` is a plain dict threaded through every REACT turn.
-It is **reset at the start of every step**
-([step_executor.py:859](../../backend/src/ai/step_executor.py:859)):
+Every call a step makes writes one `tool_interaction_logs` row
+(`StepExecutorService._log_tool_call`). `ToolAccess.load(..., run_id=run.id)`
+counts the run's rows by tool once per step — so the count survives steps,
+suspends, retries of a step and workers — and `ToolAccess.record` adds each call
+the step makes after that. A refused call is logged with
+`log_metadata = {"refused": <reason>}` and is not counted. A fallback `a→b`
+counts for both tools. A new run (a retry or a refinement included) starts at 0.
 
-```python
-context['tool_call_counts'] = {}  # Always reset per step to prevent stale counts on retry/resume
-```
+Parallel DAG steps each load the count when they start, so steps running at the
+same moment can together go over a limit by at most one call each.
 
-so despite the docstring on `execute_from_function_calls` saying "pass a fresh
-`{}` per ExecutionRun", it is really per *step*. The enforcement is in the
-executor:
+### 17.2 The three limits
 
-```python
-# backend/src/ai/tool_executor.py
-rate_limit = call.get("rate_limit_per_run")
-if rate_limit is not None:
-    current_count = call_counts.get(tool_name, 0)
-    if current_count >= rate_limit:
-        return ToolResult(tool=tool_name, args=tool_args, output=None,
-                          success=False, skipped=True,
-                          skip_reason=(f"Rate limit exceeded: tool '{tool_name}' has been called "
-                                       f"{current_count}/{rate_limit} times in this run."))
-```
-
-The limit comes from `ToolDefinition.rate_limit_per_run`
-([schemas/capabilities.py:45](../../backend/src/ai/schemas/capabilities.py:45)),
-which defaults to `None` = unlimited. Note the caller has to actively put
-`rate_limit_per_run` on the function-call dict; if it does not, no limit
-applies.
-
-`tool_call_counts` is also in `INTERNAL_CONTEXT_KEYS`
-([constants.py:45](../../backend/src/ai/constants.py:45)) so it is stripped
-before context is handed to a tool as input.
-
-### 17.2 `max_tool_calls` — advisory only
-
-`governance.execution_limits.max_tool_calls` is read at
-[step_executor.py:673](../../backend/src/ai/step_executor.py:673) purely to
-render a prompt line:
-
-```python
-max_tool_calls = exec_limits.get("max_tool_calls")
-if max_tool_calls:
-    used = sum(context.get('tool_call_counts', {}).values())
-    exec_constraints["Tool calls remaining"] = f"{max_tool_calls - used} of {max_tool_calls}"
-```
-
-Nothing checks it before executing. The number can go negative in the prompt.
-The real ceiling on a runaway agent is the loop's iteration and cost budget
-(see [05 — Agent kernel](05-agent-kernel.md)).
+| Limit | Set on | Refusal |
+|---|---|---|
+| `rate_limit_per_run` | the grant (`capabilities.tools[i]`) | `rate_limited` — "may not run again: it may be called N time(s) per run" |
+| `max_tool_calls` | `governance.execution_limits` | `call_budget` — every tool is refused, and the model is no longer offered any; the prompt shows "Tool calls remaining: N of M" from the same count |
+| `max_runtime_creations` (default 3) | `capabilities.meta_cognition` | `rate_limited` on `meta_entity_creator`, for every entity except the Meta-Agent |
 
 ### 17.3 Per-tenant limits
 
@@ -1967,7 +1939,7 @@ reading the backend's `.env` file off the host filesystem.
 | [tools/\_\_init\_\_.py](../../backend/src/ai/tools/__init__.py) | 245 | imports and registers all 85 tools at import time |
 | [tools/README.md](../../backend/src/ai/tools/README.md) | 72 | package map — note the `ToolStatus` list is stale |
 | [tools/resilience.py](../../backend/src/ai/tools/resilience.py) | 403 | `FailureKind`, `classify_tool_failure`, `ToolResilience` |
-| [tool_executor.py](../../backend/src/ai/tool_executor.py) | 383 | resolution through `ToolAccess`, typed and legacy dispatch, `ToolResult` dataclass, `call_counts` enforcement, trace spans |
+| [tool_executor.py](../../backend/src/ai/tool_executor.py) | 383 | resolution through `ToolAccess`, typed and legacy dispatch, `ToolResult` dataclass, trace spans |
 | [tool_fallback.py](../../backend/src/ai/tool_fallback.py) | 166 | four fallback chains plus their input transforms |
 | [tools.py](../../backend/src/ai/tools.py) | 42 | legacy re-export shim; new code should import `src.ai.tools` |
 | [tool_management_router.py](../../backend/src/ai/tool_management_router.py) | 113 | 7 CRUD routes under `/api/v1/ai/tool-registry` |
@@ -2015,9 +1987,9 @@ reading the backend's `.env` file off the host filesystem.
 - **Tool instances are process-wide singletons.** Never assign per-call state to
   `self`; two concurrent runs share the object.
 
-- **`tool_call_counts` resets per step, not per run**, despite the docstring.
-
-- **`max_tool_calls` is a prompt string, not a limit.** It can go negative.
+- **A run's tool calls are its `tool_interaction_logs` rows.** The per-run limits
+  (§17) count them, so a test that inserts log rows for a run changes what that
+  run may still call.
 
 - **Four price tables, one truth.** `ToolCostResolver`, the direct path's
   inline literals, the REACT path's inline literals, and

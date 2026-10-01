@@ -123,8 +123,6 @@ class ToolExecutor:
     async def execute_from_function_calls(
         function_calls: List[Dict[str, Any]],
         extra_context: Optional[Dict[str, Any]] = None,
-        # P3.3 — per-run call budget (mutated in-place by caller)
-        call_counts: Optional[Dict[str, int]] = None,
         *,
         access: "ToolAccess",
     ) -> List[ToolResult]:
@@ -132,24 +130,17 @@ class ToolExecutor:
         Execute tools from native Gemini function call format.
 
         P3.2: Returns List[ToolResult] instead of List[Dict].
-        P3.3: Enforces per-run rate limits via call_counts dict.
 
         Args:
             function_calls: [{"name": "tool_name", "args": {...}}]
             extra_context:  Optional context injected into every tool call
                             (must contain at least {"company_id": ..., "user_id": ...})
-            call_counts:    Mutable dict tracking how many times each tool has
-                            been called in this run. Pass a fresh {} per
-                            ExecutionRun and keep it alive across all REACT turns.
-                            Keys are tool names, values are call counts.
-            access:         What this entity may run (``ToolAccess``). The model
-                            names the tool, so it resolves as an LLM call.
+            access:         What this entity may run (``ToolAccess``), including
+                            the run's call limits. The model names the tool, so
+                            it resolves as an LLM call.
         Returns:
             List[ToolResult] with typed results
         """
-        if call_counts is None:
-            call_counts = {}
-
         async def _one(call: Dict[str, Any]) -> ToolResult:
             """Execute a single function call and return its typed result.
 
@@ -158,25 +149,6 @@ class ToolExecutor:
             """
             tool_name = call.get("name")
             tool_args = call.get("args", {})
-            # rate_limit_per_run can be passed alongside args by the worker
-            rate_limit = call.get("rate_limit_per_run")
-
-            # P3.3 — Enforce per-run rate limit
-            if rate_limit is not None:
-                current_count = call_counts.get(tool_name, 0)
-                if current_count >= rate_limit:
-                    return ToolResult(
-                        tool=tool_name,
-                        args=tool_args,
-                        output=None,
-                        success=False,
-                        skipped=True,
-                        skip_reason=(
-                            f"Rate limit exceeded: tool '{tool_name}' has been called "
-                            f"{current_count}/{rate_limit} times in this run."
-                        ),
-                    )
-
             tool = access.resolve(tool_name, "llm")
             if not isinstance(tool, _BaseTool):
                 return _refused(tool_name, tool_args, tool)
@@ -204,7 +176,6 @@ class ToolExecutor:
                         else:
                             typed_result = await tool.run_typed(typed_params)
                         _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
-                        call_counts[tool_name] = call_counts.get(tool_name, 0) + 1
                         return ToolResult(
                             tool=tool_name,
                             args=tool_args,
@@ -232,9 +203,6 @@ class ToolExecutor:
 
                 output = await tool.run_with_context(raw_input, context=extra_context)
                 _latency = int((datetime.now(timezone.utc) - _start).total_seconds() * 1000)
-
-                # P3.3 — Increment counter on successful call
-                call_counts[tool_name] = call_counts.get(tool_name, 0) + 1
 
                 return ToolResult(
                     tool=tool_name,

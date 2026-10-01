@@ -340,7 +340,6 @@ class ToolResilience:
         entity: Any = None,
         function_call: dict[str, Any],
         extra_context: Optional[dict] = None,
-        call_counts: Optional[dict] = None,
         step_name: str = "",
         step_description: str = "",
     ) -> ToolResult:
@@ -353,13 +352,11 @@ class ToolResilience:
         matching the direct TOOL_CALL path's recovery story.
         """
         extra_context = dict(extra_context or {})
-        call_counts = call_counts if call_counts is not None else {}
         tool_id = str(function_call.get("name") or "")
         tool_args = function_call.get("args", {})
 
         tr_list = await self.executor.execute_from_function_calls(
-            [function_call], extra_context=extra_context, call_counts=call_counts,
-            access=self.access,
+            [function_call], extra_context=extra_context, access=self.access,
         )
         tr = tr_list[0] if tr_list else ToolResult(
             tool=tool_id, args=tool_args, output="[TOOL_EMPTY]", success=False,

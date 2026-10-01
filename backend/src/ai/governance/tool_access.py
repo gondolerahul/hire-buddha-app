@@ -9,7 +9,13 @@ Every execution and advertisement path resolves tools here, never in
   tools run only from a plan step) — TL-12 / TX-03;
 * no admin has switched it off (``tool_registry_entries.is_enabled``) — TL-14;
 * it is ``ACTIVE``/``DEPRECATED``, or the company opted in to it with
-  ``tools.experimental.<name>`` (``EXPERIMENTAL``/``DRAFT``) — TL-13.
+  ``tools.experimental.<name>`` (``EXPERIMENTAL``/``DRAFT``) — TL-13;
+* the run has calls left: the grant's ``rate_limit_per_run``, the entity's
+  ``governance.execution_limits.max_tool_calls``, and for an entity that is not
+  the Meta-Agent ``meta_cognition.max_runtime_creations`` on
+  ``meta_entity_creator`` — TL-11, TL-21. A run's calls are its
+  ``tool_interaction_logs`` rows, so the count survives steps, suspends and
+  workers.
 
 The company's own (tenant) tools resolve before the platform's — TL-10.
 
@@ -87,7 +93,8 @@ def injected_meta_tools(entity: Any) -> list[str]:
 class ToolDenied:
     """Why a tool may not run here. ``message`` is what the model reads."""
     tool: str
-    reason: str      # not_granted | not_llm_callable | not_plan_callable | disabled | opt_in_required | not_registered
+    reason: str      # not_granted | not_llm_callable | not_plan_callable | disabled | not_registered
+                     # | opt_in_required | call_budget | rate_limited
     message: str
 
 
@@ -100,6 +107,11 @@ class ToolAccess:
     disabled: frozenset[str] = frozenset()
     opted_in: frozenset[str] = frozenset()
     entity_name: str = ""
+    # Per-run limits (P3.3). ``used`` is the run's calls so far by tool; it is
+    # read from the run's logs on load and advanced by :meth:`record`.
+    max_tool_calls: Optional[int] = None
+    creation_limit: Optional[int] = None
+    used: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     async def load(
@@ -110,24 +122,56 @@ class ToolAccess:
         *,
         meta_tools: bool = True,
         feature_flags: Any = None,
+        run_id: Any = None,
     ) -> "ToolAccess":
-        """Read the entity's grants, the admin kill switches and the company's
-        opt-ins once; resolution after that is in memory."""
+        """Read the entity's grants, the admin kill switches, the company's
+        opt-ins and the run's calls so far once; resolution after that is in
+        memory."""
         grants = grants_of(entity)
         injected = frozenset(injected_meta_tools(entity)) if meta_tools else frozenset()
         cid = _as_uuid(company_id)
         disabled = await _disabled_names(db, cid)
         opted_in = await _opted_in(db, cid, [*grants, *injected], feature_flags)
+        is_meta_agent = bool(_meta_extensions(entity).get("is_meta_agent"))
         return cls(
             company_id=cid, grants=grants, injected=injected, disabled=disabled,
             opted_in=opted_in, entity_name=str(getattr(entity, "name", "") or ""),
+            max_tool_calls=_max_tool_calls(entity),
+            creation_limit=None if is_meta_agent else _max_runtime_creations(entity),
+            used=await _calls_so_far(db, _as_uuid(run_id)),
         )
 
     # ------------------------------------------------------------------
 
     def resolve(self, name: str, via: Via = "llm") -> Union[Tool, ToolDenied]:
         """The tool ``name`` if it may run here, else why not."""
-        name = str(name or "")
+        out = self._check(str(name or ""), via)
+        if isinstance(out, ToolDenied):
+            _event("agent.tool.denied", tool_id=out.tool, reason=out.reason,
+                   company_id=str(self.company_id), entity=self.entity_name)
+        return out
+
+    def record(self, name: str) -> None:
+        """Count one call that ran (a fallback ``a→b`` counts for both)."""
+        for part in str(name or "").split("→"):
+            if part:
+                self.used[part] = self.used.get(part, 0) + 1
+
+    def calls_left(self) -> Optional[int]:
+        """Calls the run may still make under ``max_tool_calls`` (None: no cap)."""
+        if self.max_tool_calls is None:
+            return None
+        return max(self.max_tool_calls - sum(self.used.values()), 0)
+
+    def _limit(self, name: str) -> Optional[int]:
+        grant = self.grants.get(name)
+        limits = [grant.rate_limit_per_run] if grant is not None else []
+        if name == "meta_entity_creator":
+            limits.append(self.creation_limit)
+        found = [n for n in limits if n is not None]
+        return min(found) if found else None
+
+    def _check(self, name: str, via: Via) -> Union[Tool, ToolDenied]:
         grant = self.grants.get(name)
         if grant is None and name not in self.injected:
             return self._deny(name, "not_granted", "is not granted to this entity")
@@ -146,6 +190,13 @@ class ToolAccess:
                 name, "opt_in_required",
                 f"is {status.value} and this company has not opted in (tools.experimental.{name})",
             )
+        if self.calls_left() == 0:
+            return self._deny(name, "call_budget",
+                              f"may not run: this run used all {self.max_tool_calls} of its tool calls")
+        limit = self._limit(name)
+        if limit is not None and self.used.get(name, 0) >= limit:
+            return self._deny(name, "rate_limited",
+                              f"may not run again: it may be called {limit} time(s) per run")
         if status == ToolStatus.DEPRECATED:
             _event("agent.tool.deprecated_call", tool_id=name, company_id=str(self.company_id))
         return tool
@@ -161,13 +212,13 @@ class ToolAccess:
         rule as :meth:`resolve`, so nothing is advertised that would be refused."""
         out = []
         for name in self.llm_tool_ids():
-            tool = self.resolve(name, "llm")
+            tool = self._check(name, "llm")
             if isinstance(tool, Tool):
                 out.append(tool.get_function_schema())
         return out
 
     def schema_for(self, name: str) -> Optional[dict[str, Any]]:
-        tool = self.resolve(name, "plan") if name in self.grants else self.resolve(name, "llm")
+        tool = self._check(name, "plan" if name in self.grants else "llm")
         return tool.get_function_schema() if isinstance(tool, Tool) else None
 
     def grant(self, name: str) -> Optional[ToolGrant]:
@@ -175,8 +226,6 @@ class ToolAccess:
 
     def _deny(self, name: str, reason: str, why: str) -> ToolDenied:
         granted = ", ".join(self.llm_tool_ids()) or "none"
-        _event("agent.tool.denied", tool_id=name, reason=reason,
-               company_id=str(self.company_id), entity=self.entity_name)
         return ToolDenied(
             tool=name, reason=reason,
             message=f"Error: tool '{name}' {why}. Tools available to you: {granted}.",
@@ -256,6 +305,13 @@ def _meta_extensions(entity: Any) -> Mapping[str, Any]:
     return meta if isinstance(meta, Mapping) else {}
 
 
+def _max_tool_calls(entity: Any) -> Optional[int]:
+    gov = getattr(entity, "governance", None)
+    limits = gov.get("execution_limits") if isinstance(gov, Mapping) else None
+    value = limits.get("max_tool_calls") if isinstance(limits, Mapping) else None
+    return value if isinstance(value, int) and value > 0 else None
+
+
 def _max_runtime_creations(entity: Any) -> int:
     caps = getattr(entity, "capabilities", None)
     meta = (caps or {}).get("meta_cognition") if isinstance(caps, Mapping) else None
@@ -290,6 +346,25 @@ async def _disabled_names(db: Any, company_id: Optional[UUID]) -> frozenset[str]
         )
     )
     return frozenset(rows.scalars().all())
+
+
+async def _calls_so_far(db: Any, run_id: Optional[UUID]) -> dict[str, int]:
+    """The run's tool calls so far by tool: its log rows, less refused calls."""
+    if db is None or run_id is None:
+        return {}
+    from sqlalchemy import func, select
+    from src.ai.orm.execution import ToolInteractionLog
+    rows = await db.execute(
+        select(ToolInteractionLog.tool_id, func.count()).where(
+            ToolInteractionLog.run_id == run_id,
+            ToolInteractionLog.log_metadata["refused"].astext.is_(None),
+        ).group_by(ToolInteractionLog.tool_id)
+    )
+    used: dict[str, int] = {}
+    for tool_id, n in rows.all():
+        for part in str(tool_id).split("→"):
+            used[part] = used.get(part, 0) + int(n)
+    return used
 
 
 async def _opted_in(

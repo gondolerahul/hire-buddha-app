@@ -354,7 +354,7 @@ Postgres so a restart loses nothing.
 
 ### TL-11 — The only "enforced" rate limit is never populated
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.3)** — `ToolAccess` refuses a call over the grant's `rate_limit_per_run`, counting the run's `tool_interaction_logs` rows (refused calls excluded), so the count survives steps, suspends and workers; the `call_counts` plumbing and the per-step reset are deleted. The non-Meta-Agent creation cap on `meta_entity_creator` (the update below) is the same per-run limit. Evidence: on the old code a tool granted `rate_limit_per_run: 2` ran 3 times; `tests/unit/test_tool_limits.py`, `tests/integration/test_tool_call_limits.py` (two real `TOOL_CALL` steps then a refused third).
 
 `execute_from_function_calls` reads `call.get("rate_limit_per_run")` and skips the tool
 when the count exceeds it. **No caller ever sets that key** on a call dict — not
@@ -564,7 +564,7 @@ Every `ToolInteractionLog` written from this path is therefore unlinkable to a r
 
 ### TL-21 — `max_tool_calls` is a prompt string, not a limit
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-01, P3.3)** — `max_tool_calls` is enforced by `ToolAccess` over the run's calls (`call_budget`); once spent the model is offered no tools, and the prompt line reads the same count, so it cannot go negative.
 
 `governance.execution_limits.max_tool_calls` is read only to render
 `"Tool calls remaining: N of M"` into the prompt. Nothing checks it before executing,

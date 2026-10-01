@@ -108,7 +108,7 @@ class _Executor:
         self.calls.append(calls)
         return [self.result]
 
-    async def execute_from_function_calls(self, calls, extra_context=None, call_counts=None, **_kw):  # noqa: ARG002
+    async def execute_from_function_calls(self, calls, extra_context=None, **_kw):  # noqa: ARG002
         self.calls.append(calls)
         return [self.result]
 
