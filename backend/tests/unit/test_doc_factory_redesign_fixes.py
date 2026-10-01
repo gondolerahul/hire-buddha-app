@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -229,21 +230,20 @@ async def test_sandbox_skips_scratch_dir(tmp_path):
 def test_document_save_resolves_sandbox_relative_path(tmp_path, monkeypatch):
     """(B) A relative 'scratch/x' path resolves against the company sandbox dir,
     not this process's CWD."""
-    import tempfile
-
-    from src.ai.tools.documents.document_save import DocumentSaveTool
+    from src.ai.tools.sandbox.workspace import confine_path, tenant_workspace
 
     company = str(uuid4())
-    sandbox = os.path.join(tempfile.gettempdir(), "sandbox", company, "scratch")
+    sandbox = os.path.join(tenant_workspace(company), "scratch")
     os.makedirs(sandbox, exist_ok=True)
     f = os.path.join(sandbox, "report.xlsx")
     with open(f, "wb") as fh:
         fh.write(b"x" * 64)
 
-    # Relative path resolves to the sandbox copy.
-    assert DocumentSaveTool._resolve_source_path("scratch/report.xlsx", company) == f
-    # A non-existent relative path is returned unchanged (clear "not found").
-    assert DocumentSaveTool._resolve_source_path("scratch/nope.xlsx", company) == "scratch/nope.xlsx"
+    # Relative path resolves to the sandbox copy (document_save resolves its
+    # source through confine_path since TL-54).
+    assert confine_path(company, "scratch/report.xlsx") == os.path.realpath(f)
+    # A non-existent relative path resolves inside the sandbox: a clear "not found".
+    assert confine_path(company, "scratch/nope.xlsx") == os.path.realpath(os.path.join(sandbox, "nope.xlsx"))
     os.remove(f)
 
 
@@ -257,7 +257,13 @@ async def test_document_save_threads_run_and_agent_ids(tmp_path, monkeypatch):
     from src.ai.tools.documents import document_save as ds_mod
     from src.ai.tools.documents.document_save import DocumentSaveTool
 
-    src = tmp_path / "report.xlsx"
+    from src.ai.tools.sandbox.workspace import tenant_workspace
+
+    run_id, agent_id, company_id = str(uuid4()), str(uuid4()), str(uuid4())
+    # The source must be one of the company's own files (TL-54).
+    workspace = Path(tenant_workspace(company_id))
+    workspace.mkdir(parents=True, exist_ok=True)
+    src = workspace / "report.xlsx"
     src.write_bytes(b"x" * 256)
 
     captured: dict = {}
@@ -271,7 +277,6 @@ async def test_document_save_threads_run_and_agent_ids(tmp_path, monkeypatch):
     monkeypatch.setattr(ds_mod, "BASE_DIR", tmp_path / "artifacts")
     monkeypatch.setattr(ds_mod.shutil, "copy2", lambda s, d: _shutil.copy(s, d))
 
-    run_id, agent_id, company_id = str(uuid4()), str(uuid4()), str(uuid4())
     out = await DocumentSaveTool().run_with_context(
         _json.dumps({"source_path": str(src), "filename": "report", "format": "xlsx"}),
         context={"company_id": company_id, "run_id": run_id, "agent_id": agent_id},
@@ -279,3 +284,4 @@ async def test_document_save_threads_run_and_agent_ids(tmp_path, monkeypatch):
     assert _json.loads(out)["status"] == "success"
     assert captured.get("run_id") == run_id
     assert captured.get("agent_id") == agent_id
+    _shutil.rmtree(workspace, ignore_errors=True)

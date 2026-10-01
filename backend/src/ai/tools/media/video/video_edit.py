@@ -14,6 +14,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, ToolStatus, context_company_id
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params
 from src.ai.tools.media.video import _ffmpeg
 from src.ai.tools.media.video._ffmpeg import FFmpegError
 from src.ai.tools.media.video._support import (
@@ -94,6 +95,11 @@ class VideoEditTool(Tool):
         company_id = context_company_id(context)
         if not company_id:
             return json.dumps({"error": NO_CONTEXT_ERROR})
+        # Paths the model gives resolve inside this company's files (TL-54).
+        try:
+            confine_params(params, company_id, ('inputs', 'output_path'))
+        except PathOutsideWorkspace as exc:
+            return json.dumps({"error": str(exc)})
         inputs: List[str] = params.get("inputs") or []
 
         # extend is pure planning math — no ffmpeg, no inputs required.

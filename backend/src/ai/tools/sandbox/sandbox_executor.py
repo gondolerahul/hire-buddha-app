@@ -60,6 +60,8 @@ class SandboxCodeTool(Tool):
         "Execute a Python or Bash code snippet in an isolated subprocess sandbox. "
         "Input must be a JSON string with 'language' ('python' or 'bash') "
         "and 'code' fields. Optional 'timeout_s' overrides the 30-second default. "
+        "The code runs in your workspace directory: write output files with "
+        "relative paths (e.g. 'report.xlsx' or 'scratch/chart.png'). "
         "Returns stdout on success, or an error message with stderr on failure."
     )
 
@@ -124,18 +126,17 @@ class SandboxCodeTool(Tool):
             from src.ai.tools.sandbox.workspace import tenant_workspace, workspace_root
             sandbox_dir = tenant_workspace(company_id)
             os.makedirs(sandbox_dir, exist_ok=True)
-            # Create a stable /tmp/sandbox/output symlink so LLM-generated code
-            # using the generic path "/tmp/sandbox/output/" resolves correctly.
-            output_link = os.path.join(workspace_root(), "output")
-            try:
-                if os.path.islink(output_link):
-                    os.unlink(output_link)
-                elif os.path.isdir(output_link):
-                    pass  # real dir already — leave it
-                if not os.path.exists(output_link):
-                    os.symlink(sandbox_dir, output_link)
-            except OSError:
-                pass  # Non-fatal — code can still use the real company path
+            # The code runs with this directory as its working directory and
+            # writes there. There is no shared "<root>/output" path: it was a
+            # process-wide symlink repointed at whichever company ran last, so
+            # concurrent runs wrote into each other's workspaces (TL-07). One
+            # left by older code is removed.
+            legacy_link = os.path.join(workspace_root(), "output")
+            if os.path.islink(legacy_link):
+                try:
+                    os.unlink(legacy_link)
+                except OSError:
+                    pass
             # Provision shared resources (e.g. Document Factory scripts)
             from src.ai.tools.sandbox.sandbox_provision import provision_sandbox
             provision_sandbox(sandbox_dir)

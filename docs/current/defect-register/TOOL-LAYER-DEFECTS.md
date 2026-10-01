@@ -255,7 +255,7 @@ never return `configuration` on the list route.
 
 ### TL-07 — A process-global symlink points at whichever tenant ran last
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.5)** — the symlink is deleted (one left by older code is removed); generated code writes relative to its working directory, which is the company's workspace, and the tool description says so.
 
 `SandboxCodeTool` repoints `/tmp/sandbox/output` at the current company's directory on
 **every call**. The tool's own description encourages generated code to write to that
@@ -271,7 +271,7 @@ the prompt, or an env var the runtime sets per exec.
 
 ### TL-08 — No SSRF guard on `scraper_tool` or `headless_browser`
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.5)** — [`common/net_guard.py`](../../../backend/src/common/net_guard.py): only `http(s)`, and every address the host resolves to must be public (loopback, private, link-local/metadata, CGNAT, multicast, reserved and IPv4-mapped forms refused). The scraper checks before calling Firecrawl; the browser routes every request its page makes — redirects, frames, subresources, `evaluate`'s fetches — through the guard. Evidence: the old browser check let `http://169.254.169.254/` through; `tests/unit/test_tool_paths_and_fetches.py`. DNS rebinding remains for the egress proxy (TL-15).
 
 Neither tool has a URL allow-list or a private-address deny list.
 `http://169.254.169.254/` (cloud instance metadata) and `http://localhost:8000/` (the

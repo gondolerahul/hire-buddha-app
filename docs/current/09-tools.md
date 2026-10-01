@@ -1303,9 +1303,13 @@ because the doc-factory agent routinely writes the final deliverable to an
 ad-hoc absolute path.
 
 **`headless_browser`** (465 lines). Six actions: `navigate`, `click`, `type`,
-`screenshot`, `get_text`, `evaluate`. It blocks `file:`, `javascript:`, `data:`
-and `ftp:` URL schemes — but `evaluate` runs arbitrary JavaScript in the page
-context by design, so that block only constrains the top-level URL. Sessions
+`screenshot`, `get_text`, `evaluate`. Every request the page makes —
+navigation, redirects, frames, subresources, and anything `evaluate`'s JavaScript
+fetches — goes through Playwright's router and the SSRF guard
+([common/net_guard.py](../../backend/src/common/net_guard.py), since 2026-10-01,
+TL-08): only `http(s)` to hosts that resolve to public addresses. Refused
+requests are listed in the result's `blocked_requests`. (Before, only the
+top-level URL's scheme was checked, so `http://169.254.169.254/` was reachable.) Sessions
 are ephemeral by default; setting `sandbox.persistent_browser_enabled` gives the
 company a persistent Chromium profile under
 `/tmp/sandbox/{company}/.browser/{persona}` so cookies and logins survive.
@@ -1873,20 +1877,20 @@ was deleted under FE-30.)
 |---|---|---|---|---|
 | `calculator` | no | no | no | AST allow-list, no `eval`, exponent capped at 1000, div-by-zero check |
 | `web_search`, `batch_web_search` | yes — SerpAPI, DuckDuckGo | no | yes — SerpAPI credits | 500-char query cap, 25-query cap, 15 s timeout |
-| `scraper_tool` | yes — Firecrawl, arbitrary URL | yes — artifact | yes — Firecrawl credits | 10-URL cap, 30 s timeout. **No URL allow-list, no SSRF guard** |
+| `scraper_tool` | yes — Firecrawl, public URLs | yes — artifact | yes — Firecrawl credits | 10-URL cap, 30 s timeout, SSRF guard (public `http(s)` hosts only) |
 | `file_writer` | no | yes | no | `os.path.basename`, extension whitelist |
-| `pdf_generator`, `docx_tool`, `pptx_tool`, `excel_tool` | no | yes | no | filename sanitisation in `pdf_generator` only; the others accept an arbitrary `file_path` for read and update |
-| `document_save` | no | yes | no | `format` enum, path resolved against the tenant sandbox dir |
+| `pdf_generator`, `docx_tool`, `pptx_tool`, `excel_tool` | `pdf_generator`: public URLs while rendering | yes | no | every model path confined to the company's files (`confine_path`); output names have no directory; WeasyPrint fetches only the company's files, public `http(s)` and `data:` |
+| `document_save` | no | yes | no | `format` enum, source confined to the company's files |
 | `email_ingest`, `email_classify`, `email_draft` | yes — IMAP | no | no | credentials scoped by `company_id` |
 | `email_send` | yes — SMTP | no | indirectly — reputational | 18 MB attachment cap. **No recipient allow-list, no HITL gate in the tool** |
-| `image_generation` | yes — Vertex | yes | **yes — real dollars** | model must be a configured task default; self-bills and consumes credits |
-| `video_generate` | yes — Vertex Veo | yes | **yes — real dollars** | 8 s per clip |
-| `video_edit`, `video_add_sound` | no | yes | compute only | 300 s ffmpeg timeout |
+| `image_generation` | yes — Vertex | yes | **yes — real dollars** | model must be a configured task default; reference image confined to the company's files |
+| `video_generate` | yes — Vertex Veo | yes | **yes — real dollars** | 8 s per clip; frame paths confined to the company's files |
+| `video_edit`, `video_add_sound` | no | yes | compute only | 300 s ffmpeg timeout; input and output paths confined to the company's files |
 | 52 × `social/*` | yes — 13 third-party APIs | no | **yes — the tenant's ad budget** | OAuth token scoping only. EXPERIMENTAL status is not enforced at execution |
 | `crm/*` | yes — tenant endpoints, Google | no | no | credentials scoped by `company_id` |
 | `sandbox_code` | **yes — unrestricted under the default runtime** | yes — anywhere the OS user can write | compute | see §12.2 |
 | `terminal` | **yes — unrestricted under the default runtime** | yes | compute | 13-pattern blocklist |
-| `headless_browser` | **yes — any http/https URL** | yes — screenshots | compute | blocks `file:`/`javascript:`/`data:`/`ftp:` schemes; `evaluate` runs arbitrary JS by design |
+| `headless_browser` | yes — public http/https hosts | yes — screenshots | compute | every request the page makes passes the SSRF guard; `evaluate` runs arbitrary JS by design |
 | `meta_entity_creator` | no | no | indirectly — creates agents that spend | 3-per-execution limit, daily cap, semantic dedupe |
 | `meta_entity_executor` | no | no | **yes — triggers a child run** | hard `$1.00` cap |
 | `tool_synthesis` | no directly | no | yes — LLM calls | Meta-Agent only, kill switch, AST validator, sandbox test, red team, DRAFT-only registration |
@@ -1905,11 +1909,11 @@ was deleted under FE-30.)
    `cat /etc/passwd`, `env`, `rm -rf ~`, and reading the backend's own `.env`
    all pass.
 
-3. **`scraper_tool` and `headless_browser` accept any URL.** No allow-list, no
-   private-IP block. `http://169.254.169.254/` and `http://localhost:8000/` are
-   both reachable — a classic SSRF path into cloud metadata and internal
-   services. `headless_browser` blocks `file:` but the browser could still be
-   navigated to an internal host.
+3. ~~**`scraper_tool` and `headless_browser` accept any URL.**~~ Fixed 2026-10-01
+   (TL-08): both refuse hosts that resolve to loopback, private, link-local
+   (instance metadata), CGNAT, multicast or reserved addresses, and the browser
+   checks every request its page makes. DNS rebinding is out of reach of a
+   check-then-fetch guard; the egress proxy (TL-15, P11) closes it.
 
 4. ~~**Tool status is decorative at execution time.**~~ Fixed 2026-10-01 (TL-13):
    `ToolAccess` refuses an `EXPERIMENTAL`/`DRAFT` tool unless the company opted in,
@@ -2011,11 +2015,13 @@ reading the backend's `.env` file off the host filesystem.
 
 - **A "custom tool" created through the API is inert.** There is no loader.
 
-- **`sandbox_code` writes files to a `/tmp/sandbox/output` symlink** shared
-  across the process, pointing at whichever company most recently executed
-  ([sandbox_executor.py:129](../../backend/src/ai/tools/sandbox/sandbox_executor.py:129)).
-  Code that writes to the generic path `/tmp/sandbox/output/` under concurrency
-  can land in another tenant's directory.
+- **Model-supplied paths are confined to the company's files** (since
+  2026-10-01, TL-54): `confine_path` in
+  [sandbox/workspace.py](../../backend/src/ai/tools/sandbox/workspace.py) resolves
+  a relative path in the company's workspace and refuses anything outside the
+  workspace and the company's artifact directories — symlinks included. The
+  shared `/tmp/sandbox/output` symlink that pointed at whichever company ran last
+  is gone (TL-07); generated code writes relative to its working directory.
 
 - **`terminal` scans all of `/tmp` to depth 3 after every command** looking for
   new `.pptx/.docx/.xlsx/.pdf` files to auto-register. Any document another

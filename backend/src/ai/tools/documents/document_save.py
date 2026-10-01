@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_path, safe_filename
 
 # Artifact root for system-generated files
 BASE_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
@@ -78,14 +79,17 @@ class DocumentSaveTool(Tool):
         if not company_id:
             return json.dumps({"error": NO_CONTEXT_ERROR})
 
-        # (B) Resolve the source path. The sandbox executes with the company
-        # sandbox dir (/tmp/sandbox/<company_id>) as its working directory, so a
-        # relative path the agent wrote (e.g. "scratch/report.pptx") does NOT
-        # resolve against THIS process's CWD. Try the path as given first, then
-        # fall back to the sandbox-relative location. Without this, every
-        # relative-path save returns "Source file not found" and the agent has
-        # to burn turns discovering the absolute path via readlink.
-        source_path = self._resolve_source_path(source_path, company_id)
+        # (B) Resolve the source path inside this company's files (TL-54). The
+        # sandbox runs with the company's workspace as its working directory,
+        # so a relative path the agent wrote ("scratch/report.pptx") resolves
+        # there. Any other host path — /etc/passwd, the backend's .env, another
+        # company's artifact — is refused: this tool copies the file into the
+        # company's downloadable artifacts.
+        try:
+            source_path = confine_path(company_id, source_path)
+        except PathOutsideWorkspace as exc:
+            return json.dumps({"error": str(exc)})
+        filename = safe_filename(filename, "document")
         if not os.path.exists(source_path):
             return json.dumps({"error": f"Source file not found: {source_path}"})
 
@@ -103,8 +107,8 @@ class DocumentSaveTool(Tool):
 
         # (A) Run/agent association — so the artifact appears under the run on
         # the Execution Detail page instead of being orphaned (run_id=None).
-        run_id = (context or {}).get("run_id") or params.get("run_id")
-        agent_id = (context or {}).get("agent_id") or params.get("agent_id")
+        run_id = (context or {}).get("run_id")
+        agent_id = (context or {}).get("agent_id")
 
         # Build output directory
         date_str = datetime.utcnow().strftime("%Y-%m-%d")
@@ -142,26 +146,6 @@ class DocumentSaveTool(Tool):
             "mime_type": mime_type,
             "message": f"Saved {filename} ({file_size:,} bytes) to artifact storage",
         })
-
-    @staticmethod
-    def _resolve_source_path(source_path: str, company_id: str) -> str:
-        """Return the first existing candidate for ``source_path``.
-
-        The agent's code runs with the company sandbox dir as CWD, so a relative
-        path it produced must be resolved there rather than against this
-        process's CWD. Tries: (1) the path as-is, (2) ``<sandbox>/<source_path>``.
-        Falls back to the original string so the caller's existence check still
-        produces a clear "not found" error.
-        """
-        if os.path.exists(source_path):
-            return source_path
-        if company_id and company_id != "default" and not os.path.isabs(source_path):
-            from src.ai.tools.sandbox.workspace import tenant_workspace
-            sandbox_dir = tenant_workspace(company_id)
-            candidate = os.path.join(sandbox_dir, source_path)
-            if os.path.exists(candidate):
-                return candidate
-        return source_path
 
     @staticmethod
     async def _register_artifact(

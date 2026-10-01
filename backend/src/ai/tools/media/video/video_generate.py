@@ -16,6 +16,7 @@ import uuid
 from typing import Any, Dict, Optional, cast
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, ToolStatus, context_company_id
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params
 from src.ai.tools.media.video._support import (
     MAX_SEGMENT_SECONDS,
     company_video_dir,
@@ -113,6 +114,13 @@ class VideoGenerateTool(Tool):
         company_id = context_company_id(context)
         if not company_id:
             return json.dumps({"error": NO_CONTEXT_ERROR})
+        # Paths the model gives resolve inside this company's files (TL-54).
+        try:
+            confine_params(params, company_id, ('start_frame_path', 'end_frame_path'))
+        except PathOutsideWorkspace as exc:
+            return json.dumps({"error": str(exc)})
+        start_frame_path = params.get('start_frame_path')
+        end_frame_path = params.get('end_frame_path')
 
         if not prompt:
             return json.dumps({"error": "Missing required parameter: 'prompt'"})

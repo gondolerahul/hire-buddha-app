@@ -223,7 +223,7 @@ run input into it. Reserve `__`-prefixed and control keys to the platform.
 
 ### TL-54 — The document tools read and write arbitrary host paths from the model
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.5)** — `confine_path` (`tools/sandbox/workspace.py`) resolves every model-supplied path inside the company's workspace and artifact directories (symlinks resolved) or refuses it: `docx_tool`/`pptx_tool`/`excel_tool` (`file_path`, `save_as`; output `filename` reduced to a bare name; the cross-tenant `uploads/` fallback removed), `document_save` (`source_path`; its model-supplied `run_id`/`agent_id` fallback removed too), `image_generation`, `video_generate`, `video_edit`, `video_add_sound`. Evidence: the old `excel_tool` opened the backend's `.env`.
 
 `docx_tool`, `pptx_tool` and `excel_tool` take `file_path` from the model for `read`/
 `update` with no confinement, and write to a model-supplied `save_as` (or overwrite
@@ -250,7 +250,7 @@ references (TL-09), never host paths.
 
 ### TL-55 — `pdf_generator` renders model HTML with a live fetcher
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01, P3.5)** — WeasyPrint renders with a fetcher that allows `file:` only inside the company's files, `http(s)` only to public hosts, and `data:`; image references resolve only within the company's files, and one that does not is left out of the PDF.
 
 `pdf_generator` converts model-supplied markdown to HTML and hands it to WeasyPrint with
 the default URL fetcher ([pdf_generator.py:460](../../../backend/src/ai/tools/documents/pdf_generator.py:460)).
@@ -328,6 +328,14 @@ the run on the Execution Detail page (TL-46 notes this for video only).
 
 **Fix:** one write path — hand the bytes to `save_artifact` and return its stored path and
 id; always pass the run/agent ids from context.
+
+> **Update 2026-10-01 (found in P3.5).** The first copy is not even in the artifact
+> store's tree: every document, image and video tool computes its root as
+> `Path(__file__).parents[3] / "artifact"`, which is `backend/src/artifact/`, while
+> `ArtifactService` stores under `backend/artifact/`. Two trees of the same files.
+> Path confinement (TL-54) admits the company's directory in both, because the path
+> a tool returns to the model is the `src/` copy; the single write path here removes
+> the `src/` tree.
 
 ### TL-60 — `batch_web_search` ignores its own contract
 

@@ -9,6 +9,7 @@ import json
 import os
 import re as _re_module
 import tempfile
+import logging
 from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -39,17 +40,49 @@ def _sanitize_filename(raw: str, max_length: int = 80) -> str:
     return name or "document"
 
 try:
-    from weasyprint import HTML, CSS
+    from weasyprint import HTML, CSS, default_url_fetcher
     from weasyprint.text.fonts import FontConfiguration
 except ImportError:
     HTML = None
     CSS = None
     FontConfiguration = None
+    default_url_fetcher = None
 
 try:
     import markdown
 except ImportError:
     markdown = None
+
+
+logger = logging.getLogger(__name__)
+
+
+def _guarded_fetcher(company_id: str):
+    """WeasyPrint's URL fetcher for one company (TL-55).
+
+    The rendered HTML comes from the model, and markdown passes raw HTML
+    through, so ``<img src="file:///etc/passwd">`` or a ``<link>`` to
+    ``http://169.254.169.254/`` would be fetched at render time. Allowed:
+    ``file:`` inside the company's own files, ``http(s)`` to public hosts, and
+    ``data:``. Everything else is refused.
+    """
+    from urllib.parse import unquote, urlsplit
+    from urllib.request import url2pathname
+
+    from src.common.net_guard import check_url_sync
+    from src.ai.tools.sandbox.workspace import confine_path
+
+    def fetch(url: str, *args: Any, **kwargs: Any) -> Any:
+        scheme = urlsplit(url).scheme.lower()
+        if scheme == "file":
+            confine_path(company_id, url2pathname(unquote(urlsplit(url).path)))
+        elif scheme in ("http", "https"):
+            check_url_sync(url)
+        elif scheme != "data":
+            raise ValueError(f"pdf_generator does not fetch {scheme or 'unknown'!r} URLs")
+        return default_url_fetcher(url, *args, **kwargs)
+
+    return fetch
 
 
 class PDFGeneratorTool(Tool):
@@ -370,55 +403,53 @@ class PDFGeneratorTool(Tool):
         import re as _re
         import glob as _glob
 
+        # Every image resolves inside this company's own files (TL-55): the
+        # bare-filename search used to glob every company's artifacts, and an
+        # absolute path could embed any file the backend can read.
+        from src.ai.tools.sandbox.workspace import (
+            PathOutsideWorkspace, company_roots, confine_path,
+        )
+
+        def _confined(path: str) -> str:
+            try:
+                resolved = confine_path(company_id, path)
+            except PathOutsideWorkspace:
+                return ""
+            return resolved if os.path.exists(resolved) else ""
+
         def _resolve_bare_filename(filename_only: str) -> str:
-            """Search under BASE_ARTIFACT_DIR for a matching file by name."""
-            # First try the company+user subdirectory images folder
-            search_roots = [
-                self.BASE_ARTIFACT_DIR / str(company_id) / str(user_id) / "images",
-                self.BASE_ARTIFACT_DIR / str(company_id) / "images",
-                self.BASE_ARTIFACT_DIR / "generated_images",
-                self.BASE_ARTIFACT_DIR,
-            ]
-            for root in search_roots:
-                candidate = root / filename_only
-                if candidate.exists():
-                    return str(candidate)
-            # Recursive glob fallback
-            pattern = str(self.BASE_ARTIFACT_DIR / "**" / filename_only)
-            matches = _glob.glob(pattern, recursive=True)
-            if matches:
-                return matches[0]
+            """Search this company's workspace and artifacts for the file."""
+            for root in company_roots(company_id):
+                for candidate in (Path(root) / str(user_id) / "images" / filename_only,
+                                  Path(root) / "images" / filename_only,
+                                  Path(root) / filename_only):
+                    if candidate.exists():
+                        return str(candidate)
+            for root in company_roots(company_id):
+                matches = _glob.glob(str(Path(_glob.escape(root)) / "**" / _glob.escape(filename_only)),
+                                     recursive=True)
+                if matches:
+                    return matches[0]
             return ""
 
         def _fix_img_path(m):
             alt = m.group(1)
             path = m.group(2)
-            # Already a URL — leave as-is
-            if path.startswith(('http://', 'https://', 'file://')):
+            # A web image: WeasyPrint's guarded fetcher decides (TL-55).
+            if path.startswith(('http://', 'https://')):
                 return m.group(0)
-            # Absolute filesystem path
-            if path.startswith('/'):
-                if os.path.exists(path):
-                    return f'![{alt}](file://{path})'
-                else:
-                    print(f"Warning: Comic panel image not found at absolute path: {path}")
-                    return m.group(0)
-            # Bare filename (no directory component) — search artifact dirs
-            if os.sep not in path and '/' not in path:
+            if path.startswith('file://'):
+                path = path[len('file://'):]
+            if os.path.isabs(path) or os.sep in path or '/' in path:
+                resolved = _confined(path) or _confined(
+                    str(Path(company_roots(company_id)[1]) / path))
+            else:
                 resolved = _resolve_bare_filename(path)
-                if resolved:
-                    print(f"Resolved bare filename '{path}' → '{resolved}'")
-                    return f'![{alt}](file://{resolved})'
-                else:
-                    print(f"Warning: Could not resolve bare filename '{path}' in artifact dirs")
-                    return m.group(0)
-            # Relative path with directory components — try relative to BASE_ARTIFACT_DIR
-            candidate = self.BASE_ARTIFACT_DIR / path
-            if candidate.exists():
-                return f'![{alt}](file://{candidate})'
-            print(f"Warning: Relative image path not found: {path}")
-            return m.group(0)
-        
+            if resolved:
+                return f'![{alt}]({Path(resolved).as_uri()})'
+            logger.warning("pdf_generator: image %r is not one of this company's files; left out", path)
+            return f'*[{alt or "image"} unavailable]*'
+
         processed_content = _re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _fix_img_path, content)
 
         # Convert markdown to HTML
@@ -454,7 +485,7 @@ class PDFGeneratorTool(Tool):
         css = CSS(string=self._get_pdf_styles(), font_config=font_config)
         
         # Generate PDF with WeasyPrint
-        HTML(string=full_html).write_pdf(
+        HTML(string=full_html, url_fetcher=_guarded_fetcher(company_id)).write_pdf(
             output_path,
             stylesheets=[css],
             font_config=font_config

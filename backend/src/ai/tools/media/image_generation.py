@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,12 @@ class ImageGenerationTool(Tool):
         user_id = (context or {}).get("user_id")
         if not company_id:
             return json.dumps({"error": NO_CONTEXT_ERROR})
+        # Paths the model gives resolve inside this company's files (TL-54).
+        try:
+            confine_params(params, company_id, ('reference_image_path',))
+        except PathOutsideWorkspace as exc:
+            return json.dumps({"error": str(exc)})
+        reference_image_path = params.get('reference_image_path')
 
         if not prompt:
             return json.dumps({"error": "Missing required parameter: 'prompt'"})

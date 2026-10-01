@@ -81,6 +81,11 @@ class ScraperTool(Tool):
             
             if not url:
                 return json.dumps({"error": "Missing 'url' in scraper input"})
+            from src.common.net_guard import BlockedURL, check_url
+            try:
+                await check_url(url)  # no internal hosts (TL-08)
+            except BlockedURL as exc:
+                return json.dumps({"error": f"URL refused: {exc}"})
 
             # The company comes from the execution context only (TL-03, TL-05):
             # without one the scrape used to spend the platform's key and save

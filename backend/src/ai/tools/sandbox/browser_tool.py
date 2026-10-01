@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any, Dict, Optional
 from pathlib import Path
 
@@ -51,16 +50,44 @@ _DEFAULT_TIMEOUT_MS = 30000
 _MAX_TIMEOUT_MS = 120000
 _SCREENSHOT_DIR = Path("/tmp/browser_screenshots")
 
-_BLOCKED_URL_SCHEMES = re.compile(r"^(file|javascript|data|ftp):", re.IGNORECASE)
-
 _VALID_ACTIONS = {"navigate", "click", "type", "screenshot", "get_text", "evaluate"}
 
 _VALID_WAIT_UNTIL = {"load", "domcontentloaded", "networkidle", "commit"}
 
 
-def _is_url_blocked(url: str) -> bool:
-    """Check if a URL uses a blocked protocol."""
-    return bool(_BLOCKED_URL_SCHEMES.match(url.strip()))
+async def guard_requests(page: Any) -> list[str]:
+    """Check every request the page makes against the SSRF guard (TL-08).
+
+    Navigation, redirects, frames, subresources and script-driven requests all
+    pass through Playwright's router, so ``evaluate`` cannot reach an internal
+    host either. Returns the list the refused URLs are appended to.
+    """
+    from src.common.net_guard import BlockedURL, check_url
+
+    refused: list[str] = []
+    verdicts: dict[str, bool] = {}  # per host, for the life of the session
+
+    async def _route(route: Any) -> None:
+        url = route.request.url
+        if url.startswith(("data:", "blob:", "about:")):  # in-page, no network
+            await route.continue_()
+            return
+        from urllib.parse import urlsplit
+        key = urlsplit(url).netloc.lower()
+        if key not in verdicts:
+            try:
+                await check_url(url)
+                verdicts[key] = True
+            except BlockedURL:
+                verdicts[key] = False
+        if verdicts[key]:
+            await route.continue_()
+        else:
+            refused.append(url)
+            await route.abort("blockedbyclient")
+
+    await page.route("**/*", _route)
+    return refused
 
 
 class HeadlessBrowserTool(Tool):
@@ -156,6 +183,7 @@ class HeadlessBrowserTool(Tool):
                 timeout_ms=timeout_ms, user_data_dir=user_data_dir
             ) as session:
                 page = session.page
+                refused = await guard_requests(page)
                 if action == "navigate":
                     result = await self._action_navigate(page, args, timeout_ms)
                 elif action == "click":
@@ -171,6 +199,8 @@ class HeadlessBrowserTool(Tool):
                 else:
                     result = {"error": f"Unknown action: {action}"}
 
+                if refused and isinstance(result, dict):
+                    result["blocked_requests"] = refused[:20]
                 result_json = json.dumps(result)
         except ImportError:
             return json.dumps({
@@ -197,8 +227,11 @@ class HeadlessBrowserTool(Tool):
         url = (args.get("url") or "").strip()
         if not url:
             return {"status": "error", "action": "navigate", "error": "'url' is required for navigate action."}
-        if _is_url_blocked(url):
-            return {"status": "error", "action": "navigate", "error": f"URL scheme blocked: {url}"}
+        from src.common.net_guard import BlockedURL, check_url
+        try:
+            await check_url(url)
+        except BlockedURL as exc:
+            return {"status": "error", "action": "navigate", "error": f"URL refused: {exc}"}
 
         wait_until = args.get("wait_for", "load")
         if wait_until not in _VALID_WAIT_UNTIL:

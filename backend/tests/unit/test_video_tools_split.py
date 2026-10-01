@@ -29,6 +29,15 @@ async def _run(tool, payload: str) -> str:
     return await tool.run_with_context(payload, context=_CTX)
 
 
+@pytest.fixture(autouse=True)
+def _tmp_path_is_the_company_workspace(tmp_path, monkeypatch):
+    """Model-supplied paths must be the company's own files (TL-54): make each
+    test's tmp_path the workspace of the company in ``_CTX``."""
+    from src.common.config import settings
+    monkeypatch.setattr(settings, "SANDBOX_WORKSPACE_ROOT", str(tmp_path.parent), raising=False)
+    monkeypatch.setitem(_CTX, "company_id", tmp_path.name)
+
+
 class _FakeExec:
     """Records every (argv) it is asked to run; returns a canned ExecResult."""
 
@@ -193,7 +202,7 @@ async def test_edit_trim_requires_one_input(fake_ffmpeg: _FakeExec, tmp_path) ->
 async def test_edit_missing_input_file_errors() -> None:
     tool = VideoEditTool()
     res = json.loads(
-        await _run(tool, json.dumps({"operation": "concat", "inputs": ["/nope/missing.mp4"]}))
+        await _run(tool, json.dumps({"operation": "concat", "inputs": ["missing.mp4"]}))
     )
     assert "not found" in res["error"]
 

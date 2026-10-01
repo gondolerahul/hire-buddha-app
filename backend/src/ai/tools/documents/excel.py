@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params, safe_filename
 
 try:
     import openpyxl
@@ -42,6 +43,17 @@ class ExcelTool(Tool):
         try:
             params = json.loads(input_data) if isinstance(input_data, str) else input_data
             action = params.get("action")
+            # Every path the model gives resolves inside this company's files;
+            # an output name has no directory part (TL-54).
+            company_id = context_company_id(context)
+            if not company_id:
+                return json.dumps({"error": NO_CONTEXT_ERROR})
+            try:
+                confine_params(params, company_id, ("file_path", "save_as"))
+            except PathOutsideWorkspace as exc:
+                return json.dumps({"error": str(exc)})
+            if "filename" in params:
+                params["filename"] = safe_filename(params["filename"], "spreadsheet.xlsx")
 
             # Actions that don't require an existing file
             if action == "create":
@@ -52,11 +64,7 @@ class ExcelTool(Tool):
                 return json.dumps({"error": "Missing 'file_path'"})
 
             if not os.path.exists(file_path):
-                fallback_path = os.path.join("uploads", os.path.basename(file_path))
-                if os.path.exists(fallback_path):
-                    file_path = fallback_path
-                else:
-                    return json.dumps({"error": f"File not found: {file_path}"})
+                return json.dumps({"error": f"File not found: {file_path}"})
 
             if action == "read_rows":
                 return self._read_rows(file_path, params)
@@ -190,9 +198,7 @@ class ExcelTool(Tool):
                 ws_item.column_dimensions[col_letter].width = min(max_length + 2, 50)
 
         # Save
-        company_id = context_company_id(context)
-        if not company_id:
-            return json.dumps({"error": NO_CONTEXT_ERROR})
+        company_id = context_company_id(context)  # checked on entry
         date_str = datetime.utcnow().strftime("%Y-%m-%d")
         output_dir = BASE_DIR / str(company_id) / date_str
         output_dir.mkdir(parents=True, exist_ok=True)
