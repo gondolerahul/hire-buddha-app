@@ -2242,6 +2242,7 @@ page is its own chunk. But:
 | ~~No error boundary anywhere — a render throw blanks the whole app~~ — fixed (FE-01): one around the router, one around each page | app-wide |
 | ~~No `<Suspense>` boundary below the router, so a slow chunk blanks the shell too~~ — fixed (FE-01): `MainLayout` has one around the page | `router/index.tsx:116` |
 | Google/Microsoft login buttons have no handler | `LoginPage.tsx:76-85` |
+| ~~`AnimatedBackground` never cancels its frame loop, renders while hidden, and is in the entry chunk~~ — fixed (FE-17): cancelled on unmount, paused while hidden, still for reduced motion, lazy-loaded | `AnimatedBackground.tsx`, `App.tsx` |
 | `.gap-1` defined three times, last one wins with the wrong value | `global.css:312,480,579` |
 
 ---

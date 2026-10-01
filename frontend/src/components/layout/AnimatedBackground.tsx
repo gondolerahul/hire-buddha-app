@@ -132,7 +132,8 @@ export const AnimatedBackground: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!containerRef.current) return;
+        const container = containerRef.current;
+        if (!container) return;
 
         const width = window.innerWidth;
         const height = window.innerHeight;
@@ -164,7 +165,7 @@ export const AnimatedBackground: React.FC = () => {
         }
         renderer.setSize(width, height);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        containerRef.current.appendChild(renderer.domElement);
+        container.appendChild(renderer.domElement);
 
         // Post-processing
         const composer = new EffectComposer(renderer);
@@ -270,9 +271,23 @@ export const AnimatedBackground: React.FC = () => {
         };
         window.addEventListener('mousemove', onMouseMove);
 
-        const animate = () => {
-            requestAnimationFrame(animate);
-            const time = clock.getElapsedTime();
+        // The loop runs only while someone can see it (FE-17): never while the
+        // tab is hidden, and not at all for prefers-reduced-motion, which gets
+        // one still frame. Its frame id is kept so unmounting cancels it — the
+        // old loop rescheduled itself forever, even after the component left.
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let frame: number | null = null;
+        const shouldRun = () => !document.hidden && !reducedMotion.matches;
+        const start = () => {
+            if (frame === null && shouldRun()) frame = requestAnimationFrame(animate);
+        };
+        const stop = () => {
+            if (frame !== null) cancelAnimationFrame(frame);
+            frame = null;
+        };
+        const onVisibilityOrMotion = () => (shouldRun() ? start() : stop());
+
+        const renderFrame = (time: number) => {
 
             // Update Shader Time
             planeMaterial.uniforms.iTime.value = time;
@@ -314,7 +329,16 @@ export const AnimatedBackground: React.FC = () => {
             composer.render();
         };
 
-        animate();
+        function animate() {
+            frame = null;
+            renderFrame(clock.getElapsedTime());
+            start();
+        }
+
+        renderFrame(0); // a still frame, shown whether or not the loop runs
+        start();
+        document.addEventListener('visibilitychange', onVisibilityOrMotion);
+        reducedMotion.addEventListener('change', onVisibilityOrMotion);
 
         // --------------------------------------------------------------------
         // HANDLERS
@@ -330,9 +354,18 @@ export const AnimatedBackground: React.FC = () => {
         window.addEventListener('resize', onResize);
 
         return () => {
+            stop();
+            document.removeEventListener('visibilitychange', onVisibilityOrMotion);
+            reducedMotion.removeEventListener('change', onVisibilityOrMotion);
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('resize', onResize);
-            if (containerRef.current) containerRef.current.innerHTML = '';
+            container.innerHTML = '';
+            planeGeometry.dispose();
+            planeMaterial.dispose();
+            extrudeGeometry.dispose();
+            tileMaterial.dispose();
+            hexMesh.dispose();
+            composer.dispose();
             renderer.dispose();
         };
     }, []);

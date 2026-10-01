@@ -486,7 +486,20 @@ The entity was restored afterwards. No unit test: the frontend has no test runne
 
 ### FE-17 — The WebGL background never sleeps
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-01)** — all four:
+
+- the animation frame's id is kept and cancelled on unmount (the loop used to reschedule
+  itself forever), and the geometries, materials, composer and renderer are disposed;
+- the loop stops while the tab is hidden and resumes when it is shown (`visibilitychange`);
+- with `prefers-reduced-motion: reduce` it renders one still frame and does not animate,
+  following the setting if it changes;
+- `App.tsx` loads it with `lazy`, so `three` is no longer in the entry chunk.
+
+**Evidence:** `npm run build` — the entry chunk went from 794 KB (221 KB gzip) to 252 KB
+(81 KB gzip); `AnimatedBackground` is its own 543 KB chunk. In the browser the canvas mounted
+and drew its still frame. The running/paused frame rate could not be measured: the test
+browser pane was itself hidden (`visibilityState: hidden`), where no animation frames fire at
+all.
 
 `AnimatedBackground` does **6,300 matrix writes per frame** plus a full-screen bloom pass.
 It has:
