@@ -58,7 +58,9 @@ INTERNAL_CONTEXT_KEYS: FrozenSet[str] = frozenset({
     "__execution_metadata__",
     "__intelligence_rules__",
     # Loop bookkeeping (iteration, budget pressure, subgoals), not a step's
-    # output: it was rendered to the model as one (EP-25).
+    # output: it was rendered to the model as one (EP-25). Not written since
+    # P8.9 (typed StepSignals, AK-21); kept for snapshots from before, with
+    # __subjects__ and __failure_patterns__ above.
     "__agent_state__",
 })
 

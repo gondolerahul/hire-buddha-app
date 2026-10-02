@@ -23,8 +23,8 @@ Re-checked against the code on 2026-10-01. **No writer** means nothing in
 | `cortex_tree_id` | the caller (a parent's child dispatch, retry, refine) | `run_memory.open_run_tree` | Resume this CORTEX tree instead of creating one |
 | `subtree_root_id` | the CORTEX `RECURSE` factory | `CortexService(scoped_subtree_root_id=...)` | Pins a RECURSE child's writes to a subtree |
 | `__memory__` | `run_memory.assemble_run_memory` | `step_executor.prompt_context_block` (sandwich layer 9) | Rendered memory block, assembled once per run |
-| `__subjects__` | `AgentLoop._compose` (`governance.subjects.subject_scope`) | `step_executor.prompt_context_block` (sandwich layer 9) | The run tree's contacts, leads and files as the refs its tools take (TL-09) |
-| `__failure_patterns__` | `AgentLoop._compose` (`core.run_blocks`, `FailurePatternService`) | `step_executor.prompt_context_block` (sandwich layer 9) | What went wrong in the entity's recent failed runs and how to avoid it (PC-12) |
+| `__subjects__` | **no writer** since P8.9 | — | Now `AgentState.subjects_block`, reaching steps as `StepSignals.subjects` (AK-21); kept so a snapshot from before never leaks it |
+| `__failure_patterns__` | **no writer** since P8.9 | — | Now `AgentState.failure_patterns_block` → `StepSignals.failure_patterns` (AK-21); kept for older snapshots |
 | `__episodic_memory__` | `memory.assembler` | `RunMemory.similar_runs` (Perceiver) | Past-episode dicts |
 | `__intelligence_rules__` | `run_memory.assemble_run_memory` | `RunMemory` (Perceiver, supervisor critic), `PlannerService` | Rule dicts (`title`, `rule`, `type`, `confidence`) |
 | `__cortex_viewport__` | `CortexBridge` | CORTEX step prompts | Rendered viewport text |
@@ -37,9 +37,11 @@ Re-checked against the code on 2026-10-01. **No writer** means nothing in
 | `__execution_metadata__`, `__intelligence__` | **no writer** | `agent_introspect` | |
 | `__semantic_context__`, `__memory_context__`, `__cortex_knowledge__`, `__experience__`, `__episodic__`, `__knowledge_refs__` | **no writer** | — | Names reserved by earlier memory designs |
 
-`__agent_state__` — the loop's `{iteration, budget_pressure, open_subgoals}`
-echo, written by `materialise_context_dict` — is in the set (EP-25), so it is
-no longer rendered into step prompts as if it were a previous step's output.
+`__agent_state__` — the loop's `{iteration, budget_pressure, open_subgoals}` — is
+no longer written into the context (P8.9, AK-21): the loop's signals travel in a typed
+`StepSignals` ContextVar (`core/step_signals.py`) around each executor call, and a tool's
+context gets the `__agent_state__` view from them. It stays in the set (EP-25) so a
+snapshot from before never renders it as a step's output.
 
 ## Invariants
 

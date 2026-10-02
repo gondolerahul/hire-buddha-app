@@ -34,6 +34,7 @@ from src.ai.core.agent_state import (
     Verdicts,
 )
 from src.ai.core.agent_loop_sse import event_async, flush_batch, iteration_batch, set_sse_redis
+from src.ai.core.step_signals import signals_from_state, step_signals
 from src.ai.core.budget import Budget
 from src.ai.core.credit_guard import CreditGuard
 from src.ai.core.exceptions import CreditExhaustedError
@@ -591,7 +592,8 @@ class AgentLoop:
                 # (a child run, a plan, a bill) cannot corrupt the loop's session.
                 from src.common.database import AsyncSessionLocal
                 async with AsyncSessionLocal() as exec_db:
-                    action_result: ActionResult = await executor.execute(move, state, exec_db)
+                    with step_signals(signals_from_state(state)):   # typed, not dict keys (AK-21)
+                        action_result: ActionResult = await executor.execute(move, state, exec_db)
             except Exception as exc:                                       # noqa: BLE001
                 action_result = ActionResult(
                     success=False,

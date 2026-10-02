@@ -437,7 +437,7 @@ configuration problem rather than an outage.
 
 ### AK-21 — The context bridge means two sources of truth for every value
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P8.9, D22)** — the dict carries data (input, step outputs, memory's keys); the loop's signals are a typed `StepSignals` in a ContextVar set around every executor call, seen by parallel branches and copied back by nothing; `absorb_context_dict` copies back only what steps wrote. `__agent_state__`, `__subjects__` and `__failure_patterns__` are no longer written (kept in `INTERNAL_CONTEXT_KEYS` for older snapshots). Memory's keys stay in the dict: register 08 is deferred. `tests/unit/test_step_signals.py`.
 
 `materialise_context_dict` copies state into a dict, the executors mutate the dict in
 place, and `absorb_context_dict` copies it back. Budget pressure reaches the step prompt

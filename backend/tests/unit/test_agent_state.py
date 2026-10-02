@@ -129,7 +129,8 @@ async def test_materialise_then_absorb_is_noop_for_extra_data() -> None:
     s.context_state["k"] = "v"
     out = await s.materialise_context_dict()
     assert out["k"] == "v"
-    assert "__agent_state__" in out
+    # Data only: the loop's signals are typed (AK-21), not an __agent_state__ key.
+    assert "__agent_state__" not in out
     out["k"] = "v2"
     out["new"] = "fresh"
     await s.absorb_context_dict(out)

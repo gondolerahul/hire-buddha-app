@@ -488,8 +488,9 @@ flowchart LR
 | `< 0.5` | hard-coded | `INCOMPLETE` failures are eligible for `RETRY_AS_IS` (they are not above 0.5) | [retry_strategies.py:107](../../backend/src/ai/planning/retry_strategies.py:107) |
 | `>= 1.0` | — | `exhausted()` is true. `Strategist.decide_next` returns `ABORT`; `_loop` also breaks directly | [strategist.py:206](../../backend/src/ai/core/strategist.py:206), [agent_loop.py:383](../../backend/src/ai/core/agent_loop.py:383) |
 
-The pressure value reaches the *step prompt* through the legacy context bridge:
-`materialise_context_dict` writes `__agent_state__.budget_pressure`, and
+The pressure value reaches the *step prompt* as `StepSignals.budget_pressure` (since
+P8.9); before, through the legacy context bridge:
+`materialise_context_dict` wrote `__agent_state__.budget_pressure`, and
 `step_executor` reads it back
 ([agent_state.py:368](../../backend/src/ai/core/agent_state.py:368),
 [step_executor.py:690](../../backend/src/ai/step_executor.py:690)).
@@ -1497,6 +1498,16 @@ once the run truly ends.
 
 ## 13. The `context_state` legacy bridge
 
+> **Update 2026-10-03 (P8.9, AK-21, D22).** The dict now carries data only — the run's
+> input, the steps' outputs and memory's keys (register 08). What the loop tells a step —
+> iteration, budget pressure, open subgoals, the run's subjects and failure patterns, the
+> step-name map — is a typed `StepSignals` (`core/step_signals.py`) the loop sets in a
+> ContextVar around every executor call: each parallel branch (its own asyncio task) sees
+> it, and nothing is copied back. `materialise_context_dict` no longer adds
+> `__agent_state__`; `absorb_context_dict` copies back only new or changed keys; a tool's
+> context gets the `__agent_state__` view from the signals. The description below is the
+> bridge before.
+
 `AgentLoop` reasons over a typed `AgentState`. But the per-step executors, the
 tool executor, the memory assembler and the context-source ingestor all still
 pass a plain `context_state: dict` around. The bridge is two methods on
@@ -1570,7 +1581,7 @@ inventory is [core/INTERNAL_KEYS.md](../../backend/src/ai/core/INTERNAL_KEYS.md)
 | `__knowledge_refs__` | `KnowledgeTreeService.search` | `prompt_utils` | per iteration |
 | `__execution_metadata__` | `_bootstrap_state` | meta-cognition prompts | run |
 | `__intelligence_rules__` | `MemoryAssemblyService` | `prompt_utils` | per iteration |
-| `__agent_state__` | `materialise_context_dict` | budget-aware ReAct, `agent_introspect` | per iteration |
+| `__agent_state__` | not written since P8.9 — `StepSignals` (a tool's context still gets the view) | budget-aware ReAct (via signals), `agent_introspect` | per executor call |
 
 **The scrubbing rule:** before a context dict is concatenated into an LLM's
 user-facing input, every member of `INTERNAL_CONTEXT_KEYS` is filtered out.

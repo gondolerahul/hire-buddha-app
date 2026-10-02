@@ -49,9 +49,11 @@ async def test_an_entitys_failures_reach_its_next_runs_prompt(db):
                        budget=Budget.from_governance(max_cost_usd=1.0, timeout_ms=60_000))
     await add_run_blocks(db, state, run.id)
 
-    block = state.context_state["__failure_patterns__"]
+    block = state.failure_patterns_block
     assert "TIMEOUT occurred in 3 of last 3 failed runs" in block
-    assert block in prompt_context_block({}, state.context_state)
+    from src.ai.core.step_signals import signals_from_state, step_signals
+    with step_signals(signals_from_state(state)):             # how the loop hands it to a step (AK-21)
+        assert block in prompt_context_block({}, state.context_state)
 
 
 @pytest.mark.asyncio

@@ -275,7 +275,7 @@ class ExecutionContext:
             is_meta_agent=bool(meta.get("is_meta_agent")),
             max_runtime_creations=_max_runtime_creations(entity),
             allow_free_recipients=_allow_free_recipients(entity),
-            loop_state={k: state[k] for k in LOOP_STATE_KEYS if k in state},
+            loop_state=_loop_state(state),
         )
 
     @classmethod
@@ -317,6 +317,17 @@ class ExecutionContext:
 def _meta_extensions(entity: Any) -> Mapping[str, Any]:
     meta = getattr(entity, "metadata_extensions", None)
     return meta if isinstance(meta, Mapping) else {}
+
+
+def _loop_state(context: Mapping[str, Any]) -> dict[str, Any]:
+    """Loop-owned state a tool may read: the run context's loop keys, and the
+    ``__agent_state__`` view of the loop's typed signals (AK-21)."""
+    out = {k: context[k] for k in LOOP_STATE_KEYS if k in context}
+    from src.ai.core.step_signals import current_signals
+    signals = current_signals()
+    if signals is not None:
+        out["__agent_state__"] = signals.agent_state()
+    return out
 
 
 def _allow_free_recipients(entity: Any) -> bool:

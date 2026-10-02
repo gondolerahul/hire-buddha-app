@@ -59,8 +59,10 @@ def prompt_context_block(filtered_context: dict, context: dict) -> Optional[str]
     a step's context policy narrows its inputs, not what the entity has
     learned or whom the run is for (TL-09).
     """
+    from src.ai.core.step_signals import current_signals
+    signals = current_signals()
     parts = (filtered_context.get("__context_sources__"), (context or {}).get("__memory__"),
-             (context or {}).get("__failure_patterns__"), (context or {}).get("__subjects__"))
+             signals.failure_patterns if signals else None, signals.subjects if signals else None)
     return "\n\n".join(str(p) for p in parts if p) or None
 
 
@@ -676,15 +678,10 @@ class StepExecutorService:
         # Budget-aware REACT (Phase 12 `07` §2): surface budget pressure as a
         # soft constraint and, past a threshold, an explicit "finish, don't
         # expand" directive so the LLM plans within budget instead of relying on
-        # the hard engine cap alone. budget_pressure is published by the loop in
-        # the materialised context (__agent_state__).
-        budget_pressure: Optional[float] = None
-        _astate = context.get("__agent_state__") if isinstance(context, dict) else None
-        if isinstance(_astate, dict) and _astate.get("budget_pressure") is not None:
-            try:
-                budget_pressure = float(_astate["budget_pressure"])
-            except (TypeError, ValueError):
-                budget_pressure = None
+        # the hard engine cap alone. The loop's signals carry it (AK-21).
+        from src.ai.core.step_signals import current_signals
+        _signals = current_signals()
+        budget_pressure: Optional[float] = _signals.budget_pressure if _signals else None
         if budget_pressure is not None:
             try:
                 from src.ai.core.feature_flags import FeatureFlags

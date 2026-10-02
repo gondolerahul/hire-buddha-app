@@ -251,6 +251,12 @@ class AgentState:
     # steps get it as their correction, once (PC-03).
     pending_correction: str = ""
 
+    # Prompt blocks computed once per run at compose (TL-09, PC-12); they
+    # reach steps as typed signals (``core.step_signals``), not context keys
+    # (AK-21). Transient: recomputed on resume.
+    subjects_block: str = field(default="", repr=False, compare=False)
+    failure_patterns_block: str = field(default="", repr=False, compare=False)
+
     # Child steps re-dispatched after a transient failure, and how often
     # (AK-19): a child that failed on a rate limit or a timeout gets one more
     # run before it fails the parent.
@@ -396,25 +402,17 @@ class AgentState:
         Adapter executors pass this into legacy code so the AgentLoop
         can drive existing per-step execution without rewriting it.
         """
-        ctx = dict(self.context_state)
-        # Surface a few high-leverage signals so legacy code can read them.
-        ctx.setdefault("__agent_state__", {
-            "iteration": self.iteration,
-            "budget_pressure": self.budget.pressure,
-            "open_subgoals": [sg.description for sg in self.open_subgoals],
-        })
-        return ctx
+        # Data only — the run's input and the steps' outputs. What the loop
+        # tells a step (iteration, budget pressure, subjects …) is a typed
+        # ``StepSignals`` in a ContextVar (AK-21), not a key in this dict.
+        return dict(self.context_state)
 
     async def absorb_context_dict(self, ctx: dict[str, Any]) -> None:
-        """Copy back into ``self.context_state`` after a legacy call.
-
-        Drops the inner ``__agent_state__`` echo (we own that key) so
-        repeated round-trips don't accumulate noise.
-        """
+        """Copy back what the steps wrote — new keys and changed values — so a
+        value is never overwritten by its own stale copy (AK-21)."""
         for k, v in ctx.items():
-            if k == "__agent_state__":
-                continue
-            self.context_state[k] = v
+            if k not in self.context_state or self.context_state[k] is not v:
+                self.context_state[k] = v
 
     # ------------------------------------------------------------------
     # Snapshot
