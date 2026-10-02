@@ -323,7 +323,7 @@ class PlatformSchemaCompiler:
                 "tool_id": name,
                 "description": tool.description,
                 "function_schema": schema,
-                "supports_context": tool.supports_context(),
+                "typed": tool.Params is not None,  # declares Params (TL-41)
                 "category": self._categorize_tool(name),
             })
         return compiled

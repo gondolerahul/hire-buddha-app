@@ -613,7 +613,7 @@ roughly 86, and remove ~1,600 lines.
 | **TL-27** | `backend/templates/docx/*.docx` | Three theme templates, ~36 KB each, **zero code references**. `DocxTool._create` always starts from a blank `Document()` | ✅ Verified · **fixed (2026-10-01)** — deleted |
 | **TL-28** | [`ai/governance/rate_limiter.py`](../../../backend/src/ai/governance/rate_limiter.py) | `RedisRateLimiter` — a correct sliding-window implementation with a documented `"tool:search:company_123"` key example and **zero call sites**. Either wire it in as the per-tenant quota (there is none today) or delete it | ✅ Verified |
 | **TL-29** | Duplicate `_sandbox_base_dir()` | Defined **twice** in [`ai/tools/sandbox/runtime.py`](../../../backend/src/ai/tools/sandbox/runtime.py); the second silently shadows the first. Harmless — they are identical — but it makes the module look unreviewed | ✅ Verified · **fixed (2026-10-01)** — the base was computed in four modules; all now use `sandbox/workspace.py`, configurable through `SANDBOX_WORKSPACE_ROOT`. A fifth was found in P5.7 (2026-10-02): `terminal` built its working directory as a hard-coded `/tmp/sandbox/<company>`; it now uses `tenant_workspace()` |
-| **TL-30** | One of the two `ToolResult` classes | The Pydantic one at [`ai/tools/base.py:48`](../../../backend/src/ai/tools/base.py:48) and the dataclass at [`ai/tool_executor.py:39`](../../../backend/src/ai/tool_executor.py:39) share a name and no fields. Collapse to one type with a typed output envelope. Blocked on [TL-41](#tl-41--four-dispatch-paths-and-the-typed-one-fails-silently) | ✅ Verified |
+| **TL-30** | One of the two `ToolResult` classes | The Pydantic one at [`ai/tools/base.py:48`](../../../backend/src/ai/tools/base.py:48) and the dataclass at [`ai/tool_executor.py:39`](../../../backend/src/ai/tool_executor.py:39) share a name and no fields. Collapse to one type with a typed output envelope. Blocked on [TL-41](#tl-41--four-dispatch-paths-and-the-typed-one-fails-silently) | ✅ Verified · **fixed (2026-10-02, P6.1)** — the tool's result is `ToolOutput`; `ToolResult` is the executor's only |
 
 > Before each deletion, confirm there is no remaining importer:
 > `grep -rn "<module_name>" backend/src frontend/src --include=*.py --include=*.ts --include=*.tsx`
@@ -791,7 +791,7 @@ reconnect — with no proactive warning anywhere in the product.
 
 ### TL-41 — Four dispatch paths, and the typed one fails silently
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed for the contract (2026-10-02, P6.1)** — one entry point, `Tool.invoke`: a typed tool declares `Params` and `execute(params, ctx)`, its schema is derived from `Params`, and arguments that do not fit are a failed call naming the fields; `run_typed`, the executor's reflection and its silent fallback are deleted, and `ToolOutput` is the tool's result (the executor's `ToolResult` is the only class of that name, TL-30). Tools not yet converted run through one adapter in `invoke` (decision D16); `tests/unit/test_tool_contract.py` lists them and the list may only shrink.
 
 A tool can be entered through `run`, `run_with_context`, `run_typed`, or the executor's
 reflection fallback. The typed path adds nothing in practice: both implementations

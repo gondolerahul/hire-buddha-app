@@ -31,9 +31,6 @@ class AgentIntrospectTool(Tool):
         "optional JSON object: {'include_failures': true, 'failure_days': 7}."
     )
 
-    def supports_context(self) -> bool:
-        return True
-
     async def run(self, input_data: str) -> str:
         return await self.run_with_context(input_data, context=None)
 

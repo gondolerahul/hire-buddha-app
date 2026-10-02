@@ -86,24 +86,24 @@ async def test_an_address_with_no_connection_row_is_refused(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_typed_scraper_call_keeps_its_context(monkeypatch):
-    from src.ai.tools.core.scraper import ScraperParams, ScraperTool
+    from src.ai.tools.core.scraper import ScraperTool
     from src.ai.tool_executor import ToolExecutor
     from src.ai.governance.tool_access import ToolAccess
     from src.ai.schemas.capabilities import ToolGrant
 
     seen = []
 
-    async def _run_with_context(self, input_data, context=None):
+    async def _scrape(self, url, purpose, context):
         seen.append(context)
-        return '{"status": "success"}'
+        return {"status": "success"}
 
-    monkeypatch.setattr(ScraperTool, "run_with_context", _run_with_context)
+    monkeypatch.setattr(ScraperTool, "_scrape", _scrape)
     access = ToolAccess(company_id=None, grants={"scraper_tool": ToolGrant(tool_id="scraper_tool")})
     [tr] = await ToolExecutor.execute_from_function_calls(
         [{"name": "scraper_tool", "args": {"url": "https://example.com"}}],
         extra_context=CTX, access=access)
     assert tr.success and seen == [CTX]
-    assert (await ScraperTool().run_typed(ScraperParams(url="https://example.com"), context=CTX)).success
+    assert (await ScraperTool().invoke({"url": "https://example.com"}, CTX)).success and seen[-1] == CTX
 
 
 @pytest.mark.asyncio

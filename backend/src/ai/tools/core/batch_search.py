@@ -18,7 +18,7 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 
-from src.ai.tools.base import Tool, ToolParams, ToolResult as TypedToolResult
+from src.ai.tools.base import Tool, ToolParams
 
 logger = logging.getLogger(__name__)
 

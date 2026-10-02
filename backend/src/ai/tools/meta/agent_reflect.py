@@ -35,9 +35,6 @@ class AgentReflectTool(Tool):
         "a CANDIDATE rule (validated by Dreaming before it influences future runs)."
     )
 
-    def supports_context(self) -> bool:
-        return True
-
     async def run(self, input_data: str) -> str:
         return await self.run_with_context(input_data, context=None)
 

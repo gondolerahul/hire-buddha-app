@@ -67,14 +67,11 @@ flowchart TD
     G --> H
     H --> R{"ToolAccess.resolve name ?"}
     R -->|refused| Z["skipped ToolResult - not run, not retried, not billed"]
-    R -->|allowed| I{"run_typed overridden ?"}
-    I -->|yes| J["typed path - Pydantic params"]
-    I -->|no| K["legacy path - run_with_context string"]
-    J --> L["ToolResult dataclass"]
-    K --> L
+    R -->|allowed| I["Tool.invoke - validate against Params, then execute; unconverted tools through one adapter"]
+    I --> L["ToolResult dataclass"]
     L --> M["ToolInteractionLog row"]
     L --> N["cost lookup - IntegrationRegistry then fixed table"]
-    N --> O["run.total_cost_usd plus UsageLog row"]
+    N --> O["UsageLog row with the run - the run's cost is their sum (P4)"]
     L --> P["output formatted back into the LLM transcript"]
 ```
 
@@ -270,8 +267,9 @@ a CUSTOM entry), and the tool-synthesis pipeline (a DRAFT `SYNTHESIZED` entry).
 
 ### 3.1 The base class
 
-Everything lives in [tools/base.py](../../backend/src/ai/tools/base.py). There
-is no decorator and no protocol — a tool is a subclass.
+Everything lives in [tools/base.py](../../backend/src/ai/tools/base.py). A tool is a
+subclass of `Tool`. Since P6.1 (2026-10-02, TL-41, TL-30, TX-I2) there is **one
+contract and one entry point**:
 
 ```python
 # backend/src/ai/tools/base.py
@@ -279,34 +277,27 @@ class Tool(ABC):
     name: str
     description: str
     status: ToolStatus = ToolStatus.ACTIVE
+    Params: ClassVar[Optional[Type[ToolParams]]] = None   # the arguments, typed
+    string_field: ClassVar[Optional[str]] = None          # what a plan step's text fills
 
-    @abstractmethod
-    async def run(self, input_data: str) -> str: ...
-
-    async def run_with_context(self, input_data: str,
-                               context: Optional[Dict[str, Any]] = None) -> str:
-        """Override when the tool needs company_id / user_id / run_id."""
-        return await self.run(input_data)
-
-    async def run_typed(self, params: ToolParams) -> ToolResult:
-        """Phase 6 typed interface. Default wraps run()."""
-        ...
-
-    def get_function_schema(self) -> Dict[str, Any]:
-        """Override to advertise real parameters to the LLM."""
-        ...
+    async def execute(self, params: ToolParams, ctx: dict) -> ToolOutput: ...   # a typed tool
+    async def invoke(self, args, context) -> ToolOutput: ...                    # the one entry point
+    def get_function_schema(self) -> dict: ...            # derived from Params when typed
 ```
 
-Three execution entry points exist, in increasing order of capability:
+| Piece | What it does |
+|---|---|
+| `Params` | A `ToolParams` model (Pydantic, `extra="forbid"`): the tool's arguments and their descriptions |
+| `execute(params, ctx)` | The call, given validated arguments and the server-minted context (§3.2) |
+| `invoke(args, context)` | What `ToolExecutor` calls for a model's call **and** a plan step. A typed tool's arguments are validated against `Params`; arguments that do not fit are a failed `ToolOutput` with `error_code="invalid_arguments"` naming the fields and the expected ones — never a fallback to another path. A plan step's plain text fills `string_field` (`web_search`'s `query`) |
+| `run_with_context(input, context)` | For a typed tool, a bridge to `invoke` for the few callers that still pass a string. For a tool not yet converted (`Params is None`), its implementation — `invoke` adapts it in one place |
 
-| Method | Signature | Who overrides it |
-|--------|-----------|------------------|
-| `run` | `(input_data: str) -> str` | mandatory; often just delegates to `run_with_context` |
-| `run_with_context` | `(input_data: str, context: dict) -> str` | ~76 of the 86 tools — anything needing `company_id`, `user_id`, `run_id`, `agent_id` |
-| `run_typed` | `(params: ToolParams) -> ToolResult` | only `web_search` and `scraper_tool` today |
-
-`supports_context()` returns whether the subclass overrode `run_with_context`,
-by comparing the bound function to the base one.
+**Decision D16:** the tools P6 touches are converted; the rest stay on the adapter.
+`tests/unit/test_tool_contract.py` lists them (`UNCONVERTED`): the list may only
+shrink, and a newly registered tool must declare `Params`. Before P6.1 a tool could be
+entered through `run`, `run_with_context`, `run_typed` or the executor's reflection,
+which found `run_typed` by type hints and fell back to the string path silently on any
+error; `supports_context()` and `run_typed` are gone.
 
 ### 3.2 The `context` dict
 
@@ -352,41 +343,31 @@ their rows directly.
 
 ### 3.3 The JSON schema a tool advertises
 
-`get_function_schema()` returns a provider-agnostic OpenAI-style function
-declaration. `LLMRouter` adapters translate it per provider (Gemini, Anthropic,
-Azure). The base implementation is a single free-text `input` string, which is
-what `tool_synthesis`, `meta_spec_critic` and `SandboxedSynthesizedTool` still
-use. Every other tool overrides it. `web_search` is the canonical shape:
+`get_function_schema()` returns a provider-agnostic OpenAI-style function declaration;
+`LLMRouter` adapters translate it per provider. For a typed tool it is **derived from
+`Params`** (`model_json_schema()`, titles dropped), so what the model is told and what
+the tool reads cannot drift:
 
 ```python
 # backend/src/ai/tools/core/search.py
-def get_function_schema(self) -> Dict[str, Any]:
-    return {
-        "name": self.name,
-        "description": self.description,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query to look up on the web"
-                }
-            },
-            "required": ["query"]
-        }
-    }
+class WebSearchParams(ToolParams):
+    query: str = Field(..., description="The search query to look up on the web")
+    num_results: int = Field(8, ge=1, le=20, description="How many results to return (1-20, default 8)")
 ```
+
+becomes `{"type": "object", "properties": {"query": …, "num_results": {"type":
+"integer", "minimum": 1, "maximum": 20, "default": 8, …}}, "required": ["query"]}`.
+(`num_results` was advertised before P6.1 and never read.) An unconverted tool still
+hand-writes its schema; the base default is a single free-text `input`, which
+`tool_synthesis`, `meta_spec_critic` and `SandboxedSynthesizedTool` use.
 
 ### 3.4 The result shape
 
-There are **two** `ToolResult` classes and they are not the same thing:
-
-| Class | File | Used by |
-|-------|------|---------|
-| `ToolResult` (Pydantic) | [tools/base.py:48](../../backend/src/ai/tools/base.py:48) | return value of `run_typed()` — fields `success`, `output`, `error_code`, `error_message`, `metadata` |
-| `ToolResult` (dataclass) | [tool_executor.py:39](../../backend/src/ai/tool_executor.py:39) | the canonical executor return — fields `tool`, `args`, `output`, `success`, `latency_ms`, `error`, `skipped`, `skip_reason`, `timestamp` |
-
-The executor's dataclass is what the rest of the platform sees:
+A tool returns a `ToolOutput` ([tools/base.py](../../backend/src/ai/tools/base.py)):
+`success`, `output` (what the model reads — text, or a JSON-able object), `error`,
+`error_code`, `metadata`; `ToolOutput.failed(error, code)` builds a failure. The
+executor turns it into its own dataclass, the **only** class named `ToolResult`
+(TL-30; before P6.1 the Pydantic one in `base.py` shared the name and no fields):
 
 ```python
 # backend/src/ai/tool_executor.py
@@ -398,121 +379,75 @@ class ToolResult:
     success: bool
     latency_ms: int = 0
     error: Optional[str] = None    # Set when success=False
-    skipped: bool = False          # Set when rate limit exceeded
+    skipped: bool = False          # a refused call (P3.1)
     skip_reason: Optional[str] = None
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    reformatted: bool = False      # the call ran on input an LLM rewrote (EP-24)
+    timestamp: str = ...
 ```
 
-Note there is **no enforced schema on `output`**. Most tools return a JSON
-string; `calculator` and `web_search` return plain prose; `terminal` returns
-JSON with `exit_code`/`stdout`/`stderr`. The LLM has to cope.
+An unconverted tool still reports failure inside its string (`Error: …`,
+`{"error": …}`); `settle_result` recognises those (TL-52), so a failed call is logged as
+failed and not billed either way.
 
-### 3.5 Dispatch: typed path vs legacy path
+### 3.5 Dispatch
 
 ```mermaid
 sequenceDiagram
     participant LLM
     participant SE as step_executor
     participant TE as ToolExecutor
-    participant R as ToolRegistry
-    participant T as Tool instance
+    participant A as ToolAccess
+    participant T as Tool
     participant DB as Postgres
 
-    LLM->>SE: function_call name plus args
-    SE->>TE: execute_from_function_calls with the ExecutionContext and ToolAccess
-    TE->>R: ToolAccess.resolve name via llm - grant, kill switch, opt-in, per-run limits
+    LLM->>SE: function_call name plus args - or a plan step's tool and text
+    SE->>TE: execute_from_function_calls or execute_tools, with the ExecutionContext and ToolAccess
+    TE->>A: resolve name - grant, kill switch, opt-in, per-run limits
     alt refused
-        R-->>TE: ToolDenied
+        A-->>TE: ToolDenied
         TE-->>SE: skipped ToolResult - the tool never runs
     else allowed
-        R-->>TE: Tool instance
-        alt run_typed overridden and args is a dict
-            TE->>TE: get_type_hints to find the ToolParams subclass
-            TE->>T: run_typed typed_params and optional context
-            T-->>TE: pydantic ToolResult
-        else
-            TE->>TE: serialise args to a JSON string
-            TE->>T: run_with_context raw_input and context
-            T-->>TE: str
+        A-->>TE: Tool
+        TE->>T: invoke args and context
+        alt typed
+            T->>T: validate against Params - a misfit is a failed ToolOutput naming the fields
+            T->>T: execute params and ctx
+        else not yet converted
+            T->>T: run_with_context with the args as a string
         end
-        TE->>TE: measure latency
+        T-->>TE: ToolOutput
     end
-    TE-->>SE: dataclass ToolResult
-    SE->>DB: insert tool_interaction_logs row - refused calls marked - and ToolAccess.record
-    SE->>DB: cost lookup then bump run.total_cost_usd and insert usage_logs
+    TE-->>SE: ToolResult
+    SE->>DB: tool_interaction_logs row and a usage row per charge (P4)
     SE-->>LLM: formatted function response
 ```
 
-The typed path is chosen by reflection
-([tool_executor.py:125](../../backend/src/ai/tool_executor.py:125)): if
-`type(tool).run_typed is not Tool.run_typed`, the executor reads
-`get_type_hints(tool.run_typed)`, finds the `params` annotation, and constructs
-that Pydantic model from `tool_args` (minus `company_id` / `user_id`). If
-anything in that reflection fails it silently logs at DEBUG and falls through to
-the legacy string path — which is why a broken typed signature is easy to miss.
-The execution context reaches `run_typed` only when it declares a `context`
-parameter; `scraper_tool`'s did not, so every typed scraper call ran with no
-company — on the platform's Firecrawl key, saving into the platform's artifact
-store — until 2026-10-01 (TL-05). Both typed tools now declare it.
+Both executor methods go through one function, `_run`, which calls `invoke` and measures
+latency.
 
 ### 3.6 A minimal complete tool
 
-This is a real, complete tool implementation — `calculator`, trimmed:
-
 ```python
-# backend/src/ai/tools/core/calculator.py
-from src.ai.tools.base import Tool
+class EchoParams(ToolParams):
+    text: str = Field(..., description="What to echo")
+    times: int = Field(1, ge=1, le=3, description="How many times")
 
-class CalculatorTool(Tool):
-    name = "calculator"
-    description = (
-        "Performs mathematical calculations safely. "
-        "Input should be a mathematical expression like '2 + 2' or '(10 * 5) / 2'. "
-        "Supports: +, -, *, /, //, %, ** (power), and parentheses."
-    )
 
-    async def run(self, input_data: str) -> str:
-        try:
-            expression = input_data.strip()
-            if not expression:
-                return "Error: Empty expression"
-            tree = ast.parse(expression, mode='eval')   # never eval()
-            result = self._safe_eval(tree)
-            if isinstance(result, float) and result.is_integer():
-                return str(int(result))
-            return str(result)
-        except SyntaxError as e:
-            return f"Error: Invalid expression syntax - {str(e)}"
-        except ValueError as e:
-            return f"Error: {str(e)}"
+class EchoTool(Tool):
+    name = "echo"
+    description = "Echo text back."          # a prompt: the model reads only this and the schema
+    Params = EchoParams
+    string_field = "text"                    # a plan step's text is the text
 
-    def get_function_schema(self):
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expression": {"type": "string",
-                                   "description": "Mathematical expression to evaluate"}
-                },
-                "required": ["expression"],
-            },
-        }
+    async def execute(self, params: EchoParams, ctx: dict) -> ToolOutput:
+        company = ctx.get("company_id")      # who the call is for: the context, never params
+        return ToolOutput(output=" ".join([params.text] * params.times))
 ```
 
-Note the conventions it follows, which every tool in this codebase shares:
-
-- **Never raise.** Return an error *string* starting with `Error:`. The
-  resilience layer classifies on that prefix (§15).
-- **Description is a prompt.** It is the only thing the LLM reads to decide
-  whether to call you. Spell out the input format inside it.
-- **The schema's parameter names do not have to match the code.** The schema
-  says `expression`; the legacy path serialises `{"expression": "2+2"}` to JSON
-  and `run()` receives that JSON string, not the bare expression. `calculator`
-  survives this only because `ast.parse` on `{"expression": "2+2"}` fails and
-  returns a syntax error — in the REACT path the LLM usually retries with a bare
-  string. This mismatch is a real class of bug; see §22.
+Conventions: return failures as `ToolOutput.failed(...)` rather than raising (an
+exception becomes a failed call too, but loses its error code); take the company, run
+and entity from `ctx` (§3.2); keep nothing per call on `self` — registered instances are
+frozen (TX-02).
 
 ---
 
@@ -2025,20 +1960,11 @@ reading the backend's `.env` file off the host filesystem.
   in (§2.3). A grant with `usage: "PLANNED"` (stored as `llm_callable: false`) is
   neither offered to the model nor callable by it; only a plan step runs it.
 
-- **The schema and the code can disagree and nothing complains.** The schema is
-  what the LLM sees; `run_with_context` receives a serialised JSON blob of the
-  arguments. If your schema advertises `expression` but `run()` expects a bare
-  string, you get garbage at runtime with no error at import. Always parse
-  defensively.
-
-- **Two classes named `ToolResult`.** The Pydantic one in `tools/base.py` is a
-  `run_typed` return value; the dataclass in `tool_executor.py` is the canonical
-  executor result. They have different fields. Import carefully.
-
-- **The typed path fails silently.** If `get_type_hints(tool.run_typed)` throws
-  — a forward reference, a missing import — the executor logs at DEBUG and uses
-  the legacy string path instead. Your typed tool will "work" while quietly
-  never using its types.
+- **An unconverted tool's schema and code can still disagree.** For a typed tool the
+  schema is derived from `Params`, so they cannot. An unconverted one (D16) receives its
+  arguments as a JSON string and hand-writes its schema; `calculator` advertised
+  `expression` and parsed the whole string (TL-68). Convert a tool before changing its
+  arguments.
 
 - **Tool instances are process-wide singletons, and frozen once registered.**
   `self.x = …` in a tool method raises (TX-02); a test double that counts calls

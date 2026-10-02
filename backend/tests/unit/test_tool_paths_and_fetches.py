@@ -180,9 +180,8 @@ async def test_the_scraper_refuses_an_internal_url_before_any_request(company, m
     from src.ai.tools.core.scraper import ScraperTool
     post = AsyncMock()
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
-    out = json.loads(await ScraperTool().run_with_context(
-        json.dumps({"url": "http://169.254.169.254/latest/meta-data/"}), _ctx(company)))
-    assert "URL refused" in out["error"]
+    out = await ScraperTool().invoke({"url": "http://169.254.169.254/latest/meta-data/"}, _ctx(company))
+    assert not out.success and "URL refused" in out.error
     post.assert_not_awaited()
 
 

@@ -5,14 +5,14 @@ This module provides the abstract base class for tools and the global
 registry for tool registration and lookup.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional, Type
 from uuid import UUID
 import json
 import logging
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 # ---------------------------------------------------------------------------
@@ -50,46 +50,67 @@ def context_company_id(context: Optional[Dict[str, Any]]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Typed Tool Protocol
+# The tool contract (TL-41, TL-30, TX-I2)
 # ---------------------------------------------------------------------------
 
 class ToolParams(BaseModel):
-    """Base class for typed tool parameters.
+    """Base of a tool's ``Params`` model: its arguments, typed.
 
-    Subclass this in each tool to define strongly-typed inputs that
-    replace the legacy string-JSON-string interface.
+    An argument the model is not told about is an error, not ignored: the
+    model hears which one, and the advertised schema is the model's.
     """
-    pass
+    model_config = ConfigDict(extra="forbid")
 
 
-class ToolResult(BaseModel):
-    """Structured tool result with error handling.
+class ToolOutput(BaseModel):
+    """What a tool returns from ``execute``.
 
-    All tools should progressively migrate to returning ToolResult
-    from run_typed() instead of raw strings from run().
+    ``output`` is what the model reads (text, or a JSON-able object). A failed
+    call says so here (``success=False`` with ``error``) rather than in a
+    string the executor has to recognise.
     """
     success: bool = True
-    output: str = ""
+    output: Any = ""
+    error: Optional[str] = None
     error_code: Optional[str] = None
-    error_message: Optional[str] = None
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def failed(cls, error: str, code: str = "tool_error", **metadata: Any) -> "ToolOutput":
+        return cls(success=False, output=f"Error: {error}", error=error, error_code=code, metadata=metadata)
+
+    def text(self) -> str:
+        """The output as the string a legacy caller expects."""
+        if not self.success:
+            return self.output if isinstance(self.output, str) and self.output else f"Error: {self.error}"
+        return self.output if isinstance(self.output, str) else json.dumps(self.output, default=str)
+
+
+class InvalidArguments(ValueError):
+    """The call's arguments do not fit the tool's ``Params``."""
 
 
 class Tool(ABC):
-    """Abstract base class for all AI tools.
-    
-    Subclasses must implement:
-        - name: Human-readable tool name
-        - description: Tool description for LLM context
-        - run(): Async execution method
-    
-    Subclasses that need execution context (e.g. to look up API keys from the DB)
-    should also override:
-        - run_with_context(): Async method that receives extra_context dict
+    """Base class of every tool.
+
+    **The contract.** A tool declares ``Params`` (a ``ToolParams`` model) and
+    implements ``execute(params, ctx)``; its function schema is derived from
+    ``Params``. The executor calls ``invoke`` — the one entry point — for a
+    model's call and a plan step alike. ``ctx`` is the server-minted execution
+    context (``ExecutionContext.as_tool_context``, P3.2): the company, run and
+    entity a call is for come from it, never from ``params``.
+
+    A tool not yet converted (``Params is None``, decision D16) implements
+    ``run_with_context(input: str, context)`` and a hand-written
+    ``get_function_schema``; ``invoke`` adapts it in one place.
     """
     name: str
     description: str
     status: ToolStatus = ToolStatus.ACTIVE
+    Params: ClassVar[Optional[Type[ToolParams]]] = None
+    # The field a plan step's plain-text input fills, for a typed tool whose
+    # step templates are text (``calculator``'s "17*23").
+    string_field: ClassVar[Optional[str]] = None
 
     # One registered instance serves every run of every company at once, so a
     # tool must keep nothing per call on ``self`` (TX-02). Registration freezes
@@ -108,76 +129,106 @@ class Tool(ABC):
         """Make the instance read-only (done by ``ToolRegistry`` on registration)."""
         object.__setattr__(self, "_frozen", True)
 
-    @abstractmethod
-    async def run(self, input_data: str) -> str:
-        """Execute the tool with the given input.
-        
-        Args:
-            input_data: String input from the LLM
-            
-        Returns:
-            String output to be returned to the LLM
+    # ── The typed contract ─────────────────────────────────────────────────
+    async def execute(self, params: Any, ctx: Dict[str, Any]) -> ToolOutput:
+        """Run the call. A typed tool overrides this."""
+        raise NotImplementedError(f"tool '{self.name}' declares Params but does not implement execute")
+
+    def parse_args(self, args: Any) -> ToolParams:
+        """``args`` (a dict, a JSON object string, or a plan step's text) as ``Params``."""
+        assert self.Params is not None
+        if isinstance(args, str):
+            text = args.strip()
+            parsed: Any = None
+            if text.startswith("{"):
+                try:
+                    parsed = json.loads(text)
+                except ValueError:
+                    parsed = None
+            if isinstance(parsed, dict):
+                args = parsed
+            elif self.string_field:
+                args = {self.string_field: args}
+            else:
+                raise InvalidArguments(f"expected a JSON object with {self._field_list()}")
+        if not isinstance(args, dict):
+            raise InvalidArguments(f"expected an object with {self._field_list()}")
+        try:
+            return self.Params.model_validate(args)
+        except ValidationError as exc:
+            problems = "; ".join(
+                f"{'.'.join(str(p) for p in e['loc']) or 'arguments'}: {e['msg']}" for e in exc.errors()
+            )
+            raise InvalidArguments(f"{problems}. Expected {self._field_list()}") from None
+
+    def _field_list(self) -> str:
+        assert self.Params is not None
+        fields = self.Params.model_fields
+        required = [f for f, info in fields.items() if info.is_required()]
+        optional = [f for f in fields if f not in required]
+        return f"required {required}" + (f", optional {optional}" if optional else "")
+
+    async def invoke(self, args: Any, context: Optional[Dict[str, Any]] = None) -> ToolOutput:
+        """The one entry point: validate, then run (TL-41).
+
+        Arguments that do not fit are a failed call naming the fields — never
+        a silent fallback to another path.
         """
-        pass
+        if self.Params is None:
+            return ToolOutput(output=await self.run_with_context(_legacy_input(args), context))
+        try:
+            params = self.parse_args(args)
+        except InvalidArguments as exc:
+            return ToolOutput.failed(f"{self.name}: invalid arguments — {exc}", code="invalid_arguments")
+        return await self.execute(params, dict(context or {}))
+
+    # ── The adapter for tools not yet converted (D16) ──────────────────────
+    async def run(self, input_data: str) -> str:
+        """A call without a context (legacy callers)."""
+        return await self.run_with_context(input_data, None)
 
     async def run_with_context(self, input_data: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """Execute the tool with extra execution context.
+        """A string call. An unconverted tool overrides this (or ``run``); for a
+        typed tool it goes through ``invoke``."""
+        if self.Params is not None:
+            return (await self.invoke(input_data, context)).text()
+        if type(self).run is not Tool.run:
+            return await self.run(input_data)
+        raise NotImplementedError(f"tool '{self.name}' implements neither execute nor run_with_context")
 
-        Override this in tools that need access to context fields like
-        'company_id' or 'user_id' (e.g. to look up API keys from the DB).
-
-        Default implementation ignores context and delegates to run().
-
-        Args:
-            input_data: String (JSON) input from the LLM
-            context: Optional dict containing extra_context keys such as
-                     'company_id', 'user_id', and any injected args.
-
-        Returns:
-            String output to be returned to the LLM
-        """
-        return await self.run(input_data)
-
-    async def run_typed(self, params: ToolParams) -> ToolResult:
-        """New typed interface (Phase 6).
-
-        Default implementation falls back to the legacy string interface.
-        Override in subclasses for full type safety.
-        """
-        try:
-            result_str = await self.run(json.dumps(params.model_dump()))
-            return ToolResult(output=result_str)
-        except Exception as e:
-            return ToolResult(
-                success=False,
-                output="",
-                error_code="TOOL_ERROR",
-                error_message=str(e),
-            )
-
-    def supports_context(self) -> bool:
-        """Return True if this tool overrides run_with_context for special DB/key handling."""
-        return type(self).run_with_context is not Tool.run_with_context
-    
     def get_function_schema(self) -> Dict[str, Any]:
-        """Return JSON schema for function calling.
-        
-        Override this method to provide custom parameter schemas.
-        """
+        """The function declaration the model is shown: from ``Params`` when typed."""
+        if self.Params is not None:
+            schema = self.Params.model_json_schema()
+            schema.pop("title", None)
+            schema.setdefault("properties", {})
+            for prop in schema["properties"].values():
+                if isinstance(prop, dict):
+                    prop.pop("title", None)
+            return {"name": self.name, "description": self.description, "parameters": schema}
         return {
             "name": self.name,
             "description": self.description,
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "input": {
-                        "type": "string",
-                        "description": "Input for the tool"
-                    }
-                },
-                "required": ["input"]
-            }
+                "properties": {"input": {"type": "string", "description": "Input for the tool"}},
+                "required": ["input"],
+            },
         }
+
+
+def _legacy_input(args: Any) -> str:
+    """The string an unconverted tool parses: the plan's text, ``args["input"]``,
+    or the model's arguments as a JSON object."""
+    if isinstance(args, str):
+        return args
+    if isinstance(args, dict):
+        if "input" in args:
+            value = args["input"]
+            return value if isinstance(value, str) else json.dumps(value, default=str)
+        # Who a call is for comes from the context, never from the arguments.
+        return json.dumps({k: v for k, v in args.items() if k not in ("company_id", "user_id")}, default=str)
+    return "" if args is None else str(args)
 
 
 class ToolRegistry:

@@ -15,19 +15,33 @@ import os
 import re
 import logging
 from typing import Dict, Any, List, Optional
-from src.ai.tools.base import Tool, ToolParams, ToolResult as TypedToolResult
+from pydantic import Field, field_validator
+
+from src.ai.tools.base import Tool, ToolOutput, ToolParams
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Typed Tool Protocol — reference implementation
+# Arguments
 # ---------------------------------------------------------------------------
 
 class WebSearchParams(ToolParams):
-    """Typed parameters for web search tool."""
-    query: str
-    num_results: int = 8
+    """What ``web_search`` takes."""
+    query: str = Field(..., description="The search query to look up on the web")
+    num_results: int = Field(8, ge=1, le=20, description="How many results to return (1-20, default 8)")
+
+    @field_validator("query")
+    @classmethod
+    def _a_query_not_a_prompt(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("an empty search query")
+        # Over 500 characters is a prompt pasted as a query, not a query.
+        if len(v) > 500:
+            logger.warning("[WebSearch] query of %d chars truncated to 500: %r", len(v), v[:100])
+            v = v[:500]
+        return v
 
 
 class WebSearchTool(Tool):
@@ -42,61 +56,14 @@ class WebSearchTool(Tool):
     name = "web_search"
     description = (
         "Search the web for current information on any topic. "
-        "Returns a list of relevant results including titles, URLs, and snippets. "
-        "Input should be a plain-text search query or a JSON object with a 'query' key."
+        "Returns a list of relevant results including titles, URLs, and snippets."
     )
+    Params = WebSearchParams
+    string_field = "query"  # a plan step's text is the query
 
     _TIMEOUT = 15.0
     _DDG_API_URL = "https://api.duckduckgo.com/"
     _SERP_API_URL = "https://serpapi.com/search"
-
-    # ---------------------------------------------------------------------------
-    # Input parsing
-    # ---------------------------------------------------------------------------
-
-    def _parse_query(self, input_data: str) -> str:
-        """Extract search query from raw input string or JSON dict/list."""
-        raw = (input_data or "").strip()
-        if not raw:
-            return ""
-
-        # Try JSON parsing first
-        if raw.startswith("{") or raw.startswith("["):
-            try:
-                parsed = json.loads(raw)
-                if isinstance(parsed, list):
-                    # Source-discoverer passes a JSON array of query objects.
-                    # Extract the first valid query string — the caller (REACT loop)
-                    # is responsible for iterating through the array; this method
-                    # only returns one query per call.
-                    for item in parsed:
-                        if isinstance(item, str) and item.strip():
-                            return item.strip()[:500]
-                        if isinstance(item, dict):
-                            for key in ("query", "q", "search", "text"):
-                                if key in item and isinstance(item[key], str):
-                                    return item[key].strip()[:500]
-                elif isinstance(parsed, dict):
-                    for key in ("query", "q", "search", "input", "text"):
-                        if key in parsed and isinstance(parsed[key], str):
-                            return parsed[key].strip()[:500]
-                    # Fallback: first string value
-                    for v in parsed.values():
-                        if isinstance(v, str) and v.strip():
-                            return v.strip()[:500]
-            except json.JSONDecodeError:
-                pass  # Not JSON
-
-        # Hard cap: queries >500 chars are always malformed (e.g. LLM passed full
-        # research context instead of a search query). Truncate and warn.
-        if len(raw) > 500:
-            logger.warning(
-                f"[WebSearch] Query too long ({len(raw)} chars) — likely a prompt injection. "
-                f"Truncating to 500 chars. First 100: {raw[:100]!r}"
-            )
-            raw = raw[:500]
-
-        return raw
 
     # ---------------------------------------------------------------------------
     # API key resolution
@@ -307,70 +274,29 @@ class WebSearchTool(Tool):
             return []
 
     # ---------------------------------------------------------------------------
-    # Main entry points
+    # The call
     # ---------------------------------------------------------------------------
 
-    async def run(self, input_data: str) -> str:
-        """Execute a web search without extra context."""
-        return await self.run_with_context(input_data, context=None)
-
-    async def run_with_context(self, input_data: str, context: Optional[Dict] = None) -> str:
-        """Execute a web search with optional execution context.
-
-        Args:
-            input_data: Search query string or JSON with 'query' key.
-            context: Optional execution context (for API key lookup).
-
-        Returns:
-            Formatted string of search results.
-        """
-        query = self._parse_query(input_data)
-        if not query:
-            return "Error: Empty search query. Please provide a search term."
-
+    async def execute(self, params: WebSearchParams, ctx: Dict[str, Any]) -> ToolOutput:
+        """Search: SerpAPI, then the duckduckgo library, then DDG Instant Answers."""
+        query = params.query
         logger.info(f"[WebSearch] Searching for: {query[:100]}")
-
-        # Resolve available API keys
-        keys = await self._resolve_keys(context)
+        keys = await self._resolve_keys(ctx)
 
         results: Optional[List[Dict]] = None
-
-        # Backend 1: SerpAPI
         if keys.get("serp_api_key"):
             results = await self._search_serpapi(query, keys["serp_api_key"])
-
-        # Backend 2: duckduckgo-search library
         if not results:
             results = await self._search_ddg_library(query)
-
-        # Backend 3: DDG Instant Answers API
         if not results:
             results = await self._search_ddg_api(query)
 
         if not results:
-            return (
+            return ToolOutput(output=(
                 f"No results found for: '{query}'. "
                 "For better results, configure SERP_API_KEY via Integration Registry."
-            )
-
-        return self._format_results(query, results)
-
-    # ---------------------------------------------------------------------------
-    # Typed interface
-    # ---------------------------------------------------------------------------
-
-    async def run_typed(self, params: WebSearchParams, context: Optional[Dict] = None) -> TypedToolResult:
-        """Typed tool execution — accepts WebSearchParams, returns TypedToolResult."""
-        try:
-            result_str = await self.run_with_context(
-                json.dumps({"query": params.query}), context=context
-            )
-            return TypedToolResult(output=result_str)
-        except Exception as e:
-            return TypedToolResult(
-                success=False, output="",
-                error_code="SEARCH_ERROR", error_message=str(e),
-            )
+            ))
+        return ToolOutput(output=self._format_results(query, results[: params.num_results]))
 
     # ---------------------------------------------------------------------------
     # Output formatting
@@ -392,20 +318,3 @@ class WebSearchTool(Tool):
                 lines.append(f"   {snippet}")
             lines.append("")
         return "\n".join(lines)
-
-    def get_function_schema(self) -> Dict[str, Any]:
-        """Return JSON schema for Gemini function calling."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query to look up on the web"
-                    }
-                },
-                "required": ["query"]
-            }
-        }

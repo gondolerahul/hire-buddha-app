@@ -256,6 +256,8 @@ Wiring it fixes the price-table sprawl and the query storm in one change.
 
 ### TX-I2 — One dispatch path, schema derived from the params model
 
+**Status: fixed for the contract (2026-10-02, P6.1)** — one entry point, `Tool.invoke`: a typed tool declares `Params` and `execute(params, ctx)`, its schema is derived from `Params`, and arguments that do not fit are a failed call naming the fields; `run_typed`, the executor's reflection and its silent fallback are deleted, and `ToolOutput` is the tool's result (the executor's `ToolResult` is the only class of that name, TL-30). Tools not yet converted run through one adapter in `invoke` (decision D16); `tests/unit/test_tool_contract.py` lists them and the list may only shrink.
+
 **Effect: large.** Today a tool can be entered four ways, structured arguments are
 serialised to JSON and re-parsed inside each tool, and a large fraction of tool code is
 defensive parsing — `pdf_generator` is 746 lines, most of it input rescue.
