@@ -248,18 +248,14 @@ class StepEngine:
             return
         if cap <= 0:
             return
+        # The run's spend is its usage rows plus its children (AK-02). The run
+        # column moves only between iterations, so reading it let a
+        # multi-step fragment or a DAG level spend past the cap.
         try:
-            spent_raw = (await self.db.execute(
-                select(ExecutionRun.total_cost_usd).where(ExecutionRun.id == run.id)
-            )).scalar_one_or_none()
+            from src.ai.governance.run_cost import run_spend
+            spent = float((await run_spend(self.db, run.id)).cost_usd)
         except Exception:
             return  # never let the guard's own lookup break a step
-        if spent_raw is None:
-            return
-        try:
-            spent = float(spent_raw)
-        except (TypeError, ValueError):
-            return
         if spent >= cap:
             raise BudgetExhaustedError(
                 f"Run {run.id} reached governance.max_cost_usd "

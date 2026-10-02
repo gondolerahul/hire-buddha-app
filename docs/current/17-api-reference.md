@@ -242,6 +242,7 @@ not part of OpenAPI.
 | DELETE | `/api/v1/ai/entities/{entity_id}` | Soft-delete an entity |
 | POST | `/api/v1/ai/entities/{entity_id}/convert-to-template` | Convert to template |
 | GET | `/api/v1/ai/entities/{entity_id}/versions` | Every version, newest first (`is_head`, `asset_count`) |
+| GET | `/api/v1/reports/analytics/entity-versions?entity_id=` | Per version: runs, completed/failed/partial, success rate, total and mean cost, billed, mean tokens and duration; runs from before versions as one row |
 | POST | `/api/v1/ai/entities/{entity_id}/versions` | Create a draft: `{base_version_id?, changes}` |
 | GET | `/api/v1/ai/entities/{entity_id}/versions/{version_id}` | A version's definition and file manifest |
 | GET/PUT/DELETE | `/api/v1/ai/entities/{entity_id}/versions/{version_id}/assets/{path}` | Read, add/replace (`{body}`), remove a draft's file |

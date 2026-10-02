@@ -154,6 +154,19 @@ async def get_agent_errors(
     return await svc.get_agent_error_rates(company_id=current_user.company_id, days=days)
 
 
+# ─── Unit economics per entity version ─────────────────────────────────────────
+
+@router.get("/entity-versions", summary="Runs, success and spend per version of one entity")
+async def get_entity_version_economics(
+    entity_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from src.ai.service import AIService
+    await AIService(db).get_entity(entity_id, current_user.company_id, current_user.role)  # 404 outside scope
+    return await ReportsService(db).get_version_economics(entity_id)
+
+
 # ─── Credit Forecast ──────────────────────────────────────────────────────────
 
 @router.get("/credit-forecast", summary="Credit burn rate and depletion forecast")

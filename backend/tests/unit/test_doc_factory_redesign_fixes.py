@@ -52,6 +52,22 @@ class _FakeDB:
         return _ScalarResult(self._value)
 
 
+@pytest.fixture
+def spend_from_fake_db(monkeypatch):
+    """The guard reads the run's spend (``run_spend``: rows plus children,
+    P5.5) — here, the fake DB's preset value, or its error."""
+    from decimal import Decimal
+
+    import src.ai.governance.run_cost as run_cost
+
+    async def _spend(db, _run_id):
+        if db._raises:
+            raise RuntimeError("boom")
+        return run_cost.RunSpend(cost_usd=Decimal(str(db._value)), tokens=0)
+
+    monkeypatch.setattr(run_cost, "run_spend", _spend)
+
+
 def _engine_stub(db) -> SimpleNamespace:
     # _enforce_cost_cap only touches self.db — bind it to a light stub to avoid
     # StepEngine's full service wiring.
@@ -70,6 +86,7 @@ async def _enforce(db, governance, spent=None):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("spend_from_fake_db")
 async def test_cost_cap_raises_when_spent_reaches_cap():
     db = _FakeDB(value="15.5655")
     stub = _engine_stub(db)
@@ -81,6 +98,7 @@ async def test_cost_cap_raises_when_spent_reaches_cap():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("spend_from_fake_db")
 async def test_cost_cap_passes_when_under_cap():
     db = _FakeDB(value="1.00")
     stub = _engine_stub(db)
@@ -91,6 +109,7 @@ async def test_cost_cap_passes_when_under_cap():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("governance", [{}, {"max_cost_usd": None}, {"max_cost_usd": 0}])
+@pytest.mark.usefixtures("spend_from_fake_db")
 async def test_cost_cap_noop_when_no_cap(governance):
     db = _FakeDB(value="9999.0")  # huge spend, but no cap configured
     stub = _engine_stub(db)
@@ -99,6 +118,7 @@ async def test_cost_cap_noop_when_no_cap(governance):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("spend_from_fake_db")
 async def test_cost_cap_swallows_lookup_errors():
     db = _FakeDB(raises=True)
     stub = _engine_stub(db)
@@ -108,6 +128,7 @@ async def test_cost_cap_swallows_lookup_errors():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("spend_from_fake_db")
 async def test_cost_cap_boundary_equal_trips():
     db = _FakeDB(value="2.0000")
     stub = _engine_stub(db)

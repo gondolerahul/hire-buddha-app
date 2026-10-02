@@ -2048,7 +2048,7 @@ Not Alembic. Each is idempotent and run manually
 | [`seeds/default_entities/SeedDocumentFactory/`](../../backend/scripts/seeds/default_entities/SeedDocumentFactory/) | Document Factory entities for docx / pdf / pptx / xlsx / QA |
 | [`seeds/default_entities/SeedDocFactoryLite/`](../../backend/scripts/seeds/default_entities/SeedDocFactoryLite/) | Trimmed Document Factory variant |
 | [`seeds/deep_research/DeepResearchSetup/`](../../backend/scripts/seeds/deep_research/DeepResearchSetup/) | Deep Research v2 entities plus a `trigger_execution.py` smoke test. Created entity ids are cached in `entity_ids.json` |
-| [`scripts/seed_sandbox_sku.py`](../../backend/scripts/seed_sandbox_sku.py) | Idempotently inserts the `sandbox-runtime` SKU into `integration_registry`, owned by the APP company, `cost_unit=second`. Without it, sandbox metering logs a warning and records nothing |
+| [`scripts/seed_sandbox_sku.py`](../../backend/scripts/seed_sandbox_sku.py) | Idempotently inserts the `sandbox-runtime` SKU into `integration_registry`, owned by the APP company, `cost_unit=second`. Without it, sandbox metering logs a warning and records nothing. `db-scripts/seed_integration_registry.py` runs it (P5.5) |
 
 
 ```mermaid

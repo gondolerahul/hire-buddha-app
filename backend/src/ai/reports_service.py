@@ -869,3 +869,58 @@ class ReportsService:
                 for k, v in counts.items()
             ],
         }
+
+    # ── Unit economics per entity version (R2 §10) ──────────────────────────
+    async def get_version_economics(self, entity_id: UUID) -> List[Dict[str, Any]]:
+        """Runs, outcomes and spend of each version of one entity, newest first.
+
+        A run's cost includes its children's (AK-02), so a version's spend is
+        what running it cost. Runs from before versions existed are one row
+        with ``version_number`` None.
+        """
+        from src.ai.orm.versions import EntityVersion
+
+        runs = ExecutionRun
+        done = func.count(case((runs.status == "COMPLETED", 1)))
+        failed = func.count(case((runs.status == "FAILED", 1)))
+        partial = func.count(case((runs.status == "PARTIAL_COMPLETE", 1)))
+        rows = (await self.db.execute(
+            select(
+                runs.entity_version_id,
+                func.count(runs.id), done, failed, partial,
+                func.coalesce(func.sum(runs.total_cost_usd), 0),
+                func.avg(runs.total_cost_usd),
+                func.coalesce(func.sum(runs.billed_amount), 0),
+                func.avg(runs.total_tokens),
+                func.avg(runs.execution_time_ms),
+            )
+            .where(runs.entity_id == entity_id)
+            .group_by(runs.entity_version_id)
+        )).all()
+        by_version = {r[0]: r for r in rows}
+        versions = (await self.db.execute(
+            select(EntityVersion.id, EntityVersion.version_number, EntityVersion.label, EntityVersion.published)
+            .where(EntityVersion.entity_id == entity_id)
+            .order_by(EntityVersion.version_number.desc())
+        )).all()
+
+        def _row(version_id: Any, number: Any, label: Any, published: Any) -> Dict[str, Any]:
+            r = by_version.get(version_id)
+            n, ok, bad, part = (int(r[1]), int(r[2]), int(r[3]), int(r[4])) if r else (0, 0, 0, 0)
+            finished = ok + bad + part
+            return {
+                "version_id": str(version_id) if version_id else None,
+                "version_number": number, "label": label, "published": published,
+                "runs": n, "completed": ok, "failed": bad, "partial": part,
+                "success_rate": round(ok / finished, 4) if finished else None,
+                "total_cost_usd": float(r[5]) if r else 0.0,
+                "mean_cost_usd": float(r[6]) if r and r[6] is not None else None,
+                "billed_usd": float(r[7]) if r else 0.0,
+                "mean_tokens": float(r[8]) if r and r[8] is not None else None,
+                "mean_duration_ms": float(r[9]) if r and r[9] is not None else None,
+            }
+
+        out = [_row(v.id, v.version_number, v.label, v.published) for v in versions]
+        if None in by_version:
+            out.append(_row(None, None, None, None))
+        return out

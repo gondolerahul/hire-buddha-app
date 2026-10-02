@@ -635,7 +635,7 @@ opt-in ([platform_schema_compiler.py:808-822](../../backend/src/ai/meta/platform
 
 | Field | Type | Default | Actually enforced? |
 |-------|------|---------|--------------------|
-| `max_cost_usd` | float? | `None` | **Yes, hard.** [`StepEngine._enforce_cost_cap`](../../backend/src/ai/core/step_engine.py:237) re-reads `run.total_cost_usd` before each step and raises `BudgetExhaustedError`. Also seeds `Budget.usd_max` ([budget.py:94](../../backend/src/ai/core/budget.py:94), default `$100`). |
+| `max_cost_usd` | float? | `None` | **Yes, hard.** [`StepEngine._enforce_cost_cap`](../../backend/src/ai/core/step_engine.py:231) reads the run's spend (`run_spend`: its usage rows plus its children) before each step — inside a fragment and a DAG level too — and raises `BudgetExhaustedError`. It read `run.total_cost_usd`, which since P4.1 moves only between iterations, so it could not stop a fragment (fixed P5.5). Also seeds `Budget.usd_max` ([budget.py:94](../../backend/src/ai/core/budget.py:94), default `$100`). |
 | `timeout_ms` | int | `60000` | **Yes, per step.** `asyncio.wait_for` at [step_engine.py:315](../../backend/src/ai/core/step_engine.py:315). Also seeds `Budget.wall_max_s` (default 7200 s). |
 | `max_recursion_depth` | int | `5` | **Yes, hard** (EP-06). A child run past it is refused when it is created — see §8 *Recursion depth*. Also shown to the model as a constraint line. |
 | `execution_limits.max_tool_calls` | int? | `None` | **Prompt-only.** Rendered as "Tool calls remaining: N of M" ([step_executor.py:673-676](../../backend/src/ai/step_executor.py:673)); no hard block. |

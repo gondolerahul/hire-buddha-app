@@ -1649,7 +1649,7 @@ WHERE ul.log_metadata->>'session_id' = '<voice session uuid>';
 
 ### 14.5 Seed a missing cost SKU
 
-Sandbox has a dedicated idempotent seeder — [scripts/seed_sandbox_sku.py](../../backend/scripts/seed_sandbox_sku.py):
+Sandbox has a dedicated idempotent seeder — [scripts/seed_sandbox_sku.py](../../backend/scripts/seed_sandbox_sku.py). Since P5.5 (2026-10-02) the standard `db-scripts/seed_integration_registry.py` runs it too: environments skipped the separate step, so sandbox time — the work a skill does through `sandbox_code`/`terminal` — was never billed (R2 §10). Run it alone to change the price:
 
 ```bash
 cd backend

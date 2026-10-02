@@ -11,6 +11,8 @@ WHAT IT CREATES (APP company, idempotent — existing SKUs are skipped):
                                  the Vector(768) columns)
   • model_task_defaults for text_generation, thinking, vision,
     goal_validation and embedding
+  • sandbox-runtime              sandbox seconds (scripts/seed_sandbox_sku.py) —
+                                 without it sandbox work is never billed (R2 §10)
 
 Vertex AI authenticates with Application Default Credentials, so no real key is
 stored: the router still requires a non-empty key (LP-12), so the documented
@@ -105,6 +107,11 @@ async def seed(project_id: str, region: str) -> None:
         for task_type, sku in TASK_DEFAULTS.items():
             await svc.set_task_default(app_company.id, task_type, by_sku[sku].id)
             print(f"  [OK]   task default {task_type:<16} → {sku}")
+
+    # Sandbox time is priced per second; it used to need a second, separate
+    # seed that environments skipped, leaving every sandbox call unbilled.
+    from scripts.seed_sandbox_sku import seed as seed_sandbox_sku
+    await seed_sandbox_sku()
 
 
 if __name__ == "__main__":
