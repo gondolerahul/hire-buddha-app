@@ -375,11 +375,12 @@ class _RecordingAlwaysBlocks(NoOpCriticPipeline):
 
 
 @pytest.mark.asyncio
-async def test_pre_critic_skipped_for_plan_driven_moves(swap_single_step):
-    """A plan-driven move (plan_fragment present) must NOT be sent to the
-    pre-critic — otherwise an always-BLOCK critic + deterministic Strategist
-    dead-ends the run at the circuit breaker (Phase 11 incident #2 follow-up).
-    """
+async def test_a_blocked_plan_step_is_not_run_and_the_run_moves_on(swap_single_step):
+    """The pre-critic judges plan moves too (PC-01). It sees the step, and a
+    BLOCK does not run it: the step is marked failed with the concerns, so
+    the Strategist has nothing left to re-propose — no livelock, which was
+    the old reason to skip plan moves — and the block takes no iteration
+    (AK-16)."""
     entity = _static_entity(uuid4(), uuid4())
     run = _FakeRun(entity)
     db = _FakeDB(run)
@@ -393,15 +394,13 @@ async def test_pre_critic_skipped_for_plan_driven_moves(swap_single_step):
         outcome = await loop.run(run.id)
 
     names = [e.name for e in evts]
-    # Pre-critic was never consulted for the plan-driven step …
-    assert critic.pre_calls == 0
-    # … so the move executed, the breaker never fired, and the run finished.
+    assert critic.pre_calls == 1
+    assert swap_single_step.calls == 0                      # the blocked step never ran
+    [block] = [e for e in evts if e.name == "agent.loop.pre_critic_block"]
+    assert block.payload["blocked_steps"] == ["s1"]
     assert "agent.loop.pre_critic_circuit_break" not in names
-    assert "agent.loop.pre_critic_block" not in names
-    assert swap_single_step.calls >= 1
-    assert outcome["status"] in {
-        RunStatus.COMPLETED.value, RunStatus.PARTIAL_COMPLETE.value,
-    }
+    assert outcome["iterations"] == 0
+    assert outcome["status"] == RunStatus.FAILED.value       # its only step failed
 
 
 @pytest.mark.asyncio
@@ -437,10 +436,11 @@ async def test_pre_critic_still_runs_for_open_ended_moves(swap_single_step, monk
     with capture_test_events() as evts:
         outcome = await loop.run(run.id)
 
-    # Open-ended move WAS sent to the pre-critic, blocked 3x → breaker abort.
+    # Open-ended move WAS sent to the pre-critic, blocked 3x → breaker abort,
+    # and the blocks took no iteration (AK-16).
     assert critic.pre_calls == 3
     assert "agent.loop.pre_critic_circuit_break" in [e.name for e in evts]
-    assert outcome["iterations"] == 3
+    assert outcome["iterations"] == 0
 
 
 @pytest.mark.asyncio

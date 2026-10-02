@@ -639,31 +639,39 @@ call, which is wrapped in try/except.
 
 ### Phase 3 — Pre-critic
 
+Since P7.4 (2026-10-02, PC-01, PC-02, AK-16) the pre-critic judges **every** move,
+plan-driven ones included, and runs **before** the iteration is counted:
+
 ```python
 # backend/src/ai/core/agent_loop.py
-if move.plan_fragment:
-    pre_verdict = PreCriticVerdict(kind="PASS")
-else:
-    pre_verdict = await self.critic_pipeline.pre_action(move, state)
+pre_verdict = await self.critic_pipeline.pre_action(move, state)   # sees the move's steps
+if pre_verdict.kind == "BLOCK":
+    ...  # the steps are marked failed with the concerns; no iteration, no budget step
+if pre_verdict.kind == "REVISE":
+    move.plan_fragment = with_prompt_hint(move.plan_fragment, concerns)
+state.iteration = upcoming        # only now
 ```
 
-**Plan-driven moves skip the pre-critic entirely.** This is deliberate and
-scarred-in: the deterministic Strategist re-proposes the *identical* move every
-iteration, so one `BLOCK` becomes three consecutive blocks, trips the circuit
-breaker, and aborts the run with zero work done. The pre-critic still guards
-open-ended moves (recursive goal expansion, `SingleStep` with no fragment)
-where blocking is actionable.
+Its prompt lists each step of the fragment (name, type, tool, description, the first 400
+characters of its template). Before, it saw only the executor name and a step count, and
+plan moves skipped it: a `BLOCK` made the deterministic Strategist re-propose the same
+move until the breaker tripped. Now a `BLOCK` settles the blocked steps as failed (their
+reason is the critic's concerns), so the Strategist proposes the next ready step, and the
+loop asks `decide_next` whether the plan is finished. A `REVISE` runs the steps with the
+concerns as their correction (a `StepDirective.prompt_hint`). The health record now carries
+the step id on plan moves, so the per-step retry bound counts them.
 
 On `BLOCK`:
 
 ```mermaid
 flowchart TD
-    B["PreCriticVerdict.kind == BLOCK"] --> INC["consecutive_pre_critic_blocks += 1"]
-    INC --> EV["emit agent.loop.pre_critic_block"]
+    B["PreCriticVerdict.kind == BLOCK"] --> FAIL["the move's steps marked failed with the concerns"]
+    FAIL --> INC["consecutive_pre_critic_blocks += 1"]
+    INC --> EV["emit agent.loop.pre_critic_block (blocked_steps)"]
     EV --> CHK{"streak >= 3?"}
     CHK -- yes --> BRK["emit pre_critic_circuit_break, done=true, ABORT"]
-    CHK -- no --> RET["return - no act, observe, reflect or decide"]
-    RET --> NOTE["budget iteration step already consumed"]
+    CHK -- no --> DEC["decide_next: DONE if the plan is settled"]
+    DEC --> NOTE["no iteration or budget step consumed; only the critic's call"]
 ```
 
 A move that clears the pre-critic resets the streak to `0`

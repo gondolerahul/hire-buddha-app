@@ -60,6 +60,7 @@ from src.ai.planning.critic_prompts import (
     POST_PROMPT_USER,
     PRE_PROMPT_SYSTEM,
     PRE_PROMPT_USER,
+    render_steps,
 )
 from src.ai.planning.failure_tags import FailureTag
 from src.ai.planning.step_health_record import StepHealthRecord
@@ -293,6 +294,7 @@ class RealCriticPipeline:
                     executor=getattr(move, "executor", "?"),
                     rationale=getattr(move, "rationale", "")[:200],
                     plan_size=len(getattr(move, "plan_fragment", None) or []),
+                    steps=render_steps(move),
                     pressure=state.budget.pressure,
             )
             response = await self.llm.call_llm(

@@ -66,7 +66,7 @@ The three to read first:
 
 ### PC-01 — The pre-critic is skipped on almost every iteration
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-02, P7.4)** — the bypass is deleted; the pre-critic sees the move's steps, and a BLOCK marks them failed with its concerns so the Strategist proposes the next ready step (no livelock). The health record now carries the step id on plan moves, which the bypass had also lost (so the per-step retry bound never applied to them). `tests/unit/test_pre_critic_acts.py`, `test_agent_loop_billing_and_fallback.py`.
 
 ```python
 if move.plan_fragment:
@@ -96,7 +96,7 @@ and the bypass is no longer needed.
 
 ### PC-02 — `REVISE` from the pre-critic does nothing
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.4)** — a REVISE runs the move with the concerns as each step's correction (`StepDirective.prompt_hint`). `tests/unit/test_pre_critic_acts.py`.
 
 The loop branches only on `BLOCK`. A `REVISE` verdict — the critic saying "this is
 nearly right, change it like this" — is produced, billed, and ignored.

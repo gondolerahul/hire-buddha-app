@@ -66,6 +66,7 @@ from src.ai.planning.retry_strategies import (
     failures_of,
     pick_retry,
     retry_policy,
+    with_prompt_hint,
 )
 from src.ai.schemas.enums import EntityType, RunStatus
 
@@ -447,7 +448,76 @@ class AgentLoop:
         if await self._check_cancelled(state):
             return
 
-        state.iteration += 1
+        # 1. Perceive
+        perception = await self.perceiver.gather(state)
+        state.perception = perception
+
+        # 2. Strategize — drain the retry queue first if present.
+        upcoming = state.iteration + 1
+        queued = state.retry_queue.pop(0) if state.retry_queue else None
+        if queued is not None:
+            move = self._move_from_retry(queued, state)
+            await event_async(
+                "agent.retry.dequeued",
+                run_id=str(state.run_id),
+                iteration=upcoming,
+                strategy=queued.get("strategy"),
+                delay_s=queued.get("delay_s", 0),
+            )
+            # The entity's retry backoff (PC-07): an immediate retry of a
+            # rate-limited call is the one retry sure to fail again.
+            if queued.get("delay_s"):
+                await asyncio.sleep(float(queued["delay_s"]))
+        else:
+            move = await self.strategist.next_move(state, perception)
+
+        # 3. Pre-critic — on every move (PC-01). It sees the steps the move
+        # would run, so its verdict is about them: a BLOCK does not run them
+        # and marks them failed with its concerns, so the Strategist proposes
+        # the next ready step instead of the same move again (the old reason
+        # to skip plan moves); a REVISE runs them with its concerns as their
+        # correction (PC-02). A block takes no iteration and no budget step,
+        # only the critic's own call (AK-16).
+        pre_verdict = await self.critic_pipeline.pre_action(move, state)
+        if pre_verdict.kind == "BLOCK":
+            state.consecutive_pre_critic_blocks += 1
+            blocked = self._fail_blocked_steps(state, move, pre_verdict.concerns)
+            await event_async(
+                "agent.loop.pre_critic_block",
+                run_id=str(state.run_id),
+                iteration=upcoming,
+                concerns=pre_verdict.concerns,
+                consecutive=state.consecutive_pre_critic_blocks,
+                blocked_steps=blocked,
+            )
+            # Circuit breaker: moves that keep getting blocked make no
+            # progress, so ABORT after N in a row.
+            if state.consecutive_pre_critic_blocks >= self.max_consecutive_pre_critic_blocks:
+                logger.warning(
+                    "AgentLoop tripping pre-critic circuit breaker after %d "
+                    "consecutive blocks; aborting run %s",
+                    state.consecutive_pre_critic_blocks, state.run_id,
+                )
+                await event_async(
+                    "agent.loop.pre_critic_circuit_break",
+                    run_id=str(state.run_id),
+                    iteration=upcoming,
+                    consecutive=state.consecutive_pre_critic_blocks,
+                    concerns=pre_verdict.concerns,
+                )
+                state.done = True
+                state.next_decision = "ABORT"
+            elif blocked:
+                # The blocked steps are settled (failed): the plan may be done.
+                state.apply_decision(self.strategist.decide_next(state))
+            return
+        # Move cleared the pre-critic — reset the consecutive-block streak.
+        state.consecutive_pre_critic_blocks = 0
+        if pre_verdict.kind == "REVISE" and pre_verdict.concerns and move.plan_fragment:
+            move.plan_fragment = with_prompt_hint(
+                move.plan_fragment, "The pre-action review asks: " + "; ".join(pre_verdict.concerns))
+
+        state.iteration = upcoming
         # Tag spans opened this iteration with the iteration number.
         _rec = current_recorder()
         if _rec is not None:
@@ -460,28 +530,6 @@ class AgentLoop:
                 iteration=state.iteration,
                 pressure=state.budget.pressure,
             )
-
-        # 1. Perceive
-        perception = await self.perceiver.gather(state)
-        state.perception = perception
-
-        # 2. Strategize — drain the retry queue first if present.
-        queued = state.retry_queue.pop(0) if state.retry_queue else None
-        if queued is not None:
-            move = self._move_from_retry(queued, state)
-            await event_async(
-                "agent.retry.dequeued",
-                run_id=str(state.run_id),
-                iteration=state.iteration,
-                strategy=queued.get("strategy"),
-                delay_s=queued.get("delay_s", 0),
-            )
-            # The entity's retry backoff (PC-07): an immediate retry of a
-            # rate-limited call is the one retry sure to fail again.
-            if queued.get("delay_s"):
-                await asyncio.sleep(float(queued["delay_s"]))
-        else:
-            move = await self.strategist.next_move(state, perception)
         state.chosen_executor = move.executor
 
         await event_async(
@@ -492,53 +540,6 @@ class AgentLoop:
             budget_pressure=state.budget.pressure,
             open_subgoals=len(state.open_subgoals),
         )
-
-        # 3. Pre-critic
-        # Skip the pre-critic for plan-driven moves. A move that dispatches a
-        # step from an already-reconciled, invariant-checked plan
-        # (SingleStep / ChildEntity / DAG carrying a plan_fragment) must not be
-        # second-guessed here: the deterministic Strategist re-proposes the
-        # IDENTICAL move every iteration, so a single pre-critic BLOCK becomes 3
-        # consecutive blocks → circuit-breaker ABORT with zero work done and $0
-        # billed (Phase 11 AgentLoop incident #2 follow-up). The pre-critic still
-        # guards open-ended moves (recursive goal expansion, or SingleStep with
-        # no concrete fragment), where blocking is actionable.
-        if move.plan_fragment:
-            pre_verdict = PreCriticVerdict(kind="PASS")
-        else:
-            pre_verdict = await self.critic_pipeline.pre_action(move, state)
-        if pre_verdict.kind == "BLOCK":
-            state.consecutive_pre_critic_blocks += 1
-            await event_async(
-                "agent.loop.pre_critic_block",
-                run_id=str(state.run_id),
-                iteration=state.iteration,
-                concerns=pre_verdict.concerns,
-                consecutive=state.consecutive_pre_critic_blocks,
-            )
-            # Circuit breaker: a move that keeps getting blocked makes no
-            # progress, so trip ABORT once we've burned N consecutive blocks
-            # rather than spinning to the hard iteration cap. The block still
-            # consumed this iteration's budget step (above), so each block also
-            # advances the run toward _HARD_MAX_ITERATIONS as a backstop.
-            if state.consecutive_pre_critic_blocks >= self.max_consecutive_pre_critic_blocks:
-                logger.warning(
-                    "AgentLoop tripping pre-critic circuit breaker after %d "
-                    "consecutive blocks; aborting run %s",
-                    state.consecutive_pre_critic_blocks, state.run_id,
-                )
-                await event_async(
-                    "agent.loop.pre_critic_circuit_break",
-                    run_id=str(state.run_id),
-                    iteration=state.iteration,
-                    consecutive=state.consecutive_pre_critic_blocks,
-                    concerns=pre_verdict.concerns,
-                )
-                state.done = True
-                state.next_decision = "ABORT"
-            return
-        # Move cleared the pre-critic — reset the consecutive-block streak.
-        state.consecutive_pre_critic_blocks = 0
 
         # 4. Act
         try:
@@ -1422,6 +1423,17 @@ class AgentLoop:
                 )
             except Exception as exc:                                        # noqa: BLE001
                 logger.debug("bandit arm update failed for %s: %s", arm, exc)
+
+    @staticmethod
+    def _fail_blocked_steps(state: AgentState, move: Any, concerns: list[str]) -> list[str]:
+        """Mark the steps a blocked move would have run as failed (PC-01)."""
+        reason = "blocked by the pre-action review: " + ("; ".join(concerns) or "no reason given")
+        ids = [str(s.get("step_id") or s.get("id") or "") for s in (move.plan_fragment or [])
+               if isinstance(s, dict)]
+        for sid in ids:
+            if sid:
+                state.mark_step_failed(sid, reason[:1000])
+        return [sid for sid in ids if sid]
 
     def _move_from_retry(self, queued: dict[str, Any], state: AgentState) -> Any:
         """Rehydrate a queued retry dict into a Strategist Move."""

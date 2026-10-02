@@ -360,7 +360,7 @@ the same lesson as `tools.cost_resolver_v2_enabled` in the tool layer.
 
 ### AK-16 — A pre-critic `BLOCK` still burns an iteration and a critic call
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.4)** — the pre-critic runs before the iteration is counted and the budget step taken; a block costs only the critic's call. `tests/unit/test_agent_loop_robustness.py` (three blocks, zero iterations).
 
 `budget.consume(iter_step=True)` runs **before** the pre-critic. So three consecutive
 blocks — the circuit-breaker threshold — cost three iterations *and* three critic LLM

@@ -192,8 +192,9 @@ async def test_consecutive_pre_critic_blocks_trip_circuit_breaker(never_complete
     with capture_test_events() as evts:
         outcome = await loop.run(run.id)
 
-    # Aborts after exactly N consecutive blocks — NOT the hard iteration cap.
-    assert outcome["iterations"] == 3
+    # Aborts after exactly N consecutive blocks — NOT the hard iteration cap —
+    # and a block takes no iteration (AK-16).
+    assert outcome["iterations"] == 0
     assert outcome["status"] == RunStatus.FAILED.value
 
     names = [e.name for e in evts]

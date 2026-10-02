@@ -31,6 +31,7 @@ __all__ = [
     "retry_policy",
     "backoff_seconds",
     "failures_of",
+    "with_prompt_hint",
 ]
 
 
@@ -161,6 +162,21 @@ def pick_retry(record: StepHealthRecord, state: AgentState) -> RetryDecision:
 # ---------------------------------------------------------------------------
 # Materialiser
 # ---------------------------------------------------------------------------
+
+
+def with_prompt_hint(plan_fragment: list[Any], hint: str) -> list[Any]:
+    """Copies of the fragment's steps with ``hint`` added to each one's
+    directive (a critic's correction, PC-02 / PC-03); other steps unchanged."""
+    out: list[Any] = []
+    for step in plan_fragment:
+        if not isinstance(step, dict):
+            out.append(step)
+            continue
+        directive = dict(step.get("directive") or {})
+        directive["prompt_hint"] = "\n".join(h for h in (directive.get("prompt_hint"), hint) if h)
+        directive.setdefault("strategy", "")
+        out.append({**step, "directive": directive})
+    return out
 
 
 def _has_fallback(tool_id: str) -> bool:
