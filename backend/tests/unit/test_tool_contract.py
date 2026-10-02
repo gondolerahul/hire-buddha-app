@@ -99,6 +99,9 @@ async def test_the_executor_has_one_path_for_model_calls_and_plan_steps():
         def resolve(self, name, via):
             return tool
 
+        def timeout_for(self, name, tool):
+            return tool.timeout_seconds
+
     access = _Access()
     [bad] = await ToolExecutor.execute_from_function_calls(
         [{"name": "p61_echo", "args": {"times": 2}}], CTX, access=access)

@@ -143,6 +143,11 @@ class ToolAccess:
 
     # ------------------------------------------------------------------
 
+    def timeout_for(self, name: str, tool: Tool) -> float:
+        """How long one call of ``tool`` may run: the grant's, else the tool's (EP-08)."""
+        grant = self.grants.get(str(name or ""))
+        return float(getattr(grant, "timeout_seconds", None) or tool.timeout_seconds)
+
     def resolve(self, name: str, via: Via = "llm") -> Union[Tool, ToolDenied]:
         """The tool ``name`` if it may run here, else why not."""
         out = self._check(str(name or ""), via)

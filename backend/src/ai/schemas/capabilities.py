@@ -31,7 +31,9 @@ class ToolGrant(BaseModel):
 
     * ``llm_callable`` — the model may call it (it is advertised to the model);
     * ``plan_callable`` — a plan step (``TOOL_CALL``) may run it;
-    * ``rate_limit_per_run`` — at most this many calls in one run.
+    * ``rate_limit_per_run`` — at most this many calls in one run;
+    * ``timeout_seconds`` — how long one call may take before it is a failed
+      call (EP-08); without it, the tool's own ``timeout_seconds``.
 
     The builder's ``usage`` is the legacy spelling, translated on read:
     ``PLANNED`` means the model may not call it (TX-03 — it used to be hidden
@@ -42,6 +44,7 @@ class ToolGrant(BaseModel):
     llm_callable: bool = True
     plan_callable: bool = True
     rate_limit_per_run: Optional[int] = Field(default=None, ge=1)
+    timeout_seconds: Optional[int] = Field(default=None, ge=1, le=600)
 
     extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"usage"})
 

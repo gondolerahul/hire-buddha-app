@@ -153,9 +153,9 @@ def test_the_builders_usage_is_stored_as_the_grant():
         {"tool_id": "c", "rate_limit_per_run": 3},
     ]}).model_dump()
     assert caps["tools"] == [
-        {"tool_id": "a", "llm_callable": False, "plan_callable": True, "rate_limit_per_run": None},
-        {"tool_id": "b", "llm_callable": True, "plan_callable": True, "rate_limit_per_run": None},
-        {"tool_id": "c", "llm_callable": True, "plan_callable": True, "rate_limit_per_run": 3},
+        {"tool_id": "a", "llm_callable": False, "plan_callable": True, "rate_limit_per_run": None, "timeout_seconds": None},
+        {"tool_id": "b", "llm_callable": True, "plan_callable": True, "rate_limit_per_run": None, "timeout_seconds": None},
+        {"tool_id": "c", "llm_callable": True, "plan_callable": True, "rate_limit_per_run": 3, "timeout_seconds": None},
     ]
     assert unknown_keys(Capabilities, {"tools": [{"tool_id": "a", "usage": "BOTH"}]}) == []
     assert unknown_keys(Capabilities, {"tools": [{"tool_id": "a", "uasge": "BOTH"}]}) == ["tools[0].uasge"]

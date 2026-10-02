@@ -80,6 +80,7 @@ class TerminalTool(Tool):
     ``/bin/bash -c "<command>"``, mirroring how a real terminal works.
     Output is returned as structured JSON with exit_code, stdout, and stderr.
     """
+    timeout_seconds = 180  # per call (EP-08)
 
     name = "terminal"
     description = (

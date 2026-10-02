@@ -100,6 +100,7 @@ class PDFGeneratorTool(Tool):
         - Professional styling with page numbers
         - Citation and reference formatting
     """
+    timeout_seconds = 180  # per call (EP-08)
     
     name = "pdf_generator"
     description = (

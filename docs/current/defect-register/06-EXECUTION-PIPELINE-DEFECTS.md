@@ -288,7 +288,7 @@ The enforcement branch exists in `tool_executor.py` and reads
 
 ### EP-08 — There is no per-tool timeout
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P8.3)** — each call runs under the grant's `timeout_seconds`, else the tool's own (120 s default; slow renderers declare up to 600); a timeout is a failed call. `tests/unit/test_tool_timeout.py`.
 
 `ToolDefinition.max_execution_seconds` defaults to 30 and is unreachable config. What
 actually bounds a tool call is the enclosing step's

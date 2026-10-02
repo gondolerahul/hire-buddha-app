@@ -33,6 +33,7 @@ _SOURCES = ("file", "tts", "generated")
 
 class VideoAddSoundTool(Tool):
     """Attach or mix an audio track onto an existing video clip."""
+    timeout_seconds = 300  # per call (EP-08)
 
     name = "video_add_sound"
     status = ToolStatus.EXPERIMENTAL

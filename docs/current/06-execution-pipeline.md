@@ -1449,10 +1449,13 @@ ceilings are `MAX_REACT_TURNS = 12`
 
 ### Timeouts
 
-There is no per-tool timeout. `ToolDefinition.max_execution_seconds` (30) is
-unreachable config. What bounds a tool call is the enclosing step's
-`asyncio.wait_for(..., timeout_ms/1000)` and whatever internal timeout the tool
-itself implements.
+Since P8.3 (2026-10-03, EP-08) every tool call runs under its own timeout in
+`ToolExecutor._run` (`asyncio.wait_for`): the grant's `timeout_seconds` (1–600, on the
+entity's `capabilities.tools[]`), else the tool's own `Tool.timeout_seconds` — 120 s by
+default; image and sound 300, video generate/edit 600, browser, sandbox, terminal and PDF
+180. A call that runs out is a failed call (`tool_timeout`) the healing ladder may handle.
+The enclosing step's `timeout_ms` still bounds the whole step. `ToolDefinition.max_execution_seconds`
+(unreachable config) is superseded by the grant field.
 
 ### Failure classification and self-healing
 

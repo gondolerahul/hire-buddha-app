@@ -30,6 +30,7 @@ _OPERATIONS = ("concat", "trim", "resize", "transition", "overlay", "extend")
 
 class VideoEditTool(Tool):
     """ffmpeg-backed composition over existing clips (no model cost)."""
+    timeout_seconds = 600  # per call (EP-08)
 
     name = "video_edit"
     status = ToolStatus.EXPERIMENTAL

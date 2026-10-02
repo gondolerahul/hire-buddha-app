@@ -114,6 +114,10 @@ class Tool(ABC):
     # Where the tool is listed; ``tool_category`` derives it from the tool's
     # subpackage unless the tool refines it here (TL-35).
     category: ClassVar[Optional[str]] = None
+    # How long one call may run before the executor fails it (EP-08); a grant's
+    # ``timeout_seconds`` overrides it. Tools that render or wait on slow
+    # providers declare more.
+    timeout_seconds: ClassVar[int] = 120
 
     # One registered instance serves every run of every company at once, so a
     # tool must keep nothing per call on ``self`` (TX-02). Registration freezes

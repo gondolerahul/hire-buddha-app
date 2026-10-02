@@ -43,6 +43,7 @@ class ImageGenerationTool(Tool):
     
     Accepts a model name, prompt, and optional reference image to generate images.
     """
+    timeout_seconds = 300  # per call (EP-08)
     name = "image_generation"
     description = (
         "Generate images from text prompts using AI models. "

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, List, Optional, Any
@@ -119,7 +120,7 @@ def _refused(tool_name: Any, args: Any, denied: Any) -> ToolResult:
 
 
 async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any],
-               context: Optional[Dict[str, Any]]) -> ToolResult:
+               context: Optional[Dict[str, Any]], timeout_s: Optional[float] = None) -> ToolResult:
     """One call through the tool's one entry point, ``invoke`` (TL-41).
 
     A call that writes runs once per run (TL-39): when the run already made
@@ -138,11 +139,17 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
                               units=0, idempotency_key=key, replayed=True)
     start = datetime.now(timezone.utc)
     units = 1.0
+    limit = float(timeout_s or tool.timeout_seconds)
     try:
-        out: ToolOutput = await tool.invoke(args, context)
+        # One call may not hold the worker past its timeout (EP-08): before,
+        # only the enclosing step's timeout bounded it.
+        out: ToolOutput = await asyncio.wait_for(tool.invoke(args, context), timeout=limit)
         error = None if out.success else (out.error or "the tool failed")
         output = out.output
         units = float(out.metadata.get("billable_units", 1))
+    except asyncio.TimeoutError:
+        error = f"tool_timeout: '{name}' did not finish within {limit:g}s"
+        output = f"Error: {error}"
     except Exception as exc:
         error, output = str(exc), f"Error: {exc}"
     latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
@@ -190,7 +197,8 @@ class ToolExecutor:
             tool = access.resolve(tool_name, "llm")
             if not isinstance(tool, _BaseTool):
                 return _refused(tool_name, tool_args, tool)
-            return await _run(tool, str(tool_name), tool_args, tool_args, extra_context)
+            return await _run(tool, str(tool_name), tool_args, tool_args, extra_context,
+                              access.timeout_for(str(tool_name), tool))
 
         results: List[ToolResult] = []
         for call in function_calls:
@@ -223,7 +231,8 @@ class ToolExecutor:
                 return _refused(call["tool"], {"input": call.get("input", "")}, tool)
             # The tool's input is the plan's; who the call is for travels only
             # in ``context`` (an ExecutionContext, P3.2), never in params.
-            return await _run(tool, call["tool"], call["input"], {"input": call["input"]}, extra_context)
+            return await _run(tool, call["tool"], call["input"], {"input": call["input"]}, extra_context,
+                              access.timeout_for(call["tool"], tool))
 
         results: List[ToolResult] = []
         for call in tool_calls:

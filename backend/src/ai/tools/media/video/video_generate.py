@@ -44,6 +44,7 @@ _MIME_BY_EXT = {
 
 class VideoGenerateTool(Tool):
     """Generate a single AI video segment from a text prompt (+ optional frames)."""
+    timeout_seconds = 600  # per call (EP-08)
 
     name = "video_generate"
     status = ToolStatus.EXPERIMENTAL

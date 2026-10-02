@@ -65,6 +65,9 @@ class _Access:
     def resolve(self, name, via):
         return self.tool
 
+    def timeout_for(self, name, tool):
+        return tool.timeout_seconds
+
     def record(self, name):
         self.recorded.append(name)
 

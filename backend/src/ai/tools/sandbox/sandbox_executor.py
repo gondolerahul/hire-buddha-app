@@ -4,7 +4,8 @@ SandboxCodeTool — Sb-A
 Executes arbitrary code snippets in an isolated asyncio subprocess.
 
 Safety features:
-  - Hard 30-second timeout (configurable per entity via max_execution_seconds)
+  - Its own run timeout (``timeout_s``, at most 120 s), inside the executor's
+    per-call timeout (``timeout_seconds``, or the grant's, EP-08)
   - Stdout capped at 4096 characters
   - Stderr captured and returned on non-zero exit
   - Supports Python 3 and Bash (extensible via EXECUTORS map)
@@ -93,6 +94,7 @@ class SandboxCodeTool(Tool):
     asyncio, and captures stdout/stderr. A configurable timeout (default
     30 s) ensures runaway processes are killed.
     """
+    timeout_seconds = 180  # per call (EP-08)
     name = "sandbox_code"
     description = (
         "Execute a Python or Bash code snippet in an isolated subprocess sandbox. "

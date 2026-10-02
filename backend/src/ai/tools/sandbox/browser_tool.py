@@ -130,6 +130,7 @@ class HeadlessBrowserTool(Tool):
     and JavaScript evaluation. Each invocation creates an isolated browser
     context that is automatically destroyed after execution.
     """
+    timeout_seconds = 180  # per call (EP-08)
 
     name = "headless_browser"
     category = "browser"
