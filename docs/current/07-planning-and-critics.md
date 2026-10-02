@@ -1781,19 +1781,23 @@ executor; the step executor honours it:
 Before P7.1 the remedy was a key on the queued dict that `_move_from_retry` dropped, and
 every strategy ran as `RETRY_AS_IS`.
 
-### 14.4 Backoff
+### 14.4 Backoff and the bound
 
-**There is none.** No `sleep`, no delay, no jitter anywhere in the retry path. A
-queued retry is popped at the very top of the next iteration
-([agent_loop.py:425](../../backend/src/ai/core/agent_loop.py:425)), before the
-Strategist is consulted at all.
+Since P7.2 (2026-10-02, PC-07) the entity's `logic_gate.retry_policy` paces and bounds
+corrective retries (`retry_strategies.retry_policy`):
 
-`LogicGate.retry_policy` — `max_retries: 3`, `backoff_strategy: EXPONENTIAL`,
-`backoff_multiplier: 2.0`, `retry_on: ["TOOL_FAILURE","LLM_ERROR","TIMEOUT"]`
-([reasoning.py:41](../../backend/src/ai/schemas/reasoning.py:41)) — is **not
-read by the agent loop**. Grep it: outside the schema module the only
-`max_retries` hits are in the web-search tool's own 429 handling. Tool-level
-resilience lives in `ai/tools/resilience.py` and is a separate mechanism.
+- **Bound.** `max_retries` is the most retries one step gets in a run (`is_exhausted`
+  counts the step's REVISE/REJECT health records). An entity with no `retry_policy`
+  keeps `MAX_RETRIES_PER_STEP = 2`.
+- **Backoff.** Retry *n* of a step waits `backoff_multiplier ** n` seconds (EXPONENTIAL),
+  `backoff_multiplier × n` (LINEAR) or nothing (NONE), at most 30 s. The delay is
+  stored on the queued retry (`delay_s`, shown on `agent.retry.dequeued`) and slept
+  when it is dequeued.
+- **`retry_on` is retired.** It named error kinds (`TOOL_FAILURE`, `LLM_ERROR`, `TIMEOUT`),
+  not the critic's failure tags, and nothing read it; stored entities that carry it
+  still read (accepted, dropped).
+
+Tool-level resilience lives in `ai/tools/resilience.py` and is a separate mechanism.
 
 ### 14.5 The three caps
 

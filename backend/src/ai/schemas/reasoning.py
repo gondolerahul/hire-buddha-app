@@ -1,7 +1,7 @@
 """schemas/reasoning.py — LogicGate and its constituent reasoning DTOs."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 
 from pydantic import BaseModel
 
@@ -40,10 +40,15 @@ class ReasoningConfig(BaseModel):
 
 
 class RetryPolicy(BaseModel):
+    """How often the loop retries a step the critic judged, and how long it
+    waits between tries (PC-07): ``planning.retry_strategies.retry_policy``."""
     max_retries: int = 3
     backoff_strategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL
     backoff_multiplier: float = 2.0
-    retry_on: List[str] = ["TOOL_FAILURE", "LLM_ERROR", "TIMEOUT"]
+
+    # Retired (P7.2): it named error kinds, not the critic's failure tags,
+    # and nothing read it; stored entities still carry it.
+    extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"retry_on"})
 
 
 class SuccessCriterion(BaseModel):

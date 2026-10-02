@@ -17,6 +17,7 @@ is deterministic. The Reflector is deterministic. Output: same
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -61,7 +62,10 @@ from src.ai.planning.retry_strategies import (
     RetryDecision,
     RetryExecutor,
     RetryStrategy,
+    backoff_seconds,
+    failures_of,
     pick_retry,
+    retry_policy,
 )
 from src.ai.schemas.enums import EntityType, RunStatus
 
@@ -470,7 +474,12 @@ class AgentLoop:
                 run_id=str(state.run_id),
                 iteration=state.iteration,
                 strategy=queued.get("strategy"),
+                delay_s=queued.get("delay_s", 0),
             )
+            # The entity's retry backoff (PC-07): an immediate retry of a
+            # rate-limited call is the one retry sure to fail again.
+            if queued.get("delay_s"):
+                await asyncio.sleep(float(queued["delay_s"]))
         else:
             move = await self.strategist.next_move(state, perception)
         state.chosen_executor = move.executor
@@ -664,11 +673,13 @@ class AgentLoop:
         _retryable_move = move.executor != "ChildEntity"
         if record is not None and record.is_actionable_failure() and _retryable_move:
             step_id = record.step_id or ""
-            if not RetryExecutor.is_exhausted(state, step_id):
+            policy = retry_policy(self._entity)
+            if not RetryExecutor.is_exhausted(state, step_id, max_retries=policy.max_retries):
                 retry_decision = pick_retry(record, state)
                 if retry_decision.strategy not in (RetryStrategy.NONE, RetryStrategy.ABANDON):
                     follow_up = self.retry_executor.build(retry_decision, move, record)
                     if follow_up:
+                        follow_up["delay_s"] = backoff_seconds(policy, failures_of(state, step_id))
                         state.retry_queue.append(follow_up)
                         state.corrective_retries_used += 1
                         await event_async(

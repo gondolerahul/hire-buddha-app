@@ -217,7 +217,7 @@ one is a promise the product is currently breaking.
 
 | Setting | Where it is authored | Runtime readers |
 |---|---|---|
-| `logic_gate.retry_policy` | Brain tab | **none** — grep finds it only in the schema |
+| `logic_gate.retry_policy` | Brain tab | **none** — grep finds it only in the schema. *Since P7.2: the retry bound and backoff (`retry_on` retired)* |
 | `planning.loop_control` | Planning tab | **none** — only `schemas/planning.py:177` |
 | `governance.max_recursion_depth` | Safeguards tab | prompt text only, see [EP-06](#ep-06--max_recursion_depth-is-a-sentence-in-a-prompt) |
 | `governance.execution_limits.max_tool_calls` | Safeguards tab | prompt text only |

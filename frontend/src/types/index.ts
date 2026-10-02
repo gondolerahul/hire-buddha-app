@@ -196,7 +196,6 @@ export interface LogicGate {
         max_retries: number;
         backoff_strategy: 'LINEAR' | 'EXPONENTIAL' | 'NONE';
         backoff_multiplier?: number;
-        retry_on?: string[];
     };
     review_mechanism: {
         enabled: boolean;

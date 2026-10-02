@@ -28,13 +28,55 @@ __all__ = [
     "pick_retry",
     "RetryExecutor",
     "MAX_RETRIES_PER_STEP",
+    "retry_policy",
+    "backoff_seconds",
+    "failures_of",
 ]
 
 
-# Hard ceiling — the AgentLoop / Strategist refuse to retry the same
-# step more than this number of times in one run. Track 9 will surface
-# it as a config flag.
+# The per-step retry bound for an entity with no ``logic_gate.retry_policy``;
+# an entity's policy sets its own (PC-07).
 MAX_RETRIES_PER_STEP: int = 2
+# The longest a retry waits, whatever the policy computes.
+MAX_BACKOFF_S: float = 30.0
+
+
+def retry_policy(entity: Any) -> Any:
+    """The entity's ``logic_gate.retry_policy`` — the bound and the backoff
+    of its corrective retries (PC-07). With none: ``MAX_RETRIES_PER_STEP``
+    and the schema's backoff."""
+    from src.ai.schemas.reasoning import RetryPolicy
+    gate = getattr(entity, "logic_gate", None)
+    raw = gate.get("retry_policy") if isinstance(gate, dict) else None
+    if not isinstance(raw, dict):
+        return RetryPolicy(max_retries=MAX_RETRIES_PER_STEP)
+    try:
+        return RetryPolicy.model_validate(raw)
+    except Exception:                                                       # noqa: BLE001
+        logger.warning("Unreadable logic_gate.retry_policy %r; using the default", raw)
+        return RetryPolicy(max_retries=MAX_RETRIES_PER_STEP)
+
+
+def backoff_seconds(policy: Any, attempt: int) -> float:
+    """How long retry number ``attempt`` (1 = the first) waits: the
+    multiplier to the power ``attempt`` (EXPONENTIAL), times ``attempt``
+    (LINEAR), or nothing (NONE); never more than ``MAX_BACKOFF_S``."""
+    from src.ai.schemas.enums import BackoffStrategy
+    n = max(1, int(attempt))
+    m = max(0.0, float(policy.backoff_multiplier))
+    if policy.backoff_strategy is BackoffStrategy.EXPONENTIAL:
+        delay = m ** n
+    elif policy.backoff_strategy is BackoffStrategy.LINEAR:
+        delay = m * n
+    else:
+        delay = 0.0
+    return min(delay, MAX_BACKOFF_S)
+
+
+def failures_of(state: AgentState, step_id: str) -> int:
+    """How many times the critic has judged ``step_id`` a failure this run."""
+    return sum(1 for r in getattr(state, "health_records", []) or []
+               if getattr(r, "step_id", "") == step_id and r.post_critic_verdict in ("REVISE", "REJECT"))
 
 
 class RetryStrategy(str, Enum):
@@ -214,11 +256,4 @@ class RetryExecutor:
         """
         if not step_id:
             return False
-        count = 0
-        for r in getattr(state, "health_records", []) or []:
-            if getattr(r, "step_id", "") == step_id and r.post_critic_verdict in (
-                "REVISE",
-                "REJECT",
-            ):
-                count += 1
-        return count > max_retries
+        return failures_of(state, step_id) > max_retries

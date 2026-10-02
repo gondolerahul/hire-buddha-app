@@ -251,7 +251,7 @@ This is the single highest-value change in this register.
 
 ### PC-07 — There is no retry backoff
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P7.2)** — `logic_gate.retry_policy` is read: `max_retries` bounds a step's corrective retries (default 2 without a policy) and each retry waits its backoff (EXPONENTIAL/LINEAR/NONE, at most 30 s) before it runs. `retry_on`, which named error kinds rather than critic tags and was never read, is retired (accepted, dropped). `tests/unit/test_retry_policy.py`.
 
 `LogicGate.retry_policy` — with `max_retries`, `backoff_strategy` and `retry_on` — is
 schema-only. Nothing reads it (see
