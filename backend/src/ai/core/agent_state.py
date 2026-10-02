@@ -252,6 +252,11 @@ class AgentState:
     # past ``MAX_CORRECTIVE_RETRIES_PER_RUN`` and lets the run finish.
     corrective_retries_used: int = 0
 
+    # A goal-alignment correction waiting for the next move: the alignment
+    # critic found the run drifting and said how to steer; the next move's
+    # steps get it as their correction, once (PC-03).
+    pending_correction: str = ""
+
     # Terminal status observed out-of-band (e.g. an operator cancelled the run
     # via the /cancel endpoint, flipping ExecutionRun.status away from RUNNING).
     # When set, AgentLoop._final_status preserves it instead of mapping the
@@ -444,6 +449,7 @@ class AgentState:
             "next_decision": self.next_decision,
             "consecutive_pre_critic_blocks": self.consecutive_pre_critic_blocks,
             "corrective_retries_used": self.corrective_retries_used,
+            "pending_correction": self.pending_correction,
             "retry_queue": list(self.retry_queue),
             "task_class": self.task_class,
             "chosen_arms_by_iteration": list(self.chosen_arms_by_iteration),
@@ -480,6 +486,7 @@ class AgentState:
             next_decision=snapshot.get("next_decision", "CONTINUE"),
             consecutive_pre_critic_blocks=int(snapshot.get("consecutive_pre_critic_blocks", 0)),
             corrective_retries_used=int(snapshot.get("corrective_retries_used", 0)),
+            pending_correction=str(snapshot.get("pending_correction", "") or ""),
             retry_queue=list(snapshot.get("retry_queue", [])),
             task_class=str(snapshot.get("task_class", "general")),
             chosen_arms_by_iteration=list(snapshot.get("chosen_arms_by_iteration", [])),

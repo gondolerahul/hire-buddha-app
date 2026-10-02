@@ -516,6 +516,13 @@ class AgentLoop:
         if pre_verdict.kind == "REVISE" and pre_verdict.concerns and move.plan_fragment:
             move.plan_fragment = with_prompt_hint(
                 move.plan_fragment, "The pre-action review asks: " + "; ".join(pre_verdict.concerns))
+        # The alignment critic's steer from the last iteration (PC-03), once.
+        if state.pending_correction and move.plan_fragment:
+            move.plan_fragment = with_prompt_hint(
+                move.plan_fragment, "The run is drifting from its goal: " + state.pending_correction)
+            await event_async("agent.loop.correction_applied", run_id=str(state.run_id),
+                              iteration=upcoming, correction=state.pending_correction[:500])
+            state.pending_correction = ""
 
         state.iteration = upcoming
         # Tag spans opened this iteration with the iteration number.
@@ -646,10 +653,14 @@ class AgentLoop:
             verdict=post.kind, tags=[t.value for t in post.tags],
             cost_usd=float(post.cost_usd),
         )
+        # Drift steers the next step (PC-03): the hint was paid for and dropped.
+        if not align.aligned and align.correction_hint:
+            state.pending_correction = align.correction_hint
         await event_async(
             "agent.critic.alignment",
             run_id=str(state.run_id), iteration=state.iteration,
             aligned=align.aligned, drift=align.drift, cost_usd=float(align.cost_usd),
+            correction=align.correction_hint if not align.aligned else "",
         )
         await event_async(
             "agent.critic.supervisor",

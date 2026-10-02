@@ -1358,7 +1358,10 @@ If JSON parsing fails, it falls back to a substring scan for
 event, folds `aligned`/`drift` into the `StepHealthRecord`, and passes the
 `Verdicts` bundle to the `Reflector`. **Nothing else.** In the AgentLoop path a
 misaligned step does **not** trigger a retry, a correction hint, or a re-run.
-The `AlignmentVerdict.correction_hint` field is populated but never consumed.
+Since P7.5 (2026-10-02, PC-03) a misaligned verdict's `correction_hint` is kept as
+`AgentState.pending_correction` (snapshotted) and becomes the next move's correction
+("The run is drifting from its goal: …", a `StepDirective.prompt_hint`), once
+(`agent.loop.correction_applied`); the alignment event carries the hint.
 Its cost is recorded (since 2026-10-02, P4.2, PC-03): the verifier writes its usage rows
 with the run id (so the run's bill includes the check, P4.1) and returns their cost, which
 lands on `AlignmentVerdict.cost_usd`, `StepHealthRecord.alignment_cost_usd` and the
@@ -1688,7 +1691,7 @@ classDiagram
 |-------|------|------------------|-------|
 | `aligned` | `bool` | `True` | Fail-open — every error path returns `True`. |
 | `drift` | `float` | `0.0` | `0.0` when aligned, else `clamp(1 - confidence, 0, 1)`. |
-| `correction_hint` | `str` | `""` | Populated but **never read** on the AgentLoop path. |
+| `correction_hint` | `str` | `""` | The next move's correction when misaligned (P7.5). |
 
 No `cost_usd` field — which is why `StepHealthRecord.alignment_cost_usd` stays
 `0` and alignment spend is missing from the loop's critic-cost rollup (§17).
@@ -2193,9 +2196,8 @@ them.
   On a normal plan-driven run that is every single iteration.
 * **`REVISE` from the pre-critic does nothing.** The loop only branches on
   `BLOCK`.
-* **A misaligned step does nothing either** on the AgentLoop path.
-  `AlignmentVerdict.correction_hint` is populated and dropped. Only the legacy
-  step engine acts on drift, and only via `__alignment_correction__`.
+* **A misaligned step steers the next one** (since P7.5): its `correction_hint`
+  is the next move's correction.
 * **Retry strategies are indistinguishable at execution time.**
   `_move_from_retry` drops `force_model_escalation`, `prompt_rewrite_hint`,
   `use_fallback_tool` and `ask_user`, so every queued retry behaves like

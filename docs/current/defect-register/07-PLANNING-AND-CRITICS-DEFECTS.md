@@ -109,7 +109,7 @@ So the pre-critic is effectively a binary gate with three declared outcomes.
 
 ### PC-03 — Alignment drift is measured and discarded
 
-**✅ Verified · High** · **Status: cost half fixed (2026-10-02, P4.1–P4.2)** — the check's usage rows carry the run id (they had none, so the run was never billed for it), and its cost is on `AlignmentVerdict.cost_usd`, the health record and the alignment event (`tests/unit/test_alignment_cost.py`). Open: the `correction_hint` half (P7).
+**✅ Verified · High** · **Status: cost half fixed (2026-10-02, P4.1–P4.2)** — the check's usage rows carry the run id (they had none, so the run was never billed for it), and its cost is on `AlignmentVerdict.cost_usd`, the health record and the alignment event (`tests/unit/test_alignment_cost.py`). The `correction_hint` half is fixed too (2026-10-02, P7.5): a misaligned verdict's hint is the next move's correction, once, kept across a snapshot (`tests/unit/test_alignment_correction.py`).
 
 `AlignmentVerdict.correction_hint` is populated by the alignment critic and dropped on the
 AgentLoop path. Only the legacy step engine acts on drift, through
