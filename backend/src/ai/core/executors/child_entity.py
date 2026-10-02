@@ -21,6 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
 from src.ai.core.executors.base import ActionResult, register_executor
+from src.ai.governance.entity_versions import run_entity
 from src.ai.core.executors.single_step import _resolve_redis
 from src.ai.core.strategist import Move
 from src.ai.orm.execution import ExecutionRun
@@ -49,7 +50,7 @@ class ChildEntityExecutor:
         engine._ensure_services(cast(UUID, state.company_id))
 
         run = await self._reload_run(db, state.run_id)
-        entity = run.entity
+        entity = await run_entity(db, run)  # the pinned version, not the live row (EP-10)
 
         start = time.time()
 

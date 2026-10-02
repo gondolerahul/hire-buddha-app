@@ -320,7 +320,7 @@ So "flip status to ACTIVE when ready" — the documented workflow — is advisor
 
 ### EP-10 — `version` is decorative
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: ✅ fixed 2026-10-02** (P5.1 `462790e`, P5.2) — every run is pinned, when its row is inserted, to an immutable `entity_versions` snapshot of its entity (a `before_insert` listener, so all eight run creators and all seven writers that edit rows are covered), and the loop, the worker and every executor read `run_entity` — that version — instead of the live row. EP-I4 (snapshot onto the run) is done the same way. Evidence: `test_entity_versions.py`, `test_run_entity.py`.
 
 `hierarchical_entities.version` is a semantic version string that nothing resolves,
 compares, pins or increments.

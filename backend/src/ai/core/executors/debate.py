@@ -30,6 +30,7 @@ from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
 from src.ai.core.executors.base import ActionResult, register_executor
+from src.ai.governance.entity_versions import run_entity
 from src.ai.core.strategist import Move
 from src.ai.core.trace import span
 from src.ai.llm.router import LLMRouter
@@ -66,7 +67,7 @@ class DebateExecutor:
         start = time.time()
 
         run = await self._reload_run(db, state.run_id)
-        entity = run.entity
+        entity = await run_entity(db, run)  # the pinned version, not the live row (EP-10)
 
         step = (move.plan_fragment or [{}])[0] if move.plan_fragment else {}
         step_id = str(step.get("step_id") or step.get("id") or step.get("name") or "")

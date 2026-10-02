@@ -182,6 +182,23 @@ Before the loop is ever constructed, the job runs three cheap checks
    a run that already paid. Retry and refine create *new* run rows, so they are
    unaffected.
 
+### A run reads its pinned version, not the live row
+
+The ghost-entity guard is the only place the run path reads the live row (`run.entity`),
+because deletion is lifecycle. Everything that reads the entity's **definition** — the loop
+at `run` and `resume` (and so `CreditGuard`, the Strategist, the planner and the critics
+through `self._entity`), the worker's observability and flag scope, and all five executors
+(and through them `StepEngine`, `ToolAccess` and the step prompts) — calls
+`run_entity(db, run)` ([governance/entity_versions.py](../../backend/src/ai/governance/entity_versions.py)).
+It returns a **detached** `HierarchicalEntity`: identity and lifecycle (`id`, `company_id`,
+`parent_id`, `status`, …) from the live row, the definition (`SNAPSHOT_FIELDS`) from the
+version the run was pinned to when its row was inserted ([03 §4.1a](03-data-model.md#41a-entity_versions-and-entity_assets)).
+It is never added to a session, so nothing can write it back over the row. Snapshots are
+cached by version id (versions are immutable). A run created before versions existed reads
+the live row and emits `agent.entity.unpinned_run`. Before P5.2 (EP-10) an edit reached a
+run in flight at its next step. `tests/integration/test_run_entity.py` keeps `run.entity`
+out of `core/` and `step_executor.py`.
+
 ### There is no legacy engine any more
 
 Older docs and even the in-repo

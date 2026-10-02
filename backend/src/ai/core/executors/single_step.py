@@ -31,6 +31,7 @@ from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
 from src.ai.core.executors.base import ActionResult, register_executor
+from src.ai.governance.entity_versions import run_entity
 from src.ai.core.strategist import Move
 from src.ai.core.trace import span
 from src.ai.orm.execution import ExecutionRun
@@ -80,7 +81,7 @@ class SingleStepExecutor:
             engine._ensure_services(cast(UUID, state.company_id))
 
             run = await self._reload_run(inner_db, state.run_id)
-            entity = run.entity
+            entity = await run_entity(inner_db, run)  # the pinned version, not the live row (EP-10)
 
             # A step's spend is its usage rows (AK-02): the iteration's cost is
             # how much the run's own rows grew across the fragment. The raw step

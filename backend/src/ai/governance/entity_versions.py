@@ -14,9 +14,11 @@ through ``capture_head``.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import uuid
+from collections import OrderedDict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Iterable, Mapping, Optional, cast
 from uuid import UUID
@@ -27,13 +29,18 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from src.ai.orm.entity import HierarchicalEntity
+
 __all__ = [
     "SNAPSHOT_FIELDS",
     "capture_head",
     "capture_head_sync",
     "content_hash",
+    "entity_from_snapshot",
     "note_head",
+    "run_entity",
     "snapshot_of",
+    "version_snapshot",
 ]
 
 # A version's definition: what a run reads. Identity and lifecycle (``id``,
@@ -148,3 +155,63 @@ def note_head(session: Any, entity_id: UUID, version_id: Optional[UUID]) -> None
     for obj in list(session.identity_map.values()):
         if isinstance(obj, HierarchicalEntity) and obj.id == entity_id:
             set_committed_value(obj, "active_version_id", version_id)
+
+
+# Versions never change, so a snapshot read once is good for every later run.
+_SNAPSHOTS: "OrderedDict[UUID, dict[str, Any]]" = OrderedDict()
+_SNAPSHOT_CACHE_SIZE = 256
+# What a run takes from the live row rather than its version: who the entity
+# is and where it stands in its lifecycle.
+_LIVE_FIELDS: tuple[str, ...] = (
+    "id", "company_id", "parent_id", "status", "is_template", "template_source_id",
+    "created_by", "created_at", "updated_at", "deleted_at", "active_version_id",
+)
+
+
+async def version_snapshot(db: "AsyncSession", version_id: UUID) -> Optional[dict[str, Any]]:
+    """A version's snapshot (cached; versions are immutable)."""
+    if version_id in _SNAPSHOTS:
+        _SNAPSHOTS.move_to_end(version_id)
+        return _SNAPSHOTS[version_id]
+    from src.ai.orm.versions import EntityVersion
+    snap = (await db.execute(
+        select(EntityVersion.snapshot).where(EntityVersion.id == version_id)
+    )).scalar_one_or_none()
+    if snap is None:
+        return None
+    _SNAPSHOTS[version_id] = snap
+    if len(_SNAPSHOTS) > _SNAPSHOT_CACHE_SIZE:
+        _SNAPSHOTS.popitem(last=False)
+    return cast(dict[str, Any], snap)
+
+
+def entity_from_snapshot(live: "HierarchicalEntity", snapshot: Mapping[str, Any]) -> "HierarchicalEntity":
+    """A detached entity: the live row's identity and lifecycle, the version's definition.
+
+    It is never added to a session, so nothing can write it back over the row.
+    """
+    from src.ai.orm.entity import HierarchicalEntity
+
+    pinned = HierarchicalEntity(**{f: getattr(live, f, None) for f in _LIVE_FIELDS})
+    for field in SNAPSHOT_FIELDS:
+        setattr(pinned, field, copy.deepcopy(snapshot.get(field)))
+    return pinned
+
+
+async def run_entity(db: "AsyncSession", run: Any) -> Optional["HierarchicalEntity"]:
+    """The entity as the run's pinned version describes it (EP-10).
+
+    What every executor, the loop and the worker read instead of
+    ``run.entity``, so an edit made after the run was created does not reach
+    it. A run created before versions existed has none and reads the live row.
+    """
+    live = run.entity
+    if live is None:
+        return None
+    version_id = getattr(run, "entity_version_id", None)
+    snapshot = await version_snapshot(db, version_id) if version_id else None
+    if snapshot is None:
+        from src.ai.core.events import event
+        event("agent.entity.unpinned_run", run_id=str(getattr(run, "id", "")), entity_id=str(getattr(live, "id", "")))
+        return cast("HierarchicalEntity", live)
+    return entity_from_snapshot(live, snapshot)

@@ -49,6 +49,7 @@ from src.ai.core.step_results import (
 from src.ai.core.run_outcome import failed_steps_summary, final_status
 from src.ai.core.stuck_runs import SUSPENDED_AT_KEY, cancel_open_children, utc_now_iso
 from src.ai.core.trace import current_recorder, span
+from src.ai.governance.entity_versions import run_entity
 from src.ai.orm.execution import ExecutionRun
 from src.ai.planning.plan_generator import run_request
 from src.ai.planning.critic_pipeline import (
@@ -163,7 +164,9 @@ class AgentLoop:
         run = await self._reload_run(run_id)
         if not run:
             raise LookupError(f"Run {run_id} not found")
-        entity = run.entity
+        # The version the run was pinned to, not the live row: an edit made
+        # after the run was created does not reach it (EP-10).
+        entity = await run_entity(self.db, run)
         if not entity:
             raise LookupError(f"Run {run_id} has no entity")
 
@@ -299,18 +302,19 @@ class AgentLoop:
             )
             return {"run_id": str(run_id), "status": str(run.status), "resumed": False}
 
+        entity = await run_entity(self.db, run)
         snapshot = (run.context_state or {}).get("__agent_state_snapshot__")
         if not snapshot:
             logger.error("resume(%s): no AgentState snapshot found; failing run.", run_id)
-            await self._persist_final(run, self._bootstrap_state(run, run.entity),
+            await self._persist_final(run, self._bootstrap_state(run, entity),
                                       RunStatus.FAILED.value,
                                       "resume: missing AgentState snapshot", "")
             return {"run_id": str(run_id), "status": "FAILED", "resumed": False}
 
         state = AgentState.restore(snapshot)
         state.redis_client = self.redis
-        self._entity = run.entity
-        self.credits = CreditGuard(self.db, self.redis, run, run.entity)  # the hold persists
+        self._entity = entity
+        self.credits = CreditGuard(self.db, self.redis, run, entity)  # the hold persists
         await self._compose(state, resumed=True)
 
         # Fold terminal children; bail back to WAITING if any are still running.

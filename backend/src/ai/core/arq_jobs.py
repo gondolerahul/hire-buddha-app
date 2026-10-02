@@ -132,7 +132,9 @@ async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str) -> Any:
         # (tool executor, LLM router) read it off a ContextVar.
         from src.ai.core.trace import TraceRecorder, set_recorder
 
-        _obs = (getattr(guard_run.entity, "observability", None) or {}) if guard_run.entity else {}
+        from src.ai.governance.entity_versions import run_entity
+        _pinned = await run_entity(db, guard_run)  # the run's version (EP-10)
+        _obs = (getattr(_pinned, "observability", None) or {}) if _pinned else {}
         _capture = bool(_obs.get("log_thoughts", True))
         recorder = TraceRecorder(
             run_id, company_id=company_id, redis=redis_pool,
@@ -167,7 +169,8 @@ async def _resolve_run_flag_scope(db: Any, run_id: UUID) -> Any:
         )).scalar_one_or_none()
         if not run:
             return None, None
-        entity = run.entity
+        from src.ai.governance.entity_versions import run_entity
+        entity = await run_entity(db, run)  # the run's version (EP-10)
         extras = getattr(entity, "metadata_extensions", None) if entity else None
         return run.company_id, extras if isinstance(extras, dict) else None
     except Exception:

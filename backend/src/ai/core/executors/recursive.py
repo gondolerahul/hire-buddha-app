@@ -20,6 +20,7 @@ from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
 from src.ai.core.executors.base import ActionResult, register_executor
+from src.ai.governance.entity_versions import run_entity
 from src.ai.core.strategist import Move
 from src.ai.orm.execution import ExecutionRun
 
@@ -38,7 +39,9 @@ class RecursiveExecutor:
         from src.ai.planning.planner_service import PlannerService
 
         run = await self._reload_run(db, state.run_id)
-        entity = run.entity
+        entity = await run_entity(db, run)  # the pinned version, not the live row (EP-10)
+        if entity is None:
+            return ActionResult(success=False, error="the run has no entity")
         start = time.time()
         input_data = run.input_data if isinstance(run.input_data, dict) else {}
 

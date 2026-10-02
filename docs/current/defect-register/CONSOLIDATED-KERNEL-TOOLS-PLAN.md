@@ -280,7 +280,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | ID | Merged | Defect / requirement | Sev | Status | Phase |
 |---|---|---|---|---|---|
 | **R2** | — | Skill-first tool stack (§4) | Req | 🆕 requirement | P5, P6 |
-| **EP-10** | EP-I4 | `version` is decorative; editing an entity changes runs already in flight | Medium | ✅ | P5 |
+| **EP-10** | EP-I4 | `version` is decorative; editing an entity changes runs already in flight | Medium | ✔ | P5 (5.1, 5.2) |
 | **TL-23** | TX-I3 | `quora` — 4 tools against an API that does not exist | — | ✅ | P0 |
 | **TL-24** | TX-I3 | `x_ads` — 4 tools with the wrong auth scheme | — | ✅ | P0 |
 | **TL-25** | TX-I3 | `youtube_ads` — 4 tools on a stale API version, `customer_id` from the model | — | ✅ | P0 |
