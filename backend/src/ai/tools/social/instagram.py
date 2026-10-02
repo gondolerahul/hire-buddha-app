@@ -7,6 +7,7 @@ Provides tools for Instagram content management via the Instagram Graph API:
 - InstagramManageCommentsTool: Retrieve/post/hide/delete comments
 - InstagramDiscoverHashtagsTool: Hashtag search for content discovery
 """
+import asyncio
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -16,6 +17,9 @@ from src.ai.tools.social.base import SocialMediaTool
 logger = logging.getLogger(__name__)
 
 IG_GRAPH_BASE = "https://graph.facebook.com/v22.0"
+# A video container is encoded asynchronously; it is watched this long.
+_CONTAINER_POLLS = 30
+_CONTAINER_POLL_S = 5
 
 
 class InstagramPublishMediaTool(SocialMediaTool):
@@ -121,6 +125,10 @@ class InstagramPublishMediaTool(SocialMediaTool):
             data=container_data,
         )
         container_id = resp.json().get("id")
+        if media_type == "reel":
+            problem = await self._wait_until_ready(container_id, access_token)
+            if problem:
+                return {"error": problem, "container_id": container_id}
 
         # Step 2: Publish the container
         publish_resp = await self._api_request(
@@ -133,6 +141,27 @@ class InstagramPublishMediaTool(SocialMediaTool):
             "media_type": media_type,
             "message": f"Instagram {media_type} published successfully",
         }
+
+    async def _wait_until_ready(self, container_id: str, access_token: str) -> str:
+        """Poll a video container's ``status_code`` until ``FINISHED``; the
+        problem as text, or "" when it is ready.
+
+        Until P6.6 a Reel was published right after its container was made,
+        racing the encoder (TL-45).
+        """
+        for _ in range(_CONTAINER_POLLS):
+            resp = await self._api_request(
+                "GET", f"{IG_GRAPH_BASE}/{container_id}",
+                params={"fields": "status_code,status", "access_token": access_token},
+            )
+            body = resp.json()
+            code = str(body.get("status_code", ""))
+            if code in ("FINISHED", "PUBLISHED"):
+                return ""
+            if code in ("ERROR", "EXPIRED"):
+                return f"Instagram could not process the video ({code}): {body.get('status', '')}".strip()
+            await asyncio.sleep(_CONTAINER_POLL_S)
+        return "Instagram is still processing the video; it was not published"
 
     async def _publish_carousel(
         self, ig_user_id: str, access_token: str,
@@ -160,7 +189,12 @@ class InstagramPublishMediaTool(SocialMediaTool):
                 "POST", f"{IG_GRAPH_BASE}/{ig_user_id}/media",
                 data=item_data,
             )
-            item_ids.append(resp.json().get("id"))
+            item_id = resp.json().get("id")
+            if item_data.get("media_type") == "VIDEO":
+                problem = await self._wait_until_ready(item_id, access_token)
+                if problem:
+                    return {"error": f"carousel item {len(item_ids) + 1}: {problem}"}
+            item_ids.append(item_id)
 
         # Step 2: Create carousel container
         carousel_data = {

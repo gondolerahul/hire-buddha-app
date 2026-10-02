@@ -7,6 +7,7 @@ Provides tools for TikTok content management via the TikTok Content Posting API 
 - TikTokGetAnalyticsTool: Video and account performance metrics
 - TikTokManageCommentsTool: List and reply to comments
 """
+import asyncio
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -15,6 +16,9 @@ from src.ai.tools.social.base import SocialMediaTool
 
 logger = logging.getLogger(__name__)
 
+# How long a publish is watched: 24 polls, 5 s apart.
+_PUBLISH_POLLS = 24
+_PUBLISH_POLL_S = 5
 TIKTOK_API_BASE = "https://open.tiktokapis.com/v2"
 
 
@@ -24,8 +28,9 @@ class TikTokPublishVideoTool(SocialMediaTool):
     name = "tiktok_publish_video"
     platform = "tiktok"
     description = (
-        "Publish a video to TikTok. Supports direct upload and share URL methods. "
-        "Requires a TikTok connection with video.upload scope."
+        "Publish a video to TikTok from a public URL whose domain is verified in the TikTok "
+        "developer portal (TikTok pulls the file). Waits for TikTok to publish it and reports "
+        "the outcome. Requires a TikTok connection with the video.publish scope."
     )
 
     def get_function_schema(self) -> Dict[str, Any]:
@@ -75,14 +80,32 @@ class TikTokPublishVideoTool(SocialMediaTool):
             "POST", f"{TIKTOK_API_BASE}/post/publish/video/init/",
             headers=headers, json_body=body,
         )
+        publish_id = resp.json().get("data", {}).get("publish_id", "")
+        if not publish_id:
+            return {"error": f"TikTok did not start the publish: {resp.text[:300]}"}
 
-        data = resp.json()
-        return {
-            "success": True,
-            "publish_id": data.get("data", {}).get("publish_id", ""),
-            "title": params["title"],
-            "message": "Video publish initiated on TikTok",
-        }
+        # Publishing is asynchronous: TikTok downloads, checks and encodes the
+        # video and may still fail. Until P6.6 the tool reported success on the
+        # init call (TL-44); now it polls the status.
+        status, reason = "PROCESSING", ""
+        for _ in range(_PUBLISH_POLLS):
+            await asyncio.sleep(_PUBLISH_POLL_S)
+            st = await self._api_request(
+                "POST", f"{TIKTOK_API_BASE}/post/publish/status/fetch/",
+                headers=headers, json_body={"publish_id": publish_id},
+            )
+            info = st.json().get("data", {})
+            status, reason = str(info.get("status", "")), str(info.get("fail_reason") or "")
+            if status in ("PUBLISH_COMPLETE", "FAILED"):
+                break
+        if status == "FAILED":
+            return {"error": f"TikTok did not publish the video: {reason or 'no reason given'}",
+                    "publish_id": publish_id}
+        if status == "PUBLISH_COMPLETE":
+            return {"success": True, "publish_id": publish_id, "title": params["title"],
+                    "status": status, "message": "Video published on TikTok"}
+        return {"publish_id": publish_id, "title": params["title"], "status": status,
+                "message": f"TikTok is still processing the video ({status}); it is not published yet"}
 
 
 class TikTokGetVideosTool(SocialMediaTool):

@@ -209,6 +209,7 @@ class SocialMediaTool(Tool):
         params: Optional[Dict[str, Any]] = None,
         data: Optional[Dict[str, Any]] = None,
         timeout: int = DEFAULT_TIMEOUT,
+        content: Optional[bytes] = None,
     ) -> httpx.Response:
         """An HTTP request, retried when the platform says to wait (TL-37).
 
@@ -229,6 +230,7 @@ class SocialMediaTool(Tool):
                         json=json_body,
                         params=params,
                         data=data,
+                        content=content,
                     )
                 except httpx.ConnectError as e:
                     if last:
@@ -259,6 +261,27 @@ class SocialMediaTool(Tool):
                         pages.append(marker)
                 return resp
         raise RuntimeError("unreachable")  # pragma: no cover
+
+    @staticmethod
+    async def _download(url: str, max_bytes: int) -> tuple[bytes, str]:
+        """A public file's bytes and content type, for an operation that uploads it.
+
+        Only public hosts (the SSRF guard, TL-08); refused past ``max_bytes``.
+        """
+        from src.common.net_guard import check_url
+        await check_url(url)
+        chunks: list[bytes] = []
+        size = 0
+        async with httpx.AsyncClient(timeout=120, follow_redirects=False) as client:
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                async for chunk in resp.aiter_bytes():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ValueError(f"{url} is larger than {max_bytes // (1024 * 1024)} MB")
+                    chunks.append(chunk)
+                content_type = resp.headers.get("content-type", "application/octet-stream").split(";")[0]
+        return b"".join(chunks), content_type
 
     @staticmethod
     def _bearer_headers(access_token: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:

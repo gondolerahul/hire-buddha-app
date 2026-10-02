@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
 
 
+
+def _linkedin_version() -> str:
+    """The ``LinkedIn-Version`` header: one setting, ``LINKEDIN_API_VERSION`` (TL-48)."""
+    from src.common.config import settings
+    return settings.LINKEDIN_API_VERSION
+
+
 class LinkedInCreatePostTool(SocialMediaTool):
     """Create posts on LinkedIn (text, image, video, article, document)."""
 
@@ -48,10 +55,6 @@ class LinkedInCreatePostTool(SocialMediaTool):
                     "link_url": {
                         "type": "string",
                         "description": "Optional URL to share as a link post with preview"
-                    },
-                    "image_url": {
-                        "type": "string",
-                        "description": "Optional image URL to attach to the post"
                     },
                     "post_as_organization": {
                         "type": "boolean",
@@ -107,7 +110,7 @@ class LinkedInCreatePostTool(SocialMediaTool):
             }
 
         headers = self._bearer_headers(access_token, {
-            "LinkedIn-Version": "202401",
+            "LinkedIn-Version": _linkedin_version(),
             "X-Restli-Protocol-Version": "2.0.0",
         })
 
@@ -152,11 +155,6 @@ class LinkedInGetAnalyticsTool(SocialMediaTool):
                         "type": "string",
                         "description": "LinkedIn post URN (required if analytics_type='post')"
                     },
-                    "time_range": {
-                        "type": "string",
-                        "description": "Time range: 'day', 'week', 'month' (default: 'month')",
-                        "enum": ["day", "week", "month"]
-                    },
                     "account_name": {
                         "type": "string",
                         "description": "Optional: specific LinkedIn account to use"
@@ -174,7 +172,7 @@ class LinkedInGetAnalyticsTool(SocialMediaTool):
         analytics_type = params.get("analytics_type", "page")
 
         headers = self._bearer_headers(access_token, {
-            "LinkedIn-Version": "202401",
+            "LinkedIn-Version": _linkedin_version(),
             "X-Restli-Protocol-Version": "2.0.0",
         })
 
@@ -266,7 +264,7 @@ class LinkedInManageCommentsTool(SocialMediaTool):
         post_id = params["post_id"]
 
         headers = self._bearer_headers(access_token, {
-            "LinkedIn-Version": "202401",
+            "LinkedIn-Version": _linkedin_version(),
             "X-Restli-Protocol-Version": "2.0.0",
         })
 
@@ -360,7 +358,7 @@ class LinkedInGetProfileTool(SocialMediaTool):
         profile_type = params.get("profile_type", "user")
 
         headers = self._bearer_headers(access_token, {
-            "LinkedIn-Version": "202401",
+            "LinkedIn-Version": _linkedin_version(),
             "X-Restli-Protocol-Version": "2.0.0",
         })
 

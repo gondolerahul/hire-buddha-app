@@ -103,26 +103,20 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
             "Content-Type": "application/json",
         }
 
-        # Step 1: Create campaign budget
-        budget_operation = {
-            "operations": [{
-                "create": {
-                    "name": f"{params['campaign_name']} Budget",
-                    "amountMicros": str(params["budget_amount_micros"]),
-                    "deliveryMethod": "STANDARD",
-                }
-            }]
+        # The budget and the campaign are created in ONE googleAds:mutate, the
+        # campaign naming the budget by a temporary resource name (-1): both
+        # exist or neither does. Two separate mutates left an orphaned budget
+        # in the account whenever the campaign failed (TL-49).
+        budget_resource = f"customers/{customer_id}/campaignBudgets/-1"
+        budget = {
+            "resourceName": budget_resource,
+            "name": f"{params['campaign_name']} Budget",
+            "amountMicros": str(params["budget_amount_micros"]),
+            "deliveryMethod": "STANDARD",
+            "explicitlyShared": False,
         }
 
-        budget_resp = await self._api_request(
-            "POST",
-            f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/campaignBudgets:mutate",
-            headers=headers,
-            json_body=budget_operation,
-        )
-        budget_resource = budget_resp.json().get("results", [{}])[0].get("resourceName", "")
-
-        # Step 2: Create campaign
+        # The campaign
         campaign_type_map = {
             "SEARCH": "SEARCH",
             "DISPLAY": "DISPLAY",
@@ -165,18 +159,22 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
             "targetContentNetwork": network.get("target_content_network", False),
         }
 
-        campaign_operation = {"operations": [{"create": campaign_data}]}
-
         resp = await self._api_request(
             "POST",
-            f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/campaigns:mutate",
+            f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/googleAds:mutate",
             headers=headers,
-            json_body=campaign_operation,
+            json_body={"mutateOperations": [
+                {"campaignBudgetOperation": {"create": budget}},
+                {"campaignOperation": {"create": campaign_data}},
+            ]},
         )
-        result = resp.json().get("results", [{}])[0]
+        responses = resp.json().get("mutateOperationResponses", [])
+        campaign = next((r.get("campaignResult", {}) for r in responses if "campaignResult" in r), {})
+        created_budget = next((r.get("campaignBudgetResult", {}) for r in responses if "campaignBudgetResult" in r), {})
         return {
             "success": True,
-            "campaign_resource": result.get("resourceName", ""),
+            "campaign_resource": campaign.get("resourceName", ""),
+            "budget_resource": created_budget.get("resourceName", ""),
             "campaign_name": params["campaign_name"],
             "status": "PAUSED",
             "message": "Campaign created (paused). Enable when ready.",

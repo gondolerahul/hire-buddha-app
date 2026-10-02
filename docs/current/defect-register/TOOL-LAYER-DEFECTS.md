@@ -845,7 +845,7 @@ that status does not stop them running.
 
 ### TL-43 — `youtube_upload_video` never uploads the video
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-02, P6.6)** — the video is fetched (public hosts only, at most 256 MB), a resumable session is opened on `upload/youtube/v3/videos` and the bytes are PUT to its `Location`; `thumbnail_url` is set through `thumbnails/set` (a thumbnail failure is reported, not hidden). The source is still a URL, not an artifact reference (TL-09). `tests/unit/test_social_operations.py`.
 
 The tool POSTs metadata to `https://www.googleapis.com/youtube/v3/videos` with
 `uploadType=resumable` and returns `{"success": true, "message": "Video upload initiated
@@ -863,7 +863,7 @@ through an artifact reference rather than a URL string.
 
 ### TL-44 — `tiktok_publish_video` returns success on init
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-02, P6.6)** — the operation polls `post/publish/status/fetch/` (2 minutes): `PUBLISH_COMPLETE` is success, `FAILED` is an error with TikTok's reason, anything else says it is not published yet; the description states the domain-verification requirement. `tests/unit/test_social_operations.py`.
 
 Calls `post/publish/video/init/` and returns `{"success": true}` on the resulting
 `publish_id`. TikTok publication is asynchronous — the video may still fail moderation,
@@ -878,7 +878,7 @@ that requirement is neither documented in the description nor surfaced as an err
 
 ### TL-45 — `instagram_publish_media` does not wait for video containers
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-02, P6.6)** — a Reel's container, and each video item of a carousel, is polled on `status_code` until `FINISHED` before publishing; `ERROR`/`EXPIRED` or a timeout is reported and nothing is published. `tests/unit/test_social_operations.py`.
 
 `_publish_single` creates the media container and immediately calls `media_publish`.
 That is correct for images. For `reel` and video it is not: the container is processed
@@ -891,7 +891,7 @@ As written, every Reel publish races the encoder.
 
 ### TL-46 — `video_generate` ignores `is_audio_required` and reports it back
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: partly fixed (2026-10-02, P6.6)** — `is_audio_required` is sent to Veo as `generate_audio`, so `has_audio` reports what was asked; `person_generation` is still hardcoded, and the artifact's run and agent ids are 6.7. `tests/unit/test_social_operations.py`.
 
 The parameter is parsed, never passed to `GenerateVideosConfig`, and then returned in
 the result as `"has_audio": is_audio_required` — so the model is told a setting was
@@ -908,7 +908,7 @@ than being tenant policy, and `register_video_artifact` receives no `run_id` or
 
 ### TL-47 — `linkedin_create_post` advertises `image_url` and never reads it
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.6)** — `image_url` is no longer advertised (the three-step asset upload is not implemented); `linkedin_get_analytics`'s `time_range`, found unread by the contract test (P6.10), is removed too. The contract test now covers `social_api`'s operations. `tests/unit/test_social_operations.py`.
 
 The function schema offers `image_url` with the description *"Optional image URL to
 attach to the post"*. `_execute` handles `link_url` and nothing else — the parameter is
@@ -926,7 +926,7 @@ test that asserts every advertised parameter is read.
 
 ### TL-48 — `LinkedIn-Version: 202401` is hardcoded in twelve places
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.6)** — one setting, `LINKEDIN_API_VERSION` (default `202509`), with an owner and a review date in `common/config.py`; the other eight occurrences went with the deleted LinkedIn Ads and Sales Navigator modules (P6.2). `tests/unit/test_social_operations.py`.
 
 Every LinkedIn call pins the January 2024 version header. LinkedIn sunsets versioned
 APIs roughly a year after release, so as of this writing the header is about two and a
@@ -943,7 +943,7 @@ applies to the Google Ads version pin — see [TL-25](#4-t2--delete).
 
 ### TL-49 — `google_ads_create_campaign` is non-transactional
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.6)** — the budget and the campaign are created in one `googleAds:mutate`, the campaign naming the budget by a temporary resource name: both or neither. `tests/unit/test_social_operations.py`.
 
 The tool performs two independent mutates: create a campaign budget, then create the
 campaign referencing it. If the second fails, the budget is orphaned in the account with

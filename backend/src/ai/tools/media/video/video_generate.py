@@ -170,6 +170,7 @@ class VideoGenerateTool(Tool):
                 start_frame_path=start_frame_path,
                 end_frame_path=end_frame_path,
                 output_path=output_path,
+                generate_audio=bool(is_audio_required),
             )
 
             await register_video_artifact(
@@ -205,12 +206,16 @@ class VideoGenerateTool(Tool):
         start_frame_path: Optional[str] = None,
         end_frame_path: Optional[str] = None,
         output_path: str,
+        generate_audio: bool = True,
     ) -> str:
         """Generate one clip and save it to ``output_path`` (returns the path)."""
         config = types.GenerateVideosConfig(
             number_of_videos=1,
             duration_seconds=str(duration),  # type: ignore[arg-type]  # Veo API accepts str
             person_generation="allow_all",
+            # The option the call asked for, so ``has_audio`` in the result is
+            # what was requested of Veo; it used to be reported, never sent (TL-46).
+            generate_audio=generate_audio,
         )
         gen_kwargs: Dict[str, Any] = {"model": model_name, "prompt": prompt, "config": config}
 

@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     # (IntegrationRegistry.service_sku, owned by the APP company; cost_unit
     # "second"). Seed it with scripts/seed_sandbox_sku.py.
     SANDBOX_COST_SKU: str = "sandbox-runtime"
+    # The LinkedIn API version every LinkedIn call sends (TL-48). LinkedIn
+    # retires a version about a year after release: whoever touches the
+    # LinkedIn integration owns this value; review it every six months
+    # (next: 2027-04). It was "202401", hardcoded twelve times.
+    LINKEDIN_API_VERSION: str = "202509"
     # S5 persistent browser: when enabled, headless_browser uses a persistent
     # Chromium profile under the tenant workspace so cookies/logins survive across
     # calls. OFF by default (ephemeral context = today's behavior).

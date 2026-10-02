@@ -930,8 +930,14 @@ flowchart TD
 | `tiktok` | `open.tiktokapis.com/v2` | publish_video, get_videos, get_analytics, manage_comments | OAuth2 |
 | `reddit` | `oauth.reddit.com` | create_post, search, manage_comments, get_analytics | OAuth2 |
 
-None is wired to a production entity, and several operations are unfinished (TL-43…TL-49,
-6.6). Eight platforms were deleted in all: `quora`, `x_ads` and `youtube_ads` on
+None is wired to a production entity. Since P6.6 (2026-10-02) the operations that reported
+success they did not have are repaired or narrowed: `youtube/upload_video` uploads the bytes
+through a resumable session (TL-43); `tiktok/publish_video` waits for TikTok's publish status
+(TL-44); `instagram/publish_media` waits for a video container to finish encoding (TL-45);
+`linkedin/create_post` no longer advertises `image_url`, and `get_analytics` no longer
+`time_range` (TL-47); the LinkedIn API version is one setting, `LINKEDIN_API_VERSION`
+(TL-48); `google_ads/create_campaign` creates budget and campaign in one atomic mutate
+(TL-49). Eight platforms were deleted in all: `quora`, `x_ads` and `youtube_ads` on
 2026-10-01 because they could not work as written (TL-23–TL-25), and the five above in
 P6.2.
 

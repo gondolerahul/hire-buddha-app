@@ -26,10 +26,6 @@ TOOLS = sorted(ToolRegistry._tools.items())
 # Advertised parameters the code never reads — each is a defect, with the
 # plan item that removes it. The list may only shrink.
 KNOWN_DRIFT = {
-    ("social_api:linkedin.create_post", "image_url"): "TL-47, P6.6",
-    ("social_api:linkedin.get_analytics", "time_range"): "found in P6.10, P6.6",
-    ("social_api:youtube.upload_video", "video_url"): "TL-43, P6.6",
-    ("social_api:youtube.upload_video", "thumbnail_url"): "TL-43, P6.6",
 }
 
 

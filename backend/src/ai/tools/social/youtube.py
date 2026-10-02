@@ -16,6 +16,10 @@ from src.ai.tools.social.base import SocialMediaTool
 logger = logging.getLogger(__name__)
 
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
+YOUTUBE_UPLOAD_BASE = "https://www.googleapis.com/upload/youtube/v3"
+# What one call may upload (held in memory while it is sent).
+_MAX_VIDEO_BYTES = 256 * 1024 * 1024
+_MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
 YOUTUBE_ANALYTICS_BASE = "https://youtubeanalytics.googleapis.com/v2"
 
 
@@ -70,9 +74,19 @@ class YouTubeUploadVideoTool(SocialMediaTool):
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
         access_token = credentials["access_token"]
-        headers = self._bearer_headers(access_token)
+        video_url = params.get("video_url")
+        if not video_url:
+            return {"error": "video_url is required: the public URL of the video file to upload"}
+        try:
+            video, video_type = await self._download(video_url, _MAX_VIDEO_BYTES)
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"could not fetch the video: {exc}"}
+        if not video_type.startswith("video/"):
+            video_type = "video/*"
 
-        # Step 1: Initialize resumable upload
+        # 1. Open a resumable session on the upload endpoint; 2. send the bytes
+        # to the session URL it returns. Until P6.6 the tool sent only the
+        # metadata, to the metadata endpoint, and reported success (TL-43).
         snippet = {
             "title": params["title"],
             "description": params.get("description", ""),
@@ -83,21 +97,46 @@ class YouTubeUploadVideoTool(SocialMediaTool):
 
         body = {"snippet": snippet, "status": status}
 
-        resp = await self._api_request(
+        session = await self._api_request(
             "POST",
-            f"{YOUTUBE_API_BASE}/videos",
-            headers=headers,
+            f"{YOUTUBE_UPLOAD_BASE}/videos",
+            headers=self._bearer_headers(access_token, {
+                "X-Upload-Content-Length": str(len(video)), "X-Upload-Content-Type": video_type,
+            }),
             json_body=body,
             params={"part": "snippet,status", "uploadType": "resumable"},
         )
+        location = session.headers.get("Location")
+        if not location:
+            return {"error": "YouTube did not open an upload session (no Location header)"}
+        uploaded = await self._api_request(
+            "PUT", location, timeout=600, content=video,
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": video_type},
+        )
+        video_id = uploaded.json().get("id", "")
+        if not video_id:
+            return {"error": "YouTube accepted the bytes but returned no video id"}
 
-        return {
+        result: Dict[str, Any] = {
             "success": True,
-            "video_id": resp.json().get("id", ""),
+            "video_id": video_id,
             "title": params["title"],
             "privacy_status": status["privacyStatus"],
-            "message": "Video upload initiated on YouTube",
+            "message": "Video uploaded to YouTube (processing may take a few minutes)",
         }
+        if params.get("thumbnail_url"):
+            try:
+                image, image_type = await self._download(params["thumbnail_url"], _MAX_THUMBNAIL_BYTES)
+                await self._api_request(
+                    "POST", f"{YOUTUBE_UPLOAD_BASE}/thumbnails/set", params={"videoId": video_id},
+                    content=image,
+                    headers={"Authorization": f"Bearer {access_token}", "Content-Type": image_type},
+                )
+                result["thumbnail_set"] = True
+            except Exception as exc:  # noqa: BLE001 - the video is up; say what did not work
+                result["thumbnail_set"] = False
+                result["thumbnail_error"] = str(exc)
+        return result
 
 
 class YouTubeManagePlaylistsTool(SocialMediaTool):
