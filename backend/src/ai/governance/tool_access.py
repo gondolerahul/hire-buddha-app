@@ -352,7 +352,8 @@ async def _disabled_names(db: Any, company_id: Optional[UUID]) -> frozenset[str]
 
 
 async def _calls_so_far(db: Any, run_id: Optional[UUID]) -> dict[str, int]:
-    """The run's tool calls so far by tool: its log rows, less refused calls."""
+    """The run's tool calls so far by tool: its log rows, less refused calls
+    and replays of a write the run had already made (TL-39)."""
     if db is None or run_id is None:
         return {}
     from sqlalchemy import func, select
@@ -361,6 +362,7 @@ async def _calls_so_far(db: Any, run_id: Optional[UUID]) -> dict[str, int]:
         select(ToolInteractionLog.tool_id, func.count()).where(
             ToolInteractionLog.run_id == run_id,
             ToolInteractionLog.log_metadata["refused"].astext.is_(None),
+            ToolInteractionLog.log_metadata["replayed"].astext.is_(None),
         ).group_by(ToolInteractionLog.tool_id)
     )
     used: dict[str, int] = {}

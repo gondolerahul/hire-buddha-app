@@ -761,7 +761,7 @@ and no truncation is signalled.
 
 ### TL-39 — No idempotency on any write tool
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.5)** — a call that writes (a `WRITE_TOOLS` tool, or a `social_api` operation that writes) is keyed `sha256(run, tool, arguments)` on its log row, and the run's earlier successful call with that key answers a repeat: nothing is written, billed or counted again. `email_classify`'s COPY/EXPUNGE is a `UID MOVE` since P6.8. `tests/integration/test_write_idempotency.py`.
 
 No social, email, CRM or media tool carries an idempotency key. Combined with the
 resilience layer's reformat-retry and fallback chain, a retried or resumed step

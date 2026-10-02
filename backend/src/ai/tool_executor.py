@@ -95,6 +95,11 @@ class ToolResult:
     # Priced units the call used (``ToolOutput.metadata["billable_units"]``):
     # a batch search's paid sub-queries; 0 when a free backend answered.
     units: float = 1.0
+    # A call that writes carries its key (TL-39). ``replayed``: the run had
+    # already made this exact write, so its earlier result was returned and
+    # nothing was written, billed or counted again.
+    idempotency_key: Optional[str] = None
+    replayed: bool = False
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -115,7 +120,22 @@ def _refused(tool_name: Any, args: Any, denied: Any) -> ToolResult:
 
 async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any],
                context: Optional[Dict[str, Any]]) -> ToolResult:
-    """One call through the tool's one entry point, ``invoke`` (TL-41)."""
+    """One call through the tool's one entry point, ``invoke`` (TL-41).
+
+    A call that writes runs once per run (TL-39): when the run already made
+    this exact write successfully, its result is returned instead.
+    """
+    from src.ai.governance.idempotency import earlier_result, write_key
+
+    key = write_key((context or {}).get("run_id"), name, args)
+    if key:
+        try:
+            prior = await earlier_result((context or {}).get("run_id"), key)
+        except Exception:  # noqa: BLE001 - the lookup never blocks a call
+            prior = None
+        if prior is not None:
+            return ToolResult(tool=name, args=logged_args, output=prior, success=True,
+                              units=0, idempotency_key=key, replayed=True)
     start = datetime.now(timezone.utc)
     units = 1.0
     try:
@@ -127,7 +147,7 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
         error, output = str(exc), f"Error: {exc}"
     latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
     return ToolResult(tool=name, args=logged_args, output=output, success=error is None,
-                      latency_ms=latency, error=error, units=units)
+                      latency_ms=latency, error=error, units=units, idempotency_key=key)
 
 
 class ToolExecutor:

@@ -1354,6 +1354,18 @@ breaker, no backoff and no timeout of its own** — those words appear in the
 design intent doc but not in the shipped module. What it has is a three-step
 recovery ladder driven by failure classification.
 
+### 15.0 A write happens once per run
+
+Since P6.5 (2026-10-02, TL-39) a call that writes — a tool in `WRITE_TOOLS`, or a
+`social_api` operation whose verb writes — gets `idempotency_key = sha256(run, tool,
+arguments)` ([governance/idempotency.py](../../backend/src/ai/governance/idempotency.py)),
+stored on its `tool_interaction_logs` row. Before it runs, the executor's one runner looks
+for a successful row with that key in the run: if there is one, its output is returned,
+marked `replayed` — nothing is written again, billed (0 units) or counted against the
+run's tool-call limit. A retried, re-planned or resumed step therefore no longer re-posts,
+re-sends or re-creates. A failed earlier call is not replayed; different arguments are a
+different write.
+
 ### 15.1 Failure classification
 
 ```python

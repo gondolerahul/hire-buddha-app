@@ -128,12 +128,15 @@ def llm_step_result(step_name: str, output: str, response: Any, reasoning_mode: 
 
 def _tool_log_metadata(tr: Any) -> Optional[dict[str, Any]]:
     """A refused call is marked refused (TL-11); one that ran on reformatted
-    input is marked reformatted (EP-24)."""
+    input is marked reformatted (EP-24); a write the run had already made,
+    answered from its earlier result, is marked replayed (TL-39)."""
     meta: dict[str, Any] = {}
     if tr.skipped:
         meta["refused"] = tr.skip_reason
     if getattr(tr, "reformatted", False):
         meta["reformatted"] = True
+    if getattr(tr, "replayed", False):
+        meta["replayed"] = True
     return meta or None
 
 
@@ -153,8 +156,9 @@ def log_tool_call(db: Any, run_id: Any, step_name: str, access: Any, tr: Any,
         success=tr.success,
         latency_ms=latency_ms,
         log_metadata=_tool_log_metadata(tr),
+        idempotency_key=getattr(tr, "idempotency_key", None),
     ))
-    if not tr.skipped:
+    if not tr.skipped and not getattr(tr, "replayed", False):
         access.record(tr.tool)
 
 

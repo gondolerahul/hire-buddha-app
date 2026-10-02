@@ -425,7 +425,7 @@ Defined at [orm/execution.py:159](../../backend/src/ai/orm/execution.py:159).
 | `error_message` | Text | yes | — | |
 | `latency_ms` | Integer | yes | — | |
 | `log_metadata` | JSONB | yes | — | |
-| `idempotency_key` | String(255) | yes | — | Partial index `idx_tool_logs_idemp` where NOT NULL |
+| `idempotency_key` | String(255) | yes | — | A write's key, sha256 of run, tool and arguments (P6.5, TL-39): the run's earlier successful row with the same key answers a repeat. Partial index `idx_tool_logs_idemp` where NOT NULL |
 | `created_at` | DateTime | yes | utcnow | |
 
 Indexes: `ix_tool_interaction_logs_run_id` (DM-06) and `ix_tool_interaction_logs_company_created

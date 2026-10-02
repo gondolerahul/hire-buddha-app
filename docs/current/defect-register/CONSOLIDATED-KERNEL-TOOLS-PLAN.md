@@ -298,7 +298,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-59** | EP-21, EP-I5 | Tool outputs written twice and orphaned from their run; the run page finds artifacts by regex | Medium | ✅ | P6 |
 | **TL-37** | TX-I5 | Social base never retries 429/5xx | Medium | ✔ | P6 |
 | **TL-38** | TX-I6 | No pagination in any social list call | Medium | ✔ | P6 |
-| **TL-39** | TX-I7, EP-14 | No idempotency on any write tool; `tool_interaction_logs.idempotency_key` is dead | Medium | ✅ | P6 |
+| **TL-39** | TX-I7, EP-14 | No idempotency on any write tool; `tool_interaction_logs.idempotency_key` is dead | Medium | ✔ | P6 |
 | **TL-31** | — | `_ffmpeg.trim_clip`'s accurate fallback raises `ValueError` | Medium | ✔ | P6 |
 | **TL-32** | TX-I10, TL-57 | Blocking SDK / `imaplib` / `smtplib` calls on the event loop | Medium | ✔ | P6 |
 | **TL-58** | — | `email_classify` moves the wrong message (sequence numbers labelled as UIDs) | Medium | ✔ | P6 |
