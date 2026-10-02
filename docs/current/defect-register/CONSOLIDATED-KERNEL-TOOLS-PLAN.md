@@ -971,6 +971,80 @@ and nothing to forget when a seventh is added.
 | 7.11 | Wire or delete `TrustLearner`, `FailurePatternService` | PC-11, PC-12 |
 | 7.12 | Transient child failures retried once; Redis outage message | AK-19, AK-20 |
 
+*Detailed design (2026-10-02, before P7.1).* Verified against the code; corrections to the
+entries are noted.
+
+- **A retry is a directive on the step (7.1, PC-06).** `PlanStep` gains
+  `directive: Optional[StepDirective]` — `strategy`, `escalate_model`, `prompt_hint`,
+  `use_fallback_tool`, `ask_user`. `RetryExecutor.build` writes it onto the copy of each
+  step in the retry's fragment, so it travels with the step through SingleStep, DAG and
+  Debate and survives a snapshot (the queue holds dicts). The step executor honours it:
+  `escalate_model` resolves the step's LLM calls through task type `thinking` (the
+  company's configured reasoning model; an entity `model_name` override still wins);
+  `prompt_hint` is appended to the step prompt as "## Correction"; `use_fallback_tool` on a
+  `TOOL_CALL` step starts at the tool's fallback (on another step it becomes a prompt hint
+  naming the failed tool); `ask_user` raises a HITL request (`human_approvals`, trigger
+  `ASK_USER`, the critic's concerns as the question) through `GovernanceService`'s wait,
+  and the reviewer's notes become the step's `prompt_hint`; a rejection or timeout fails
+  the step. A strategy whose remedy does not exist (a fallback for a tool with none) is
+  downgraded to `RETRY_DIFFERENT_PROMPT`, and the event says so.
+- **Backoff and the bound come from `logic_gate.retry_policy` (7.2, PC-07).** `max_retries`
+  replaces `MAX_RETRIES_PER_STEP` (default 2, the old constant, when the entity has no
+  logic gate); the retry waits `backoff_multiplier ** n` seconds (EXPONENTIAL), `n` (LINEAR),
+  or none (NONE / FIXED as declared), capped at 30 s; `retry_on` lists the failure tags that
+  may be retried, empty meaning all (its old default named two kinds that are not tags, so it
+  is read as a tag list and unknown names are ignored with a warning).
+- **Severity orders the choice (7.3, PC-08).** `pick_retry` takes the most severe tag first,
+  so a `HALLUCINATION` (3) beside a `WRONG_FORMAT` (1) escalates the model rather than
+  rewriting the prompt; a tag of severity 0 never triggers a retry.
+- **The pre-critic sees the step and acts on it (7.4, PC-01, PC-02, AK-16).** Its prompt
+  shows each step of the fragment (name, type, tool, description, the first 400 characters
+  of its template); the bypass for plan moves is deleted, so the health record carries the
+  step id (without it `is_exhausted` never matched a plan step and the per-step bound did
+  not apply). `BLOCK` does not run the move: the blocked steps are marked failed with the
+  concerns (dependants see the failure), the strategist proposes the next ready step, and
+  the breaker still aborts after three consecutive blocks. `REVISE` runs the move with the
+  concerns as each step's `prompt_hint`. The iteration counter and budget step are taken
+  after the pre-critic passes, so a block costs only the critic's call.
+- **Drift steers the next step (7.5, PC-03).** A misaligned verdict's `correction_hint`
+  becomes the `prompt_hint` of the next move's steps (once), and the alignment event says
+  it was applied.
+- **Degraded means cheaper (7.6, PC-05).** In `DEGRADED` the post critic runs on the
+  actor's model (no critic-model escalation), without prior history or intelligence rules,
+  with 200 output tokens; pre, alignment and supervisor are already skipped.
+- **Replan keeps what is done (7.7, PC-09, AK-17).** `_handle_replan` keeps the completed
+  steps (their ids, outputs and the steps themselves, prepended to the new plan) and only
+  replaces the rest; the new steps' ids are renumbered past the completed ones.
+- **One goal-validation setting (7.8, PC-17, PC-10).** `governance.goal_validation_interval`
+  is the setting. The step engine's GoalGuard block (reading
+  `reasoning_config.goal_validation_interval`, default 0) is deleted with `GoalGuard`, and
+  the field is removed from `ReasoningConfig` (accepted and dropped on read, like other
+  retired keys). `MetaReviewer` and the legacy supervisor branch are deleted with
+  `supervisor_v2_enabled` (always on); `AlignmentCritic`'s shim too.
+- **One replan path, observable (7.9, PC-13, PC-14).** Correction: PC-20 already passes the
+  entity and run into `adapt_plan`, so replans run every invariant and are billed.
+  `PlanGenerator.replan` (no caller, and its context from state has no entity) is deleted;
+  `PlanGenerator` is built with an `emit_event` bound to the run, so `agent.plan.*` events
+  fire for the first plan and every replan.
+- **The bandit learns what it chooses (7.10, PC-15, PC-21, PC-22).** The arms are the
+  choices it makes: `DAG_PARALLEL` and `DAG_SEQUENTIAL` (D19). The other four are recorded
+  for the trace, never rewarded. Each pull is rewarded with its own iteration's outcome
+  (observation success and a post-critic PASS) and cost, flushed at the end of the run. The
+  health record carries `task_class`; the calibrator groups by it and writes its result as a
+  `Calibration: <task_class>` node beside the bandit's table, which the post critic reads
+  (a high false-pass rate tells it to be stricter). The duck-typed write is gone.
+- **Wire one, delete one (7.11, PC-11, PC-12).** `FailurePatternService.get_failure_patterns`
+  runs once per run at compose; its block joins memory in prompt layer 9
+  (`__failure_patterns__`); the unused `get_tool_failure_stats` is deleted. `TrustLearner`,
+  its table and the `memory.trust_score_learning` flag are deleted (D20): wiring it means
+  changing memory retrieval, register 08, which the product owner deferred; nothing ever
+  wrote a row.
+- **A transient child failure gets a second run (7.12, AK-19, AK-20).** On resume, a child
+  that failed with a transient error (429, 5xx, timeout, connection, resource exhausted)
+  and has not been retried has its step reopened instead of failing the parent; the
+  strategist dispatches it again. A Redis error during dispatch says the queue is
+  unreachable (an outage), and the step stays ready.
+
 ### P8 — Entity contract and step engine
 
 | # | Work | Ids |
@@ -986,6 +1060,62 @@ and nothing to forget when a seventh is added.
 | 8.9 | Typed state replaces the dict bridge | AK-21 |
 | 8.10 | Perceiver: set `cortex_cursor`, feed `to_prompt_block()` to the strategist/step prompt, reachable blockers — or delete | AK-05 |
 | 8.11 | Adaptive iteration cap; batched iteration events; cost the plan at dispatch | AK-I8, AK-I9, EP-I9 |
+
+*Detailed design (2026-10-02, before P8.1).*
+
+- **Input is checked against its schema (8.1, EP-04).** `trigger_execution` validates
+  `input_data` against `io_contract.input_schema` before the run row exists: every
+  `required` name that is not a step id, step name or platform key must be present and
+  non-empty, and present values must match the declared `type` (and `enum`). The check is a
+  documented subset of JSON Schema (`type`, `properties`, `required`, `enum`, `items`),
+  which is what the builder and `_auto_generate_input_schema` produce (D21: no
+  `jsonschema` dependency). A mismatch is a 422 naming each field; child runs and the
+  gateway are not checked (their input is the platform's).
+- **The dead settings (8.2, EP-05).** `planning.loop_control` is deleted (accepted and
+  dropped on read; the name also collides with the LOOP level). `io_contract.output_schema`
+  is checked on the run's final output when it declares properties: a final output that is
+  not JSON with the required keys gets a `WRONG_FORMAT` post-critic tag, so the retry
+  machinery (7.1) rewrites the prompt. `retry_policy` is read since 7.2; the others in the
+  EP-05 table were wired in P1–P3.
+- **Per-tool timeout (8.3, EP-08).** `ToolGrant.timeout_seconds` (1–600); without it a
+  tool's own `timeout_seconds` (default 120). `ToolExecutor._run` wraps `invoke` in
+  `asyncio.wait_for`; a timeout is a failed call (`tool_timeout`) the ladder may heal.
+- **Outputs stored once (8.4, EP-18, EP-I6).** A step's output is stored under its id only;
+  `{{name}}` resolves through the run's name→id map (`__step_names__` until 8.9 moves it to
+  state). Step names must be unique within a plan: the entity API answers 422, the planner
+  renames a duplicate (`name (2)`), and the graph editor flags it.
+- **Dependencies narrow the policy (8.5, EP-12).** The policy (FULL by default) is applied
+  first; a step with `input_dependencies` then sees only `input` and its dependencies from
+  that result. A dependency the policy excluded is reported in the step's trace.
+- **One healing ladder (8.6, EP-22).** Correction: the TOOL_CALL path already runs through
+  `ToolResilience` (P3, TL-51); only the REACT path is gated, by
+  `tools.resilience_v2_enabled`. The flag and the unhealed branch are deleted.
+- **A fallback chain (8.7, EP-23).** `fallback_chain(tool, input)` walks the table, each tool
+  at most once per call (loop protection), up to three hops; `ToolResilience` tries each in
+  turn.
+- **Every executor on its own session (8.8, AK-18, EP-20).** DAG, ChildEntity, Debate and
+  Recursive open their own session like SingleStep; the loop's session is the loop's. Run
+  cost is already a sum of usage rows (P4), so no step mutates a shared ORM object; a test
+  checks that no executor uses the session it is handed.
+- **Typed signals instead of the dict bridge (8.9, AK-21, D22).** The context dict carries
+  data only — run input and step outputs. What the loop tells a step (iteration, budget
+  pressure, memory, subjects, failure patterns, step-name map) is a typed `StepSignals` the
+  executor sets in a `ContextVar` around the step engine call (copied into each parallel
+  branch, like the trace recorder); the prompt builder reads it. `materialise_context_dict`
+  stops injecting `__agent_state__`, `absorb_context_dict` copies back only the keys the
+  steps wrote, and those internal keys leave `INTERNAL_CONTEXT_KEYS`.
+- **The Perceiver goes (8.10, AK-05, D23).** It rebuilt rules and similar runs that the
+  memory read path already puts in the step prompt, read a viewport through a cursor nothing
+  sets, and the deterministic strategist ignores it — at a DB query per iteration. It is
+  deleted with `Perception`, `state.perception` and `cortex_cursor`. Blockers stay: the
+  supervisor reads them.
+- **Adaptive cap, batched events, plan costing (8.11, AK-I8, AK-I9, EP-I9).** The iteration
+  cap is `max(8, steps × (1 + max_retries) + 5)`, never above 50, recomputed after a
+  (re)plan. Iteration events are buffered and published as one `batch` message when the
+  executor starts and when the iteration ends (the reducer unpacks it); the log/OTel sink
+  stays per event. Correction to EP-I9: the run's start already holds the plan's estimate
+  against the wallet (BC); it now also refuses a plan whose estimate exceeds the entity's
+  `governance.max_cost_usd`, before any spend.
 
 ### P9 — LLM providers
 
@@ -1044,6 +1174,11 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D16 | P6 converts to the typed contract only the tools it touches; the rest run through one adapter in `Tool.invoke`, listed by a census test that may only shrink | Converting all 34 tools would rewrite every tool's input handling with no behaviour to show for it; new tools must be typed |
 | D17 | Social platforms are one table: those a connection can be created for and refreshed (8). The 5 that cannot be connected are deleted with their 20 tool classes | They could never get a credential; a platform is added with its connection, refresh and operations together |
 | D18 | A run's subject scope is derived from its stored data plus `run_subjects` for subjects found mid-run; refs are hashes within the run tree | Six code paths create runs; deriving at use is one place to read. Refs are stable for the tree and resolve to nothing elsewhere |
+| D19 | The plan-style bandit's arms are the choices it makes (parallel vs sequential DAG); the moves the plan's shape decides are recorded, not rewarded | Rewarding a move nobody chose teaches nothing; the six-arm table rewarded every move of a run with the run's outcome |
+| D20 | `TrustLearner` and `source_trust_scores` are deleted | No writer and no reader; wiring it changes memory retrieval (register 08, deferred) |
+| D21 | Input validation checks the subset of JSON Schema the builder produces, without a new dependency | `type`, `properties`, `required`, `enum`, `items` is every schema the platform writes |
+| D22 | Loop-to-step signals travel in a typed `ContextVar`, not in the context dict | The dict is the steps' data; a ContextVar is typed, per task (parallel branches), and needs no copy-back |
+| D23 | The Perceiver is deleted, not wired | Memory already reaches the step prompt; the strategist is deterministic; nothing set its cursor |
 
 ---
 
