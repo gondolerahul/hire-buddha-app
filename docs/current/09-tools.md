@@ -1245,6 +1245,19 @@ existing tools — which write a script to a host path and then exec it — work
 unchanged under either runtime, and why `_ffmpeg` concat lists are valid in
 both.
 
+**Skill files (R2, P5.4).** A run's scripts arrive the same way. Before a step runs,
+`StepExecutorService._execute_step` (once per run) calls
+[`skill_files.run_skill_files`](../../backend/src/ai/tools/sandbox/skill_files.py): for the
+run's pinned version and each ancestor run's version (D14) that has assets, it writes the
+files into `<tenant workspace>/.skills/<slug>/<version_number>/`. A `.content-hash` marker
+equal to the version's hash makes a repeat a no-op without reading any body; a missing or
+stale tree is written into a temporary directory and renamed into place, so a parallel step
+never sees half of it. Paths are re-validated before writing. The step's sandwich prompt
+gets a **Skill Files** section naming each root and its files (scripts first, 40 a
+version). Writing happens in the worker; the API process only stores bodies
+([03 §4.1a](03-data-model.md#41a-entity_versions-and-entity_assets)). The old shared
+symlink (`sandbox_provision`) is replaced in 5.7.
+
 ### 12.4 The egress proxy
 
 When a tool's `NetworkPolicy` is `ALLOWLIST`, the container needs a few approved
@@ -1986,6 +1999,7 @@ reading the backend's `.env` file off the host filesystem.
 | [tools/sandbox/egress_proxy.py](../../backend/src/ai/tools/sandbox/egress_proxy.py) | 160 | allow-list egress networks and the tinyproxy container |
 | [tools/sandbox/metering.py](../../backend/src/ai/tools/sandbox/metering.py) | 65 | sandbox-seconds usage attribution |
 | [tools/sandbox/sandbox_provision.py](../../backend/src/ai/tools/sandbox/sandbox_provision.py) | 107 | symlinks Document Factory scripts into each tenant sandbox |
+| [tools/sandbox/skill_files.py](../../backend/src/ai/tools/sandbox/skill_files.py) | 170 | a run's version assets written into `.skills/<slug>/<version>/`; the prompt's Skill Files section |
 | [tools/social/base.py](../../backend/src/ai/tools/social/base.py) | 173 | `SocialMediaTool` — credentials, HTTP helper, EXPERIMENTAL default |
 | [docker/sandbox/Dockerfile](../../backend/docker/sandbox/Dockerfile) | 66 | the `hb-sandbox` image |
 | [docker/egress-proxy/tinyproxy.conf](../../backend/docker/egress-proxy/tinyproxy.conf) | 33 | `FilterDefaultDeny` proxy config |

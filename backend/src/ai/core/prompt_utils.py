@@ -76,6 +76,7 @@ def build_sandwich_prompt(
     execution_constraints: Optional[Dict[str, Any]] = None,
     platform_awareness: Optional[str] = None,
     cortex_enabled: bool = False,                       # Track 6: inject ops-help once
+    skill_files: Optional[str] = None,                  # the run's version assets (R2)
 ) -> str:
     """
     Build structured prompt using the 'Sandwich Method'.
@@ -108,6 +109,10 @@ def build_sandwich_prompt(
             f"- **{t['name']}**: {t['description']}" for t in tools
         ])
         sections.append(f"## Available Tools\nYou can use the following tools:\n{tool_descriptions}")
+
+    # Layer 3.2: Skill files — scripts the step runs instead of retyping.
+    if skill_files:
+        sections.append(f"## Skill Files\n{skill_files}")
 
     # Layer 3.5: Platform Awareness (Tier 1 Meta-Cognition)
     if platform_awareness:

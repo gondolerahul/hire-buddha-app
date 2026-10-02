@@ -194,11 +194,25 @@ class StepExecutorService:
                 "CHILD_ENTITY_INVOCATION reached the inline step path; child "
                 "entities are dispatched asynchronously by ChildEntityExecutor."
             )
-        elif step.type == StepType.TOOL_CALL:
+        # The run's skill files are in the workspace before any tool can run (R2).
+        await self._skill_files(run)
+        if step.type == StepType.TOOL_CALL:
             return await self._execute_tool_call(run, entity, step, context)
         elif step.type == StepType.THOUGHT or step.type == StepType.ACTION:
             return await self._execute_thought(run, entity, step, context)
         return {"error": "Unknown step type"}
+
+    async def _skill_files(self, run: ExecutionRun) -> list[Any]:
+        """The run's version assets, written into the tenant workspace once per run."""
+        cache: dict[Any, list[Any]] = self.__dict__.setdefault("_skills_by_run", {})
+        if run.id not in cache:
+            from src.ai.tools.sandbox.skill_files import run_skill_files
+            try:
+                cache[run.id] = await run_skill_files(self.db, run)
+            except Exception:  # noqa: BLE001 - a step runs without its files rather than not at all
+                logger.warning("skill files for run %s were not prepared", run.id, exc_info=True)
+                cache[run.id] = []
+        return cache[run.id]
 
     async def create_child_run(self, run: ExecutionRun, entity: HierarchicalEntity, step: PlanStep, context: dict) -> ExecutionRun:
         """Resolve + create (but do NOT execute) a child ExecutionRun row.
@@ -685,6 +699,9 @@ class StepExecutorService:
                 logger.warning(f"Tier 1: Failed to load platform awareness: {e}")
         # ───────────────────────────────────────────────────────────────
 
+        from src.ai.tools.sandbox.skill_files import render_skill_files
+        skill_files_text = render_skill_files(await self._skill_files(run))
+
         # --- Build sandwich system prompt with all architecture fields ---
         full_system_prompt = build_sandwich_prompt(
             identity=system_prompt,
@@ -698,6 +715,7 @@ class StepExecutorService:
             allowed_deviations=allowed_deviations,
             execution_constraints=exec_constraints if exec_constraints else None,
             platform_awareness=platform_awareness_text,
+            skill_files=skill_files_text,
         )
 
         # --- Resolve reasoning mode and dispatch ---
