@@ -1329,7 +1329,10 @@ distinct heading so the LLM sees the difference
 `FAILED`/`PARTIAL_COMPLETE` runs of an entity in a 30-day window and classifies
 them into: `TOOL_EMPTY`, `TIMEOUT`, `FORMAT_ERROR`, `API_ERROR`,
 `SCRAPER_BLOCKED`, `DEPENDENCY_FAILED`, `DATA_MISSING` — each with a fixed
-remediation suggestion, returned as prompt-injectable warnings.
+remediation suggestion. Since P7.11 (2026-10-03, PC-12) it is read once per run at compose
+(`core/run_blocks.add_run_blocks`) and rendered as "Lessons from this agent's recent
+failed runs" under `__failure_patterns__`, which every step prompt shows beside memory
+(layer 9). Before, nothing called it. The unused `get_tool_failure_stats` is deleted.
 
 ### Step-level retries
 

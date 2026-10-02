@@ -34,6 +34,7 @@ INTERNAL_CONTEXT_KEYS: FrozenSet[str] = frozenset({
     "subtree_root_id",
     "__memory__",
     "__subjects__",
+    "__failure_patterns__",
     "__cortex_viewport__",
     "__cortex_tree_id__",
     "__cortex_cursor__",

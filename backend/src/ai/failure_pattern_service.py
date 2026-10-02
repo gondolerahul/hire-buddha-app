@@ -5,10 +5,8 @@ Extracts actionable failure patterns from an entity's recent execution history
 and formats them as warnings for prompt injection. This replaces raw episodic
 data injection with intelligence-first memory.
 
-Usage (from worker.py):
-    fps = FailurePatternService(db)
-    patterns = await fps.get_failure_patterns(entity_id, limit=5)
-    # Returns: [{"description": "...", "suggestion": "...", "frequency": N}, ...]
+Read once per run by ``ai.core.run_blocks`` (PC-12): the block reaches every
+step prompt beside the run's memory (``__failure_patterns__``).
 """
 from __future__ import annotations
 
@@ -144,46 +142,10 @@ class FailurePatternService:
             logger.debug(f"Failure pattern extraction failed: {e}")
             return []
 
-    async def get_tool_failure_stats(
-        self,
-        entity_id: UUID,
-        lookback_days: int = 30,
-    ) -> Dict[str, Dict]:
-        """
-        Get per-tool failure statistics from ToolInteractionLogs.
 
-        Returns: {"web_search": {"total": 10, "failed": 3, "empty": 2}, ...}
-        """
-        try:
-            from src.ai.models import ToolInteractionLog, ExecutionRun
-
-            cutoff = datetime.utcnow() - timedelta(days=lookback_days)
-            result = await self.db.execute(
-                select(ToolInteractionLog).join(
-                    ExecutionRun, ToolInteractionLog.run_id == ExecutionRun.id
-                ).where(
-                    ExecutionRun.entity_id == entity_id,
-                    ToolInteractionLog.created_at >= cutoff,
-                ).order_by(desc(ToolInteractionLog.created_at)).limit(100)
-            )
-            logs = result.scalars().all()
-
-            stats: Dict[str, Dict] = {}
-            for log in logs:
-                tool = log.tool_id
-                if tool not in stats:
-                    stats[tool] = {"total": 0, "failed": 0, "empty": 0}
-                stats[tool]["total"] += 1
-                if not log.success:
-                    stats[tool]["failed"] += 1
-                if log.output_result and (
-                    not log.output_result.strip()
-                    or "[tool_empty]" in log.output_result.lower()
-                ):
-                    stats[tool]["empty"] += 1
-
-            return stats
-
-        except Exception as e:
-            logger.debug(f"Tool failure stats extraction failed: {e}")
-            return {}
+def render_failure_patterns(patterns: List[Dict[str, Any]]) -> Optional[str]:
+    """The prompt block for an entity's failure patterns (PC-12); None for none."""
+    if not patterns:
+        return None
+    lines = [f"- {p['description']} {p['suggestion']}" for p in patterns]
+    return "## Lessons from this agent's recent failed runs\n" + "\n".join(lines)

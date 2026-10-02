@@ -60,7 +60,7 @@ def prompt_context_block(filtered_context: dict, context: dict) -> Optional[str]
     learned or whom the run is for (TL-09).
     """
     parts = (filtered_context.get("__context_sources__"), (context or {}).get("__memory__"),
-             (context or {}).get("__subjects__"))
+             (context or {}).get("__failure_patterns__"), (context or {}).get("__subjects__"))
     return "\n\n".join(str(p) for p in parts if p) or None
 
 

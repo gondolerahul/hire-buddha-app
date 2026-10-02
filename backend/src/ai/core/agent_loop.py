@@ -823,17 +823,10 @@ class AgentLoop:
             self.db, state, entity=self._entity, runtime_tree=tree, resumed=resumed,
         )
 
-        # The people, records and files the run may act on, as the refs its
-        # tools take (TL-09). The tools check every ref themselves; without the
-        # list the model only cannot name one.
-        try:
-            from src.ai.governance.subjects import subject_scope
-            scope = await subject_scope(self.db, self._run_id, state.company_id)
-            block = scope.render()
-            if block:
-                state.context_state["__subjects__"] = block
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not list the run's subjects: %s", exc)
+        # The run's subjects (TL-09) and the entity's failure patterns (PC-12),
+        # computed once and shown in every step prompt beside memory.
+        from src.ai.core.run_blocks import add_run_blocks
+        await add_run_blocks(self.db, state, self._run_id)
 
         self._snapshot_each_iteration = await self._flag_or_default(
             "agent_loop.snapshot_every_iteration", True, state,

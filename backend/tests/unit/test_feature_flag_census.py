@@ -24,8 +24,6 @@ KNOWN_UNREAD: dict[str, str] = {
     "memory.scope_policy_enforced": "register 08, deferred",
     "memory.embedding_resolver_v2": "register 08, deferred",
     "memory_v2.canonical": "register 08, deferred",
-    # TrustLearner has no production caller (PC-11): wire or delete in P7.
-    "memory.trust_score_learning": "PC-11, P7",
     # The seven-role Architecture Board has no production caller (MI-20);
     # these gate it and are decided with it in P10.
     "meta_agent.board_routing": "MI-20, P10",

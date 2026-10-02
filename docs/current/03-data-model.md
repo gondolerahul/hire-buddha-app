@@ -757,7 +757,9 @@ The v1 RAG chunk table was dropped by migration `mem1a2b3c4d5`. Chunks are
 `chunk` nodes in Knowledge Trees, embedded into `cortex_nodes.embedding` (which
 has an HNSW index).
 
-### 6.7 `source_trust_scores`
+### 6.7 `source_trust_scores` (dropped, P7.11)
+
+> **Update 2026-10-03 (P7.11, PC-11, D20).** The table, `orm/trust.py`, `memory/trust_learning.py` (`TrustLearner`) and the `memory.trust_score_learning` flag are deleted; migration `p7_drop_source_trust` drops the table (it never had a row). Nothing wrote or read it; wiring it would change memory retrieval, register 08, which the product owner deferred. What follows describes it before.
 
 Purpose: learned, per-tenant trust in a knowledge source. The static prior lives in the
 CORTEX package; this table records how that prior moved based on outcomes.

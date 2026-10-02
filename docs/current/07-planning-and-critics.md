@@ -1886,6 +1886,8 @@ to fail output that meets the step; the line heads the critic's intelligence rul
 
 ## 16. Trust scores
 
+> **Update 2026-10-03 (P7.11, PC-11, D20).** The table, `orm/trust.py`, `memory/trust_learning.py` (`TrustLearner`) and the `memory.trust_score_learning` flag are deleted; migration `p7_drop_source_trust` drops the table (it never had a row). Nothing wrote or read it; wiring it would change memory retrieval, register 08, which the product owner deferred. What follows describes it before.
+
 [`SourceTrustScore`](../../backend/src/ai/orm/trust.py:27) records a **learned,
 per-tenant trust value per knowledge source** — how often material from that
 source survived review and contributed to a successful run.
@@ -2059,7 +2061,7 @@ code default.
 | `critic_pipeline.different_model_critic` | `True` | `_build_real_critic_pipeline` → `enable_different_model` | Whether the post critic uses the ladder. |
 | `bandit.enabled` | `True` | `AgentLoop._build_bandit` | Construct a `PlanStyleBandit` at all. |
 | `planner.v2_enabled` | `True` | `PlannerService.reconcile` and `.adapt_plan` | Use `PlanGenerator` vs static/remaining fallback. |
-| `memory.trust_score_learning` | `False` | *nothing* | Intended gate for `TrustLearner`; unwired (PC-11, decided in P7). |
+| `memory.trust_score_learning` | — | — | Deleted with `TrustLearner` (P7.11, PC-11). |
 | `critic_pipeline.calibration_enabled` | `True` | `critic_calibration_job` | Off for a company → the weekly calibration skips it. |
 
 Deleted on 2026-10-01 because nothing read them (AK-10): `agent_loop.executor_dialog_enabled`,
@@ -2219,8 +2221,8 @@ them.
 * **`FailureTag.severity` orders the retry choice** (P7.3).
 * **`MetaReviewer`, `GoalGuard` and `AlignmentCritic` are deleted** (P7.8);
   `governance.goal_validation_interval` is the one goal setting.
-* **`TrustLearner` and `FailurePatternService` are unwired.** Table, migration,
-  maths and tests all exist; production call sites do not.
+* **`FailurePatternService` is wired; `TrustLearner` is deleted** (P7.11): the
+  entity's failure patterns reach every step prompt once per run.
 
 ---
 

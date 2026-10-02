@@ -24,6 +24,7 @@ Re-checked against the code on 2026-10-01. **No writer** means nothing in
 | `subtree_root_id` | the CORTEX `RECURSE` factory | `CortexService(scoped_subtree_root_id=...)` | Pins a RECURSE child's writes to a subtree |
 | `__memory__` | `run_memory.assemble_run_memory` | `step_executor.prompt_context_block` (sandwich layer 9) | Rendered memory block, assembled once per run |
 | `__subjects__` | `AgentLoop._compose` (`governance.subjects.subject_scope`) | `step_executor.prompt_context_block` (sandwich layer 9) | The run tree's contacts, leads and files as the refs its tools take (TL-09) |
+| `__failure_patterns__` | `AgentLoop._compose` (`core.run_blocks`, `FailurePatternService`) | `step_executor.prompt_context_block` (sandwich layer 9) | What went wrong in the entity's recent failed runs and how to avoid it (PC-12) |
 | `__episodic_memory__` | `memory.assembler` | `RunMemory.similar_runs` (Perceiver) | Past-episode dicts |
 | `__intelligence_rules__` | `run_memory.assemble_run_memory` | `RunMemory` (Perceiver, supervisor critic), `PlannerService` | Rule dicts (`title`, `rule`, `type`, `confidence`) |
 | `__cortex_viewport__` | `CortexBridge` | CORTEX step prompts | Rendered viewport text |
