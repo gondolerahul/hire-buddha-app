@@ -31,13 +31,13 @@ ACTIONS = [
                     "name": "Fetch Raw Data",
                     "description": "Execute terminal command to fetch data from the configured source",
                     "type": "TOOL_CALL",
-                    "target": {"tool_id": "terminal_tool", "prompt_template": "{{input}}"},
+                    "target": {"tool_id": "terminal", "prompt_template": "{{input}}"},
                     "required": True
                 }]},
                 "dynamic_planning": {"enabled": False}
             },
             "capabilities": {
-                "tools": [{"tool_id": "terminal_tool"}],
+                "tools": [{"tool_id": "terminal"}],
                 "memory": {"enabled": True, "mode": "CORTEX"},
                 "context_engineering": {"inject_cortex_viewport": True}
             },
@@ -73,12 +73,12 @@ ACTIONS = [
                     "name": "Clean and Transform Data",
                     "description": "Execute Python pandas script to clean and transform the raw data",
                     "type": "TOOL_CALL",
-                    "target": {"tool_id": "sandbox_executor", "prompt_template": "{{input}}"},
+                    "target": {"tool_id": "sandbox_code", "prompt_template": "{{input}}"},
                     "required": True
                 }]}
             },
             "capabilities": {
-                "tools": [{"tool_id": "sandbox_executor"}],
+                "tools": [{"tool_id": "sandbox_code"}],
                 "memory": {"enabled": True, "mode": "CORTEX"}
             },
             "governance": {"timeout_ms": 120000, "max_cost_usd": 0.15}
@@ -113,12 +113,12 @@ ACTIONS = [
                     "name": "Run Statistical Analysis",
                     "description": "Execute Python statistical analysis on the cleaned data",
                     "type": "TOOL_CALL",
-                    "target": {"tool_id": "sandbox_executor", "prompt_template": "{{input}}"},
+                    "target": {"tool_id": "sandbox_code", "prompt_template": "{{input}}"},
                     "required": True
                 }]}
             },
             "capabilities": {
-                "tools": [{"tool_id": "sandbox_executor"}],
+                "tools": [{"tool_id": "sandbox_code"}],
                 "memory": {"enabled": True, "mode": "CORTEX"}
             },
             "governance": {"timeout_ms": 120000, "max_cost_usd": 0.15}
@@ -153,12 +153,12 @@ ACTIONS = [
                     "name": "Detect Anomalies and Generate Forecasts",
                     "description": "Execute anomaly detection and forecasting Python code",
                     "type": "TOOL_CALL",
-                    "target": {"tool_id": "sandbox_executor", "prompt_template": "{{input}}"},
+                    "target": {"tool_id": "sandbox_code", "prompt_template": "{{input}}"},
                     "required": True
                 }]}
             },
             "capabilities": {
-                "tools": [{"tool_id": "sandbox_executor"}],
+                "tools": [{"tool_id": "sandbox_code"}],
                 "memory": {"enabled": True, "mode": "CORTEX"}
             },
             "governance": {"timeout_ms": 120000, "max_cost_usd": 0.15}
@@ -193,12 +193,12 @@ ACTIONS = [
                     "name": "Generate Business Charts",
                     "description": "Execute matplotlib/seaborn Python code to create charts",
                     "type": "TOOL_CALL",
-                    "target": {"tool_id": "sandbox_executor", "prompt_template": "{{input}}"},
+                    "target": {"tool_id": "sandbox_code", "prompt_template": "{{input}}"},
                     "required": True
                 }]}
             },
             "capabilities": {
-                "tools": [{"tool_id": "sandbox_executor"}],
+                "tools": [{"tool_id": "sandbox_code"}],
                 "memory": {"enabled": True, "mode": "CORTEX"}
             },
             "governance": {"timeout_ms": 120000, "max_cost_usd": 0.15}
@@ -391,12 +391,12 @@ ACTIONS = [
                     "name": "Validate Cross-Document Consistency",
                     "description": "Run Python consistency checks across all documents",
                     "type": "TOOL_CALL",
-                    "target": {"tool_id": "sandbox_executor", "prompt_template": "{{input}}"},
+                    "target": {"tool_id": "sandbox_code", "prompt_template": "{{input}}"},
                     "required": True
                 }]}
             },
             "capabilities": {
-                "tools": [{"tool_id": "sandbox_executor"}],
+                "tools": [{"tool_id": "sandbox_code"}],
                 "memory": {"enabled": True, "mode": "CORTEX"}
             },
             "governance": {"timeout_ms": 60000, "max_cost_usd": 0.10}
@@ -431,12 +431,12 @@ ACTIONS = [
                     "name": "Archive Report Files",
                     "description": "Organize and archive all report artifacts with manifest",
                     "type": "TOOL_CALL",
-                    "target": {"tool_id": "terminal_tool", "prompt_template": "{{input}}"},
+                    "target": {"tool_id": "terminal", "prompt_template": "{{input}}"},
                     "required": True
                 }]}
             },
             "capabilities": {
-                "tools": [{"tool_id": "terminal_tool"}],
+                "tools": [{"tool_id": "terminal"}],
                 "memory": {"enabled": True, "mode": "CORTEX"}
             },
             "governance": {"timeout_ms": 30000, "max_cost_usd": 0.05}

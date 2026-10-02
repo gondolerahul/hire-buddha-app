@@ -326,6 +326,8 @@ The subpackage already *is* the category. Derive it and delete the map.
 
 ### TX-I9 — A contract test over every registered tool
 
+**Status: done (2026-10-02, P6.10)** — `tests/unit/test_tool_registry_contract.py`: every schema is a well-formed object schema (typed, arrays with items); typed tools' schemas are their `Params`; every parameter an unconverted tool advertises is read by its code — it found 8 drifts, 6 of them known (TL-60, TL-68, TL-47, TL-43 twice, plus two on platforms D17 deletes) and **2 new** (`linkedin_get_analytics.time_range`, `linkedin_sales_search_leads.company_size`), listed with the item that removes each; every tool a seed or fixture grants is registered.
+
 **Effect: large for confidence.** Three separate defects —
 [TL-43](TOOL-LAYER-DEFECTS.md#tl-43--youtube_upload_video-never-uploads-the-video),
 [TL-46](TOOL-LAYER-DEFECTS.md#tl-46--video_generate-ignores-is_audio_required-and-reports-it-back)

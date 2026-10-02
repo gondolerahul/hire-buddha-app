@@ -309,7 +309,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-34** | — | Built-in tool metadata drifts from code forever | Medium | ✅ | P6 |
 | **TL-35** | TX-I8 | `_BUILTIN_CATEGORIES` covers 22 of 97 tools | Low | ✅ | P6 |
 | **TX-I9** | — | No contract test over the registry (advertised vs read parameters) | — | open | P6 |
-| **TL-68** | — | `calculator` advertises `expression` but parses the whole input string; every native call fails (found in the P3 live run) | High | 🆕 | P6 |
+| **TL-68** | — | `calculator` advertises `expression` but parses the whole input string; every native call fails (found in the P3 live run) | High | ✔ | P6 (6.10) |
 | **TL-63** | — | `pdf_generator` defines `get_function_schema` twice | Low | ✅ | P0 |
 | **TL-29** | — | `_sandbox_base_dir` duplicated across two modules | Low | 🔁 | P0 |
 | **TX-05** | — | `register_tenant_tool` logs at INFO per registration | Low | ✅ | P0 |

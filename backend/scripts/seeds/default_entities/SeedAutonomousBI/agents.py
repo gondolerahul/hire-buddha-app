@@ -71,7 +71,7 @@ AGENTS = [
                 "dynamic_planning": {"enabled": False}
             },
             "capabilities": {
-                "tools": [{"tool_id": "terminal_tool"}, {"tool_id": "sandbox_executor"}],
+                "tools": [{"tool_id": "terminal"}, {"tool_id": "sandbox_code"}],
                 "memory": {"enabled": True, "mode": "CORTEX", "memory_scope": "INTELLIGENCE_ONLY", "cortex_config": {"max_children": 12, "auto_checkpoint": True, "context_budget_pct": 40, "resume_enabled": True}},
                 "context_engineering": {"inject_cortex_viewport": True, "inject_episodic_memory": False, "inject_semantic_context": True, "no_truncation": True}
             },
@@ -214,7 +214,7 @@ AGENTS = [
                 "dynamic_planning": {"enabled": False}
             },
             "capabilities": {
-                "tools": [{"tool_id": "sandbox_executor"}, {"tool_id": "terminal_tool"}],
+                "tools": [{"tool_id": "sandbox_code"}, {"tool_id": "terminal"}],
                 "memory": {"enabled": True, "mode": "CORTEX", "memory_scope": "INTELLIGENCE_ONLY", "cortex_config": {"auto_checkpoint": True}},
                 "context_engineering": {"inject_cortex_viewport": True, "inject_episodic_memory": False, "no_truncation": True}
             },

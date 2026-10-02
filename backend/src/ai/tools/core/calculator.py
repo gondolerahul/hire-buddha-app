@@ -7,8 +7,22 @@ and operator modules instead of unsafe eval().
 
 import ast
 import operator
-from typing import Dict, Any
-from src.ai.tools.base import Tool
+from typing import Any, Dict
+
+from pydantic import Field, field_validator
+
+from src.ai.tools.base import Tool, ToolOutput, ToolParams
+
+
+class CalculatorParams(ToolParams):
+    expression: str = Field(..., description="Mathematical expression to evaluate (e.g., '2 + 2', '(10 * 5) / 2')")
+
+    @field_validator("expression")
+    @classmethod
+    def _not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("an empty expression")
+        return v.strip()
 
 
 class CalculatorTool(Tool):
@@ -30,9 +44,13 @@ class CalculatorTool(Tool):
     name = "calculator"
     description = (
         "Performs mathematical calculations safely. "
-        "Input should be a mathematical expression like '2 + 2' or '(10 * 5) / 2'. "
         "Supports: +, -, *, /, //, %, ** (power), and parentheses."
     )
+    Params = CalculatorParams
+    # A plan step's text is the expression. A model's call gives
+    # {"expression": ...}; before P6.10 the tool parsed that whole JSON object
+    # as the expression and every model call failed (TL-68).
+    string_field = "expression"
 
     # Allowed operators for safe evaluation
     _operators = {
@@ -94,52 +112,17 @@ class CalculatorTool(Tool):
         else:
             raise ValueError(f"Unsupported expression type: {type(node).__name__}")
 
-    async def run(self, input_data: str) -> str:
-        """Evaluate a mathematical expression safely.
-        
-        Args:
-            input_data: Mathematical expression string
-            
-        Returns:
-            String representation of the result
-        """
+    async def execute(self, params: "CalculatorParams", ctx: Dict[str, Any]) -> ToolOutput:
+        """Evaluate ``params.expression`` (it is parsed, never ``eval``-ed)."""
         try:
-            # Clean input
-            expression = input_data.strip()
-            if not expression:
-                return "Error: Empty expression"
-            
-            # Parse expression into AST
-            tree = ast.parse(expression, mode='eval')
-            
-            # Evaluate safely
-            result = self._safe_eval(tree)
-            
-            # Format result (remove trailing zeros for floats)
-            if isinstance(result, float) and result.is_integer():
-                return str(int(result))
-            return str(result)
-            
+            result = self._safe_eval(ast.parse(params.expression, mode="eval"))
         except SyntaxError as e:
-            return f"Error: Invalid expression syntax - {str(e)}"
+            return ToolOutput.failed(f"Invalid expression syntax - {e}", code="invalid_expression")
         except ValueError as e:
-            return f"Error: {str(e)}"
-        except Exception as e:
-            return f"Error calculating: {str(e)}"
-
-    def get_function_schema(self) -> Dict[str, Any]:
-        """Return JSON schema for function calling."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "Mathematical expression to evaluate (e.g., '2 + 2', '(10 * 5) / 2')"
-                    }
-                },
-                "required": ["expression"]
-            }
-        }
+            return ToolOutput.failed(str(e), code="invalid_expression")
+        except Exception as e:  # noqa: BLE001 - overflow and the like
+            return ToolOutput.failed(f"calculating: {e}")
+        # 4.0 -> "4"
+        if isinstance(result, float) and result.is_integer():
+            return ToolOutput(output=str(int(result)))
+        return ToolOutput(output=str(result))

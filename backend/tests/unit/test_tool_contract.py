@@ -24,7 +24,7 @@ CTX = {"company_id": "c-1", "run_id": "r-1"}
 # Tools still on the adapter (D16). This list may only shrink: a new tool
 # declares ``Params``; converting one removes it from here.
 UNCONVERTED = {
-    "agent_introspect", "agent_reflect", "batch_web_search", "calculator", "crm_update_lead",
+    "agent_introspect", "agent_reflect", "batch_web_search", "crm_update_lead",
     "document_save", "docx_tool", "email_classify", "email_draft", "email_ingest", "email_send",
     "excel_tool", "file_writer", "get_current_datetime", "google_calendar_create_event",
     "headless_browser", "image_generation", "meta_entity_creator", "meta_entity_executor",

@@ -445,7 +445,7 @@ sandbox image, and make `headless_browser` say so when it is absent.
 
 ### TL-67 — Seeds and fixtures name tools that don't exist
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.10)** — the deep-research and autonomous-BI seeds and the fixture name `scraper_tool`, `batch_web_search`, `docx_tool`, `sandbox_code`, `terminal`; migration `p6_tool_names` renamed the same ids in existing entities (259 locally); the contract test fails on a seed or fixture granting an unregistered tool.
 
 The deep-research seed and the test fixture grant `scraper`, `batch_search` and
 `docx_generator` ([create_v2.py:334](../../../backend/scripts/seeds/deep_research/DeepResearchSetup/create_v2.py:334),
@@ -463,8 +463,7 @@ not catch it because the capability list contains the same wrong name.)
 
 ### TL-68 — `calculator` cannot be called by a model: its schema and its parser disagree
 
-**✅ Verified · High** · **Status: open** — found 2026-10-01 during the P3 live run of the
-[consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md); fixed in P6 with the registry contract test.
+**✅ Verified · High** · **Status: ✅ fixed 2026-10-02 (P6.10)** — `calculator` is a typed tool: `Params.expression`, and a plan step's text fills it; `{"expression": "17*23"}` answers `391`. `tests/unit/test_tool_registry_contract.py`. Found 2026-10-01 during the P3 live run (run `ad8e1313…`).
 
 `calculator` advertises `{"expression": "<string>"}`
 ([calculator.py:130](../../../backend/src/ai/tools/core/calculator.py:130)), but its `run()`

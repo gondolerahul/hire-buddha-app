@@ -26,7 +26,7 @@ SKILLS = [
                 ]},
                 "dynamic_planning": {"enabled": False}
             },
-            "capabilities": {"tools": [{"tool_id": "terminal_tool"}, {"tool_id": "sandbox_executor"}], "memory": {"enabled": True, "mode": "CORTEX"}},
+            "capabilities": {"tools": [{"tool_id": "terminal"}, {"tool_id": "sandbox_code"}], "memory": {"enabled": True, "mode": "CORTEX"}},
             "governance": {"timeout_ms": 300000, "max_cost_usd": 0.50}
         }
     },
@@ -55,7 +55,7 @@ SKILLS = [
                 ]},
                 "dynamic_planning": {"enabled": False}
             },
-            "capabilities": {"tools": [{"tool_id": "sandbox_executor"}], "memory": {"enabled": True, "mode": "CORTEX"}},
+            "capabilities": {"tools": [{"tool_id": "sandbox_code"}], "memory": {"enabled": True, "mode": "CORTEX"}},
             "governance": {"timeout_ms": 300000, "max_cost_usd": 0.60}
         }
     },
@@ -82,7 +82,7 @@ SKILLS = [
                     {"step_id": "step_1", "order": 1, "name": "Generate All Charts", "description": "Create the full suite of business visualizations", "type": "CHILD_ENTITY_INVOCATION", "target": {"entity_id": "__PLACEHOLDER_gen_charts__", "prompt_template": "Generate business intelligence charts from this data:\n\n{{input}}"}, "required": True}
                 ]}
             },
-            "capabilities": {"tools": [{"tool_id": "sandbox_executor"}], "memory": {"enabled": True, "mode": "CORTEX"}},
+            "capabilities": {"tools": [{"tool_id": "sandbox_code"}], "memory": {"enabled": True, "mode": "CORTEX"}},
             "governance": {"timeout_ms": 180000, "max_cost_usd": 0.30}
         }
     },
@@ -190,7 +190,7 @@ SKILLS = [
                     {"step_id": "step_2", "order": 2, "name": "Archive Outputs", "description": "Organize and archive all report artifacts", "type": "CHILD_ENTITY_INVOCATION", "target": {"entity_id": "__PLACEHOLDER_archive__", "prompt_template": "Archive these report outputs. QA result:\n\n{{step_1}}\n\nDocuments:\n\n{{input}}", "input_dependencies": ["step_1"]}, "required": True}
                 ]}
             },
-            "capabilities": {"tools": [{"tool_id": "sandbox_executor"}, {"tool_id": "terminal_tool"}], "memory": {"enabled": True, "mode": "CORTEX"}},
+            "capabilities": {"tools": [{"tool_id": "sandbox_code"}, {"tool_id": "terminal"}], "memory": {"enabled": True, "mode": "CORTEX"}},
             "governance": {"timeout_ms": 120000, "max_cost_usd": 0.20}
         }
     },

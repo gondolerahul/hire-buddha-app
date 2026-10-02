@@ -131,7 +131,7 @@ Given a research topic and specific queries, you conduct exhaustive multi-source
 ### Data Collection Process
 1. Use `web_search` for each query dimension — aim for 8-12 distinct searches
 2. Use `batch_web_search` when you have 3+ related queries to run simultaneously
-3. Use `scraper` to extract full content from the 5-8 most promising URLs
+3. Use `scraper_tool` to extract full content from the 5-8 most promising URLs
 4. For each source, extract: key claims, supporting data points, publication date, author credibility
 
 ### Output Format
@@ -270,7 +270,7 @@ For each major theme:
 ## Output Requirements
 You must produce THREE outputs:
 1. **Markdown**: Complete report in clean markdown (this goes in the main output)
-2. **DOCX**: Use the docx_generator tool to create a formatted Word document
+2. **DOCX**: Use the docx_tool tool to create a formatted Word document
 3. **PDF**: Use the pdf_generator tool to create a PDF version
 
 For the DOCX/PDF, pass the COMPLETE markdown content as the input."""
@@ -331,7 +331,7 @@ def build_entities():
             "tools": [
                 {"tool_id": "web_search"},
                 {"tool_id": "batch_web_search"},
-                {"tool_id": "scraper"},
+                {"tool_id": "scraper_tool"},
             ],
             "memory": {
                 "enabled": True,
@@ -460,7 +460,7 @@ def build_entities():
                         "description": "Convert the markdown report to a formatted Word document.",
                         "type": "TOOL_CALL",
                         "target": {
-                            "tool_id": "docx_generator",
+                            "tool_id": "docx_tool",
                             "prompt_template": "{{step_1}}",
                             "input_dependencies": ["step_1"],
                         },
@@ -482,7 +482,7 @@ def build_entities():
         },
         "capabilities": {
             "tools": [
-                {"tool_id": "docx_generator"},
+                {"tool_id": "docx_tool"},
                 {"tool_id": "pdf_generator"},
             ],
             "memory": {

@@ -199,12 +199,8 @@ class Tool(ABC):
     def get_function_schema(self) -> Dict[str, Any]:
         """The function declaration the model is shown: from ``Params`` when typed."""
         if self.Params is not None:
-            schema = self.Params.model_json_schema()
-            schema.pop("title", None)
+            schema = _plain_schema(self.Params.model_json_schema())
             schema.setdefault("properties", {})
-            for prop in schema["properties"].values():
-                if isinstance(prop, dict):
-                    prop.pop("title", None)
             return {"name": self.name, "description": self.description, "parameters": schema}
         return {
             "name": self.name,
@@ -215,6 +211,36 @@ class Tool(ABC):
                 "required": ["input"],
             },
         }
+
+
+def _plain_schema(schema: Dict[str, Any], defs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """A Pydantic JSON schema in the subset every provider reads.
+
+    ``Optional[X]`` (``anyOf: [X, null]``) becomes ``X``, ``$ref``s are inlined
+    and titles dropped: the Gemini adapter rebuilds each property from its
+    ``type``, and an ``anyOf`` with no ``type`` would be advertised as a string.
+    """
+    defs = schema.get("$defs", {}) if defs is None else defs
+    if "$ref" in schema:
+        target = defs.get(schema["$ref"].rsplit("/", 1)[-1], {})
+        schema = {**target, **{k: v for k, v in schema.items() if k != "$ref"}}
+    if "anyOf" in schema:
+        variants = [v for v in schema["anyOf"] if v.get("type") != "null"]
+        if len(variants) == 1:
+            schema = {**{k: v for k, v in schema.items() if k != "anyOf"}, **variants[0]}
+    out: Dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in ("title", "$defs"):
+            continue
+        if key == "properties" and isinstance(value, dict):
+            out[key] = {name: _plain_schema(prop, defs) for name, prop in value.items()}
+        elif key == "items" and isinstance(value, dict):
+            out[key] = _plain_schema(value, defs)
+        elif key == "anyOf" and isinstance(value, list):
+            out[key] = [_plain_schema(v, defs) for v in value]
+        else:
+            out[key] = value
+    return out
 
 
 def _legacy_input(args: Any) -> str:

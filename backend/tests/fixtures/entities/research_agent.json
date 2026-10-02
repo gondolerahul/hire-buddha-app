@@ -55,8 +55,8 @@
   "capabilities": {
     "tools": [
       {"tool_id": "web_search"},
-      {"tool_id": "scraper"},
-      {"tool_id": "batch_search"},
+      {"tool_id": "scraper_tool"},
+      {"tool_id": "batch_web_search"},
       {"tool_id": "calculator"},
       {"tool_id": "document_save"}
     ],
