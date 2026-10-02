@@ -329,6 +329,14 @@ head's assets — then moves `active_version_id` (without touching `updated_at`)
   rows without `update_entity`); a run given a version (a draft's test run) keeps it;
 - in `AIService.create_entity` and `update_entity`, so an edit is a version even before a run.
 
+**Assets** ([governance/entity_assets.py](../../backend/src/ai/governance/entity_assets.py))
+are UTF-8 text without NUL, at most 512 KiB each, 500 files and 8 MiB a version. A path is
+relative POSIX, at most 12 levels and 255 characters, each part letters, digits, `_`, `-`
+and `.` and never starting with `.` (no `..`, no hidden files). They are put and deleted
+on **drafts** only (a published version raises `VersionConflict`, 409); each change re-hashes
+the draft inside a savepoint, and a change that would make the draft identical to another
+version is refused and undone. The API process stores bodies and never runs them.
+
 An edit therefore takes effect for new runs; a run in flight keeps its version (D12). An edit
 back to earlier content reuses the earlier version. The migration `p5_entity_versions` gave
 every existing entity a published version 1 with the same hash the application computes.
