@@ -36,7 +36,7 @@ def _state(entity_type=EntityType.SKILL, plan_steps=None, completed=None,
 @pytest.mark.asyncio
 async def test_picks_singlestep_when_one_ready_step() -> None:
     s = _state(plan_steps=[{"step_id": "s1", "type": "TOOL_CALL"}])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "SingleStep"
     assert move.plan_fragment and move.plan_fragment[0]["step_id"] == "s1"
 
@@ -47,7 +47,7 @@ async def test_picks_dag_when_multiple_ready_steps() -> None:
         {"step_id": "s1", "type": "ACTION"},
         {"step_id": "s2", "type": "ACTION"},
     ])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "DAG"
     assert len(move.plan_fragment) == 2
 
@@ -58,7 +58,7 @@ async def test_dag_disabled_falls_back_to_singlestep() -> None:
         {"step_id": "s1", "type": "ACTION"},
         {"step_id": "s2", "type": "ACTION"},
     ])
-    move = await Strategist(allow_parallel_dag=False).next_move(s, perception=None)
+    move = await Strategist(allow_parallel_dag=False).next_move(s)
     assert move.executor == "SingleStep"
 
 
@@ -70,7 +70,7 @@ def _child(sid: str) -> dict:
 async def test_ready_children_are_dispatched_together_up_to_the_cap() -> None:
     """AK-07: governance.max_concurrent_children bounds one move's batch."""
     s = _state(plan_steps=[_child("c1"), _child("c2"), _child("c3")])
-    move = await Strategist(max_concurrent_children=2).next_move(s, perception=None)
+    move = await Strategist(max_concurrent_children=2).next_move(s)
     assert move.executor == "ChildEntity"
     assert [st["step_id"] for st in move.plan_fragment] == ["c1", "c2"]
 
@@ -79,13 +79,13 @@ async def test_ready_children_are_dispatched_together_up_to_the_cap() -> None:
 async def test_a_child_step_is_never_batched_with_other_steps() -> None:
     """A DAG batch holding a child step failed it: the step engine cannot run one."""
     s = _state(plan_steps=[{"step_id": "a1", "type": "ACTION"}, _child("c1")])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "SingleStep"
     assert [st["step_id"] for st in move.plan_fragment] == ["a1"]
 
     s = _state(plan_steps=[{"step_id": "a1", "type": "ACTION"}, {"step_id": "a2", "type": "ACTION"},
                            _child("c1")])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "DAG"
     assert [st["step_id"] for st in move.plan_fragment] == ["a1", "a2"]
 
@@ -96,7 +96,7 @@ async def test_child_entity_invocation_takes_precedence() -> None:
         {"step_id": "s1", "type": "CHILD_ENTITY_INVOCATION"},
         {"step_id": "s2", "type": "ACTION"},
     ])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "ChildEntity"
 
 
@@ -105,7 +105,7 @@ async def test_child_entity_invocation_takes_precedence() -> None:
 async def test_a_planless_entity_at_any_level_is_planned(entity_type) -> None:
     """R1: no plan → Recursive (plan the goal) at every level, not only AGENT."""
     s = _state(entity_type=entity_type)
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "Recursive"
 
 
@@ -136,7 +136,7 @@ def test_a_failed_step_with_a_plan_does_not_abort() -> None:
 async def test_a_plan_with_nothing_unblocked_progresses_sequentially() -> None:
     s = _state(plan_steps=[{"step_id": "s2", "type": "ACTION", "depends_on": ["s9"]}])
     s.plan_has_unblocked_steps = lambda: False          # type: ignore[method-assign]
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "SingleStep" and move.plan_fragment is None
 
 
@@ -149,7 +149,7 @@ async def test_a_plan_with_nothing_unblocked_progresses_sequentially() -> None:
 async def test_default_step_never_picks_debate() -> None:
     """Conservative by construction: an ordinary ready step is never debated."""
     s = _state(plan_steps=[{"step_id": "s1", "type": "TOOL_CALL"}])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "SingleStep"
     assert move.reasoning_hint != "DEBATE"
 
@@ -157,7 +157,7 @@ async def test_default_step_never_picks_debate() -> None:
 @pytest.mark.asyncio
 async def test_explicit_debate_hint_selects_debate() -> None:
     s = _state(plan_steps=[{"step_id": "s1", "type": "THOUGHT", "reasoning_hint": "DEBATE"}])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "Debate"
     assert move.reasoning_hint == "DEBATE"
     assert move.plan_fragment[0]["step_id"] == "s1"
@@ -167,14 +167,14 @@ async def test_explicit_debate_hint_selects_debate() -> None:
 async def test_legacy_tot_step_mode_escalates_to_debate() -> None:
     """A pre-D-3 plan carrying a per-step TREE_OF_THOUGHTS mode → Debate."""
     s = _state(plan_steps=[{"step_id": "s1", "type": "THOUGHT", "reasoning_mode": "TREE_OF_THOUGHTS"}])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "Debate"
 
 
 @pytest.mark.asyncio
 async def test_governance_high_stakes_flag_selects_debate() -> None:
     s = _state(plan_steps=[{"step_id": "s1", "type": "ACTION", "governance": {"high_stakes": True}}])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "Debate"
 
 
@@ -185,7 +185,7 @@ async def test_debate_dominates_parallel_dag() -> None:
         {"step_id": "s1", "type": "THOUGHT", "high_stakes": True},
         {"step_id": "s2", "type": "ACTION"},
     ])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "Debate"
     assert len(move.plan_fragment) == 1
 
@@ -194,7 +194,7 @@ async def test_debate_dominates_parallel_dag() -> None:
 async def test_singlestep_carries_per_step_reasoning_hint() -> None:
     """F-16: a non-debate hint rides along on the SingleStep move."""
     s = _state(plan_steps=[{"step_id": "s1", "type": "THOUGHT", "reasoning_hint": "chain_of_thought"}])
-    move = await Strategist().next_move(s, perception=None)
+    move = await Strategist().next_move(s)
     assert move.executor == "SingleStep"
     assert move.reasoning_hint == "CHAIN_OF_THOUGHT"
 
@@ -211,7 +211,7 @@ async def test_strategist_only_picks_registered_executors() -> None:
             [{"step_id": "s1", "type": "CHILD_ENTITY_INVOCATION"}],
         ):
             s = _state(entity_type=et, plan_steps=plan)
-            move = await Strategist().next_move(s, perception=None)
+            move = await Strategist().next_move(s)
             assert move.executor in registered_executor_names(), (
                 f"strategist picked an unregistered executor for entity_type={et} plan={plan}"
             )

@@ -136,7 +136,8 @@ class SupervisorCritic:
             )
 
         try:
-            prompt = self._build_prompt(state)
+            rules = await self.intel.top_rules(limit=3) if self.intel is not None else []
+            prompt = self._build_prompt(state, rules)
             response = await self.llm.call_llm(
                 task_type="text_generation",
                 system_prompt=_SYSTEM_PROMPT,
@@ -183,7 +184,7 @@ class SupervisorCritic:
                 return False
         return True
 
-    def _build_prompt(self, state: AgentState) -> str:
+    def _build_prompt(self, state: AgentState, rules: Optional[list[Any]] = None) -> str:
         lines: list[str] = []
         b = state.budget
         lines.append(f"## Iteration: {state.iteration} / {b.iters_max}")
@@ -221,7 +222,7 @@ class SupervisorCritic:
                     f"post={getattr(h, 'post_critic_verdict', '-')} "
                     f"tags=[{tags}]"
                 )
-        rules_block = self._render_rules(state)
+        rules_block = self._render_rules(rules or [])
         if rules_block:
             lines.append("## Intelligence rules (top 3):")
             lines.append(rules_block)
@@ -236,9 +237,9 @@ class SupervisorCritic:
         return "\n".join(lines)
 
     @staticmethod
-    def _render_rules(state: AgentState) -> str:
-        perception = getattr(state, "perception", None)
-        rules = getattr(perception, "intelligence_rules", None) if perception else None
+    def _render_rules(rules: list[Any]) -> str:
+        """The run's top intelligence rules, from its memory (before AK-05 they
+        came through the Perceiver, rebuilt every iteration)."""
         if not rules:
             return ""
         out: list[str] = []

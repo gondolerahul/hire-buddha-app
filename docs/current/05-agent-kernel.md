@@ -368,7 +368,7 @@ is built locally in `_iteration` and handed to the `Reflector`
 | `last_action` | `Action?` | `_iteration` step 4 | Perceiver summary | yes |
 | `last_observation` | `Observation?` | `apply_observation` | Perceiver, `_final_output`, replan | yes |
 | `reflections` | `list[Reflection]` | `_iteration` step 7 | Perceiver (last 3) | yes, last 20 |
-| `cortex_cursor` | `UUID?` | *nothing in the loop* | `Perceiver._gather_viewport` | yes |
+| `cortex_cursor` | — | — | Deleted with the Perceiver (P8.10) | — |
 | `cortex_tree_id` | `UUID?` | *nothing in the loop* | legacy readers | yes |
 | `cortex_working_root_id` | `UUID?` | `_setup_cortex` | `_snapshot`, critic record persist | yes |
 | `chosen_executor` | `ExecutorName?` | `_iteration` step 2 | Reflector text | yes |
@@ -389,7 +389,7 @@ is built locally in `_iteration` and handed to the `Reflector`
 | `retry_queue` | `list[dict]` | retry pick | drained at top of next iteration | yes |
 | `task_class` | `str` | `_classify_task` | bandit, SupervisorCritic | yes |
 | `bandit_pulls` | `list[dict]` | the loop, after the post critic (arm, iteration, success, cost; P7.10) | `_finalize_bandit` | yes |
-| `perception` | `Perception?` | `_iteration` step 1 | *nothing* | **no** |
+| `perception` | — | — | Deleted (P8.10, AK-05) | — |
 
 ### Helper methods worth knowing
 
@@ -604,7 +604,9 @@ attribute access, that is why.
 **What can go wrong:** the DB lookup itself throws → swallowed, returns `False`,
 run continues. Cancellation is best-effort by design.
 
-### Phase 1 — Perceive
+### Phase 1 — Perceive (deleted, P8.10)
+
+> **Update 2026-10-03 (P8.10, AK-05, D23).** The Perceiver is deleted, with `Perception`, `state.perception`, `state.cortex_cursor` and the Strategist's unused `perception` argument (`next_move(state)`). Its one live consumer was the supervisor critic's rules block: the supervisor now reads `RunMemory.top_rules` like the post critic, and the rule-lifecycle filter the Perceiver applied (retired rules out; confirmed-only under `memory.rule_lifecycle_confirmed_only`) is applied once where `RunMemory` is built. What follows describes it before.
 
 ```python
 perception = await self.perceiver.gather(state)
@@ -804,7 +806,9 @@ if state.budget.exhausted():
 
 ---
 
-## 6. The Perceiver
+## 6. The Perceiver (deleted, P8.10)
+
+> **Update 2026-10-03 (P8.10, AK-05, D23).** The Perceiver is deleted, with `Perception`, `state.perception`, `state.cortex_cursor` and the Strategist's unused `perception` argument (`next_move(state)`). Its one live consumer was the supervisor critic's rules block: the supervisor now reads `RunMemory.top_rules` like the post critic, and the rule-lifecycle filter the Perceiver applied (retired rules out; confirmed-only under `memory.rule_lifecycle_confirmed_only`) is applied once where `RunMemory` is built. What follows describes it before.
 
 [perceiver.py](../../backend/src/ai/core/perceiver.py). Its contract: *the only
 place that reads CORTEX / memory / HITL on behalf of the loop*. It is stateless
@@ -1681,7 +1685,7 @@ through to env + defaults, so deploy order does not matter.
 | `memory.dreaming_outcome_trigger` | `True` | **Live.** `_enqueue_dreaming_trigger` fires `dreaming_outcome_trigger` after every run with reason `success` or `failure`. |
 | `memory.embedding_resolver_v2` | `True` | Embedding resolution. |
 | `memory.trust_score_learning` | `False` | Learned per-source trust scores. |
-| `memory.rule_lifecycle_confirmed_only` | `False` | **Live in the Perceiver.** ON → only `confirmed` Intelligence rules reach prompts. |
+| `memory.rule_lifecycle_confirmed_only` | `False` | Read where `RunMemory` is built (P8.10). ON → only `confirmed` Intelligence rules reach the critics. |
 | `memory_v2.canonical` | `True` | Legacy alias for pre-Track-6 code. |
 
 Deleted on 2026-10-01 because nothing read them (AK-10):
@@ -1993,10 +1997,8 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
   supporting service. Neither file exists. The flag does not exist either.
   Trust `agent_loop.py`'s own module docstring, which says the plan-walker
   "has been deleted (C4); there is no longer an engine switch".
-- **`Perception` is currently write-only.** `state.perception` is assigned every
-  iteration and read by nothing. The deterministic `Strategist.next_move`
-  accepts `perception` and ignores it. `Perception.to_prompt_block()` has no
-  production caller.
+- **The Perceiver is deleted** (P8.10, D23): its rules and similar runs duplicated the
+  memory read path, nothing set its cursor, and the Strategist ignored it.
 - **The Perceiver's richest fields are always empty in production.** The loop
   passes `memory_assembler=None`, and nothing ever sets `state.cortex_cursor`,
   so `viewport_text`, `intelligence_rules` and `similar_past_runs` are `""` /

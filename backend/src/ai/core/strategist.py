@@ -3,7 +3,7 @@ ai.core.strategist — Deterministic move/decision selector (Track 2).
 
 The strategist owns two questions:
 
-  * "What should I do next?"   → ``next_move(state, perception) -> Move``
+  * "What should I do next?"   → ``next_move(state) -> Move``
   * "Should I keep going?"     → ``decide_next(state, super_verdict) -> Decision``
 
 Track 2 ships a *deterministic* strategist driven entirely by entity
@@ -94,7 +94,7 @@ class Strategist:
     # Pick the next move
     # ------------------------------------------------------------------
 
-    async def next_move(self, state: AgentState, perception: Any) -> Move:  # noqa: ARG002
+    async def next_move(self, state: AgentState) -> Move:
         # Case A: a static plan exists and has ready steps.
         if state.has_plan() and state.plan_has_unblocked_steps():
             ready = state.plan_ready_steps()

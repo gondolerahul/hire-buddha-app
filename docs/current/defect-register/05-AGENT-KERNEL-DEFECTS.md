@@ -200,7 +200,7 @@ actions.
 
 ### AK-05 — `Perception` is written every iteration and read by nothing
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P8.10, D23)** — deleted, with `state.perception`, `cortex_cursor` and the Strategist's unused argument. *Correction:* the supervisor critic did read `perception.intelligence_rules`; it now reads the run's memory (`RunMemory.top_rules`), where the Perceiver's rule-lifecycle filter is now applied. `tests/unit/test_memory_read_path.py`.
 
 `state.perception = perception` is assigned at `agent_loop.py:422`. Grepping the whole
 kernel for any other read returns only the module docstring telling new code to use it.

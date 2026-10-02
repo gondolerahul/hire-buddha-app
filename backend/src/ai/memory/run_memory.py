@@ -6,7 +6,7 @@ ai.memory.run_memory — the AgentLoop's CORTEX + memory wiring for one run.
     into.
   * :func:`assemble_run_memory` — the memory read path: assemble what past runs
     learned once per run, publish it into ``context_state`` for the step prompt
-    and planner, and return a :class:`RunMemory` reader for the Perceiver and
+    and planner, and return a :class:`RunMemory` reader for the
     critic pipeline.
   * :func:`record_episode` — the write side of episodic memory: the finished
     run becomes an episode, which the next run retrieves and Dreaming distils.
@@ -81,13 +81,17 @@ def memory_scope_for(entity: Any) -> Optional[str]:
 class RunMemory:
     """Memory assembled once at the start of a run, read every iteration.
 
-    Handed to the Perceiver (and the critic pipeline) so each iteration sees
+    Handed to the critics (post critic and supervisor) so each iteration sees
     the same rules and past runs without re-running the four-domain assembly —
-    an embedding call plus vector scans — per iteration.
+    an embedding call plus vector scans — per iteration. Retired rules are
+    dropped here, and with ``confirmed_only`` all but confirmed ones (`06` §5) —
+    the filter the deleted Perceiver applied (AK-05).
     """
 
-    def __init__(self, context: Dict[str, Any]) -> None:
-        self._rules: List[Dict[str, Any]] = list(context.get("__intelligence_rules__") or [])
+    def __init__(self, context: Dict[str, Any], *, confirmed_only: bool = False) -> None:
+        from src.ai.memory.rule_lifecycle import filter_for_prompt
+        rules = [r for r in (context.get("__intelligence_rules__") or []) if isinstance(r, dict)]
+        self._rules: List[Dict[str, Any]] = filter_for_prompt(rules, confirmed_only=confirmed_only)
         self._episodes: List[Dict[str, Any]] = list(context.get("__episodic_memory__") or [])
 
     async def intelligence_rules(self, entity_id: Any = None, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -129,8 +133,9 @@ async def assemble_run_memory(
     scope = memory_scope_for(entity)
     if scope is None or state.entity_id is None:
         return None
+    confirmed_only = await _confirmed_only(state)
     if resumed:
-        return RunMemory(state.context_state)
+        return RunMemory(state.context_state, confirmed_only=confirmed_only)
 
     query = state.context_state.get("input")
     if not isinstance(query, str) or not query.strip():
@@ -159,7 +164,17 @@ async def assemble_run_memory(
         episodes=len(memory_ctx.get("__episodic_memory__") or []),
         block_chars=len(memory_ctx.get("__memory__") or ""),
     )
-    return RunMemory(state.context_state)
+    return RunMemory(state.context_state, confirmed_only=confirmed_only)
+
+
+async def _confirmed_only(state: Any) -> bool:
+    """Whether only confirmed rules reach the critics (`06` §5)."""
+    try:
+        from src.ai.core.feature_flags import FeatureFlags
+        return await FeatureFlags().is_on("memory.rule_lifecycle_confirmed_only",
+                                          company_id=getattr(state, "company_id", None))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def record_episode(db: AsyncSession, run_id: UUID, *, runtime_tree_id: Optional[UUID] = None) -> None:

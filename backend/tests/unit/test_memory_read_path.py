@@ -1,7 +1,7 @@
 """MC-01 — the memory read path.
 
 Memory assembled at the start of a run must reach the step prompt, the
-Perceiver (and through it the supervisor critic) and the planner.
+critics (post critic and supervisor) and the planner.
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ async def test_scope_selects_domains(scope, domains) -> None:
 
 
 # ---------------------------------------------------------------------------
-# RunMemory — the reader the Perceiver and critic consume
+# RunMemory — the reader the critics consume
 # ---------------------------------------------------------------------------
 
 
@@ -76,14 +76,33 @@ async def test_run_memory_serves_rules_and_runs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_perceiver_reads_rules_from_run_memory() -> None:
-    from src.ai.core.perceiver import Perceiver
+async def test_the_supervisor_reads_rules_from_run_memory_without_retired_ones() -> None:
+    """AK-05: the Perceiver is gone; the supervisor reads the run's memory, and
+    the lifecycle filter it applied (retired rules out) now happens there."""
+    from src.ai.core.agent_state import AgentState, Budget
+    from src.ai.planning.supervisor_critic import SupervisorCritic
+    from src.ai.schemas.enums import EntityType
 
-    mem = RunMemory({"__intelligence_rules__": [{"title": "Verify figures", "rule": "Check the source"}]})
-    state = SimpleNamespace(entity_id=uuid4(), company_id=uuid4())
-    with patch("src.ai.core.feature_flags.FeatureFlags.is_on", new=AsyncMock(return_value=False)):
-        rules = await Perceiver(memory_assembler=mem)._gather_intelligence_rules(state)
-    assert rules == [{"title": "Verify figures", "rule": "Check the source"}]
+    mem = RunMemory({"__intelligence_rules__": [
+        {"title": "Verify figures", "rule": "Check the source"},
+        {"title": "Old", "rule": "Use the v1 API", "lifecycle": "retired"}]})
+    assert [r["title"] for r in await mem.top_rules(3)] == ["Verify figures"]
+
+    seen: dict = {}
+
+    class _LLM:
+        async def call_llm(self, **kw):
+            seen["prompt"] = kw["user_prompt"]
+            return SimpleNamespace(output='{"recommendation": "CONTINUE", "confidence": 0.9}',
+                                   cost_usd=0, prompt_tokens=1, completion_tokens=1)
+
+    state = AgentState(run_id=uuid4(), entity_id=uuid4(), company_id=uuid4(), entity_type=EntityType.AGENT,
+                       budget=Budget.from_governance(max_cost_usd=1.0, timeout_ms=60_000))
+    state.iteration = 3
+    critic = SupervisorCritic(llm_router=_LLM(), intelligence_reader=mem)
+    critic.config.fast_path_enabled = False
+    await critic.assess(state)
+    assert "Check the source" in seen["prompt"] and "v1 API" not in seen["prompt"]
 
 
 # ---------------------------------------------------------------------------

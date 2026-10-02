@@ -46,7 +46,7 @@ async def test_strategist_consults_bandit_when_two_styles_fit() -> None:
     bandit._memory_tables[(state.entity_id, state.task_class)] = (
         bandit._memory_tables.pop(("any", "general"))
     )
-    move = await s.next_move(state, perception=None)
+    move = await s.next_move(state)
     assert move.executor == "DAG"
     assert move.bandit_arm == "DAG_PARALLEL"     # the loop rewards this pull (PC-21)
 
@@ -56,7 +56,7 @@ async def test_a_move_the_bandit_did_not_choose_is_not_a_pull() -> None:
     # D19: one ready step leaves nothing to choose, so it is no arm.
     s = Strategist(bandit=None)
     state = _state(plan_steps=[{"step_id": "s1", "type": "TOOL_CALL"}])
-    move = await s.next_move(state, perception=None)
+    move = await s.next_move(state)
     assert move.executor == "SingleStep" and move.bandit_arm is None
 
 
@@ -66,7 +66,7 @@ async def test_child_entity_path_records_child_arm() -> None:
     state = _state(plan_steps=[
         {"step_id": "s1", "type": "CHILD_ENTITY_INVOCATION"},
     ])
-    move = await s.next_move(state, perception=None)
+    move = await s.next_move(state)
     assert move.executor == "ChildEntity"
     assert move.bandit_arm is None
 

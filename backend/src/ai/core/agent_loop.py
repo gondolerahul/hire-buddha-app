@@ -7,7 +7,7 @@ This file is the sole run entry point for every entity. The legacy
 
 Per-iteration sequence (mirrors the agent kernel overview, §2):
 
-    perceive → strategize → pre-critic → act → observe →
+    strategize → pre-critic → act → observe →
     post-critic → alignment → supervisor → reflect → decide
 
 Track 2 critic pipeline is the NoOp (Track 3 replaces). The Strategist
@@ -41,7 +41,6 @@ from src.ai.core.executors import get_executor  # noqa: F401 — triggers regist
 from src.ai.core.executors.base import ActionResult
 from src.ai.core.feature_flags import FeatureFlags
 from src.ai.core.observer import Observer
-from src.ai.core.perceiver import Perceiver
 from src.ai.core.reflector import Reflector
 from src.ai.core.strategist import Strategist
 from src.ai.core.step_results import (
@@ -146,7 +145,6 @@ class AgentLoop:
         self._run_id: Optional[UUID] = None
 
         # Composed lazily once state.entity_type / state.cortex_tree_id known.
-        self.perceiver: Optional[Perceiver] = None
         self.strategist: Optional[Strategist] = None
         self.observer: Optional[Observer] = None
         self.reflector: Optional[Reflector] = None
@@ -454,7 +452,6 @@ class AgentLoop:
                 break
 
     async def _iteration(self, state: AgentState) -> None:
-        assert self.perceiver is not None
         assert self.strategist is not None
         assert self.observer is not None
         assert self.reflector is not None
@@ -464,10 +461,6 @@ class AgentLoop:
         # we honour it here so the run terminates without killing the worker.
         if await self._check_cancelled(state):
             return
-
-        # 1. Perceive
-        perception = await self.perceiver.gather(state)
-        state.perception = perception
 
         # 2. Strategize — drain the retry queue first if present.
         upcoming = state.iteration + 1
@@ -486,7 +479,7 @@ class AgentLoop:
             if queued.get("delay_s"):
                 await asyncio.sleep(float(queued["delay_s"]))
         else:
-            move = await self.strategist.next_move(state, perception)
+            move = await self.strategist.next_move(state)
 
         # 3. Pre-critic — on every move (PC-01). It sees the steps the move
         # would run, so its verdict is about them: a BLOCK does not run them
@@ -858,9 +851,6 @@ class AgentLoop:
             getattr(self._entity, "governance", None)))
         self.observer = Observer()
         self.reflector = Reflector(db=self.db)
-        # Perceiver gets the live CORTEX service and the run's memory
-        # (both None-safe in tests).
-        self.perceiver = Perceiver(db=self.db, cortex=self.cortex, memory_assembler=self.memory)
 
         # ── CriticPipeline (Track 3) ──────────────────────────────────
         # If the constructor was given an explicit pipeline, keep it.

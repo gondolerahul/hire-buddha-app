@@ -7,8 +7,7 @@ signatures are pinned in the agent kernel overview, §4.
 
 The legacy ``context_state: dict`` survives only for prompt-variable
 substitution and is bridged via ``materialise_context_dict`` /
-``absorb_context_dict`` on AgentState. New code reads
-``state.perception`` instead.
+``absorb_context_dict`` on AgentState.
 """
 from __future__ import annotations
 
@@ -164,11 +163,7 @@ class Verdicts:
 
 @dataclass
 class AgentState:
-    """Typed envelope for one execution-run's worth of agent state.
-
-    ``perception`` is current-iteration-only and is NOT snapshotted —
-    it is rebuilt by ``Perceiver.gather`` at the top of every iteration.
-    """
+    """Typed envelope for one execution-run's worth of agent state."""
     run_id: UUID
     entity_id: UUID
     company_id: Optional[UUID]
@@ -185,7 +180,6 @@ class AgentState:
 
     reflections: list[Reflection] = field(default_factory=list)
 
-    cortex_cursor: Optional[UUID] = None
     cortex_tree_id: Optional[UUID] = None
     cortex_working_root_id: Optional[UUID] = None
 
@@ -292,7 +286,6 @@ class AgentState:
     bandit_pulls: list[dict[str, Any]] = field(default_factory=list)
 
     # Current-iteration only (not snapshotted).
-    perception: Optional[Any] = None    # tests/ai.core.perceiver.Perception (forward ref dodge)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -441,7 +434,6 @@ class AgentState:
             "last_action": asdict(self.last_action) if self.last_action else None,
             "last_observation": asdict(self.last_observation) if self.last_observation else None,
             "reflections": [asdict(r) for r in self.reflections[-20:]],
-            "cortex_cursor": str(self.cortex_cursor) if self.cortex_cursor else None,
             "cortex_tree_id": str(self.cortex_tree_id) if self.cortex_tree_id else None,
             "cortex_working_root_id": (
                 str(self.cortex_working_root_id) if self.cortex_working_root_id else None
@@ -478,7 +470,6 @@ class AgentState:
             achieved=[Subgoal(**s) for s in snapshot.get("achieved", [])],
             blockers=[Blocker(**b) for b in snapshot.get("blockers", [])],
             reflections=[Reflection(**r) for r in snapshot.get("reflections", [])],
-            cortex_cursor=UUID(snapshot["cortex_cursor"]) if snapshot.get("cortex_cursor") else None,
             cortex_tree_id=UUID(snapshot["cortex_tree_id"]) if snapshot.get("cortex_tree_id") else None,
             cortex_working_root_id=(
                 UUID(snapshot["cortex_working_root_id"])
