@@ -668,6 +668,14 @@ class AgentLoop:
             recommendation=supervise.recommendation, confidence=supervise.confidence,
         )
 
+        # The bandit's pull is judged by this iteration alone (PC-21).
+        if move.bandit_arm:
+            state.bandit_pulls.append({
+                "arm": move.bandit_arm, "iteration": state.iteration,
+                "success": observation.outcome == "success" and post.kind == "PASS",
+                "cost_usd": float(action_result.cost_usd),
+            })
+
         # 6.b Pick a retry strategy from the freshly-built health record.
         record = None
         try:
@@ -1403,40 +1411,28 @@ class AgentLoop:
             return ""
         return getattr(ent, "goal", "") or ""
 
-    async def _finalize_bandit(self, state: AgentState, status: str) -> None:
-        if not getattr(self, "bandit", None):
+    async def _finalize_bandit(self, state: AgentState, status: str) -> None:  # noqa: ARG002
+        """Reward each bandit pull with its own iteration's outcome and cost
+        (PC-21). Before, every arm used in the run got the run's success and
+        an even share of its whole cost, so one unlucky run pushed a good
+        arm out for good."""
+        if not getattr(self, "bandit", None) or not state.bandit_pulls:
             return
         assert self.bandit is not None
-        arms = list(state.chosen_arms_by_iteration)
-        if not arms:
-            return
-        success = status == RunStatus.COMPLETED.value
-        per_arm_cost = float(state.budget.usd_used) / max(len(arms), 1)
-        # Update each arm once (de-duplicate consecutive identical pulls
-        # so a long run dominated by one arm doesn't double-count).
-        seen: dict[str, int] = {}
-        for arm in arms:
-            seen[arm] = seen.get(arm, 0) + 1
-        for arm, _pulls in seen.items():
+        for pull in state.bandit_pulls:
             try:
                 st = await self.bandit.update_arm(
-                    entity_id=state.entity_id,
-                    task_class=state.task_class,
-                    arm=arm,
-                    success=success,
-                    cost_usd=per_arm_cost,
+                    entity_id=state.entity_id, task_class=state.task_class, arm=pull["arm"],
+                    success=bool(pull.get("success")), cost_usd=float(pull.get("cost_usd") or 0),
                 )
                 await event_async(
-                    "agent.bandit.arm_updated",
-                    run_id=str(state.run_id),
-                    entity_id=str(state.entity_id),
-                    task_class=state.task_class,
-                    arm=arm, success=success,
-                    cost_usd=per_arm_cost,
+                    "agent.bandit.arm_updated", run_id=str(state.run_id), entity_id=str(state.entity_id),
+                    task_class=state.task_class, arm=pull["arm"], success=bool(pull.get("success")),
+                    cost_usd=float(pull.get("cost_usd") or 0), iteration=pull.get("iteration"),
                     new_score=self.bandit.score(st),
                 )
             except Exception as exc:                                        # noqa: BLE001
-                logger.debug("bandit arm update failed for %s: %s", arm, exc)
+                logger.debug("bandit arm update failed for %s: %s", pull.get("arm"), exc)
 
     @staticmethod
     def _fail_blocked_steps(state: AgentState, move: Any, concerns: list[str]) -> list[str]:

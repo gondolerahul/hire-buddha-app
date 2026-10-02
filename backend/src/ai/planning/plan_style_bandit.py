@@ -6,14 +6,16 @@ faces a strategic choice. Arm state lives in the entity's
 IntelligenceTree under the existing ``🎯 Strategies`` section, stored
 as a STRATEGY-type ``CortexNode`` with one row per ``task_class``.
 
-Arms (see ``PlanStyleArm``):
+Arms (see ``PlanStyleArm``) are the choices the Strategist asks it to make
+(D19, PC-15): when two or more plan steps are ready,
 
-  * ``DAG_PARALLEL``    — multi-step DAG executor.
-  * ``DAG_SEQUENTIAL``  — sequential SingleStep over the plan.
-  * ``RECURSIVE``       — recursive expansion.
-  * ``SINGLE_TOOL``     — one TOOL_CALL step.
-  * ``DIALOG``          — Dialog executor (Track 5+).
-  * ``CHILD_ENTITY``    — ChildEntity executor.
+  * ``DAG_PARALLEL``    — run them together (DAG executor);
+  * ``DAG_SEQUENTIAL``  — run the first (SingleStep).
+
+The other moves (a child step, a debate, planning the goal) are decided by
+the plan's shape, not chosen, so they are not arms: rewarding them taught the
+table nothing. Each pull is rewarded with its own iteration's outcome and cost
+(PC-21), not the run's.
 
 State per arm::
 
@@ -59,10 +61,6 @@ STRATEGIES_SECTION_TITLE = "🎯 Strategies"
 class PlanStyleArm(str, Enum):
     DAG_PARALLEL = "DAG_PARALLEL"
     DAG_SEQUENTIAL = "DAG_SEQUENTIAL"
-    RECURSIVE = "RECURSIVE"
-    SINGLE_TOOL = "SINGLE_TOOL"
-    DIALOG = "DIALOG"
-    CHILD_ENTITY = "CHILD_ENTITY"
 
 
 @dataclass

@@ -48,16 +48,16 @@ async def test_strategist_consults_bandit_when_two_styles_fit() -> None:
     )
     move = await s.next_move(state, perception=None)
     assert move.executor == "DAG"
-    assert state.chosen_arms_by_iteration == ["DAG_PARALLEL"]
+    assert move.bandit_arm == "DAG_PARALLEL"     # the loop rewards this pull (PC-21)
 
 
 @pytest.mark.asyncio
-async def test_strategist_records_arm_even_without_bandit() -> None:
+async def test_a_move_the_bandit_did_not_choose_is_not_a_pull() -> None:
+    # D19: one ready step leaves nothing to choose, so it is no arm.
     s = Strategist(bandit=None)
     state = _state(plan_steps=[{"step_id": "s1", "type": "TOOL_CALL"}])
-    await s.next_move(state, perception=None)
-    # Single ready step → SingleStep path records DAG_SEQUENTIAL.
-    assert state.chosen_arms_by_iteration == ["DAG_SEQUENTIAL"]
+    move = await s.next_move(state, perception=None)
+    assert move.executor == "SingleStep" and move.bandit_arm is None
 
 
 @pytest.mark.asyncio
@@ -68,7 +68,7 @@ async def test_child_entity_path_records_child_arm() -> None:
     ])
     move = await s.next_move(state, perception=None)
     assert move.executor == "ChildEntity"
-    assert state.chosen_arms_by_iteration == ["CHILD_ENTITY"]
+    assert move.bandit_arm is None
 
 
 # ---------------------------------------------------------------------------

@@ -161,5 +161,5 @@ def test_bandit_table_handles_garbage_json() -> None:
 
 def test_plan_style_arm_values_stable() -> None:
     # If these change, downstream telemetry queries must change too.
-    assert PlanStyleArm.DAG_PARALLEL.value == "DAG_PARALLEL"
-    assert PlanStyleArm.RECURSIVE.value == "RECURSIVE"
+    # The arms are the choices the Strategist asks for (D19, PC-15).
+    assert {a.value for a in PlanStyleArm} == {"DAG_PARALLEL", "DAG_SEQUENTIAL"}

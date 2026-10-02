@@ -613,16 +613,18 @@ flowchart TD
 
 ### 5.2 The arms
 
-[`PlanStyleArm`](../../backend/src/ai/planning/plan_style_bandit.py:59):
+[`PlanStyleArm`](../../backend/src/ai/planning/plan_style_bandit.py) — since P7.10
+(2026-10-02, PC-15, D19) only the choices the bandit makes:
 
-| Arm | Meaning | Reachable today? |
-|-----|---------|------------------|
-| `DAG_PARALLEL` | multi-step DAG executor | yes — Strategist branch with ≥2 ready steps |
-| `DAG_SEQUENTIAL` | one step at a time via `SingleStep` | yes — the common case |
-| `RECURSIVE` | recursive goal expansion | yes — AGENT with no plan |
-| `SINGLE_TOOL` | one `TOOL_CALL` step | yes — the default fallback branch |
-| `DIALOG` | Dialog executor | no — the Dialog stub executor was deleted (AK-10, 2026-10-01); the arm is never chosen (PC-15) |
-| `CHILD_ENTITY` | ChildEntity executor | yes |
+| Arm | Meaning |
+|-----|---------|
+| `DAG_PARALLEL` | run the ready steps together (DAG executor) |
+| `DAG_SEQUENTIAL` | run the first ready step (`SingleStep`) |
+
+The other moves — a child step, a debate, planning the goal, a single ready step — are
+decided by the plan's shape, not chosen, so they are not arms. Before, the Strategist
+recorded them all as pulls (`RECURSIVE`, `SINGLE_TOOL`, `CHILD_ENTITY`, `DEBATE`, and a
+never-reachable `DIALOG`) and the bandit was rewarded for moves it never chose.
 
 The Strategist also records a `"DEBATE"` arm string
 ([strategist.py:110](../../backend/src/ai/core/strategist.py:110)) that is not a
@@ -725,38 +727,16 @@ sequenceDiagram
     AL->>AL: emit agent.bandit.arm_updated with new_score
 ```
 
-**The bandit is only consulted once**, in the `len(ready) >= 2 and
-allow_parallel_dag` branch. Every other Strategist branch calls `_record_arm`,
-which appends the arm name to `state.chosen_arms_by_iteration` *without*
-consulting the bandit. So the bandit learns statistics for all arms but only
-ever *decides* between `DAG_PARALLEL` and `DAG_SEQUENTIAL`.
+**The bandit is consulted once**, in the `len(ready) >= 2 and allow_parallel_dag`
+branch; the move it returns carries `Move.bandit_arm`.
 
-**Reward computation at run end**
-([agent_loop.py:1430](../../backend/src/ai/core/agent_loop.py:1430)):
-
-```python
-success = status == RunStatus.COMPLETED.value
-per_arm_cost = float(state.budget.usd_used) / max(len(arms), 1)
-seen: dict[str, int] = {}
-for arm in arms:
-    seen[arm] = seen.get(arm, 0) + 1
-for arm, _pulls in seen.items():
-    st = await self.bandit.update_arm(
-        entity_id=..., task_class=..., arm=arm,
-        success=success, cost_usd=per_arm_cost,
-    )
-```
-
-Three consequences worth internalising:
-
-1. **Reward is run-level, not step-level.** Every arm used in a run gets the
-   *same* success flag — the run's final status. An arm that behaved perfectly
-   in a run that later failed is penalised.
-2. **Cost is the run's total divided evenly** by the number of iterations, not
-   the arm's actual spend.
-3. **De-duplication:** an arm pulled 10 times in one run is credited once
-   (`for arm, _pulls in seen.items()` ignores `_pulls`), so a long run dominated
-   by one arm does not swamp the table.
+**Reward per pull** (since P7.10, PC-21). After the iteration's post critic, the loop
+records the pull with *that iteration's* outcome — success when the observation is a
+success and the post critic passed — and *that iteration's* cost
+(`state.bandit_pulls`, snapshotted). `_finalize_bandit` folds each pull into the table
+when the run ends. Before, every arm used in a run was updated once with the run's final
+status and the run's total cost split evenly, so an arm used once in a long run that
+failed for another reason took a full penalty.
 
 ### 5.6 Persistence
 

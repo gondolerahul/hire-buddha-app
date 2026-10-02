@@ -144,10 +144,9 @@ class PlanCandidates:
 
 
 def classify_plan_style(steps: list[dict[str, Any]]) -> str:
-    """Best-effort mapping of a plan shape to a ``PlanStyleArm`` value.
-
-    The Bandit (Track 4) keys arm stats by this string so the planner
-    can later prefer styles with proven priors.
+    """Best-effort label for a plan's shape (``PlanCandidate.style``, shown
+    in the ``agent.plan.*`` events). Not a bandit arm: the bandit's arms are
+    the executor choices the Strategist makes (D19).
     """
     if not steps:
         return "SINGLE_TOOL"

@@ -388,7 +388,7 @@ is built locally in `_iteration` and handed to the `Reflector`
 | `health_records` | `list[StepHealthRecord]` | `CriticPipeline.finalize_iteration` | `RetryExecutor.is_exhausted`, SupervisorCritic | **no** |
 | `retry_queue` | `list[dict]` | retry pick | drained at top of next iteration | yes |
 | `task_class` | `str` | `_classify_task` | bandit, SupervisorCritic | yes |
-| `chosen_arms_by_iteration` | `list[str]` | `Strategist._record_arm` | `_finalize_bandit` | yes |
+| `bandit_pulls` | `list[dict]` | the loop, after the post critic (arm, iteration, success, cost; P7.10) | `_finalize_bandit` | yes |
 | `perception` | `Perception?` | `_iteration` step 1 | *nothing* | **no** |
 
 ### Helper methods worth knowing
@@ -967,7 +967,8 @@ sequenceDiagram
     L-->>L: emit agent.bandit.arm_updated
 ```
 
-Arms: `DAG_PARALLEL`, `DAG_SEQUENTIAL`, `RECURSIVE`, `SINGLE_TOOL`, `DIALOG`,
+Arms (since P7.10, D19: only the bandit's choices): `DAG_PARALLEL`, `DAG_SEQUENTIAL`. Before:
+`RECURSIVE`, `SINGLE_TOOL`, `DIALOG`,
 `CHILD_ENTITY` ([plan_style_bandit.py:11](../../backend/src/ai/planning/plan_style_bandit.py:11)).
 Note `DEBATE` and `SINGLE_TOOL` are recorded by the Strategist even though
 `DEBATE` is not in that documented arm list — arms are seeded on demand by

@@ -55,6 +55,9 @@ class Move:
     # synthesis step) so a TOOL_CALL never pays for heavy reasoning. ``None``
     # means "use the entity's configured default".
     reasoning_hint: Optional[str] = None
+    # The plan-style bandit arm this move is, when the bandit chose it (D19);
+    # the loop rewards the pull with this iteration's outcome (PC-21).
+    bandit_arm: Optional[str] = None
 
 
 @dataclass
@@ -70,7 +73,7 @@ class Strategist:
     Phase 11 Track 4: when more than one plan style fits the current
     state, the Strategist consults the optional ``PlanStyleBandit`` to
     pick between candidates. The bandit's chosen arm is recorded on
-    ``state.chosen_arms_by_iteration`` so ``AgentLoop._finalize`` can
+    ``Move.bandit_arm`` so the loop can
     update the arm's stats after the run completes.
     """
 
@@ -103,7 +106,6 @@ class Strategist:
             # fan-out cap; the parent then waits for them (AK-07).
             if _is_child_step(ready[0]):
                 batch = children[: self.max_concurrent_children]
-                await self._record_arm(state, "CHILD_ENTITY")
                 return self._move(
                     state, executor="ChildEntity",
                     plan_fragment=batch,
@@ -118,7 +120,6 @@ class Strategist:
             # or a governance high-stakes flag) and the executor must be
             # registered. A plain TOOL_CALL/synthesis step is never escalated.
             if self._should_debate(state, ready[0]):
-                await self._record_arm(state, "DEBATE")
                 return self._move(
                     state, executor="Debate",
                     plan_fragment=ready[:1],
@@ -132,19 +133,22 @@ class Strategist:
                     state, ["DAG_PARALLEL", "DAG_SEQUENTIAL"],
                 )
                 if arm == "DAG_SEQUENTIAL":
-                    return self._move(
+                    move = self._move(
                         state, executor="SingleStep",
                         plan_fragment=ready[:1],
                         rationale="bandit picked DAG_SEQUENTIAL",
                         reasoning_hint=self._step_reasoning_hint(ready[0]),
                     )
-                return self._move(
-                    state, executor="DAG",
-                    plan_fragment=ready,
-                    rationale=f"{len(ready)} ready steps; bandit picked DAG_PARALLEL",
-                )
+                else:
+                    move = self._move(
+                        state, executor="DAG",
+                        plan_fragment=ready,
+                        rationale=f"{len(ready)} ready steps; bandit picked DAG_PARALLEL",
+                    )
+                # The loop rewards this pull with the iteration's outcome (PC-21).
+                move.bandit_arm = arm if self.bandit is not None else None
+                return move
 
-            await self._record_arm(state, "DAG_SEQUENTIAL")
             return self._move(
                 state, executor="SingleStep",
                 plan_fragment=ready[:1],
@@ -156,7 +160,6 @@ class Strategist:
         # reconciles a plan before the first iteration, so this is reached only
         # when that failed (R1, EP-26).
         if not state.has_plan():
-            await self._record_arm(state, "RECURSIVE")
             return self._move(
                 state, executor="Recursive",
                 plan_fragment=None,
@@ -167,7 +170,6 @@ class Strategist:
         if state.has_plan() and not state.plan_has_unblocked_steps():
             # The legacy SingleStep path will skip-and-record; let it run
             # so the loop makes progress rather than spinning.
-            await self._record_arm(state, "DAG_SEQUENTIAL")
             return self._move(
                 state, executor="SingleStep",
                 plan_fragment=None,
@@ -175,7 +177,6 @@ class Strategist:
             )
 
         # Default: single-step on whatever the entity exposes.
-        await self._record_arm(state, "SINGLE_TOOL")
         return self._move(
             state, executor="SingleStep",
             plan_fragment=None,
@@ -201,11 +202,7 @@ class Strategist:
                 )
             except Exception:                                               # pragma: no cover
                 arm = candidates[0]
-        state.chosen_arms_by_iteration.append(arm)
         return arm
-
-    async def _record_arm(self, state: AgentState, arm: str) -> None:
-        state.chosen_arms_by_iteration.append(arm)
 
     # ------------------------------------------------------------------
     # Termination / replan / pause decision

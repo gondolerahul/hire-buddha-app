@@ -312,7 +312,7 @@ missing is a production call site.
 | **PC-12** | `FailurePatternService` | Mines an entity's recent failures into prompt-injectable warnings, with seven classifiers. Its own docstring says "Usage (from `worker.py`)" — `worker.py` no longer contains that call. **Zero production callers** | ✅ Verified |
 | **PC-13** | `PlanGenerator.replan` | **No callers.** Re-planning goes through `PlannerService.adapt_plan`, which passes `entity=None` and therefore disables three of the eight plan invariants and skips billing the replan tokens | ✅ Verified · **fixed (2026-10-02, P7.9)** — `adapt_plan` has passed the entity and run since PC-20, so it is the one replan path; the dead `replan` and its stateless context builder are deleted. `tests/unit/test_plan_telemetry.py` |
 | **PC-14** | `PlanGenerator` telemetry | Always constructed as `PlanGenerator(llm_router=..., db=...)` with no `emit_event`, so **no `agent.plan.*` event ever fires**. Planning is invisible in the trace | ✅ Verified · **fixed (2026-10-02, P7.9)** — both planning paths pass `run_plan_events(run_id)`; a replan adds `agent.plan.replan`. `tests/unit/test_plan_telemetry.py` |
-| **PC-15** | Six of eight bandit arms | `PlanStyleBandit` declares eight plan styles. The selection path only ever decides `DAG_PARALLEL` vs `DAG_SEQUENTIAL`. The other arms are recorded in the table and never chosen | 📄 Doc-reported |
+| **PC-15** | Six of eight bandit arms | `PlanStyleBandit` declares eight plan styles. The selection path only ever decides `DAG_PARALLEL` vs `DAG_SEQUENTIAL`. The other arms are recorded in the table and never chosen | 📄 Doc-reported · **fixed (2026-10-02, P7.10, D19)** — the arms are the two choices; the moves the plan's shape decides are not pulls. `tests/unit/test_bandit_rewards.py` |
 | **PC-26** | `cost_estimator_refresh` | The nightly cron (02:30, scheduled in `worker.py`) is meant to refresh `planning/cost_estimator.py`'s per-tool baselines from telemetry. Its SQL reads `tool_interaction_logs.cost_usd`, which has never existed. Tool cost lives in `usage_logs`. Every run raises `column "cost_usd" does not exist`, the job logs `cost_estimator_refresh error` and returns, and the estimator keeps its seeded constants forever | ✅ Verified · **fixed (2026-10-01)** — deleted, with its cron. Tool calls are charged a fixed price each, so a per-tool median only restates the price the estimator already reads from `ToolCostResolver` (BC-11); the job never persisted anything (the `refresh_from_db` its docstring cites does not exist); and the run's credit hold already averages the entity's recent bills. The estimator's keys were fixed with it (TL-64) |
 
 ---
@@ -402,7 +402,7 @@ removes the cost signal that would otherwise discourage replan loops.
 
 ### PC-21 — Bandit reward is run-level and blames every arm equally
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.10)** — each pull is rewarded with its own iteration's outcome (observation success and a post-critic PASS) and cost. `tests/unit/test_bandit_rewards.py`.
 
 All arms used in a failed run are penalised the same amount, and per-arm cost is computed
 as the run total divided by the iteration count.

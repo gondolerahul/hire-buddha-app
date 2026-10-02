@@ -281,7 +281,10 @@ class AgentState:
     # Every PlanStyleBandit arm pulled this run.
     # AgentLoop._finalize replays this list into bandit.update_arm
     # once the run terminates.
-    chosen_arms_by_iteration: list[str] = field(default_factory=list)
+    # The plan-style bandit's pulls this run, each with its own iteration's
+    # outcome and cost (PC-21): {"arm", "iteration", "success", "cost_usd"}.
+    # The loop flushes them into the bandit when the run ends.
+    bandit_pulls: list[dict[str, Any]] = field(default_factory=list)
 
     # Current-iteration only (not snapshotted).
     perception: Optional[Any] = None    # tests/ai.core.perceiver.Perception (forward ref dodge)
@@ -452,7 +455,7 @@ class AgentState:
             "pending_correction": self.pending_correction,
             "retry_queue": list(self.retry_queue),
             "task_class": self.task_class,
-            "chosen_arms_by_iteration": list(self.chosen_arms_by_iteration),
+            "bandit_pulls": list(self.bandit_pulls),
         }
 
     @classmethod
@@ -489,7 +492,7 @@ class AgentState:
             pending_correction=str(snapshot.get("pending_correction", "") or ""),
             retry_queue=list(snapshot.get("retry_queue", [])),
             task_class=str(snapshot.get("task_class", "general")),
-            chosen_arms_by_iteration=list(snapshot.get("chosen_arms_by_iteration", [])),
+            bandit_pulls=list(snapshot.get("bandit_pulls", [])),
         )
         la = snapshot.get("last_action")
         if la:
