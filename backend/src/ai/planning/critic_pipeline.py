@@ -139,7 +139,7 @@ class NoOpCriticPipeline:
 
 class CriticMode(str, Enum):
     FULL = "FULL"
-    DEGRADED = "DEGRADED"     # skip pre + align; minimal post
+    DEGRADED = "DEGRADED"     # skip pre, align, supervisor; a cheaper post (PC-05)
 
 
 # Heuristic ladder. Keys are case-insensitive substring matches against
@@ -326,18 +326,23 @@ class RealCriticPipeline:
         self, state: AgentState, observation: Observation
     ) -> PostCriticVerdict:
         record = self._ensure_record(state)
+        # Degraded (critics past their share of the run's cost) means a
+        # cheaper post critic (PC-05): the actor's model, no history or rules,
+        # a shorter answer. Before, degraded skipped the cheap stages and ran
+        # this one — the most expensive — in full.
+        degraded = self._budget_mode(state) is CriticMode.DEGRADED
         critic_model = (
             resolve_critic_model(
                 entity_override=self.config.critic_model_override,
                 company_override=self.config.company_critic_override,
                 actor_model=self.config.actor_model_hint,
             )
-            if self.config.enable_different_model
+            if self.config.enable_different_model and not degraded
             else None
         )
 
-        prior_history = self._render_prior_history(state)
-        intel_rules = await self._render_intel_rules(state)
+        prior_history = "(none)" if degraded else self._render_prior_history(state)
+        intel_rules = "(none)" if degraded else await self._render_intel_rules(state)
 
         try:
             user_prompt = POST_PROMPT_USER.format(
@@ -355,7 +360,7 @@ class RealCriticPipeline:
                 system_prompt=POST_PROMPT_SYSTEM,
                 user_prompt=user_prompt,
                 temperature=0.1,
-                max_tokens=400,
+                max_tokens=200 if degraded else 400,
                 model_override=critic_model,
             )
             cost = self._extract_cost(response)
@@ -385,7 +390,7 @@ class RealCriticPipeline:
         record.post_critic_tags = list(verdict.tags)
         record.post_critic_suggestion = verdict.suggestion
         record.post_critic_cost_usd = verdict.cost_usd
-        record.post_critic_model = critic_model or "(actor-same)"
+        record.post_critic_model = (critic_model or "(actor-same)") + (" [degraded]" if degraded else "")
         return verdict
 
     # ------------------------------------------------------------------

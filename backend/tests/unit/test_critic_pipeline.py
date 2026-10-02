@@ -262,6 +262,32 @@ async def test_pipeline_degrades_when_critic_share_exceeds_cap() -> None:
     pipe.llm.call_llm.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_a_degraded_post_critic_is_cheaper() -> None:
+    """PC-05: degraded ran the post critic — the most expensive stage — in
+    full, on the escalated critic model. Now it runs on the actor's model,
+    without history or intelligence rules, with half the output budget."""
+    llm = _stub_llm(['{"verdict": "PASS"}', '{"verdict": "PASS"}'])
+    intel = SimpleNamespace(top_rules=AsyncMock(return_value=[{"rule": "cite sources"}]))
+    pipe = RealCriticPipeline(db=None, llm_router=llm, cortex_service=None, intelligence_reader=intel,
+                              config={"critic_cost_share_pct": 0.20, "actor_model_hint": "gemini-2.5-flash"})
+    state = _state()
+    state.budget.consume(usd=Decimal("0.10"))
+    obs = Observation(iteration=1, outcome="success", novelty_score=0.5, goal_delta_estimate=0.1,
+                      output="the answer")
+
+    await pipe.post_action(state, obs)                 # full: 0% critic share so far
+    pipe._cumulative_critic_cost = Decimal("0.05")     # now 50% → degraded
+    await pipe.post_action(state, obs)
+
+    full, cheap = [c.kwargs for c in llm.call_llm.await_args_list]
+    assert full["model_override"] == "gemini-2.5-pro" and full["max_tokens"] == 400
+    assert "cite sources" in full["user_prompt"]
+    assert cheap["model_override"] is None and cheap["max_tokens"] == 200
+    assert "cite sources" not in cheap["user_prompt"]
+    assert intel.top_rules.await_count == 1
+
+
 # ---------------------------------------------------------------------------
 # finalize_iteration — without cortex it is a no-op record return
 # ---------------------------------------------------------------------------

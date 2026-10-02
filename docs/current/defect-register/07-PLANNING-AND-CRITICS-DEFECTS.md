@@ -151,7 +151,7 @@ platform learns and then does not read what it learned.
 
 ### PC-05 — `DEGRADED` mode still runs the post critic
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.6)** — in DEGRADED the post critic runs on the actor's model, without history or intelligence rules, with 200 output tokens; pre, alignment and supervisor were already skipped. `tests/unit/test_critic_pipeline.py::test_a_degraded_post_critic_is_cheaper`.
 
 The budget guard switches to `CriticMode.DEGRADED` when
 `critic_cost / run_cost > critic_cost_share_pct`. The module docstring says degraded mode

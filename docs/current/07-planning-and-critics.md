@@ -1113,11 +1113,13 @@ def _budget_mode(self, state: AgentState) -> CriticMode:
 | Mode | pre_action | post_action | alignment | supervisor |
 |------|-----------|-------------|-----------|------------|
 | `FULL` | LLM call | LLM call | LLM call on cadence | LLM call on cadence |
-| `DEGRADED` | forced PASS | **still runs** | forced aligned | forced CONTINUE |
+| `DEGRADED` | forced PASS | cheaper run (below) | forced aligned | forced CONTINUE |
 
-Note the asymmetry: DEGRADED skips three of four stages but **post_action always
-runs**, contradicting the module docstring's "minimal post". The post critic is
-the one that produces failure tags, so it is treated as non-negotiable.
+DEGRADED skips three of four stages; the post critic still runs, because it produces the
+failure tags, but since P7.6 (2026-10-02, PC-05) it runs cheaper: on the actor's model (no
+critic-model escalation), without prior history or intelligence rules, with 200 output
+tokens instead of 400. Its health record's model reads `… [degraded]`. Before, it ran in
+full — the stage that costs most was the one the budget guard did not touch.
 
 ### 8.4 Choosing a different critic model
 
