@@ -134,6 +134,7 @@ class HeadlessBrowserTool(Tool):
     """
 
     name = "headless_browser"
+    category = "browser"
     description = (
         "Interact with web pages using a headless browser (Chromium). Each call is one "
         "browser session: give the actions as 'steps', run in order on one page "

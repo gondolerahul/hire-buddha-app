@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 
 from src.ai.models import ToolRegistryEntry
+from src.ai.tools.base import tool_category
 from src.ai.schemas import (
     ToolRegistryEntryCreate,
     ToolRegistryEntryUpdate,
@@ -24,33 +25,6 @@ from src.ai.schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Tool category mapping for built-in tools
-# ---------------------------------------------------------------------------
-_BUILTIN_CATEGORIES = {
-    "calculator": "utility",
-    "web_search": "search",
-    "excel_tool": "document",
-    "scraper_tool": "browser",
-    "pdf_generator": "document",
-    "file_writer": "document",
-    "email_ingest": "email",
-    "email_classify": "email",
-    "email_draft": "email",
-    "email_send": "email",
-    "image_generation": "media",
-    "video_generate": "media",
-    "video_edit": "media",
-    "video_add_sound": "media",
-    "sandbox_code": "execution",
-    "terminal": "execution",
-    "headless_browser": "browser",
-    "docx_tool": "document",
-    "pptx_tool": "document",
-    "document_save": "document",
-}
-
 
 class ToolManagementService:
     """Service for managing the tool registry."""
@@ -118,15 +92,17 @@ class ToolManagementService:
             name = tool_info["name"]
             db_entry = db_entries.pop(name, None)
 
+            # A built-in tool's description, schema and category are the
+            # code's; its row holds only the admin's state (TL-34).
             if db_entry:
                 merged.append({
                     "id": str(db_entry.id),
                     "name": db_entry.name,
                     "display_name": db_entry.display_name or name,
-                    "description": db_entry.description or tool_info["description"],
-                    "category": db_entry.category or _BUILTIN_CATEGORIES.get(name, "general"),
+                    "description": tool_info["description"],
+                    "category": tool_category(ToolRegistry._tools[name]),
                     "tool_type": "BUILT_IN",
-                    "function_schema": db_entry.function_schema or all_schemas.get(name),
+                    "function_schema": all_schemas.get(name),
                     "is_enabled": db_entry.is_enabled,
                     "created_at": db_entry.created_at.isoformat() if db_entry.created_at else None,
                     "updated_at": db_entry.updated_at.isoformat() if db_entry.updated_at else None,
@@ -137,7 +113,7 @@ class ToolManagementService:
                     "name": name,
                     "display_name": name,
                     "description": tool_info["description"],
-                    "category": _BUILTIN_CATEGORIES.get(name, "general"),
+                    "category": tool_category(ToolRegistry._tools[name]),
                     "tool_type": "BUILT_IN",
                     "function_schema": all_schemas.get(name),
                     "is_enabled": True,
@@ -272,33 +248,34 @@ class ToolManagementService:
     # Sync built-in tools to DB
     # ------------------------------------------------------------------
 
-    async def sync_built_in_tools(self) -> int:
-        """
-        Seed/update DB rows for all built-in tools.
-        Returns number of new entries created.
+    async def sync_built_in_tools(self) -> dict[str, int]:
+        """Make every built-in tool's row say what the code says (TL-34).
+
+        Inserts the missing rows and brings description, function schema and
+        category up to date on existing ones; the admin's state (enabled,
+        display name) is kept. Returns ``{"created": n, "updated": m}``.
         """
         from src.ai.tools import ToolRegistry
 
-        built_in_tools = ToolRegistry._tools
-        created = 0
-
-        for name, tool in built_in_tools.items():
+        created = updated = 0
+        for name, tool in ToolRegistry._tools.items():
+            current = {
+                "description": tool.description,
+                "category": tool_category(tool),
+                "function_schema": tool.get_function_schema(),
+            }
             existing = await self.get_built_in_entry(name)
             if not existing:
-                entry = ToolRegistryEntry(
-                    id=uuid.uuid4(),
-                    name=name,
-                    display_name=name,
-                    description=tool.description,
-                    category=_BUILTIN_CATEGORIES.get(name, "general"),
-                    tool_type="BUILT_IN",
-                    function_schema=tool.get_function_schema(),
-                    is_enabled=True,
-                )
-                self.db.add(entry)
+                self.db.add(ToolRegistryEntry(
+                    id=uuid.uuid4(), name=name, display_name=name, tool_type="BUILT_IN",
+                    is_enabled=True, **current,
+                ))
                 created += 1
+            elif any(getattr(existing, k) != v for k, v in current.items()):
+                for k, v in current.items():
+                    setattr(existing, k, v)
+                updated += 1
 
-        if created:
+        if created or updated:
             await self.db.commit()
-
-        return created
+        return {"created": created, "updated": updated}

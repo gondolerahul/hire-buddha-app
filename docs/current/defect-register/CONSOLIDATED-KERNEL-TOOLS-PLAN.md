@@ -304,10 +304,10 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-58** | — | `email_classify` moves the wrong message (sequence numbers labelled as UIDs) | Medium | ✔ | P6 |
 | **TL-61** | — | `sandbox_code` accepts an unbounded timeout | Medium | ✔ | P6 |
 | **TL-62** | — | `headless_browser` cannot chain actions | Medium | ✔ | P6 |
-| **TL-66** | — | `weasyprint`, `markdown`, `playwright`, `ddgs` undeclared | High | ✅ | P6 |
-| **TL-67** | — | Seeds and fixtures name tools that do not exist | Medium | ✅ | P6 |
-| **TL-34** | — | Built-in tool metadata drifts from code forever | Medium | ✅ | P6 |
-| **TL-35** | TX-I8 | `_BUILTIN_CATEGORIES` covers 22 of 97 tools | Low | ✅ | P6 |
+| **TL-66** | — | `weasyprint`, `markdown`, `playwright`, `ddgs` undeclared | High | ✔ | P6 |
+| **TL-67** | — | Seeds and fixtures name tools that do not exist | Medium | ✔ | P6 |
+| **TL-34** | — | Built-in tool metadata drifts from code forever | Medium | ✔ | P6 |
+| **TL-35** | TX-I8 | `_BUILTIN_CATEGORIES` covers 22 of 97 tools | Low | ✔ | P6 |
 | **TX-I9** | — | No contract test over the registry (advertised vs read parameters) | — | open | P6 |
 | **TL-68** | — | `calculator` advertises `expression` but parses the whole input string; every native call fails (found in the P3 live run) | High | ✔ | P6 (6.10) |
 | **TL-63** | — | `pdf_generator` defines `get_function_schema` twice | Low | ✅ | P0 |

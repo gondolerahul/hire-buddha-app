@@ -54,6 +54,7 @@ class WebSearchTool(Tool):
     """
 
     name = "web_search"
+    category = "search"
     description = (
         "Search the web for current information on any topic. "
         "Returns a list of relevant results including titles, URLs, and snippets."

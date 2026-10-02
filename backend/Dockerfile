@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=off \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100 \
-    POETRY_VERSION=1.7.1 \
+    POETRY_VERSION=2.5.1 \
     POETRY_HOME="/opt/poetry" \
     POETRY_VIRTUALENVS_IN_PROJECT=true \
     POETRY_NO_INTERACTION=1
@@ -38,6 +38,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Copy virtualenv from builder
 COPY --from=builder /app/.venv ./.venv
+
+# What the tools need from the OS (TL-66): WeasyPrint renders with Pango
+# (pdf_generator); headless_browser drives Chromium, which runs in this image
+# even under the container sandbox runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core \
+    && /app/.venv/bin/playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy application code
 COPY . .

@@ -39,10 +39,15 @@ def _sanitize_filename(raw: str, max_length: int = 80) -> str:
     # Final fallback if empty
     return name or "document"
 
+# WeasyPrint is declared (TL-66) but also needs Pango/GObject from the OS; a
+# host without them raises OSError at import. Either way the tool says what is
+# missing at call time instead of breaking the import of every tool.
+_WEASYPRINT_ERROR = ""
 try:
     from weasyprint import HTML, CSS, default_url_fetcher
     from weasyprint.text.fonts import FontConfiguration
-except ImportError:
+except (ImportError, OSError) as _exc:
+    _WEASYPRINT_ERROR = str(_exc).strip().splitlines()[0] if str(_exc).strip() else type(_exc).__name__
     HTML = None
     CSS = None
     FontConfiguration = None
@@ -392,8 +397,9 @@ class PDFGeneratorTool(Tool):
         """
         if not HTML or not markdown:
             raise ImportError(
-                "Required libraries not installed. "
-                "Install with: pip install weasyprint markdown"
+                "PDF rendering is unavailable on this server: "
+                + (f"WeasyPrint cannot load its system libraries (Pango) — {_WEASYPRINT_ERROR}"
+                   if _WEASYPRINT_ERROR else "the 'markdown' package is not installed")
             )
         
         # Pre-process markdown: convert image paths to file:// URIs so WeasyPrint

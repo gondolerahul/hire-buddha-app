@@ -461,7 +461,7 @@ flowchart TD
     D --> E["5 - override get_function_schema"]
     E --> F["6 - export from the subpackage __init__"]
     F --> G["7 - import plus ToolRegistry.register in tools/__init__.py"]
-    G --> H["8 - add to _BUILTIN_CATEGORIES in tool_management_service.py"]
+    G --> H["8 - the category comes from the subpackage - set category to refine it"]
     H --> I["9 - add cost - TOOL_SKU_MAP or TOOL_FIXED_COST plus TOOL_BASELINE_COST"]
     I --> J["10 - add a fallback chain entry if a sibling tool can substitute"]
     J --> K["11 - unit test - registry lookup schema validity and error strings"]
@@ -521,9 +521,10 @@ Step by step:
    add the import, add `ToolRegistry.register(MyTool())`, and add the class name
    to `__all__`.
 
-4. **Give it a category.** Add `"my_tool": "utility"` to `_BUILTIN_CATEGORIES`
-   in [tool_management_service.py:31](../../backend/src/ai/tool_management_service.py:31),
-   otherwise the admin UI files it under `general`.
+4. **Its category** is its subpackage's (`tool_category` in
+   [tools/base.py](../../backend/src/ai/tools/base.py): `core`, `document`, `email`, `media`,
+   `social`, `crm`, `execution`, `meta`). Set the class's `category` to refine it (TL-35;
+   a hand-written map covered 22 of 98 tools until P6.9).
 
 5. **Give it a price.** If it maps to a paid API, add the SKU to `TOOL_SKU_MAP`
    in [governance/tool_cost_resolver.py:40](../../backend/src/ai/governance/tool_cost_resolver.py:40)
@@ -1816,8 +1817,8 @@ flowchart TD
     A --> C["ToolRegistry.list_tools - in memory"]
     A --> D["ToolRegistry._tools get_function_schema for each"]
     C --> E{"DB row for this name ?"}
-    E -->|yes| F["DB fields win - description category schema is_enabled - tool_type BUILT_IN"]
-    E -->|no| G["synthesise a row - id null - is_enabled true - category from _BUILTIN_CATEGORIES"]
+    E -->|yes| F["description, schema and category from the code - is_enabled and display_name from the row"]
+    E -->|no| G["synthesise a row - id null - is_enabled true - category from tool_category"]
     B --> H["leftover DB-only rows appended as CUSTOM"]
     F --> OUT["merged list"]
     G --> OUT
@@ -1829,12 +1830,11 @@ flowchart TD
 | Control | Effect on the running agent |
 |---|---|
 | `is_enabled` toggle | **The kill switch.** `false` refuses the tool for every entity at its next step: `ToolAccess` reads the switched-off names once per step (§2.3). Before 2026-10-01 (TL-14) the executor never read the table and the toggle only hid the tool from the builder's picker. |
-| Edit `description` | Shows in the UI. **Does not change the prompt** — `get_function_schema()` uses the in-code `self.description`. |
-| Edit `function_schema` | Shows in the UI. Not used at execution. |
-| Edit `category`, `display_name` | UI grouping and labels only. |
+| Edit `display_name` | The label in the UI. |
+| `description`, `function_schema`, `category` of a built-in tool | The code's: the list reads them from the registry, whatever the row says (TL-34, P6.9). Edit the tool, not the row |
 | Create a CUSTOM tool | Creates a DB row. **Nothing ever instantiates it as a `Tool`.** Calling it returns `Error: Tool 'x' not found`. |
 | Delete | Blocked for `BUILT_IN`; allowed for CUSTOM rows. |
-| `sync-built-in` | Idempotent — creates rows only for names that have none. It never *updates* an existing row, so a changed description drifts permanently. |
+| `sync-built-in` | Creates the missing rows and brings description, schema and category up to date on existing ones, keeping the admin's state; returns `created` and `updated`. Until P6.9 it never updated a row (TL-34). |
 | Experimental flag toggle | Writes a real `feature_flags` row, but §2.3 explains why nothing reads it during execution. |
 
 ### 19.4 The UI
@@ -1843,11 +1843,9 @@ flowchart TD
 is the admin screen: search, category filter, type filter (`BUILT_IN` /
 `CUSTOM`), counters for built-in / custom / enabled, a create-or-edit modal with
 a raw JSON schema textarea, a delete confirmation, and a "sync built-in" button.
-Its `CATEGORIES` list — `browser`, `document`, `email`, `execution`, `media`,
-`search`, `social`, `utility`, `custom`, `general` — must be kept in sync by
-hand with `_BUILTIN_CATEGORIES` on the backend. `social` is in the UI list but
-**not one of the 21 entries in `_BUILTIN_CATEGORIES`**, so all 52 social tools
-land in `general`.
+Its `CATEGORIES` filter lists the package categories (`core`, `crm`, `document`,
+`email`, `execution`, `media`, `meta`, `social`) and the refinements tools declare
+(`browser`, `search`, `utility`), plus `custom` and `general`.
 
 The tool picker is the entity builder's Capabilities tab
 ([EntityConfigurationTabs.tsx](../../frontend/src/pages/ai/EntityConfigurationTabs.tsx)).
@@ -1944,7 +1942,7 @@ reading the backend's `.env` file off the host filesystem.
 | [tool_fallback.py](../../backend/src/ai/tool_fallback.py) | 166 | four fallback chains plus their input transforms |
 | [tools.py](../../backend/src/ai/tools.py) | 42 | legacy re-export shim; new code should import `src.ai.tools` |
 | [tool_management_router.py](../../backend/src/ai/tool_management_router.py) | 113 | 7 CRUD routes under `/api/v1/ai/tool-registry` |
-| [tool_management_service.py](../../backend/src/ai/tool_management_service.py) | 269 | merge of in-memory registry with DB rows, `_BUILTIN_CATEGORIES` |
+| [tool_management_service.py](../../backend/src/ai/tool_management_service.py) | 280 | merge of in-memory registry with DB rows (the code wins for built-ins); `sync_built_in_tools` |
 | [orm/tools.py](../../backend/src/ai/orm/tools.py) | 43 | `ToolRegistryEntry` table |
 | [governance/tool_cost_resolver.py](../../backend/src/ai/governance/tool_cost_resolver.py) | 207 | `TOOL_SKU_MAP`, `TOOL_FIXED_COST`, `ToolCostResolver` — currently unused in production |
 | [governance/rate_limiter.py](../../backend/src/ai/governance/rate_limiter.py) | 112 | Redis sliding-window limiter — zero call sites |

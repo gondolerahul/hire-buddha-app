@@ -42,6 +42,7 @@ class CalculatorTool(Tool):
     """
     
     name = "calculator"
+    category = "utility"
     description = (
         "Performs mathematical calculations safely. "
         "Supports: +, -, *, /, //, %, ** (power), and parentheses."

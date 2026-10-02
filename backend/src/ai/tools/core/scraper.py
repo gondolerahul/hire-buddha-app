@@ -35,6 +35,7 @@ class ScraperTool(Tool):
     """Scrape a web page's text with Firecrawl and keep it as a document artifact."""
 
     name = "scraper_tool"
+    category = "browser"
     description = (
         "Extract text content from a web page URL using Firecrawl API. "
         "Returns the scraped content and saves it as a document artifact."

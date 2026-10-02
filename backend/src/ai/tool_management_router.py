@@ -118,5 +118,5 @@ async def sync_built_in_tools(
 ):
     """Seed/update DB entries for all built-in tools (app_admin only)."""
     service = ToolManagementService(db)
-    created = await service.sync_built_in_tools()
-    return {"status": "success", "created": created}
+    counts = await service.sync_built_in_tools()
+    return {"status": "success", **counts}

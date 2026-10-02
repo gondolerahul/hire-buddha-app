@@ -58,6 +58,7 @@ class BatchWebSearchTool(Tool):
     """
 
     name = "batch_web_search"
+    category = "search"
     description = (
         "Execute multiple web search queries and return aggregated results, without a URL "
         "an earlier query already returned. Give 'queries' (an array of search strings) and "

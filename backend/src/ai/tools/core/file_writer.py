@@ -11,6 +11,7 @@ class FileWriterTool(Tool):
     """Tool for writing text content to a file."""
 
     name = "file_writer"
+    category = "document"
     description = (
         "Write text content to a specific file. "
         "Input should be a JSON object with 'filename' and 'content'. "

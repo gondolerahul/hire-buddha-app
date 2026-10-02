@@ -427,7 +427,7 @@ when building tool context; never from run input.
 
 ### TL-66 — Three `ACTIVE` tools have no declared dependency
 
-**✅ Verified · High (packaging)**
+**✅ Verified · High (packaging)** · **Status: fixed (2026-10-02, P6.9)** — `weasyprint`, `markdown`, `ddgs` and `playwright` are declared (the lock gained only them and their own dependencies); the backend image installs Pango and Playwright's Chromium (the browser runs in that image even under the container sandbox). **Found:** installing WeasyPrint on a host without Pango (this Windows machine) made `import src.ai.tools` raise `OSError` — every tool, and the API and workers on restart; `pdf_generator` now catches it and says at call time what is missing. **Found:** the Dockerfile pinned Poetry 1.7.1, which cannot read the lock (format 2.1, Poetry 2.x), so the image did not build; pinned to 2.5.1.
 
 `pdf_generator` needs `weasyprint` + `markdown`; `headless_browser` needs `playwright`;
 `web_search`'s free fallback needs `ddgs`/`duckduckgo_search`. **None of these four is in

@@ -680,7 +680,7 @@ cache — see [TL-19](#tl-19--four-price-tables-one-of-which-is-the-unused-sourc
 
 ### TL-34 — Metadata drift between code and DB is permanent by design
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.9)** — a built-in tool's description, schema and category are the code's — the list reads them from the registry and the row keeps only the admin's state (enabled, display name); `sync_built_in_tools` brings existing rows up to date and returns `created` and `updated`.
 
 `sync_built_in_tools` inserts a row for every registered tool that has none, and
 **never updates an existing row**. A changed description or function schema never
@@ -693,7 +693,7 @@ reconcile short of deleting rows.
 
 ### TL-35 — `_BUILTIN_CATEGORIES` covers 22 of 98 tools
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-02, P6.9)** — `tool_category` derives a tool's category from its subpackage; a tool may refine it with `category` (search, browser, utility, document).
 
 The category map has 22 entries. The 64 social tools, the 4 CRM tools, the 8 meta tools
 and `batch_web_search` all fall through to `general`. Separately, `social` appears in

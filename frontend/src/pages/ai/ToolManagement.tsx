@@ -10,10 +10,13 @@ import './ToolManagement.css';
 const CATEGORIES = [
     { value: '', label: 'All Categories' },
     { value: 'browser', label: '🌐 Browser' },
+    { value: 'core', label: '🧩 Core' },
+    { value: 'crm', label: '👥 CRM' },
     { value: 'document', label: '📄 Document' },
     { value: 'email', label: '📧 Email' },
     { value: 'execution', label: '⚡ Execution' },
     { value: 'media', label: '🎨 Media' },
+    { value: 'meta', label: '🧠 Meta' },
     { value: 'search', label: '🔍 Search' },
     { value: 'social', label: '📱 Social' },
     { value: 'utility', label: '🔧 Utility' },
@@ -199,7 +202,7 @@ export const ToolManagement: React.FC = () => {
         setSyncing(true);
         try {
             const result = await toolService.syncBuiltIn();
-            alert(`Sync complete: ${result.created} new tool(s) registered.`);
+            alert(`Sync complete: ${result.created} new tool(s) registered, ${result.updated ?? 0} brought up to date.`);
             fetchTools();
         } catch (err) {
             console.error('Failed to sync built-in tools:', err);

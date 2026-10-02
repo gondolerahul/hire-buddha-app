@@ -111,6 +111,9 @@ class Tool(ABC):
     # The field a plan step's plain-text input fills, for a typed tool whose
     # step templates are text (``calculator``'s "17*23").
     string_field: ClassVar[Optional[str]] = None
+    # Where the tool is listed; ``tool_category`` derives it from the tool's
+    # subpackage unless the tool refines it here (TL-35).
+    category: ClassVar[Optional[str]] = None
 
     # One registered instance serves every run of every company at once, so a
     # tool must keep nothing per call on ``self`` (TX-02). Registration freezes
@@ -211,6 +214,23 @@ class Tool(ABC):
                 "required": ["input"],
             },
         }
+
+
+# A tool's category is its subpackage's (TL-35): a hand-written map covered 22
+# of 98 tools and listed the rest as "general".
+_PACKAGE_CATEGORIES = {
+    "core": "core", "documents": "document", "email": "email", "media": "media",
+    "social": "social", "crm": "crm", "sandbox": "execution", "meta": "meta",
+}
+
+
+def tool_category(tool: "Tool") -> str:
+    """The tool's ``category``, else its subpackage's under ``src.ai.tools``."""
+    if tool.category:
+        return tool.category
+    parts = type(tool).__module__.split(".")
+    package = parts[3] if parts[:3] == ["src", "ai", "tools"] and len(parts) > 4 else ""
+    return _PACKAGE_CATEGORIES.get(package, "general")
 
 
 def _plain_schema(schema: Dict[str, Any], defs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
