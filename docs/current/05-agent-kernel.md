@@ -1458,7 +1458,7 @@ carries `error`.
 | Every plan step ran, every required one succeeded | `decide_next` | `DONE` | `COMPLETED` |
 | Every plan step ran, some failed | `decide_next` | `DONE` | `PARTIAL_COMPLETE` (none succeeded: `FAILED`), `error_message` lists the failed steps |
 | Budget exhausted (any axis) | `decide_next` **and** `_loop` | `ABORT` | `FAILED` |
-| Hard iteration cap (`max_iterations`, default 50) | `_loop` top | `ABORT` | `FAILED` |
+| Iteration cap — since P8.11 (AK-I8) `iteration_cap`: each plan step once plus its retries plus 5, at least 8, at most `max_iterations` (default 50); a run with no plan yet keeps 50; recomputed every iteration, so a replan moves it | `_loop` top | `ABORT` | `FAILED` |
 | Pre-critic circuit breaker (3 consecutive `BLOCK`) | `_iteration` phase 3 | `ABORT` | `FAILED` |
 | Supervisor `ABORT` | `decide_next` | `ABORT` | `FAILED` |
 | No plan could be made (the Recursive executor failed) | `decide_next` | `ABORT` | `FAILED`, `error_message` = the reason |

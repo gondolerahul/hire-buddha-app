@@ -530,6 +530,8 @@ Recompute it when a child folds in, not every iteration.
 
 ### AK-I8 — Make the iteration budget adaptive
 
+**Status: done (2026-10-03, P8.11)** — the cap is each plan step once plus the entity's `max_retries` plus 5, at least 8, never above the hard 50; a run with no plan keeps 50. `tests/unit/test_iteration_cap.py`.
+
 **Effect: medium.** `max_iterations` is a flat 50 for every entity, from an `ACTION` with
 one step to a `PROCESS` orchestrating three agents. The `ACTION` will never use its 50
 and the `PROCESS` may need more.

@@ -31,6 +31,7 @@ __all__ = [
     "retry_policy",
     "backoff_seconds",
     "failures_of",
+    "iteration_cap",
     "with_prompt_hint",
 ]
 
@@ -56,6 +57,18 @@ def retry_policy(entity: Any) -> Any:
     except Exception:                                                       # noqa: BLE001
         logger.warning("Unreadable logic_gate.retry_policy %r; using the default", raw)
         return RetryPolicy(max_retries=MAX_RETRIES_PER_STEP)
+
+
+def iteration_cap(entity: Any, plan_size: int, hard_cap: int) -> int:
+    """The run's iteration ceiling (AK-I8): each step once plus its retries
+    (the entity's ``max_retries``), plus room for planning and replans, never
+    above ``hard_cap``. A run with no plan yet keeps the hard cap (the
+    Recursive planner needs the room). Before, every run had the flat 50 — an
+    ACTION with one step and a PROCESS of three agents alike."""
+    if plan_size <= 0:
+        return hard_cap
+    retries = max(0, int(retry_policy(entity).max_retries))
+    return min(hard_cap, max(8, plan_size * (1 + retries) + 5))
 
 
 def backoff_seconds(policy: Any, attempt: int) -> float:

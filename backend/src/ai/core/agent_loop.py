@@ -48,6 +48,7 @@ from src.ai.core.step_results import (
 )
 from src.ai.core.run_outcome import failed_steps_summary, final_status
 from src.ai.governance.output_contract import apply_output_contract
+
 from src.ai.core.stuck_runs import SUSPENDED_AT_KEY, cancel_open_children, utc_now_iso
 from src.ai.core.trace import current_recorder, span
 from src.ai.governance.entity_versions import run_entity
@@ -64,6 +65,7 @@ from src.ai.planning.retry_strategies import (
     RetryStrategy,
     backoff_seconds,
     failures_of,
+    iteration_cap,
     pick_retry,
     retry_policy,
     with_prompt_hint,
@@ -420,10 +422,11 @@ class AgentLoop:
 
     async def _loop(self, state: AgentState) -> None:
         while not state.done:
-            if state.iteration >= self.max_iterations:
+            cap = iteration_cap(self._entity, len(state.plan_steps), self.max_iterations)  # AK-I8
+            if state.iteration >= cap:
                 logger.warning(
-                    "AgentLoop hit hard iteration cap (%d); aborting run %s",
-                    self.max_iterations, state.run_id,
+                    "AgentLoop hit its iteration cap (%d); aborting run %s",
+                    cap, state.run_id,
                 )
                 state.done = True
                 state.next_decision = "ABORT"
