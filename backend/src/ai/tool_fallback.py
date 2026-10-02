@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -163,3 +163,34 @@ def get_fallback_tool(
             return alt_tool_id, raw_input
 
     return None, raw_input
+
+
+# The longest fallback walk: web_search → headless_browser → scraper_tool.
+MAX_FALLBACK_HOPS = 3
+
+
+def fallback_chain(primary_tool_id: str, raw_input: str, table: Any = None,
+                   max_hops: int = MAX_FALLBACK_HOPS) -> list[Tuple[str, str]]:
+    """The fallbacks to try, in order, after ``primary_tool_id`` failed (EP-23).
+
+    Walks the table one hop at a time — each fallback's own fallback next —
+    and stops at a tool already tried: the pairs are reciprocal
+    (``scraper_tool`` ↔ ``headless_browser``), so an unguarded walk would
+    loop. Before, only the first hop was taken.
+    """
+    table = table or get_fallback_tool
+    chain: list[Tuple[str, str]] = []
+    seen = {primary_tool_id}
+    current, current_input = primary_tool_id, raw_input
+    while len(chain) < max_hops:
+        try:
+            alt, alt_input = table(current, current_input)
+        except Exception as exc:  # noqa: BLE001 - a broken transform ends the walk
+            logger.debug(f"fallback table failed for {current}: {exc}")
+            break
+        if not alt or alt in seen:
+            break
+        chain.append((alt, alt_input))
+        seen.add(alt)
+        current, current_input = alt, alt_input
+    return chain

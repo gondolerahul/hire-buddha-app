@@ -1489,8 +1489,8 @@ Exact policy, stated plainly:
 - **At most one reformat retry.** `REFORMAT_RECOVERABLE_KINDS = (FORMAT, IO,
   EMPTY, ERROR_MSG)`. `TIMEOUT` and `OTHER` skip straight to fallback — a
   timeout is not something rewriting the input fixes.
-- **At most one fallback attempt.** `get_fallback_tool` returns the *first*
-  alternative only.
+- **A fallback chain, not one hop** (since P8.7, EP-23): up to three fallbacks, each
+  fallback's own next, no tool twice (`tool_fallback.fallback_chain`).
 - **No delay between attempts.** No sleep, no jitter, no backoff.
 - **No circuit breaker.** Nothing tracks consecutive failures per tool, and no
   tool is ever temporarily disabled. A tool whose API key is missing will be

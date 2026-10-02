@@ -244,25 +244,10 @@ class ToolResilience:
                     return retry
                 tr = retry  # carry the retry's output forward
 
-        # Step 2 — fallback chain.
-        if self.fallback_table is not None:
-            try:
-                alt_tool_id, alt_input = self.fallback_table(tool_id, raw_input)
-            except Exception as exc:                                        # pragma: no cover
-                logger.debug(f"fallback_table call failed: {exc}")
-                alt_tool_id, alt_input = (None, raw_input)
-            if alt_tool_id:
-                alt_tr = await self._exec_one(alt_tool_id, alt_input, extra_context, "plan")
-                alt_kind = classify_tool_failure(alt_tr)
-                success = alt_kind is FailureKind.NONE and not alt_tr.skipped
-                await self._emit(
-                    "agent.tool.resilience.fallback_taken",
-                    run_id=str(getattr(run, "id", "")) if run else None,
-                    from_tool=tool_id, to_tool=alt_tool_id, success=success,
-                )
-                if success:
-                    alt_tr.tool = f"{tool_id}→{alt_tool_id}"
-                    return alt_tr
+        # Step 2 — the fallback chain (EP-23).
+        found = await self._fallbacks(run, tool_id, raw_input, extra_context, "plan")
+        if found is not None:
+            return found
 
         # Step 3 — final empty marker.
         await self._emit(
@@ -388,32 +373,12 @@ class ToolResilience:
                     return retry
                 tr = retry
 
-        # Step 2 — fallback chain (string-input path).
-        if self.fallback_table is not None:
-            try:
-                # Use whatever string form we have for the fallback table.
-                seed_input = (
-                    tool_args.get("input")
-                    if isinstance(tool_args, dict) and "input" in tool_args
-                    else str(tool_args)
-                )
-                alt_tool_id, alt_input = self.fallback_table(tool_id, seed_input)
-            except Exception as exc:                                          # pragma: no cover
-                logger.debug(f"fallback_table call failed: {exc}")
-                alt_tool_id, alt_input = (None, None)
-            if alt_tool_id:
-                alt_tr = await self._exec_one(alt_tool_id, alt_input, extra_context, "llm")
-                alt_kind = classify_tool_failure(alt_tr)
-                success = alt_kind is FailureKind.NONE and not alt_tr.skipped
-                await self._emit(
-                    "agent.tool.resilience.fallback_taken",
-                    run_id=str(getattr(run, "id", "")) if run else None,
-                    from_tool=tool_id, to_tool=alt_tool_id, success=success,
-                    path="react_afc",
-                )
-                if success:
-                    alt_tr.tool = f"{tool_id}→{alt_tool_id}"
-                    return alt_tr
+        # Step 2 — the fallback chain (EP-23), on the string form of the args.
+        seed_input = (tool_args.get("input") if isinstance(tool_args, dict) and "input" in tool_args
+                      else str(tool_args))
+        found = await self._fallbacks(run, tool_id, seed_input, extra_context, "llm", path="react_afc")
+        if found is not None:
+            return found
 
         await self._emit(
             "agent.tool.resilience.final_empty",
@@ -421,6 +386,27 @@ class ToolResilience:
             tool_id=tool_id, failure_kind=kind.value, path="react_afc",
         )
         return self._final_failure(tool_id, kind, tr)
+
+    async def _fallbacks(self, run: Any, tool_id: str, seed_input: Any, extra_context: dict,
+                         via: str, path: Optional[str] = None) -> Optional[ToolResult]:
+        """Try each fallback of ``tool_id`` in turn (``fallback_chain``: up to
+        three hops, no tool twice); the first that answers, else None."""
+        if self.fallback_table is None:
+            return None
+        from src.ai.tool_fallback import fallback_chain
+        for alt_tool_id, alt_input in fallback_chain(tool_id, str(seed_input or ""), self.fallback_table):
+            alt_tr = await self._exec_one(alt_tool_id, alt_input, extra_context, via)
+            success = classify_tool_failure(alt_tr) is FailureKind.NONE and not alt_tr.skipped
+            await self._emit(
+                "agent.tool.resilience.fallback_taken",
+                run_id=str(getattr(run, "id", "")) if run else None,
+                from_tool=tool_id, to_tool=alt_tool_id, success=success,
+                **({"path": path} if path else {}),
+            )
+            if success:
+                alt_tr.tool = f"{tool_id}→{alt_tool_id}"
+                return alt_tr
+        return None
 
     async def _reformat_input(
         self,

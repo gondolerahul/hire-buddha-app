@@ -495,7 +495,7 @@ ladder will drift.
 
 ### EP-23 — The fallback chain is one hop only
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-03, P8.7)** — the ladder walks the table up to three hops and never tries a tool twice; one helper serves the plan and model paths. `tests/unit/test_fallback_chain.py`.
 
 `get_fallback_tool` returns the **first** alternative and there is no chain walk. So
 `web_search → headless_browser` is the whole recovery; if the browser also fails, the step

@@ -1507,8 +1507,11 @@ only the bill showed it.
 | `scraper_tool` | `headless_browser` | url → browser navigation payload |
 | `headless_browser` | `scraper_tool` | extract the bare url |
 
-`get_fallback_tool` returns the **first** alternative only; there is no chain
-walk beyond one hop.
+Since P8.7 (2026-10-03, EP-23) the ladder walks a chain: `tool_fallback.fallback_chain`
+follows the table one hop at a time — each fallback's own fallback next — up to three
+hops and never a tool twice (the pairs are reciprocal), and `ToolResilience._fallbacks`
+tries each until one answers, on both the plan and the model path. So `web_search` →
+`headless_browser` → `scraper_tool`; before, only the first hop was tried.
 
 #### Two implementations of the same ladder
 
