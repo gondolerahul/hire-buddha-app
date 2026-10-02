@@ -241,21 +241,21 @@ ACTIONS_PDF = [
                 "system_prompt": (
                     "You detect PDF form fields.\n\n"
                     "## STEP 1: Check for fillable fields\n"
-                    "```bash\npython scripts/pdf/check_fillable_fields.py input.pdf\n```\n\n"
+                    "```bash\npython $SKILL_FILES/check_fillable_fields.py input.pdf\n```\n\n"
                     "## IF FILLABLE: Extract field info\n"
-                    "```bash\npython scripts/pdf/extract_form_field_info.py input.pdf field_info.json\n```\n"
+                    "```bash\npython $SKILL_FILES/extract_form_field_info.py input.pdf field_info.json\n```\n"
                     "Output: JSON with field_id, page, rect, type (text/checkbox/radio_group/choice).\n"
                     "Checkboxes have checked_value/unchecked_value.\n"
                     "Radio groups have radio_options with value and rect.\n\n"
                     "## IF NOT FILLABLE: Extract structure for annotation approach\n"
-                    "```bash\npython scripts/pdf/extract_form_structure.py input.pdf form_structure.json\n```\n"
+                    "```bash\npython $SKILL_FILES/extract_form_structure.py input.pdf form_structure.json\n```\n"
                     "Output: labels, lines, checkboxes, row_boundaries.\n"
                     "If no meaningful labels found, fall back to visual estimation."
                 ),
                 "behavioral_constraints": [
                     "Always check fillable first before trying structure extraction",
                     "Report which approach to use: fillable or annotation-based",
-                    "Convert PDF to images for visual analysis: python scripts/pdf/convert_pdf_to_images.py"
+                    "Convert PDF to images for visual analysis: python $SKILL_FILES/convert_pdf_to_images.py"
                 ]
             },
             "hierarchy": {"is_atomic": True, "composition_depth": 0, "children": []},
@@ -287,22 +287,22 @@ ACTIONS_PDF = [
                     "[{\"field_id\": \"last_name\", \"description\": \"Last name\", \"page\": 1, \"value\": \"Smith\"},\n"
                     " {\"field_id\": \"Checkbox12\", \"description\": \"Age 18+\", \"page\": 1, \"value\": \"/On\"}]\n"
                     "```\n"
-                    "Fill: python scripts/pdf/fill_fillable_fields.py input.pdf field_values.json output.pdf\n\n"
+                    "Fill: python $SKILL_FILES/fill_fillable_fields.py input.pdf field_values.json output.pdf\n\n"
                     "## NON-FILLABLE FORMS (Annotation Approach)\n"
                     "### Approach A: Structure-Based (preferred)\n"
                     "Use coordinates from form_structure.json. Create fields.json with pdf_width/pdf_height.\n"
                     "entry x0 = label x1 + 5. Use checkbox coords directly.\n\n"
                     "### Approach B: Visual Estimation (fallback)\n"
-                    "1. Convert to images: python scripts/pdf/convert_pdf_to_images.py input.pdf images/\n"
+                    "1. Convert to images: python $SKILL_FILES/convert_pdf_to_images.py input.pdf images/\n"
                     "2. Estimate field positions from images\n"
                     "3. Zoom refinement with ImageMagick crops for precision\n"
                     "4. Create fields.json with image_width/image_height\n\n"
                     "### Validate before filling:\n"
-                    "python scripts/pdf/check_bounding_boxes.py fields.json\n\n"
+                    "python $SKILL_FILES/check_bounding_boxes.py fields.json\n\n"
                     "### Fill:\n"
-                    "python scripts/pdf/fill_pdf_form_with_annotations.py input.pdf fields.json output.pdf\n\n"
+                    "python $SKILL_FILES/fill_pdf_form_with_annotations.py input.pdf fields.json output.pdf\n\n"
                     "### Verify:\n"
-                    "python scripts/pdf/convert_pdf_to_images.py output.pdf verify/"
+                    "python $SKILL_FILES/convert_pdf_to_images.py output.pdf verify/"
                 ),
                 "behavioral_constraints": [
                     "Always validate bounding boxes before filling",

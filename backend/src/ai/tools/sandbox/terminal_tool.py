@@ -143,11 +143,11 @@ class TerminalTool(Tool):
         company_id = context.get("company_id") if context else None
         if company_id:
             import os
-            scoped_dir = os.path.join("/tmp", "sandbox", str(company_id))
+            from src.ai.tools.sandbox.workspace import tenant_workspace
+            # The tenant workspace (TL-29) — where the run's skill files are
+            # written; it was a hard-coded /tmp/sandbox/<company>.
+            scoped_dir = tenant_workspace(company_id)
             os.makedirs(scoped_dir, exist_ok=True)
-            # Provision shared resources (e.g. Document Factory scripts)
-            from src.ai.tools.sandbox.sandbox_provision import provision_sandbox
-            provision_sandbox(scoped_dir)
             # If caller didn't specify a custom working_dir, use the scoped one
             if working_dir == "/tmp":
                 working_dir = scoped_dir

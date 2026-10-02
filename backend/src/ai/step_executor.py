@@ -727,6 +727,11 @@ class StepExecutorService:
         reasoning_mode = str(_step_hint).upper() if _step_hint else "REACT"
 
         user_prompt = compose_step_prompt(step, filtered_context, context.get("input"))
+        # ``$SKILL_FILES`` names the nearest version's files folder (R2).
+        from src.ai.tools.sandbox.skill_files import fill_skill_files
+        _skills = await self._skill_files(run)
+        full_system_prompt = fill_skill_files(full_system_prompt, _skills)
+        user_prompt = fill_skill_files(user_prompt, _skills)
 
         logger.debug(f"Routing via LLMRouter → task_type={task_type}, reasoning_mode={reasoning_mode}, model_override={model_override}")
         # Inject model_override into config so reasoning methods can forward it

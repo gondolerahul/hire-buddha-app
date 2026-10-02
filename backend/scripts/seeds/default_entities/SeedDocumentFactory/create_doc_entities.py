@@ -322,6 +322,22 @@ def main():
     print("  ✅ QA Agent patched")
 
     # ========================================
+    # PHASE 7: Script files onto the family agents (R2)
+    # ========================================
+    # Each family's scripts become files of its AGENT's version. Every SKILL
+    # and ACTION run beneath the agent sees them in its workspace
+    # (``.skills/<agent>/<version>/``); the action prompts name them as
+    # ``$SKILL_FILES/...``. They used to be a symlink from every tenant's
+    # workspace to this folder.
+    print("\n" + "=" * 60)
+    print("Phase 7: Attaching script files to the family agents")
+    print("=" * 60)
+    from config import family_files
+    for family, agent_key in (("docx", "docx_document_agent"), ("pptx", "pptx_presentation_agent"),
+                              ("xlsx", "xlsx_spreadsheet_agent"), ("pdf", "pdf_document_agent")):
+        client.attach_files(entity_ids[agent_key], family_files(family))
+
+    # ========================================
     # Summary
     # ========================================
     print("\n" + "=" * 60)

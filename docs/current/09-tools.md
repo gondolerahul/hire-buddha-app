@@ -1255,8 +1255,19 @@ stale tree is written into a temporary directory and renamed into place, so a pa
 never sees half of it. Paths are re-validated before writing. The step's sandwich prompt
 gets a **Skill Files** section naming each root and its files (scripts first, 40 a
 version). Writing happens in the worker; the API process only stores bodies
-([03 §4.1a](03-data-model.md#41a-entity_versions-and-entity_assets)). The old shared
-symlink (`sandbox_provision`) is replaced in 5.7.
+([03 §4.1a](03-data-model.md#41a-entity_versions-and-entity_assets)). A prompt names a
+file as `$SKILL_FILES/<path>`; `fill_skill_files` replaces the token, in the step's system
+and user prompts, with the nearest version's folder, so a seed or an author never needs the
+version number. `terminal` runs in `tenant_workspace()` (it used a hard-coded
+`/tmp/sandbox/<company>`, which differs wherever `SANDBOX_WORKSPACE_ROOT` is set — a TL-29
+leftover, fixed in P5.7).
+
+Until P5.7, `sandbox_provision` symlinked the repo's `SeedDocumentFactory/scripts` into
+**every** tenant workspace and bind-mounted it into every container: one directory every
+tenant read, and in host mode (TL-01) could write. It is deleted; the Document Factory's
+scripts are files of each family AGENT's version (`docx`, `pptx`, `xlsx`, `pdf`), attached by
+the seed's Phase 7 through the versions API, and the action prompts name them as
+`$SKILL_FILES/...`.
 
 ### 12.4 The egress proxy
 
@@ -1998,7 +2009,6 @@ reading the backend's `.env` file off the host filesystem.
 | [tools/sandbox/container_runtime.py](../../backend/src/ai/tools/sandbox/container_runtime.py) | 193 | `docker exec` implementation of the Protocol |
 | [tools/sandbox/egress_proxy.py](../../backend/src/ai/tools/sandbox/egress_proxy.py) | 160 | allow-list egress networks and the tinyproxy container |
 | [tools/sandbox/metering.py](../../backend/src/ai/tools/sandbox/metering.py) | 65 | sandbox-seconds usage attribution |
-| [tools/sandbox/sandbox_provision.py](../../backend/src/ai/tools/sandbox/sandbox_provision.py) | 107 | symlinks Document Factory scripts into each tenant sandbox |
 | [tools/sandbox/skill_files.py](../../backend/src/ai/tools/sandbox/skill_files.py) | 170 | a run's version assets written into `.skills/<slug>/<version>/`; the prompt's Skill Files section |
 | [tools/social/base.py](../../backend/src/ai/tools/social/base.py) | 173 | `SocialMediaTool` — credentials, HTTP helper, EXPERIMENTAL default |
 | [docker/sandbox/Dockerfile](../../backend/docker/sandbox/Dockerfile) | 66 | the `hb-sandbox` image |

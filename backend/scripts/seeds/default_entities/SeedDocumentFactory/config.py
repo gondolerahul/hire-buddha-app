@@ -61,3 +61,44 @@ class APIClient:
             print(f"  ❌ Auth failed: {resp.status_code}")
             sys.exit(1)
         print(f"  ✅ Auth OK ({len(resp.json())} existing entities)")
+
+    def attach_files(self, entity_id, files):
+        """A draft of the entity with ``files``, published: new runs execute it."""
+        url = f"{self.base_url}/ai/entities/{entity_id}/versions"
+        resp = self.session.post(url, json={"changes": {}})
+        resp.raise_for_status()
+        draft = resp.json()["id"]
+        for path, body in files.items():
+            r = self.session.put(f"{url}/{draft}/assets/{path}", json={"body": body})
+            if r.status_code != 200:
+                print(f"  ❌ {path}: {r.status_code} — {r.text[:200]}")
+                r.raise_for_status()
+        resp = self.session.post(f"{url}/{draft}/publish")
+        resp.raise_for_status()
+        print(f"  ✅ {len(files)} files → version {resp.json()['version_number']} of {entity_id}")
+        return resp.json()
+
+
+# ── Script files (R2): each family's scripts are files of its AGENT's version ──
+SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "scripts")
+
+
+def family_files(family):
+    """``{relative path: text}`` of ``scripts/<family>/``: what its agent's version holds.
+
+    Prompts name these as ``$SKILL_FILES/<path>``; the engine writes them into
+    the tenant workspace and fills in the folder (``ai.tools.sandbox.skill_files``).
+    """
+    root = os.path.join(SCRIPTS_DIR, family)
+    files = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
+        for name in sorted(filenames):
+            if name.endswith(".pyc"):
+                continue
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            with open(full, encoding="utf-8") as f:
+                files[rel] = f.read()
+    return files
+

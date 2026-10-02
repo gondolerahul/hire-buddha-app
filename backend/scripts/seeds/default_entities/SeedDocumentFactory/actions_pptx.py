@@ -155,7 +155,7 @@ ACTIONS_PPTX = [
                     "## COMMANDS\n"
                     "```bash\n"
                     "# Visual overview of all slides\n"
-                    "python scripts/pptx/thumbnail.py template.pptx\n"
+                    "python $SKILL_FILES/thumbnail.py template.pptx\n"
                     "# Text content extraction\n"
                     "python -m markitdown template.pptx\n"
                     "```\n\n"
@@ -197,7 +197,7 @@ ACTIONS_PPTX = [
             "type": "ACTION", "version": "1.0.0", "status": "ACTIVE",
             "tags": ["doc-factory", "pptx", "unpack"],
             "identity": {
-                "system_prompt": "You unpack .pptx files.\n\n```bash\npython scripts/pptx/office/unpack.py input.pptx unpacked/\n```\n\nExtracts PPTX, pretty-prints XML, escapes smart quotes.",
+                "system_prompt": "You unpack .pptx files.\n\n```bash\npython $SKILL_FILES/office/unpack.py input.pptx unpacked/\n```\n\nExtracts PPTX, pretty-prints XML, escapes smart quotes.",
                 "behavioral_constraints": ["Verify unpacked directory after extraction", "Report slide count and layout files found"]
             },
             "hierarchy": {"is_atomic": True, "composition_depth": 0, "children": []},
@@ -227,8 +227,8 @@ ACTIONS_PPTX = [
                     "Slide order is in ppt/presentation.xml → <p:sldIdLst>.\n"
                     "- Reorder: Rearrange <p:sldId> elements\n"
                     "- Delete: Remove <p:sldId>, then run clean.py\n"
-                    "- Add: python scripts/pptx/add_slide.py unpacked/ slide2.xml (duplicate)\n"
-                    "  or: python scripts/pptx/add_slide.py unpacked/ slideLayout2.xml (from layout)\n"
+                    "- Add: python $SKILL_FILES/add_slide.py unpacked/ slide2.xml (duplicate)\n"
+                    "  or: python $SKILL_FILES/add_slide.py unpacked/ slideLayout2.xml (from layout)\n"
                     "  Never manually copy slide files.\n\n"
                     "## CONTENT EDITING\n"
                     "For each slide XML:\n"
@@ -287,10 +287,10 @@ ACTIONS_PPTX = [
                 "system_prompt": (
                     "You clean and repack PPTX files.\n\n"
                     "## STEP 1: CLEAN\n"
-                    "```bash\npython scripts/pptx/clean.py unpacked/\n```\n"
+                    "```bash\npython $SKILL_FILES/clean.py unpacked/\n```\n"
                     "Removes slides not in <p:sldIdLst>, unreferenced media, orphaned rels.\n\n"
                     "## STEP 2: PACK\n"
-                    "```bash\npython scripts/pptx/office/pack.py unpacked/ output.pptx --original input.pptx\n```\n"
+                    "```bash\npython $SKILL_FILES/office/pack.py unpacked/ output.pptx --original input.pptx\n```\n"
                     "Validates, repairs, condenses XML, re-encodes smart quotes."
                 ),
                 "behavioral_constraints": ["Always run clean.py before pack.py", "Always pass --original flag"]
@@ -316,7 +316,7 @@ ACTIONS_PPTX = [
             "type": "ACTION", "version": "1.0.0", "status": "ACTIVE",
             "tags": ["doc-factory", "pptx", "reading", "extraction"],
             "identity": {
-                "system_prompt": "You extract content from .pptx files.\n\n```bash\npython -m markitdown presentation.pptx\n```\n\nFor raw XML: python scripts/pptx/office/unpack.py presentation.pptx unpacked/",
+                "system_prompt": "You extract content from .pptx files.\n\n```bash\npython -m markitdown presentation.pptx\n```\n\nFor raw XML: python $SKILL_FILES/office/unpack.py presentation.pptx unpacked/",
                 "behavioral_constraints": ["Report slide count and content summary", "Flag any placeholder text found"]
             },
             "hierarchy": {"is_atomic": True, "composition_depth": 0, "children": []},

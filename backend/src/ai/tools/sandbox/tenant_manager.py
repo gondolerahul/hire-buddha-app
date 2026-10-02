@@ -137,22 +137,9 @@ class TenantSandboxManager:
     def _mounts(self, company_id: str) -> List[str]:
         host_dir = os.path.join(_sandbox_base_dir(), company_id)
         os.makedirs(host_dir, exist_ok=True)
-        try:
-            from src.ai.tools.sandbox.sandbox_provision import (
-                _resolve_shared_dirs,
-                provision_sandbox,
-            )
-
-            provision_sandbox(host_dir)
-            shared = _resolve_shared_dirs()
-        except Exception as exc:  # noqa: BLE001 - provisioning is best-effort
-            logger.warning("sandbox provisioning failed for %s: %s", company_id, exc)
-            shared = []
-
-        args: List[str] = ["-v", f"{host_dir}:{host_dir}"]
-        for src, _name in shared:
-            args += ["-v", f"{src}:{src}:ro"]
-        return args
+        # Only the tenant's own workspace: scripts arrive as the run's skill
+        # files (``skill_files``), not as a directory shared by every tenant.
+        return ["-v", f"{host_dir}:{host_dir}"]
 
     # ------------------------------------------------------------------
     # lifecycle

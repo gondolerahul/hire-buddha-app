@@ -137,9 +137,6 @@ class SandboxCodeTool(Tool):
                     os.unlink(legacy_link)
                 except OSError:
                     pass
-            # Provision shared resources (e.g. Document Factory scripts)
-            from src.ai.tools.sandbox.sandbox_provision import provision_sandbox
-            provision_sandbox(sandbox_dir)
             logger.info(f"SandboxCodeTool: executing {language} for company {company_id}")
         else:
             sandbox_dir = None

@@ -93,7 +93,7 @@ ACTIONS_DOCX = [
                     "- Override built-in styles with exact IDs\n\n"
                     "## POST-CREATION VALIDATION\n"
                     "```bash\n"
-                    "python scripts/docx/office/validate.py output.docx\n"
+                    "python $SKILL_FILES/office/validate.py output.docx\n"
                     "```\n"
                     "If validation fails, unpack, fix the XML, and repack."
                 ),
@@ -109,7 +109,7 @@ ACTIONS_DOCX = [
                     "Override built-in styles with exact IDs: 'Heading1', 'Heading2', etc.",
                     "Include outlineLevel in heading styles (0 for H1, 1 for H2) — required for TOC",
                     "Never use '\\n' — use separate Paragraph elements",
-                    "Always validate after creation: python scripts/docx/office/validate.py output.docx"
+                    "Always validate after creation: python $SKILL_FILES/office/validate.py output.docx"
                 ]
             },
             "hierarchy": {"is_atomic": True, "composition_depth": 0, "children": []},
@@ -155,7 +155,7 @@ ACTIONS_DOCX = [
                     "You unpack .docx files for XML editing.\n\n"
                     "## COMMAND\n"
                     "```bash\n"
-                    "python scripts/docx/office/unpack.py document.docx unpacked/\n"
+                    "python $SKILL_FILES/office/unpack.py document.docx unpacked/\n"
                     "```\n\n"
                     "This extracts XML, pretty-prints, merges adjacent runs, and converts smart quotes "
                     "to XML entities (&#x201C; etc.) so they survive editing.\n"
@@ -239,8 +239,8 @@ ACTIONS_DOCX = [
                     "## COMMENTS\n"
                     "Use comment.py for boilerplate:\n"
                     "```bash\n"
-                    "python scripts/docx/comment.py unpacked/ 0 \"Comment text\"\n"
-                    "python scripts/docx/comment.py unpacked/ 1 \"Reply\" --parent 0\n"
+                    "python $SKILL_FILES/comment.py unpacked/ 0 \"Comment text\"\n"
+                    "python $SKILL_FILES/comment.py unpacked/ 1 \"Reply\" --parent 0\n"
                     "```\n"
                     "Then add markers to document.xml:\n"
                     "```xml\n"
@@ -310,7 +310,7 @@ ACTIONS_DOCX = [
                     "You repack edited XML into a .docx file.\n\n"
                     "## COMMAND\n"
                     "```bash\n"
-                    "python scripts/docx/office/pack.py unpacked/ output.docx --original document.docx\n"
+                    "python $SKILL_FILES/office/pack.py unpacked/ output.docx --original document.docx\n"
                     "```\n\n"
                     "This validates with auto-repair, condenses XML, and creates DOCX.\n"
                     "Use --validate false to skip validation.\n\n"
@@ -372,20 +372,20 @@ ACTIONS_DOCX = [
                     "```\n\n"
                     "## RAW XML ACCESS\n"
                     "```bash\n"
-                    "python scripts/docx/office/unpack.py document.docx unpacked/\n"
+                    "python $SKILL_FILES/office/unpack.py document.docx unpacked/\n"
                     "```\n\n"
                     "## CONVERTING TO IMAGES\n"
                     "```bash\n"
-                    "python scripts/docx/office/soffice.py --headless --convert-to pdf document.docx\n"
+                    "python $SKILL_FILES/office/soffice.py --headless --convert-to pdf document.docx\n"
                     "pdftoppm -jpeg -r 150 document.pdf page\n"
                     "```\n\n"
                     "## ACCEPTING TRACKED CHANGES\n"
                     "```bash\n"
-                    "python scripts/docx/accept_changes.py input.docx output.docx\n"
+                    "python $SKILL_FILES/accept_changes.py input.docx output.docx\n"
                     "```\n\n"
                     "## CONVERTING .doc TO .docx\n"
                     "```bash\n"
-                    "python scripts/docx/office/soffice.py --headless --convert-to docx document.doc\n"
+                    "python $SKILL_FILES/office/soffice.py --headless --convert-to docx document.doc\n"
                     "```"
                 ),
                 "behavioral_constraints": [
@@ -432,7 +432,7 @@ ACTIONS_DOCX = [
                     "You validate .docx files for correctness.\n\n"
                     "## VALIDATION\n"
                     "```bash\n"
-                    "python scripts/docx/office/validate.py document.docx\n"
+                    "python $SKILL_FILES/office/validate.py document.docx\n"
                     "```\n\n"
                     "## COMMON ISSUES TO CHECK\n"
                     "- Invalid XML structure\n"

@@ -39,7 +39,7 @@ ACTIONS_XLSX = [
                     "```\n\n"
                     "## POST-CREATION: RECALCULATE (MANDATORY)\n"
                     "```bash\n"
-                    "python scripts/xlsx/recalc.py output.xlsx\n"
+                    "python $SKILL_FILES/recalc.py output.xlsx\n"
                     "```\n"
                     "This recalculates all formulas and scans for errors (#REF!, #DIV/0!, etc.).\n\n"
                     "## PROFESSIONAL FONT\n"
@@ -52,7 +52,7 @@ ACTIONS_XLSX = [
                 "behavioral_constraints": [
                     "ALWAYS use Excel formulas instead of calculating values in Python and hardcoding them",
                     "Every workbook must be delivered with ZERO formula errors (#REF!, #DIV/0!, #VALUE!, #N/A, #NAME?)",
-                    "ALWAYS run scripts/xlsx/recalc.py after creating workbooks with formulas",
+                    "ALWAYS run $SKILL_FILES/recalc.py after creating workbooks with formulas",
                     "Use consistent professional font (Arial or Times New Roman)",
                     "Write minimal, concise Python code without unnecessary comments"
                 ]
@@ -176,7 +176,7 @@ ACTIONS_XLSX = [
             "identity": {
                 "system_prompt": (
                     "You recalculate Excel formulas and verify correctness.\n\n"
-                    "```bash\npython scripts/xlsx/recalc.py output.xlsx [timeout_seconds]\n```\n\n"
+                    "```bash\npython $SKILL_FILES/recalc.py output.xlsx [timeout_seconds]\n```\n\n"
                     "## OUTPUT FORMAT (JSON)\n"
                     "```json\n"
                     "{ \"status\": \"success\", \"total_errors\": 0, \"total_formulas\": 42 }\n"

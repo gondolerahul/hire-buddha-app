@@ -31,9 +31,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SKILLS_DIR", "SkillFiles", "materialise", "render_skill_files", "run_skill_files", "slug"]
+__all__ = [
+    "SKILLS_DIR", "SKILL_FILES_TOKEN", "SkillFiles", "fill_skill_files", "materialise",
+    "render_skill_files", "run_skill_files", "slug",
+]
 
 SKILLS_DIR = ".skills"
+# In a prompt, the nearest version's files folder (the first one listed).
+SKILL_FILES_TOKEN = "$SKILL_FILES"
 MARKER = ".content-hash"
 _MAX_ANCESTORS = 16
 _LISTED_PER_VERSION = 40
@@ -148,6 +153,15 @@ async def run_skill_files(db: "AsyncSession", run: Any) -> list[SkillFiles]:
         found.append(SkillFiles(entity_name=name, version_number=version.version_number,
                                 root=root_rel, paths=paths))
     return found
+
+
+def fill_skill_files(text: str, skills: list[SkillFiles]) -> str:
+    """``$SKILL_FILES`` in a prompt → the nearest version's files folder.
+
+    A seed or author names a script exactly (``$SKILL_FILES/office/validate.py``)
+    without knowing the version number. Unchanged when the run has no files.
+    """
+    return text.replace(SKILL_FILES_TOKEN, skills[0].root) if skills else text
 
 
 def render_skill_files(skills: list[SkillFiles]) -> Optional[str]:
