@@ -54,6 +54,9 @@ class PlanContext:
     goal: str = ""
     proposed_subgoals: list[Any] = field(default_factory=list)
     failed_step: Optional[dict[str, Any]] = None
+    # A replan's finished steps (id, name, output excerpt): the new plan
+    # replaces what is left and may use their outputs, never redoes them (PC-09).
+    completed_steps: list[dict[str, Any]] = field(default_factory=list)
     # Rendered "Available Child Entities" block, and the ids a
     # CHILD_ENTITY_INVOCATION may target (None = roster unknown). Without
     # them the LLM invents child ids (PC-24).
@@ -346,6 +349,11 @@ class PlanGenerator:
                 f"  - {getattr(g, 'description', str(g))}" for g in ctx.proposed_subgoals
             )
             parts.append(f"## Proposed subgoals (replan)\n{sg_block}")
+        if ctx.completed_steps:
+            done = "\n".join(
+                f"  - {{{{{s.get('step_id')}}}}} {s.get('name') or ''}: {str(s.get('output') or '')[:200]}"
+                for s in ctx.completed_steps[:20])
+            parts.append("## Already done (do not repeat; later steps may use their output by id)\n" + done)
         if ctx.failed_step:
             parts.append(
                 "## Previous attempt\n"

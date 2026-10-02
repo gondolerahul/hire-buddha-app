@@ -1355,7 +1355,7 @@ class AgentLoop:
                 )
                 return
         try:
-            from src.ai.planning.planner_service import PlannerService
+            from src.ai.planning.planner_service import PlannerService, keep_completed
             planner = PlannerService(self.db, company_id=cast(UUID, state.company_id))
             new_goal = (
                 "\n".join(g.description for g in supervise.proposed_subgoals)
@@ -1363,7 +1363,7 @@ class AgentLoop:
                 else (self._entity_goal_or_blank())
             )
             completed = [
-                {"step_id": sid, "name": sid, "output": ""}
+                {"step_id": sid, "name": sid, "output": str(state.context_state.get(sid) or "")[:500]}
                 for sid in state.completed_step_ids
             ]
             new_plan = await planner.adapt_plan(
@@ -1380,9 +1380,12 @@ class AgentLoop:
                 entity=self._entity, run_id=state.run_id,
             )
             if new_plan:
-                state.plan_steps = list(new_plan)
-                state.completed_step_ids = set()
-                state.failed_steps = {}
+                # The work already done stays done (PC-09, AK-17): a replan
+                # replaces what is left. Before, the completed ids were wiped,
+                # so a dynamic plan re-ran and re-paid for its finished steps
+                # on every supervisor REPLAN.
+                state.plan_steps = keep_completed(state.plan_steps, list(new_plan),
+                                                  state.completed_step_ids)
             await event_async(
                 "agent.replan.triggered",
                 run_id=str(state.run_id),

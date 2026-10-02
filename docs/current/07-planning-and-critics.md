@@ -961,9 +961,10 @@ Three sharp edges in this path:
 * **`completed_step_ids` is cleared** even though the new plan is id-renumbered
   starting after the completed count. Any step whose work was already done is
   re-run if the new plan re-describes it.
-* **`_handle_replan` synthesises `completed_steps` from ids only** —
-  `{"step_id": sid, "name": sid, "output": ""}`. The planner therefore never
-  sees what the completed steps actually produced.
+* **`_handle_replan` passes the finished steps with their outputs** (since P7.7,
+  PC-09): the generator's prompt lists them under "Already done" and the authored
+  candidate is the remaining steps only, so no candidate re-runs finished work, and the
+  loop keeps the finished steps and their ids.
 
 ### 7.3 What about `__completed_steps__`?
 

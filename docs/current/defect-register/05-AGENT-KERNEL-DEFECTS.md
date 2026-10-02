@@ -375,7 +375,7 @@ loop.
 
 ### AK-17 — `_handle_replan` wipes completed step ids for dynamic plans
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.7)** — with PC-09. `tests/unit/test_replan_keeps_done.py`.
 
 The wipe is guarded for static-plan entities. A **dynamic**-plan entity whose supervisor
 keeps recommending `REPLAN` loses its record of completed steps each time, and re-runs

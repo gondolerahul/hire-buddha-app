@@ -274,7 +274,7 @@ wobble follow the same path if they carry the same tag.
 
 ### PC-09 — `REPLAN` clears completed step ids for dynamic entities
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.7)** — a replan keeps the finished steps (ids, steps, outputs) and replaces only the rest; the generator is told what is done and adapts only the remaining steps. `tests/unit/test_replan_keeps_done.py`.
 
 The wipe is guarded for static-plan entities only. A dynamic-plan entity whose supervisor
 recommends `REPLAN` really does restart its plan from scratch, re-running and re-paying

@@ -772,8 +772,11 @@ if (decision.next_state_patch or {}).get("replan_requested"):
 ```
 
 `_handle_replan` ([agent_loop.py:1360](../../backend/src/ai/core/agent_loop.py:1360))
-calls `PlannerService.adapt_plan` and **replaces** `plan_steps` while resetting
-`completed_step_ids` to an empty set. It refuses to do this for static-plan
+calls `PlannerService.adapt_plan` and replaces what is left of `plan_steps`. Since P7.7
+(2026-10-02, PC-09, AK-17) the finished steps stay — their ids, the steps and their outputs
+(`planner_service.keep_completed`) — and the planner is told they are done; before, a
+dynamic plan's `completed_step_ids` were reset and every REPLAN re-ran finished work. It
+still refuses to do this for static-plan
 entities (`static_plan.enabled and not dynamic_planning.enabled`) — otherwise a
 supervisor that recommends REPLAN every iteration wipes all progress forever.
 That guard exists because of a real incident ("the doc-factory-lite
@@ -2014,9 +2017,8 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 - **Suspension skips finalization entirely.** No bandit update, no dreaming
   trigger, no billing settlement. Those only happen on the resumed run's real
   termination.
-- **`_handle_replan` wipes `completed_step_ids`.** Guarded for static-plan
-  entities only. A dynamic-plan entity whose supervisor keeps recommending
-  REPLAN will keep losing progress.
+- **`_handle_replan` keeps finished steps** (since P7.7): a REPLAN replaces only what
+  is left.
 - **Executors that use the loop's shared session can corrupt it.**
   `SingleStepExecutor` opens its own `AsyncSessionLocal` for exactly this
   reason; `DAGExecutor` and `ChildEntityExecutor` still use the passed-in `db`.

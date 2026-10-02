@@ -20,6 +20,17 @@ from src.ai.usage_service import UsageService
 logger = logging.getLogger(__name__)
 
 
+def keep_completed(old_plan: list[dict[str, Any]], new_plan: list[dict[str, Any]],
+                   completed_ids: set[str]) -> list[dict[str, Any]]:
+    """A replan's plan: the finished steps of ``old_plan``, then ``new_plan``
+    less any step that reuses a finished id (PC-09, AK-17)."""
+    def _id(step: dict[str, Any]) -> str:
+        return str(step.get("step_id") or step.get("id") or "")
+    done = [s for s in old_plan if _id(s) in completed_ids]
+    done_ids = {_id(s) for s in done}
+    return done + [s for s in new_plan if _id(s) not in done_ids]
+
+
 def assign_step_ids(steps: list[dict[str, Any]], start_from: int = 1) -> list[dict[str, Any]]:
     """Give the steps fresh sequential ids, and move every reference with them.
 
@@ -356,7 +367,9 @@ class PlannerService:
                     PlanContext,
                     PlanGenerator,
                 )
-                static_plan = {"steps": list(original_plan or [])}
+                # What is left is the plan to adapt; the finished steps are
+                # context, so no candidate brings them back (PC-09).
+                static_plan = {"steps": list(remaining)}
                 child_roster, known_child_ids = (
                     await self._child_roster(entity, static_plan) if entity is not None
                     else ("", None)
@@ -367,6 +380,7 @@ class PlannerService:
                     goal=goal or "",
                     request=request,
                     failed_step=failed_step or {},
+                    completed_steps=list(completed_steps or []),
                     company_id=self.company_id,
                     run_id=run_id,
                     child_roster=child_roster,
