@@ -42,6 +42,10 @@ class AIService:
         # Flatten identity if provided as nested model to JSONB column
         entity = HierarchicalEntity(**entity_data, company_id=effective_company_id, created_by=user_id)
         self.db.add(entity)
+        await self.db.flush()
+        # Version 1: what the entity's first run will execute (EP-10).
+        from src.ai.governance.entity_versions import capture_head
+        await capture_head(self.db, entity.id, created_by=user_id)
         await self.db.commit()
         
         # Reload with relationships for schema
@@ -111,7 +115,7 @@ class AIService:
             
         return entity
 
-    async def update_entity(self, entity_id: UUID, entity_in: HierarchicalEntityUpdate, company_id: UUID, user_role: str = None) -> HierarchicalEntity:
+    async def update_entity(self, entity_id: UUID, entity_in: HierarchicalEntityUpdate, company_id: UUID, user_role: str = None, user_id: UUID = None) -> HierarchicalEntity:
         entity = await self.get_entity(entity_id, company_id, user_role=user_role)
         
         update_data = entity_in.model_dump(mode='json', exclude_unset=True)
@@ -129,6 +133,10 @@ class AIService:
             setattr(entity, field, value)
 
         self.db.add(entity)
+        await self.db.flush()
+        # The edit is a new version for new runs; runs in flight keep theirs (EP-10, D12).
+        from src.ai.governance.entity_versions import capture_head
+        await capture_head(self.db, entity.id, created_by=user_id)
         await self.db.commit()
         await self.db.refresh(entity)
         return entity

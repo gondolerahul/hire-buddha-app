@@ -118,7 +118,7 @@ async def update_entity(
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    return _shown(await service.update_entity(entity_id, entity_in, current_user.company_id, user_role=current_user.role))
+    return _shown(await service.update_entity(entity_id, entity_in, current_user.company_id, user_role=current_user.role, user_id=current_user.id))
 
 @router.delete("/entities/{entity_id}")
 async def delete_entity(
@@ -764,7 +764,7 @@ async def update_template(
     current_user: User = Depends(app_admin_only)
 ):
     service = AIService(db)
-    return _shown(await service.update_entity(template_id, entity_in, current_user.company_id, user_role=current_user.role))
+    return _shown(await service.update_entity(template_id, entity_in, current_user.company_id, user_role=current_user.role, user_id=current_user.id))
 
 @router.delete("/templates/{template_id}")
 async def delete_template(

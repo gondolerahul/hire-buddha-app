@@ -25,6 +25,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "src.ai.orm.trace",
     "src.ai.orm.trust",
     "src.ai.orm.usage",
+    "src.ai.orm.versions",
     "src.ai.artifact_models",
     "src.ai.campaign_models",
     "src.ai.email_models",

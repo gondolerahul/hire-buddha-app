@@ -139,6 +139,7 @@ class HierarchicalEntityResponse(HierarchicalEntityBase):
     id: UUID
     company_id: UUID
     parent_id: Optional[UUID]
+    active_version_id: Optional[UUID] = None  # the head version new runs execute (EP-10)
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime

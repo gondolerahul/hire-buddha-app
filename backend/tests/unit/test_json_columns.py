@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from src.common.orm_models import import_all_models
 
 ORDER_IS_CONTENT = {
+    "entity_versions.snapshot": "holds io_contract, whose property order is the form's field order",
     "execution_runs.context_state": "step order: the recency trim and a resumed run read it",
     "hierarchical_entities.io_contract": "property order is the Execute form's field order",
     "tool_registry_entries.function_schema": "an authored schema, shown back as written",

@@ -23,6 +23,7 @@ from src.ai.orm.usage import UsageLog
 from src.ai.orm.tools import ToolRegistryEntry
 from src.ai.orm.trace import ExecutionTraceEvent
 from src.ai.orm.trust import SourceTrustScore
+from src.ai.orm.versions import EntityAsset, EntityVersion
 
 # Re-export enums from schemas (callers historically imported these from
 # ``src.ai.models``).
@@ -39,6 +40,8 @@ __all__ = [
     "ToolRegistryEntry",
     "ExecutionTraceEvent",
     "SourceTrustScore",
+    "EntityVersion",
+    "EntityAsset",
     "EntityType",
     "RunStatus",
 ]

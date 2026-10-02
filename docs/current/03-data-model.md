@@ -247,7 +247,8 @@ AGENT or PROCESS. Defined at [orm/entity.py:22](../../backend/src/ai/orm/entity.
 | `id` | UUID | no | `uuid4` | PK |
 | `company_id` | UUID FK→companies.id | no | — | Tenant. NOT NULL even for templates |
 | `parent_id` | UUID FK→self | yes | — | Composition parent |
-| `version` | String | no | `1.0.0` | Semantic version string |
+| `version` | String | no | `1.0.0` | A label, copied onto each version; what a run executes is an `entity_versions` row ([§4.1a](#41a-entity_versions-and-entity_assets)) |
+| `active_version_id` | UUID FK→entity_versions.id | yes | — | The head: the published version the row's content matches. Moved by every capture (EP-10) |
 | `type` | String | no | — | The level: `ACTION` / `SKILL` / `AGENT` / `PROCESS` / `LOOP` / `GRAPH` (`schemas/levels.py`). Held to these by `ck_hierarchical_entities_type` |
 | `status` | String | no | `ACTIVE` | `DRAFT` / `ACTIVE` / `DEPRECATED` / `ARCHIVED` / `DELETED` |
 | `name` | String | no | — | Machine-ish name; plan steps can reference an entity by name |
@@ -296,6 +297,42 @@ The filter is attached only when the statement selects entities because SQLAlche
 selectin loader copies a statement's options into its own query: a criteria added to
 "select runs" would hide a deleted run's entity from `selectinload(ExecutionRun.entity)`.
 
+### 4.1a `entity_versions` and `entity_assets`
+
+Purpose: what a run executes (EP-10, R2). The entity row is the head that edits change; a
+version is an immutable snapshot of its definition, and a run executes the version it was
+pinned to. Defined at [orm/versions.py](../../backend/src/ai/orm/versions.py); the rules are
+in [governance/entity_versions.py](../../backend/src/ai/governance/entity_versions.py).
+
+| `entity_versions` column | Meaning |
+|---|---|
+| `entity_id`, `company_id` | The entity, and its company (NULL for a template's versions) |
+| `version_number` | 1, 2, … per entity (`uq_entity_versions_number`) |
+| `label` | The entity's `version` string at the time |
+| `snapshot` | JSON (not JSONB — `io_contract` key order is meaning, DM-13): `name`, `display_name`, `description`, `goal`, `type`, `version` and the nine blocks (`SNAPSHOT_FIELDS`) |
+| `content_hash` | SHA-256 of the snapshot and its asset manifest. Unique per entity (`uq_entity_versions_content`): the same content is the same version |
+| `published`, `published_at`, `published_by` | A draft is authored and test-run; a published version has been the head |
+| `created_by`, `created_at` | Who captured or drafted it |
+
+| `entity_assets` column | Meaning |
+|---|---|
+| `entity_version_id` | Owning version (cascade delete) |
+| `path` | Relative POSIX path, unique per version |
+| `content_hash`, `size_bytes`, `language`, `body` | The file |
+
+**Capture** (`capture_head_sync`) locks the entity row, hashes its definition with the head's
+asset manifest, and reuses the version with that hash or appends one — published, carrying the
+head's assets — then moves `active_version_id` (without touching `updated_at`). It runs:
+
+- in a `before_insert` listener on `ExecutionRun`, so **every** run is pinned whichever of the
+  eight run creators made it, and whichever writer last edited the row (seven writers edit
+  rows without `update_entity`); a run given a version (a draft's test run) keeps it;
+- in `AIService.create_entity` and `update_entity`, so an edit is a version even before a run.
+
+An edit therefore takes effect for new runs; a run in flight keeps its version (D12). An edit
+back to earlier content reuses the earlier version. The migration `p5_entity_versions` gave
+every existing entity a published version 1 with the same hash the application computes.
+
 ### 4.2 `execution_runs`
 
 Purpose: one row per invocation of an entity, including recursive child invocations.
@@ -305,6 +342,7 @@ Defined at [orm/execution.py:46](../../backend/src/ai/orm/execution.py:46).
 |---|---|---|---|---|
 | `id` | UUID | no | `uuid4` | PK |
 | `entity_id` | UUID FK→hierarchical_entities.id | no | — | What ran |
+| `entity_version_id` | UUID FK→entity_versions.id | yes | — | The version it executes, pinned when the row is inserted (EP-10). NULL only for runs created before versions existed |
 | `parent_run_id` | UUID FK→self | yes | — | Structure only: the run that dispatched this one as a child (a `CHILD_ENTITY_INVOCATION` or a CORTEX RECURSE subtree). Children are not admitted or settled on their own |
 | `retry_of_run_id` | UUID FK→self | yes | — | The run a retry or refinement repeats (EP-03). A retry is a top-level run: admitted, metered and settled |
 | `depth` | Integer | no | `0` | Parents above this run; written when a child run is created (EP-06) |

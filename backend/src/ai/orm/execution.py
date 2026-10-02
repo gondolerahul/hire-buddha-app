@@ -58,6 +58,11 @@ class ExecutionRun(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
+    # The entity version this run executes, pinned when the run is created
+    # (EP-10); NULL only for runs created before versions existed.
+    entity_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entity_versions.id"), nullable=True, index=True,
+    )
     # Structure only: the run that dispatched this one as a child (a
     # CHILD_ENTITY_INVOCATION, or a CORTEX RECURSE subtree).
     parent_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True)
@@ -241,3 +246,18 @@ def _company_from_run(mapper: Any, connection: Any, target: Any) -> None:
 
 for _child in (LLMInteractionLog, ToolInteractionLog, HumanApproval):
     event.listen(_child, "before_insert", _company_from_run)
+
+
+@event.listens_for(ExecutionRun, "before_insert")
+def _pin_entity_version(mapper: Any, connection: Any, target: ExecutionRun) -> None:
+    """Pin the version of the entity this run executes (EP-10).
+
+    Every place that creates a run passes here, so none can forget. A run given
+    a version (a draft's test run) keeps it; otherwise the entity row is
+    captured as it is now — the same content is the same version.
+    """
+    if target.entity_version_id is None and target.entity_id is not None:
+        from sqlalchemy.orm import object_session
+        from src.ai.governance.entity_versions import capture_head_sync, note_head
+        target.entity_version_id = capture_head_sync(connection, target.entity_id)
+        note_head(object_session(target), target.entity_id, target.entity_version_id)
