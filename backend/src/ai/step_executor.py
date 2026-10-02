@@ -347,7 +347,7 @@ class StepExecutorService:
             "__memory__", "__episodic_memory__", "__intelligence_rules__",
             "__semantic_context__",
             "__memory_context__", "__context_sources__",
-            "__completed_steps__", "__goal_check_counter__",
+            "__completed_steps__",
         ]
         stripped_parent_keys = [k for k in _parent_only_keys if k in child_input]
         for k in stripped_parent_keys:

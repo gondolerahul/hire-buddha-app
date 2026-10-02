@@ -33,10 +33,14 @@ class ReasoningConfig(BaseModel):
     reasoning_mode: ReasoningMode = ReasoningMode.REACT
     # Autonomous loop configuration
     execution_mode: str = "STANDARD"  # STANDARD | AUTONOMOUS
-    goal_validation_interval: int = 2       # Validate goal every N steps
     confidence_threshold: float = 0.85      # Early-exit if score > this * 100
     max_replanning_attempts: int = 3        # Max mid-execution re-plans
     self_reflection_enabled: bool = False   # Query CORTEX knowledge before acting
+
+    # Retired (P7.8, PC-17): the second goal-validation setting, read only by
+    # the deleted step-level GoalGuard. ``governance.goal_validation_interval``
+    # is the one setting. Stored entities still carry it.
+    extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"goal_validation_interval"})
 
 
 class RetryPolicy(BaseModel):

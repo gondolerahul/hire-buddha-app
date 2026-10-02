@@ -221,7 +221,7 @@ ff["agent_loop.enabled"] = True
 
 What *was* `ExecutionEngine` is now split in two: the per-step surface lives in
 [step_engine.py](../../backend/src/ai/core/step_engine.py) as `StepEngine`
-(DAG runner, per-step wrapper with timeout + HITL + cost cap + GoalGuard), and
+(DAG runner, per-step wrapper with timeout + HITL + cost cap; GoalGuard deleted P7.8), and
 run-level orchestration is the loop's job.
 
 ### Other entry points
@@ -1058,7 +1058,7 @@ def _budget_mode(self, state: AgentState) -> CriticMode:
 `critic_cost_share_pct` defaults to `0.20` and is read from
 `entity.governance.critic_cost_share_pct`.
 
-`ai/core/meta_review.py` is a **deprecated shim**. `MetaReviewer.review_execution`
+`ai/core/meta_review.py` was a **deprecated shim** (deleted, P7.8). `MetaReviewer.review_execution`
 builds a throwaway `AgentState` and delegates to `SupervisorCritic.assess`. Its
 only remaining caller is the `supervisor_v2_enabled=False` fallback path inside
 the critic pipeline. It logs a one-shot deprecation notice per process.
@@ -1561,8 +1561,6 @@ inventory is [core/INTERNAL_KEYS.md](../../backend/src/ai/core/INTERNAL_KEYS.md)
 | `__knowledge_refs__` | `KnowledgeTreeService.search` | `prompt_utils` | per iteration |
 | `__execution_metadata__` | `_bootstrap_state` | meta-cognition prompts | run |
 | `__intelligence_rules__` | `MemoryAssemblyService` | `prompt_utils` | per iteration |
-| `__alignment_correction__` | GoalGuard | the retried step | iteration N+1 |
-| `__goal_check_counter__` | GoalGuard | GoalGuard | run |
 | `__agent_state__` | `materialise_context_dict` | budget-aware ReAct, `agent_introspect` | per iteration |
 
 **The scrubbing rule:** before a context dict is concatenated into an LLM's
@@ -1960,7 +1958,7 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 | [core/context_utils.py](../../backend/src/ai/core/context_utils.py) | 64 | `store_step_output`, `sanitize_context_for_persistence`. |
 | [core/prompt_utils.py](../../backend/src/ai/core/prompt_utils.py) | 237 | `parse_variables`, `build_sandwich_prompt` (10 layers), `filter_context_for_step`. |
 | [core/exceptions.py](../../backend/src/ai/core/exceptions.py) | 106 | `AgentError` hierarchy: `UncertaintySignal`, `BudgetExhaustedError`, `StepTimeoutError`, etc. |
-| [core/meta_review.py](../../backend/src/ai/core/meta_review.py) | 101 | Deprecated `MetaReviewer` shim over `SupervisorCritic`. |
+| `core/meta_review.py` | — | Deleted (P7.8). |
 | [core/executors/base.py](../../backend/src/ai/core/executors/base.py) | 91 | `ActionResult`, `Executor` protocol, the global registry. |
 | [core/executors/single_step.py](../../backend/src/ai/core/executors/single_step.py) | 210 | Sequential step dispatch on an isolated session. |
 | [core/executors/dag.py](../../backend/src/ai/core/executors/dag.py) | 122 | Parallel DAG dispatch. |

@@ -537,7 +537,7 @@ Terms this codebase invents or uses in a specific way.
 | **Task class** | A stable short string (`research_topic`, `draft_email`, …) grouping runs for statistics. |
 | **Pre-critic** | Gate that reviews a proposed action before it runs. |
 | **Post-critic** | Gate that reviews the result after. |
-| **GoalGuard** / **alignment** | Periodic check that the run is still pursuing its goal. |
+| **Alignment critic** | Periodic check (every `governance.goal_validation_interval` iterations) that the run is still pursuing its goal; its correction steers the next step. GoalGuard, its older step-level form, is deleted (P7.8). |
 | **SupervisorCritic** | Higher-level assessment of the run as a whole. |
 | **Verdict** | A critic's structured output — PASS / REVISE / BLOCK and variants. |
 | **False pass** | Critic said "good" but the ground-truth check disagrees. Feeds calibration. |

@@ -349,49 +349,11 @@ class StepEngine:
         # The AgentLoop is the default path and runs RealCriticPipeline; this
         # deprecated engine no longer does its own per-step review.)
 
-        # ── GoalGuard step-level alignment check ─────────────
-        reasoning_cfg = (entity.logic_gate or {}).get("reasoning_config", {})
-        goal_interval = reasoning_cfg.get("goal_validation_interval", 0)
-        if goal_interval > 0 and entity.goal and isinstance(step_result, dict) and step_result.get("output"):
-            step_count = context_state.get("__goal_check_counter__", 0) + 1
-            context_state["__goal_check_counter__"] = step_count
-            if step_count % goal_interval == 0:
-                try:
-                    from src.ai.planning.goal_guard import GoalGuard
-                    guard = GoalGuard(
-                        db=self.db,
-                        company_id=run.company_id,
-                        entity_goal=entity.goal,
-                        task_description=context_state.get("input", ""),
-                    )
-                    guard_result = await guard.check(
-                        step_result=step_result,
-                        step_name=step_obj.name,
-                        step_idx=step_count,
-                        all_results=[],
-                        total_steps=0,
-                    )
-                    if guard_result["action"] == "RETRY":
-                        _retry_key = f"__retry_{step_obj.step_id or step_obj.name}__"
-                        if not context_state.get(_retry_key):
-                            context_state[_retry_key] = True
-                            correction = guard_result.get("correction_hint", "")
-                            context_state["__alignment_correction__"] = (
-                                f"⚠️ GOAL DRIFT: {guard_result['reason']}. "
-                                f"Correction: {correction}. "
-                                f"Focus STRICTLY on the original goal: {entity.goal}"
-                            )
-                            logger.info(f"GoalGuard: re-executing step '{step_obj.name}'")
-                            step_result = await asyncio.wait_for(
-                                self._step_executor._execute_step(run, entity, step_obj, context_state),
-                                timeout=timeout_ms / 1000.0,
-                            )
-                            context_state.pop("__alignment_correction__", None)
-                        else:
-                            logger.warning(f"Step '{step_obj.name}' already retried — skipping")
-                except Exception as _ga_err:
-                    logger.warning(f"GoalGuard step check error: {_ga_err}")
-        # ──────────────────────────────────────────────────────────────────
+        # (P7.8: the step-level GoalGuard re-run, driven by
+        # ``reasoning_config.goal_validation_interval`` — default 0, so off — is
+        # deleted. Goal alignment is the AgentLoop's alignment critic, every
+        # ``governance.goal_validation_interval`` iterations, and its correction
+        # steers the next step, PC-03.)
 
         # Update Context immediately (Phase 4: capped size)
         if isinstance(step_result, dict) and "output" in step_result:

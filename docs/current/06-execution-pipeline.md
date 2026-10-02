@@ -378,7 +378,7 @@ but the field is typed `Optional[str]` and **nothing reads it**.
 | `max_tokens` | int? | `None` | [step_executor.py:1010](../../backend/src/ai/step_executor.py:1010). |
 | `reasoning_mode` | `ReasoningMode` | `REACT` | **Deprecated as a per-step selector** (D-3). Read by [`resolve_meta_cognition`](../../backend/src/ai/meta/platform_schema_compiler.py:859) for Tier-1 auto-enable. Per-step mode now comes from `PlanStep.reasoning_hint`. |
 | `execution_mode` | str | `"STANDARD"` | `STANDARD` \| `AUTONOMOUS`. No runtime branch in the loop path. |
-| `goal_validation_interval` | int | `2` | [step_engine.py:353](../../backend/src/ai/core/step_engine.py:353) — GoalGuard cadence; `0` disables. |
+| `goal_validation_interval` | int | — | Retired (P7.8, PC-17): accepted and dropped; `governance.goal_validation_interval` is the setting. |
 | `confidence_threshold` | float | `0.85` | Planning/critic surface. |
 | `max_replanning_attempts` | int | `3` | Planning surface. |
 | `self_reflection_enabled` | bool | `False` | CORTEX query-before-act. |
@@ -1170,10 +1170,7 @@ flowchart TD
     T1 -- other --> UNK["return error Unknown step type"]
     TO -- TimeoutError --> TOUT["output = TIMEOUT marker, store in context"]
     TC & TH --> HITLA["evaluate_hitl phase=AFTER"]
-    HITLA --> GG{"goal_validation_interval > 0 and count mod interval == 0?"}
-    GG -- yes and GoalGuard says RETRY --> RE["re-execute step once with __alignment_correction__"]
-    GG -- no --> STORE
-    RE --> STORE["store_step_output context, name, step_id, output"]
+    HITLA --> STORE["store_step_output context, name, step_id, output"]
     TOUT --> STORE
     STORE --> RET["return step_result dict"]
 ```

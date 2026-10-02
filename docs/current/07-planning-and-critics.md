@@ -1316,6 +1316,8 @@ is then dropped).
 
 ## 11. Stage 3 — alignment and GoalGuard
 
+> **Update 2026-10-02 (P7.8, PC-17, PC-10).** `GoalGuard`, `AlignmentCritic` (`planning/goal_guard.py`) and `MetaReviewer` (`core/meta_review.py`) are deleted, with the step engine's GoalGuard re-run and the critic pipeline's legacy supervisor branch (`supervisor_v2_enabled`). `governance.goal_validation_interval` is the one goal-alignment setting (the alignment critic, every N iterations; its correction steers the next step, PC-03); `reasoning_config.goal_validation_interval` is retired (accepted, dropped) and the builder's control writes governance's. What follows describes the code before.
+
 ### 11.1 The modern path — `CriticPipeline.alignment`
 
 ```mermaid
@@ -1388,7 +1390,7 @@ So there are **two independent cadences with the same name**:
 | Path | Config location | Default | Counter |
 |------|----------------|---------|---------|
 | AgentLoop / `CriticPipeline.alignment` | `entity.governance["goal_validation_interval"]` | `2` | `state.iteration` |
-| Legacy step engine / GoalGuard | `entity.logic_gate.reasoning_config.goal_validation_interval` | `0` — meaning **off** | `context_state["__goal_check_counter__"]` |
+| Legacy step engine / GoalGuard | `entity.logic_gate.reasoning_config.goal_validation_interval` | deleted (P7.8): the key is retired | — |
 
 Only the second one is declared in the Pydantic schema
 ([reasoning.py:36](../../backend/src/ai/schemas/reasoning.py:36), default `2`).
@@ -1431,7 +1433,7 @@ popped immediately after, it only ever affects the *one* re-run — not
 "iteration N+1" as INTERNAL_KEYS.md suggests. The `__retry_{step_id}__` guard
 caps it at one correction per step per run.
 
-### 11.4 GoalGuard's four actions
+### 11.4 GoalGuard's four actions (deleted, P7.8)
 
 [`GoalGuard.check`](../../backend/src/ai/planning/goal_guard.py:74) returns one
 of four actions. It is a **deprecated shim** that logs a one-shot process-level
@@ -1562,7 +1564,7 @@ Handled by
 Budget exhaustion is checked **before** the supervisor verdict, so an exhausted
 budget always aborts regardless of what the supervisor said.
 
-### 12.4 The deprecated `MetaReviewer` shim
+### 12.4 The deprecated `MetaReviewer` shim (deleted, P7.8)
 
 [`ai/core/meta_review.py`](../../backend/src/ai/core/meta_review.py) keeps the
 Phase 10D class name and `review_execution(entity_goal, completed_steps,
@@ -2160,13 +2162,13 @@ them.
 | [planning/plan_judge.py](../../backend/src/ai/planning/plan_judge.py) | 194 | Best-of-N LLM judge with 0.10 score-window cost tiebreak. |
 | [planning/retry_strategies.py](../../backend/src/ai/planning/retry_strategies.py) | 192 | `RetryStrategy`, `pick_retry`, `RetryExecutor`, `MAX_RETRIES_PER_STEP`. |
 | [planning/cost_estimator.py](../../backend/src/ai/planning/cost_estimator.py) | 186 | `TOOL_BASELINE_COST`, `MODEL_PRICE_FACTOR`, `estimate_step_cost` / `estimate_plan_cost` / `estimate_latency_s`. |
-| [planning/goal_guard.py](../../backend/src/ai/planning/goal_guard.py) | 181 | Deprecated GoalGuard shim + `AlignmentCritic`. |
+| `planning/goal_guard.py` | — | Deleted (P7.8). |
 | [planning/goal_alignment.py](../../backend/src/ai/planning/goal_alignment.py) | 177 | `GoalAlignmentVerifier` + `VERIFICATION_PROMPT`. |
 | [planning/step_health_record.py](../../backend/src/ai/planning/step_health_record.py) | 84 | The `StepHealthRecord` dataclass, JSON round-trip, `is_actionable_failure`. |
 | [planning/critic_prompts.py](../../backend/src/ai/planning/critic_prompts.py) | 59 | Pre/post critic prompt templates. |
 | [planning/failure_tags.py](../../backend/src/ai/planning/failure_tags.py) | 58 | The `FailureTag` closed enum + severity table. |
 | [core/strategist.py](../../backend/src/ai/core/strategist.py) | 347 | `Move`, `Decision`, `Strategist.next_move` / `decide_next`, bandit consultation. |
-| [core/meta_review.py](../../backend/src/ai/core/meta_review.py) | 101 | Deprecated `MetaReviewer` shim over `SupervisorCritic`. |
+| `core/meta_review.py` | — | Deleted (P7.8). |
 | [failure_pattern_service.py](../../backend/src/ai/failure_pattern_service.py) | 189 | Cross-run error classification and per-tool failure stats. Currently unwired. |
 | [memory/trust_learning.py](../../backend/src/ai/memory/trust_learning.py) | 125 | Beta-posterior source trust learner. Currently unwired. |
 | [orm/trust.py](../../backend/src/ai/orm/trust.py) | 52 | `SourceTrustScore` table. |
@@ -2185,7 +2187,7 @@ them.
 | `backend/tests/unit/test_supervisor_critic.py` | Pressure short-circuit, fast path, prompt, parsing. |
 | `backend/tests/unit/test_strategist.py`, `test_strategist_track4.py` | Move selection and bandit consultation. |
 | `backend/tests/unit/test_critic_calibration.py` | False-pass / false-fail computation. |
-| `backend/tests/ai/planning/test_goal_guard.py` | GoalGuard init and the CONTINUE paths only. |
+| `backend/tests/unit/test_one_goal_setting.py` | One goal setting; the shims are gone (P7.8). |
 
 ---
 
@@ -2233,9 +2235,9 @@ them.
   other arm is recorded, never chosen.
 * **Bandit reward is run-level.** All arms used in a failed run are penalised
   equally, and per-arm cost is the run total divided by the iteration count.
-* **`FailureTag.severity` is dead code.** `pick_retry` branches on tag identity.
-* **`MetaReviewer`, `GoalGuard` and `AlignmentCritic` are all shims.** Only
-  GoalGuard has a live caller, and only its `RETRY` branch is reachable.
+* **`FailureTag.severity` orders the retry choice** (P7.3).
+* **`MetaReviewer`, `GoalGuard` and `AlignmentCritic` are deleted** (P7.8);
+  `governance.goal_validation_interval` is the one goal setting.
 * **`TrustLearner` and `FailurePatternService` are unwired.** Table, migration,
   maths and tests all exist; production call sites do not.
 

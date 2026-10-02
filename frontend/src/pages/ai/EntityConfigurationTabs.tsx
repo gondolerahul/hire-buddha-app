@@ -311,7 +311,9 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     const [modelName, setModelName] = useState(entity?.logic_gate?.reasoning_config?.model_name || '');
     // Phase 5: Autonomous mode
     const [executionMode, setExecutionMode] = useState<string>(entity?.logic_gate?.reasoning_config?.execution_mode || 'STANDARD');
-    const [goalValidationInterval, setGoalValidationInterval] = useState(entity?.logic_gate?.reasoning_config?.goal_validation_interval || 2);
+    // The one goal-alignment setting is governance's (PC-17); older entities kept it in reasoning_config.
+    const [goalValidationInterval, setGoalValidationInterval] = useState(
+        entity?.governance?.goal_validation_interval || entity?.logic_gate?.reasoning_config?.goal_validation_interval || 2);
     const [confidenceThreshold, setConfidenceThreshold] = useState(entity?.logic_gate?.reasoning_config?.confidence_threshold || 0.85);
     const [maxReplanningAttempts, setMaxReplanningAttempts] = useState(entity?.logic_gate?.reasoning_config?.max_replanning_attempts || 3);
     const [selfReflectionEnabled, setSelfReflectionEnabled] = useState(entity?.logic_gate?.reasoning_config?.self_reflection_enabled || false);
@@ -736,7 +738,6 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                     task_type: taskType, temperature, top_p: topP, max_tokens: maxTokens,
                     reasoning_mode: reasoningMode, model_name: modelName || undefined,
                     execution_mode: executionMode,
-                    goal_validation_interval: goalValidationInterval,
                     confidence_threshold: confidenceThreshold,
                     max_replanning_attempts: maxReplanningAttempts,
                     self_reflection_enabled: selfReflectionEnabled,
@@ -792,6 +793,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
             governance: {
                 max_cost_usd: maxCostUsd, timeout_ms: timeoutMs,
                 max_recursion_depth: maxRecursionDepth,
+                goal_validation_interval: goalValidationInterval,
                 execution_limits: { max_tool_calls: maxToolCalls },
                 hitl_checkpoints: hitlCheckpoints, checkpoint_every_n_steps: checkpointEveryNSteps,
             },
@@ -1200,7 +1202,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                         <div className="form-group">
                                             <label>Goal Validation Interval</label>
                                             <input type="number" min={1} max={10} value={goalValidationInterval} onChange={(e) => setGoalValidationInterval(parseInt(e.target.value) || 2)} />
-                                            <small>Check goal progress every N steps</small>
+                                            <small>Check alignment with the goal every N iterations</small>
                                         </div>
                                         <div className="form-group">
                                             <label>Confidence Threshold ({(confidenceThreshold * 100).toFixed(0)}%)</label>

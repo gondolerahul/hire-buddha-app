@@ -291,7 +291,7 @@ class PlatformSchemaCompiler:
                                "every N steps, can re-plan on failure, and early-exits when "
                                "goal is achieved. Requires: goal field set on entity.",
                 "config_keys": [
-                    "goal_validation_interval",
+                    "governance.goal_validation_interval",
                     "confidence_threshold",
                     "max_replanning_attempts",
                     "self_reflection_enabled",
@@ -496,7 +496,7 @@ class PlatformSchemaCompiler:
                 "description": (
                     "execution_mode=AUTONOMOUS requires: entity.goal is set, "
                     "logic_gate.reasoning_config.self_reflection_enabled=true, "
-                    "goal_validation_interval > 0. Without these, the engine "
+                    "governance.goal_validation_interval > 0. Without these, the engine "
                     "falls back to STANDARD mode silently."
                 ),
                 "affects": ["AUTONOMOUS", "goal_validation"],

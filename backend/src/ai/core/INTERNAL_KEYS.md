@@ -27,8 +27,6 @@ Re-checked against the code on 2026-10-01. **No writer** means nothing in
 | `__episodic_memory__` | `memory.assembler` | `RunMemory.similar_runs` (Perceiver) | Past-episode dicts |
 | `__intelligence_rules__` | `run_memory.assemble_run_memory` | `RunMemory` (Perceiver, supervisor critic), `PlannerService` | Rule dicts (`title`, `rule`, `type`, `confidence`) |
 | `__cortex_viewport__` | `CortexBridge` | CORTEX step prompts | Rendered viewport text |
-| `__alignment_correction__` | `StepEngine`'s GoalGuard check | the re-executed step | Correction hint from a failed goal check |
-| `__goal_check_counter__` | `StepEngine`'s GoalGuard check | the same | How many goal checks have run |
 | `tool_call_counts` | **no writer since P3.3** (runs before it wrote it, reset per step) | — | Kept in `INTERNAL_CONTEXT_KEYS` for old saved contexts. A run's call counts are its `tool_interaction_logs` rows, read by `ToolAccess` (TL-11) |
 | `company_id`, `user_id` | `ExecutionContext.as_tool_context` (the tool's context, not the run's) | tools | Tenant scoping (P3.2) |
 | `__cortex_tree_id__` | `AgentLoop._compose` (when it opens the run's tree), and `_persist_final` onto `run.context_state` | child dispatch, retry, refine, `agent_reflect`, `CortexBridge` | Had no writer until EP-29, so a child never shared its parent's tree and a retry never resumed it |

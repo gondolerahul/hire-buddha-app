@@ -200,8 +200,6 @@ class _PipelineConfig:
     task_description: str = ""
     enable_pre_critic: bool = True
     enable_different_model: bool = True
-    # Supervisor v2 wiring.
-    supervisor_v2_enabled: bool = True
     supervisor_fast_path_enabled: bool = True
 
     @classmethod
@@ -217,7 +215,6 @@ class _PipelineConfig:
             task_description=str(raw.get("task_description", "") or ""),
             enable_pre_critic=bool(raw.get("enable_pre_critic", True)),
             enable_different_model=bool(raw.get("enable_different_model", True)),
-            supervisor_v2_enabled=bool(raw.get("supervisor_v2_enabled", True)),
             supervisor_fast_path_enabled=bool(raw.get("supervisor_fast_path_enabled", True)),
         )
 
@@ -249,22 +246,17 @@ class RealCriticPipeline:
         self._current_record: Optional[StepHealthRecord] = None
         self._iter_started_at: float = 0.0
 
-        # Supervisor v2.
-        self._supervisor_v2: Any = None
-        if self.config.supervisor_v2_enabled:
-            from src.ai.planning.supervisor_critic import (
-                SupervisorCritic,
-                SupervisorCriticConfig,
-            )
-            self._supervisor_v2 = SupervisorCritic(
-                llm_router=self.llm,
-                intelligence_reader=self.intel,
-                config=SupervisorCriticConfig(
-                    fast_path_enabled=self.config.supervisor_fast_path_enabled,
-                    critic_model_override=self.config.critic_model_override,
-                    entity_goal=self.config.entity_goal,
-                ),
-            )
+        # The supervisor (v2 — the legacy MetaReviewer fallback is gone, P7.8).
+        from src.ai.planning.supervisor_critic import SupervisorCritic, SupervisorCriticConfig
+        self._supervisor_v2 = SupervisorCritic(
+            llm_router=self.llm,
+            intelligence_reader=self.intel,
+            config=SupervisorCriticConfig(
+                fast_path_enabled=self.config.supervisor_fast_path_enabled,
+                critic_model_override=self.config.critic_model_override,
+                entity_goal=self.config.entity_goal,
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Stage 1 — pre-action
@@ -468,50 +460,16 @@ class RealCriticPipeline:
             return self._continue(record, SupervisorVerdict(
                 recommendation="CONTINUE", reasoning="Critic pipeline degraded; skipping supervisor."))
 
-        # Track 4 supervisor v2 (default).
-        if self._supervisor_v2 is not None:
-            verdict = await self._supervisor_v2.assess(state)
-            cost = self._supervisor_v2.last_cost_usd
-            self._cumulative_critic_cost += cost
-            record.supervisor_recommendation = verdict.recommendation
-            record.supervisor_reasoning = verdict.reasoning
-            record.supervisor_confidence = verdict.confidence
-            record.supervisor_cost_usd = cost
-            response = getattr(self._supervisor_v2, "last_response", None)
-            if response is not None:
-                await self._log_critic_usage(
-                    state=state, response=response, attribution="critic_super",
-                )
-            return cast(SupervisorVerdict, verdict)
-
-        # Legacy fallback — used only when supervisor_v2_enabled = False.
-        try:
-            from src.ai.core.meta_review import MetaReviewer
-            reviewer = MetaReviewer(self.db, cast(UUID, state.company_id))
-            completed = self._completed_steps_for_review(state)
-            remaining = self._remaining_steps_for_review(state)
-            review = await reviewer.review_execution(
-                entity_goal=self.config.entity_goal,
-                completed_steps=completed,
-                remaining_steps=remaining,
-                total_cost_usd=float(state.budget.usd_used),
-                context_summary="",
-            )
-            rec = str(review.get("recommendation", "CONTINUE")).upper()
-            if rec not in {"CONTINUE", "REPLAN", "ABORT", "PAUSE"}:
-                rec = "CONTINUE"
-            verdict = SupervisorVerdict(
-                recommendation=cast(Any, rec),
-                reasoning=str(review.get("reasoning", "")),
-                confidence=float(review.get("confidence", 0.5)),
-            )
-        except Exception as exc:                                            # noqa: BLE001
-            logger.warning("legacy supervisor critic failed: %s", exc)
-            verdict = SupervisorVerdict(recommendation="CONTINUE", confidence=0.5)
-
+        verdict = await self._supervisor_v2.assess(state)
+        cost = self._supervisor_v2.last_cost_usd
+        self._cumulative_critic_cost += cost
         record.supervisor_recommendation = verdict.recommendation
         record.supervisor_reasoning = verdict.reasoning
         record.supervisor_confidence = verdict.confidence
+        record.supervisor_cost_usd = cost
+        response = getattr(self._supervisor_v2, "last_response", None)
+        if response is not None:
+            await self._log_critic_usage(state=state, response=response, attribution="critic_super")
         return verdict
 
     # ------------------------------------------------------------------
@@ -625,25 +583,6 @@ class RealCriticPipeline:
         if isinstance(rule, dict):
             return str(rule.get("rule") or rule.get("title") or rule.get("summary") or rule)
         return str(getattr(rule, "summary", None) or rule)
-
-    def _completed_steps_for_review(self, state: AgentState) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for step in state.plan_steps[:50]:
-            sid = str(step.get("step_id") or step.get("id") or "")
-            if sid and sid in state.completed_step_ids:
-                out.append({
-                    "step_name": step.get("name") or sid,
-                    "output": (step.get("output") or "")[:120],
-                })
-        return out
-
-    def _remaining_steps_for_review(self, state: AgentState) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for step in state.plan_steps[:50]:
-            sid = str(step.get("step_id") or step.get("id") or "")
-            if sid and sid not in state.completed_step_ids:
-                out.append({"name": step.get("name") or sid, "type": step.get("type", "?")})
-        return out
 
     # ------------------------------------------------------------------
     # Persistence

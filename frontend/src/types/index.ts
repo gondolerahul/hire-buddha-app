@@ -187,7 +187,7 @@ export interface LogicGate {
         reasoning_mode: 'REACT' | 'CHAIN_OF_THOUGHT' | 'REFLECTION' | 'TREE_OF_THOUGHTS';
         // Declared by the backend's ReasoningConfig (ai/schemas/reasoning.py).
         execution_mode?: 'STANDARD' | 'AUTONOMOUS' | string;
-        goal_validation_interval?: number;
+        goal_validation_interval?: number;   // retired (P7.8): read from governance
         confidence_threshold?: number;
         max_replanning_attempts?: number;
         self_reflection_enabled?: boolean;
@@ -325,6 +325,7 @@ export interface Governance {
     timeout_ms: number;
     max_recursion_depth?: number;   // how deep the tree below this entity may go (enforced)
     checkpoint_every_n_steps?: number;
+    goal_validation_interval?: number;   // alignment critic every N iterations (the one setting, PC-17)
     execution_limits?: {
         max_recursion_depth?: number;   // old spelling, folded into max_recursion_depth
         max_tool_calls?: number;

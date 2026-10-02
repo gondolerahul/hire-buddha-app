@@ -287,7 +287,7 @@ recorded here because the trigger lives in the supervisor.
 
 ### PC-10 — Only one of `GoalGuard`'s four actions is reachable
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.8)** — `GoalGuard`, `AlignmentCritic` and `MetaReviewer` are deleted, with the step engine's GoalGuard re-run and the critic pipeline's legacy supervisor branch (`supervisor_v2_enabled`, never set). `tests/unit/test_one_goal_setting.py`.
 
 `MetaReviewer`, `GoalGuard` and `AlignmentCritic` are all shims over the new pipeline.
 Only `GoalGuard` has a live caller, and only its `RETRY` branch is reachable — the other
@@ -338,7 +338,7 @@ part of a run — and none of them can be set.
 
 ### PC-17 — Two different `goal_validation_interval` settings
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.8)** — `governance.goal_validation_interval` is the one setting; the `reasoning_config` key is retired (accepted, dropped; 521 local entities carry it) and the builder's control now reads and writes governance's. `tests/unit/test_one_goal_setting.py`.
 
 One lives in `governance` (read by the AgentLoop, default 2). The other lives in
 `logic_gate.reasoning_config` (read by the legacy step engine; the schema default is 2
