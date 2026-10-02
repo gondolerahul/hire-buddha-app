@@ -15,6 +15,14 @@ from src.ai.schemas import PlanStep
 logger = logging.getLogger(__name__)
 
 
+def _step_id_for(name: str) -> str:
+    """The id a step named ``name`` stores its output under, in the running
+    loop's plan; ``name`` itself when there is no such step."""
+    from src.ai.core.step_signals import current_signals
+    signals = current_signals()
+    return signals.step_names.get(name, name) if signals else name
+
+
 def parse_variables(text: str, variables: dict[str, Any]) -> str:
     """Replaces {{variable}} and {variable} in text with values from variables dict.
 
@@ -30,6 +38,8 @@ def parse_variables(text: str, variables: dict[str, Any]) -> str:
         parts = key.split('.')
         for i, k in enumerate(parts):
             if isinstance(val, dict):
+                if i == 0 and k not in val:
+                    k = _step_id_for(k)        # {{name}} of a step stored under its id (EP-18)
                 val = val.get(k, None)
             else:
                 # If we landed on a non-dict value and the remaining part is
@@ -240,7 +250,8 @@ def _apply_policy(full_context: dict[str, Any], context_policy: Dict[str, Any]) 
         return dict(reversed(list(filtered.items())))
 
     elif policy_type == "EXPLICIT":
-        explicit_keys = context_policy.get("explicit_keys", [])
+        # A key may name a step; its output is stored under its id (EP-18).
+        explicit_keys = [_step_id_for(str(k)) for k in context_policy.get("explicit_keys", [])]
         return {k: full_context[k] for k in explicit_keys if k in full_context}
 
     # FULL - return everything

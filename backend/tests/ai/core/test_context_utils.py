@@ -4,11 +4,11 @@ from src.ai.core.context_utils import store_step_output, sanitize_context_for_pe
 
 
 class TestStoreStepOutput:
-    def test_stores_by_name_and_id(self):
+    def test_stores_once_under_the_id(self):
+        # EP-18: once, by id; {{Research}} resolves through the name map.
         ctx = {}
         store_step_output(ctx, "Research", "step_1", "findings text")
-        assert ctx["Research"] == "findings text"
-        assert ctx["step_1"] == "findings text"
+        assert ctx == {"step_1": "findings text"}
 
     def test_same_name_and_id_no_duplicate(self):
         ctx = {}

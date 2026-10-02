@@ -26,25 +26,24 @@ def store_step_output(
     output: str,
     cortex_bridge: Any = None,
 ) -> None:
-    """Store step output in context (Phase 4 — DATA-1).
+    """Store a step's output in the context, once, under the step's id (EP-18).
 
     Full output is preserved to ensure inter-step data integrity (e.g. research
     findings flowing into synthesis → report → PDF). Context growth for LLM
-    prompt construction is managed separately by _maybe_summarize_context(),
-    which intelligently trims older entries when the total context exceeds
-    configurable thresholds.
+    prompt construction is managed separately by _maybe_summarize_context().
+
+    Before, the output was stored under the name *and* the id: every output
+    twice (a 40 KB finding was 80 KB of context, trimmed sooner), and two steps
+    with one name overwrote each other. ``{{name}}`` still resolves: through
+    the run's name→id map (``StepSignals.step_names``) in ``parse_variables``.
+    A step with no id is stored under its name.
     """
-    value = output
+    key = step_id or step_name
     # PERF-3: Incremental context size tracking
-    old_value = context_state.get(step_name, "")
-    context_state[step_name] = value
+    old_value = context_state.get(key, "")
+    context_state[key] = output
     if cortex_bridge:
-        cortex_bridge.update_context_size(step_name, old_value, value)
-    if step_id and step_id != step_name:
-        old_id_value = context_state.get(step_id, "")
-        context_state[step_id] = value
-        if cortex_bridge:
-            cortex_bridge.update_context_size(step_id, old_id_value, value)
+        cortex_bridge.update_context_size(key, old_value, output)
 
 
 def sanitize_context_for_persistence(ctx: dict[str, Any]) -> dict[str, Any]:

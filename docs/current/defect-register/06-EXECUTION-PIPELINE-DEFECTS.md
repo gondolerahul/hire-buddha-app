@@ -389,7 +389,7 @@ explanation.
 
 ### EP-18 — Every step output is stored twice
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P8.4)** — stored once under the step id; `{{name}}` resolves through the run's name→id map (`StepSignals.step_names`) in `parse_variables`, and EXPLICIT policies may list names. `tests/unit/test_outputs_once.py`.
 
 `store_step_output` writes the value under the step **name** and again under the step
 **id**:
@@ -652,6 +652,8 @@ regex, makes every produced file visible, and fixes the `pdf_generator` case as 
 effect.
 
 ### EP-I6 — Enforce unique step names within a plan
+
+**Status: done (2026-10-03, P8.4)** — the entity API answers 422 on a repeated name (create and update), the planner renames a repeat (`name (2)`), and the graph editor flags it as an error. No local entity has a repeat. `tests/unit/test_outputs_once.py`.
 
 **Effect: small, prevents silent data loss.** Two steps with the same name overwrite each
 other's output in the context dict, and nothing warns. The graph editor already runs a

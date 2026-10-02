@@ -52,6 +52,15 @@ def assign_step_ids(steps: list[dict[str, Any]], start_from: int = 1) -> list[di
     unresolved and the dependencies pointing at ids no step had, so a
     dependent step never became ready and the plan ended with it unrun (PC-18).
     """
+    # Names are unique within a plan (EP-I6): a planner that repeats one gets
+    # "name (2)", so neither step's output hides the other's.
+    counts: dict[str, int] = {}
+    for s in steps:
+        name = str(s.get("name") or "")
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+            if counts[name] > 1:
+                s["name"] = f"{name} ({counts[name]})"
     renamed: dict[str, str] = {}
     for i, s in enumerate(steps):
         new_id = f"step_{start_from + i}_{str(uuid4())[:8]}"

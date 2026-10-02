@@ -111,7 +111,12 @@ def compose_step_prompt(step: Any, filtered_context: dict, run_input: Any) -> st
     }
     if step_outputs:
         context_block = "\n\n## Available Context from Previous Steps\n"
+        # Outputs are stored by step id (EP-18); headed by the step's name.
+        from src.ai.core.step_signals import current_signals
+        _sig = current_signals()
+        _names = {sid: name for name, sid in (_sig.step_names.items() if _sig else [])}
         for ctx_key, ctx_val in step_outputs.items():
+            ctx_key = f"{_names[ctx_key]} ({ctx_key})" if ctx_key in _names else ctx_key
             val_str = str(ctx_val)
             # Mark failed/empty steps clearly
             if val_str.startswith("[FAILED]") or val_str.startswith("[TOOL_EMPTY]"):
@@ -1054,7 +1059,7 @@ Step 2: [your analysis]
         """Evaluates exit conditions for early termination."""
         for condition in step.exit_conditions:
             # Simplified evaluation
-            if "error" in str(context.get(step.name, "")).lower():
+            if "error" in str(context.get(step.step_id or step.name, "")).lower():
                 if condition.next_step == 'ESCALATE':
                     return True
         return False

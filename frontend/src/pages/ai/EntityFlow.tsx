@@ -56,6 +56,20 @@ const validateGraph = (nodes: Node[], edges: Edge[]): ValidationIssue[] => {
         });
     }
 
+    // Step names are unique within a plan (EP-I6): the API refuses a repeat,
+    // because a step's output is referred to by its name.
+    const byName = new Map<string, number>();
+    nodes.forEach(n => {
+        const name = String(n.data.label || '').trim();
+        if (name) byName.set(name, (byName.get(name) ?? 0) + 1);
+    });
+    nodes.forEach(n => {
+        const name = String(n.data.label || '').trim();
+        if (name && (byName.get(name) ?? 0) > 1) {
+            issues.push({ nodeId: n.id, severity: 'error', message: `Another step is also named "${name}": step names must be unique` });
+        }
+    });
+
     // Check for CHILD_ENTITY_INVOCATION without entityRef
     nodes.forEach(n => {
         if (n.data.stepType === 'CHILD_ENTITY_INVOCATION' && !n.data.entityRef) {

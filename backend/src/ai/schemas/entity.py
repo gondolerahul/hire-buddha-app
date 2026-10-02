@@ -113,6 +113,24 @@ def _reject_unknown_keys(model: type[BaseModel], data: Any) -> Any:
     return data
 
 
+def _reject_duplicate_step_names(data: Any) -> Any:
+    """Step names are unique within a plan (EP-I6): a step's output is named by
+    it (``{{name}}``), so two steps with one name could not both be read."""
+    planning = data.get("planning") if isinstance(data, dict) else None
+    static = planning.get("static_plan") if isinstance(planning, dict) else None
+    steps = static.get("steps") if isinstance(static, dict) else None
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for step in steps or []:
+        name = str(step.get("name") or "").strip() if isinstance(step, dict) else ""
+        if name and name in seen and name not in dupes:
+            dupes.append(name)
+        seen.add(name)
+    if dupes:
+        raise ValueError("Step names must be unique within a plan; repeated: " + ", ".join(dupes))
+    return data
+
+
 class HierarchicalEntityCreateRequest(HierarchicalEntityCreate):
     """The API's create payload: an undeclared key anywhere in it is a 422.
 
@@ -123,7 +141,7 @@ class HierarchicalEntityCreateRequest(HierarchicalEntityCreate):
     @model_validator(mode="before")
     @classmethod
     def _no_unknown_keys(cls, data: Any) -> Any:
-        return _reject_unknown_keys(HierarchicalEntityCreate, data)
+        return _reject_duplicate_step_names(_reject_unknown_keys(HierarchicalEntityCreate, data))
 
 
 class HierarchicalEntityUpdateRequest(HierarchicalEntityUpdate):
@@ -132,7 +150,7 @@ class HierarchicalEntityUpdateRequest(HierarchicalEntityUpdate):
     @model_validator(mode="before")
     @classmethod
     def _no_unknown_keys(cls, data: Any) -> Any:
-        return _reject_unknown_keys(HierarchicalEntityUpdate, data)
+        return _reject_duplicate_step_names(_reject_unknown_keys(HierarchicalEntityUpdate, data))
 
 
 class HierarchicalEntityResponse(HierarchicalEntityBase):

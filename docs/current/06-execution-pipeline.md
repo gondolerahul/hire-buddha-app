@@ -1169,7 +1169,7 @@ flowchart TD
     T1 -- other --> UNK["return error Unknown step type"]
     TO -- TimeoutError --> TOUT["output = TIMEOUT marker, store in context"]
     TC & TH --> HITLA["evaluate_hitl phase=AFTER"]
-    HITLA --> STORE["store_step_output context, name, step_id, output"]
+    HITLA --> STORE["store_step_output - once, under step_id (EP-18)"]
     TOUT --> STORE
     STORE --> RET["return step_result dict"]
 ```
@@ -1247,24 +1247,19 @@ JSON). It supports dotted paths, and has a special case: `{{step_1.output}}`
 resolves to the plain string stored at `step_1`, because context stores the
 output *directly*, not wrapped in `{"output": …}`.
 
-### Output storage — every output is written under **two** keys
+### Output storage — once, by id
 
-```python
-# backend/src/ai/core/context_utils.py
-def store_step_output(context_state, step_name, step_id, output, cortex_bridge=None):
-    value = output
-    old_value = context_state.get(step_name, "")
-    context_state[step_name] = value
-    ...
-    if step_id and step_id != step_name:
-        old_id_value = context_state.get(step_id, "")
-        context_state[step_id] = value
-```
+Since P8.4 (2026-10-03, EP-18, EP-I6) `store_step_output` writes a step's output once,
+under its `step_id` (under its name only when it has no id). Before, it wrote both
+`context["Fetch Raw Data"]` and `context["step_1"]`: every output twice (so summarisation
+trimmed sooner), and two steps with one name overwrote each other.
 
-So a step named `"Fetch Raw Data"` with `step_id="step_1"` writes **both**
-`context["Fetch Raw Data"]` and `context["step_1"]`. That is why plan templates
-can write `{{step_1}}` or `{{Research Phase}}` interchangeably. It also means
-context keys collide across steps with the same name, and the size doubles.
+`{{step_1}}` and `{{Research Phase}}` still both resolve: `parse_variables` falls back to
+the run's name→id map (`StepSignals.step_names`, built from the plan by the loop) for a
+name that is not a context key, and an `EXPLICIT` context policy may list names too. The
+"Available Context from Previous Steps" block heads each output with its step's name.
+Names are unique within a plan: the entity API answers 422 on a repeat, the planner
+renames one (`name (2)`), and the graph editor flags it.
 
 Before persistence,
 [`sanitize_context_for_persistence`](../../backend/src/ai/core/context_utils.py:50)
