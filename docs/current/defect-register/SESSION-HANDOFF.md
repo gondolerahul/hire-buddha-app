@@ -33,14 +33,18 @@
 > these are worked as one plan, not one defect at a time —
 > [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), with the
 > product owner's R1 (six-level hierarchy) and R2 (skill-first tool stack). Its §12
-> progress log is the status of record. **P0–P4 are done** (P3, tool security, ended at
-> `b5b1467`; P4, one cost write path, at `07bb740`); **next is P5** (versions and assets),
-> but read **PC-27** first: the post critic judges output cut to 160 characters, so a
-> run with longer answers loops on `INCOMPLETE` (scheduled first in P7). On this
-> machine the P0–P1 migrations were applied during P3 (`alembic upgrade head`, now
-> `ep06_run_depth`) and both workers restarted. The unit baseline is now **6** known
-> failures (the doc-factory Windows path test passes since P3.5). New entry from P3's live
-> run: **TL-68** (`calculator` cannot be called natively; fixed in P6).
+> progress log is the status of record. **P0–P5 are done**, and **PC-27** (P7.0) was done
+> ahead of P5 (`3eeb8f5`): the critics judge the whole step output, and it is the run's
+> result. P5 (versions and assets, R2) ended at `b63e343`: every run executes a pinned
+> `entity_versions` snapshot; drafts, files, test runs and publishing are under
+> `/ai/entities/{id}/versions`; a run's files are written into `.skills/` of the tenant
+> workspace; the Doc Factory scripts are files of the family agents. **Next is P6** (tool
+> stack collapse). On this machine the DB is at `p5_draft_hash` and both workers run the
+> P5 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
+> any live run (the PC-27 live re-run is pending). Run unit tests with `PYTHONUTF8=1` or the
+> layout-lint test fails on a cp1252 decode. Unit baseline: **4** known failures (the
+> Windows sandbox tests); integration: the 2 known `test_cost_attribution` failures. New
+> entries: **TL-68** (P3), **PC-27** (P4, fixed), **PO-23** (P5, open).
 
 ---
 
