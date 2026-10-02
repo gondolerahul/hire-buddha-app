@@ -88,7 +88,7 @@ async def test_the_post_critic_passes_the_prompt_it_sent(db, monkeypatch):
     pipe.db = db
     pipe.llm = SimpleNamespace(call_llm=AsyncMock(return_value=_resp()))
     pipe.config = SimpleNamespace(entity_goal="goal", task_description="task", enable_different_model=False,
-                                  enable_post_critic=True)
+                                  enable_post_critic=True, calibration_note="")
     record = SimpleNamespace(post_critic_tags=[])
     monkeypatch.setattr(pipe, "_ensure_record", lambda _s: record, raising=False)
     monkeypatch.setattr(pipe, "_budget_mode", lambda _s: None, raising=False)
