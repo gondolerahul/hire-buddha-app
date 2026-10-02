@@ -1464,7 +1464,7 @@ A successful fallback renames the result: `alt_tr.tool = f"{tool_id}→{alt_tool
 | Mechanism | Location | Policy |
 |---|---|---|
 | Exponential backoff on HTTP 429 | [core/search.py:155](../../backend/src/ai/tools/core/search.py:155) | 3 retries, `2 * 2**attempt` seconds = 2 s, 4 s, 8 s — SerpAPI only |
-| Transient network retry | [social/base.py:145](../../backend/src/ai/tools/social/base.py:145) | `MAX_RETRIES = 2`, immediate, only on `TimeoutException` / `ConnectError`; 4xx and 5xx are never retried |
+| Platform retry | [social/base.py](../../backend/src/ai/tools/social/base.py) `_api_request` | 3 retries with backoff and jitter, honouring `Retry-After`, capped at 30 s. A read retries 429, 5xx, timeouts and refused connections; a write only 429 and refused connections (a 5xx or a timeout may already have posted). Until P6.4 (TL-37) 429 and 5xx were never retried and the two retries were immediate. A list response's next-page marker makes the operation's result say `truncated: true` and give `next_page` (TL-38) |
 | Rate-limit pacing | [core/batch_search.py:55](../../backend/src/ai/tools/core/batch_search.py:55) | 1.5 s between queries, 3 s every 3 queries |
 | Backend degradation | `web_search`, `batch_web_search` | SerpAPI → `ddgs` library → DuckDuckGo Instant Answers |
 

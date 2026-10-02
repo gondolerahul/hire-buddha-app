@@ -732,7 +732,7 @@ heuristics and the exclusion list.
 
 ### TL-37 — The social base class never retries 429 or 5xx
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.4)** — `_api_request` retries 3 times with backoff and jitter, honouring `Retry-After` (capped at 30 s): a read on 429, 5xx, a timeout or a refused connection; a write only on 429 or a refused connection, because a 5xx or a timeout may already have posted. `tests/unit/test_social_resilience.py`.
 
 `_api_request` re-raises every `httpx.HTTPStatusError` immediately with the comment
 "Don't retry client errors" — but the `except` catches **all** status errors, so 429 and
@@ -749,7 +749,7 @@ The only real exponential backoff in the tool layer is SerpAPI-specific.
 
 ### TL-38 — No pagination in any social list call
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed for the signal (2026-10-02, P6.4)** — a list response's next-page marker (each platform's shape: `paging.next`, LinkedIn start/count/total, `meta.next_token`, `nextPageToken`, Reddit `after`, TikTok `has_more`) makes the operation's result say `truncated: true` with `next_page`; an operation does not yet take a cursor to fetch that page.
 
 Every `list` / `search` / `get_*` action across all 16 platforms returns page one and
 reports it to the model as the complete set. No cursor is read, no `next` is followed,

@@ -6,10 +6,14 @@ Provides shared functionality:
 - HTTP request helper with retry + error handling
 - Standard JSON function schema pattern
 """
+import asyncio
+import contextvars
 import json
 import logging
+import random
 from abc import abstractmethod
-from typing import Any, Dict, Optional
+from email.utils import parsedate_to_datetime
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -19,7 +23,71 @@ logger = logging.getLogger(__name__)
 
 # Default timeout for all social API calls
 DEFAULT_TIMEOUT = 30  # seconds
-MAX_RETRIES = 2
+MAX_RETRIES = 3
+# What a platform says under load, and is worth waiting out (TL-37).
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_MAX_WAIT_S = 30.0
+# A write is retried only when the platform cannot have acted on it: 429
+# (refused before processing) and a connection that never opened. A 5xx or a
+# timeout on a write may already have posted.
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# The next-page markers the responses of one operation carried (TL-38).
+_PAGES: contextvars.ContextVar[Optional[List[str]]] = contextvars.ContextVar("social_pages", default=None)
+
+
+def _backoff(attempt: int) -> float:
+    return min(_MAX_WAIT_S, (2 ** attempt) + random.uniform(0, 0.5))
+
+
+def _retry_after(resp: httpx.Response, attempt: int) -> float:
+    """``Retry-After`` (seconds or an HTTP date), else exponential backoff; capped."""
+    header = resp.headers.get("Retry-After")
+    if header:
+        try:
+            return min(_MAX_WAIT_S, max(0.0, float(header)))
+        except ValueError:
+            try:
+                from datetime import datetime, timezone
+                when = parsedate_to_datetime(header)
+                return min(_MAX_WAIT_S, max(0.0, (when - datetime.now(timezone.utc)).total_seconds()))
+            except (TypeError, ValueError):
+                pass
+    return _backoff(attempt)
+
+
+def next_page(body: Any) -> Optional[str]:
+    """The cursor of the next page a list response points to, if any.
+
+    Each platform says it its own way: Facebook and Instagram ``paging.next``
+    (cursor ``paging.cursors.after``), LinkedIn ``paging`` start/count/total,
+    X ``meta.next_token``, Google ``nextPageToken``, Reddit ``data.after``,
+    TikTok ``has_more`` with ``cursor``.
+    """
+    if not isinstance(body, dict):
+        return None
+    paging = body.get("paging")
+    if isinstance(paging, dict):
+        if paging.get("next"):
+            cursors = paging.get("cursors") if isinstance(paging.get("cursors"), dict) else {}
+            return str(cursors.get("after") or paging["next"])
+        start, count, total = paging.get("start"), paging.get("count"), paging.get("total")
+        if all(isinstance(v, int) for v in (start, count, total)) and start + count < total:
+            return str(start + count)
+    for key in ("nextPageToken", "next_page_token"):
+        if body.get(key):
+            return str(body[key])
+    meta = body.get("meta")
+    if isinstance(meta, dict) and meta.get("next_token"):
+        return str(meta["next_token"])
+    data = body.get("data")
+    for holder in (data, body):
+        if isinstance(holder, dict):
+            if holder is data and holder.get("after"):
+                return str(holder["after"])
+            if holder.get("has_more") and holder.get("cursor") is not None:
+                return str(holder["cursor"])
+    return None
 
 
 class SocialMediaTool(Tool):
@@ -83,8 +151,15 @@ class SocialMediaTool(Tool):
                 )
             })
 
+        pages = _PAGES.set([])
         try:
             result = await self._execute(params, credentials, context)
+            more = _PAGES.get() or []
+            if more and isinstance(result, dict):
+                # The platform has more than it returned: say so, and give the
+                # cursor (TL-38). Results used to read as the complete set.
+                result["truncated"] = True
+                result["next_page"] = more[-1]
             return json.dumps(result)
         except httpx.HTTPStatusError as e:
             logger.error(f"[{self.name}] HTTP error: {e.response.status_code} {e.response.text}")
@@ -98,6 +173,8 @@ class SocialMediaTool(Tool):
         except Exception as e:
             logger.error(f"[{self.name}] Execution error: {e}", exc_info=True)
             return json.dumps({"error": f"{self.name} failed: {str(e)}"})
+        finally:
+            _PAGES.reset(pages)
 
     @abstractmethod
     async def _execute(
@@ -133,13 +210,17 @@ class SocialMediaTool(Tool):
         data: Optional[Dict[str, Any]] = None,
         timeout: int = DEFAULT_TIMEOUT,
     ) -> httpx.Response:
-        """
-        Make an HTTP request with retry logic.
+        """An HTTP request, retried when the platform says to wait (TL-37).
 
-        Raises httpx.HTTPStatusError on 4xx/5xx responses.
+        A read is retried on 429, 5xx, a timeout or a refused connection; a
+        write only on 429 and a refused connection. Waits honour
+        ``Retry-After``, else back off exponentially with jitter, capped at
+        30 s. Raises ``httpx.HTTPStatusError`` on the final 4xx/5xx.
         """
+        write = method.upper() in _WRITE_METHODS
         async with httpx.AsyncClient(timeout=timeout) as client:
             for attempt in range(MAX_RETRIES + 1):
+                last = attempt == MAX_RETRIES
                 try:
                     resp = await client.request(
                         method=method,
@@ -149,14 +230,35 @@ class SocialMediaTool(Tool):
                         params=params,
                         data=data,
                     )
-                    resp.raise_for_status()
-                    return resp
-                except httpx.HTTPStatusError:
-                    raise  # Don't retry client errors
-                except (httpx.TimeoutException, httpx.ConnectError) as e:
-                    if attempt == MAX_RETRIES:
+                except httpx.ConnectError as e:
+                    if last:
                         raise
-                    logger.warning(f"[SocialMediaTool] Retry {attempt + 1}/{MAX_RETRIES}: {e}")
+                    logger.warning(f"[SocialMediaTool] connect retry {attempt + 1}/{MAX_RETRIES}: {e}")
+                    await asyncio.sleep(_backoff(attempt))
+                    continue
+                except httpx.TimeoutException as e:
+                    if last or write:
+                        raise
+                    logger.warning(f"[SocialMediaTool] timeout retry {attempt + 1}/{MAX_RETRIES}: {e}")
+                    await asyncio.sleep(_backoff(attempt))
+                    continue
+                retryable = resp.status_code == 429 or (resp.status_code in _RETRY_STATUSES and not write)
+                if retryable and not last:
+                    wait = _retry_after(resp, attempt)
+                    logger.warning(f"[SocialMediaTool] {resp.status_code}; retry {attempt + 1}/{MAX_RETRIES} in {wait:.1f}s")
+                    await asyncio.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                pages = _PAGES.get()
+                if pages is not None:
+                    try:
+                        marker = next_page(resp.json())
+                    except ValueError:
+                        marker = None
+                    if marker:
+                        pages.append(marker)
+                return resp
+        raise RuntimeError("unreachable")  # pragma: no cover
 
     @staticmethod
     def _bearer_headers(access_token: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
