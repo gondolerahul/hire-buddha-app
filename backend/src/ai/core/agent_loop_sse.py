@@ -15,13 +15,21 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from typing import Any, AsyncIterator, Optional
 
 from src.ai.core.events import event
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["set_sse_redis", "event_async"]
+__all__ = ["set_sse_redis", "event_async", "iteration_batch", "flush_batch"]
+
+# An iteration's SSE frames, published together (AK-I9): (run_id, bodies).
+# Each iteration used to publish eight or more messages — start, pressure,
+# executor invoked/completed, four critics, retries, end — each its own Redis
+# publish and JSON encoding; the browser folds them into one slice anyway.
+_BATCH: ContextVar[Optional[tuple[str, list[dict[str, Any]]]]] = ContextVar("sse_batch", default=None)
 
 _SSE_REDIS: Any = None
 
@@ -77,8 +85,42 @@ async def event_async(name: str, **payload: Any) -> None:
         # the stream (it breaks on a COMPLETED/FAILED status payload).
         if sse_type == "run_end" and "outcome" in body:
             body["status"] = body["outcome"]
+        batch = _BATCH.get()
+        if batch is not None and batch[0] == str(run_id) and sse_type != "run_end":
+            batch[1].append(body)
+            return
         await _SSE_REDIS.publish(
             f"execution:{run_id}", json.dumps(body, default=str),
         )
     except Exception as exc:                                               # pragma: no cover
         logger.warning("AgentLoop SSE publish failed for %s: %s", name, exc)
+
+
+async def flush_batch() -> None:
+    """Publish the iteration's buffered frames now, as one ``batch`` message."""
+    batch = _BATCH.get()
+    if batch is None or not batch[1] or _SSE_REDIS is None:
+        return
+    run_id, bodies = batch
+    events = list(bodies)
+    bodies.clear()
+    try:
+        await _SSE_REDIS.publish(f"execution:{run_id}",
+                                 json.dumps({"type": "batch", "events": events}, default=str))
+    except Exception as exc:                                               # pragma: no cover
+        logger.warning("AgentLoop SSE batch publish failed for %s: %s", run_id, exc)
+
+
+@asynccontextmanager
+async def iteration_batch(run_id: Any) -> AsyncIterator[None]:
+    """Buffer one iteration's SSE frames and publish them as one message
+    (AK-I9); the structured log / OTel sink still gets every event at once.
+    The loop also flushes when the executor starts, so the browser sees an
+    iteration begin before its step finishes."""
+    token = _BATCH.set((str(run_id), []))
+    try:
+        yield
+    finally:
+        await flush_batch()
+        _BATCH.reset(token)
+

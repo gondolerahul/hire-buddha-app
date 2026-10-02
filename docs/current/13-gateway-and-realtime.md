@@ -992,7 +992,7 @@ executing in the arq worker can stream to a browser attached to the API.
 
 | Publisher | File | Payload `type` values |
 |-----------|------|----------------------|
-| AgentLoop telemetry | [`agent_loop_sse.py:75`](../../backend/src/ai/core/agent_loop_sse.py:75) | `iteration_start`, `iteration_end`, `resume`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `retry_picked`, `retry_dequeued`, `replan_triggered`, `bandit_arm_updated`, `task_class_classified`, `cancelled`, `run_end` |
+| AgentLoop telemetry | [`agent_loop_sse.py`](../../backend/src/ai/core/agent_loop_sse.py) | inside an iteration, `batch` (`events`: a list of the frames below — AK-I9, two messages per iteration); otherwise one frame each: `iteration_start`, `iteration_end`, `resume`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `retry_picked`, `retry_dequeued`, `replan_triggered`, `bandit_arm_updated`, `task_class_classified`, `cancelled`, `run_end` |
 | Trace spans | [`trace.py:251`](../../backend/src/ai/core/trace.py:251) | `span_open`, `span_close` |
 | HITL checkpoints | [`governance_service.py:336`](../../backend/src/ai/governance/governance_service.py:336) | no `type`; `{"status": "HITL_PENDING", "approval_id", "trigger", "message"}` |
 | Cancellation | [`service.py:528`](../../backend/src/ai/service.py:528) | `{"type": "cancelled", "status": "CANCELLED"}` |

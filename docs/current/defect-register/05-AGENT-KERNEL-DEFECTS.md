@@ -540,6 +540,8 @@ Derive the ceiling from the plan size, and keep the flat number as an absolute b
 
 ### AK-I9 — Emit one iteration event, not many
 
+**Status: done (2026-10-03, P8.11)** — an iteration's SSE frames go out as two `batch` messages (executor start, iteration end); `run_end` alone; the browser unpacks them. `tests/unit/test_sse_batching.py`.
+
 **Effect: small.** Every iteration publishes `iteration_start`, `budget_pressure`,
 `executor_invoked`, `executor_completed`, up to four critic events, retry events and
 `iteration_end` — each a separate Redis publish and a separate JSON serialisation.

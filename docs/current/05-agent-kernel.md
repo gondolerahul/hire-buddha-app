@@ -1761,7 +1761,12 @@ The loop does **not** call `aevent` directly. It calls `event_async` from
 [agent_loop_sse.py](../../backend/src/ai/core/agent_loop_sse.py), which calls
 `event(...)` and then republishes to the **per-run** channel
 `execution:{run_id}` with a short `type` discriminator the frontend reducer
-switches on.
+switches on. Since P8.11 (2026-10-03, AK-I9) an iteration's frames are buffered
+(`iteration_batch`, a ContextVar) and published as `{"type": "batch", "events": [...]}` —
+once when the executor starts, so the page shows the iteration begin, and once when it
+ends; `run_end` still goes alone (the stream closes on it). The browser's
+`useAgentEvents` unpacks a batch into its events. The log / OTel sink still gets every
+event at once.
 
 Every event the loop emits:
 

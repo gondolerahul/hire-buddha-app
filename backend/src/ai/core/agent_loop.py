@@ -33,7 +33,7 @@ from src.ai.core.agent_state import (
     PreCriticVerdict,
     Verdicts,
 )
-from src.ai.core.agent_loop_sse import event_async, set_sse_redis
+from src.ai.core.agent_loop_sse import event_async, flush_batch, iteration_batch, set_sse_redis
 from src.ai.core.budget import Budget
 from src.ai.core.credit_guard import CreditGuard
 from src.ai.core.exceptions import CreditExhaustedError
@@ -432,7 +432,8 @@ class AgentLoop:
                 state.next_decision = "ABORT"
                 break
 
-            await self._iteration(state)
+            async with iteration_batch(state.run_id):          # one SSE message (AK-I9)
+                await self._iteration(state)
 
             # Async child dispatch: the iteration spawned children and asked to
             # suspend. Stop the loop WITHOUT finalizing; ``run`` persists the
@@ -575,6 +576,7 @@ class AgentLoop:
             executor=move.executor,
             plan_size=len(move.plan_fragment or []),
         )
+        await flush_batch()  # the browser sees the iteration start before the step ends
         start = time.time()
         # Executor span — parent of the step/tool/LLM spans opened deeper in the
         # stack (they inherit it via the trace ContextVar). No-op if unbound.

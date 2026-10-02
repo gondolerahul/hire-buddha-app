@@ -61,9 +61,13 @@ export function useAgentEvents({
         source.onmessage = (msg) => {
             try {
                 const raw = JSON.parse(msg.data);
-                const parsed = parseAgentEvent(raw);
-                if (parsed) eventRef.current(parsed);
-                else if (onUnknown) onUnknown(raw);
+                // An iteration's frames arrive as one message (AK-I9).
+                const items: unknown[] = raw && raw.type === 'batch' && Array.isArray(raw.events) ? raw.events : [raw];
+                for (const item of items) {
+                    const parsed = parseAgentEvent(item);
+                    if (parsed) eventRef.current(parsed);
+                    else if (onUnknown) onUnknown(item);
+                }
             } catch {
                 // Non-JSON payload — ignore.
             }
