@@ -831,6 +831,76 @@ everywhere → 5.3 assets → 5.4 materialisation and the prompt section → 5.6
 | 6.10 | Contract test over the registry; `calculator` reads its advertised `expression` | TX-I9, TL-68 |
 | 6.11 | Reference arguments for subject data (`ContactRef`, `LeadRef`, `ArtifactRef`) — design and the email/CRM half | TL-09 |
 
+#### P6 detailed design (written 2026-10-02, before P6.1)
+
+Re-read against the code at `ef426fe`. What holds today, and what is worse than recorded:
+
+- 86 tools are registered: 52 social, 9 meta, 25 others. 84 hand-write their JSON schema;
+  82 override `run_with_context(input: str, context)`; 2 (`web_search`, `scraper_tool`)
+  also override `run_typed`, which the executor discovers by reflection and abandons
+  silently on any error (TL-41). Two classes are named `ToolResult` (TL-30).
+- **PO-07, worse:** the connection API accepts 8 platforms (`VALID_PLATFORMS`), the
+  refresh table covers the same 8, but tools exist for 13. The 20 tools of `pinterest`,
+  `meta_ads`, `linkedin_ads`, `linkedin_sales_navigator` and `snapchat_ads` can never get a
+  credential — no connection for those platforms can be created.
+
+**6.1 — the contract (`tools/base.py`):**
+
+| Piece | What it is |
+|---|---|
+| `Tool.Params` | A Pydantic model of the tool's arguments, or `None` for a tool not yet converted |
+| `Tool.execute(params, ctx) -> ToolOutput` | The typed method. `ctx` is the server-minted tool context (P3.2) |
+| `Tool.invoke(args, ctx) -> ToolOutput` | **The one entry point** the executor calls, for model calls and plan steps alike. A typed tool's args are validated against `Params` — a validation error is a failed call naming the fields, never a silent fallback; a plan step's plain string fills the field the tool names in `string_field`. A tool not yet converted is called through one adapter, here, not in the executor |
+| `get_function_schema` | Derived from `Params` for a typed tool; hand-written only for an unconverted one |
+| `ToolOutput` | The tool's result (`success`, `output`, `error`, `error_code`, `metadata`) — the old Pydantic `ToolResult` renamed; the executor's `ToolResult` is the only class of that name |
+| Deleted | `run_typed`, the executor's reflection path, its silent fallback |
+
+**Decision D16:** P6 converts the tools P6 touches (`calculator`, `web_search`,
+`scraper_tool`, `batch_web_search`, `sandbox_code`, `headless_browser`, the email and CRM
+tools, and the new `social_api`); the rest stay on the one adapter. A census test lists
+the unconverted tools: the list may only shrink, and a new tool must declare `Params`.
+Converting all 34 in one phase would rewrite every tool's input handling with no
+behaviour change to show for it.
+
+**6.2 — `social_api`:** `Params(platform, operation, payload)`. `operation="describe"`
+returns the platform's operations with their schemas (progressive disclosure inside the
+tool). Each per-verb class becomes an internal operation keyed by `(platform, verb)`; none
+is registered. **Decision D17:** the platform list is one table — the platforms a
+connection can be created for **and** refreshed (`linkedin`, `twitter`, `facebook`,
+`instagram`, `google_ads`, `youtube`, `tiktok`, `reddit`); the connection API's
+`VALID_PLATFORMS` and the refresh table read it. The five platforms nothing can connect
+are deleted with their 20 classes (git keeps them): adding a platform means a connection,
+a refresh and operations together. `social_api` stays `EXPERIMENTAL` (per-company opt-in).
+
+**6.4–6.6 in the social base:** 429/5xx are retried with backoff honouring
+`Retry-After`; list operations return `next_cursor` and `truncated`; an operation that
+writes declares `writes = True` and gets an idempotency key (6.5, below); the
+false-success operations (TL-43…TL-49) are repaired where the API contract is certain
+and otherwise refused with a message naming why.
+
+**6.5 — idempotency:** a call to a tool or operation that writes gets
+`idempotency_key = sha256(run, tool, operation, canonical args)`, stored on its
+`tool_interaction_logs` row. Before it runs, a successful row with the same key in the
+same run returns that row's output instead of writing twice (a retried or resumed step).
+
+**6.7 — one artifact write path:** tools hand bytes to `save_artifact` with the run and
+agent ids from the context and return its stored path and id; the `backend/src/artifact`
+tree goes; the run page lists artifacts by `run_id`.
+
+**6.10 — contract test:** every registered tool's schema is valid; every typed tool's
+schema is its `Params`; every capability in the seeds and fixtures names a registered
+tool; `calculator` answers `{"expression": "17*23"}`.
+
+**6.11 — TL-09 (design, email/CRM half):** a run's subject scope (the contacts, leads and
+artifacts the run was given or created) is recorded on the run; email and CRM tools take
+`*_ref` arguments the platform minted and dereference them server-side, refusing one
+outside the run's scope or company. Raw addresses from the model are refused unless the
+entity opts in to free recipients (`governance.allow_free_recipients`).
+
+**Commit order:** 6.1 contract → 6.10 contract test and calculator → 6.8 correctness →
+6.9 packaging → 6.2 `social_api` (with D17) → 6.4 → 6.5 → 6.6 → 6.3 platform SKILLs →
+6.7 artifacts → 6.11 references.
+
 ### P7 — Self-correction that corrects
 
 | # | Work | Ids |
@@ -919,6 +989,8 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D13 | Publishing a draft needs an admin role (the Board promote's gate), not a `human_approvals` row | That table belongs to a run; there is no other entity approval flow |
 | D14 | A run sees the assets of its own version and its ancestor runs' versions | One rule at every level (R1); a SKILL's files reach the ACTIONs it delegates to |
 | D15 | Each run pins its own entity at creation; a parent does not pin its children's versions | Tree pinning needs the subtree captured at the root; later work |
+| D16 | P6 converts to the typed contract only the tools it touches; the rest run through one adapter in `Tool.invoke`, listed by a census test that may only shrink | Converting all 34 tools would rewrite every tool's input handling with no behaviour to show for it; new tools must be typed |
+| D17 | Social platforms are one table: those a connection can be created for and refreshed (8). The 5 that cannot be connected are deleted with their 20 tool classes | They could never get a credential; a platform is added with its connection, refresh and operations together |
 
 ---
 
@@ -1029,3 +1101,4 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P5.6 follow-up | R2 | `342db3d` | A new draft may start as a copy of its base; only published versions are unique (migration `p5_draft_hash`) |
 | P5.7 | R2 (doc phase 0), TL-01 (one face), TL-29 (leftover) | `b63e343` | `test_doc_factory_skill_files.py`. The shared scripts symlink is deleted; each family's scripts are files of its AGENT's version; prompts use `$SKILL_FILES`. **Found:** `terminal` ran in a hard-coded `/tmp/sandbox/<company>` (fixed); the Doc Factory seed's token lacks `type`/`tv`, so the seed cannot sign in (not fixed). **Live**, against the running API: `attach_files` made v2 of a throwaway agent with the 59 docx files and a child run's workspace got them (rows and files removed) |
 | **P5 done** | EP-10, EP-I4, R2 (doc phases 0–2 and the API half of 4) | — | Unit 1528 + the 4 known sandbox failures; integration and parity 300 + the 2 known local failures; typecheck and layout lint pass; local DB at `p5_draft_hash`, workers restarted. **Not live-verified with an LLM:** Vertex ADC is expired (`gcloud auth application-default login` needed) — the PC-27 re-run and an end-to-end Doc Factory run wait on it |
+| — | P6 detailed design | — | Written into §8 P6 before P6.1; decisions D16, D17 |
