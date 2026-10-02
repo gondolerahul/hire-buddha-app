@@ -901,6 +901,54 @@ artifacts the run was given or created) is recorded on the run; email and CRM to
 outside the run's scope or company. Raw addresses from the model are refused unless the
 entity opts in to free recipients (`governance.allow_free_recipients`).
 
+*Detailed design (2026-10-02, before 6.11).* Verified against the code: `email_send` /
+`email_draft` take `to`, `cc`, `bcc` from the model and `attachment_artifact_id` checked
+for company only; `whatsapp_send_tenant` takes `to`; `google_calendar_create_event` takes
+`attendee_email`; `crm_update_lead` takes `lead_id` and splices it unquoted into the CRM
+URL path. Ad accounts are already server-side: after 6.2 the only ad tool, `google_ads`,
+reads `customer_id` from the connection, so `AdAccountRef` is not needed.
+
+- **The scope is the run tree's.** A child run acts for its root's subjects, and a parent
+  may attach a child's file. `governance/subjects.py` builds a `SubjectScope` for a run:
+  1. `input_data["subjects"]` of the root run — structured `contacts` (`name`, `email`,
+     `phone`), `leads` (`id`, `name`) and `artifact_ids`, written by whoever created the run;
+  2. for a root run a tenant user started (`user_id` set, channel not `webhook`/
+     `internal`), the e-mail addresses and `+`-prefixed phone numbers in its input text —
+     the user's own instruction;
+  3. the gateway writes (1) when it creates a run: a CRM event's lead (`lead_id`, `phone`),
+     an e-mail event's sender. Addresses inside a webhook's body are never subjects: that
+     text is the sender's, not the tenant's;
+  4. a voice run's counterparty: the campaign call's `contact_data` (phone, name, e-mail,
+     `lead_id`/`id`), or for an inbound call the session's number — written into (1) when
+     `VoiceToolCalls` opens the run;
+  5. subjects found during the run, in `run_subjects` (root run, kind, value, label):
+     `email_ingest` records each fetched message's sender, so a triage agent can reply;
+  6. artifacts: any of the tree's runs made (`artifacts.run_id`), any uploaded for one of
+     the tree's agents (`agent_id`, `user-uploads`), and those named in (1); all in the
+     company.
+- **A ref is minted, not chosen.** Contacts and leads get `c_…` / `l_…`: the first 10 hex of
+  `sha256(root run, kind, key)` — stable within the tree, meaningless outside it. An
+  artifact's ref is its id (tools already return `artifact_id`), checked against (6).
+  `resolve(kind, ref)` returns the subject or `None`; a ref of another tree or company
+  resolves to nothing.
+- **The model sees the list.** At run start the loop puts `__subjects__` in the context (an
+  internal key) and the step prompt shows it beside memory: one line per subject — kind,
+  ref, label. When a kind has exactly one subject (a voice call's caller, a CRM event's
+  lead) the ref may be omitted and that one is used, so a voice agent needs no ids.
+- **The tools** (converted to the typed contract, D16): `email_send(to_ref, cc_refs,
+  bcc_refs, attachment_ref)`, `email_draft(to_ref, …)`, `whatsapp_send_tenant(to_ref)`,
+  `google_calendar_create_event(attendee_ref)`, `crm_update_lead(lead_ref)` (the id
+  URL-quoted). A ref outside the scope, or none when the kind is ambiguous, is refused with
+  the scope's list, and nothing is sent.
+- **Free recipients are an entity's choice.** `governance.allow_free_recipients: true` lets
+  `to`, `cc`, `bcc`, `phone` and `attendee_email` carry raw values (a general assistant);
+  `ExecutionContext` carries the flag from the entity, never from arguments. Off by default.
+
+**Decision D18:** subject scope is derived from stored run data (input, gateway event,
+voice call, artifacts) plus one table for subjects found mid-run, rather than recorded by
+every run-creation path. Six paths create runs; deriving at use keeps one place to read
+and nothing to forget when a seventh is added.
+
 **Commit order:** 6.1 contract → 6.10 contract test and calculator → 6.8 correctness →
 6.9 packaging → 6.2 `social_api` (with D17) → 6.4 → 6.5 → 6.6 → 6.3 platform SKILLs →
 6.7 artifacts → 6.11 references.
@@ -995,6 +1043,7 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D15 | Each run pins its own entity at creation; a parent does not pin its children's versions | Tree pinning needs the subtree captured at the root; later work |
 | D16 | P6 converts to the typed contract only the tools it touches; the rest run through one adapter in `Tool.invoke`, listed by a census test that may only shrink | Converting all 34 tools would rewrite every tool's input handling with no behaviour to show for it; new tools must be typed |
 | D17 | Social platforms are one table: those a connection can be created for and refreshed (8). The 5 that cannot be connected are deleted with their 20 tool classes | They could never get a credential; a platform is added with its connection, refresh and operations together |
+| D18 | A run's subject scope is derived from its stored data plus `run_subjects` for subjects found mid-run; refs are hashes within the run tree | Six code paths create runs; deriving at use is one place to read. Refs are stable for the tree and resolve to nothing elsewhere |
 
 ---
 

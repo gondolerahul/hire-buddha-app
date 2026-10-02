@@ -40,6 +40,7 @@ __all__ = [
     "LLMInteractionLog",
     "ToolInteractionLog",
     "HumanApproval",
+    "RunSubject",
 ]
 
 
@@ -231,6 +232,30 @@ class HumanApproval(Base):
     reviewer: Mapped["User | None"] = relationship("User")
 
 
+class RunSubject(Base):
+    """A subject a run found while it ran: a contact or lead it may act on (TL-09).
+
+    The rest of a run's subject scope is derived from data the run already
+    stores (``ai.governance.subjects``); this holds only what is learned
+    mid-run, e.g. the sender of a message ``email_ingest`` fetched. ``run_id``
+    is the tree's root run: the scope is the tree's.
+    """
+    __tablename__ = "run_subjects"
+    __table_args__ = (
+        run_company_key("run_subjects", ondelete="CASCADE"),
+        UniqueConstraint("run_id", "kind", "value", name="uq_run_subjects_value"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)       # contact | lead
+    value: Mapped[str] = mapped_column(Text, nullable=False)            # normalised e-mail, phone or lead id
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)     # the tool that found it
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 def _company_from_run(mapper: Any, connection: Any, target: Any) -> None:
     """Copy the run's company onto a new child row that was not given one (DM-09).
 
@@ -244,7 +269,7 @@ def _company_from_run(mapper: Any, connection: Any, target: Any) -> None:
         ).scalar_one_or_none()
 
 
-for _child in (LLMInteractionLog, ToolInteractionLog, HumanApproval):
+for _child in (LLMInteractionLog, ToolInteractionLog, HumanApproval, RunSubject):
     event.listen(_child, "before_insert", _company_from_run)
 
 

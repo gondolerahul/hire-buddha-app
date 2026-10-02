@@ -249,6 +249,9 @@ class ExecutionContext:
     is_meta_agent: bool = False
     max_runtime_creations: int = 3
     campaign_id: Optional[str] = None
+    # The entity lets its tools take raw recipients (``to``, ``phone``…) rather
+    # than refs from the run's subject scope (TL-09, P6.11). Off by default.
+    allow_free_recipients: bool = False
     loop_state: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -266,6 +269,7 @@ class ExecutionContext:
             entity_name=str(getattr(entity, "name", "") or ""),
             is_meta_agent=bool(meta.get("is_meta_agent")),
             max_runtime_creations=_max_runtime_creations(entity),
+            allow_free_recipients=_allow_free_recipients(entity),
             loop_state={k: state[k] for k in LOOP_STATE_KEYS if k in state},
         )
 
@@ -284,6 +288,7 @@ class ExecutionContext:
             entity_name=str(getattr(entity, "name", "") or ""),
             is_meta_agent=bool(_meta_extensions(entity).get("is_meta_agent")),
             campaign_id=str(campaign_id) if campaign_id else None,
+            allow_free_recipients=_allow_free_recipients(entity),
         )
 
     def as_tool_context(self) -> dict[str, Any]:
@@ -298,6 +303,7 @@ class ExecutionContext:
             "__is_meta_agent__": self.is_meta_agent,
             "__meta_max_runtime_creations__": self.max_runtime_creations,
             "campaign_id": self.campaign_id,
+            "__allow_free_recipients__": self.allow_free_recipients,
         }
         ctx.update(self.loop_state)
         return ctx
@@ -306,6 +312,11 @@ class ExecutionContext:
 def _meta_extensions(entity: Any) -> Mapping[str, Any]:
     meta = getattr(entity, "metadata_extensions", None)
     return meta if isinstance(meta, Mapping) else {}
+
+
+def _allow_free_recipients(entity: Any) -> bool:
+    gov = getattr(entity, "governance", None)
+    return isinstance(gov, Mapping) and gov.get("allow_free_recipients") is True
 
 
 def _max_tool_calls(entity: Any) -> Optional[int]:

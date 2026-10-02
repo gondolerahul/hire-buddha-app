@@ -38,12 +38,15 @@ from src.ai.schemas import DEFAULT_REVIEW_SYSTEM_PROMPT as DEFAULT_REVIEW_PROMPT
 
 
 def prompt_context_block(filtered_context: dict, context: dict) -> Optional[str]:
-    """Layer 9 of the sandwich prompt: context sources + the run's memory.
+    """Layer 9 of the sandwich prompt: context sources, the run's memory and
+    its subjects.
 
-    ``__memory__`` is read from the unfiltered context — a step's context
-    policy narrows its inputs, not what the entity has learned.
+    ``__memory__`` and ``__subjects__`` are read from the unfiltered context —
+    a step's context policy narrows its inputs, not what the entity has
+    learned or whom the run is for (TL-09).
     """
-    parts = (filtered_context.get("__context_sources__"), (context or {}).get("__memory__"))
+    parts = (filtered_context.get("__context_sources__"), (context or {}).get("__memory__"),
+             (context or {}).get("__subjects__"))
     return "\n\n".join(str(p) for p in parts if p) or None
 
 

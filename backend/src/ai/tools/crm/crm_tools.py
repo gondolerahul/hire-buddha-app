@@ -8,16 +8,22 @@ Four tools that enable a voice agent to:
   4. Update lead status in tenant's CRM after a call
 
 All tools resolve tenant-specific credentials from IntegrationRegistry
-using the company_id passed via the extra_context dict.
+using the company_id passed via the extra_context dict. Whom they message,
+invite or update is a subject of the run (``ai.governance.subjects``), never
+a number, address or lead id the model chose (TL-09).
 """
 import logging
 import json
 import httpx
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
+from urllib.parse import quote
 from uuid import UUID as _UUID
 
-from src.ai.tools.base import Tool
+from pydantic import Field
+
+from src.ai.governance.subjects import LEAD, recipient, scope_for
+from src.ai.tools.base import Tool, ToolOutput, ToolParams
 
 logger = logging.getLogger(__name__)
 
@@ -117,296 +123,205 @@ class GetCurrentDateTimeTool(Tool):
 # Tool 2: WhatsApp Send (Tenant's System)
 # ===========================================================================
 
+_CONTACT_REF = ("Ref of the contact from the run's Subjects list. May be omitted when the run has one "
+                "contact with a {needs} (a voice call's caller).")
+_RAW = "A raw {needs}: only for an agent that allows free recipients."
+
+
+def _auth_headers(auth_type: str, api_key: str) -> Dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if auth_type == "bearer":
+        headers["Authorization"] = f"Bearer {api_key}"
+    elif auth_type == "api_key":
+        headers["X-API-Key"] = api_key
+    elif auth_type == "basic":
+        import base64
+        headers["Authorization"] = f"Basic {base64.b64encode(api_key.encode()).decode()}"
+    return headers
+
+
+class WhatsAppSendParams(ToolParams):
+    message: str = Field(..., description="Message text to send")
+    to_ref: Optional[str] = Field(None, description=_CONTACT_REF.format(needs="phone number"))
+    to: Optional[str] = Field(None, description=_RAW.format(needs="phone number in E.164 format"))
+    template_name: Optional[str] = Field(None, description="Optional template name for pre-approved template messages")
+    media_url: Optional[str] = Field(None, description="Optional URL to a media file (brochure PDF, image, etc.)")
+
+
 class WhatsAppSendTenantTool(Tool):
     """
     Send WhatsApp messages via the tenant's own WhatsApp system.
 
     Resolves the tenant's WhatsApp API URL and auth token from
-    IntegrationRegistry (provider_name='whatsapp_tenant').
+    IntegrationRegistry (provider_name='whatsapp_tenant'). The number is a
+    contact of the run's subject scope (TL-09).
     """
     name = "whatsapp_send_tenant"
     description = (
-        "Send a WhatsApp message to a customer via the company's own WhatsApp system. "
-        "Use for sending visit confirmations, brochures, or follow-up messages. "
-        "Credentials are automatically resolved from the company's integration settings."
+        "Send a WhatsApp message to a contact of this run (to_ref; on a call, the caller) via the "
+        "company's own WhatsApp system. Use for visit confirmations, brochures or follow-ups."
     )
+    Params = WhatsAppSendParams
 
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {
-                        "type": "string",
-                        "description": "Recipient phone number in E.164 format (e.g. +919876543210)",
-                    },
-                    "message": {
-                        "type": "string",
-                        "description": "Message text to send",
-                    },
-                    "template_name": {
-                        "type": "string",
-                        "description": "Optional template name for pre-approved template messages",
-                    },
-                    "media_url": {
-                        "type": "string",
-                        "description": "Optional URL to a media file (brochure PDF, image, etc.)",
-                    },
-                },
-                "required": ["to", "message"],
-            },
-        }
-
-    async def run(self, input_data: str) -> str:
-        return await self.run_with_context(input_data, None)
-
-    async def run_with_context(
-        self, input_data: str, context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        try:
-            params = json.loads(input_data)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON input"})
-
-        company_id = context.get("company_id") if context else None
+    async def execute(self, params: WhatsAppSendParams, ctx: Dict[str, Any]) -> ToolOutput:
+        company_id = ctx.get("company_id")
         if not company_id:
-            return json.dumps({"error": "Missing company_id in execution context"})
+            return ToolOutput.failed("Missing company_id in execution context", code="no_context")
+        to, error = recipient(await scope_for(ctx), ctx, ref=params.to_ref, raw=params.to,
+                              needs="phone", field_name="to")
+        if error:
+            return ToolOutput.failed(error, code="recipient_not_in_scope")
 
-        # Resolve tenant's WhatsApp integration
         integration = await _resolve_integration(company_id, "whatsapp_tenant")
         if not integration:
-            return json.dumps({
-                "error": "No WhatsApp integration configured. "
-                "Please register a 'whatsapp_tenant' integration in the Integration Registry."
-            })
-
+            return ToolOutput.failed(
+                "No WhatsApp integration configured. "
+                "Please register a 'whatsapp_tenant' integration in the Integration Registry.",
+                code="no_connection")
         api_key = integration.get("api_key", "")
         metadata = integration.get("service_metadata", {})
         api_url = metadata.get("api_url", "")
         from_number = metadata.get("from_number", "")
-        auth_type = metadata.get("auth_type", "bearer")  # bearer | api_key | basic
-
         if not api_url:
-            return json.dumps({"error": "WhatsApp integration missing 'api_url' in service_metadata"})
+            return ToolOutput.failed("WhatsApp integration missing 'api_url' in service_metadata", code="no_connection")
 
-        to = params.get("to", "")
-        message = params.get("message", "")
-        template_name = params.get("template_name")
-        media_url = params.get("media_url")
-
-        if not to or not message:
-            return json.dumps({"error": "Missing required parameters: 'to' and 'message'"})
-
-        # Build request payload
         payload: Dict[str, Any] = {
             "to": to,
-            "message_type": "template" if template_name else "text",
-            "body": message,
+            "message_type": "template" if params.template_name else "text",
+            "body": params.message,
         }
-        if template_name:
-            payload["template_name"] = template_name
-        if media_url:
-            payload["media_url"] = media_url
+        if params.template_name:
+            payload["template_name"] = params.template_name
+        if params.media_url:
+            payload["media_url"] = params.media_url
         if from_number:
             payload["from"] = from_number
         payload["metadata"] = {"source": "hirebuddha_agent", "company_id": company_id}
-
-        # Build auth headers
-        headers = {"Content-Type": "application/json"}
-        if auth_type == "bearer":
-            headers["Authorization"] = f"Bearer {api_key}"
-        elif auth_type == "api_key":
-            headers["X-API-Key"] = api_key
-        elif auth_type == "basic":
-            import base64
-            headers["Authorization"] = f"Basic {base64.b64encode(api_key.encode()).decode()}"
+        headers = _auth_headers(metadata.get("auth_type", "bearer"), api_key)
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(api_url, json=payload, headers=headers)
-
-            if response.status_code in (200, 201, 202):
-                result = response.json() if response.text else {}
-                logger.info(f"[WhatsAppTenant] Message sent to {to}: {result}")
-                return json.dumps({
-                    "success": True,
-                    "message_id": result.get("message_id", result.get("id", "")),
-                    "status": result.get("status", "sent"),
-                    "to": to,
-                })
-            else:
-                error_body = response.text[:500]
-                logger.error(f"[WhatsAppTenant] API error {response.status_code}: {error_body}")
-                return json.dumps({
-                    "success": False,
-                    "error": f"WhatsApp API returned {response.status_code}: {error_body}",
-                })
-
         except httpx.TimeoutException:
-            return json.dumps({"success": False, "error": "WhatsApp API request timed out"})
-        except Exception as e:
+            return ToolOutput.failed("WhatsApp API request timed out")
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[WhatsAppTenant] Error: {e}", exc_info=True)
-            return json.dumps({"success": False, "error": str(e)})
+            return ToolOutput.failed(str(e))
+        if response.status_code not in (200, 201, 202):
+            error_body = response.text[:500]
+            logger.error(f"[WhatsAppTenant] API error {response.status_code}: {error_body}")
+            return ToolOutput.failed(f"WhatsApp API returned {response.status_code}: {error_body}")
+        result = response.json() if response.text else {}
+        logger.info(f"[WhatsAppTenant] Message sent to {to}: {result}")
+        return ToolOutput(output={
+            "success": True,
+            "message_id": result.get("message_id", result.get("id", "")),
+            "status": result.get("status", "sent"),
+            "to": to,
+        })
 
 
 # ===========================================================================
 # Tool 3: Google Calendar Create Event
 # ===========================================================================
 
+class CalendarEventParams(ToolParams):
+    title: str = Field(..., description="Event title (e.g. 'Site Visit - Prestige Lakeside Habitat')")
+    start_datetime: str = Field(..., description="Start datetime in ISO-8601 format (e.g. '2026-05-10T11:00:00+05:30')")
+    end_datetime: Optional[str] = Field(None, description="End datetime in ISO-8601 format. Defaults to 1 hour after start.")
+    description: Optional[str] = Field(None, description="Event description with details")
+    location: Optional[str] = Field(None, description="Event location / address")
+    attendee_ref: Optional[str] = Field(
+        None, description="Ref of the contact to invite, from the run's Subjects list. Omit for no invitee.")
+    attendee_email: Optional[str] = Field(None, description=_RAW.format(needs="e-mail"))
+
+
 class GoogleCalendarCreateEventTool(Tool):
     """
     Schedule events on Google Calendar for property visits.
 
     Resolves Google Calendar credentials from IntegrationRegistry
-    (provider_name='google_calendar'). Supports both Service Account
-    and OAuth2 refresh token flows.
+    (provider_name='google_calendar'). The invitee is a contact of the run's
+    subject scope (TL-09).
     """
     name = "google_calendar_create_event"
     description = (
-        "Schedule a property visit or appointment on Google Calendar. "
-        "Use this after the customer agrees to a site visit. "
-        "Credentials are automatically resolved from the company's integration settings."
+        "Schedule a property visit or appointment on the company's Google Calendar, optionally "
+        "inviting a contact of this run (attendee_ref). Use after the customer agrees to a visit."
     )
+    Params = CalendarEventParams
 
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Event title (e.g. 'Site Visit - Prestige Lakeside Habitat')",
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Event description with details",
-                    },
-                    "start_datetime": {
-                        "type": "string",
-                        "description": "Start datetime in ISO-8601 format (e.g. '2026-05-10T11:00:00+05:30')",
-                    },
-                    "end_datetime": {
-                        "type": "string",
-                        "description": "End datetime in ISO-8601 format. Defaults to 1 hour after start.",
-                    },
-                    "attendee_email": {
-                        "type": "string",
-                        "description": "Email of the attendee to invite",
-                    },
-                    "location": {
-                        "type": "string",
-                        "description": "Event location / address",
-                    },
-                },
-                "required": ["title", "start_datetime"],
-            },
-        }
-
-    async def run(self, input_data: str) -> str:
-        return await self.run_with_context(input_data, None)
-
-    async def run_with_context(
-        self, input_data: str, context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        try:
-            params = json.loads(input_data)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON input"})
-
-        company_id = context.get("company_id") if context else None
+    async def execute(self, params: CalendarEventParams, ctx: Dict[str, Any]) -> ToolOutput:
+        company_id = ctx.get("company_id")
         if not company_id:
-            return json.dumps({"error": "Missing company_id in execution context"})
+            return ToolOutput.failed("Missing company_id in execution context", code="no_context")
+        attendee = None
+        if params.attendee_ref or params.attendee_email:
+            attendee, error = recipient(await scope_for(ctx), ctx, ref=params.attendee_ref,
+                                        raw=params.attendee_email, needs="email", field_name="attendee_email")
+            if error:
+                return ToolOutput.failed(error, code="recipient_not_in_scope")
 
-        # Resolve Google Calendar integration
         integration = await _resolve_integration(company_id, "google_calendar")
         if not integration:
-            return json.dumps({
-                "error": "No Google Calendar integration configured. "
-                "Please register a 'google_calendar' integration in the Integration Registry."
-            })
-
+            return ToolOutput.failed(
+                "No Google Calendar integration configured. "
+                "Please register a 'google_calendar' integration in the Integration Registry.",
+                code="no_connection")
         metadata = integration.get("service_metadata", {})
         calendar_id = metadata.get("calendar_id", "primary")
-        client_id = metadata.get("client_id", "")
-        client_secret = metadata.get("client_secret", "")
         refresh_token = integration.get("api_key", "")  # Stored as the encrypted_api_key
 
-        title = params.get("title", "Site Visit")
-        description = params.get("description", "")
-        start_dt = params.get("start_datetime", "")
-        end_dt = params.get("end_datetime", "")
-        attendee_email = params.get("attendee_email", "")
-        location = params.get("location", "")
-
-        if not start_dt:
-            return json.dumps({"error": "Missing required parameter: 'start_datetime'"})
-
-        # If no end_datetime, default to 1 hour after start
+        start_dt = params.start_datetime
+        end_dt = params.end_datetime
         if not end_dt:
             try:
-                from datetime import datetime as dt
-                start = dt.fromisoformat(start_dt)
-                end = start + timedelta(hours=1)
-                end_dt = end.isoformat()
-            except Exception:
+                end_dt = (datetime.fromisoformat(start_dt) + timedelta(hours=1)).isoformat()
+            except ValueError:
                 end_dt = start_dt
 
-        # Get access token via OAuth2 refresh
-        access_token = await self._get_access_token(client_id, client_secret, refresh_token)
+        access_token = await self._get_access_token(
+            metadata.get("client_id", ""), metadata.get("client_secret", ""), refresh_token)
         if not access_token:
-            return json.dumps({"error": "Failed to obtain Google Calendar access token"})
+            return ToolOutput.failed("Failed to obtain Google Calendar access token")
 
-        # Build Calendar API event
         event_body: Dict[str, Any] = {
-            "summary": title,
-            "description": description,
+            "summary": params.title,
+            "description": params.description or "",
             "start": {"dateTime": start_dt},
             "end": {"dateTime": end_dt},
         }
-        if location:
-            event_body["location"] = location
-        if attendee_email:
-            event_body["attendees"] = [{"email": attendee_email}]
+        if params.location:
+            event_body["location"] = params.location
+        if attendee:
+            event_body["attendees"] = [{"email": attendee}]
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                url = f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
                 response = await client.post(
-                    url,
+                    f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='@')}/events",
                     json=event_body,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json",
-                    },
-                    params={"sendUpdates": "all"} if attendee_email else {},
+                    headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+                    params={"sendUpdates": "all"} if attendee else {},
                 )
-
-            if response.status_code in (200, 201):
-                result = response.json()
-                logger.info(f"[GoogleCalendar] Event created: {result.get('id')}")
-                return json.dumps({
-                    "success": True,
-                    "event_id": result.get("id"),
-                    "html_link": result.get("htmlLink"),
-                    "start": result.get("start", {}).get("dateTime"),
-                    "end": result.get("end", {}).get("dateTime"),
-                    "summary": result.get("summary"),
-                })
-            else:
-                error = response.text[:500]
-                logger.error(f"[GoogleCalendar] API error {response.status_code}: {error}")
-                return json.dumps({
-                    "success": False,
-                    "error": f"Google Calendar API returned {response.status_code}: {error}",
-                })
-
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[GoogleCalendar] Error: {e}", exc_info=True)
-            return json.dumps({"success": False, "error": str(e)})
+            return ToolOutput.failed(str(e))
+        if response.status_code not in (200, 201):
+            error = response.text[:500]
+            logger.error(f"[GoogleCalendar] API error {response.status_code}: {error}")
+            return ToolOutput.failed(f"Google Calendar API returned {response.status_code}: {error}")
+        result = response.json()
+        logger.info(f"[GoogleCalendar] Event created: {result.get('id')}")
+        return ToolOutput(output={
+            "success": True,
+            "event_id": result.get("id"),
+            "html_link": result.get("htmlLink"),
+            "start": result.get("start", {}).get("dateTime"),
+            "end": result.get("end", {}).get("dateTime"),
+            "summary": result.get("summary"),
+            "attendee": attendee,
+        })
 
     @staticmethod
     async def _get_access_token(
@@ -442,151 +357,96 @@ class GoogleCalendarCreateEventTool(Tool):
 # Tool 4: CRM Update Lead
 # ===========================================================================
 
+class CRMUpdateLeadParams(ToolParams):
+    call_outcome: str = Field(
+        ..., description="Call outcome: interested, not_interested, callback_requested, no_answer, busy, invalid_number")
+    summary: str = Field(..., description="Brief summary of the call conversation and key points discussed")
+    lead_ref: Optional[str] = Field(
+        None, description="Ref of the lead from the run's Subjects list. May be omitted when the run has one "
+                          "lead (a campaign call's).")
+    next_action: Optional[str] = Field(
+        None, description="Next action to be taken (e.g. 'site_visit_scheduled', 'send_brochure', 'callback_tuesday')")
+    next_action_date: Optional[str] = Field(None, description="Date/time for the next action in ISO-8601 format")
+    lead_temperature: Optional[str] = Field(None, description="Lead temperature: hot, warm, or cold")
+
+
 class CRMUpdateLeadTool(Tool):
     """
     Update lead status in tenant's CRM after a call completes.
 
     Resolves CRM API credentials from IntegrationRegistry
-    (provider_name='crm_tenant').
+    (provider_name='crm_tenant'). The lead is one of the run's subjects — the
+    campaign call's or the CRM event's — never an id the model chose (TL-09).
     """
     name = "crm_update_lead"
     description = (
-        "Update the lead's status in the company CRM after a call. "
-        "ALWAYS call this tool at the end of every call to record the outcome, "
-        "call summary, and next action to take. "
-        "Credentials are automatically resolved from the company's integration settings."
+        "Record a call's outcome, summary and next action on this run's lead in the company CRM. "
+        "ALWAYS call this tool at the end of every call."
     )
+    Params = CRMUpdateLeadParams
 
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "lead_id": {
-                        "type": "string",
-                        "description": "The CRM lead ID to update",
-                    },
-                    "call_outcome": {
-                        "type": "string",
-                        "description": "Call outcome: interested, not_interested, callback_requested, no_answer, busy, invalid_number",
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "Brief summary of the call conversation and key points discussed",
-                    },
-                    "next_action": {
-                        "type": "string",
-                        "description": "Next action to be taken (e.g. 'site_visit_scheduled', 'send_brochure', 'callback_tuesday')",
-                    },
-                    "next_action_date": {
-                        "type": "string",
-                        "description": "Date/time for the next action in ISO-8601 format",
-                    },
-                    "lead_temperature": {
-                        "type": "string",
-                        "description": "Lead temperature: hot, warm, or cold",
-                    },
-                },
-                "required": ["lead_id", "call_outcome", "summary"],
-            },
-        }
-
-    async def run(self, input_data: str) -> str:
-        return await self.run_with_context(input_data, None)
-
-    async def run_with_context(
-        self, input_data: str, context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        try:
-            params = json.loads(input_data)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON input"})
-
-        company_id = context.get("company_id") if context else None
+    async def execute(self, params: CRMUpdateLeadParams, ctx: Dict[str, Any]) -> ToolOutput:
+        company_id = ctx.get("company_id")
         if not company_id:
-            return json.dumps({"error": "Missing company_id in execution context"})
+            return ToolOutput.failed("Missing company_id in execution context", code="no_context")
+        scope = await scope_for(ctx)
+        lead = scope.resolve(LEAD, params.lead_ref)
+        if lead is None or not lead.value:
+            what = f"'{params.lead_ref}' is not a lead of this run" if params.lead_ref else "say which lead"
+            return ToolOutput.failed(f"{what}: {scope.listing(LEAD)}", code="lead_not_in_scope")
+        lead_id = lead.value
 
-        # Resolve tenant's CRM integration
         integration = await _resolve_integration(company_id, "crm_tenant")
         if not integration:
-            return json.dumps({
-                "error": "No CRM integration configured. "
-                "Please register a 'crm_tenant' integration in the Integration Registry."
-            })
-
+            return ToolOutput.failed(
+                "No CRM integration configured. "
+                "Please register a 'crm_tenant' integration in the Integration Registry.",
+                code="no_connection")
         api_key = integration.get("api_key", "")
         metadata = integration.get("service_metadata", {})
         api_url = metadata.get("api_url", "")
-        auth_type = metadata.get("auth_type", "bearer")
         # Some CRMs use a specific endpoint pattern
         update_endpoint = metadata.get("update_endpoint", "/leads/{lead_id}/update")
-
         if not api_url:
-            return json.dumps({"error": "CRM integration missing 'api_url' in service_metadata"})
+            return ToolOutput.failed("CRM integration missing 'api_url' in service_metadata", code="no_connection")
 
-        lead_id = params.get("lead_id", "")
-        call_outcome = params.get("call_outcome", "")
-        summary = params.get("summary", "")
-        next_action = params.get("next_action", "")
-        next_action_date = params.get("next_action_date", "")
-        lead_temperature = params.get("lead_temperature", "")
-
-        if not lead_id or not call_outcome or not summary:
-            return json.dumps({"error": "Missing required parameters: lead_id, call_outcome, summary"})
-
-        # Build update payload
         payload = {
             "lead_id": lead_id,
             "call_status": "completed",
-            "call_outcome": call_outcome,
-            "call_summary": summary,
-            "next_action": next_action,
-            "next_action_date": next_action_date,
-            "lead_temperature": lead_temperature,
+            "call_outcome": params.call_outcome,
+            "call_summary": params.summary,
+            "next_action": params.next_action or "",
+            "next_action_date": params.next_action_date or "",
+            "lead_temperature": params.lead_temperature or "",
             "updated_at": datetime.now(IST).isoformat(),
             "updated_by": "hirebuddha_agent",
         }
-
-        # Build URL
-        endpoint = update_endpoint.replace("{lead_id}", lead_id)
+        # The id is one path segment: a '/' or '..' in it no longer reaches
+        # another endpoint of the tenant's CRM.
+        endpoint = update_endpoint.replace("{lead_id}", quote(lead_id, safe=""))
         full_url = f"{api_url.rstrip('/')}{endpoint}"
-
-        # Build auth headers
-        headers = {"Content-Type": "application/json"}
-        if auth_type == "bearer":
-            headers["Authorization"] = f"Bearer {api_key}"
-        elif auth_type == "api_key":
-            headers["X-API-Key"] = api_key
+        headers = _auth_headers(metadata.get("auth_type", "bearer"), api_key)
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 # Try POST first (most CRMs), fall back to PUT
                 response = await client.post(full_url, json=payload, headers=headers)
-
                 if response.status_code == 405:  # Method Not Allowed → try PUT
                     response = await client.put(full_url, json=payload, headers=headers)
-
-            if response.status_code in (200, 201, 202, 204):
-                result = response.json() if response.text and response.text.strip() else {}
-                logger.info(f"[CRMUpdate] Lead {lead_id} updated: {call_outcome}")
-                return json.dumps({
-                    "success": True,
-                    "lead_id": lead_id,
-                    "call_outcome": call_outcome,
-                    "crm_response": result,
-                })
-            else:
-                error = response.text[:500]
-                logger.error(f"[CRMUpdate] API error {response.status_code}: {error}")
-                return json.dumps({
-                    "success": False,
-                    "error": f"CRM API returned {response.status_code}: {error}",
-                })
-
         except httpx.TimeoutException:
-            return json.dumps({"success": False, "error": "CRM API request timed out"})
-        except Exception as e:
+            return ToolOutput.failed("CRM API request timed out")
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[CRMUpdate] Error: {e}", exc_info=True)
-            return json.dumps({"success": False, "error": str(e)})
+            return ToolOutput.failed(str(e))
+        if response.status_code not in (200, 201, 202, 204):
+            error = response.text[:500]
+            logger.error(f"[CRMUpdate] API error {response.status_code}: {error}")
+            return ToolOutput.failed(f"CRM API returned {response.status_code}: {error}")
+        result = response.json() if response.text and response.text.strip() else {}
+        logger.info(f"[CRMUpdate] Lead {lead_id} updated: {params.call_outcome}")
+        return ToolOutput(output={
+            "success": True,
+            "lead_id": lead_id,
+            "call_outcome": params.call_outcome,
+            "crm_response": result,
+        })

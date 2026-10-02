@@ -579,10 +579,10 @@ Legend for external dependency: `—` = pure local compute.
 
 | Tool id | Category | File | What it does | Key parameters | External dependency | Status | SKU / cost |
 |---|---|---|---|---|---|---|---|
-| `email_ingest` | email | [email/email_tool.py:148](../../backend/src/ai/tools/email/email_tool.py:148) | IMAP fetch of latest N emails, MIME parsed, HTML to markdown | `email_address`, `count`, `unread_only` (no required fields) | IMAP over SSL | ACTIVE | — |
+| `email_ingest` | email | [email/email_tool.py:148](../../backend/src/ai/tools/email/email_tool.py:148) | IMAP fetch of latest N emails, MIME parsed, HTML to markdown; records each sender as a subject of the run and returns its `contact_ref` | `email_address`, `count`, `unread_only` (no required fields) | IMAP over SSL | ACTIVE | — |
 | `email_classify` | email | [email/email_tool.py:267](../../backend/src/ai/tools/email/email_tool.py:267) | Creates `AI-Classified/{category}` folder and moves the message | `uid`, `category`, `source_folder` | IMAP | ACTIVE | — |
-| `email_draft` | email | [email/email_tool.py:364](../../backend/src/ai/tools/email/email_tool.py:364) | APPENDs a threaded reply into the Drafts folder | `original_message_id`, `draft_body`, `to`, `subject` | IMAP | ACTIVE | — |
-| `email_send` | email | [email/email_tool.py:477](../../backend/src/ai/tools/email/email_tool.py:477) | SMTP send with optional artifact attachment, 18 MB cap | `to`, `subject`, `body`, `cc`, `bcc`, `attachment_artifact_id` | SMTP with STARTTLS | ACTIVE | — |
+| `email_draft` | email | [email/email_tool.py:364](../../backend/src/ai/tools/email/email_tool.py:364) | APPENDs a threaded reply into the Drafts folder, to a contact of the run | `original_message_id`, `draft_body`, `subject`, `to_ref` (raw `to` only with free recipients) | IMAP | ACTIVE | — |
+| `email_send` | email | [email/email_tool.py:477](../../backend/src/ai/tools/email/email_tool.py:477) | SMTP send to the run's contacts with an optional file of the run, 18 MB cap | `subject`, `body`, `to_ref`, `cc_refs`, `bcc_refs`, `attachment_ref` (raw `to`/`cc`/`bcc` only with free recipients) | SMTP with STARTTLS | ACTIVE | — |
 
 ### 5.4 `media/` — 5 tools
 
@@ -606,9 +606,9 @@ Legend for external dependency: `—` = pure local compute.
 | Tool id | Category | File | What it does | Key parameters | External dependency | Status | SKU / cost |
 |---|---|---|---|---|---|---|---|
 | `get_current_datetime` | general | [crm/crm_tools.py:81](../../backend/src/ai/tools/crm/crm_tools.py:81) | Current date, time and weekday in IST | none | — | ACTIVE | — |
-| `whatsapp_send_tenant` | general | [crm/crm_tools.py:120](../../backend/src/ai/tools/crm/crm_tools.py:120) | POSTs a WhatsApp message to the tenant's own WhatsApp endpoint | `to`, `message` | tenant HTTP API, provider `whatsapp_tenant` | ACTIVE | — |
-| `google_calendar_create_event` | general | [crm/crm_tools.py:258](../../backend/src/ai/tools/crm/crm_tools.py:258) | Creates a calendar event for a site visit | `title`, `start_datetime`, `description`, attendees | Google Calendar, service account or OAuth2 refresh | ACTIVE | — |
-| `crm_update_lead` | general | [crm/crm_tools.py:445](../../backend/src/ai/tools/crm/crm_tools.py:445) | Writes call outcome and next action back to the tenant CRM | `lead_id`, `call_outcome`, `summary` | tenant HTTP API, provider `crm_tenant` | ACTIVE | — |
+| `whatsapp_send_tenant` | general | [crm/crm_tools.py:120](../../backend/src/ai/tools/crm/crm_tools.py:120) | POSTs a WhatsApp message to the tenant's own WhatsApp endpoint, to a contact of the run | `message`, `to_ref` (raw `to` only with free recipients) | tenant HTTP API, provider `whatsapp_tenant` | ACTIVE | — |
+| `google_calendar_create_event` | general | [crm/crm_tools.py:258](../../backend/src/ai/tools/crm/crm_tools.py:258) | Creates a calendar event for a site visit | `title`, `start_datetime`, `description`, `attendee_ref` | Google Calendar, service account or OAuth2 refresh | ACTIVE | — |
+| `crm_update_lead` | general | [crm/crm_tools.py:445](../../backend/src/ai/tools/crm/crm_tools.py:445) | Writes call outcome and next action back to the tenant CRM, for the run's lead (id URL-quoted) | `call_outcome`, `summary`, `lead_ref` | tenant HTTP API, provider `crm_tenant` | ACTIVE | — |
 
 ### 5.7 `meta/` — 9 registered tools
 
@@ -761,6 +761,23 @@ deleted on 2026-10-01 (TL-26, TL-27). `docx_tool._create` starts from a blank
 ---
 
 ## 8. `email/` — IMAP and SMTP
+
+> **Since P6.11 (2026-10-02, TL-09) — subject refs.** Whom a tool writes to is the run's
+> subject, not a value the model chose. `governance/subjects.py` derives a run tree's
+> scope from what it stores: the root run's `input_data["subjects"]` (written by the API
+> caller, by the gateway for a CRM event's lead or an e-mail's sender, by a voice call for
+> its counterparty); for a run a tenant user started, the addresses in its input text
+> (never a webhook's text — that is its sender's); the senders `email_ingest` read
+> (`run_subjects`); and the files the tree made, or that were uploaded for its agents or
+> given in its input. Contacts and leads get refs (`c_…`, `l_…`, a hash of the root run,
+> kind and key); a file's ref is its artifact id. The loop shows the list to the model
+> (`__subjects__`, prompt layer 9). `email_send`, `email_draft`, `whatsapp_send_tenant`,
+> `google_calendar_create_event` and `crm_update_lead` — now typed — take refs, use the
+> only one of a kind when the ref is omitted (a voice call's caller and lead), and refuse
+> anything else with the scope's list. An entity with `governance.allow_free_recipients:
+> true` may pass raw addresses. An attachment that is not a file of the run is refused;
+> before, a missing one was dropped and the mail sent anyway.
+
 
 > **Since P6.8 (2026-10-02, TL-57, TL-58).** The IMAP and SMTP work runs in
 > `asyncio.to_thread` with a 30 s socket timeout (it blocked the worker's event loop, for
@@ -1845,7 +1862,7 @@ was deleted under FE-30.)
 | `pdf_generator`, `docx_tool`, `pptx_tool`, `excel_tool` | `pdf_generator`: public URLs while rendering | yes | no | every model path confined to the company's files (`confine_path`); output names have no directory; WeasyPrint fetches only the company's files, public `http(s)` and `data:` |
 | `document_save` | no | yes | no | `format` enum, source confined to the company's files |
 | `email_ingest`, `email_classify`, `email_draft` | yes — IMAP | no | no | credentials scoped by `company_id` |
-| `email_send` | yes — SMTP | no | indirectly — reputational | 18 MB attachment cap. **No recipient allow-list, no HITL gate in the tool** |
+| `email_send` | yes — SMTP | no | indirectly — reputational | 18 MB attachment cap. Recipients and the attachment are the run's subjects (P6.11, TL-09); no HITL gate in the tool |
 | `image_generation` | yes — Vertex | yes | **yes — real dollars** | model must be a configured task default; reference image confined to the company's files |
 | `video_generate` | yes — Vertex Veo | yes | **yes — real dollars** | 8 s per clip; frame paths confined to the company's files |
 | `video_edit`, `video_add_sound` | no | yes | compute only | 300 s ffmpeg timeout; input and output paths confined to the company's files |

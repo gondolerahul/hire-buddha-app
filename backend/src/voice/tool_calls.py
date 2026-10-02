@@ -47,6 +47,7 @@ class VoiceToolCalls:
         if self.access is not None:
             return
         from src.ai.governance.tool_access import ExecutionContext, ToolAccess
+        from src.ai.governance.subjects import voice_subjects
         from src.ai.governance.tool_cost_resolver import ToolCostResolver
         from src.ai.models import ExecutionRun, HierarchicalEntity
         from src.ai.schemas.enums import RunStatus
@@ -66,7 +67,10 @@ class VoiceToolCalls:
         self.run = ExecutionRun(
             company_id=vs.company_id, entity_id=entity.id, status=RunStatus.RUNNING,
             started_at=datetime.utcnow(),
-            input_data={"input": "voice call", "channel": "voice", "voice_session_id": str(vs.id)},
+            input_data={"input": "voice call", "channel": "voice", "voice_session_id": str(vs.id),
+                        # The caller or the campaign's contact: whom this
+                        # call's tools may message or update (TL-09).
+                        "subjects": voice_subjects(vs)},
         )
         self.db.add(self.run)
         await self.db.flush()

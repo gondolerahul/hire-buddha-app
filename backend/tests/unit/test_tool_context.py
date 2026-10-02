@@ -193,6 +193,10 @@ async def test_a_tool_called_without_a_context_refuses_a_model_supplied_company(
         "action": "create", "filename": "x.docx", "title": "t", "content": "c",
         "source_path": "/etc/hostname", "format": "docx", "prompt": "p", "text": "hello",
     }
+    if tool.Params is not None:
+        # A typed tool refuses a field it does not declare, ``company_id``
+        # included: it is given its own fields, and still has no company.
+        params = {k: v for k, v in params.items() if k in tool.Params.model_fields}
     out = await tool.run_with_context(json.dumps(params), context=None)
     assert NO_CONTEXT_ERROR in out
 

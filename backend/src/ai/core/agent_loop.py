@@ -753,8 +753,9 @@ class AgentLoop:
         # no input and the agent drifts onto stale episodic memory.
         run_input = run.input_data if isinstance(run.input_data, dict) else {}
         for key, value in run_input.items():
-            if key in ("feature_flags", "cortex_tree_id", "subtree_root_id", REUSE_OUTPUTS_KEY, "__skip_steps__"):
-                continue  # internal plumbing, not task input
+            if key in ("feature_flags", "cortex_tree_id", "subtree_root_id", REUSE_OUTPUTS_KEY, "__skip_steps__",
+                       "subjects"):
+                continue  # internal plumbing, not task input (subjects reach the prompt as refs)
             state.context_state.setdefault(key, value)
         # A retry or refine carries the steps it does not need to run again.
         reuse_step_outputs(state, run_input.get(REUSE_OUTPUTS_KEY))
@@ -787,6 +788,18 @@ class AgentLoop:
         self.memory = await assemble_run_memory(
             self.db, state, entity=self._entity, runtime_tree=tree, resumed=resumed,
         )
+
+        # The people, records and files the run may act on, as the refs its
+        # tools take (TL-09). The tools check every ref themselves; without the
+        # list the model only cannot name one.
+        try:
+            from src.ai.governance.subjects import subject_scope
+            scope = await subject_scope(self.db, self._run_id, state.company_id)
+            block = scope.render()
+            if block:
+                state.context_state["__subjects__"] = block
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not list the run's subjects: %s", exc)
 
         self._snapshot_each_iteration = await self._flag_or_default(
             "agent_loop.snapshot_every_iteration", True, state,

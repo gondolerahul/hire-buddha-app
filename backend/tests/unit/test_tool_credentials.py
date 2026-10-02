@@ -16,6 +16,7 @@ from uuid import uuid4
 
 import pytest
 
+from src.ai.governance.subjects import SubjectScope
 from src.ai.tools.email import email_tool
 
 ROW = {
@@ -29,6 +30,10 @@ INJECTED = {
     "password": "attacker-chosen", "email_address": "sales@tenant.example",
 }
 CTX = {"company_id": str(uuid4()), "run_id": str(uuid4())}
+# The typed tools (P6.11) take raw recipients only for an entity that allows
+# them; these tests are about credentials, not recipients.
+FREE = {**CTX, "__allow_free_recipients__": True}
+SERVER_FIELDS = {k: v for k, v in INJECTED.items() if k != "email_address"}
 
 
 class _Stop(Exception):
@@ -46,13 +51,17 @@ def opened(monkeypatch):
     monkeypatch.setattr(email_tool, "_resolve_connection", AsyncMock(return_value=dict(ROW)))
     monkeypatch.setattr(email_tool, "_get_smtp_connection", _capture)
     monkeypatch.setattr(email_tool, "_get_imap_connection", _capture)
+    monkeypatch.setattr(email_tool, "scope_for", AsyncMock(return_value=SubjectScope()))
     return seen
 
 
 @pytest.mark.asyncio
 async def test_email_send_uses_the_connection_rows_server_and_password(opened):
-    params = {**INJECTED, "to": "a@b.example", "subject": "s", "body": "b"}
-    await email_tool.EmailSendTool().run_with_context(json.dumps(params), CTX)
+    params = {"email_address": "sales@tenant.example", "to": "a@b.example", "subject": "s", "body": "b"}
+    # A server or password in the arguments is not a field: refused, nothing opened.
+    refused = await email_tool.EmailSendTool().invoke({**params, **SERVER_FIELDS}, FREE)
+    assert refused.error_code == "invalid_arguments" and opened == []
+    await email_tool.EmailSendTool().run_with_context(json.dumps(params), FREE)
     assert opened == [("smtp.tenant.example", 587, "sales@tenant.example", "row-secret")]
 
 
@@ -64,7 +73,12 @@ async def test_email_send_uses_the_connection_rows_server_and_password(opened):
                                  "original_message_id": "<m@x>"}),
 ])
 async def test_the_imap_tools_use_the_connection_rows_server_and_password(opened, cls, extra):
-    await cls().run_with_context(json.dumps({**INJECTED, **extra}), CTX)
+    args = {**INJECTED, **extra}
+    if cls.Params is not None:
+        # A typed tool refuses the server fields outright; then it is called without them.
+        assert (await cls().invoke(args, FREE)).error_code == "invalid_arguments" and opened == []
+        args = {**extra, "email_address": INJECTED["email_address"]}
+    await cls().run_with_context(json.dumps(args), FREE)
     assert opened, "the tool never opened a connection"
     assert opened[0] == ("imap.tenant.example", 993, "sales@tenant.example", "row-secret")
 
@@ -74,10 +88,10 @@ async def test_an_address_with_no_connection_row_is_refused(monkeypatch):
     monkeypatch.setattr(email_tool, "_resolve_connection", AsyncMock(return_value={}))
     smtp = MagicMock()
     monkeypatch.setattr(email_tool, "_get_smtp_connection", smtp)
-    out = await email_tool.EmailSendTool().run_with_context(json.dumps(
-        {**INJECTED, "email_address": "ceo@elsewhere.example", "to": "a@b.example",
-         "subject": "s", "body": "b"}), CTX)
-    assert "error" in json.loads(out)
+    monkeypatch.setattr(email_tool, "scope_for", AsyncMock(return_value=SubjectScope()))
+    out = await email_tool.EmailSendTool().invoke(
+        {"email_address": "ceo@elsewhere.example", "to": "a@b.example", "subject": "s", "body": "b"}, FREE)
+    assert out.error_code == "no_connection"
     smtp.assert_not_called()
 
 

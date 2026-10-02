@@ -290,7 +290,7 @@ targets before the request, on both tools. Re-check after redirects.
 
 ### TL-09 — Subject data is model-chosen with no ownership check
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-10-02, P6.11)** — the email and CRM tools take refs from the run tree's subject scope (`governance/subjects.py`, D18): contacts and leads from the run's input, its gateway event, its voice call and the senders `email_ingest` read; files the tree made or was given. A ref outside the scope, a raw address (unless the entity sets `governance.allow_free_recipients`) and another run's file are refused; `crm_update_lead` URL-quotes the lead id. Ad accounts need no ref: after P6.2 the only ad tool, `google_ads`, reads `customer_id` from the connection. `tests/integration/test_subject_refs.py`.
 
 Credentials are resolved server-side everywhere — that half of the "tools fetch their
 own sensitive data" rule is genuinely implemented. **Subject** data is not: who the

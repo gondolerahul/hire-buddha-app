@@ -7,8 +7,11 @@ Provides four tools for AI agents to interact with customer inboxes:
 - EmailDraftTool: Create draft replies via IMAP APPEND
 - EmailSendTool: Send emails via SMTP
 
-All tools require an email_connection_id parameter to identify which
-email account credentials to use.
+The account is the company's connection (``email_address`` may pick one of
+them). Whom a message goes to is not the model's to choose: ``email_send`` and
+``email_draft`` take contact refs from the run's subject scope, and the file
+an e-mail carries is an artifact of the run (TL-09). ``email_ingest`` adds the
+senders it reads to that scope, so a reply can be addressed.
 """
 import asyncio
 import logging
@@ -19,11 +22,14 @@ import email
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formatdate, make_msgid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 import os
 import re
 
-from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
+from pydantic import Field
+
+from src.ai.governance.subjects import CONTACT, SubjectScope, normalize_email, record_subjects, recipient, scope_for
+from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, ToolOutput, ToolParams, context_company_id
 
 logger = logging.getLogger(__name__)
 
@@ -256,14 +262,40 @@ class EmailIngestTool(Tool):
                     pass
 
         try:
-            return json.dumps(await asyncio.to_thread(_fetch))
-
+            result = await asyncio.to_thread(_fetch)
         except imaplib.IMAP4.error as e:
             logger.error(f"IMAP error: {e}")
             return json.dumps({"error": f"IMAP connection failed: {str(e)}"})
         except Exception as e:
             logger.error(f"Email ingest error: {e}", exc_info=True)
             return json.dumps({"error": f"Email ingest failed: {str(e)}"})
+        if result.get("emails"):
+            await _add_senders(context or {}, result["emails"])
+        return json.dumps(result)
+
+
+async def _add_senders(context: Dict[str, Any], emails: List[Dict[str, Any]]) -> None:
+    """Record each fetched message's sender in the run's subject scope and
+    give the message its ``contact_ref``, so ``email_draft`` / ``email_send``
+    can reply (TL-09). A message read from the tenant's inbox is the run's."""
+    from email.utils import parseaddr
+    senders = []
+    for e in emails:
+        name, address = parseaddr(e.get("from") or "")
+        if normalize_email(address):
+            senders.append((CONTACT, address, name or None))
+    if not senders:
+        return
+    try:
+        scope = await record_subjects(context, senders, source="email_ingest")
+    except Exception as exc:  # noqa: BLE001 - the mail was read; replying needs the scope
+        logger.warning(f"Could not record the senders as subjects: {exc}")
+        return
+    by_address = {s.email: s.ref for s in scope.of(CONTACT) if s.email}
+    for e in emails:
+        ref = by_address.get(normalize_email(parseaddr(e.get("from") or "")[1]) or "")
+        if ref:
+            e["contact_ref"] = ref
 
 
 class EmailClassifyTool(Tool):
@@ -367,6 +399,52 @@ class EmailClassifyTool(Tool):
             return json.dumps({"error": f"Classification failed: {str(e)}"})
 
 
+def _drafts_folder(imap_host: str) -> str:
+    return "[Gmail]/Drafts" if "gmail" in imap_host.lower() else "Drafts"
+
+
+def _body_parts(body: str) -> MIMEMultipart:
+    """The body as text and html alternatives."""
+    part = MIMEMultipart("alternative")
+    part.attach(MIMEText(body, "plain", "utf-8"))
+    html_body = body.replace("\n", "<br>")
+    part.attach(MIMEText(f"<html><body>{html_body}</body></html>", "html", "utf-8"))
+    return part
+
+
+def _addresses(scope: SubjectScope, ctx: Dict[str, Any], refs: List[str], raw: Optional[str],
+               field_name: str) -> tuple[List[str], Optional[str]]:
+    """The e-mail addresses ``refs`` name, plus ``raw`` (comma-separated) for an
+    agent that allows free recipients; or an error."""
+    out: List[str] = []
+    for ref in refs:
+        value, error = recipient(scope, ctx, ref=ref, raw=None, needs="email", field_name=field_name)
+        if error:
+            return [], error
+        out.append(value or "")
+    for item in (raw or "").split(","):
+        if item.strip():
+            value, error = recipient(scope, ctx, ref=None, raw=item.strip(), needs="email", field_name=field_name)
+            if error:
+                return [], error
+            out.append(value or "")
+    return out, None
+
+
+_TO_REF = ("Ref of the contact to write to, from the run's Subjects list (an email_ingest message's "
+           "contact_ref for a reply). May be omitted when the run has one contact with an e-mail.")
+_RAW = "A raw address: only for an agent that allows free recipients."
+
+
+class EmailDraftParams(ToolParams):
+    original_message_id: str = Field(..., description="Message-ID of the email being replied to")
+    draft_body: str = Field(..., description="Body text for the draft reply")
+    subject: str = Field(..., description="Email subject (usually 'Re: original subject')")
+    to_ref: Optional[str] = Field(None, description=_TO_REF)
+    to: Optional[str] = Field(None, description=_RAW)
+    email_address: Optional[str] = Field(None, description="Which of the company's mailboxes (default: the first)")
+
+
 class EmailDraftTool(Tool):
     """
     Create draft email replies directly in the user's Drafts folder.
@@ -374,316 +452,188 @@ class EmailDraftTool(Tool):
     """
     name = "email_draft"
     description = (
-        "Create a draft reply to an email in the user's Drafts folder. "
-        "Will automatically use company credentials if not provided."
+        "Create a draft reply to an email in the company mailbox's Drafts folder, addressed to a "
+        "contact of this run (to_ref)."
     )
+    Params = EmailDraftParams
 
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "email_address": {"type": "string"},
-                    "original_message_id": {"type": "string", "description": "Message-ID of the email being replied to"},
-                    "draft_body": {"type": "string", "description": "Body text for the draft reply"},
-                    "to": {"type": "string", "description": "Recipient email address"},
-                    "subject": {"type": "string", "description": "Email subject (usually 'Re: original subject')"}
-                },
-                "required": ["original_message_id", "draft_body", "to", "subject"]
-            }
-        }
-
-    async def run(self, input_data: str) -> str:
-        return await self.run_with_context(input_data, None)
-
-    async def run_with_context(self, input_data: str, context: Optional[Dict[str, Any]] = None) -> str:
-        try:
-            params = json.loads(input_data)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON input"})
-
-        # Resolve credentials
-        company_id = context_company_id(context)
+    async def execute(self, params: EmailDraftParams, ctx: Dict[str, Any]) -> ToolOutput:
+        company_id = context_company_id(ctx)
         if not company_id:
-            return json.dumps({"error": NO_CONTEXT_ERROR})
-        resolved = await _resolve_connection(company_id, params.get("email_address"))
+            return ToolOutput.failed(NO_CONTEXT_ERROR, code="no_context")
+        scope = await scope_for(ctx)
+        to_addr, error = recipient(scope, ctx, ref=params.to_ref, raw=params.to, needs="email", field_name="to")
+        if error:
+            return ToolOutput.failed(error, code="recipient_not_in_scope")
 
         # Server, account and password come from the company's connection row
         # only. ``email_address`` may pick which of the company's connections;
         # it cannot point the tool at another server or supply a password
         # (TL-04, TL-56).
+        resolved = await _resolve_connection(company_id, params.email_address)
         imap_host = resolved.get("imap_host")
         imap_port = resolved.get("imap_port") or 993
         email_address = resolved.get("email_address")
         password = resolved.get("password")
-        original_message_id = params.get("original_message_id")
-        draft_body = params.get("draft_body")
-        to_addr = params.get("to")
-        subject = params.get("subject")
-        
-        if not all([imap_host, email_address, password, original_message_id, draft_body, to_addr, subject]):
-            return json.dumps({"error": "Missing required parameters or email credentials."})
+        if not all([imap_host, email_address, password]):
+            return ToolOutput.failed("no email connection: configure one for this company first",
+                                     code="no_connection")
+
+        msg = _body_parts(params.draft_body)
+        msg["From"] = email_address
+        msg["To"] = to_addr
+        msg["Subject"] = params.subject
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid()
+        # Thread headers keep the reply in the conversation.
+        msg["In-Reply-To"] = params.original_message_id
+        msg["References"] = params.original_message_id
+        drafts_folder = _drafts_folder(imap_host)
+
+        def _append() -> str:
+            conn = _get_imap_connection(imap_host, imap_port, email_address, password)
+            try:
+                status, _ = conn.append(drafts_folder, "\\Draft", None, msg.as_bytes())
+                return status
+            finally:
+                try:
+                    conn.logout()
+                except Exception:  # noqa: BLE001
+                    pass
 
         try:
-            # Construct MIME message
-            msg = MIMEMultipart("alternative")
-            msg["From"] = email_address
-            msg["To"] = to_addr
-            msg["Subject"] = subject
-            msg["Date"] = formatdate(localtime=True)
-            msg["Message-ID"] = make_msgid()
-            
-            # Thread headers - CRUCIAL for maintaining conversation thread
-            msg["In-Reply-To"] = original_message_id
-            msg["References"] = original_message_id
-            
-            # Add body (plain text + HTML)
-            plain_part = MIMEText(draft_body, "plain", "utf-8")
-            html_body = draft_body.replace("\n", "<br>")
-            html_part = MIMEText(f"<html><body>{html_body}</body></html>", "html", "utf-8")
-            
-            msg.attach(plain_part)
-            msg.attach(html_part)
-            
-            # Determine drafts folder
-            if "gmail" in imap_host.lower():
-                drafts_folder = "[Gmail]/Drafts"
-            elif "outlook" in imap_host.lower() or "office365" in imap_host.lower():
-                drafts_folder = "Drafts"
-            else:
-                drafts_folder = "Drafts"
-            
-            def _append() -> str:
-                conn = _get_imap_connection(imap_host, imap_port, email_address, password)
-                try:
-                    status, _ = conn.append(drafts_folder, "\\Draft", None, msg.as_bytes())
-                    return status
-                finally:
-                    try:
-                        conn.logout()
-                    except Exception:  # noqa: BLE001
-                        pass
-
             status = await asyncio.to_thread(_append)
-            
-            if status != "OK":
-                return json.dumps({"error": f"Failed to save draft to {drafts_folder}"})
-            
-            return json.dumps({
-                "success": True,
-                "draft_saved_to": drafts_folder,
-                "to": to_addr,
-                "subject": subject,
-                "in_reply_to": original_message_id
-            })
-
-        except imaplib.IMAP4.error as e:
-            logger.error(f"IMAP draft error: {e}")
-            return json.dumps({"error": f"Draft creation failed: {str(e)}"})
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Email draft error: {e}", exc_info=True)
-            return json.dumps({"error": f"Draft creation failed: {str(e)}"})
+            return ToolOutput.failed(f"Draft creation failed: {e}")
+        if status != "OK":
+            return ToolOutput.failed(f"Failed to save draft to {drafts_folder}")
+        return ToolOutput(output={
+            "success": True, "draft_saved_to": drafts_folder, "to": to_addr,
+            "subject": params.subject, "in_reply_to": params.original_message_id,
+        })
+
+
+# Gmail's limit is 25MB and base64 adds ~33%: files over 18MB raw are refused.
+MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024
+
+
+class EmailSendParams(ToolParams):
+    subject: str = Field(..., description="Email subject")
+    body: str = Field(..., description="Email body text")
+    to_ref: Optional[str] = Field(None, description=_TO_REF)
+    cc_refs: List[str] = Field(default_factory=list, description="Refs of contacts to copy")
+    bcc_refs: List[str] = Field(default_factory=list, description="Refs of contacts to blind-copy")
+    attachment_ref: Optional[str] = Field(
+        None, description="artifact_id of a file to attach: one this run made, or one in its Subjects list")
+    to: Optional[str] = Field(None, description=_RAW)
+    cc: Optional[str] = Field(None, description=_RAW + " Comma-separated.")
+    bcc: Optional[str] = Field(None, description=_RAW + " Comma-separated.")
+    email_address: Optional[str] = Field(None, description="Which of the company's mailboxes (default: the first)")
 
 
 class EmailSendTool(Tool):
     """
-    Send emails via SMTP using stored credentials.
-    Supports optional file attachments via artifact ID.
+    Send emails via SMTP using stored credentials, to the run's contacts.
+    Attaches a file of the run by its artifact id.
     """
     name = "email_send"
     description = (
-        "Send an email via SMTP. "
-        "Will automatically use company credentials if not provided. "
-        "Can attach a file by providing its artifact_id."
+        "Send an email from the company mailbox to a contact of this run (to_ref), optionally "
+        "attaching a file this run made or was given (attachment_ref = its artifact_id)."
     )
+    Params = EmailSendParams
 
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "email_address": {"type": "string"},
-                    "to": {"type": "string", "description": "Recipient email address"},
-                    "subject": {"type": "string", "description": "Email subject"},
-                    "body": {"type": "string", "description": "Email body text"},
-                    "cc": {"type": "string", "description": "CC recipients (comma-separated)"},
-                    "bcc": {"type": "string", "description": "BCC recipients (comma-separated)"},
-                    "attachment_artifact_id": {
-                        "type": "string",
-                        "description": "UUID of an artifact to attach to the email (e.g. a product catalog PDF)"
-                    }
-                },
-                "required": ["to", "subject", "body"]
-            }
-        }
-
-    async def run(self, input_data: str) -> str:
-        return await self.run_with_context(input_data, None)
-
-    async def run_with_context(self, input_data: str, context: Optional[Dict[str, Any]] = None) -> str:
-        try:
-            params = json.loads(input_data)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON input"})
-
-        # Resolve credentials
-        company_id = context_company_id(context)
+    async def execute(self, params: EmailSendParams, ctx: Dict[str, Any]) -> ToolOutput:
+        company_id = context_company_id(ctx)
         if not company_id:
-            return json.dumps({"error": NO_CONTEXT_ERROR})
-        resolved = await _resolve_connection(company_id, params.get("email_address"))
+            return ToolOutput.failed(NO_CONTEXT_ERROR, code="no_context")
+        scope = await scope_for(ctx)
+        to_addr, error = recipient(scope, ctx, ref=params.to_ref, raw=params.to, needs="email", field_name="to")
+        cc, cc_error = _addresses(scope, ctx, params.cc_refs, params.cc, "cc")
+        bcc, bcc_error = _addresses(scope, ctx, params.bcc_refs, params.bcc, "bcc")
+        if error or cc_error or bcc_error:
+            return ToolOutput.failed(error or cc_error or bcc_error or "", code="recipient_not_in_scope")
+
+        # The file is one the run may use, or the call is refused: before, an
+        # attachment that was not found was dropped and the mail sent anyway.
+        attachment = None
+        if params.attachment_ref:
+            attachment = await scope.artifact(params.attachment_ref)
+            if attachment is None:
+                return ToolOutput.failed(
+                    f"'{params.attachment_ref}' is not a file of this run: attach one this run made "
+                    f"(its artifact_id) or one in its Subjects list", code="attachment_not_in_scope")
+            if not attachment.file_path or not os.path.exists(attachment.file_path):
+                return ToolOutput.failed(f"the file of {params.attachment_ref} is missing from storage")
+            size = os.path.getsize(attachment.file_path)
+            if size > MAX_ATTACHMENT_BYTES:
+                return ToolOutput.failed(
+                    f"Attachment '{attachment.file_name}' is {size / (1024 * 1024):.1f}MB which exceeds "
+                    f"the 18MB email limit. Please use a smaller/compressed version.", code="attachment_too_large")
 
         # Server, account and password come from the company's connection row
         # only. ``email_address`` may pick which of the company's connections;
         # it cannot point the tool at another server — an open relay from the
         # tenant's identity — or supply a password (TL-04).
+        resolved = await _resolve_connection(company_id, params.email_address)
         smtp_host = resolved.get("smtp_host")
         smtp_port = resolved.get("smtp_port") or 587
         email_address = resolved.get("email_address")
         password = resolved.get("password")
-        to_addr = params.get("to")
-        subject = params.get("subject")
-        body = params.get("body")
-        cc = params.get("cc", "")
-        bcc = params.get("bcc", "")
-        attachment_artifact_id = params.get("attachment_artifact_id")
-        
-        if not all([smtp_host, email_address, password, to_addr, subject, body]):
-            return json.dumps({"error": "Missing required parameters or email credentials."})
+        if not all([smtp_host, email_address, password]):
+            return ToolOutput.failed("no email connection: configure one for this company first",
+                                     code="no_connection")
+
+        if attachment is not None:
+            # 'mixed': the body (text and html) plus the file.
+            from email.mime.base import MIMEBase
+            from email import encoders as email_encoders
+            import mimetypes
+
+            msg = MIMEMultipart("mixed")
+            msg.attach(_body_parts(params.body))
+            mime_type = attachment.mime_type or mimetypes.guess_type(attachment.file_path)[0]
+            maintype, subtype = (mime_type or "application/octet-stream").split("/", 1)
+            with open(attachment.file_path, "rb") as f:
+                file_part = MIMEBase(maintype, subtype)
+                file_part.set_payload(f.read())
+            email_encoders.encode_base64(file_part)
+            file_part.add_header("Content-Disposition", "attachment",
+                                 filename=attachment.file_name or os.path.basename(attachment.file_path))
+            msg.attach(file_part)
+        else:
+            msg = _body_parts(params.body)
+
+        msg["From"] = email_address
+        msg["To"] = to_addr
+        msg["Subject"] = params.subject
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid()
+        if cc:
+            msg["Cc"] = ", ".join(cc)
+        recipients = [to_addr or ""] + cc + bcc
+
+        def _send() -> None:
+            server = _get_smtp_connection(smtp_host, smtp_port, email_address, password)
+            try:
+                server.send_message(msg, from_addr=email_address, to_addrs=recipients)
+            finally:
+                server.quit()
 
         try:
-            # Resolve attachment file path from artifact ID (if provided)
-            attachment_path = None
-            attachment_filename = None
-            if attachment_artifact_id and company_id:
-                attachment_path, attachment_filename = await self._resolve_artifact_file(
-                    attachment_artifact_id, company_id
-                )
-                if not attachment_path:
-                    logger.warning(f"Attachment artifact not found: {attachment_artifact_id}")
-
-            # Gmail's limit is 25MB, but base64 encoding adds ~33% overhead.
-            # Reject files over 18MB raw (~24MB after encoding) to be safe.
-            MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024  # 18MB
-            if attachment_path:
-                file_size = os.path.getsize(attachment_path)
-                if file_size > MAX_ATTACHMENT_BYTES:
-                    size_mb = file_size / (1024 * 1024)
-                    logger.error(f"Attachment too large: {size_mb:.1f}MB (limit {MAX_ATTACHMENT_BYTES // 1024 // 1024}MB)")
-                    return json.dumps({
-                        "error": f"Attachment '{attachment_filename}' is {size_mb:.1f}MB which exceeds the 18MB email limit. "
-                                 f"Please use a smaller/compressed version."
-                    })
-
-            # Use 'mixed' when we have attachments so both body + file are included;
-            # 'alternative' when it's just text/html variants of the same content.
-            if attachment_path:
-                msg = MIMEMultipart("mixed")
-                # Create a sub-part for the body (text + html alternatives)
-                body_part = MIMEMultipart("alternative")
-                body_part.attach(MIMEText(body, "plain", "utf-8"))
-                html_body = body.replace("\n", "<br>")
-                body_part.attach(MIMEText(f"<html><body>{html_body}</body></html>", "html", "utf-8"))
-                msg.attach(body_part)
-
-                # Attach the file
-                from email.mime.base import MIMEBase
-                from email import encoders as email_encoders
-                import mimetypes
-
-                mime_type, _ = mimetypes.guess_type(attachment_path)
-                maintype, subtype = (mime_type or "application/octet-stream").split("/", 1)
-                with open(attachment_path, "rb") as f:
-                    file_part = MIMEBase(maintype, subtype)
-                    file_part.set_payload(f.read())
-                email_encoders.encode_base64(file_part)
-                file_part.add_header(
-                    "Content-Disposition", "attachment",
-                    filename=attachment_filename or os.path.basename(attachment_path)
-                )
-                msg.attach(file_part)
-                logger.info(f"Attached file: {attachment_filename or attachment_path}")
-            else:
-                msg = MIMEMultipart("alternative")
-                plain_part = MIMEText(body, "plain", "utf-8")
-                html_body = body.replace("\n", "<br>")
-                html_part = MIMEText(f"<html><body>{html_body}</body></html>", "html", "utf-8")
-                msg.attach(plain_part)
-                msg.attach(html_part)
-
-            msg["From"] = email_address
-            msg["To"] = to_addr
-            msg["Subject"] = subject
-            msg["Date"] = formatdate(localtime=True)
-            msg["Message-ID"] = make_msgid()
-            
-            if cc:
-                msg["Cc"] = cc
-            
-            # Build recipient list
-            recipients = [to_addr]
-            if cc:
-                recipients.extend([a.strip() for a in cc.split(",")])
-            if bcc:
-                recipients.extend([a.strip() for a in bcc.split(",")])
-            
-            # Send via SMTP
-            def _send() -> None:
-                server = _get_smtp_connection(smtp_host, smtp_port, email_address, password)
-                try:
-                    server.send_message(msg, from_addr=email_address, to_addrs=recipients)
-                finally:
-                    server.quit()
-
             await asyncio.to_thread(_send)
-            
-            logger.info(f"Email sent: {email_address} -> {to_addr}, subject: {subject}"
-                        f"{', with attachment' if attachment_path else ''}")
-            
-            return json.dumps({
-                "success": True,
-                "from": email_address,
-                "to": to_addr,
-                "subject": subject,
-                "cc": cc,
-                "message_id": msg["Message-ID"],
-                "attachment": attachment_filename or None
-            })
-
         except smtplib.SMTPAuthenticationError as e:
             logger.error(f"SMTP auth error: {e}")
-            return json.dumps({"error": "SMTP authentication failed. Check email/password (use App Password for Gmail)."})
-        except Exception as e:
+            return ToolOutput.failed("SMTP authentication failed. Check email/password (use App Password for Gmail).")
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Email send error: {e}", exc_info=True)
-            return json.dumps({"error": f"Email send failed: {str(e)}"})
+            return ToolOutput.failed(f"Email send failed: {e}")
 
-    @staticmethod
-    async def _resolve_artifact_file(artifact_id: str, company_id: str):
-        """Look up an artifact's file_path and file_name from the DB."""
-        try:
-            from uuid import UUID as _UUID
-            from src.common.database import AsyncSessionLocal
-            from sqlalchemy import select, text
-
-            async with AsyncSessionLocal() as db:
-                row = await db.execute(
-                    text(
-                        "SELECT file_path, file_name FROM artifacts "
-                        "WHERE id = :aid AND company_id = :cid"
-                    ),
-                    {"aid": str(artifact_id), "cid": str(company_id)},
-                )
-                result = row.first()
-                if result and result.file_path:
-                    path = result.file_path
-                    if os.path.exists(path):
-                        return path, result.file_name
-                    else:
-                        logger.error(f"Artifact file not on disk: {path}")
-        except Exception as e:
-            logger.error(f"Failed to resolve artifact {artifact_id}: {e}")
-        return None, None
-
+        logger.info(f"Email sent: {email_address} -> {to_addr}, subject: {params.subject}"
+                    f"{', with attachment' if attachment is not None else ''}")
+        return ToolOutput(output={
+            "success": True, "from": email_address, "to": to_addr, "subject": params.subject,
+            "cc": ", ".join(cc), "message_id": msg["Message-ID"],
+            "attachment": attachment.file_name if attachment is not None else None,
+        })

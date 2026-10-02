@@ -190,6 +190,7 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
     import redis.asyncio as redis
     from src.common.config import settings
     from src.ai.models import HierarchicalEntity, ExecutionRun, RunStatus
+    from src.ai.governance.subjects import gateway_subjects
 
     client_id = envelope_dict.get("client_id", "")
     if not client_id:
@@ -269,6 +270,9 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
                     "source": source,
                     "event_type": event_type,
                     "correlation_id": correlation_id,
+                    # The event's own lead or sender, never addresses in its
+                    # text: those are the sender's, not the tenant's (TL-09).
+                    "subjects": gateway_subjects(source, raw_data),
                 },
                 status=RunStatus.PENDING,
             )

@@ -1303,6 +1303,27 @@ Tools write through one call, `artifact_service.save_tool_output`, which fills `
 
 Indexes: company, campaign, agent, origin, file_category, created_at.
 
+### 9.1a `run_subjects`
+
+Purpose: the contacts and leads a run tree found while it ran — today, the senders
+`email_ingest` read — so its tools may write to them (TL-09, P6.11). The rest of a run's
+subject scope is derived from data it already stores (`ai/governance/subjects.py`).
+Defined at [orm/execution.py](../../backend/src/ai/orm/execution.py) (`RunSubject`);
+migration `p6_run_subjects`.
+
+| Column | Type | Nullable | Default | Meaning |
+|---|---|---|---|---|
+| `id` | UUID | no | `uuid4` | PK |
+| `run_id` | UUID | no | — | The tree's root run; with `company_id`, FK → `execution_runs(id, company_id)`, `ON DELETE CASCADE` |
+| `company_id` | UUID | no | the run's | Kept equal to the run's (DM-09) |
+| `kind` | String(20) | no | — | `contact` or `lead` |
+| `value` | Text | no | — | Lower-case e-mail, phone, or CRM lead id |
+| `label` | Text | yes | — | A name to show the model |
+| `source` | String(40) | no | — | The tool that found it, e.g. `email_ingest` |
+| `created_at` | DateTime | yes | utcnow | |
+
+Constraint `uq_run_subjects_value (run_id, kind, value)`: recording a subject twice adds nothing.
+
 ### 9.2 `email_connections`
 
 Purpose: an IMAP/SMTP mailbox an agent can read and send from.
