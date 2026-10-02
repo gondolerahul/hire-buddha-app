@@ -38,13 +38,17 @@
 > result. P5 (versions and assets, R2) ended at `b63e343`: every run executes a pinned
 > `entity_versions` snapshot; drafts, files, test runs and publishing are under
 > `/ai/entities/{id}/versions`; a run's files are written into `.skills/` of the tenant
-> workspace; the Doc Factory scripts are files of the family agents. **Next is P6** (tool
-> stack collapse). On this machine the DB is at `p5_draft_hash` and both workers run the
-> P5 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
+> workspace; the Doc Factory scripts are files of the family agents. **P6 is done**
+> (tool stack collapse, `68659f6` … `85125a6`): one typed tool contract; `social_api` over
+> one platform list with platform SKILLs; retries, idempotent writes, repaired social
+> operations; one artifact write path found by `run_id`; email and CRM tools take refs from
+> the run's subject scope (TL-09). Remainders: TL-38 cursor input, TL-46
+> `person_generation`, the D16 census, FE-32. **Next is P7** per the plan. On this machine
+> the DB is at `p6_run_subjects` and both workers run the P6 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
 > any live run (the PC-27 live re-run is pending). Run unit tests with `PYTHONUTF8=1` or the
 > layout-lint test fails on a cp1252 decode. Unit baseline: **4** known failures (the
 > Windows sandbox tests); integration: the 2 known `test_cost_attribution` failures. New
-> entries: **TL-68** (P3), **PC-27** (P4, fixed), **PO-23** (P5, open).
+> entries: **TL-68** (P3), **PC-27** (P4, fixed), **PO-23** (P5, open), **FE-32** (P6, open).
 
 ---
 
