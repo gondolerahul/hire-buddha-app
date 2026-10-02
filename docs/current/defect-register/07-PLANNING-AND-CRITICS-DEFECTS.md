@@ -417,7 +417,7 @@ to push a good arm out of contention permanently.
 
 ### PC-22 — Calibration groups by a key the bandit does not use
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P7.10)** — health records carry the run's task class and the calibrator groups by it; the result is written beside the bandit's table (`Calibration: <task_class>`) and read into the post critic's prompt. The duck-typed write is gone (the intelligence tree had neither method, so nothing was ever persisted). `tests/integration/test_critic_calibration.py`.
 
 `CriticCalibrator` buckets by `entity_id` plus a `task_class` derived as
 `entity_type:{type}` or `run:{execution_mode}`. The bandit keys on `state.task_class`,

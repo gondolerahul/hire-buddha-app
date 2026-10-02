@@ -927,6 +927,7 @@ class AgentLoop:
             "enable_different_model": await self._flag_or_default(
                 "critic_pipeline.different_model_critic", True, state,
             ),
+            "calibration_note": await self._calibration_note(state),
         }
         return RealCriticPipeline(
             db=self.db,
@@ -935,6 +936,16 @@ class AgentLoop:
             intelligence_reader=self.memory,
             config=config,
         )
+
+    async def _calibration_note(self, state: AgentState) -> str:
+        """What the weekly calibration found about this entity's critic for
+        the run's task class (PC-22); "" when there is nothing to say."""
+        try:
+            from src.ai.planning.critic_calibration import calibration_note
+            return await calibration_note(self.db, state.company_id, state.entity_id, state.task_class)
+        except Exception as exc:                                            # noqa: BLE001
+            logger.debug("calibration note unavailable: %s", exc)
+            return ""
 
     def _entity_extras(self) -> Optional[dict[str, Any]]:
         if self._entity is None:

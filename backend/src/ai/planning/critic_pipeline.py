@@ -201,6 +201,8 @@ class _PipelineConfig:
     enable_pre_critic: bool = True
     enable_different_model: bool = True
     supervisor_fast_path_enabled: bool = True
+    # What calibration found about this critic for the run's task class (PC-22).
+    calibration_note: str = ""
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "_PipelineConfig":
@@ -216,6 +218,7 @@ class _PipelineConfig:
             enable_pre_critic=bool(raw.get("enable_pre_critic", True)),
             enable_different_model=bool(raw.get("enable_different_model", True)),
             supervisor_fast_path_enabled=bool(raw.get("supervisor_fast_path_enabled", True)),
+            calibration_note=str(raw.get("calibration_note") or ""),
         )
 
 
@@ -268,6 +271,7 @@ class RealCriticPipeline:
             iteration=state.iteration,
             move_id=getattr(move, "move_id", "") or "",
             step_id=self._step_id_from_move(move),
+            task_class=state.task_class,
         )
         self._iter_started_at = time.time()
 
@@ -343,6 +347,8 @@ class RealCriticPipeline:
 
         prior_history = "(none)" if degraded else self._render_prior_history(state)
         intel_rules = "(none)" if degraded else await self._render_intel_rules(state)
+        if self.config.calibration_note and not degraded:
+            intel_rules = f"- {self.config.calibration_note}\n" + ("" if intel_rules == "(none)" else intel_rules)
 
         try:
             user_prompt = POST_PROMPT_USER.format(
@@ -502,7 +508,7 @@ class RealCriticPipeline:
     def _ensure_record(self, state: AgentState) -> StepHealthRecord:
         if self._current_record is None:
             # Defensive — should not happen if AgentLoop calls pre_action first.
-            self._current_record = StepHealthRecord(iteration=state.iteration)
+            self._current_record = StepHealthRecord(iteration=state.iteration, task_class=state.task_class)
         return self._current_record
 
     def _budget_mode(self, state: AgentState) -> CriticMode:

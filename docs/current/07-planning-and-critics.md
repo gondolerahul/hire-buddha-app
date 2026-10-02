@@ -1866,16 +1866,21 @@ flowchart LR
     E --> G["false_fail_rate = REVISE or REJECT whose run COMPLETED, over that count"]
     F --> H{"samples at least 30?"}
     G --> H
-    H -->|yes| I["IntelligenceTreeService.upsert_calibration_rule or record_rule"]
+    H -->|yes| I["upsert_strategy_node - Calibration: task_class, beside the bandit table"]
     H -->|no| J["log only"]
 ```
 
-Window 7 days, `_MIN_SAMPLES = 30`, `_MAX_SAMPLES = 200`. `task_class` here is
-derived as `entity_type:{type}` or `run:{execution_mode}` — **not** the
-`state.task_class` the bandit keys on, so the two grouping keys do not line up.
-The write is duck-typed: it looks for `upsert_calibration_rule` then
-`record_rule` on `IntelligenceTreeService` and logs-and-returns if neither
-exists.
+Window 7 days, `_MIN_SAMPLES = 30`, `_MAX_SAMPLES = 200`. Since P7.10 (2026-10-02,
+PC-22) the bucket's `task_class` is the one each health record carries — the run's
+classifier task class, the key the bandit uses (before: `entity_type:{type}` /
+`run:{execution_mode}`, which matched nothing). The result is written as the STRATEGY
+node `Calibration: <task_class>` in the entity's Strategies section, beside the bandit's
+`Bandit: <task_class>` (`plan_style_bandit.upsert_strategy_node`); before, the write probed
+`IntelligenceTreeService` for methods it does not have and only logged. At run start the
+loop reads it (`calibration_note`): with at least 30 samples, a false-pass rate of 25% or
+more tells the post critic to be stricter, a false-fail rate of 25% or more tells it not
+to fail output that meets the step; the line heads the critic's intelligence rules
+(not in DEGRADED mode).
 
 ---
 

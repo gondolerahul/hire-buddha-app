@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["CriticCalibrator", "CalibrationResult"]
+__all__ = ["CriticCalibrator", "CalibrationResult", "calibration_note", "calibration_title"]
 
 
 _SAMPLE_WINDOW_DAYS = 7
@@ -125,11 +125,13 @@ class CriticCalibrator:
             if getattr(run, "company_id", None) != self.company_id:
                 continue
             entity_id = getattr(run, "entity_id", None)
-            task_class = self._task_class_for(run)
             try:
                 payload = json.loads(cast(str, r.content) or "{}")
             except Exception:
                 continue
+            # The classifier's task class, as the bandit keys it (PC-22). Before,
+            # it was "entity_type:<type>" / "run:<mode>", a key nothing else used.
+            task_class = str(payload.get("task_class") or "general")
             buckets[(entity_id, task_class)].append((payload, run))
 
         results: list[CalibrationResult] = []
@@ -152,13 +154,6 @@ class CriticCalibrator:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _task_class_for(run: Any) -> str:
-        """Best-effort task-class identifier for grouping."""
-        if getattr(run, "entity", None) is not None and getattr(run.entity, "type", None):
-            return f"entity_type:{run.entity.type}"
-        return f"run:{getattr(run, 'execution_mode', 'unknown')}"
 
     @staticmethod
     def _compute(
@@ -210,39 +205,52 @@ class CriticCalibrator:
         return result
 
     async def _persist_intel_rule(self, res: CalibrationResult) -> None:
-        """Best-effort: write the calibration result as an Intelligence rule.
-
-        Uses a duck-typed import so the calibrator does not hard-depend on
-        a particular IntelligenceTree implementation. If the service does
-        not exist yet (early rollout), we just log the payload.
-        """
-        try:
-            from src.ai.memory.intelligence_tree_service import (
-                IntelligenceTreeService,
-            )
-        except Exception:                                                   # pragma: no cover
-            logger.info(
-                "critic_calibration: IntelligenceTree unavailable; skipping "
-                "persistence for entity=%s task_class=%s",
-                res.entity_id, res.task_class,
-            )
+        """Write the result beside the bandit's table for the same entity and
+        task class (``Calibration: <task_class>``), where the post critic reads
+        it (:func:`calibration_note`). Before, the write probed for methods the
+        intelligence tree did not have and only logged."""
+        if res.entity_id is None:
             return
-
+        from src.ai.planning.plan_style_bandit import upsert_strategy_node
         try:
-            svc = IntelligenceTreeService(self.db, self.company_id)
-            write = getattr(svc, "upsert_calibration_rule", None) or getattr(
-                svc, "record_rule", None,
+            await upsert_strategy_node(
+                self.db, self.company_id, res.entity_id, calibration_title(res.task_class),
+                summary=(f"false PASS {res.false_pass_rate:.0%}, false FAIL {res.false_fail_rate:.0%} "
+                         f"over {res.samples} records"),
+                content=json.dumps(res.to_intel_payload()),
+                meta={"task_class": res.task_class, "kind": "critic_calibration"},
             )
-            if write is None:
-                logger.debug(
-                    "IntelligenceTreeService has no calibration-write method "
-                    "yet; payload=%s", res.to_intel_payload(),
-                )
-                return
-            await write(
-                entity_id=res.entity_id,
-                task_class=res.task_class,
-                payload=res.to_intel_payload(),
-            )
+            await self.db.commit()
         except Exception as exc:                                            # noqa: BLE001
-            logger.warning("Failed to persist calibration rule: %s", exc)
+            logger.warning("Failed to persist calibration for %s/%s: %s", res.entity_id, res.task_class, exc)
+
+
+# A finding is worth telling the critic once it is wrong this often.
+_NOTE_RATE = 0.25
+
+
+def calibration_title(task_class: str) -> str:
+    return f"Calibration: {task_class}"
+
+
+async def calibration_note(db: Any, company_id: Any, entity_id: Any, task_class: str) -> str:
+    """The post critic's line about its own record for this entity and task
+    class, from the last calibration; "" when there is none or nothing to say."""
+    if db is None or company_id is None or entity_id is None:
+        return ""
+    from src.ai.planning.plan_style_bandit import find_strategy_node
+    node = await find_strategy_node(db, company_id, entity_id, calibration_title(task_class))
+    if node is None or not node.content:
+        return ""
+    data = json.loads(node.content)
+    samples = int(data.get("samples") or 0)
+    if samples < _MIN_SAMPLES:
+        return ""
+    if float(data.get("false_pass_rate") or 0) >= _NOTE_RATE:
+        return (f"Calibration: {float(data['false_pass_rate']):.0%} of your PASS verdicts on this kind "
+                f"of task ended in a failed or corrected run ({samples} records) — be stricter.")
+    if float(data.get("false_fail_rate") or 0) >= _NOTE_RATE:
+        return (f"Calibration: {float(data['false_fail_rate']):.0%} of your REVISE/REJECT verdicts on this "
+                f"kind of task ended in a completed run ({samples} records) — do not fail output that "
+                f"meets the step.")
+    return ""

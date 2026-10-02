@@ -24,6 +24,9 @@ class StepHealthRecord:
     """One record per executed step, written by all four critic stages."""
 
     record_id: str = field(default_factory=lambda: str(uuid4()))
+    # The run's task class (the classifier's): the key the calibrator and the
+    # bandit share (PC-22).
+    task_class: str = "general"
     step_id: str = ""
     iteration: int = 0
     move_id: str = ""

@@ -49,6 +49,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "PlanStyleArm",
+    "find_strategy_node",
+    "upsert_strategy_node",
     "ArmState",
     "PlanStyleBandit",
     "STRATEGIES_SECTION_TITLE",
@@ -239,97 +241,14 @@ class PlanStyleBandit:
             logger.warning("bandit save_table failed (kept in memory): %s", exc)
 
     async def _find_arm_node(self, entity_id: UUID, task_class: str) -> Any:
-        from sqlalchemy import select
-        from src.ai.memory.cortex_models import (
-            CortexNode,
-            CortexNodeType,
-        )
-        from src.ai.memory.intelligence_tree_service import (
-            IntelligenceTreeService,
-            STRATEGIES_TITLE,
-        )
-
-        svc = IntelligenceTreeService(self.db, self.company_id)
-        tree = await svc.get_or_create_intelligence_tree(entity_id)
-        # Strategies section root
-        section = (await self.db.execute(
-            select(CortexNode).where(
-                CortexNode.tree_id == tree.id,
-                CortexNode.parent_id == tree.root_node_id,
-                CortexNode.title == STRATEGIES_TITLE,
-            )
-        )).scalar_one_or_none()
-        if section is None:
-            return None
-        title = self._arm_node_title(task_class)
-        return (await self.db.execute(
-            select(CortexNode).where(
-                CortexNode.tree_id == tree.id,
-                CortexNode.parent_id == section.id,
-                CortexNode.node_type == CortexNodeType.STRATEGY,
-                CortexNode.title == title,
-            )
-        )).scalar_one_or_none()
+        return await find_strategy_node(self.db, self.company_id, entity_id, self._arm_node_title(task_class))
 
     async def _upsert_arm_node(self, entity_id: UUID, task_class: str, table: BanditTable) -> None:
-        from sqlalchemy import select
-        from src.ai.memory.cortex_models import (
-            CortexNode,
-            CortexNodeStatus,
-            CortexNodeType,
+        await upsert_strategy_node(
+            self.db, self.company_id, entity_id, self._arm_node_title(task_class),
+            summary=self._render_summary(table), content=table.to_json(),
+            meta={"task_class": task_class, "kind": "bandit_arm_table"},
         )
-        from src.ai.memory.intelligence_tree_service import (
-            IntelligenceTreeService,
-            STRATEGIES_TITLE,
-        )
-
-        svc = IntelligenceTreeService(self.db, self.company_id)
-        tree = await svc.get_or_create_intelligence_tree(entity_id)
-        section = (await self.db.execute(
-            select(CortexNode).where(
-                CortexNode.tree_id == tree.id,
-                CortexNode.parent_id == tree.root_node_id,
-                CortexNode.title == STRATEGIES_TITLE,
-            )
-        )).scalar_one_or_none()
-        if section is None:
-            return  # section missing — abort; caller will retry
-
-        title = self._arm_node_title(task_class)
-        summary = self._render_summary(table)
-        content = table.to_json()
-        existing = await self._find_arm_node(entity_id, task_class)
-        if existing is not None:
-            existing.summary = summary
-            existing.content = content
-            existing.metadata_extra = {
-                **(existing.metadata_extra or {}),
-                "task_class": task_class,
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-            await self.db.flush()
-            return
-
-        new_node = CortexNode(
-            id=uuid4(),
-            tree_id=tree.id,
-            parent_id=section.id,
-            node_type=CortexNodeType.STRATEGY,
-            title=title,
-            summary=summary,
-            content=content,
-            status=CortexNodeStatus.ACTIVE,
-            depth=section.depth + 1,
-            sibling_order=0,
-            metadata_extra={
-                "task_class": task_class,
-                "kind": "bandit_arm_table",
-                "created_at": datetime.utcnow().isoformat(),
-            },
-        )
-        self.db.add(new_node)
-        tree.total_nodes = (tree.total_nodes or 0) + 1
-        await self.db.flush()
 
     @staticmethod
     def _arm_node_title(task_class: str) -> str:
@@ -347,3 +266,59 @@ class PlanStyleBandit:
                 f"cost=${st.avg_cost_usd:.4f}"
             )
         return " | ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Nodes under the entity's 🎯 Strategies section — the bandit's tables and
+# the critic calibration (PC-22), one per task class.
+# ---------------------------------------------------------------------------
+
+
+async def find_strategy_node(db: Any, company_id: Any, entity_id: Any, title: str) -> Any:
+    """The STRATEGY node titled ``title`` in the entity's Strategies section."""
+    from sqlalchemy import select
+    from src.ai.memory.cortex_models import CortexNode, CortexNodeType
+    from src.ai.memory.intelligence_tree_service import IntelligenceTreeService, STRATEGIES_TITLE
+
+    tree = await IntelligenceTreeService(db, company_id).get_or_create_intelligence_tree(entity_id)
+    section = (await db.execute(select(CortexNode).where(
+        CortexNode.tree_id == tree.id, CortexNode.parent_id == tree.root_node_id,
+        CortexNode.title == STRATEGIES_TITLE,
+    ))).scalar_one_or_none()
+    if section is None:
+        return None
+    return (await db.execute(select(CortexNode).where(
+        CortexNode.tree_id == tree.id, CortexNode.parent_id == section.id,
+        CortexNode.node_type == CortexNodeType.STRATEGY, CortexNode.title == title,
+    ))).scalar_one_or_none()
+
+
+async def upsert_strategy_node(db: Any, company_id: Any, entity_id: Any, title: str, *,
+                               summary: str, content: str, meta: dict[str, Any]) -> None:
+    """Write ``content`` to the Strategies node titled ``title``, creating it."""
+    from sqlalchemy import select
+    from src.ai.memory.cortex_models import CortexNode, CortexNodeStatus, CortexNodeType
+    from src.ai.memory.intelligence_tree_service import IntelligenceTreeService, STRATEGIES_TITLE
+
+    tree = await IntelligenceTreeService(db, company_id).get_or_create_intelligence_tree(entity_id)
+    section = (await db.execute(select(CortexNode).where(
+        CortexNode.tree_id == tree.id, CortexNode.parent_id == tree.root_node_id,
+        CortexNode.title == STRATEGIES_TITLE,
+    ))).scalar_one_or_none()
+    if section is None:
+        return  # section missing — abort; the caller retries on its next write
+    existing = await find_strategy_node(db, company_id, entity_id, title)
+    now = datetime.utcnow().isoformat()
+    if existing is not None:
+        existing.summary = summary
+        existing.content = content
+        existing.metadata_extra = {**(existing.metadata_extra or {}), **meta, "updated_at": now}
+        await db.flush()
+        return
+    db.add(CortexNode(
+        id=uuid4(), tree_id=tree.id, parent_id=section.id, node_type=CortexNodeType.STRATEGY,
+        title=title, summary=summary, content=content, status=CortexNodeStatus.ACTIVE,
+        depth=section.depth + 1, sibling_order=0, metadata_extra={**meta, "created_at": now},
+    ))
+    tree.total_nodes = (tree.total_nodes or 0) + 1
+    await db.flush()
