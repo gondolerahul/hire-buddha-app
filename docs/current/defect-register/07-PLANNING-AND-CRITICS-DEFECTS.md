@@ -264,7 +264,7 @@ an immediate retry is the one thing guaranteed not to work.
 
 ### PC-08 — `FailureTag.severity` is dead
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-02, P7.3)** — after the escape hatches (budget pressure, policy violation, needs clarification) the most severe tag with a remedy decides; severity 0 never retries. `tests/unit/test_retry_strategies.py` (`test_the_most_severe_tag_decides` fails on the old code).
 
 `pick_retry` branches on tag identity, not severity. The severity field is populated by
 the critic and never consulted, so a `CRITICAL` hallucination and a `LOW` formatting

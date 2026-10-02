@@ -1740,26 +1740,25 @@ stateDiagram-v2
 
 ### 14.2 `pick_retry` — a pure function
 
-[retry_strategies.py:62](../../backend/src/ai/planning/retry_strategies.py:62).
-No LLM, no DB, fully deterministic. The order of the branches **is** the
-precedence:
+[retry_strategies.py](../../backend/src/ai/planning/retry_strategies.py).
+No LLM, no DB, fully deterministic. Escape hatches first, then **severity** decides
+(P7.3, 2026-10-02, PC-08 — before, a fixed order of tag checks did, so a
+`WRONG_FORMAT` beside a `HALLUCINATION` got a prompt rewrite):
 
-| # | Condition | Strategy | Reason string |
-|---|-----------|----------|---------------|
-| 0 | `post_critic_verdict` in `(None, "PASS")` | `NONE` | post verdict was PASS |
-| 1 | `budget.pressure > 0.85` | `ABANDON` | budget pressure |
-| 2 | `POLICY_VIOLATION` in tags | `ABANDON` | policy violation tag |
-| 3 | `NEEDS_CLARIFICATION` | `ASK_USER` | needs clarification |
-| 4 | `TOOL_FAILURE` | `RETRY_DIFFERENT_TOOL` | tool failure tag |
-| 5 | `WRONG_FORMAT` | `RETRY_DIFFERENT_PROMPT` | wrong format tag |
-| 6 | `OFF_TOPIC` or `HALLUCINATION` | `RETRY_DIFFERENT_MODEL` | escalate model |
-| 7 | `CONTRADICTION` | `RETRY_DIFFERENT_MODEL` | contradiction |
-| 8 | `UNVERIFIABLE` | `RETRY_DIFFERENT_PROMPT` | require sources in prompt |
-| 9 | `INCOMPLETE` **and** `pressure < 0.5` | `RETRY_AS_IS` | incomplete and budget available |
-| 10 | anything else | `ABANDON` | no actionable tag found; failing forward |
+| # | Condition | Strategy |
+|---|-----------|----------|
+| 0 | `post_critic_verdict` in `(None, "PASS")` | `NONE` |
+| 1 | `budget.pressure > 0.85` | `ABANDON` |
+| 2 | `POLICY_VIOLATION` in tags | `ABANDON` |
+| 3 | `NEEDS_CLARIFICATION` in tags | `ASK_USER` (only a person can supply what is missing) |
+| 4 | the most severe remaining tag with a remedy (`FailureTag.severity`, ties in the order below) | its remedy |
+| 5 | anything else | `ABANDON` (failing forward) |
 
-Tags not listed — `UNDER_BUDGET`, `OVER_BUDGET`, `BLOCKED_DEPENDENCY` — fall
-through to `ABANDON`.
+Remedies: `HALLUCINATION` (3), `OFF_TOPIC` (2), `CONTRADICTION` (2) →
+`RETRY_DIFFERENT_MODEL`; `TOOL_FAILURE` (2) → `RETRY_DIFFERENT_TOOL`; `UNVERIFIABLE` (2),
+`WRONG_FORMAT` (1) → `RETRY_DIFFERENT_PROMPT`; `INCOMPLETE` (1) → `RETRY_AS_IS` while
+`pressure < 0.5`. `UNDER_BUDGET` (0), `OVER_BUDGET` and `BLOCKED_DEPENDENCY` have no
+remedy. The decision's reason names the deciding tag's severity.
 
 ### 14.3 What changes between attempts
 

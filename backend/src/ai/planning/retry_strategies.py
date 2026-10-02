@@ -101,10 +101,31 @@ class RetryDecision:
 # ---------------------------------------------------------------------------
 
 
+# The remedy for each quality tag. A tag not listed (UNDER_BUDGET,
+# OVER_BUDGET, BLOCKED_DEPENDENCY) has none: retrying would not change it.
+_REMEDY: dict[FailureTag, tuple[RetryStrategy, str]] = {
+    FailureTag.HALLUCINATION: (RetryStrategy.RETRY_DIFFERENT_MODEL, "hallucination → escalate model"),
+    FailureTag.OFF_TOPIC: (RetryStrategy.RETRY_DIFFERENT_MODEL, "off-topic → escalate model"),
+    FailureTag.CONTRADICTION: (RetryStrategy.RETRY_DIFFERENT_MODEL, "contradiction"),
+    FailureTag.TOOL_FAILURE: (RetryStrategy.RETRY_DIFFERENT_TOOL, "tool failure tag"),
+    FailureTag.UNVERIFIABLE: (RetryStrategy.RETRY_DIFFERENT_PROMPT, "unverifiable — require sources in prompt"),
+    FailureTag.WRONG_FORMAT: (RetryStrategy.RETRY_DIFFERENT_PROMPT, "wrong format tag"),
+    FailureTag.INCOMPLETE: (RetryStrategy.RETRY_AS_IS, "incomplete and budget available"),
+}
+# Among tags of one severity, the earlier remedy wins.
+_TIE_ORDER = list(_REMEDY)
+
+
 def pick_retry(record: StepHealthRecord, state: AgentState) -> RetryDecision:
     """Map a StepHealthRecord + AgentState into a RetryStrategy.
 
     Pure function. Deterministic and fully unit-testable.
+
+    Escape hatches first — budget pressure, a policy violation (abandon), a
+    step that needs a person's answer (ask). Then the most severe quality tag
+    decides (PC-08): a ``HALLUCINATION`` (3) beside a ``WRONG_FORMAT`` (1)
+    escalates the model instead of rewriting the prompt. Severity 0 never
+    retries.
     """
     if record.post_critic_verdict in (None, "PASS"):
         return RetryDecision(strategy=RetryStrategy.NONE, reason="post verdict was PASS")
@@ -112,49 +133,25 @@ def pick_retry(record: StepHealthRecord, state: AgentState) -> RetryDecision:
     tags: set[FailureTag] = set(record.post_critic_tags or [])
     pressure = state.budget.pressure
 
-    # Highest-precedence escape hatches first.
     if pressure > 0.85:
         return RetryDecision(
             strategy=RetryStrategy.ABANDON,
             reason=f"budget pressure {pressure:.2f} > 0.85",
         )
     if FailureTag.POLICY_VIOLATION in tags:
-        return RetryDecision(
-            strategy=RetryStrategy.ABANDON, reason="policy violation tag",
-        )
+        return RetryDecision(strategy=RetryStrategy.ABANDON, reason="policy violation tag")
     if FailureTag.NEEDS_CLARIFICATION in tags:
-        return RetryDecision(
-            strategy=RetryStrategy.ASK_USER, reason="needs clarification",
-        )
-    if FailureTag.TOOL_FAILURE in tags:
-        return RetryDecision(
-            strategy=RetryStrategy.RETRY_DIFFERENT_TOOL, reason="tool failure tag",
-        )
-    if FailureTag.WRONG_FORMAT in tags:
-        return RetryDecision(
-            strategy=RetryStrategy.RETRY_DIFFERENT_PROMPT, reason="wrong format tag",
-        )
-    if FailureTag.OFF_TOPIC in tags or FailureTag.HALLUCINATION in tags:
-        return RetryDecision(
-            strategy=RetryStrategy.RETRY_DIFFERENT_MODEL,
-            reason="off-topic or hallucination → escalate model",
-        )
-    if FailureTag.CONTRADICTION in tags:
-        return RetryDecision(
-            strategy=RetryStrategy.RETRY_DIFFERENT_MODEL, reason="contradiction",
-        )
-    if FailureTag.UNVERIFIABLE in tags:
-        return RetryDecision(
-            strategy=RetryStrategy.RETRY_DIFFERENT_PROMPT,
-            reason="unverifiable — require sources in prompt",
-        )
-    if FailureTag.INCOMPLETE in tags and pressure < 0.5:
-        return RetryDecision(
-            strategy=RetryStrategy.RETRY_AS_IS,
-            reason="incomplete and budget available",
-        )
+        return RetryDecision(strategy=RetryStrategy.ASK_USER, reason="needs clarification")
 
-    # REJECT verdict with no actionable tag → ABANDON; REVISE with none → ABANDON too.
+    ranked = sorted((t for t in tags if t in _REMEDY and t.severity > 0),
+                    key=lambda t: (-t.severity, _TIE_ORDER.index(t)))
+    for tag in ranked:
+        if tag is FailureTag.INCOMPLETE and pressure >= 0.5:
+            continue  # an incomplete answer is retried only while budget is plentiful
+        strategy, reason = _REMEDY[tag]
+        return RetryDecision(strategy=strategy, reason=f"{reason} (severity {tag.severity})")
+
+    # REJECT or REVISE with no tag a retry can change → fail forward.
     return RetryDecision(
         strategy=RetryStrategy.ABANDON,
         reason="no actionable tag found; failing forward",

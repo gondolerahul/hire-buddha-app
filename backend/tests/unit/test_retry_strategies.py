@@ -185,3 +185,22 @@ def test_is_exhausted_false_below_cap() -> None:
     state = _state()
     state.health_records = [_rec("REVISE", FailureTag.INCOMPLETE)]
     assert RetryExecutor.is_exhausted(state, "s1") is False
+
+
+# ---------------------------------------------------------------------------
+# Severity orders the choice (P7.3 — PC-08)
+# ---------------------------------------------------------------------------
+
+
+def test_the_most_severe_tag_decides() -> None:
+    # Before, tag identity decided in a fixed order: WRONG_FORMAT (1) was
+    # checked before HALLUCINATION (3), so a hallucination got a prompt tweak.
+    d = pick_retry(_rec("REVISE", FailureTag.WRONG_FORMAT, FailureTag.HALLUCINATION), _state(used_pct=0.1))
+    assert d.strategy is RetryStrategy.RETRY_DIFFERENT_MODEL and "severity 3" in d.reason
+    d = pick_retry(_rec("REVISE", FailureTag.INCOMPLETE, FailureTag.UNVERIFIABLE), _state(used_pct=0.1))
+    assert d.strategy is RetryStrategy.RETRY_DIFFERENT_PROMPT
+
+
+def test_a_severity_zero_tag_never_retries() -> None:
+    d = pick_retry(_rec("REVISE", FailureTag.UNDER_BUDGET), _state(used_pct=0.1))
+    assert d.strategy is RetryStrategy.ABANDON
