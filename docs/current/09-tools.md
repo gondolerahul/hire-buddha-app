@@ -878,7 +878,13 @@ social_api(platform, operation, payload)
 The model asks a platform what it can do, then calls one operation with its payload —
 progressive disclosure inside the tool: one function declaration in the prompt instead of
 up to 52. How to post, report or answer comments on a platform belongs in a SKILL's
-instructions, not in schemas (6.3). `social_api` checks the payload against the
+instructions, not in schemas: the first-party SKILLs
+([SeedSocialSkills](../../backend/scripts/seeds/default_entities/SeedSocialSkills/skills.py),
+P6.3) are one per platform — `social-linkedin`, `social-twitter`, … — each granting only
+`social_api`, telling the model to `describe` first, and carrying the platform's rules
+(lengths, what needs a public URL, what never to enable). They are data: a company gets them
+with `create_social_skills.py --company-id <uuid>`, and editing one is a new version, not a
+deploy. A test holds every operation and parameter a SKILL names to the platform's real ones. `social_api` checks the payload against the
 operation's schema (missing required fields, unknown fields) before anything is sent.
 A refused or failed call names what is wrong and which operations or platforms exist.
 
