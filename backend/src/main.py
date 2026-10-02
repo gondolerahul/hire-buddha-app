@@ -108,6 +108,8 @@ from src.ai.router import router as ai_router
 app.include_router(ai_router, prefix="/api/v1")
 from src.ai.api.admin import router as kernel_admin_router
 app.include_router(kernel_admin_router, prefix="/api/v1")
+from src.ai.api.versions import router as entity_versions_router
+app.include_router(entity_versions_router, prefix="/api/v1")
 from src.ai.campaign_router import router as campaign_router
 app.include_router(campaign_router, prefix="/api/v1")
 # Mobile dialer app API (docs/mobile-dialer-app)

@@ -241,6 +241,12 @@ not part of OpenAPI.
 | PUT | `/api/v1/ai/entities/{entity_id}` | Update an entity |
 | DELETE | `/api/v1/ai/entities/{entity_id}` | Soft-delete an entity |
 | POST | `/api/v1/ai/entities/{entity_id}/convert-to-template` | Convert to template |
+| GET | `/api/v1/ai/entities/{entity_id}/versions` | Every version, newest first (`is_head`, `asset_count`) |
+| POST | `/api/v1/ai/entities/{entity_id}/versions` | Create a draft: `{base_version_id?, changes}` |
+| GET | `/api/v1/ai/entities/{entity_id}/versions/{version_id}` | A version's definition and file manifest |
+| GET/PUT/DELETE | `/api/v1/ai/entities/{entity_id}/versions/{version_id}/assets/{path}` | Read, add/replace (`{body}`), remove a draft's file |
+| POST | `/api/v1/ai/entities/{entity_id}/versions/{version_id}/test-run` | Run the entity as that version: `{input_data}` |
+| POST | `/api/v1/ai/entities/{entity_id}/versions/{version_id}/publish` | Make it the head (admin roles); an older version is a rollback |
 | GET | `/api/v1/ai/stats` | Dashboard stats |
 | POST | `/api/v1/ai/execute` | **Trigger an execution** |
 | GET | `/api/v1/ai/executions` | List runs |
@@ -470,6 +476,23 @@ rows (`deleted_at IS NULL`).
 
 **Soft delete** — sets `deleted_at`. The row remains for audit and for
 historical runs that reference it.
+
+### Entity versions — `/api/v1/ai/entities/{entity_id}/versions`
+
+What a run executes is a version of its entity ([03 §4.1a](03-data-model.md#41a-entity_versions-and-entity_assets)).
+Editing the entity (`PUT`) still takes effect for new runs; these routes add explicit
+**drafts** ([api/versions.py](../../backend/src/ai/api/versions.py)):
+
+| Route | Rules |
+|---|---|
+| `POST …/versions` | `changes` is an entity update restricted to the definition (`name`, `display_name`, `description`, `goal`, `type`, `version` and the nine blocks); `status`, `tags`, `parent_id` and the template fields are **422** (they belong to the entity). The base (default: the head) is copied with its files. A draft identical to an existing version is **409**. The composition rule is checked |
+| `PUT/DELETE …/assets/{path}` | Drafts only — a published version is **409**. Path and size rules as in 03 §4.1a (**422**) |
+| `POST …/test-run` | A run pinned to that version (any version, draft or published), checked as that version describes the entity; same admission as `POST /ai/execute` |
+| `POST …/publish` | `tenant_admin`, `partner_admin`, `app_admin` (D13). Copies the definition onto the entity row and makes the version the head; publishing an older version rolls back |
+
+Reads follow the entity's visibility (another company's entity is 404). Writes need the
+entity in the caller's companies; only `app_admin` changes a template (PO-23). Each write
+runs in a savepoint, so a refusal undoes only that request.
 
 ### `GET /api/v1/ai/tools`
 

@@ -337,6 +337,8 @@ on **drafts** only (a published version raises `VersionConflict`, 409); each cha
 the draft inside a savepoint, and a change that would make the draft identical to another
 version is refused and undone. The API process stores bodies and never runs them.
 
+**Drafts and publishing** ([services/version_authoring.py](../../backend/src/ai/services/version_authoring.py), API in [17 §6](17-api-reference.md#entity-versions--apiv1aientitiesentity_idversions)): a draft is an unpublished version — a base's definition and files plus changes — that can be test-run pinned to itself. Publishing copies its definition onto the row, points `active_version_id` at it and captures, which finds the same hash and marks it published; publishing an older version is a rollback.
+
 An edit therefore takes effect for new runs; a run in flight keeps its version (D12). An edit
 back to earlier content reuses the earlier version. The migration `p5_entity_versions` gave
 every existing entity a published version 1 with the same hash the application computes.

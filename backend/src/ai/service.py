@@ -280,9 +280,19 @@ class AIService:
         logger.info(f"delete_entity: successfully soft-deleted entity {entity_id} and {len(all_entity_ids)-1} children")
 
     # Execution
-    async def trigger_execution(self, execution_in: ExecutionRunCreate, company_id: UUID, user_id: UUID = None, user_role: str = None) -> ExecutionRun:
+    async def trigger_execution(self, execution_in: ExecutionRunCreate, company_id: UUID, user_id: UUID = None, user_role: str = None, entity_version_id: UUID = None) -> ExecutionRun:
         # Pre-flight: validate entity exists and belongs to this company
         entity = await self.get_entity(execution_in.entity_id, company_id, user_role=user_role)
+        if entity_version_id is not None:
+            # A test run of one version (a draft, or an older one): checked and
+            # executed as that version describes the entity (EP-10).
+            from src.ai.governance.entity_versions import entity_from_snapshot
+            from src.ai.services.version_authoring import get_version
+            try:
+                version = await get_version(self.db, entity.id, entity_version_id)
+            except LookupError:
+                raise HTTPException(status_code=404, detail="Version not found")
+            entity = entity_from_snapshot(entity, version.snapshot)
 
         # Status (EP-09): an ARCHIVED entity does not run; a DEPRECATED one
         # runs and says so; a DRAFT runs on its own (a test run).
@@ -320,6 +330,7 @@ class AIService:
             company_id=company_id,
             user_id=user_id,
             entity_id=execution_in.entity_id,
+            entity_version_id=entity_version_id,  # None: the head, pinned on insert
             input_data=execution_in.input_data,
             status="PENDING",
             trace_id=uuid4() # Initialize root trace

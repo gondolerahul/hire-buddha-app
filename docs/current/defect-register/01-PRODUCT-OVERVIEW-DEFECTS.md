@@ -51,7 +51,7 @@ cross-referenced here.
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 22 defects (1 open, 14 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The one open defect is PO-07 (social connections); PO-06 delivered its audit.
+**Total: 23 defects (2 open, 14 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The open defects are PO-07 (social connections) and PO-23 (templates, found 2026-10-02); PO-06 delivered its audit.
 
 | ID | Defect | Status |
 |---|---|---|
@@ -633,6 +633,29 @@ gate one and forget the other, which is exactly what happened in
 [PO-04](#po-04--any-logged-in-user-can-read-the-internal-cost-report).
 
 - [`billing/billing_router.py:188`](../../../backend/src/billing/billing_router.py:188)
+
+---
+
+### PO-23 — A template can never be created, and the entity routes would let any tenant edit one
+
+**✅ Verified · Medium** · **Status: open** — found 2026-10-02 while building the versions API
+(P5.6 of the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md)); not fixed there.
+
+[PO-11](#po-11--templates-sit-outside-tenant-scoping-by-design) rests on templates having
+`company_id = NULL`, and `create_entity` sets exactly that
+([`ai/service.py:32`](../../../backend/src/ai/service.py:32)). But
+`hierarchical_entities.company_id` is **NOT NULL**, so `POST /ai/templates` always fails on
+the insert. The local database holds no template at all.
+
+Were one to exist, a second gap opens: `get_entity` returns templates to every caller
+(`company in scope OR is_template`), and `PUT /entities/{id}` and `DELETE /entities/{id}`
+load through it with no template check — so any signed-in user could edit or soft-delete
+a template every tenant clones. Only the `/templates/*` routes require `app_admin`.
+
+**Fix:** decide how a template belongs to no company (a nullable column, or an owning
+platform company) and guard writes on `is_template` in `update_entity`/`delete_entity`,
+not only on the template routes. The versions API (P5.6) refuses writes to templates for
+anyone but `app_admin`.
 
 ---
 
