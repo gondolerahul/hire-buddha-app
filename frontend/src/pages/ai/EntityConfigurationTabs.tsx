@@ -327,8 +327,6 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     const [allowedDeviations, setAllowedDeviations] = useState(entity?.planning?.dynamic_planning?.allowed_deviations || {
         can_add_steps: true, can_skip_optional_steps: true, can_reorder_steps: false, can_change_tools: false
     });
-    const [maxIterations, setMaxIterations] = useState(entity?.planning?.loop_control?.max_iterations || 10);
-    const [iterationContextMode, setIterationContextMode] = useState<string>(entity?.planning?.loop_control?.iteration_context_mode || 'FULL_HISTORY');
     // Review
     const [reviewEnabled, setReviewEnabled] = useState(entity?.logic_gate?.review_mechanism?.enabled || false);
     const [reviewPrompt, setReviewPrompt] = useState(entity?.logic_gate?.review_mechanism?.review_prompt || '');
@@ -766,7 +764,6 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                     reconciliation_strategy: reconciliationStrategy,
                     allowed_deviations: allowedDeviations,
                 },
-                loop_control: { max_iterations: maxIterations, iteration_context_mode: iterationContextMode },
             },
 
             capabilities: {
@@ -1291,20 +1288,6 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                 </>
                             )}
 
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Max Iterations</label>
-                                    <input type="number" value={maxIterations} onChange={(e) => setMaxIterations(parseInt(e.target.value))} />
-                                </div>
-                                <div className="form-group">
-                                    <label>Iteration Context Mode</label>
-                                    <select value={iterationContextMode} onChange={(e) => setIterationContextMode(e.target.value)}>
-                                        <option value="FULL_HISTORY">Full History</option>
-                                        <option value="SUMMARIZED">Summarized</option>
-                                        <option value="LAST_N">Last N</option>
-                                    </select>
-                                </div>
-                            </div>
                         </div>
 
                         {/* Quality Review */}

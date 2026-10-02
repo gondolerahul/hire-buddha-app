@@ -48,6 +48,7 @@ from src.ai.core.step_results import (
     REUSE_OUTPUTS_KEY, record_child_step_result, record_step_result, reuse_step_outputs,
 )
 from src.ai.core.run_outcome import failed_steps_summary, final_status
+from src.ai.governance.output_contract import apply_output_contract
 from src.ai.core.stuck_runs import SUSPENDED_AT_KEY, cancel_open_children, utc_now_iso
 from src.ai.core.trace import current_recorder, span
 from src.ai.governance.entity_versions import run_entity
@@ -652,6 +653,8 @@ class AgentLoop:
 
         # 6. Critics (Track 3: real pipeline by default; NoOp if flag off)
         post = await self.critic_pipeline.post_action(state, observation)
+        # The run's final output must fit io_contract.output_schema (EP-05).
+        post = await apply_output_contract(self.critic_pipeline, self._entity, state, observation, post)
         align = await self.critic_pipeline.alignment(state, observation)
         supervise = await self.critic_pipeline.supervisor(state)
         verdicts = Verdicts(pre=pre_verdict, post=post, align=align, supervise=supervise)

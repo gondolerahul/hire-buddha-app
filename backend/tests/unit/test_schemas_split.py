@@ -25,7 +25,7 @@ EXPECTED_NAMES = [
     "ReviewMechanism", "ContextPolicy", "LogicGate",
     # planning
     "PlanStepTarget", "PlanStep", "StaticPlan", "AllowedDeviations",
-    "DynamicPlanning", "ConvergenceCriterion", "LoopControl",
+    "DynamicPlanning",
     "Planning", "ExitCondition",
     # governance
     "ExecutionLimits", "HITLCheckpoint", "Governance",

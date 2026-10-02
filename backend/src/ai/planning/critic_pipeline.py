@@ -487,6 +487,15 @@ class RealCriticPipeline:
     # Iteration finalisation
     # ------------------------------------------------------------------
 
+    def override_post(self, verdict: PostCriticVerdict) -> None:
+        """Record a post verdict decided outside the critic — the output
+        schema check (EP-05) — so the retry reads it."""
+        record = self._current_record
+        if record is not None:
+            record.post_critic_verdict = verdict.kind
+            record.post_critic_tags = list(verdict.tags)
+            record.post_critic_suggestion = verdict.suggestion
+
     async def finalize_iteration(self, state: AgentState) -> Optional[StepHealthRecord]:
         record = self._current_record
         if record is None:

@@ -518,8 +518,9 @@ is in [07 — Planning & critics](07-planning-and-critics.md).
 
 `{max_iterations: 1, convergence_criteria: [], iteration_context_mode:
 "FULL_HISTORY", summary_every_n_iterations: null}`.
-> **Dead config.** `loop_control` has zero readers outside `schemas/planning.py`.
-> Loop iteration limits come from the kernel's own caps
+> **Retired** (P8.2, 2026-10-03, EP-05): it had no reader, and its name collides with the
+> LOOP level. The schema accepts and drops it (stored entities carry it) and the builder no
+> longer shows it. Loop iteration limits come from the kernel's own caps
 > ([05 §12](05-agent-kernel.md#12-termination-and-run-status)).
 
 ```json
@@ -676,7 +677,7 @@ to `{"type":"object","properties":{}}`.
 | Field | Who reads it |
 |-------|--------------|
 | `input_schema` | The SPA's run form. Auto-populated on clone by [`_auto_generate_input_schema`](../../backend/src/ai/service.py:1292), which scrapes `{{var}}` names out of every `prompt_template` and the `goal`, skipping `step_N` refs and `__internal__` names. |
-| `output_schema` | [step_executor.py:662](../../backend/src/ai/step_executor.py:662) → prompt Layer 7 ("Your response MUST conform to this JSON schema"). |
+| `output_schema` | Prompt Layer 7 ("Your response MUST conform to this JSON schema"), and since P8.2 checked: when the plan's last step succeeds, its output must be a JSON object (bare or the first in the text) with the schema's required keys and types, or the post verdict becomes REVISE / `WRONG_FORMAT` with the problems, and the retry rewrites the prompt (`governance/output_contract.py`). A schema with no properties checks nothing. |
 
 > **`input_schema` is checked** (since P8.1, 2026-10-03, EP-04): `trigger_execution`
 > validates `input_data` with `governance/input_contract.input_problems` before the run
@@ -684,7 +685,7 @@ to `{"type":"object","properties":{}}`.
 > the platform writes — `type`, `properties`, `required`, `enum`, an array's `items` type
 > (D21) — and does not require a step's id or name, `step_N` references or platform keys
 > (the run page's own rules). Child runs and gateway runs are not checked: their input is
-> the platform's. `output_schema` is a prompt instruction, not a parser.
+> the platform's. `output_schema` is checked on the run's final output (P8.2, below).
 
 ---
 
@@ -2247,15 +2248,14 @@ sequenceDiagram
   `max_concurrent_children` and `review_mechanism.critic_model_override` — are declared.
 - **A builder save rewrites the whole config from the builder's own state** (FE-25): keys
   set through the API that the builder does not show fall back to their defaults.
-- **`logic_gate.retry_policy` and `planning.loop_control` are dead config.** No
-  runtime readers. Real retry bounds are `MAX_RETRIES_PER_STEP = 2` plus the
-  tool healing ladder.
+- **`logic_gate.retry_policy` bounds and paces retries** (P7.2); **`planning.loop_control`
+  is retired** (P8.2).
 - **`execution_limits.max_tool_calls` is a prompt hint, not a limit**, and
   `tool_call_counts` is reset at the start of every step.
 - **`rate_limit_per_run` cannot fire.** No caller injects it into the
   function-call dict, and the field is not on `ToolReference`.
-- **`io_contract.input_schema` is never validated.** Any `input_data` is
-  accepted. `output_schema` is a prompt instruction only.
+- **`io_contract.input_schema` is checked at dispatch** (P8.1) and **`output_schema` on the
+  final output** (P8.2).
 - **`ToolInteractionLog.idempotency_key` is a dead column** until write tools
   carry idempotency keys (TL-39). The run's own `idempotency_key` and `span_id`
   were dropped on 2026-10-01 (EP-13); spans live in `execution_trace_events`.

@@ -244,10 +244,6 @@ export interface Planning {
             can_change_tools: boolean;
         };
     };
-    loop_control: {
-        max_iterations: number;
-        iteration_context_mode?: 'FULL_HISTORY' | 'SUMMARIZED' | 'LAST_N';
-    };
 }
 
 export type ToolUsage = 'AUTONOMOUS' | 'PLANNED' | 'BOTH';

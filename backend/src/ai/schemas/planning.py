@@ -24,8 +24,6 @@ __all__ = [
     "StaticPlan",
     "AllowedDeviations",
     "DynamicPlanning",
-    "ConvergenceCriterion",
-    "LoopControl",
     "Planning",
     "ExitCondition",
 ]
@@ -186,20 +184,12 @@ class DynamicPlanning(BaseModel):
     allowed_deviations: AllowedDeviations = AllowedDeviations()
 
 
-class ConvergenceCriterion(BaseModel):
-    metric: str
-    threshold: float
-    operator: str  # GT | LT | EQ | GTE | LTE
-
-
-class LoopControl(BaseModel):
-    max_iterations: Optional[int] = 1
-    convergence_criteria: List[ConvergenceCriterion] = []
-    iteration_context_mode: str = "FULL_HISTORY"  # FULL_HISTORY | SUMMARIZED | LAST_N
-    summary_every_n_iterations: Optional[int] = None
-
-
 class Planning(BaseModel):
     static_plan: StaticPlan = StaticPlan()
     dynamic_planning: DynamicPlanning = DynamicPlanning()
-    loop_control: LoopControl = LoopControl()
+
+    # Retired (P8.2, EP-05): ``loop_control`` (max_iterations, convergence
+    # criteria, iteration context) had no runtime reader, and its name
+    # collides with the LOOP level. The run's iteration cap is the loop's own
+    # (AK-I8). Stored entities and builder payloads still carry it.
+    extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"loop_control"})

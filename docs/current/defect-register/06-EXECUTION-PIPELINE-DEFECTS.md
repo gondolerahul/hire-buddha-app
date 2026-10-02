@@ -213,18 +213,18 @@ one is a promise the product is currently breaking.
 
 ### EP-05 — Eight settings in the builder have no runtime reader
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P8.2)** — every row now has a reader or is gone: `retry_policy` (P7.2), `max_recursion_depth` (P1, EP-06), `max_tool_calls` and `rate_limit_per_run` (P3, TL-21), `input_schema` (P8.1); `output_schema` is checked on the run's final output (a WRONG_FORMAT retry on mismatch); `loop_control` is retired (accepted, dropped; removed from the builder); `max_execution_seconds` is replaced by the grant's `timeout_seconds` (P8.3). `tests/unit/test_output_contract.py`.
 
 | Setting | Where it is authored | Runtime readers |
 |---|---|---|
 | `logic_gate.retry_policy` | Brain tab | **none** — grep finds it only in the schema. *Since P7.2: the retry bound and backoff (`retry_on` retired)* |
-| `planning.loop_control` | Planning tab | **none** — only `schemas/planning.py:177` |
+| `planning.loop_control` | Planning tab | **none** — only `schemas/planning.py:177`. *Retired (P8.2)* |
 | `governance.max_recursion_depth` | Safeguards tab | prompt text only, see [EP-06](#ep-06--max_recursion_depth-is-a-sentence-in-a-prompt) |
 | `governance.execution_limits.max_tool_calls` | Safeguards tab | prompt text only |
 | `capabilities.tools[].rate_limit_per_run` | not authorable at all | branch exists, never fires |
 | `ToolDefinition.max_execution_seconds` | not authorable at all | **none** |
 | `io_contract.input_schema` | Basics tab | UI form only, see [EP-04](#ep-04--io_contractinput_schema-is-never-validated). *Since P8.1: checked at dispatch* |
-| `io_contract.output_schema` | Basics tab | prompt text only |
+| `io_contract.output_schema` | Basics tab | prompt text only. *Since P8.2: checked on the final output* |
 
 The real retry bound is the hard-coded `MAX_RETRIES_PER_STEP = 2` plus the tool healing
 ladder. The real ceiling on a runaway agent is `MAX_REACT_TURNS = 12`, the step
