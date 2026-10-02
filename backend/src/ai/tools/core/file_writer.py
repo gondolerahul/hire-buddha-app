@@ -2,8 +2,6 @@
 
 import json
 import os
-from datetime import datetime
-from pathlib import Path
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 
 
@@ -15,11 +13,8 @@ class FileWriterTool(Tool):
     description = (
         "Write text content to a specific file. "
         "Input should be a JSON object with 'filename' and 'content'. "
-        "Files are saved in the 'artifact/system-generated' directory."
+        "The file is kept as an artifact of the run; its path is returned."
     )
-
-    # Root: artifact/system-generated/ (resolved relative to the backend dir)
-    BASE_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
 
     async def run(self, input_data: str) -> str:
         return await self.run_with_context(input_data, context=None)
@@ -51,41 +46,22 @@ class FileWriterTool(Tool):
             ext = os.path.splitext(filename)[1].lower()
             file_category = "text" if ext in (".txt", ".md") else "documents"
 
-            # Write file to disk
-            date_str = datetime.utcnow().strftime("%Y-%m-%d")
-            output_dir = self.BASE_DIR / str(company_id) / date_str
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            file_path = output_dir / filename
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            # Register in artifacts DB
-            if company_id and company_id != "default":
-                try:
-                    from uuid import UUID as _UUID
-                    from src.common.database import AsyncSessionLocal
-                    from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-
-                    async with AsyncSessionLocal() as _db:
-                        art_svc = ArtifactService(_db)
-                        await art_svc.save_artifact(
-                            file_bytes=content.encode("utf-8"),
-                            file_name=filename,
-                            mime_type="text/markdown" if ext == ".md" else "text/plain",
-                            file_category=file_category,
-                            origin=ORIGIN_SYSTEM,
-                            company_id=_UUID(str(company_id)),
-                            purpose=purpose,
-                            generated_by=generated_by,
-                            extra_metadata={"char_count": len(content)},
-                        )
-                except Exception as _reg_err:
-                    pass  # Non-fatal — file is already saved to disk
-
+            # One write path: the artifact store, with the call's run (TL-59).
+            from src.ai.artifact_service import save_tool_output
+            artifact = await save_tool_output(
+                context,
+                file_name=filename,
+                file_bytes=content.encode("utf-8"),
+                mime_type="text/markdown" if ext == ".md" else "text/plain",
+                file_category=file_category,
+                generated_by=generated_by,
+                purpose=purpose,
+                extra_metadata={"char_count": len(content)},
+            )
             return json.dumps({
                 "status": "success",
-                "file_path": str(file_path),
+                "artifact_id": str(artifact.id),
+                "file_path": artifact.file_path,
                 "message": f"Successfully wrote {len(content)} bytes to {filename}"
             })
 

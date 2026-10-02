@@ -885,7 +885,11 @@ same run returns that row's output instead of writing twice (a retried or resume
 
 **6.7 — one artifact write path:** tools hand bytes to `save_artifact` with the run and
 agent ids from the context and return its stored path and id; the `backend/src/artifact`
-tree goes; the run page lists artifacts by `run_id`.
+tree goes; the run page lists artifacts by `run_id`. *Built (2026-10-02):* the call is
+`artifact_service.save_tool_output(context, …)`, which opens its own session and takes the
+run, agent and campaign ids from the context; a document `update` is a new artifact
+(`updated_from`), never an overwrite; `GET /artifacts?run_id=` includes child runs (a
+recursive query over `parent_run_id`).
 
 **6.10 — contract test:** every registered tool's schema is valid; every typed tool's
 schema is its `Params`; every capability in the seeds and fixtures names a registered

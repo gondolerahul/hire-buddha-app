@@ -162,15 +162,16 @@ class VideoEditTool(Tool):
             logger.error("video_edit %s error: %s", operation, exc, exc_info=True)
             return json.dumps({"error": f"video_edit {operation} failed: {exc}"})
 
-        await register_video_artifact(
-            company_id,
+        artifact = await register_video_artifact(
+            context,
             output_path,
             purpose=f"video_edit {operation}",
             generated_by=f"video_edit:{operation}",
             extra_metadata={"operation": operation, "inputs": inputs},
         )
         return json.dumps(
-            {"operation": operation, "video_path": output_path, "inputs": inputs}
+            {"operation": operation, "video_path": artifact.file_path,
+             "artifact_id": str(artifact.id), "inputs": inputs}
         )
 
     async def _transition(

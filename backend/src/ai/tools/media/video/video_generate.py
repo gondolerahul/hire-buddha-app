@@ -173,8 +173,8 @@ class VideoGenerateTool(Tool):
                 generate_audio=bool(is_audio_required),
             )
 
-            await register_video_artifact(
-                company_id,
+            artifact = await register_video_artifact(
+                context,
                 saved_path,
                 purpose=f"AI-generated video: {prompt}",
                 generated_by=f"video_generate:{model_name}",
@@ -184,7 +184,8 @@ class VideoGenerateTool(Tool):
                 {
                     "model": model_name,
                     "prompt": prompt,
-                    "video_path": saved_path,
+                    "video_path": artifact.file_path,
+                    "artifact_id": str(artifact.id),
                     "duration_seconds": duration,
                     "has_audio": is_audio_required,
                 }

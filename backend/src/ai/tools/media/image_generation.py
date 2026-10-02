@@ -54,9 +54,7 @@ class ImageGenerationTool(Tool):
     )
 
     # Output directory root — everything under artifact/system-generated/
-    BASE_ARTIFACT_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
     # Fallback legacy dir (kept for safety, unused in new code)
-    OUTPUT_DIR = str(BASE_ARTIFACT_DIR / "generated_images")
 
     def get_function_schema(self) -> Dict[str, Any]:
         """Return JSON schema for Gemini function calling."""
@@ -144,20 +142,6 @@ class ImageGenerationTool(Tool):
             logger.warning(f"[ImageGen] Failed to resolve model from task defaults: {e}")
         return None
 
-    def _get_output_dir(self, company_id: Optional[str] = None) -> Path:
-        """Resolve the output directory for saving generated images.
-        
-        Saves to artifact/system-generated/{company_id}/{YYYY-MM-DD}/images/
-        """
-        from datetime import datetime as _dt
-        date_str = _dt.utcnow().strftime("%Y-%m-%d")
-        if company_id:
-            out = self.BASE_ARTIFACT_DIR / str(company_id) / date_str / "images"
-        else:
-            out = self.BASE_ARTIFACT_DIR / "default" / date_str / "images"
-        out.mkdir(parents=True, exist_ok=True)
-        return out
-
     async def run(self, input_data: str) -> str:
         """Execute image generation without extra context (env-var API key only)."""
         return await self.run_with_context(input_data, context=None)
@@ -227,8 +211,10 @@ class ImageGenerationTool(Tool):
             from src.common.genai_factory import build_vertex_genai_client_sync
             client = build_vertex_genai_client_sync(service_metadata)
 
-            # Determine output directory
-            output_dir = self._get_output_dir(company_id)
+            # Images are written to a scratch directory, then kept as
+            # artifacts of the call's run — the one write path (TL-59).
+            import tempfile
+            output_dir = Path(tempfile.mkdtemp(prefix="img-"))
 
             result = {
                 "model": model_name,
@@ -337,34 +323,23 @@ class ImageGenerationTool(Tool):
 
             result["image_count"] = len(result["images"])
 
-            # ── Register each image in the artifacts DB ───────────────────────────
-            if company_id:
-                try:
-                    from uuid import UUID as _UUID
-                    from src.common.database import AsyncSessionLocal
-                    from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-                    import mimetypes as _mime
-
-                    async with AsyncSessionLocal() as _db:
-                        art_svc = ArtifactService(_db)
-                        for img_info in result["images"]:
-                            img_path = Path(img_info["path"])
-                            with open(img_path, "rb") as _f:
-                                img_bytes = _f.read()
-                            await art_svc.save_artifact(
-                                file_bytes=img_bytes,
-                                file_name=img_info["filename"],
-                                mime_type="image/png",
-                                file_category="images",
-                                origin=ORIGIN_SYSTEM,
-                                company_id=_UUID(str(company_id)),
-                                purpose=f"AI-generated image: {prompt[:200]}",
-                                generated_by=f"image_generation:{model_name}",
-                                extra_metadata={"model": model_name, "prompt": prompt, "size_bytes": img_info["size_bytes"]},
-                            )
-                except Exception as _reg_err:
-                    logger.warning(f"[ImageGen] Artifact DB registration failed (non-fatal): {_reg_err}")
-            # ────────────────────────────────────────────────────────────────────────────
+            # Each image becomes an artifact of the run; the result names the
+            # stored files, not the scratch ones.
+            from src.ai.artifact_service import save_tool_output
+            try:
+                for img_info in result["images"]:
+                    artifact = await save_tool_output(
+                        context, file_name=img_info["filename"],
+                        file_bytes=Path(img_info["path"]).read_bytes(), mime_type="image/png",
+                        file_category="images", generated_by=f"image_generation:{model_name}",
+                        purpose=f"AI-generated image: {prompt[:200]}",
+                        extra_metadata={"model": model_name, "prompt": prompt, "size_bytes": img_info["size_bytes"]},
+                    )
+                    img_info["path"], img_info["artifact_id"] = artifact.file_path, str(artifact.id)
+            finally:
+                import shutil
+                shutil.rmtree(output_dir, ignore_errors=True)
+            result["image_path"] = result["images"][0]["path"]
 
             # No billing here: the step executor charges every tool call once,
             # through ToolCostResolver, and settlement bills the run (BC-08 —

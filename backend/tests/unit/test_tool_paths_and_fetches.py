@@ -115,14 +115,24 @@ async def test_a_tool_refuses_a_path_outside_the_companys_files(company, module,
 
 
 @pytest.mark.asyncio
-async def test_docx_create_keeps_its_file_in_the_companys_artifacts(company):
+async def test_docx_create_keeps_its_file_in_the_companys_artifacts(company, monkeypatch):
     from src.ai.tools.documents.docx_tool import DocxTool
+    import src.ai.artifact_service as artifact_service
+
+    async def _keep(context, *, file_name, file_bytes, **_kw):
+        # save_artifact's own path, without the database row.
+        d = artifact_service.get_storage_path(ORIGIN_SYSTEM, context["company_id"])
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"abc_{file_name}").write_bytes(file_bytes)
+        return type("A", (), {"id": "a-1", "file_path": str(d / f"abc_{file_name}")})()
+
+    monkeypatch.setattr(artifact_service, "save_tool_output", _keep)
     out = json.loads(await DocxTool().run_with_context(json.dumps({
         "action": "create", "filename": "../../../../escape.docx", "title": "t", "sections": [],
     }), _ctx(company)))
     assert out.get("status") == "success", out
     path = Path(out["file_path"]).resolve()
-    assert path.name == "escape.docx"
+    assert path.name.endswith("_escape.docx")
     from src.ai.tools.sandbox.workspace import company_roots
     assert any(Path(root).resolve() in path.parents for root in company_roots(company))
     # ...and a follow-up call can name the path the tool returned.

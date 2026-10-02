@@ -709,8 +709,8 @@ There are two entirely different ways to produce a document, and both are live:
 flowchart TD
     subgraph P1["Path 1 - dedicated tools"]
         A1["docx_tool / pptx_tool / excel_tool / pdf_generator"] --> A2["python-docx / python-pptx / openpyxl / WeasyPrint in the API process"]
-        A2 --> A3["write to artifact/system-generated/COMPANY/DATE/"]
-        A3 --> A4["ArtifactService.save_artifact - registers row"]
+        A2 --> A3["bytes to artifact_service.save_tool_output"]
+        A3 --> A4["one copy under artifact/system-generated/COMPANY/DATE/ - row with the run, agent and campaign ids"]
     end
     subgraph P2["Path 2 - Document Factory via sandbox"]
         B1["sandbox_code or terminal writes arbitrary Python or Node"] --> B2["runs inside the sandbox workdir /tmp/sandbox/COMPANY"]
@@ -735,6 +735,22 @@ It then rewrites markdown image references to `file://` URIs so WeasyPrint can
 embed them, resolving bare filenames by searching
 `artifact/system-generated/{company}/{user}/images`, then
 `{company}/images`, then `generated_images`, then a recursive glob.
+
+**One write path (2026-10-02, TL-59).** Every tool that keeps a file — `file_writer`,
+`document_save`, `docx_tool`, `pptx_tool`, `excel_tool`, `pdf_generator`,
+`image_generation`, the three video tools and `headless_browser`'s screenshot — hands
+the bytes to `artifact_service.save_tool_output(context, …)`. It writes the one copy
+under `backend/artifact/system-generated/` and registers it with the `run_id`,
+`agent_id` and `campaign_id` from the call's context, and the tool returns that stored
+path and the `artifact_id`. Before, six tools wrote a first copy under
+`backend/src/artifact/` (`parents[3]` from the tool file), registered a second copy,
+mostly with no run, and returned the path of the unregistered one. A document
+`update` now writes a new artifact and names the original in `updated_from`; it never
+overwrites. Video working files are made in the tenant workspace (`videos/DATE/`) and
+removed once registered. `documents/_keep.py` (`keep_document`) saves a python-docx,
+python-pptx or openpyxl object through the same call. The run page asks
+`GET /artifacts?run_id=` (the run and its child runs, by a recursive query over
+`parent_run_id`) instead of matching regular expressions in step outputs (EP-21).
 
 **`xlsx_engine.py`** (a 400-line themed spreadsheet library nothing imported) and
 **`backend/templates/docx/`** (three theme templates no code referenced) were
@@ -820,9 +836,9 @@ flowchart TD
         I2 --> I3{"model name contains imagen ?"}
         I3 -->|yes| I4["client.models.generate_images"]
         I3 -->|no| I5["generate_content with response_modalities TEXT and IMAGE"]
-        I4 --> I6["save panel_XXXX.png under COMPANY/DATE/images"]
+        I4 --> I6["render panel_XXXX.png in a temp dir"]
         I5 --> I6
-        I6 --> I7["ArtifactService.save_artifact"]
+        I6 --> I7["save_tool_output per image - the result's paths are the artifacts'"]
         I7 --> I8["BillingService.record_billing_event plus CreditService.consume"]
     end
     subgraph VID["video/"]

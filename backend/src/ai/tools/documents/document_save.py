@@ -8,8 +8,6 @@ registers the file in the Artifact DB.
 
 import json
 import os
-import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -17,7 +15,6 @@ from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_path, safe_filename
 
 # Artifact root for system-generated files
-BASE_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
 
 # MIME type mapping for document formats
 _MIME_TYPES: Dict[str, str] = {
@@ -105,93 +102,33 @@ class DocumentSaveTool(Tool):
         if not filename.lower().endswith(expected_ext):
             filename = f"{filename}{expected_ext}"
 
-        # (A) Run/agent association — so the artifact appears under the run on
-        # the Execution Detail page instead of being orphaned (run_id=None).
-        run_id = (context or {}).get("run_id")
-        agent_id = (context or {}).get("agent_id")
-
-        # Build output directory
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
-        output_dir = BASE_DIR / str(company_id) / date_str
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Copy file to artifact storage
-        dest_path = output_dir / filename
+        # One write path (TL-59): the bytes become an artifact of the call's
+        # run; its stored path is what the model gets.
         try:
-            shutil.copy2(source_path, str(dest_path))
+            with open(source_path, "rb") as f:
+                file_bytes = f.read()
         except Exception as e:
-            return json.dumps({"error": f"Failed to copy file: {str(e)}"})
-
-        file_size = dest_path.stat().st_size
-
-        # Register in artifact DB
-        artifact_id = await self._register_artifact(
-            file_path=dest_path,
-            filename=filename,
-            mime_type=mime_type,
-            company_id=company_id,
-            purpose=purpose,
-            doc_format=doc_format,
-            run_id=run_id,
-            agent_id=agent_id,
-        )
+            return json.dumps({"error": f"Failed to read file: {str(e)}"})
+        from src.ai.artifact_service import save_tool_output
+        try:
+            artifact = await save_tool_output(
+                context, file_name=filename, file_bytes=file_bytes, mime_type=mime_type,
+                file_category="documents", generated_by="document_save", purpose=purpose,
+                extra_metadata={"format": doc_format},
+            )
+        except Exception as e:
+            return json.dumps({"error": f"Failed to save the document: {str(e)}"})
 
         return json.dumps({
             "status": "success",
-            "artifact_id": artifact_id,
-            "file_path": str(dest_path),
+            "artifact_id": str(artifact.id),
+            "file_path": artifact.file_path,
             "filename": filename,
             "format": doc_format,
-            "file_size": file_size,
+            "file_size": len(file_bytes),
             "mime_type": mime_type,
-            "message": f"Saved {filename} ({file_size:,} bytes) to artifact storage",
+            "message": f"Saved {filename} ({len(file_bytes):,} bytes) to artifact storage",
         })
-
-    @staticmethod
-    async def _register_artifact(
-        file_path: Path,
-        filename: str,
-        mime_type: str,
-        company_id: str,
-        purpose: str,
-        doc_format: str,
-        run_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """Register the document in the Artifact DB. Returns artifact ID or None."""
-        if not company_id or company_id == "default":
-            return None
-        try:
-            from uuid import UUID as _UUID
-            from src.common.database import AsyncSessionLocal
-            from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-
-            def _as_uuid(val):
-                try:
-                    return _UUID(str(val)) if val else None
-                except (ValueError, TypeError):
-                    return None
-
-            async with AsyncSessionLocal() as _db:
-                art_svc = ArtifactService(_db)
-                with open(file_path, "rb") as f:
-                    file_bytes = f.read()
-                artifact = await art_svc.save_artifact(
-                    file_bytes=file_bytes,
-                    file_name=filename,
-                    mime_type=mime_type,
-                    file_category="documents",
-                    origin=ORIGIN_SYSTEM,
-                    company_id=_UUID(str(company_id)),
-                    purpose=purpose,
-                    generated_by="document_save",
-                    extra_metadata={"format": doc_format},
-                    run_id=_as_uuid(run_id),
-                    agent_id=_as_uuid(agent_id),
-                )
-                return str(artifact.id) if artifact else None
-        except Exception:
-            return None  # Non-fatal — file is already saved to disk
 
     def get_function_schema(self) -> Dict[str, Any]:
         return {

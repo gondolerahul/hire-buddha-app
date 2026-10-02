@@ -109,7 +109,6 @@ class PDFGeneratorTool(Tool):
     )
     
     # Base directory for artifacts — everything under system-generated
-    BASE_ARTIFACT_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
 
     def get_function_schema(self) -> Dict[str, Any]:
         """Return JSON schema for function calling with image parameter."""
@@ -315,58 +314,37 @@ class PDFGeneratorTool(Tool):
                         for img in found_images:
                             content += f"![Related Image]({img})\n\n"
             
-            # Resolve output directory — under system-generated/{company_id}/{date}/
-            from datetime import datetime as _dt
-            date_str = _dt.utcnow().strftime("%Y-%m-%d")
-            output_dir = self.BASE_ARTIFACT_DIR / str(company_id) / date_str
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Generate PDF
-            pdf_path = await self._generate_pdf(
-                content=content,
-                title=title,
-                filename=filename,
-                author=author,
-                subject=subject,
-                output_dir=output_dir,
-                company_id=company_id,
-                user_id=user_id,
+            # Rendered in a scratch directory, then kept as an artifact of the
+            # call's run — the one write path (TL-59).
+            import tempfile
+            from src.ai.artifact_service import save_tool_output
+            with tempfile.TemporaryDirectory(prefix="pdf-") as scratch:
+                pdf_path = await self._generate_pdf(
+                    content=content,
+                    title=title,
+                    filename=filename,
+                    author=author,
+                    subject=subject,
+                    output_dir=Path(scratch),
+                    company_id=company_id,
+                    user_id=user_id,
+                )
+                pdf_bytes = pdf_path.read_bytes()
+            artifact = await save_tool_output(
+                context, file_name=pdf_path.name, file_bytes=pdf_bytes, mime_type="application/pdf",
+                file_category="documents", generated_by=generated_by, purpose=purpose,
+                extra_metadata={"title": title, "author": author, "subject": subject},
             )
 
-            # Register the PDF in the artifacts DB
-            if company_id and company_id != "default":
-                try:
-                    from uuid import UUID as _UUID
-                    from src.common.database import AsyncSessionLocal
-                    from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-
-                    with open(pdf_path, "rb") as _f:
-                        pdf_bytes = _f.read()
-
-                    async with AsyncSessionLocal() as _db:
-                        art_svc = ArtifactService(_db)
-                        await art_svc.save_artifact(
-                            file_bytes=pdf_bytes,
-                            file_name=pdf_path.name,
-                            mime_type="application/pdf",
-                            file_category="documents",
-                            origin=ORIGIN_SYSTEM,
-                            company_id=_UUID(str(company_id)),
-                            purpose=purpose,
-                            generated_by=generated_by,
-                            extra_metadata={"title": title, "author": author, "subject": subject},
-                        )
-                except Exception as _reg_err:
-                    pass  # Non-fatal — PDF is already saved to disk
-            
             return json.dumps({
                 "status": "success",
-                "pdf_path": str(pdf_path),
+                "artifact_id": str(artifact.id),
+                "pdf_path": artifact.file_path,
                 "filename": pdf_path.name,
-                "size_bytes": pdf_path.stat().st_size,
+                "size_bytes": len(pdf_bytes),
                 "created_at": datetime.utcnow().isoformat()
             })
-            
+
         except json.JSONDecodeError as e:
             return json.dumps({"error": f"Invalid JSON input: {str(e)}"})
         except Exception as e:
@@ -405,7 +383,7 @@ class PDFGeneratorTool(Tool):
         # Pre-process markdown: convert image paths to file:// URIs so WeasyPrint
         # can locate and embed them. Handles:
         #   - absolute paths: /home/rahul/.../panel_1.png  → file:///home/...
-        #   - bare filenames: panel_XXX.png → searched under BASE_ARTIFACT_DIR
+        #   - bare filenames: panel_XXX.png → searched under the company's roots
         import re as _re
         import glob as _glob
 

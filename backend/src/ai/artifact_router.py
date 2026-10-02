@@ -84,6 +84,7 @@ async def list_artifacts(
     campaign_id: Optional[UUID] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
+    run_id: Optional[UUID] = Query(None, description="A run's files, its child runs' included"),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -91,6 +92,7 @@ async def list_artifacts(
 ):
     svc = ArtifactService(db)
     artifacts = await svc.list_artifacts(
+        run_id=run_id,
         company_id=current_user.company_id,
         origin=origin,
         file_category=file_category,

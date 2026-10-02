@@ -261,20 +261,19 @@ async def test_document_save_threads_run_and_agent_ids(tmp_path, monkeypatch):
 
     captured: dict = {}
 
-    async def _fake_register(**kwargs):
-        captured.update(kwargs)
-        return "artifact-123"
+    async def _fake_keep(context, **kwargs):
+        captured.update(context, **kwargs)
+        return type("A", (), {"id": "artifact-123", "file_path": str(tmp_path / "kept.xlsx")})()
 
-    # Capture what registration receives; keep storage writes inside tmp_path.
-    monkeypatch.setattr(DocumentSaveTool, "_register_artifact", staticmethod(_fake_register))
-    monkeypatch.setattr(ds_mod, "BASE_DIR", tmp_path / "artifacts")
-    monkeypatch.setattr(ds_mod.shutil, "copy2", lambda s, d: _shutil.copy(s, d))
+    # The one write path (TL-59) receives the call's context: run and agent.
+    import src.ai.artifact_service as artifact_service
+    monkeypatch.setattr(artifact_service, "save_tool_output", _fake_keep)
 
     out = await DocumentSaveTool().run_with_context(
         _json.dumps({"source_path": str(src), "filename": "report", "format": "xlsx"}),
         context={"company_id": company_id, "run_id": run_id, "agent_id": agent_id},
     )
-    assert _json.loads(out)["status"] == "success"
-    assert captured.get("run_id") == run_id
+    assert _json.loads(out)["status"] == "success" and _json.loads(out)["artifact_id"] == "artifact-123"
+    assert captured.get("run_id") == run_id and captured.get("file_bytes") == b"x" * 256
     assert captured.get("agent_id") == agent_id
     _shutil.rmtree(workspace, ignore_errors=True)

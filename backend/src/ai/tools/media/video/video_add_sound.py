@@ -134,15 +134,16 @@ class VideoAddSoundTool(Tool):
             logger.error("video_add_sound error: %s", exc, exc_info=True)
             return json.dumps({"error": f"video_add_sound failed: {exc}"})
 
-        await register_video_artifact(
-            company_id,
+        artifact = await register_video_artifact(
+            context,
             output_path,
             purpose=f"video_add_sound ({source}/{mode})",
             generated_by=f"video_add_sound:{source}",
             extra_metadata={"source": source, "mode": mode},
         )
         return json.dumps(
-            {"source": source, "mode": mode, "video_path": output_path, "audio_path": audio_path}
+            {"source": source, "mode": mode, "video_path": artifact.file_path,
+             "artifact_id": str(artifact.id), "audio_path": audio_path}
         )
 
     async def _mux(

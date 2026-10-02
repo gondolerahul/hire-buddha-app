@@ -63,6 +63,19 @@ class _FakeExec:
         return self.calls[-1]
 
 
+@pytest.fixture(autouse=True)
+def _kept_where_written(monkeypatch):
+    """The artifact store is not under test here: a video is "kept" at the
+    path the tool wrote (``register_video_artifact`` returns the artifact)."""
+    from src.ai.tools.media.video import video_add_sound, video_edit, video_generate
+
+    async def _keep(context, video_path, **_kw):
+        return type("A", (), {"id": "a-1", "file_path": video_path})()
+
+    for mod in (video_add_sound, video_edit, video_generate):
+        monkeypatch.setattr(mod, "register_video_artifact", _keep)
+
+
 @pytest.fixture()
 def fake_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> _FakeExec:
     fake = _FakeExec()

@@ -7,10 +7,9 @@ via ArtifactService for traceability.
 
 import json
 import os
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional
 
+from src.ai.tools.documents._keep import keep_document
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
 from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params, safe_filename
 
@@ -21,7 +20,7 @@ try:
 except ImportError:
     Presentation = None
 
-BASE_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
+_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 
 class PptxTool(Tool):
@@ -154,16 +153,11 @@ class PptxTool(Tool):
             if notes:
                 s.notes_slide.notes_text_frame.text = notes
 
-        # Save
-        company_id = context_company_id(context)  # checked on entry
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
-        output_dir = BASE_DIR / str(company_id) / date_str
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        file_path = output_dir / filename
-        prs.save(str(file_path))
-
-        artifact_id = await self._register_artifact(file_path, filename, company_id, params)
+        # One write path (TL-59): kept as an artifact of the call's run.
+        artifact = await keep_document(prs, context, file_name=filename, mime_type=_MIME,
+                                       generated_by=params.get("generated_by", "pptx_tool"),
+                                       purpose=params.get("purpose", "AI-generated presentation"))
+        file_path, artifact_id = artifact.file_path, str(artifact.id)
 
         result = {
             "status": "success",
@@ -286,12 +280,18 @@ class PptxTool(Tool):
                             changes_made += 1
                             break
 
-        save_path = params.get("save_as", file_path)
-        prs.save(save_path)
+        # An edit is a new artifact of the run; the file it came from is
+        # unchanged (TL-59: an edit used to overwrite it, unregistered).
+        artifact = await keep_document(prs, context,
+                                       file_name=os.path.basename(params.get("save_as") or file_path),
+                                       mime_type=_MIME, generated_by=params.get("generated_by", "pptx_tool"),
+                                       purpose=params.get("purpose", "AI-generated presentation"))
 
         return json.dumps({
             "status": "success",
-            "file_path": save_path,
+            "file_path": artifact.file_path,
+            "artifact_id": str(artifact.id),
+            "updated_from": file_path,
             "changes_made": changes_made,
             "total_slides": len(prs.slides),
             "message": f"Updated presentation with {changes_made} changes",
@@ -300,36 +300,6 @@ class PptxTool(Tool):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    async def _register_artifact(
-        file_path: Path, filename: str, company_id: str, params: Dict[str, Any]
-    ) -> str | None:
-        """Register file as an artifact. Returns artifact ID or None."""
-        if company_id and company_id != "default":
-            try:
-                from uuid import UUID as _UUID
-                from src.common.database import AsyncSessionLocal
-                from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-
-                async with AsyncSessionLocal() as _db:
-                    art_svc = ArtifactService(_db)
-                    with open(file_path, "rb") as f:
-                        file_bytes = f.read()
-                    artifact = await art_svc.save_artifact(
-                        file_bytes=file_bytes,
-                        file_name=filename,
-                        mime_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                        file_category="documents",
-                        origin=ORIGIN_SYSTEM,
-                        company_id=_UUID(str(company_id)),
-                        purpose=params.get("purpose", "AI-generated PowerPoint presentation"),
-                        generated_by=params.get("generated_by", "pptx_tool"),
-                    )
-                    return str(artifact.id)
-            except Exception:
-                pass  # Non-fatal
-        return None
 
     def get_function_schema(self) -> Dict[str, Any]:
         return {

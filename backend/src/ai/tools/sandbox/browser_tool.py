@@ -36,7 +36,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Dict, List, Literal, Optional
-from pathlib import Path
 
 from pydantic import Field, model_validator
 
@@ -50,7 +49,6 @@ logger = logging.getLogger(__name__)
 _MAX_OUTPUT_CHARS = 16384
 _DEFAULT_TIMEOUT_MS = 30000
 _MAX_TIMEOUT_MS = 120000
-_SCREENSHOT_DIR = Path("/tmp/browser_screenshots")
 
 
 _VALID_WAIT_UNTIL = {"load", "domcontentloaded", "networkidle", "commit"}
@@ -332,59 +330,40 @@ class HeadlessBrowserTool(Tool):
                 wait_until = "load"
             await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
 
-        _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-
         import uuid
         file_name = f"screenshot_{uuid.uuid4().hex[:8]}.png"
-        file_path = _SCREENSHOT_DIR / file_name
 
         if selector:
             element = await page.query_selector(selector)
             if element:
-                await element.screenshot(path=str(file_path), timeout=timeout_ms)
+                image = await element.screenshot(timeout=timeout_ms)
             else:
                 return {"status": "error", "action": "screenshot", "error": f"Element '{selector}' not found."}
         else:
-            await page.screenshot(path=str(file_path), full_page=True, timeout=timeout_ms)
+            image = await page.screenshot(full_page=True, timeout=timeout_ms)
 
         title = await page.title()
 
-        # Try to save as artifact if context provides company_id
-        artifact_id = None
+        # The image is kept as an artifact of the call's run — the one write
+        # path (TL-59); it used to land in a /tmp directory every company shared.
+        from src.ai.artifact_service import save_tool_output
         try:
-            if context and context.get("company_id"):
-                from src.common.database import AsyncSessionLocal
-                from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-
-                async with AsyncSessionLocal() as db_session:
-                    art_svc = ArtifactService(db_session)
-                    with open(file_path, "rb") as f:
-                        content_bytes = f.read()
-                    saved = await art_svc.save_artifact(
-                        file_bytes=content_bytes,
-                        file_name=file_name,
-                        mime_type="image/png",
-                        file_category="screenshots",
-                        origin=ORIGIN_SYSTEM,
-                        company_id=context["company_id"],
-                        purpose=f"Browser screenshot of {url or 'current page'}",
-                        generated_by="headless_browser",
-                        campaign_id=context.get("campaign_id"),
-                        agent_id=context.get("agent_id"),
-                        run_id=context.get("run_id"),
-                    )
-                    artifact_id = str(saved.id)
-        except Exception as art_err:
-            logger.warning(f"Failed to save screenshot as artifact: {art_err}")
+            saved = await save_tool_output(
+                context, file_name=file_name, file_bytes=image, mime_type="image/png",
+                file_category="screenshots", generated_by="headless_browser",
+                purpose=f"Browser screenshot of {url or 'current page'}",
+            )
+        except Exception as art_err:  # noqa: BLE001
+            return {"status": "error", "action": "screenshot", "error": f"could not keep the screenshot: {art_err}"}
 
         return {
             "status": "success",
             "action": "screenshot",
             "url": page.url,
             "title": title,
-            "screenshot_path": str(file_path),
-            **({"artifact_id": artifact_id} if artifact_id else {}),
-            "message": f"Screenshot saved to {file_path}",
+            "screenshot_path": saved.file_path,
+            "artifact_id": str(saved.id),
+            "message": f"Screenshot saved to {saved.file_path}",
         }
 
     async def _action_get_text(self, page, args: dict, timeout_ms: int) -> dict:

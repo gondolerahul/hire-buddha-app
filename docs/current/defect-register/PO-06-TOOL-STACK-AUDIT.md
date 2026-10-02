@@ -315,7 +315,7 @@ also uses `COPY`+`EXPUNGE` rather than `UID MOVE`, the non-atomicity TL-39 notes
 
 ### TL-59 — Tool outputs are double-written and orphaned from their run
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.7)** — every tool that keeps a file hands the bytes to `artifact_service.save_tool_output`, which writes the one copy under `backend/artifact/` and registers it with the run, agent and campaign ids from the call's context; the tool returns that stored path and the artifact id. A document `update` writes a new artifact (`updated_from` names the original), never overwriting. Video working files are made in the tenant workspace and removed once registered; the browser screenshot directory is gone. `tests/integration/test_artifact_write_path.py`.
 
 `file_writer`, `docx_tool`, `pptx_tool`, `excel_tool`, `pdf_generator` and
 `image_generation` write the file to a path **and then** call `save_artifact`, which

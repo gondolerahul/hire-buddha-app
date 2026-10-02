@@ -36,11 +36,11 @@
 | Tier | Theme | Count | Fixed | Open |
 |---|---|---|---|---|
 | [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | 5 | 2 |
-| [T1](#3-t1--broken-behaviour) | Broken behaviour | 11 | 11 | 0 |
+| [T1](#3-t1--broken-behaviour) | Broken behaviour | 12 | 11 | 1 |
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 6 | 0 |
 | [T3](#5-t3--performance) | Performance | 7 | 6 | 1 |
 
-**Total: 31 defects (28 fixed, 3 open), 10 improvements (5 done, 1 partly done, 4 open).**
+**Total: 32 defects (28 fixed, 4 open), 10 improvements (5 done, 1 partly done, 4 open).**
 Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
 way and added (FE-26 to FE-31). The user ran two of the package changes this session's
 permission check refused, committed in `dc21c2f`: the unused packages are gone (FE-12) and
@@ -80,6 +80,7 @@ permission check refused, committed in `dc21c2f`: the unused packages are gone (
 | FE-29 | The session list's recording link always answers 401 *(new)* | ✅ fixed `cb3026f` |
 | FE-30 | Three more unreferenced files *(new)* | ✅ fixed `a7db850` |
 | FE-31 | Reloading the Artifacts page shows the API's 404 *(new)* | ✅ fixed `c222808` |
+| FE-32 | The agent-loop run page shows none of the run's files *(new, 2026-10-02)* | open |
 
 | ID | Improvement | Status |
 |---|---|---|
@@ -681,6 +682,26 @@ page.
 last refreshed. Both pages and the artifact preview use it, so FE-28's fix lands in one place.
 **Evidence:** in the browser, the download URL without a token answered 401 and the
 `authedApiUrl` one 404 (authenticated; the id was made up).
+
+---
+
+### FE-32 — The agent-loop run page shows none of the run's files
+
+**✅ Verified · Medium** · **Status: open** — found 2026-10-02 while checking P6.7 (EP-21).
+
+`ExecutionDetail` renders `AgentLoopExecutionDetail` instead of the trace view whenever
+`agent_loop.enabled` is on, and the backend default turns it on for every company (there are
+no override rows locally). That layout has no file list and no download: nothing under
+`components/agent/` mentions an artifact. So the run's files, now found by `run_id`
+(EP-21), appear only in the older trace view, which a run reaches only when its
+`input_data.feature_flags` turns the flag off. Checked in the browser on a local run: the
+artifact API answered with the file, and the agent-loop page did not show it.
+
+- [`frontend/src/pages/ai/ExecutionDetail.tsx`](../../../frontend/src/pages/ai/ExecutionDetail.tsx) — the `agentLoopEnabled` branch
+- [`frontend/src/components/agent/AgentLoopExecutionDetail.tsx`](../../../frontend/src/components/agent/AgentLoopExecutionDetail.tsx)
+
+**Fix:** move the run-files query and its list (`artifactService.list({ run_id })`) into a
+component both layouts render.
 
 ---
 

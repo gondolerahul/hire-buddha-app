@@ -454,7 +454,7 @@ Related: two of the three executors still use the loop's shared session — see
 
 ### EP-21 — The Execution Detail page finds artifacts by regex
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-02, P6.7)** — the page asks `GET /artifacts?run_id=` for the run's files (child runs included, a recursive query over `parent_run_id`) and shows each under the run that made it; the regex helpers are deleted. Checked in the browser on a local run. The newer agent-loop layout, on by default, shows no files at all: [FE-32](16-FRONTEND-DEFECTS.md#fe-32--the-agent-loop-run-page-shows-none-of-the-runs-files). `tests/integration/test_artifact_write_path.py`.
 
 The UI locates a run's produced files by scanning the step output text for something that
 looks like an artifact URL — not by querying `artifacts WHERE run_id = ...`.
@@ -643,6 +643,8 @@ reproducible, makes `version` mean something, and removes a whole class of
 "it worked yesterday" reports.
 
 ### EP-I5 — Query artifacts by `run_id`
+
+**Status: done (2026-10-02, P6.7)** — with [TL-59](PO-06-TOOL-STACK-AUDIT.md#tl-59--tool-outputs-are-double-written-and-orphaned-from-their-run).
 
 **Effect: medium.** [EP-21](#ep-21--the-execution-detail-page-finds-artifacts-by-regex).
 The `artifacts` table has `run_id`, `agent_id` and `generated_by`. Using them removes the

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path
 from typing import Any
 
 __all__ = [
@@ -49,14 +48,6 @@ class PathOutsideWorkspace(ValueError):
     """A model-supplied path that leaves the company's own files."""
 
 
-# Where the document, image and video tools write their own copy of an output
-# (``backend/src/artifact/system-generated``) before ``save_artifact`` stores the
-# registered one under ``backend/artifact``. The path a tool returns to the model
-# is this copy, so a follow-up call ("update the document") names it. One write
-# path replaces both in P6 (TL-59).
-_TOOL_OUTPUT_DIR = Path(__file__).resolve().parents[3] / "artifact" / "system-generated"
-
-
 def company_roots(company_id: Any) -> list[str]:
     """The directories one company's tools may read and write."""
     from src.ai.artifact_service import ARTIFACT_BASE_DIR, ORIGIN_SYSTEM, ORIGIN_USER
@@ -66,7 +57,6 @@ def company_roots(company_id: Any) -> list[str]:
         tenant_workspace(cid),
         str(ARTIFACT_BASE_DIR / ORIGIN_SYSTEM / cid),
         str(ARTIFACT_BASE_DIR / ORIGIN_USER / cid),
-        str(_TOOL_OUTPUT_DIR / cid),
     ]
 
 

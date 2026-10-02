@@ -1278,6 +1278,9 @@ erDiagram
 Purpose: every file the platform stores, uploaded or generated. Files live on disk under
 `artificate/{origin}/{company_id}/{YYYY-MM-DD}/{file_name}`; this table is the index.
 Defined at [artifact_models.py:34](../../backend/src/ai/artifact_models.py:34).
+Tools write through one call, `artifact_service.save_tool_output`, which fills `run_id`,
+`agent_id` and `campaign_id` from the tool call's context (TL-59, 2026-10-02);
+`GET /artifacts?run_id=` returns a run's files with its child runs' (EP-21).
 
 | Column | Type | Nullable | Default | Meaning |
 |---|---|---|---|---|

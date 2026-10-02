@@ -1,5 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { GlassCard, JellyButton } from '@/components/ui';
 import {
@@ -9,6 +9,7 @@ import {
     Sparkles, Send, SkipForward
 } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
+import { Artifact, artifactService } from '@/services/artifact.service';
 import { ExecutionRun, RunStatus, EntityType, LLMInteractionLog, ToolInteractionLog } from '@/types';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { AgentLoopExecutionDetail } from '@/components/agent/AgentLoopExecutionDetail';
@@ -47,9 +48,6 @@ const downloadArtifactFile = async (fileUrl: string, filename?: string) => {
         console.error('Artifact download failed:', err);
     }
 };
-
-// Supported document extensions for artifact detection
-const DOCUMENT_EXTENSIONS = '(?:pdf|pptx|docx|xlsx)';
 
 // ─── Step Result from result_data.steps ─────────────────────────────────────
 interface StepResult {
@@ -277,6 +275,11 @@ const StepDetailPanel: React.FC<{
 };
 
 // ─── Trace Node (existing hierarchy view, preserved) ────────────────────────
+// The files each run in the tree produced, by run id: one query on the
+// artifact table (run_id, child runs included), not regular expressions over
+// step outputs (EP-21).
+const RunArtifactsContext = createContext<Record<string, Artifact[]>>({});
+
 const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth }) => {
     const [expanded, setExpanded] = useState(depth < 2);
     const [showLLMLogs, setShowLLMLogs] = useState(false);
@@ -298,111 +301,7 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
         }
     };
 
-    // Helper function to extract artifact path from result data or tool logs
-    const extractArtifactPath = (run: ExecutionRun): string | null => {
-        const { result_data: resultData, tool_logs: toolLogs } = run;
-
-        // Scan any string for embedded document paths (absolute or relative artifact paths)
-        const scanStr = (s: string): string | null => {
-            if (!s) return null;
-            // Pattern 1: Auto-registered artifact download URL: /api/v1/artifacts/{uuid}/download or /api/v1/ai/artifacts/{uuid}/download
-            // Also try to extract filename from surrounding context like "• filename.ext (size) — [Download](/api/...)"
-            const apiArtifactMatch = s.match(/\/api\/v1\/(?:ai\/)?artifacts\/([0-9a-f-]{36})\/download/);
-            if (apiArtifactMatch) {
-                // Try to extract filename from nearby text: "• filename.ext" before the URL
-                const fnMatch = s.match(/[•-]\s*([\w][\w .()-]+\.(?:pptx|docx|xlsx|pdf|csv|html|png|jpg|svg))\s*\(/i);
-                const filename = fnMatch ? fnMatch[1].trim() : 'document';
-                return `__artifact_api__${apiArtifactMatch[1]}__${filename}`;
-            }
-            // Pattern 2: Absolute path: /some/path/artifact/uuid/uuid/file.ext
-            const extPattern = new RegExp(`\\/[^\\s"']*\\/artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
-            const absMatch = s.match(extPattern);
-            if (absMatch) return `artifact/${absMatch[1]}`;
-            // Pattern 3: Relative: artifact/uuid/uuid/file.ext
-            const relPattern = new RegExp(`artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
-            const relMatch = s.match(relPattern);
-            if (relMatch) return `artifact/${relMatch[1]}`;
-            // Pattern 4: Legacy /tmp path
-            const tmpMatch = s.match(/\/tmp\/research_reports\/[a-zA-Z0-9_.-]+\.pdf/);
-            if (tmpMatch) return tmpMatch[0];
-            return null;
-        };
-
-        // 1. result_data.pdf_path or file_path
-        if (resultData?.pdf_path) return scanStr(resultData.pdf_path) || resultData.pdf_path;
-        if (resultData?.file_path) return scanStr(resultData.file_path) || resultData.file_path;
-        if (resultData?.document_path) return scanStr(resultData.document_path) || resultData.document_path;
-
-        // 2. tool logs
-        if (toolLogs && toolLogs.length > 0) {
-            for (const log of toolLogs) {
-                if (log.output_result) {
-                    const raw = typeof log.output_result === 'string'
-                        ? log.output_result
-                        : JSON.stringify(log.output_result);
-                    try {
-                        const parsed = JSON.parse(raw);
-                        if (parsed.pdf_path) return scanStr(parsed.pdf_path) || parsed.pdf_path;
-                        if (parsed.file_path) return scanStr(parsed.file_path) || parsed.file_path;
-                        if (parsed.document_path) return scanStr(parsed.document_path) || parsed.document_path;
-                    } catch { /* not JSON: scanned as text below */ }
-                    const found = scanStr(raw);
-                    if (found) return found;
-                }
-            }
-        }
-
-        // 3. result_data.output
-        if (resultData?.output) {
-            const raw = typeof resultData.output === 'string'
-                ? resultData.output
-                : JSON.stringify(resultData.output);
-            try {
-                const parsed = JSON.parse(raw);
-                if (parsed.pdf_path) return scanStr(parsed.pdf_path) || parsed.pdf_path;
-                if (parsed.file_path) return scanStr(parsed.file_path) || parsed.file_path;
-                if (parsed.document_path) return scanStr(parsed.document_path) || parsed.document_path;
-            } catch { /* not JSON: scanned as text below */ }
-            const found = scanStr(raw);
-            if (found) return found;
-        }
-
-        // 4. steps array
-        if (resultData?.steps && Array.isArray(resultData.steps)) {
-            for (const step of resultData.steps) {
-                if (step.output) {
-                    const raw = typeof step.output === 'string' ? step.output : JSON.stringify(step.output);
-                    const found = scanStr(raw);
-                    if (found) return found;
-                }
-            }
-        }
-
-        return null;
-    };
-
-    const pdfPath = extractArtifactPath(run);
-
-    // Convert file path to URL accessible via the backend static files server
-    const getPdfUrl = (filePath: string | null): string | null => {
-        if (!filePath) return null;
-        // Auto-registered artifact via /api/v1/artifacts/{id}/download
-        if (filePath.startsWith('__artifact_api__')) {
-            const parts = filePath.replace('__artifact_api__', '').split('__');
-            const artifactId = parts[0];
-            return `/api/v1/artifacts/${artifactId}/download`;
-        }
-        // Already a relative artifact path (normalised by extractPdfPath)
-        if (filePath.startsWith('artifact/')) return `/${filePath}`;
-        // Absolute server path – strip everything before "artifact/"
-        const m = filePath.match(/artifact\/(.+)/);
-        if (m) return `/artifact/${m[1]}`;
-        // Legacy /tmp/research_reports/
-        const filename = filePath.split('/').pop();
-        return filename ? `/reports/${filename}` : null;
-    };
-
-    const pdfUrl = getPdfUrl(pdfPath);
+    const nodeArtifacts = useContext(RunArtifactsContext)[run.id] ?? [];
 
     return (
         <div className="trace-node" style={{ marginLeft: depth > 0 ? '32px' : '0' }}>
@@ -508,34 +407,26 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
                         </div>
                     )}
 
-                    {/* Document Download Button */}
-                    {pdfUrl && (() => {
-                        // Extract clean filename from pdfPath token
-                        let displayName = 'document';
-                        if (pdfPath?.startsWith('__artifact_api__')) {
-                            const parts = pdfPath.replace('__artifact_api__', '').split('__');
-                            displayName = parts[1] || 'document';
-                        } else {
-                            displayName = pdfPath?.split('/').pop() || 'document';
-                        }
-                        return (
-                            <div className="node-result" style={{ marginBottom: '1rem' }}>
-                                <label>Generated Document</label>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.5rem' }}>
+                    {/* The run's files */}
+                    {nodeArtifacts.length > 0 && (
+                        <div className="node-result" style={{ marginBottom: '1rem' }}>
+                            <label>Generated {nodeArtifacts.length === 1 ? 'Document' : 'Files'}</label>
+                            {nodeArtifacts.map(artifact => (
+                                <div key={artifact.id} style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.5rem' }}>
                                     <code style={{ flex: 1, padding: '0.5rem', background: 'var(--color-bg-secondary)', borderRadius: '4px' }}>
-                                        {displayName}
+                                        {artifact.file_name}
                                     </code>
                                     <JellyButton
                                         variant="secondary"
                                         size="sm"
-                                        onClick={() => downloadArtifactFile(pdfUrl!, displayName)}
+                                        onClick={() => downloadArtifactFile(`/api/v1/artifacts/${artifact.id}/download`, artifact.file_name)}
                                     >
                                         <Download size={16} /> Download
                                     </JellyButton>
                                 </div>
-                            </div>
-                        );
-                    })()}
+                            ))}
+                        </div>
+                    )}
 
                     {/* Result */}
                     {run.result_data && (
@@ -568,80 +459,6 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
 };
 
 // ─── Main Execution Detail Page ─────────────────────────────────────────────
-// Helper to extract artifact path from a run (delegates to shared function in TraceNode)
-const getArtifactPath = (run: ExecutionRun): string | null => {
-    const scanStr = (s: string): string | null => {
-        if (!s) return null;
-        // Pattern 1: Auto-registered artifact download URL: /api/v1/artifacts/{uuid}/download or /api/v1/ai/artifacts/{uuid}/download
-        const apiArtifactMatch = s.match(/\/api\/v1\/(?:ai\/)?artifacts\/([0-9a-f-]{36})\/download/);
-        if (apiArtifactMatch) {
-            const fnMatch = s.match(/[•-]\s*([\w][\w .()-]+\.(?:pptx|docx|xlsx|pdf|csv|html|png|jpg|svg))\s*\(/i);
-            const filename = fnMatch ? fnMatch[1].trim() : 'document';
-            return `__artifact_api__${apiArtifactMatch[1]}__${filename}`;
-        }
-        // Pattern 2: Absolute path with artifact/
-        const extPattern = new RegExp(`\\/[^\\s"']*\\/artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
-        const absMatch = s.match(extPattern);
-        if (absMatch) return `artifact/${absMatch[1]}`;
-        // Pattern 3: Relative artifact path
-        const relPattern = new RegExp(`artifact\\/([^\\s"']+\\.${DOCUMENT_EXTENSIONS})`);
-        const relMatch = s.match(relPattern);
-        if (relMatch) return `artifact/${relMatch[1]}`;
-        // Pattern 4: Legacy /tmp path
-        const tmpMatch = s.match(/\/tmp\/research_reports\/[a-zA-Z0-9_.-]+\.pdf/);
-        if (tmpMatch) return tmpMatch[0];
-        return null;
-    };
-
-    const { result_data: resultData, tool_logs: toolLogs } = run;
-    if (resultData?.pdf_path) return scanStr(resultData.pdf_path) || resultData.pdf_path;
-    if (resultData?.file_path) return scanStr(resultData.file_path) || resultData.file_path;
-    if (resultData?.document_path) return scanStr(resultData.document_path) || resultData.document_path;
-
-    if (toolLogs) {
-        for (const log of toolLogs) {
-            if (log.output_result) {
-                const raw = typeof log.output_result === 'string'
-                    ? log.output_result
-                    : JSON.stringify(log.output_result);
-                try {
-                    const parsed = JSON.parse(raw);
-                    if (parsed.download_url) return scanStr(parsed.download_url) || parsed.download_url;
-                    if (parsed.document_path) return scanStr(parsed.document_path) || parsed.document_path;
-                    if (parsed.pdf_path) return scanStr(parsed.pdf_path) || parsed.pdf_path;
-                    if (parsed.file_path) return scanStr(parsed.file_path) || parsed.file_path;
-                } catch { /* not JSON: scanned as text below */ }
-                const found = scanStr(raw);
-                if (found) return found;
-            }
-        }
-    }
-
-    if (resultData?.output) {
-        const raw = typeof resultData.output === 'string'
-            ? resultData.output
-            : JSON.stringify(resultData.output);
-        const found = scanStr(raw);
-        if (found) return found;
-    }
-
-    return null;
-};
-
-// Recursively find artifact in the entire tree
-const findArtifactInTree = (run: ExecutionRun): string | null => {
-    const path = getArtifactPath(run);
-    if (path) return path;
-
-    if (run.child_runs) {
-        for (const child of run.child_runs) {
-            const childPath = findArtifactInTree(child);
-            if (childPath) return childPath;
-        }
-    }
-    return null;
-};
-
 // ── Issue 2: Flatten child entity steps into the Step Timeline ──────────
 // Recursively collect steps from child_runs with entity context
 const flattenChildSteps = (childRuns: ExecutionRun[]): StepResult[] => {
@@ -687,14 +504,13 @@ const collectToolLogs = (r: ExecutionRun): ToolInteractionLog[] =>
     [...(r.tool_logs || []), ...(r.child_runs || []).flatMap(collectToolLogs)];
 
 /**
- * What the page shows that is derived from the run: the artifact, the step
- * timeline and the logs, gathered across the whole child-run tree. It walks
- * every child run and regex-scans every tool output, so the page computes it
- * once per fetched run (FE-18), not on every render.
+ * What the page shows that is derived from the run: the step timeline and
+ * the logs, gathered across the whole child-run tree, once per fetched run
+ * (FE-18), not on every render. The run's files come from the artifact table.
  */
 const deriveRunView = (run: ExecutionRun | null) => {
     if (!run) {
-        return { globalArtifactPath: null as string | null, steps: [] as StepResult[],
+        return { steps: [] as StepResult[],
                  llmLogs: [] as LLMInteractionLog[], toolLogs: [] as ToolInteractionLog[] };
     }
     const parentSteps: StepResult[] = run.result_data?.steps || [];
@@ -702,7 +518,6 @@ const deriveRunView = (run: ExecutionRun | null) => {
         ? flattenChildSteps(run.child_runs)
         : [];
     return {
-        globalArtifactPath: findArtifactInTree(run),
         steps: [...parentSteps, ...childSteps],
         llmLogs: [...(run.llm_logs || []), ...(run.child_runs ? collectChildLLMLogs(run.child_runs) : [])],
         toolLogs: collectToolLogs(run),
@@ -796,27 +611,30 @@ export const ExecutionDetail: React.FC = () => {
     };
 
     // Derived once per fetched run (FE-18).
-    const { globalArtifactPath, steps, llmLogs, toolLogs } = useMemo(() => deriveRunView(run), [run]);
-    const globalArtifactUrl = globalArtifactPath
-        ? globalArtifactPath.startsWith('__artifact_api__')
-            ? (() => {
-                const parts = globalArtifactPath.replace('__artifact_api__', '').split('__');
-                return `/api/v1/artifacts/${parts[0]}/download`;
-              })()
-            : globalArtifactPath.startsWith('artifact/')
-                ? `/${globalArtifactPath}`
-                : globalArtifactPath.includes('/artifact/')
-                    ? `/artifact/${globalArtifactPath.split('/artifact/')[1]}`
-                    : `/reports/${globalArtifactPath.split('/').pop()}`
-        : null;
-    const globalArtifactFilename = (() => {
-        if (!globalArtifactPath) return 'document';
-        if (globalArtifactPath.startsWith('__artifact_api__')) {
-            const parts = globalArtifactPath.replace('__artifact_api__', '').split('__');
-            return parts[1] || 'document';
+    const { steps, llmLogs, toolLogs } = useMemo(() => deriveRunView(run), [run]);
+
+    // The files the run and its child runs produced (EP-21), refreshed with
+    // the run while it is still working.
+    const [runArtifacts, setRunArtifacts] = useState<Artifact[]>([]);
+    useEffect(() => {
+        if (!run?.id) return;
+        let cancelled = false;
+        artifactService.list({ run_id: run.id, limit: 200 })
+            .then(res => { if (!cancelled) setRunArtifacts(res.artifacts); })
+            .catch(err => console.error('Failed to load the run\'s files:', err));
+        return () => { cancelled = true; };
+    }, [run]);
+    const artifactsByRun = useMemo(() => {
+        const byRun: Record<string, Artifact[]> = {};
+        for (const artifact of runArtifacts) {
+            if (artifact.run_id) (byRun[artifact.run_id] ??= []).push(artifact);
         }
-        return globalArtifactPath.split('/').pop() || 'document';
-    })();
+        return byRun;
+    }, [runArtifacts]);
+    // The newest file of the tree is the run's document.
+    const latestArtifact = runArtifacts[0] ?? null;
+    const globalArtifactUrl = latestArtifact ? `/api/v1/artifacts/${latestArtifact.id}/download` : null;
+    const globalArtifactFilename = latestArtifact?.file_name || 'document';
 
     // Get the selected step details
     const selectedStepData = selectedStep
@@ -1063,7 +881,9 @@ export const ExecutionDetail: React.FC = () => {
                                 <h2 className="text-2xl font-black italic uppercase tracking-tighter">Hierarchical Invocation Tree</h2>
                             </div>
                             <div className="trace-container">
-                                <TraceNode run={run} depth={0} />
+                                <RunArtifactsContext.Provider value={artifactsByRun}>
+                                    <TraceNode run={run} depth={0} />
+                                </RunArtifactsContext.Provider>
                             </div>
                         </GlassCard>
                     )}

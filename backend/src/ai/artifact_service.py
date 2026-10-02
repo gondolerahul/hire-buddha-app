@@ -135,9 +135,20 @@ class ArtifactService:
         date_to: Optional[datetime] = None,
         limit: int = 100,
         offset: int = 0,
+        run_id: Optional[UUID] = None,
     ) -> List[Artifact]:
-        """Return filtered artifact list for a company."""
+        """Return filtered artifact list for a company.
+
+        ``run_id``: the files of that run and of every run beneath it — what a
+        run produced, child runs included (EP-21: the run page searched step
+        outputs with regular expressions instead).
+        """
         conditions = [Artifact.company_id == company_id]
+        if run_id:
+            from src.ai.orm.execution import ExecutionRun
+            tree = select(ExecutionRun.id).where(ExecutionRun.id == run_id).cte("run_tree", recursive=True)
+            tree = tree.union_all(select(ExecutionRun.id).where(ExecutionRun.parent_run_id == tree.c.id))
+            conditions.append(Artifact.run_id.in_(select(tree.c.id)))
 
         if origin:
             conditions.append(Artifact.origin == origin)
@@ -184,3 +195,52 @@ class ArtifactService:
         await self.db.delete(artifact)
         await self.db.commit()
         return True
+
+
+def _as_uuid(value: object) -> Optional[UUID]:
+    try:
+        return UUID(str(value)) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+async def save_tool_output(
+    context: Optional[dict],
+    *,
+    file_name: str,
+    file_bytes: bytes,
+    mime_type: str,
+    file_category: str,
+    generated_by: str,
+    purpose: Optional[str] = None,
+    extra_metadata: Optional[dict] = None,
+) -> Artifact:
+    """The one way a tool keeps a file it made (TL-59, EP-21).
+
+    Bytes in; the registered artifact out — its ``file_path`` is what the tool
+    returns to the model, and its run, agent and campaign come from the call's
+    context, so the file appears under its run. Tools used to write a first
+    copy under ``backend/src/artifact`` and register a second one here, often
+    with no run, returning the unregistered path.
+    """
+    from src.common.database import AsyncSessionLocal
+
+    ctx = context or {}
+    company_id = _as_uuid(ctx.get("company_id"))
+    if company_id is None:
+        raise ValueError("a tool output needs the call's company (no execution context)")
+    async with AsyncSessionLocal() as db:
+        return await ArtifactService(db).save_artifact(
+            file_bytes=file_bytes,
+            file_name=file_name,
+            mime_type=mime_type,
+            file_category=file_category,
+            origin=ORIGIN_SYSTEM,
+            company_id=company_id,
+            purpose=purpose,
+            generated_by=generated_by,
+            campaign_id=_as_uuid(ctx.get("campaign_id")),
+            agent_id=_as_uuid(ctx.get("agent_id")),
+            run_id=_as_uuid(ctx.get("run_id")),
+            extra_metadata=extra_metadata,
+        )

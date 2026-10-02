@@ -26,6 +26,7 @@ export interface ArtifactListFilters {
     file_category?: string;
     agent_id?: string;
     campaign_id?: string;
+    run_id?: string;          // the run's files, its child runs' included
     date_from?: string;
     date_to?: string;
     limit?: number;

@@ -16,18 +16,18 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# artifact/system-generated/ — the same root the legacy video_generation tool
-# used, so existing consumers keep finding outputs.
-_BASE_ARTIFACT_DIR = Path(__file__).resolve().parents[4] / "artifact" / "system-generated"
 
 # Veo 3.1 native single-segment limit (supports 4, 5, 6, or 8 seconds).
 MAX_SEGMENT_SECONDS = 8
 
 
 def company_video_dir(company_id: Optional[str]) -> str:
-    """Return (and create) the per-company, per-day video output directory."""
+    """The company's video working directory, in its workspace (where ffmpeg
+    runs in either sandbox runtime). A finished video is then kept as an
+    artifact (``register_video_artifact``) and the working file removed."""
+    from src.ai.tools.sandbox.workspace import tenant_workspace
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    out_dir = str(_BASE_ARTIFACT_DIR / str(company_id) / date_str / "videos")
+    out_dir = os.path.join(tenant_workspace(company_id), "videos", date_str)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
@@ -65,40 +65,33 @@ def calculate_segments(total_seconds: int) -> List[int]:
 
 
 async def register_video_artifact(
-    company_id: Optional[str],
+    context: Optional[Dict[str, Any]],
     video_path: str,
     *,
     purpose: str,
     generated_by: str,
     extra_metadata: Optional[Dict[str, Any]] = None,
-) -> None:
-    """Register a produced video in the artifacts DB table (best-effort)."""
-    if not company_id:
-        return
+) -> Any:
+    """Keep a finished video as an artifact of the call's run and return it.
+
+    The one write path (TL-59): the working file is removed, and the tool
+    returns the artifact's path. Before, the video was registered as a second
+    copy with no run (TL-46) and the tool returned the first.
+    """
+    from src.ai.artifact_service import save_tool_output
+
+    video_file = Path(video_path)
+    artifact = await save_tool_output(
+        context, file_name=video_file.name, file_bytes=video_file.read_bytes(), mime_type="video/mp4",
+        file_category="videos", generated_by=generated_by, purpose=purpose[:200],
+        extra_metadata=extra_metadata or {},
+    )
+    # Only the working copy goes: a path the model chose stays where it was.
+    from src.ai.tools.sandbox.workspace import tenant_workspace
+    work = os.path.realpath(os.path.join(tenant_workspace((context or {}).get("company_id")), "videos"))
     try:
-        from uuid import UUID
-
-        from src.ai.artifact_service import ORIGIN_SYSTEM, ArtifactService
-        from src.common.database import AsyncSessionLocal
-
-        video_file = Path(video_path)
-        if not video_file.exists():
-            return
-        with open(video_file, "rb") as fh:
-            video_bytes = fh.read()
-
-        async with AsyncSessionLocal() as db:
-            art_svc = ArtifactService(db)
-            await art_svc.save_artifact(
-                file_bytes=video_bytes,
-                file_name=video_file.name,
-                mime_type="video/mp4",
-                file_category="videos",
-                origin=ORIGIN_SYSTEM,
-                company_id=UUID(str(company_id)),
-                purpose=purpose[:200],
-                generated_by=generated_by,
-                extra_metadata=extra_metadata or {},
-            )
-    except Exception as err:  # noqa: BLE001 - artifact registration is non-fatal
-        logger.warning("[video] artifact DB registration failed (non-fatal): %s", err)
+        if os.path.commonpath([os.path.realpath(video_file), work]) == work:
+            video_file.unlink()
+    except (OSError, ValueError):
+        pass
+    return artifact
