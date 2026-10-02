@@ -146,7 +146,7 @@ Every report that walks the run tree also mixes the two relationships together.
 
 ### EP-04 — `io_contract.input_schema` is never validated
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P8.1)** — `trigger_execution` checks `input_data` against the schema before the run exists (422 naming each field): required names, `type`, `enum`, an array's `items` type — the subset the platform writes (D21). A step's id or name, `step_N` and platform keys are never required. `tests/integration/test_input_contract.py`.
 
 The builder's Basics tab makes you define an input schema. The execution page reads it to
 build the input form. Nothing ever validates `input_data` against it.
@@ -223,7 +223,7 @@ one is a promise the product is currently breaking.
 | `governance.execution_limits.max_tool_calls` | Safeguards tab | prompt text only |
 | `capabilities.tools[].rate_limit_per_run` | not authorable at all | branch exists, never fires |
 | `ToolDefinition.max_execution_seconds` | not authorable at all | **none** |
-| `io_contract.input_schema` | Basics tab | UI form only, see [EP-04](#ep-04--io_contractinput_schema-is-never-validated) |
+| `io_contract.input_schema` | Basics tab | UI form only, see [EP-04](#ep-04--io_contractinput_schema-is-never-validated). *Since P8.1: checked at dispatch* |
 | `io_contract.output_schema` | Basics tab | prompt text only |
 
 The real retry bound is the hard-coded `MAX_RETRIES_PER_STEP = 2` plus the tool healing

@@ -678,13 +678,13 @@ to `{"type":"object","properties":{}}`.
 | `input_schema` | The SPA's run form. Auto-populated on clone by [`_auto_generate_input_schema`](../../backend/src/ai/service.py:1292), which scrapes `{{var}}` names out of every `prompt_template` and the `goal`, skipping `step_N` refs and `__internal__` names. |
 | `output_schema` | [step_executor.py:662](../../backend/src/ai/step_executor.py:662) → prompt Layer 7 ("Your response MUST conform to this JSON schema"). |
 
-> **Both are advisory.** `input_data` is **never validated** against
-> `input_schema` anywhere in the request path — grep confirms the only
-> `input_schema` readers are the auto-generator and the frontend. The platform
-> manifest claims "The execution engine validates input_data against
-> input_schema before execution"
-> ([platform_schema_compiler.py:471](../../backend/src/ai/meta/platform_schema_compiler.py:471));
-> that is aspirational. `output_schema` is a prompt instruction, not a parser.
+> **`input_schema` is checked** (since P8.1, 2026-10-03, EP-04): `trigger_execution`
+> validates `input_data` with `governance/input_contract.input_problems` before the run
+> row exists and answers 422 naming each field. The check is the subset of JSON Schema
+> the platform writes — `type`, `properties`, `required`, `enum`, an array's `items` type
+> (D21) — and does not require a step's id or name, `step_N` references or platform keys
+> (the run page's own rules). Child runs and gateway runs are not checked: their input is
+> the platform's. `output_schema` is a prompt instruction, not a parser.
 
 ---
 
@@ -1029,8 +1029,7 @@ sequenceDiagram
     W->>W: AgentLoop.run run_id
 ```
 
-Note what is **not** validated: `input_data` against `io_contract.input_schema`;
-entity `status` (a `DRAFT` or `ARCHIVED` entity runs happily); credit balance
+Note what is **not** validated: entity `status` (a `DRAFT` or `ARCHIVED` entity runs happily); credit balance
 (that is checked later, per step and before each child spawn).
 
 ### The `ExecutionRun` row

@@ -303,6 +303,16 @@ class AIService:
             from src.ai.core.events import event
             event("agent.entity.deprecated_run", entity_id=str(entity.id), entity_name=entity.name)
 
+        # The input must fit the entity's input schema (EP-04): a run with the
+        # wrong input is refused before it exists, not after its plan is paid for.
+        from src.ai.governance.input_contract import input_problems
+        bad_input = input_problems(entity, execution_in.input_data)
+        if bad_input:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Input does not fit '{entity.name}' input schema: " + "; ".join(bad_input),
+            )
+
         # Every level: the whole tree must satisfy the composition rule before
         # anything is spent — each invocation step resolves, every child is in
         # the entity's company, at its parent's level or below, with no cycle.
