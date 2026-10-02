@@ -26,7 +26,6 @@ TOOLS = sorted(ToolRegistry._tools.items())
 # Advertised parameters the code never reads — each is a defect, with the
 # plan item that removes it. The list may only shrink.
 KNOWN_DRIFT = {
-    ("batch_web_search", "max_per_query"): "TL-60, P6.8",
     ("linkedin_create_post", "image_url"): "TL-47, P6.6",
     ("linkedin_get_analytics", "time_range"): "found in P6.10, P6.6",
     ("youtube_upload_video", "video_url"): "TL-43, P6.6",

@@ -149,22 +149,18 @@ async def trim_clip(
     timeout: float = 300.0,
 ) -> str:
     """Cut ``input_path`` to ``[start, start+duration]`` (or ``[start, end]``)."""
-    args: List[str] = ["-ss", f"{max(0.0, start):g}", "-i", input_path]
+    cut: List[str] = ["-ss", f"{max(0.0, start):g}", "-i", input_path]
     if duration is not None:
-        args += ["-t", f"{max(0.0, duration):g}"]
+        cut += ["-t", f"{max(0.0, duration):g}"]
     elif end is not None:
-        args += ["-to", f"{max(0.0, end):g}"]
-    args += ["-c", "copy", output_path]
+        cut += ["-to", f"{max(0.0, end):g}"]
     try:
-        await run_ffmpeg(context, args, timeout=timeout)
+        await run_ffmpeg(context, [*cut, "-c", "copy", output_path], timeout=timeout)
     except FFmpegError:
-        # Stream-copy can't cut at arbitrary points (keyframe boundaries); the
-        # accurate path re-encodes.
-        reenc = list(args)
-        reenc[-2:-1] = []  # drop "-c"
-        reenc.remove("copy")
-        reenc[-1:-1] = ["-c:v", "libx264", "-c:a", "aac"]
-        await run_ffmpeg(context, reenc, timeout=timeout)
+        # Stream-copy cuts only at keyframes; the accurate path re-encodes.
+        # Built from the cut, not by editing the copy argv — that edit removed
+        # "copy" twice and raised ValueError, so the re-encode never ran (TL-31).
+        await run_ffmpeg(context, [*cut, "-c:v", "libx264", "-c:a", "aac", output_path], timeout=timeout)
     return output_path
 
 

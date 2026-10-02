@@ -220,7 +220,9 @@ class VideoGenerateTool(Tool):
             config.last_frame = self._load_image(end_frame_path)
 
         logger.info("video_generate: model=%s duration=%ss", model_name, duration)
-        operation = client.models.generate_videos(**gen_kwargs)
+        # The SDK is synchronous: each call runs in a thread so the worker's
+        # event loop keeps serving other runs while Veo works (TL-32).
+        operation = await asyncio.to_thread(client.models.generate_videos, **gen_kwargs)
 
         max_wait, elapsed, poll = 360, 0, 10
         while not operation.done:
@@ -228,14 +230,14 @@ class VideoGenerateTool(Tool):
                 raise TimeoutError(f"Video generation timed out after {max_wait}s")
             await asyncio.sleep(poll)
             elapsed += poll
-            operation = client.operations.get(operation)
+            operation = await asyncio.to_thread(client.operations.get, operation)
 
         if not operation.response or not operation.response.generated_videos:
             raise ValueError("No video was generated - possibly filtered by safety")
 
         generated = operation.response.generated_videos[0]
-        client.files.download(file=generated.video)
-        generated.video.save(output_path)
+        await asyncio.to_thread(client.files.download, file=generated.video)
+        await asyncio.to_thread(generated.video.save, output_path)
         logger.info("video_generate: saved %s (%ss)", output_path, duration)
         return output_path
 

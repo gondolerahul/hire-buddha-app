@@ -278,25 +278,33 @@ class WebSearchTool(Tool):
     # ---------------------------------------------------------------------------
 
     async def execute(self, params: WebSearchParams, ctx: Dict[str, Any]) -> ToolOutput:
-        """Search: SerpAPI, then the duckduckgo library, then DDG Instant Answers."""
-        query = params.query
-        logger.info(f"[WebSearch] Searching for: {query[:100]}")
-        keys = await self._resolve_keys(ctx)
-
-        results: Optional[List[Dict]] = None
-        if keys.get("serp_api_key"):
-            results = await self._search_serpapi(query, keys["serp_api_key"])
-        if not results:
-            results = await self._search_ddg_library(query)
-        if not results:
-            results = await self._search_ddg_api(query)
-
+        results, backend = await self.search(params.query, ctx)
+        units = 1 if backend == "serpapi" else 0
         if not results:
             return ToolOutput(output=(
-                f"No results found for: '{query}'. "
+                f"No results found for: '{params.query}'. "
                 "For better results, configure SERP_API_KEY via Integration Registry."
-            ))
-        return ToolOutput(output=self._format_results(query, results[: params.num_results]))
+            ), metadata={"backend": backend, "billable_units": units})
+        return ToolOutput(output=self._format_results(params.query, results[: params.num_results]),
+                          metadata={"backend": backend, "billable_units": units})
+
+    async def search(self, query: str, ctx: Dict[str, Any]) -> tuple[List[Dict], str]:
+        """Results for ``query`` and the backend that answered: SerpAPI (billed),
+        then the duckduckgo library, then DDG Instant Answers (both free)."""
+        logger.info(f"[WebSearch] Searching for: {query[:100]}")
+        keys = await self._resolve_keys(ctx)
+        # A SerpAPI request is charged whether or not it found anything.
+        backend = "none"
+        if keys.get("serp_api_key"):
+            backend = "serpapi"
+            results = await self._search_serpapi(query, keys["serp_api_key"])
+            if results:
+                return results, backend
+        results = await self._search_ddg_library(query)
+        if results:
+            return results, "serpapi" if backend == "serpapi" else "ddg"
+        results = await self._search_ddg_api(query)
+        return results or [], "serpapi" if backend == "serpapi" else ("ddg" if results else "none")
 
     # ---------------------------------------------------------------------------
     # Output formatting

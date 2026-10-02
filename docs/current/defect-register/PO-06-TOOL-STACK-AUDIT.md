@@ -287,7 +287,7 @@ send relay.
 
 ### TL-57 — The email tools block the event loop
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.8)** — the IMAP/SMTP work runs in `asyncio.to_thread` with a 30 s socket timeout.
 
 `imaplib` and `smtplib` are synchronous and are called directly in the async handlers
 ([email_tool.py:96](../../../backend/src/ai/tools/email/email_tool.py:96),
@@ -300,7 +300,7 @@ problem and are far more likely to hang.
 
 ### TL-58 — `email_classify` moves the wrong message
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.8)** — `email_ingest` returns real UIDs (`UID SEARCH`/`UID FETCH`); `email_classify` uses `UID MOVE`, or `UID COPY`/`UID STORE`/`UID EXPUNGE` (UIDPLUS) where the server has no MOVE.
 
 `email_ingest` returns IMAP **sequence numbers** but labels them `uid`
 ([email_tool.py:246](../../../backend/src/ai/tools/email/email_tool.py:246)).
@@ -340,7 +340,7 @@ id; always pass the run/agent ids from context.
 
 ### TL-60 — `batch_web_search` ignores its own contract
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.8)** — typed: `max_per_query` is honoured, URLs an earlier query returned are dropped, and the call reports `billable_units` = the sub-queries SerpAPI answered, which the charge multiplies (a `web_search` answered by the free DuckDuckGo fallbacks is no longer billed at the SerpAPI price either).
 
 `max_per_query` is advertised in the schema and parsed into `BatchWebSearchParams` but is
 **never used** — every sub-query returns the underlying tool's default page
@@ -354,7 +354,7 @@ batch is under-billed ~25×.
 
 ### TL-61 — `sandbox_code` accepts an unbounded timeout from the model
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.8)** — typed: `timeout_s` is held to 1–120 s (the schema says so).
 
 `terminal` and `headless_browser` cap the model-supplied timeout at 120 s
 ([terminal_tool.py:121](../../../backend/src/ai/tools/sandbox/terminal_tool.py:121),
@@ -368,7 +368,7 @@ so one call can hold a worker for an arbitrary duration.
 
 ### TL-62 — `headless_browser` cannot chain actions
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.8)** — a call is one session running `steps` in order on one page (log in, then read); the single-action form is one step. **Found:** every fallback into the browser (`web_search`→, `scraper_tool`→) sent `action: extract_text`, which it has never had — all failed; the transforms now send a valid call.
 
 Each call opens a fresh browser session, runs one action, and tears the session down
 ([browser_tool.py:151](../../../backend/src/ai/tools/sandbox/browser_tool.py:151)). There

@@ -18,16 +18,31 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 
-from src.ai.tools.base import Tool, ToolParams
+from pydantic import Field, field_validator
+
+from src.ai.tools.base import Tool, ToolOutput, ToolParams
 
 logger = logging.getLogger(__name__)
 
 
 class BatchWebSearchParams(ToolParams):
-    """Typed parameters for batch web search tool."""
-    queries: List[str]
-    max_per_query: int = 5
-    deduplicate: bool = True
+    """What ``batch_web_search`` takes."""
+    queries: List[str] = Field(..., description="Search queries to run (at most 25)")
+    max_per_query: int = Field(5, ge=1, le=20, description="Results kept per query (default 5)")
+
+    @field_validator("queries", mode="before")
+    @classmethod
+    def _queries_from_text(cls, v: Any) -> Any:
+        # A plan step hands over the previous step's text — often JSON in
+        # markdown fences; the parser finds the list in it.
+        if isinstance(v, str):
+            v = BatchWebSearchTool()._parse_input(v)
+        if isinstance(v, list):
+            v = [str(q).strip()[:BatchWebSearchTool._MAX_QUERY_LEN] for q in v if str(q).strip()]
+            v = v[:BatchWebSearchTool._MAX_QUERIES]
+            if not v:
+                raise ValueError("no search queries: give a JSON array of 1-25 search strings")
+        return v
 
 
 class BatchWebSearchTool(Tool):
@@ -44,11 +59,12 @@ class BatchWebSearchTool(Tool):
 
     name = "batch_web_search"
     description = (
-        "Execute multiple web search queries and return aggregated, deduplicated results. "
-        "Input should be a JSON object with a 'queries' key containing an array of search strings. "
-        "Example: {\"queries\": [\"AI agent startups 2024\", \"autonomous AI market size\"], \"max_per_query\": 5}. "
-        "Also accepts a plain JSON array of query strings directly."
+        "Execute multiple web search queries and return aggregated results, without a URL "
+        "an earlier query already returned. Give 'queries' (an array of search strings) and "
+        "optionally 'max_per_query'."
     )
+    Params = BatchWebSearchParams
+    string_field = "queries"  # a plan step's text: the parser finds the list in it
 
     _MAX_QUERIES = 25  # Hard cap to prevent runaway API costs
     _MAX_QUERY_LEN = 500
@@ -200,109 +216,61 @@ class BatchWebSearchTool(Tool):
         )
         return []
 
-    async def run(self, input_data: str) -> str:
-        return await self.run_with_context(input_data, context=None)
-
-    async def run_with_context(self, input_data: str, context: Optional[Dict] = None) -> str:
-        """Execute all queries and return aggregated results."""
-        queries = self._parse_input(input_data)
-        if not queries:
-            return (
-                "ERROR: batch_web_search requires a JSON array of search query strings. "
-                "The input you provided could not be parsed as a query list. "
-                "Required format: [\"search query 1\", \"search query 2\", ...] "
-                "or {\"queries\": [\"query 1\", \"query 2\"]}. "
-                "Do NOT pass narrative text, source lists, or synthesized content as input. "
-                "INSTRUCTION: Generate a JSON array of 5-15 targeted search queries based on "
-                "the research topic from your context, then call this tool again with that JSON array."
-            )
-
-        logger.info(f"[BatchWebSearch] Executing {len(queries)} queries")
-
-        # Import the underlying WebSearchTool to reuse its backends
+    async def execute(self, params: BatchWebSearchParams, ctx: Dict[str, Any]) -> ToolOutput:
+        """Run each query, keep ``max_per_query`` results each, drop URLs an
+        earlier query already returned, and report the paid sub-queries (TL-60)."""
         from src.ai.tools.core.search import WebSearchTool
         search_tool = WebSearchTool()
+        queries = params.queries
+        logger.info(f"[BatchWebSearch] Executing {len(queries)} queries")
 
-        all_results = []
-        seen_urls = set()
-        failed_queries = []
-        successful_queries = 0
-
+        seen_urls: set[str] = set()
+        sections: List[str] = []
+        failed: List[str] = []
+        paid = duplicates = 0
         for i, query in enumerate(queries):
             try:
-                logger.info(f"[BatchWebSearch] Query {i+1}/{len(queries)}: {query[:80]}")
-                result_str = await search_tool.run_with_context(
-                    json.dumps({"query": query}),
-                    context=context,
-                )
-                # Parse results back from formatted string
-                if "No results found" not in result_str and "Error:" not in result_str:
-                    all_results.append({
-                        "query": query,
-                        "results": result_str,
-                    })
-                    successful_queries += 1
-                else:
-                    failed_queries.append(query)
-                    logger.warning(f"[BatchWebSearch] No results for: {query[:60]}")
-            except Exception as e:
-                failed_queries.append(query)
-                logger.warning(f"[BatchWebSearch] Query failed: {query[:60]} — {e}")
+                results, backend = await search_tool.search(query, ctx)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[BatchWebSearch] Query failed: {query[:60]} - {e}")
+                results, backend = [], "none"
+            if backend == "serpapi":
+                paid += 1
+            fresh = []
+            for r in results:
+                url = (r.get("url") or "").strip()
+                if url and url in seen_urls:
+                    duplicates += 1
+                    continue
+                if url:
+                    seen_urls.add(url)
+                fresh.append(r)
+                if len(fresh) >= params.max_per_query:
+                    break
+            if fresh:
+                sections.append(f"### Query: {query}\n{search_tool._format_results(query, fresh)}")
+            else:
+                failed.append(query)
 
-            # Rate-limit delay to avoid 429 from SerpAPI
+            # Rate-limit pauses, so SerpAPI does not answer 429.
             if i < len(queries) - 1:
-                # Longer delay between batches (every _BATCH_SIZE queries)
-                if (i + 1) % self._BATCH_SIZE == 0:
-                    logger.info(f"[BatchWebSearch] Rate-limit pause ({self._INTER_BATCH_DELAY}s between batches)")
-                    await asyncio.sleep(self._INTER_BATCH_DELAY)
-                else:
-                    await asyncio.sleep(self._INTER_QUERY_DELAY)
+                await asyncio.sleep(self._INTER_BATCH_DELAY if (i + 1) % self._BATCH_SIZE == 0
+                                    else self._INTER_QUERY_DELAY)
 
-        if not all_results:
-            return (
+        metadata = {"billable_units": paid, "queries": len(queries), "duplicates_dropped": duplicates}
+        if not sections:
+            return ToolOutput(output=(
                 f"No results found for any of the {len(queries)} queries. "
-                f"Failed queries: {failed_queries[:5]}. "
-                "Check SerpAPI key configuration in Integration Registry."
-            )
-
-        # Format aggregated output
-        output_lines = [
-            f"## Batch Search Results",
-            f"**Executed:** {len(queries)} queries | **Successful:** {successful_queries} | **Failed:** {len(failed_queries)}",
+                f"Failed queries: {failed[:5]}. Check SerpAPI key configuration in Integration Registry."
+            ), metadata=metadata)
+        lines = [
+            "## Batch Search Results",
+            f"**Executed:** {len(queries)} queries | **With results:** {len(sections)} | "
+            f"**Without:** {len(failed)} | **Duplicate URLs dropped:** {duplicates}",
             "",
+            *sections,
         ]
-        for item in all_results:
-            output_lines.append(f"### Query: {item['query']}")
-            output_lines.append(item["results"])
-            output_lines.append("")
-
-        if failed_queries:
-            output_lines.append(f"### Failed Queries ({len(failed_queries)})")
-            for fq in failed_queries:
-                output_lines.append(f"- {fq}")
-
-        logger.info(f"[BatchWebSearch] Complete: {successful_queries}/{len(queries)} queries returned results")
-        return "\n".join(output_lines)
-
-    def get_function_schema(self) -> Dict[str, Any]:
-        """Return JSON schema for function calling."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "queries": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of search query strings to execute (max 25)"
-                    },
-                    "max_per_query": {
-                        "type": "integer",
-                        "description": "Maximum results to return per query (default: 5)",
-                        "default": 5,
-                    }
-                },
-                "required": ["queries"]
-            }
-        }
+        if failed:
+            lines.append(f"### Queries without new results ({len(failed)})")
+            lines.extend(f"- {q}" for q in failed)
+        return ToolOutput(output="\n".join(lines), metadata=metadata)

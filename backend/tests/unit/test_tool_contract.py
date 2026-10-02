@@ -24,12 +24,12 @@ CTX = {"company_id": "c-1", "run_id": "r-1"}
 # Tools still on the adapter (D16). This list may only shrink: a new tool
 # declares ``Params``; converting one removes it from here.
 UNCONVERTED = {
-    "agent_introspect", "agent_reflect", "batch_web_search", "crm_update_lead",
+    "agent_introspect", "agent_reflect", "crm_update_lead",
     "document_save", "docx_tool", "email_classify", "email_draft", "email_ingest", "email_send",
     "excel_tool", "file_writer", "get_current_datetime", "google_calendar_create_event",
-    "headless_browser", "image_generation", "meta_entity_creator", "meta_entity_executor",
+    "image_generation", "meta_entity_creator", "meta_entity_executor",
     "meta_platform_introspect", "meta_registry_search", "meta_schema_validator", "meta_spec_critic",
-    "pdf_generator", "pptx_tool", "sandbox_code", "terminal", "tool_synthesis", "video_add_sound",
+    "pdf_generator", "pptx_tool", "terminal", "tool_synthesis", "video_add_sound",
     "video_edit", "video_generate", "whatsapp_send_tenant",
     # social: collapsed into one typed primitive in P6.2
     "facebook_create_post", "facebook_get_insights", "facebook_manage_comments", "facebook_send_message",

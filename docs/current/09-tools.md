@@ -560,7 +560,7 @@ Legend for external dependency: `—` = pure local compute.
 |---|---|---|---|---|---|---|---|
 | `calculator` | utility | [core/calculator.py](../../backend/src/ai/tools/core/calculator.py) | AST-based safe arithmetic, no `eval` | `expression` | — | ACTIVE | — |
 | `web_search` | search | [core/search.py](../../backend/src/ai/tools/core/search.py) | Web search, 3-tier backend | `query` | SerpAPI, then `ddgs` lib, then DuckDuckGo IA API | ACTIVE | `serp-api-key` |
-| `batch_web_search` | search | [core/batch_search.py](../../backend/src/ai/tools/core/batch_search.py) | Runs up to 25 queries sequentially, aggregates | `queries[]`, `max_per_query` | same as `web_search` | ACTIVE | `serp-api-key` |
+| `batch_web_search` | search | [core/batch_search.py](../../backend/src/ai/tools/core/batch_search.py) | Runs up to 25 queries sequentially; keeps `max_per_query` each; drops URLs an earlier query returned | `queries[]`, `max_per_query` | same as `web_search` | ACTIVE | `serp-api-key` × the sub-queries SerpAPI answered |
 | `scraper_tool` | browser | [core/scraper.py](../../backend/src/ai/tools/core/scraper.py) | Firecrawl page scrape to markdown, saved as an artifact | `url`, `purpose` | Firecrawl API | ACTIVE | `firecrawl-api` / `firecrawl` |
 | `file_writer` | document | [core/file_writer.py](../../backend/src/ai/tools/core/file_writer.py) | Writes text to `artifact/system-generated/{company}/{date}/` | `filename`, `content`, `purpose` | local disk | ACTIVE | — |
 
@@ -796,6 +796,14 @@ deleted on 2026-10-01 (TL-26, TL-27). `docx_tool._create` starts from a blank
 ---
 
 ## 8. `email/` — IMAP and SMTP
+
+> **Since P6.8 (2026-10-02, TL-57, TL-58).** The IMAP and SMTP work runs in
+> `asyncio.to_thread` with a 30 s socket timeout (it blocked the worker's event loop, for
+> as long as the OS TCP timeout when a server hung). `email_ingest` returns real UIDs
+> (`UID SEARCH` / `UID FETCH`) — it returned sequence numbers labelled `uid`, which
+> renumber after every expunge, so `email_classify` moved the wrong message from the
+> second call on. `email_classify` moves with `UID MOVE`, or `UID COPY` + `UID STORE` +
+> `UID EXPUNGE` where the server has no MOVE.
 
 ```mermaid
 sequenceDiagram
@@ -1258,14 +1266,17 @@ policy of its own** — that is applied by `docker run` flags.
 
 ### 12.6 The three sandbox tools
 
-**`sandbox_code`** (476 lines). Writes the snippet to a `NamedTemporaryFile`
+**`sandbox_code`** (typed since P6.8). `Params`: `language`, `code`, `timeout_s` — held to
+1–120 s (TL-61: it took any timeout the model chose). A plan step's text fills `code`;
+fenced code is unwrapped and its language taken. Writes the snippet to a `NamedTemporaryFile`
 inside the tenant sandbox dir, execs the interpreter, deletes the temp file,
 then diffs the directory to find new files. Any new file with a known extension
 and size ≥ 100 bytes is auto-registered as an artifact. `venv`, `__pycache__`,
 `node_modules`, `scripts`, `.git` and **`scratch`** are excluded — `scratch` was
 added after a single run produced ~15 junk artifacts. If the input is not JSON it
 falls back to language auto-detection by scoring Python / Bash / JS keyword
-signals, and JavaScript is wrapped into a heredoc that pipes to `node`.
+signals, and JavaScript is wrapped into a heredoc that pipes to `node`. A run's skill
+files are in the same working directory (§12.3).
 
 **`terminal`** (454 lines). Passes the string to `/bin/bash -c`. Its only
 command-level guard is a 13-pattern regex blocklist
@@ -1280,8 +1291,13 @@ Its artifact scan is broader than `sandbox_code`'s: a second pass walks all of
 because the doc-factory agent routinely writes the final deliverable to an
 ad-hoc absolute path.
 
-**`headless_browser`** (465 lines). Six actions: `navigate`, `click`, `type`,
-`screenshot`, `get_text`, `evaluate`. Every request the page makes —
+**`headless_browser`** (typed since P6.8). **A call is one browser session**: `steps` (1–10
+actions — `navigate`, `click`, `type`, `screenshot`, `get_text`, `evaluate`) run in order on
+one page, after an optional `url`; the first failing step stops the session and the error
+names it. So a login and a read happen in one call; nothing is kept between calls. Before
+P6.8 (TL-62) each call opened a fresh session for one action, so `click`/`type`/`get_text`
+never composed. The single-action form (`{"action": ..., "url": ...}`) is accepted as one
+step. Every request the page makes —
 navigation, redirects, frames, subresources, and anything `evaluate`'s JavaScript
 fetches — goes through Playwright's router and the SSRF guard
 ([common/net_guard.py](../../backend/src/common/net_guard.py), since 2026-10-01,
@@ -1550,10 +1566,10 @@ flowchart LR
 
 | Primary | Alternative | Transform | What the transform does |
 |---|---|---|---|
-| `web_search` | `headless_browser` | `_web_search_to_browser` | wraps the query into `{"url": "https://www.google.com/search?q=<query>", "action": "extract_text", "wait_for": "body"}` |
+| `web_search` | `headless_browser` | `_web_search_to_browser` | `{"url": "https://www.google.com/search?q=<query>", "steps": [{"action": "get_text"}]}`. Until P6.8 it sent `action: extract_text` and `wait_for: body`, neither of which the browser has, so every fallback into it failed |
 | `batch_web_search` | `web_search` | `_batch_to_single_search` | takes only the **first** query from the batch |
-| `scraper_tool` | `headless_browser` | `_scraper_to_browser` | `{"url": ..., "action": "extract_text", "wait_for": "body"}` |
-| `headless_browser` | `scraper_tool` | `_browser_to_scraper` | extracts the bare `url` string |
+| `scraper_tool` | `headless_browser` | `_scraper_to_browser` | `{"url": ..., "steps": [{"action": "get_text"}]}` (the same fix) |
+| `headless_browser` | `scraper_tool` | `_browser_to_scraper` | `{"url": ...}` — the call's `url`, or its first step's |
 
 ```python
 # backend/src/ai/tool_fallback.py
@@ -1740,17 +1756,11 @@ sequenceDiagram
     participant BS as BillingService
     participant CS as CreditService
 
-    SE->>IR: SELECT active row with internal_cost for this company
-    alt registry hit
-        IR-->>SE: internal_cost
-        SE->>RUN: total_cost_usd plus equals cost
-        SE->>UL: INSERT sku_id raw_quantity 1 calculated_cost log_metadata tool and latency_ms
-    else fixed-cost fallback
-        SE->>RUN: total_cost_usd plus equals fixed cost
-        Note over UL: no usage_logs row is written on this branch
-    else no entry
-        Note over SE: warning logged, cost is silently zero
-    end
+    SE->>IR: ToolCostResolver.resolve - the registry price, else the fixed table (cached per run, TX-I1)
+    IR-->>SE: unit price
+    SE->>UL: CostLedger.add - price times the call's billable units, raw_quantity units, the run id
+    Note over RUN: the run's total is the sum of its usage rows, written by the loop (P4)
+    Note over SE: a failed call is not billed (TL-52); a call that reports 0 units is not billed
     Note over BS,CS: image_generation additionally self-bills
     SE-->>BS: record_billing_event grouping_type tool grouping_value image_generation
     BS-->>CS: consume credits

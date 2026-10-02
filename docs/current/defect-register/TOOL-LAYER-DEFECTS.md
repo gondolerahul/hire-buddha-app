@@ -627,7 +627,7 @@ which belonged to this tier. It was deleted on 2026-09-29 (PO-17).
 
 ### TL-31 — The accurate-trim fallback in `_ffmpeg` raises `ValueError`
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.8)** — the re-encode argv is built from the cut, not by editing the copy argv; `tests/unit/test_tool_correctness.py`.
 
 `trim_clip` builds `[..., "-c", "copy", output_path]`. When stream-copy trimming fails —
 the keyframe-boundary case the fallback exists for — the recovery path does:
@@ -650,7 +650,7 @@ re-encode argv from scratch rather than mutating.
 
 ### TL-32 — Blocking SDK calls on the event loop in `video_generate`
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.8)** — the Veo SDK calls (`generate_videos`, `operations.get`, `files.download`, `save`) run in `asyncio.to_thread`.
 
 `client.models.generate_videos`, `client.operations.get`, `client.files.download` and
 `generated.video.save` are synchronous. They run directly in the async handler, stalling

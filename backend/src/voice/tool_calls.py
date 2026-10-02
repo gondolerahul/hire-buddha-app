@@ -100,7 +100,7 @@ class VoiceToolCalls:
             if tr.success and not tr.skipped:  # a failed or refused call is not billed
                 try:
                     charge = await self._resolver.charge(
-                        run=self.run, tool_id=tr.tool, latency_ms=tr.latency_ms or 0)
+                        run=self.run, tool_id=tr.tool, latency_ms=tr.latency_ms or 0, units=tr.units)
                     self.cost += charge.amount
                 except Exception as exc:                            # noqa: BLE001
                     logger.warning("Could not charge voice tool call %s: %s", tr.tool, exc)

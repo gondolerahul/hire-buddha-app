@@ -273,7 +273,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **LP-02** | LP-14 | `LLMResponse.cost_usd` always returns 0 | High | ✅ | P0 |
 | **PC-26** | TL-64 | `cost_estimator_refresh` reads `tool_interaction_logs.cost_usd`, which does not exist; the estimator's tool keys (`excel`, `sandbox_executor`, `browser_tool`, `xlsx_engine`) match no registered tool | Medium | ✅ | P0 |
 | **TL-20** | — | Voice tool calls carry no `run_id`/`agent_id` and are never charged | High | ✅ | P3 |
-| **TL-60** | — | `batch_web_search` ignores `max_per_query`, never dedupes, and is billed as one search for up to 25 | Medium | ✅ | P6 |
+| **TL-60** | — | `batch_web_search` ignores `max_per_query`, never dedupes, and is billed as one search for up to 25 | Medium | ✔ | P6 |
 
 ### WS-D — Versions, assets and the skill-first stack (R2)
 
@@ -299,11 +299,11 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-37** | TX-I5 | Social base never retries 429/5xx | Medium | ✅ | P6 |
 | **TL-38** | TX-I6 | No pagination in any social list call | Medium | ✅ | P6 |
 | **TL-39** | TX-I7, EP-14 | No idempotency on any write tool; `tool_interaction_logs.idempotency_key` is dead | Medium | ✅ | P6 |
-| **TL-31** | — | `_ffmpeg.trim_clip`'s accurate fallback raises `ValueError` | Medium | ✅ | P6 |
-| **TL-32** | TX-I10, TL-57 | Blocking SDK / `imaplib` / `smtplib` calls on the event loop | Medium | ✅ | P6 |
-| **TL-58** | — | `email_classify` moves the wrong message (sequence numbers labelled as UIDs) | Medium | ✅ | P6 |
-| **TL-61** | — | `sandbox_code` accepts an unbounded timeout | Medium | ✅ | P6 |
-| **TL-62** | — | `headless_browser` cannot chain actions | Medium | ✅ | P6 |
+| **TL-31** | — | `_ffmpeg.trim_clip`'s accurate fallback raises `ValueError` | Medium | ✔ | P6 |
+| **TL-32** | TX-I10, TL-57 | Blocking SDK / `imaplib` / `smtplib` calls on the event loop | Medium | ✔ | P6 |
+| **TL-58** | — | `email_classify` moves the wrong message (sequence numbers labelled as UIDs) | Medium | ✔ | P6 |
+| **TL-61** | — | `sandbox_code` accepts an unbounded timeout | Medium | ✔ | P6 |
+| **TL-62** | — | `headless_browser` cannot chain actions | Medium | ✔ | P6 |
 | **TL-66** | — | `weasyprint`, `markdown`, `playwright`, `ddgs` undeclared | High | ✅ | P6 |
 | **TL-67** | — | Seeds and fixtures name tools that do not exist | Medium | ✅ | P6 |
 | **TL-34** | — | Built-in tool metadata drifts from code forever | Medium | ✅ | P6 |

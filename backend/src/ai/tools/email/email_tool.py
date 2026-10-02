@@ -10,6 +10,7 @@ Provides four tools for AI agents to interact with customer inboxes:
 All tools require an email_connection_id parameter to identify which
 email account credentials to use.
 """
+import asyncio
 import logging
 import json
 import imaplib
@@ -93,16 +94,23 @@ def _parse_email_body(msg: email.message.Message) -> str:
     return body
 
 
+# A mail server that does not answer gives up after this (TL-57); without it a
+# call waited for the OS TCP timeout. The IMAP/SMTP work itself runs in a
+# thread (``asyncio.to_thread``): the libraries block, and the worker's event
+# loop serves every other run meanwhile.
+_MAIL_TIMEOUT_S = 30
+
+
 def _get_imap_connection(imap_host: str, imap_port: int, email_address: str, password: str) -> imaplib.IMAP4_SSL:
     """Create and authenticate an IMAP connection."""
-    conn = imaplib.IMAP4_SSL(imap_host, imap_port)
+    conn = imaplib.IMAP4_SSL(imap_host, imap_port, timeout=_MAIL_TIMEOUT_S)
     conn.login(email_address, password)
     return conn
 
 
 def _get_smtp_connection(smtp_host: str, smtp_port: int, email_address: str, password: str) -> smtplib.SMTP:
     """Create and authenticate an SMTP connection."""
-    server = smtplib.SMTP(smtp_host, smtp_port)
+    server = smtplib.SMTP(smtp_host, smtp_port, timeout=_MAIL_TIMEOUT_S)
     server.starttls()
     server.login(email_address, password)
     return server
@@ -203,64 +211,52 @@ class EmailIngestTool(Tool):
         if not all([imap_host, email_address, password]):
             return json.dumps({"error": "Missing email credentials. Please configure an Email Connection for this company first."})
 
-        try:
+        def _fetch() -> Dict[str, Any]:
             conn = _get_imap_connection(imap_host, imap_port, email_address, password)
-            conn.select(folder)
-            
-            # Search for emails
-            search_criteria = "UNSEEN" if unread_only else "ALL"
-            status, message_ids = conn.search(None, search_criteria)
-            
-            if status != "OK":
-                conn.logout()
-                return json.dumps({"error": "Failed to search emails"})
-            
-            ids = message_ids[0].split()
-            if not ids:
-                conn.logout()
-                return json.dumps({"emails": [], "count": 0, "message": "No emails found"})
-            
-            # Fetch latest N emails
-            latest_ids = ids[-count:]
-            emails = []
-            
-            for uid in reversed(latest_ids):
-                status, msg_data = conn.fetch(uid, "(RFC822)")
+            try:
+                conn.select(folder)
+                # UIDs, not sequence numbers: a sequence number changes after
+                # every expunge, so email_classify moved the wrong message (TL-58).
+                status, data = conn.uid("SEARCH", None, "UNSEEN" if unread_only else "ALL")
                 if status != "OK":
-                    continue
-                
-                raw_email = msg_data[0][1]
-                msg = email.message_from_bytes(raw_email)
-                
-                # Parse body
-                body = _parse_email_body(msg)
-                
-                # Truncate very long bodies for AI context
-                if len(body) > 5000:
-                    body = body[:5000] + "\n\n[... truncated for context window ...]"
-                
-                # Get attachment info (names only, not content)
-                attachments = []
-                if msg.is_multipart():
-                    for part in msg.walk():
-                        if part.get("Content-Disposition") and "attachment" in str(part.get("Content-Disposition", "")):
-                            filename = part.get_filename() or "unnamed"
-                            size = len(part.get_payload(decode=True) or b"")
-                            attachments.append({"filename": filename, "size_bytes": size})
-                
-                emails.append({
-                    "uid": uid.decode(),
-                    "message_id": msg.get("Message-ID", ""),
-                    "from": msg.get("From", ""),
-                    "to": msg.get("To", ""),
-                    "subject": msg.get("Subject", ""),
-                    "date": msg.get("Date", ""),
-                    "body": body,
-                    "attachments": attachments
-                })
-            
-            conn.logout()
-            return json.dumps({"emails": emails, "count": len(emails)})
+                    return {"error": "Failed to search emails"}
+                uids = data[0].split()
+                if not uids:
+                    return {"emails": [], "count": 0, "message": "No emails found"}
+                emails = []
+                for uid in reversed(uids[-count:]):
+                    status, msg_data = conn.uid("FETCH", uid, "(RFC822)")
+                    if status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
+                        continue
+                    msg = email.message_from_bytes(msg_data[0][1])
+                    body = _parse_email_body(msg)
+                    if len(body) > 5000:  # the model's context window
+                        body = body[:5000] + "\n\n[... truncated for context window ...]"
+                    attachments = []  # names and sizes only
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            if part.get("Content-Disposition") and "attachment" in str(part.get("Content-Disposition", "")):
+                                attachments.append({"filename": part.get_filename() or "unnamed",
+                                                    "size_bytes": len(part.get_payload(decode=True) or b"")})
+                    emails.append({
+                        "uid": uid.decode(),
+                        "message_id": msg.get("Message-ID", ""),
+                        "from": msg.get("From", ""),
+                        "to": msg.get("To", ""),
+                        "subject": msg.get("Subject", ""),
+                        "date": msg.get("Date", ""),
+                        "body": body,
+                        "attachments": attachments,
+                    })
+                return {"emails": emails, "count": len(emails)}
+            finally:
+                try:
+                    conn.logout()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        try:
+            return json.dumps(await asyncio.to_thread(_fetch))
 
         except imaplib.IMAP4.error as e:
             logger.error(f"IMAP error: {e}")
@@ -327,43 +323,41 @@ class EmailClassifyTool(Tool):
         if not all([imap_host, email_address, password, uid, category]):
             return json.dumps({"error": "Missing required parameters or email credentials."})
 
-        try:
+        def _move() -> Dict[str, Any]:
             conn = _get_imap_connection(imap_host, imap_port, email_address, password)
-            
-            # Determine folder prefix based on provider
-            folder_prefix = ""
-            if "gmail" in imap_host.lower():
-                folder_prefix = "[Gmail]/"
-            
-            target_folder = f"{folder_prefix}AI-Classified/{category}"
-            
-            # Check if target folder exists, create if not
-            status, folder_list = conn.list('', target_folder)
-            if status != "OK" or not folder_list or folder_list[0] is None:
-                logger.info(f"Creating IMAP folder: {target_folder}")
-                conn.create(target_folder)
-                conn.subscribe(target_folder)
-            
-            # Select source folder
-            conn.select(source_folder)
-            
-            # Copy email to target folder
-            status, _ = conn.copy(uid, target_folder)
-            if status != "OK":
-                conn.logout()
-                return json.dumps({"error": f"Failed to copy email to {target_folder}"})
-            
-            # Mark original as deleted and expunge
-            conn.store(uid, "+FLAGS", "\\Deleted")
-            conn.expunge()
-            
-            conn.logout()
-            return json.dumps({
-                "success": True,
-                "uid": uid,
-                "moved_to": target_folder,
-                "category": category
-            })
+            try:
+                folder_prefix = "[Gmail]/" if "gmail" in imap_host.lower() else ""
+                target_folder = f"{folder_prefix}AI-Classified/{category}"
+                status, folder_list = conn.list('', target_folder)
+                if status != "OK" or not folder_list or folder_list[0] is None:
+                    logger.info(f"Creating IMAP folder: {target_folder}")
+                    conn.create(target_folder)
+                    conn.subscribe(target_folder)
+                conn.select(source_folder)
+                # By UID (the one email_ingest returns), atomically where the
+                # server can (RFC 6851) — TL-58, TL-39.
+                if "MOVE" in getattr(conn, "capabilities", ()):
+                    status, _ = conn.uid("MOVE", uid, target_folder)
+                    if status != "OK":
+                        return {"error": f"Failed to move email {uid} to {target_folder}"}
+                else:
+                    status, _ = conn.uid("COPY", uid, target_folder)
+                    if status != "OK":
+                        return {"error": f"Failed to copy email {uid} to {target_folder}"}
+                    conn.uid("STORE", uid, "+FLAGS", "(\\Deleted)")
+                    if "UIDPLUS" in getattr(conn, "capabilities", ()):
+                        conn.uid("EXPUNGE", uid)
+                    else:
+                        conn.expunge()
+                return {"success": True, "uid": uid, "moved_to": target_folder, "category": category}
+            finally:
+                try:
+                    conn.logout()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        try:
+            return json.dumps(await asyncio.to_thread(_move))
 
         except imaplib.IMAP4.error as e:
             logger.error(f"IMAP classify error: {e}")
@@ -433,8 +427,6 @@ class EmailDraftTool(Tool):
             return json.dumps({"error": "Missing required parameters or email credentials."})
 
         try:
-            conn = _get_imap_connection(imap_host, imap_port, email_address, password)
-            
             # Construct MIME message
             msg = MIMEMultipart("alternative")
             msg["From"] = email_address
@@ -463,15 +455,18 @@ class EmailDraftTool(Tool):
             else:
                 drafts_folder = "Drafts"
             
-            # Append to drafts folder
-            status, _ = conn.append(
-                drafts_folder,
-                "\\Draft",
-                None,
-                msg.as_bytes()
-            )
-            
-            conn.logout()
+            def _append() -> str:
+                conn = _get_imap_connection(imap_host, imap_port, email_address, password)
+                try:
+                    status, _ = conn.append(drafts_folder, "\\Draft", None, msg.as_bytes())
+                    return status
+                finally:
+                    try:
+                        conn.logout()
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            status = await asyncio.to_thread(_append)
             
             if status != "OK":
                 return json.dumps({"error": f"Failed to save draft to {drafts_folder}"})
@@ -636,9 +631,14 @@ class EmailSendTool(Tool):
                 recipients.extend([a.strip() for a in bcc.split(",")])
             
             # Send via SMTP
-            server = _get_smtp_connection(smtp_host, smtp_port, email_address, password)
-            server.send_message(msg, from_addr=email_address, to_addrs=recipients)
-            server.quit()
+            def _send() -> None:
+                server = _get_smtp_connection(smtp_host, smtp_port, email_address, password)
+                try:
+                    server.send_message(msg, from_addr=email_address, to_addrs=recipients)
+                finally:
+                    server.quit()
+
+            await asyncio.to_thread(_send)
             
             logger.info(f"Email sent: {email_address} -> {to_addr}, subject: {subject}"
                         f"{', with attachment' if attachment_path else ''}")

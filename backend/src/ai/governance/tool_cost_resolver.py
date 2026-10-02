@@ -144,13 +144,16 @@ class ToolCostResolver:
         tool_id: str,
         latency_ms: int = 0,
         attribution: str = "tool",
+        units: float = 1.0,
     ) -> ToolChargeResult:
-        """Price one call and add its ``usage_logs`` row to the session.
+        """Price one call — ``units`` priced units of it — and add its
+        ``usage_logs`` row to the session.
 
         Does not touch ``run.total_cost_usd``: a run's total is the sum of
         its usage rows (``governance.run_cost``, AK-02). The caller commits.
         """
-        amount, source, sku_id = await self.resolve(tool_id)
+        unit_price, source, sku_id = await self.resolve(tool_id)
+        amount = unit_price * Decimal(str(units))
         if amount <= 0:
             return ToolChargeResult(amount=Decimal("0"), source=source, sku_id=sku_id)
         from src.ai.services.cost_attribution import CostLedger
@@ -160,9 +163,9 @@ class ToolCostResolver:
             amount=amount,
             attribution=attribution,
             sku_id=sku_id,
-            raw_quantity=1.0,
+            raw_quantity=float(units),
             latency_ms=latency_ms,
-            log_metadata={"tool": tool_id, "cost_source": source},
+            log_metadata={"tool": tool_id, "cost_source": source, "units": float(units)},
         )
         return ToolChargeResult(amount=amount, source=source, sku_id=sku_id)
 

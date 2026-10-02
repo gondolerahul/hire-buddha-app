@@ -440,7 +440,7 @@ class StepExecutorService:
             # usage_logs row are committed together below. A failed call is
             # not billed (TL-52).
             if tool_result.success:
-                await self._charge_tool(run, tool_id, latency)
+                await self._charge_tool(run, tool_id, latency, tool_result.units)
 
             await self.db.commit()
             
@@ -471,13 +471,13 @@ class StepExecutorService:
         log_tool_call(self.db, run.id, getattr(step, "name", "") or "", access, tr,
                       input_parameters, latency_ms)
 
-    async def _charge_tool(self, run: 'ExecutionRun', tool_id: str, latency_ms: int = 0) -> Decimal:
+    async def _charge_tool(self, run: 'ExecutionRun', tool_id: str, latency_ms: int = 0, units: float = 1.0) -> Decimal:
         """Price one tool call through ToolCostResolver — the one price table
-        (BC-11) — write its usage_logs row, and add it to the run atomically."""
+        (BC-11) — ``units`` priced units of it, and write its usage_logs row."""
         from src.ai.governance.tool_cost_resolver import ToolCostResolver
         try:
             charge = await ToolCostResolver(self.db, run.company_id, run_id=run.id).charge(
-                run=run, tool_id=tool_id, latency_ms=latency_ms)
+                run=run, tool_id=tool_id, latency_ms=latency_ms, units=units)
             # The usage_logs row is the charge; the run's total is the sum of
             # its rows, written by the loop (P4.1, AK-02).
             await self.db.commit()
@@ -793,7 +793,7 @@ class StepExecutorService:
                     results.append({"tool": _tr.tool, "output": _tr.output, "success": _tr.success})
 
                     if _tr.success:  # a failed call is not billed (TL-52)
-                        await self._charge_tool(run, _tr.tool, _tr.latency_ms or 0)
+                        await self._charge_tool(run, _tr.tool, _tr.latency_ms or 0, _tr.units)
 
                     # CORTEX: ingest scraper/browser results as knowledge nodes
                     if _tr.tool in ("scraper_tool", "headless_browser") and _tr.success:

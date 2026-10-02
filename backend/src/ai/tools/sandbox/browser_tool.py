@@ -35,10 +35,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pathlib import Path
 
-from src.ai.tools.base import Tool
+from pydantic import Field, model_validator
+
+from src.ai.tools.base import Tool, ToolOutput, ToolParams
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,6 @@ _DEFAULT_TIMEOUT_MS = 30000
 _MAX_TIMEOUT_MS = 120000
 _SCREENSHOT_DIR = Path("/tmp/browser_screenshots")
 
-_VALID_ACTIONS = {"navigate", "click", "type", "screenshot", "get_text", "evaluate"}
 
 _VALID_WAIT_UNTIL = {"load", "domcontentloaded", "networkidle", "commit"}
 
@@ -90,6 +91,39 @@ async def guard_requests(page: Any) -> list[str]:
     return refused
 
 
+class BrowserStep(ToolParams):
+    """One action on the session's page."""
+    action: Literal["navigate", "click", "type", "screenshot", "get_text", "evaluate"] = Field(
+        ..., description="navigate (go to url), click / type (selector), screenshot, get_text, evaluate (javascript)")
+    url: Optional[str] = Field(None, description="For navigate; for other actions, opened first if given")
+    selector: Optional[str] = Field(None, description="CSS selector: required for click and type; "
+                                                      "optional for screenshot and get_text")
+    text: Optional[str] = Field(None, description="Text to type (type)")
+    javascript: Optional[str] = Field(None, description="Script to run (evaluate)")
+    wait_for: Optional[Literal["load", "domcontentloaded", "networkidle", "commit"]] = Field(
+        None, description="Wait condition after navigating (default load)")
+
+
+class HeadlessBrowserParams(ToolParams):
+    url: Optional[str] = Field(None, description="A page to open before the steps")
+    steps: List[BrowserStep] = Field(..., min_length=1, max_length=10, description=(
+        "The actions, run in order on one page in one session: e.g. navigate, type the user name, "
+        "click submit, get_text. Nothing is kept between calls."))
+    timeout_ms: int = Field(_DEFAULT_TIMEOUT_MS, ge=1000, le=_MAX_TIMEOUT_MS,
+                            description="Timeout per action in milliseconds (default 30000, at most 120000)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_action_is_one_step(cls, data: Any) -> Any:
+        # The single-action form the tool took before TL-62 (and old plans use).
+        if isinstance(data, dict) and "action" in data and "steps" not in data:
+            step_keys = set(BrowserStep.model_fields)
+            step = {k: v for k, v in data.items() if k in step_keys}
+            rest = {k: v for k, v in data.items() if k not in step_keys}
+            return {**rest, "steps": [step]}
+        return data
+
+
 class HeadlessBrowserTool(Tool):
     """
     Interact with web pages using a headless Chromium browser.
@@ -101,73 +135,33 @@ class HeadlessBrowserTool(Tool):
 
     name = "headless_browser"
     description = (
-        "Interact with web pages using a headless browser (Chromium). "
-        "Supports actions: navigate (go to URL), click (click element), "
-        "type (type into input), screenshot (capture page image), "
-        "get_text (extract page text), evaluate (run JavaScript). "
-        "Input must be a JSON string with 'action' and action-specific fields. "
-        "Returns JSON with status, page title, content, and any action results."
+        "Interact with web pages using a headless browser (Chromium). Each call is one "
+        "browser session: give the actions as 'steps', run in order on one page "
+        "(navigate, click, type, screenshot, get_text, evaluate), so a login and a read "
+        "happen in one call. Nothing is kept between calls. Returns JSON with each step's result."
     )
+    Params = HeadlessBrowserParams
 
-    async def run(self, input_data: str) -> str:
-        """Execute browser action and return structured JSON result."""
-        return await self._execute(input_data)
-
-    async def run_with_context(
-        self, input_data: str, context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        return await self._execute(input_data, context)
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    async def _execute(
-        self, input_data: str, context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        # 1. Parse input
+    async def execute(self, params: "HeadlessBrowserParams", ctx: Dict[str, Any]) -> ToolOutput:
         try:
-            if isinstance(input_data, dict):
-                args = input_data
-            else:
-                args = json.loads(input_data)
-        except (json.JSONDecodeError, TypeError):
-            return json.dumps({
-                "error": "Input must be a JSON string with an 'action' key."
-            })
-
-        action = (args.get("action") or "").strip().lower()
-        if action not in _VALID_ACTIONS:
-            return json.dumps({
-                "error": f"Invalid action '{action}'. Must be one of: {', '.join(sorted(_VALID_ACTIONS))}"
-            })
-
-        timeout_ms = min(
-            int(args.get("timeout_ms", _DEFAULT_TIMEOUT_MS)),
-            _MAX_TIMEOUT_MS,
-        )
-
-        # 2. Launch browser and execute action
-        try:
-            return await self._run_browser_action(action, args, timeout_ms, context)
-        except Exception as exc:
+            result = await self._run_session(params, ctx)
+        except ImportError:
+            return ToolOutput.failed("Playwright is not installed. Run: pip install playwright && "
+                                     "playwright install chromium", code="not_installed")
+        except Exception as exc:  # noqa: BLE001
             logger.error(f"HeadlessBrowserTool unexpected error: {exc}", exc_info=True)
-            return json.dumps({
-                "status": "error",
-                "action": action,
-                "error": f"Browser action failed: {exc}",
-            })
+            return ToolOutput.failed(f"Browser session failed: {exc}")
+        if result.get("status") == "error":
+            return ToolOutput(success=False, output=json.dumps(result), error=result.get("error"),
+                              error_code="browser_step_failed")
+        return ToolOutput(output=json.dumps(result))
 
-    async def _run_browser_action(
-        self,
-        action: str,
-        args: dict,
-        timeout_ms: int,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """Open a browser session via the SandboxRuntime, execute the action on
-        its page, and return the result. The runtime owns browser lifecycle
-        (launch/context/teardown); the action logic stays here."""
+    async def _run_session(self, params: "HeadlessBrowserParams", context: Dict[str, Any]) -> Dict[str, Any]:
+        """One browser session: the steps in order on one page (TL-62).
+
+        The runtime owns the browser's lifecycle; nothing outlives the call.
+        Stops at the first step that fails.
+        """
         import time as _time
 
         from src.ai.tools.sandbox.runtime import (
@@ -177,6 +171,12 @@ class HeadlessBrowserTool(Tool):
 
         runtime = await resolve_sandbox_runtime(context)
         user_data_dir = await resolve_persistent_browser_dir(context)
+        timeout_ms = params.timeout_ms
+        steps = [step.model_dump(exclude_none=True) for step in params.steps]
+        if params.url:
+            steps.insert(0, {"action": "navigate", "url": params.url})
+        done: list[Dict[str, Any]] = []
+        refused: list[str] = []
         _session_start = _time.monotonic()
         try:
             async with runtime.open_browser_session(
@@ -184,28 +184,11 @@ class HeadlessBrowserTool(Tool):
             ) as session:
                 page = session.page
                 refused = await guard_requests(page)
-                if action == "navigate":
-                    result = await self._action_navigate(page, args, timeout_ms)
-                elif action == "click":
-                    result = await self._action_click(page, args, timeout_ms)
-                elif action == "type":
-                    result = await self._action_type(page, args, timeout_ms)
-                elif action == "screenshot":
-                    result = await self._action_screenshot(page, args, timeout_ms, context)
-                elif action == "get_text":
-                    result = await self._action_get_text(page, args, timeout_ms)
-                elif action == "evaluate":
-                    result = await self._action_evaluate(page, args)
-                else:
-                    result = {"error": f"Unknown action: {action}"}
-
-                if refused and isinstance(result, dict):
-                    result["blocked_requests"] = refused[:20]
-                result_json = json.dumps(result)
-        except ImportError:
-            return json.dumps({
-                "error": "Playwright is not installed. Run: pip install playwright && playwright install chromium"
-            })
+                for step in steps:
+                    outcome = await self._step(page, step, timeout_ms, context)
+                    done.append(outcome)
+                    if outcome.get("status") == "error":
+                        break
         finally:
             try:
                 from src.ai.tools.sandbox.metering import meter_sandbox_usage
@@ -217,7 +200,32 @@ class HeadlessBrowserTool(Tool):
                 )
             except Exception:  # noqa: BLE001 - metering must never break a tool
                 pass
-        return result_json
+        failed = next((d for d in done if d.get("status") == "error"), None)
+        result: Dict[str, Any] = {
+            "status": "error" if failed else "success",
+            "steps": done,
+            "url": next((d.get("url") for d in reversed(done) if d.get("url")), None),
+            "title": next((d.get("title") for d in reversed(done) if d.get("title")), None),
+        }
+        if failed:
+            result["error"] = f"step {len(done)} ({failed.get('action')}): {failed.get('error')}"
+        if refused:
+            result["blocked_requests"] = refused[:20]
+        return result
+
+    async def _step(self, page: Any, step: Dict[str, Any], timeout_ms: int, context: Dict[str, Any]) -> Dict[str, Any]:
+        action = step["action"]
+        if action == "navigate":
+            return await self._action_navigate(page, step, timeout_ms)
+        if action == "click":
+            return await self._action_click(page, step, timeout_ms)
+        if action == "type":
+            return await self._action_type(page, step, timeout_ms)
+        if action == "screenshot":
+            return await self._action_screenshot(page, step, timeout_ms, context)
+        if action == "get_text":
+            return await self._action_get_text(page, step, timeout_ms)
+        return await self._action_evaluate(page, step)
 
     # ------------------------------------------------------------------
     # Action implementations
@@ -433,66 +441,4 @@ class HeadlessBrowserTool(Tool):
             "url": page.url,
             "title": title,
             "result": result_str,
-        }
-
-    # ------------------------------------------------------------------
-    # Function schema for LLM function calling
-    # ------------------------------------------------------------------
-
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "description": (
-                            "The browser action to perform. One of: "
-                            "navigate, click, type, screenshot, get_text, evaluate"
-                        ),
-                        "enum": list(sorted(_VALID_ACTIONS)),
-                    },
-                    "url": {
-                        "type": "string",
-                        "description": (
-                            "URL to navigate to. Required for 'navigate'. "
-                            "Optional for other actions (navigates first if provided)."
-                        ),
-                    },
-                    "selector": {
-                        "type": "string",
-                        "description": (
-                            "CSS selector for the target element. "
-                            "Required for click, type. Optional for screenshot, get_text."
-                        ),
-                    },
-                    "text": {
-                        "type": "string",
-                        "description": "Text to type into the element. Required for 'type' action.",
-                    },
-                    "javascript": {
-                        "type": "string",
-                        "description": (
-                            "JavaScript code to evaluate on the page. "
-                            "Required for 'evaluate' action."
-                        ),
-                    },
-                    "timeout_ms": {
-                        "type": "integer",
-                        "description": "Action timeout in milliseconds (default 30000, max 120000).",
-                        "default": 30000,
-                    },
-                    "wait_for": {
-                        "type": "string",
-                        "description": (
-                            "Wait condition after navigation: "
-                            "load, domcontentloaded, networkidle, commit"
-                        ),
-                        "default": "load",
-                    },
-                },
-                "required": ["action"],
-            },
         }

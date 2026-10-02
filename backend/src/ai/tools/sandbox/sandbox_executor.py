@@ -28,9 +28,11 @@ import logging
 import os
 import sys
 import tempfile
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
-from src.ai.tools.base import Tool, ToolRegistry
+from pydantic import Field, field_validator, model_validator
+
+from src.ai.tools.base import Tool, ToolOutput, ToolParams, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,42 @@ _EXECUTORS: Dict[str, tuple[str, str]] = {
 _MAX_OUTPUT_CHARS = 4096
 
 
+# The most a call may run (terminal and headless_browser use the same, TL-61).
+_MAX_TIMEOUT_S = 120
+
+
+class SandboxCodeParams(ToolParams):
+    language: Literal["python", "python3", "bash", "sh"] = Field(
+        "python", description="Programming language to execute")
+    code: str = Field(..., description="Source code to execute")
+    timeout_s: int = Field(30, ge=1, le=_MAX_TIMEOUT_S,
+                           description=f"Execution timeout in seconds (default 30, at most {_MAX_TIMEOUT_S})")
+
+    @field_validator("timeout_s", mode="before")
+    @classmethod
+    def _at_most_the_ceiling(cls, v: Any) -> Any:
+        # The model chose this number: a longer one held a worker for as long
+        # as it said (TL-61). It is held to the ceiling, not refused.
+        try:
+            return max(1, min(int(v), _MAX_TIMEOUT_S))
+        except (TypeError, ValueError):
+            return v
+
+    @model_validator(mode="after")
+    def _code_from_text(self) -> "SandboxCodeParams":
+        # A plan step's text may be fenced code: unwrap it and, unless the
+        # call named one, take its language.
+        text = self.code.strip()
+        if text.startswith("```") or text.startswith("#!"):
+            code, language = SandboxCodeTool._extract_code_from_text(text)
+            self.code = code
+            if "language" not in self.model_fields_set and language in _EXECUTORS:
+                self.language = language  # type: ignore[assignment]
+        if not self.code.strip():
+            raise ValueError("'code' is empty")
+        return self
+
+
 class SandboxCodeTool(Tool):
     """
     Execute code safely in a subprocess sandbox.
@@ -58,60 +96,25 @@ class SandboxCodeTool(Tool):
     name = "sandbox_code"
     description = (
         "Execute a Python or Bash code snippet in an isolated subprocess sandbox. "
-        "Input must be a JSON string with 'language' ('python' or 'bash') "
-        "and 'code' fields. Optional 'timeout_s' overrides the 30-second default. "
         "The code runs in your workspace directory: write output files with "
         "relative paths (e.g. 'report.xlsx' or 'scratch/chart.png'). "
         "Returns stdout on success, or an error message with stderr on failure."
     )
 
-    # Per-call default timeout; the call's ``timeout_s`` may override it.
-    DEFAULT_TIMEOUT_S: int = 30
+    Params = SandboxCodeParams
+    string_field = "code"  # a plan step's text is the code
 
-    async def run(self, input_data: str) -> str:
-        """Execute code and return stdout or error string."""
-        return await self._execute(input_data, context=None)
-
-    async def run_with_context(self, input_data: str, context: Optional[Dict[str, Any]] = None) -> str:
-        return await self._execute(input_data, context=context)
+    async def execute(self, params: "SandboxCodeParams", ctx: Dict[str, Any]) -> ToolOutput:
+        out = await self._run_code(params.language, params.code, params.timeout_s, ctx)
+        if out.startswith("Error"):
+            return ToolOutput(success=False, output=out, error=out[:1000], error_code="execution_failed")
+        return ToolOutput(output=out)
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    async def _execute(self, input_data: str, context: Optional[Dict[str, Any]]) -> str:
-        # 1. Parse input — supports JSON or raw code text as fallback
-        args = None
-        try:
-            if isinstance(input_data, dict):
-                args = input_data
-            else:
-                args = json.loads(input_data)
-        except (json.JSONDecodeError, TypeError):
-            pass  # Fall through to raw-text handling below
-
-        if args and isinstance(args, dict) and args.get("code"):
-            # Structured JSON input — use as-is
-            language = str(args.get("language", "python")).lower()
-            code = args.get("code", "")
-            timeout_s = int(args.get("timeout_s", self.DEFAULT_TIMEOUT_S))
-        elif args and isinstance(args, dict) and not args.get("code"):
-            # JSON dict but no 'code' key — maybe the whole thing is code?
-            return "Error: input must be a JSON string with 'language' and 'code' keys."
-        else:
-            # Raw text fallback — auto-detect language and treat input as code
-            raw_text = input_data if isinstance(input_data, str) else str(input_data)
-            raw_text = raw_text.strip()
-            if not raw_text:
-                return "Error: 'code' field is empty."
-
-            # Strip common markdown code fences the LLM may wrap code in
-            code, language = self._extract_code_from_text(raw_text)
-            timeout_s = self.DEFAULT_TIMEOUT_S
-            logger.info(f"SandboxCodeTool: raw text fallback — auto-detected language '{language}' ({len(code)} chars)")
-
-        if not code.strip():
-            return "Error: 'code' field is empty."
+    async def _run_code(self, language: str, code: str, timeout_s: int, context: Optional[Dict[str, Any]]) -> str:
 
         executor = _EXECUTORS.get(language)
         if not executor:
@@ -446,29 +449,3 @@ class SandboxCodeTool(Tool):
             stdout = stdout[:_MAX_OUTPUT_CHARS] + f"\n... [truncated, {len(stdout)} total chars]"
 
         return stdout if stdout else "(no output)"
-
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "language": {
-                        "type": "string",
-                        "enum": ["python", "python3", "bash", "sh"],
-                        "description": "Programming language to execute",
-                    },
-                    "code": {
-                        "type": "string",
-                        "description": "Source code to execute",
-                    },
-                    "timeout_s": {
-                        "type": "integer",
-                        "description": "Execution timeout in seconds (default 30)",
-                        "default": 30,
-                    },
-                },
-                "required": ["language", "code"],
-            },
-        }

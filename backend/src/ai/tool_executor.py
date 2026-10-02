@@ -92,6 +92,9 @@ class ToolResult:
     # The call ran on input an LLM rewrote after a format error (EP-24): it was
     # billed as a reformat retry and is marked on its log row and in the trace.
     reformatted: bool = False
+    # Priced units the call used (``ToolOutput.metadata["billable_units"]``):
+    # a batch search's paid sub-queries; 0 when a free backend answered.
+    units: float = 1.0
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -114,15 +117,17 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
                context: Optional[Dict[str, Any]]) -> ToolResult:
     """One call through the tool's one entry point, ``invoke`` (TL-41)."""
     start = datetime.now(timezone.utc)
+    units = 1.0
     try:
         out: ToolOutput = await tool.invoke(args, context)
         error = None if out.success else (out.error or "the tool failed")
         output = out.output
+        units = float(out.metadata.get("billable_units", 1))
     except Exception as exc:
         error, output = str(exc), f"Error: {exc}"
     latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
     return ToolResult(tool=name, args=logged_args, output=output, success=error is None,
-                      latency_ms=latency, error=error)
+                      latency_ms=latency, error=error, units=units)
 
 
 class ToolExecutor:

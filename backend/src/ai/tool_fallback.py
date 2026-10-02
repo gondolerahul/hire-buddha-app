@@ -65,10 +65,12 @@ def _web_search_to_browser(raw_input: str) -> str:
     except (json.JSONDecodeError, TypeError):
         pass
 
+    # ``extract_text`` and ``wait_for: body`` were never valid: every fallback
+    # into the browser failed (found in P6.8).
+    from urllib.parse import quote_plus
     return json.dumps({
-        "url": f"https://www.google.com/search?q={query}",
-        "action": "extract_text",
-        "wait_for": "body",
+        "url": f"https://www.google.com/search?q={quote_plus(str(query))}",
+        "steps": [{"action": "get_text"}],
     })
 
 
@@ -96,20 +98,17 @@ def _scraper_to_browser(raw_input: str) -> str:
     except (json.JSONDecodeError, TypeError):
         pass
 
-    return json.dumps({
-        "url": url,
-        "action": "extract_text",
-        "wait_for": "body",
-    })
+    return json.dumps({"url": url, "steps": [{"action": "get_text"}]})
 
 
 def _browser_to_scraper(raw_input: str) -> str:
     """Convert a headless_browser request to a scraper_tool URL."""
     try:
         data = json.loads(raw_input)
-        url = data.get("url", "")
+        url = data.get("url") or next(
+            (s.get("url") for s in data.get("steps") or [] if isinstance(s, dict) and s.get("url")), "")
         if url:
-            return url
+            return json.dumps({"url": url})
     except (json.JSONDecodeError, TypeError):
         pass
     return raw_input
