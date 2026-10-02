@@ -74,8 +74,30 @@ class CreditGuard:
         history = sum((Decimal(str(b)) for b in recent), Decimal("0")) / len(recent) if recent else Decimal("0")
         return max(planned, history)
 
+    def over_own_cap(self, plan_steps: list[Any]) -> Optional[str]:
+        """The refusal when the plan's estimated cost is past the entity's own
+        ``governance.max_cost_usd`` (EP-I9): the run could not finish inside
+        its cap, so it does not start. Applies to child runs too."""
+        from src.ai.planning.cost_estimator import estimate_plan_cost
+        gov = getattr(self.entity, "governance", None) or {}
+        try:
+            cap = float(gov.get("max_cost_usd") or 0) if isinstance(gov, dict) else 0.0
+        except (TypeError, ValueError):
+            cap = 0.0
+        if cap <= 0 or not plan_steps:
+            return None
+        planned = float(estimate_plan_cost(plan_steps, self.entity))
+        if planned <= cap:
+            return None
+        return (f"The plan is estimated at ${planned:.2f}, over this agent's max_cost_usd of ${cap:.2f}: "
+                f"raise the cap or shorten the plan")
+
     async def admit(self, entity_type: str, plan_steps: list[Any]) -> Optional[str]:
         """Hold the run's estimated bill. Returns the refusal, or None when admitted."""
+        over = self.over_own_cap(plan_steps)
+        if over:
+            await event_async("agent.loop.plan_over_cap", run_id=str(self.run_id), reason=over)
+            return over
         if not self.top_level:
             return None
         estimate = await self.estimate(plan_steps)

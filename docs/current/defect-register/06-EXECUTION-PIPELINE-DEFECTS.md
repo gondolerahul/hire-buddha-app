@@ -672,6 +672,8 @@ Definition of done for a migration is that the old path is gone.
 
 ### EP-I9 — Cost the plan before running it
 
+**Status: done (2026-10-03, P8.11)** — the wallet half was already done (BC-05: the run's start holds the plan's estimate); a plan whose estimate is past the entity's own `governance.max_cost_usd` is now refused before any spend, child runs included. None of the 262 local entities with a plan and a cap is refused. `tests/unit/test_plan_over_cap.py`.
+
 **Effect: large for users.** `planning/cost_estimator.py` already has per-tool baseline
 costs refreshed nightly from telemetry. Running it at dispatch and comparing against
 `governance.max_cost_usd` and the wallet balance would let the platform refuse a run it

@@ -973,6 +973,7 @@ The floor is what a run must find **free** to start. What it then holds is its e
 | Call site | Entity type | Behaviour on failure |
 |---|---|---|
 | **Every top-level agent run** — `AgentLoop.run` → `CreditGuard.admit` → `GovernanceService.check_credit_gate` → `CreditService.place_hold` | the run's | Refused before any billable work: the run ends `FAILED` with the reason in `error_message`, nothing billed (BC-05) |
+| **Every run, children too** — `CreditGuard.admit` → `over_own_cap` (since P8.11, EP-I9) | the entity's `governance.max_cost_usd` | A plan whose estimate (`estimate_plan_cost`) is past the entity's own cap is refused before any spend, with the estimate and the cap in `error_message` |
 | **Triggering a run** — `AIService.trigger_execution` → `CreditService.require_credits` | the entity's | HTTP `402` and no run row, so the user is told at once; the worker's gate above still decides |
 | **Every iteration of a top-level run** — `AgentLoop._loop` → `CreditGuard.check` → `check_credit_circuit_breaker` | — | The run stops `PARTIAL_COMPLETE`: work done so far is kept and billed, `error_message` says *Partial results saved. Please top up credits and retry.* |
 | Voice call setup — [websocket_handler.py:238](../../backend/src/voice/websocket_handler.py:238) | `AGENT` | Outbound calls blocked; **inbound calls proceed** with a warning so users do not miss calls |
