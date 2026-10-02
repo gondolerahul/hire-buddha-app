@@ -43,8 +43,17 @@
 > one platform list with platform SKILLs; retries, idempotent writes, repaired social
 > operations; one artifact write path found by `run_id`; email and CRM tools take refs from
 > the run's subject scope (TL-09). Remainders: TL-38 cursor input, TL-46
-> `person_generation`, the D16 census, FE-32. **Next is P7** per the plan. On this machine
-> the DB is at `p6_run_subjects` and both workers run the P6 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
+> `person_generation`, the D16 census, FE-32. **P7 is done** (self-correction that
+> corrects, `c6c2049` … `03cdbf4`: retry directives, retry policy and severity, a pre-critic
+> that acts, drift correction, one goal setting, cheaper degraded critics, replans that keep
+> finished work, planning telemetry, a bandit that learns its choices, calibration the
+> critic reads, failure patterns in the prompt, transient child retries) and **P8 is done**
+> (entity contract and step engine, `496a5fb` … `c4570c9`: input and output schema checks,
+> per-tool timeouts, one healing ladder, a fallback chain, dependencies inside the context
+> policy, no Perceiver, every executor on its own session, an adaptive iteration cap, plan
+> costing against the entity's cap, batched SSE, typed step signals, outputs stored once).
+> Decisions D19–D23. **Next is P9** (LLM providers) per the plan. On this machine the DB is
+> at `p7_drop_source_trust` and both workers must be restarted on the P8 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
 > any live run (the PC-27 live re-run is pending). Run unit tests with `PYTHONUTF8=1` or the
 > layout-lint test fails on a cp1252 decode. Unit baseline: **4** known failures (the
 > Windows sandbox tests); integration: the 2 known `test_cost_attribution` failures. New

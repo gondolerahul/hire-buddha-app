@@ -1317,3 +1317,17 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P7.11 | PC-12, PC-11 | `0c08275` | `test_failure_patterns.py`. Failure patterns reach every step prompt; TrustLearner, its table (`p7_drop_source_trust`, never a row) and flag deleted (D20) |
 | P7.12 | AK-19, AK-20 | `03cdbf4` | `test_child_transient_retry.py`. A transiently failed child gets one more run; a Redis outage says so and leaves the step ready |
 | **P7 done** | PC-01…PC-03, PC-05…PC-15, PC-17, PC-21, PC-22, AK-16, AK-17, AK-19, AK-20 | — | Unit and ai 1706 + the 4 known sandbox tests (deselected); integration and parity 337 + the 2 known `test_cost_attribution` failures; typecheck and layout lint pass; local DB at `p7_drop_source_trust`. **Not live-verified with an LLM** (Vertex ADC expired) |
+| P8.1 | EP-04 | `496a5fb` | `test_input_contract.py` (integration). `trigger_execution` checks `input_data` against the input schema before the run exists (422); the platform's subset of JSON Schema (D21); step names, `step_N` and platform keys never required |
+| P8.2 | EP-05 | `e36658a` | `test_output_contract.py`. The final output is checked against `output_schema` (REVISE / WRONG_FORMAT → a corrective retry); `loop_control` retired (accepted, dropped; builder controls removed) |
+| P8.3 | EP-08 | `1eadcc1` | `test_tool_timeout.py`. Every tool call runs under the grant's `timeout_seconds`, else the tool's (120 s; slow tools up to 600) |
+| P8.6 | EP-22 | `c98a05b` | `test_one_healing_ladder.py`. The REACT path always uses `ToolResilience`; the flag is gone |
+| P8.7 | EP-23 | `dee7229` | `test_fallback_chain.py`. The fallback chain walks up to three hops, never a tool twice |
+| P8.5 | EP-12 | `1e073e9` | `test_prompt_utils.py`. A step's dependencies narrow the context policy instead of replacing it |
+| P8.10 | AK-05 | `24b7fed` | `test_memory_read_path.py`. The Perceiver is deleted (D23); the supervisor reads the run's memory, where the rule-lifecycle filter now applies. **Correction:** the supervisor did read `perception` |
+| P8.8 | AK-18, EP-20 | `40bdfd0` | `test_executor_sessions.py`. The loop hands every executor its own session |
+| P8.11 | AK-I8 | `35a4f6f` | `test_iteration_cap.py`. The iteration cap follows the plan (steps × (1 + retries) + 5, 8…50) |
+| P8.11 | EP-I9 | `491a10a` | `test_plan_over_cap.py`. A plan estimated past the entity's own `max_cost_usd` does not start |
+| P8.11 | AK-I9 | `f30b30f` | `test_sse_batching.py`. An iteration's SSE frames go out as two `batch` messages; the browser unpacks them |
+| P8.9 | AK-21 | `e17ec5e` | `test_step_signals.py`. The loop's signals are a typed `StepSignals` ContextVar (D22); the context dict carries data |
+| P8.4 | EP-18, EP-I6 | `c4570c9` | `test_outputs_once.py`. Outputs stored once by id; `{{name}}` resolves through the name map; unique names (API 422, planner rename, editor flag) |
+| **P8 done** | EP-04, EP-05, EP-08, EP-12, EP-18, EP-20, EP-22, EP-23, EP-I6, EP-I9, AK-05, AK-18, AK-21, AK-I8, AK-I9 | — | Unit and ai 1727 + the 4 known sandbox tests (deselected); integration and parity 340 + the 2 known `test_cost_attribution` failures; typecheck, layout lint, tsc and eslint pass; local DB at `p7_drop_source_trust`. **Remaining from P6:** TL-38 cursor input, TL-46 `person_generation`, the D16 census, FE-32. **Not live-verified with an LLM** (Vertex ADC expired) |
