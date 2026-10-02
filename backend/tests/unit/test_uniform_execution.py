@@ -201,7 +201,18 @@ async def test_a_run_that_cannot_be_planned_fails_with_the_reason(step_runner, m
     monkeypatch.setattr(PlannerService, "reconcile", _down)
     entity = _entity("AGENT")
     run = _Run(entity)
-    loop = AgentLoop(db=_DB(run), redis=None, max_iterations=10, feature_flags=FeatureFlags(db=None))
+    db = _DB(run)
+
+    class _Session:  # the executor's own session (AK-18) is the same fake here
+        async def __aenter__(self):
+            return db
+
+        async def __aexit__(self, *exc):
+            return False
+
+    import src.common.database as database
+    monkeypatch.setattr(database, "AsyncSessionLocal", _Session)
+    loop = AgentLoop(db=db, redis=None, max_iterations=10, feature_flags=FeatureFlags(db=None))
     outcome = await loop.run(run.id)
 
     assert outcome["status"] == RunStatus.FAILED.value

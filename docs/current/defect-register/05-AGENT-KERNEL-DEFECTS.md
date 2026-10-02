@@ -390,7 +390,7 @@ makes budget pressure rise, which makes the supervisor more likely to intervene 
 
 ### AK-18 — Two of three executors share the loop's database session
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P8.8)** — the loop opens a session for every executor call (DAG, ChildEntity, Debate and Recursive included) and hands it in. `tests/unit/test_executor_sessions.py`.
 
 `SingleStepExecutor` opens its own `AsyncSessionLocal` specifically because using the
 loop's shared session can corrupt it. `DAGExecutor` and `ChildEntityExecutor` still use

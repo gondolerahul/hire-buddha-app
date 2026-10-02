@@ -2026,9 +2026,12 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
   termination.
 - **`_handle_replan` keeps finished steps** (since P7.7): a REPLAN replaces only what
   is left.
-- **Executors that use the loop's shared session can corrupt it.**
-  `SingleStepExecutor` opens its own `AsyncSessionLocal` for exactly this
-  reason; `DAGExecutor` and `ChildEntityExecutor` still use the passed-in `db`.
+- **Every executor runs on its own session** (since P8.8, 2026-10-03, AK-18): the loop
+  opens an `AsyncSessionLocal` for each executor call and hands it in, so a step that
+  commits — a child run, a plan, a bill — cannot corrupt the loop's session. Before, only
+  `SingleStepExecutor` opened its own; DAG, ChildEntity, Debate and Recursive used the
+  loop's. Run cost is a sum of usage rows (P4), so no step mutates a shared ORM object
+  (EP-20).
 - **`RunStatus.WAITING_ON_CHILDREN` is not terminal**, but the arq idempotency
   guard's `_TERMINAL` set correctly excludes it, so a resume dispatch still
   works.

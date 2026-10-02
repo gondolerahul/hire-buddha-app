@@ -582,7 +582,11 @@ class AgentLoop:
             plan_size=len(move.plan_fragment or []),
         ) as _exec_span:
             try:
-                action_result: ActionResult = await executor.execute(move, state, self.db)
+                # Every executor on its own session (AK-18): a step that commits
+                # (a child run, a plan, a bill) cannot corrupt the loop's session.
+                from src.common.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as exec_db:
+                    action_result: ActionResult = await executor.execute(move, state, exec_db)
             except Exception as exc:                                       # noqa: BLE001
                 action_result = ActionResult(
                     success=False,

@@ -438,7 +438,7 @@ with missing children, and every clone of that template is broken.
 
 ### EP-20 — Parallel DAG steps run in isolated sessions
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P8.8)** — the rule is now structural: every executor gets its own session from the loop (AK-18), and run cost has been a sum of usage rows since P4, so no step does a read-modify-write on a shared ORM object. `tests/unit/test_executor_sessions.py`.
 
 Each parallel branch gets its own session. That is correct and necessary — but it means
 **never mutate a shared ORM object from a step**. Cost must be folded with the atomic

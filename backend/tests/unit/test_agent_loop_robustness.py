@@ -252,12 +252,16 @@ async def test_block_streak_resets_after_a_passing_move(never_completes):
 
 
 class _CancelDuringStep:
-    """Flips the run to CANCELLED while acting, so the *next* iteration's
-    top-of-loop status re-read aborts the run."""
+    """Flips the run to CANCELLED while acting — as an operator would, out of
+    band — so the *next* iteration's top-of-loop status re-read aborts the
+    run. (The executor's own session is not the loop's since AK-18.)"""
     name = "SingleStep"
 
+    def __init__(self, loop_db=None):
+        self.loop_db = loop_db
+
     async def execute(self, move, state, db):  # noqa: ARG002
-        db.run.status = RunStatus.CANCELLED.value
+        self.loop_db.run.status = RunStatus.CANCELLED.value
         return ActionResult(
             success=True, output="noop", cost_usd=Decimal("0"),
             completed_step_ids=[],
@@ -267,10 +271,10 @@ class _CancelDuringStep:
 @pytest.mark.asyncio
 async def test_loop_aborts_when_run_cancelled_midflight():
     original = EXECUTOR_REGISTRY.get("SingleStep")
-    register_executor(_CancelDuringStep())
+    run = _FakeRun()
+    db = _FakeDB(run)
+    register_executor(_CancelDuringStep(db))
     try:
-        run = _FakeRun()
-        db = _FakeDB(run)
         loop = AgentLoop(
             db=db, redis=None, max_iterations=50,
             feature_flags=FeatureFlags(db=None),
