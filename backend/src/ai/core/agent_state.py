@@ -257,6 +257,11 @@ class AgentState:
     # steps get it as their correction, once (PC-03).
     pending_correction: str = ""
 
+    # Child steps re-dispatched after a transient failure, and how often
+    # (AK-19): a child that failed on a rate limit or a timeout gets one more
+    # run before it fails the parent.
+    child_retries: dict[str, int] = field(default_factory=dict)
+
     # Terminal status observed out-of-band (e.g. an operator cancelled the run
     # via the /cancel endpoint, flipping ExecutionRun.status away from RUNNING).
     # When set, AgentLoop._final_status preserves it instead of mapping the
@@ -453,6 +458,7 @@ class AgentState:
             "consecutive_pre_critic_blocks": self.consecutive_pre_critic_blocks,
             "corrective_retries_used": self.corrective_retries_used,
             "pending_correction": self.pending_correction,
+            "child_retries": dict(self.child_retries),
             "retry_queue": list(self.retry_queue),
             "task_class": self.task_class,
             "bandit_pulls": list(self.bandit_pulls),
@@ -490,6 +496,7 @@ class AgentState:
             consecutive_pre_critic_blocks=int(snapshot.get("consecutive_pre_critic_blocks", 0)),
             corrective_retries_used=int(snapshot.get("corrective_retries_used", 0)),
             pending_correction=str(snapshot.get("pending_correction", "") or ""),
+            child_retries=dict(snapshot.get("child_retries", {}) or {}),
             retry_queue=list(snapshot.get("retry_queue", [])),
             task_class=str(snapshot.get("task_class", "general")),
             bandit_pulls=list(snapshot.get("bandit_pulls", [])),

@@ -1174,8 +1174,9 @@ sequenceDiagram
     PL->>CE: execute move with CHILD_ENTITY_INVOCATION step
     CE->>CE: _resolve_redis state
     alt redis is None
-        CE-->>PL: ActionResult success=false "requires Redis"
+        CE-->>PL: ActionResult success=false "requires the job queue (no Redis client)"
     end
+    Note over CE: a Redis connection error while enqueuing says the queue is unreachable<br/>(an outage, AK-20) and leaves the step ready for the next move
     CE->>SE: _step_executor.create_child_run
     SE->>PG: INSERT execution_runs parent_run_id = parent
     CE->>RQ: enqueue_job run_execution_recursive child_id
@@ -2011,8 +2012,11 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
 - **A pre-critic BLOCK still costs you an iteration.** `budget.consume(iter_step=True)`
   happens before the pre-critic, so three blocks burn three iterations *and*
   three critic LLM calls before the breaker trips.
-- **`ChildEntity` moves are never auto-retried.** Deliberate: re-running a whole
-  sub-agent on a `REVISE` verdict is expensive and rarely changes the verdict.
+- **`ChildEntity` moves are not retried on a critic's `REVISE`.** Deliberate: re-running a
+  whole sub-agent is expensive and rarely changes the verdict. Since P7.12 (2026-10-03,
+  AK-19) a child that *failed transiently* (429, quota, timeout, 5xx, a dropped connection —
+  `child_entity.is_transient_failure`) has its step reopened once on resume
+  (`state.child_retries`, snapshotted), and the next move dispatches it again.
 - **The child concurrency cap does not cap anything.** `within_child_dispatch_cap`
   is computed, logged, and then ignored — the executor dispatches anyway.
 - **Suspension skips finalization entirely.** No bandit update, no dreaming

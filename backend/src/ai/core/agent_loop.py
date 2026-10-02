@@ -383,6 +383,8 @@ class AgentLoop:
             output = ""
             if child_run.result_data:
                 output = str(child_run.result_data.get("output", "") or child_run.result_data)
+            if step_id and status == RunStatus.FAILED.value and self._retry_child(state, step_id, child_run):
+                continue  # reopened: the next move dispatches it again (AK-19)
             if step_id:
                 if status in (RunStatus.FAILED.value, RunStatus.CANCELLED.value):
                     state.mark_step_failed(
@@ -398,6 +400,20 @@ class AgentLoop:
             if status in (RunStatus.FAILED.value, RunStatus.CANCELLED.value):
                 any_failed = True
         return all_terminal, any_failed
+
+    @staticmethod
+    def _retry_child(state: AgentState, step_id: str, child_run: Any) -> bool:
+        """Reopen a child step whose run failed transiently, once (AK-19)."""
+        from src.ai.core.executors.child_entity import MAX_CHILD_RETRIES, is_transient_failure
+        if not is_transient_failure(str(getattr(child_run, "error_message", None) or "")):
+            return False
+        if state.child_retries.get(step_id, 0) >= MAX_CHILD_RETRIES:
+            return False
+        state.child_retries[step_id] = state.child_retries.get(step_id, 0) + 1
+        state.completed_step_ids.discard(step_id)
+        state.failed_steps.pop(step_id, None)
+        logger.info("Child step %s failed transiently; dispatching it again", step_id)
+        return True
 
     # ------------------------------------------------------------------
     # Loop body

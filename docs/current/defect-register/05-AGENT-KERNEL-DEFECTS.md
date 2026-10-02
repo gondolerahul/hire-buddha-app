@@ -408,7 +408,7 @@ code that did nothing wrong.
 
 ### AK-19 — `ChildEntity` moves are never retried
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-03, P7.12)** — a child run that failed with a transient error (429, quota, timeout, 5xx, connection) has its step reopened once; a real failure still fails the parent. `tests/unit/test_child_transient_retry.py`.
 
 Deliberate, and recorded here so it is not re-litigated: re-running a whole sub-agent on a
 `REVISE` verdict is expensive and rarely changes the verdict.
@@ -421,7 +421,7 @@ would be worth having.
 
 ### AK-20 — Child dispatch hard-fails without Redis
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P7.12)** — a Redis connection error while enqueuing says the job queue is unreachable (an outage) and leaves the step ready, so the next move dispatches it again; no Redis client at all still says the queue is not configured. `tests/unit/test_child_transient_retry.py`.
 
 `ChildEntityExecutor` returns an error when `redis is None`, because async dispatch is now
 the sole child path — the inline fallback was deliberately retired to stop a

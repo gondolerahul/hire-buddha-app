@@ -28,6 +28,22 @@ from src.ai.orm.execution import ExecutionRun
 
 logger = logging.getLogger(__name__)
 
+# What a child run's error looks like when trying again may succeed: a rate
+# limit, an overloaded or unavailable service, a timeout, a dropped
+# connection (AK-19).
+_TRANSIENT = ("429", "rate limit", "ratelimit", "resource exhausted", "resource_exhausted", "quota",
+              "timed out", "timeout", "deadline exceeded", "502", "503", "504", "unavailable",
+              "overloaded", "connection reset", "connection error", "connection refused")
+# How often a child step is re-dispatched after a transient failure.
+MAX_CHILD_RETRIES = 1
+
+
+def is_transient_failure(error: str) -> bool:
+    """True when a child run's error is one a second run may not hit."""
+    text = (error or "").lower()
+    return any(marker in text for marker in _TRANSIENT)
+
+
 class ChildEntityExecutor:
     name: ExecutorName = "ChildEntity"
 
@@ -66,8 +82,8 @@ class ChildEntityExecutor:
             return ActionResult(
                 success=False,
                 error=(
-                    "child-entity dispatch requires Redis "
-                    "(async child dispatch is the sole child path)"
+                    "child-entity dispatch requires the job queue, and this worker has no "
+                    "Redis client configured (REDIS_URL)"
                 ),
                 latency_ms=int((time.time() - start) * 1000),
             )
@@ -116,7 +132,13 @@ class ChildEntityExecutor:
                 # queue and its own worker (SA-07).
                 await enqueue_child_run(redis, child_run.id)
             except Exception as exc:                                       # noqa: BLE001
-                error = f"child dispatch failed: {type(exc).__name__}: {exc}"
+                if _is_queue_outage(exc):
+                    # An outage, not a configuration problem (AK-20): the step
+                    # stays ready and the next move dispatches it again.
+                    error = (f"the job queue (Redis) is unreachable, so the child step was not "
+                             f"started; it stays ready and is dispatched again ({type(exc).__name__}: {exc})")
+                else:
+                    error = f"child dispatch failed: {type(exc).__name__}: {exc}"
                 logger.warning("Async child dispatch failed for parent %s: %s", run.id, exc)
                 break
             step_id = str(getattr(step_obj, "step_id", None) or getattr(step_obj, "name", "") or "")
@@ -155,6 +177,14 @@ class ChildEntityExecutor:
         if isinstance(step, dict):
             return PlanStep.model_validate(step)
         return step
+
+
+def _is_queue_outage(exc: BaseException) -> bool:
+    """A Redis connection or timeout error, by type or name."""
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    name = f"{type(exc).__module__}.{type(exc).__name__}".lower()
+    return "redis" in name and ("connection" in name or "timeout" in name)
 
 
 register_executor(ChildEntityExecutor())
