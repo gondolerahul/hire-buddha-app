@@ -51,7 +51,7 @@ cross-referenced here.
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 23 defects (2 open, 14 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The open defects are PO-07 (social connections) and PO-23 (templates, found 2026-10-02); PO-06 delivered its audit.
+**Total: 23 defects (1 open, 15 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The open defect is PO-23 (templates, found 2026-10-02); PO-07 was fixed in P6.2; PO-06 delivered its audit.
 
 | ID | Defect | Status |
 |---|---|---|
@@ -354,7 +354,7 @@ recommended reduction in [TOOL-LAYER-DEFECTS.md §7](TOOL-LAYER-DEFECTS.md#7-sug
 
 ### PO-07 — You can connect 9 social platforms but 16 have tools
 
-**✅ Verified · Medium** · **Status: open**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.2, decision D17)** — the platforms are one list, `PLATFORM_REFRESH_CONFIG`: the connection API's `VALID_PLATFORMS` is that set and `social_api` has operations for exactly those 8, each of which refreshes its tokens (a test holds them equal). The 5 platforms no connection could be made for (`pinterest`, `meta_ads`, `linkedin_ads`, `linkedin_sales_navigator`, `snapchat_ads`) are deleted with their 20 tools; the other 32 per-verb tools are operations of `social_api`.
 
 > **Product owner, 2026-09-29:** fix the social connection module properly.
 

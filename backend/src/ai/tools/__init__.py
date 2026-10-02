@@ -81,93 +81,9 @@ ToolRegistry.register(WhatsAppSendTenantTool())
 ToolRegistry.register(GoogleCalendarCreateEventTool())
 ToolRegistry.register(CRMUpdateLeadTool())
 
-# Social media platform tools — Phase 1
-from src.ai.tools.social import (
-    LinkedInCreatePostTool, LinkedInGetAnalyticsTool,
-    LinkedInManageCommentsTool, LinkedInGetProfileTool,
-    TwitterCreatePostTool, TwitterSearchTool,
-    TwitterGetMentionsTool, TwitterGetAnalyticsTool,
-    FacebookCreatePostTool, FacebookGetInsightsTool,
-    FacebookManageCommentsTool, FacebookSendMessageTool,
-    InstagramPublishMediaTool, InstagramGetInsightsTool,
-    InstagramManageCommentsTool, InstagramDiscoverHashtagsTool,
-    GoogleAdsCreateCampaignTool, GoogleAdsReportTool,
-    GoogleAdsManageKeywordsTool, GoogleAdsGetAdGroupsTool,
-    YouTubeUploadVideoTool, YouTubeManagePlaylistsTool,
-    YouTubeGetAnalyticsTool, YouTubeManageCommentsTool,
-    TikTokPublishVideoTool, TikTokGetVideosTool,
-    TikTokGetAnalyticsTool, TikTokManageCommentsTool,
-    RedditCreatePostTool, RedditSearchTool,
-    RedditManageCommentsTool, RedditGetAnalyticsTool,
-    PinterestCreatePinTool, PinterestManageBoardsTool,
-    PinterestGetAnalyticsTool, PinterestSearchPinsTool,
-    MetaAdsCreateCampaignTool, MetaAdsManageAdsetsTool,
-    MetaAdsReportTool, MetaAdsManageAudiencesTool,
-    LinkedInAdsCreateCampaignTool, LinkedInAdsManageCreativesTool,
-    LinkedInAdsReportTool, LinkedInAdsManageAudiencesTool,
-    LinkedInSalesSearchLeadsTool, LinkedInSalesGetLeadTool,
-    LinkedInSalesSaveLeadTool, LinkedInSalesGetListsTool,
-    SnapchatAdsCreateCampaignTool, SnapchatAdsManageAdSquadsTool,
-    SnapchatAdsReportTool, SnapchatAdsManageAudiencesTool,
-)
-
-# Registrations
-ToolRegistry.register(LinkedInCreatePostTool())
-ToolRegistry.register(LinkedInGetAnalyticsTool())
-ToolRegistry.register(LinkedInManageCommentsTool())
-ToolRegistry.register(LinkedInGetProfileTool())
-ToolRegistry.register(TwitterCreatePostTool())
-ToolRegistry.register(TwitterSearchTool())
-ToolRegistry.register(TwitterGetMentionsTool())
-ToolRegistry.register(TwitterGetAnalyticsTool())
-ToolRegistry.register(FacebookCreatePostTool())
-ToolRegistry.register(FacebookGetInsightsTool())
-ToolRegistry.register(FacebookManageCommentsTool())
-ToolRegistry.register(FacebookSendMessageTool())
-ToolRegistry.register(InstagramPublishMediaTool())
-ToolRegistry.register(InstagramGetInsightsTool())
-ToolRegistry.register(InstagramManageCommentsTool())
-ToolRegistry.register(InstagramDiscoverHashtagsTool())
-ToolRegistry.register(GoogleAdsCreateCampaignTool())
-ToolRegistry.register(GoogleAdsReportTool())
-ToolRegistry.register(GoogleAdsManageKeywordsTool())
-ToolRegistry.register(GoogleAdsGetAdGroupsTool())
-
-# Registrations
-ToolRegistry.register(YouTubeUploadVideoTool())
-ToolRegistry.register(YouTubeManagePlaylistsTool())
-ToolRegistry.register(YouTubeGetAnalyticsTool())
-ToolRegistry.register(YouTubeManageCommentsTool())
-ToolRegistry.register(TikTokPublishVideoTool())
-ToolRegistry.register(TikTokGetVideosTool())
-ToolRegistry.register(TikTokGetAnalyticsTool())
-ToolRegistry.register(TikTokManageCommentsTool())
-ToolRegistry.register(RedditCreatePostTool())
-ToolRegistry.register(RedditSearchTool())
-ToolRegistry.register(RedditManageCommentsTool())
-ToolRegistry.register(RedditGetAnalyticsTool())
-ToolRegistry.register(PinterestCreatePinTool())
-ToolRegistry.register(PinterestManageBoardsTool())
-ToolRegistry.register(PinterestGetAnalyticsTool())
-ToolRegistry.register(PinterestSearchPinsTool())
-ToolRegistry.register(MetaAdsCreateCampaignTool())
-ToolRegistry.register(MetaAdsManageAdsetsTool())
-ToolRegistry.register(MetaAdsReportTool())
-ToolRegistry.register(MetaAdsManageAudiencesTool())
-ToolRegistry.register(LinkedInAdsCreateCampaignTool())
-ToolRegistry.register(LinkedInAdsManageCreativesTool())
-ToolRegistry.register(LinkedInAdsReportTool())
-ToolRegistry.register(LinkedInAdsManageAudiencesTool())
-
-# Registrations
-ToolRegistry.register(LinkedInSalesSearchLeadsTool())
-ToolRegistry.register(LinkedInSalesGetLeadTool())
-ToolRegistry.register(LinkedInSalesSaveLeadTool())
-ToolRegistry.register(LinkedInSalesGetListsTool())
-ToolRegistry.register(SnapchatAdsCreateCampaignTool())
-ToolRegistry.register(SnapchatAdsManageAdSquadsTool())
-ToolRegistry.register(SnapchatAdsReportTool())
-ToolRegistry.register(SnapchatAdsManageAudiencesTool())
+# Social platforms: one primitive; the per-verb classes are its operations (P6.2)
+from src.ai.tools.social import SocialAPITool
+ToolRegistry.register(SocialAPITool())
 
 # Meta-Agent tools (context-aware — use run_with_context)
 from src.ai.tools.meta import (
@@ -203,35 +119,7 @@ __all__ = [
     "SandboxCodeTool", "TerminalTool",
     "HeadlessBrowserTool",
     "DocxTool", "PptxTool", "DocumentSaveTool",
-    # Social
-    "LinkedInCreatePostTool", "LinkedInGetAnalyticsTool",
-    "LinkedInManageCommentsTool", "LinkedInGetProfileTool",
-    "TwitterCreatePostTool", "TwitterSearchTool",
-    "TwitterGetMentionsTool", "TwitterGetAnalyticsTool",
-    "FacebookCreatePostTool", "FacebookGetInsightsTool",
-    "FacebookManageCommentsTool", "FacebookSendMessageTool",
-    "InstagramPublishMediaTool", "InstagramGetInsightsTool",
-    "InstagramManageCommentsTool", "InstagramDiscoverHashtagsTool",
-    "GoogleAdsCreateCampaignTool", "GoogleAdsReportTool",
-    "GoogleAdsManageKeywordsTool", "GoogleAdsGetAdGroupsTool",
-    # Social
-    "YouTubeUploadVideoTool", "YouTubeManagePlaylistsTool",
-    "YouTubeGetAnalyticsTool", "YouTubeManageCommentsTool",
-    "TikTokPublishVideoTool", "TikTokGetVideosTool",
-    "TikTokGetAnalyticsTool", "TikTokManageCommentsTool",
-    "RedditCreatePostTool", "RedditSearchTool",
-    "RedditManageCommentsTool", "RedditGetAnalyticsTool",
-    "PinterestCreatePinTool", "PinterestManageBoardsTool",
-    "PinterestGetAnalyticsTool", "PinterestSearchPinsTool",
-    "MetaAdsCreateCampaignTool", "MetaAdsManageAdsetsTool",
-    "MetaAdsReportTool", "MetaAdsManageAudiencesTool",
-    "LinkedInAdsCreateCampaignTool", "LinkedInAdsManageCreativesTool",
-    "LinkedInAdsReportTool", "LinkedInAdsManageAudiencesTool",
-    # Social
-    "LinkedInSalesSearchLeadsTool", "LinkedInSalesGetLeadTool",
-    "LinkedInSalesSaveLeadTool", "LinkedInSalesGetListsTool",
-    "SnapchatAdsCreateCampaignTool", "SnapchatAdsManageAdSquadsTool",
-    "SnapchatAdsReportTool", "SnapchatAdsManageAudiencesTool",
+    "SocialAPITool",
     # CRM integration tools
     "GetCurrentDateTimeTool", "WhatsAppSendTenantTool",
     "GoogleCalendarCreateEventTool", "CRMUpdateLeadTool",

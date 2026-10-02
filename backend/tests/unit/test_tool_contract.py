@@ -31,21 +31,6 @@ UNCONVERTED = {
     "meta_platform_introspect", "meta_registry_search", "meta_schema_validator", "meta_spec_critic",
     "pdf_generator", "pptx_tool", "terminal", "tool_synthesis", "video_add_sound",
     "video_edit", "video_generate", "whatsapp_send_tenant",
-    # social: collapsed into one typed primitive in P6.2
-    "facebook_create_post", "facebook_get_insights", "facebook_manage_comments", "facebook_send_message",
-    "google_ads_create_campaign", "google_ads_get_ad_groups", "google_ads_manage_keywords", "google_ads_report",
-    "instagram_discover_hashtags", "instagram_get_insights", "instagram_manage_comments", "instagram_publish_media",
-    "linkedin_ads_create_campaign", "linkedin_ads_manage_audiences", "linkedin_ads_manage_creatives",
-    "linkedin_ads_report", "linkedin_create_post", "linkedin_get_analytics", "linkedin_get_profile",
-    "linkedin_manage_comments", "linkedin_sales_get_lead", "linkedin_sales_get_lists", "linkedin_sales_save_lead",
-    "linkedin_sales_search_leads", "meta_ads_create_campaign", "meta_ads_manage_adsets",
-    "meta_ads_manage_audiences", "meta_ads_report", "pinterest_create_pin", "pinterest_get_analytics",
-    "pinterest_manage_boards", "pinterest_search_pins", "reddit_create_post", "reddit_get_analytics",
-    "reddit_manage_comments", "reddit_search", "snapchat_ads_create_campaign", "snapchat_ads_manage_ad_squads",
-    "snapchat_ads_manage_audiences", "snapchat_ads_report", "tiktok_get_analytics", "tiktok_get_videos",
-    "tiktok_manage_comments", "tiktok_publish_video", "twitter_create_post", "twitter_get_analytics",
-    "twitter_get_mentions", "twitter_search", "youtube_get_analytics", "youtube_manage_comments",
-    "youtube_manage_playlists", "youtube_upload_video",
 }
 
 

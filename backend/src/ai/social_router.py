@@ -16,6 +16,7 @@ from src.auth.dependencies import get_current_user_and_company
 from src.common.database import AsyncSessionLocal
 from src.common.security import encrypt_api_key, decrypt_api_key
 from src.ai.social_models import SocialConnection
+from src.ai.social_connection_service import PLATFORM_REFRESH_CONFIG
 from src.ai import social_connection_service
 
 from sqlalchemy import select, delete
@@ -63,8 +64,9 @@ class SocialConnectionListResponse(BaseModel):
 
 
 # quora left with its tools (TL-23): Quora publishes no API they could call.
-VALID_PLATFORMS = {"linkedin", "twitter", "facebook", "instagram", "google_ads",
-                   "youtube", "tiktok", "reddit"}
+# One list (D17): a platform a connection can be made for can be refreshed,
+# and ``social_api`` has operations for it.
+VALID_PLATFORMS = set(PLATFORM_REFRESH_CONFIG)
 
 
 # ---------------------------------------------------------------------------

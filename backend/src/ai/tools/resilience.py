@@ -40,26 +40,11 @@ logger = logging.getLogger(__name__)
 WRITE_TOOLS: frozenset[str] = frozenset({
     # messages
     "email_send", "email_draft", "email_classify",
-    "facebook_send_message", "whatsapp_send_tenant",
-    # posts and comments
-    "facebook_create_post", "facebook_manage_comments",
-    "instagram_publish_media", "instagram_manage_comments",
-    "linkedin_create_post", "linkedin_manage_comments",
-    "pinterest_create_pin", "pinterest_manage_boards",
-    "reddit_create_post", "reddit_manage_comments",
-    "tiktok_publish_video", "tiktok_manage_comments",
-    "twitter_create_post",
-    "youtube_upload_video", "youtube_manage_comments", "youtube_manage_playlists",
-    # ads
-    "google_ads_create_campaign", "google_ads_manage_keywords",
-    "linkedin_ads_create_campaign", "linkedin_ads_manage_audiences",
-    "linkedin_ads_manage_creatives",
-    "meta_ads_create_campaign", "meta_ads_manage_adsets", "meta_ads_manage_audiences",
-    "snapchat_ads_create_campaign", "snapchat_ads_manage_ad_squads",
-    "snapchat_ads_manage_audiences",
+    "whatsapp_send_tenant",
+    # posts, comments, messages and ads: one tool whose operations mostly write
+    "social_api",
     # records, calendars and files
     "crm_update_lead", "google_calendar_create_event",
-    "linkedin_sales_save_lead", "linkedin_sales_get_lists",
     "document_save", "file_writer", "docx_tool", "excel_tool", "pptx_tool",
     # the platform itself
     "agent_reflect", "meta_entity_creator", "meta_entity_executor", "tool_synthesis",

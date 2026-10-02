@@ -121,8 +121,12 @@ class ToolManagementService:
                     "updated_at": None,
                 })
 
-        # 4. Add remaining DB-only entries (custom and synthesized tools)
+        # 4. Add remaining DB-only entries (custom and synthesized tools). A
+        #    BUILT_IN row whose tool is no longer registered (the 52 per-verb
+        #    social tools, P6.2) is not a tool; sync removes it.
         for db_entry in [*db_entries.values(), *other_entries]:
+            if db_entry.tool_type == "BUILT_IN" and db_entry.company_id is None:
+                continue
             name = db_entry.name
             merged.append({
                 "id": str(db_entry.id),
@@ -253,7 +257,8 @@ class ToolManagementService:
 
         Inserts the missing rows and brings description, function schema and
         category up to date on existing ones; the admin's state (enabled,
-        display name) is kept. Returns ``{"created": n, "updated": m}``.
+        display name) is kept; rows of tools no longer registered are removed.
+        Returns ``{"created", "updated", "removed"}``.
         """
         from src.ai.tools import ToolRegistry
 
@@ -276,6 +281,14 @@ class ToolManagementService:
                     setattr(existing, k, v)
                 updated += 1
 
-        if created or updated:
+        # A built-in row whose tool is gone holds only the admin state of
+        # nothing (e.g. the per-verb social tools, P6.2).
+        gone = (await self.db.execute(delete(ToolRegistryEntry).where(
+            ToolRegistryEntry.tool_type == "BUILT_IN",
+            ToolRegistryEntry.company_id.is_(None),
+            ToolRegistryEntry.name.not_in(list(ToolRegistry._tools)),
+        ))).rowcount or 0
+
+        if created or updated or gone:
             await self.db.commit()
-        return {"created": created, "updated": updated}
+        return {"created": created, "updated": updated, "removed": gone}

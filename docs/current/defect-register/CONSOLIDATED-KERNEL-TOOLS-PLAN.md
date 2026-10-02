@@ -287,7 +287,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-26** | TX-I3 | `xlsx_engine.py` — 400 lines, no importer | — | ✅ | P0 |
 | **TL-27** | TX-I3 | `templates/docx/*.docx` — no code reference | — | ✅ | P0 |
 | **TL-22** | — | The MCP package has no transport, no config and no caller | Medium | ✅ | P0 (delete) |
-| **TL-40** | — | Eight platforms cannot refresh tokens; three platform lists disagree (PO-07) | Medium | ✅ | P6 |
+| **TL-40** | — | Eight platforms cannot refresh tokens; three platform lists disagree (PO-07) | Medium | ✔ | P6 |
 | **TL-43…TL-49** | — | Seven social integrations report false success (upload never uploads, publish never polls, …) | High | ✅ | P6 |
 
 ### WS-E — Tools: one execution path

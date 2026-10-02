@@ -2,8 +2,8 @@
 E2E tests for Social Media AI Agent Tools.
 
 Tests:
-1. Tool registration: all 20 social tools are in ToolRegistry
-2. Schema validation: each tool has valid function schema
+1. Registration: social_api holds the 20 operations
+2. Schema validation: each operation has a valid schema
 3. Connection CRUD endpoints: social connection API routes
 4. Webhook strategies: social media webhook detection
 """
@@ -41,54 +41,30 @@ class TestSocialToolRegistration:
         "google_ads_get_ad_groups",
     ]
 
-    def test_all_social_tools_registered(self):
-        """All 20 social media tools should be registered in ToolRegistry."""
+    def test_one_social_tool_holds_them_as_operations(self):
+        """Since P6.2 the per-verb tools are operations of ``social_api``."""
         from src.ai.tools import ToolRegistry
+        from src.ai.tools.social.social_api import operations
 
-        registered_names = {t["name"] for t in ToolRegistry.list_tools()}
+        names = set(ToolRegistry._tools)
+        assert "social_api" in names
+        ops = operations()
         for tool_name in self.EXPECTED_TOOLS:
-            assert tool_name in registered_names, f"Tool '{tool_name}' not registered"
-
-    def test_tool_count(self):
-        """Total tool count should include all social tools."""
-        from src.ai.tools import ToolRegistry
-
-        tools = ToolRegistry.list_tools()
-        social_tools = [t for t in tools if t["name"] in self.EXPECTED_TOOLS]
-        assert len(social_tools) == 20, f"Expected 20 social tools, got {len(social_tools)}"
+            assert tool_name not in names, f"'{tool_name}' is registered on its own"
+            platform = next(p for p in ops if tool_name.startswith(p + "_"))
+            assert tool_name[len(platform) + 1:] in ops[platform], tool_name
 
     @pytest.mark.parametrize("tool_name", EXPECTED_TOOLS)
-    def test_tool_schema_valid(self, tool_name):
-        """Each tool's get_function_schema() returns a valid schema."""
-        from src.ai.tools import ToolRegistry
+    def test_operation_schema_valid(self, tool_name):
+        """Each operation's schema is what ``describe`` shows the model."""
+        from src.ai.tools.social.social_api import operations
 
-        tool = ToolRegistry.get_tool(tool_name)
-        assert tool is not None, f"Tool '{tool_name}' not found"
-
-        schema = tool.get_function_schema()
-        assert "name" in schema, f"{tool_name}: schema missing 'name'"
-        assert "description" in schema, f"{tool_name}: schema missing 'description'"
-        assert "parameters" in schema, f"{tool_name}: schema missing 'parameters'"
-        assert schema["name"] == tool_name
-        assert isinstance(schema["description"], str)
-        assert len(schema["description"]) > 10
-
-        params = schema["parameters"]
-        assert params.get("type") == "object"
-        assert "properties" in params
-        assert isinstance(params["properties"], dict)
-        assert len(params["properties"]) > 0
-
-    @pytest.mark.parametrize("tool_name", EXPECTED_TOOLS)
-    def test_tool_has_platform(self, tool_name):
-        """Each social tool should have a platform attribute set."""
-        from src.ai.tools import ToolRegistry
-
-        tool = ToolRegistry.get_tool(tool_name)
-        assert hasattr(tool, "platform"), f"{tool_name} has no 'platform' attribute"
-        assert tool.platform in (
-            "linkedin", "twitter", "facebook", "instagram", "google_ads"
-        ), f"{tool_name} has unexpected platform: {tool.platform}"
+        ops = operations()
+        platform = next(p for p in ops if tool_name.startswith(p + "_"))
+        op = ops[platform][tool_name[len(platform) + 1:]]
+        params = op.get_function_schema()["parameters"]
+        assert params.get("type") == "object" and isinstance(params["properties"], dict)
+        assert len(params["properties"]) > 0 and len(op.description) > 10
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +86,7 @@ class TestSocialMediaToolBase:
         )
         data = json.loads(result)
         assert "error" in data
-        assert "company_id" in data["error"].lower()
+        assert "company" in data["error"].lower()  # NO_CONTEXT_ERROR (P3.2)
 
     @pytest.mark.asyncio
     async def test_no_connection_returns_error(self):

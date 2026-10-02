@@ -305,7 +305,7 @@ class PlatformSchemaCompiler:
 
     def _compile_tools(self, include_tenant: bool = True) -> List[Dict[str, Any]]:
         """Extract all registered tools with their function schemas."""
-        from src.ai.tools.base import ToolRegistry
+        from src.ai.tools.base import ToolRegistry, tool_category
 
         if include_tenant and self.company_id:
             tools = ToolRegistry.get_tools_for_company(self.company_id)
@@ -324,31 +324,9 @@ class PlatformSchemaCompiler:
                 "description": tool.description,
                 "function_schema": schema,
                 "typed": tool.Params is not None,  # declares Params (TL-41)
-                "category": self._categorize_tool(name),
+                "category": tool_category(tool),
             })
         return compiled
-
-    def _categorize_tool(self, tool_name: str) -> str:
-        """Heuristic tool categorization for the Meta-Agent's understanding."""
-        categories = {
-            "search": ["web_search", "scraper_tool"],
-            "document": ["pdf_generator", "file_writer", "docx_tool", "pptx_tool", "excel"],
-            "communication": ["email_ingest", "email_classify", "email_draft", "email_send",
-                              "whatsapp_send_tenant"],
-            "media": ["image_generation", "video_generate", "video_edit", "video_add_sound"],
-            "code": ["sandbox_code", "terminal_tool"],
-            "browser": ["headless_browser"],
-            "social": ["linkedin", "twitter", "facebook", "instagram", "youtube",
-                       "tiktok", "reddit", "pinterest"],
-            "ads": ["google_ads", "meta_ads", "linkedin_ads", "snapchat_ads"],
-            "crm": ["crm_update_lead", "google_calendar", "get_current_datetime"],
-            "utility": ["calculator"],
-        }
-        name_lower = tool_name.lower()
-        for category, keywords in categories.items():
-            if any(kw in name_lower for kw in keywords):
-                return category
-        return "utility"
 
     # ------------------------------------------------------------------
     # Model Endpoints (tenant-scoped)

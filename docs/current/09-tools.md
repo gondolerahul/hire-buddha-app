@@ -17,7 +17,7 @@
 7. [`documents/` — the generation pipeline](#7-documents--the-generation-pipeline)
 8. [`email/` — IMAP and SMTP](#8-email--imap-and-smtp)
 9. [`media/` — images and video](#9-media--images-and-video)
-10. [`social/` — 13 platforms, 52 tools](#10-social--13-platforms-52-tools)
+10. [`social/` — one primitive, 8 platforms](#10-social--one-primitive-8-platforms)
 11. [`crm/` — the tenant CRM bridge](#11-crm--the-tenant-crm-bridge)
 12. [`sandbox/` — code, terminal, browser and the trust boundary](#12-sandbox--code-terminal-browser-and-the-trust-boundary)
 13. [`meta/` — tools that build the platform](#13-meta--tools-that-build-the-platform)
@@ -168,7 +168,7 @@ Who carries which status today:
 
 | Status | Tools |
 |--------|-------|
-| `EXPERIMENTAL` | all 52 `social/` tools (set on the `SocialMediaTool` base class), `video_generate`, `video_edit`, `video_add_sound`, `tool_synthesis` |
+| `EXPERIMENTAL` | `social_api`, `video_generate`, `video_edit`, `video_add_sound`, `tool_synthesis` |
 | `DEPRECATED` | none registered (`video_generation`, the last one, was deleted on 2026-09-29, PO-17) |
 | `DRAFT` | `SandboxedSynthesizedTool` instances |
 | `ACTIVE` | everything else — all of `core/`, `documents/`, `email/`, `crm/`, `sandbox/`, `image_generation`, and the meta tools other than `tool_synthesis` |
@@ -624,68 +624,16 @@ Legend for external dependency: `—` = pure local compute.
 | `tool_synthesis` | general | [meta/tool_synthesis.py](../../backend/src/ai/tools/meta/tool_synthesis.py) | LLM writes a brand-new tool; validated, sandbox-tested, red-teamed, saved as DRAFT | a `ToolSpec` JSON payload (base `input` schema) | LLM plus sandbox | EXPERIMENTAL | LLM cost of the pipeline |
 | `meta_spec_critic` | general | [meta/spec_critic.py](../../backend/src/ai/tools/meta/spec_critic.py) | Reviews a draft entity spec, returns PASS / REVISE / BLOCK | `mode`, `spec`, `search_top_k`, `platform_manifest_hash` | LLM | EXPERIMENTAL; registered since 2026-10-01 (TX-04). The Board's critic and the admin route also call it directly | LLM cost |
 
-### 5.8 `social/` — 52 tools across 13 platforms
+### 5.8 `social/` — one tool, `social_api`
 
-All 52 inherit `status = ToolStatus.EXPERIMENTAL` from
-[social/base.py:48](../../backend/src/ai/tools/social/base.py:48), resolve
-credentials from `social_connections`, and have **no billing SKU** — a social
-API call costs the platform `$0` in HireBuddha's ledger even when it spends the
-tenant's ad budget.
+| Tool id | File | What it does | Key parameters |
+|---|---|---|---|
+| `social_api` | [social/social_api.py](../../backend/src/ai/tools/social/social_api.py) | Runs one operation on a connected platform; `operation="describe"` lists a platform's operations and their parameters | `platform`, `operation`, `payload` |
 
-| Tool id | Platform | File | What it does | Key parameters |
-|---|---|---|---|---|
-| `linkedin_create_post` | linkedin | [social/linkedin.py](../../backend/src/ai/tools/social/linkedin.py) | Publish a post or article | `text` |
-| `linkedin_get_analytics` | linkedin | linkedin.py | Post or page analytics | `analytics_type` |
-| `linkedin_manage_comments` | linkedin | linkedin.py | List, reply, delete comments | `action`, `post_id` |
-| `linkedin_get_profile` | linkedin | linkedin.py | Fetch member or org profile | `profile_type` |
-| `twitter_create_post` | twitter | [social/twitter.py](../../backend/src/ai/tools/social/twitter.py) | Post a tweet | `text` |
-| `twitter_search` | twitter | twitter.py | Recent-search the timeline | `query` |
-| `twitter_get_mentions` | twitter | twitter.py | Fetch mentions for tweets | `tweet_ids` |
-| `twitter_get_analytics` | twitter | twitter.py | Tweet metrics | `tweet_ids` |
-| `facebook_create_post` | facebook | [social/facebook.py](../../backend/src/ai/tools/social/facebook.py) | Publish to a Page | `message` |
-| `facebook_get_insights` | facebook | facebook.py | Page or post insights | `insights_type` |
-| `facebook_manage_comments` | facebook | facebook.py | List, reply, hide, delete | `action`, `post_id` |
-| `facebook_send_message` | facebook | facebook.py | Messenger send | `recipient_id`, `message_text` |
-| `instagram_publish_media` | instagram | [social/instagram.py](../../backend/src/ai/tools/social/instagram.py) | Two-step container publish | `media_type` |
-| `instagram_get_insights` | instagram | instagram.py | Account or media insights | `insights_type` |
-| `instagram_manage_comments` | instagram | instagram.py | List, reply, hide, delete | `action`, `media_id` |
-| `instagram_discover_hashtags` | instagram | instagram.py | Hashtag search and top media | `hashtag` |
-| `google_ads_create_campaign` | google_ads | [social/google_ads.py](../../backend/src/ai/tools/social/google_ads.py) | Create a campaign | `campaign_name`, `campaign_type`, `budget_amount_micros`, `bidding_strategy` |
-| `google_ads_report` | google_ads | google_ads.py | Run a GAQL query | `query` |
-| `google_ads_manage_keywords` | google_ads | google_ads.py | Add, pause, remove keywords | `action`, `ad_group_resource` |
-| `google_ads_get_ad_groups` | google_ads | google_ads.py | List ad groups | none required |
-| `youtube_upload_video` | youtube | [social/youtube.py](../../backend/src/ai/tools/social/youtube.py) | Upload a video | `title`, `video_url` |
-| `youtube_manage_playlists` | youtube | youtube.py | Create, list, add items | `action` |
-| `youtube_get_analytics` | youtube | youtube.py | Channel or video analytics | `analytics_type` |
-| `youtube_manage_comments` | youtube | youtube.py | List, reply, moderate | `action` |
-| `tiktok_publish_video` | tiktok | [social/tiktok.py](../../backend/src/ai/tools/social/tiktok.py) | Publish a video by URL | `video_url`, `title` |
-| `tiktok_get_videos` | tiktok | tiktok.py | List account videos | none required |
-| `tiktok_get_analytics` | tiktok | tiktok.py | Video or account metrics | `analytics_type` |
-| `tiktok_manage_comments` | tiktok | tiktok.py | List, reply, delete | `action`, `video_id` |
-| `reddit_create_post` | reddit | [social/reddit.py](../../backend/src/ai/tools/social/reddit.py) | Submit to a subreddit | `subreddit`, `title` |
-| `reddit_search` | reddit | reddit.py | Search posts | `query` |
-| `reddit_manage_comments` | reddit | reddit.py | Reply, delete, vote | `action`, `thing_id` |
-| `reddit_get_analytics` | reddit | reddit.py | Karma and post stats | `analytics_type` |
-| `pinterest_create_pin` | pinterest | [social/pinterest.py](../../backend/src/ai/tools/social/pinterest.py) | Create a pin | `board_id`, `media_source_url` |
-| `pinterest_manage_boards` | pinterest | pinterest.py | Create, list, delete boards | `action` |
-| `pinterest_get_analytics` | pinterest | pinterest.py | Pin or account analytics | `analytics_type` |
-| `pinterest_search_pins` | pinterest | pinterest.py | Search pins | `query` |
-| `meta_ads_create_campaign` | meta_ads | [social/meta_ads.py](../../backend/src/ai/tools/social/meta_ads.py) | Create a Meta Ads campaign | `name`, `objective` |
-| `meta_ads_manage_adsets` | meta_ads | meta_ads.py | Create, update, list ad sets | `action` |
-| `meta_ads_report` | meta_ads | meta_ads.py | Insights report | none required |
-| `meta_ads_manage_audiences` | meta_ads | meta_ads.py | Custom audiences | `action` |
-| `linkedin_ads_create_campaign` | linkedin_ads | [social/linkedin_ads.py](../../backend/src/ai/tools/social/linkedin_ads.py) | Create a campaign | `name`, `objective_type` |
-| `linkedin_ads_manage_creatives` | linkedin_ads | linkedin_ads.py | Create, update, list creatives | `action` |
-| `linkedin_ads_report` | linkedin_ads | linkedin_ads.py | Analytics finder query | none required |
-| `linkedin_ads_manage_audiences` | linkedin_ads | linkedin_ads.py | DMP segments | `action` |
-| `linkedin_sales_search_leads` | linkedin_sales_navigator | [social/linkedin_sales_nav.py](../../backend/src/ai/tools/social/linkedin_sales_nav.py) | Lead search | none required |
-| `linkedin_sales_get_lead` | linkedin_sales_navigator | linkedin_sales_nav.py | Lead detail | `lead_id` |
-| `linkedin_sales_save_lead` | linkedin_sales_navigator | linkedin_sales_nav.py | Save to a list | `lead_id`, `list_id` |
-| `linkedin_sales_get_lists` | linkedin_sales_navigator | linkedin_sales_nav.py | Manage lead lists | `action` |
-| `snapchat_ads_create_campaign` | snapchat_ads | [social/snapchat_ads.py](../../backend/src/ai/tools/social/snapchat_ads.py) | Snap campaign | `ad_account_id`, `name`, `objective` |
-| `snapchat_ads_manage_ad_squads` | snapchat_ads | snapchat_ads.py | Ad squads | `action`, `ad_account_id` |
-| `snapchat_ads_report` | snapchat_ads | snapchat_ads.py | Performance report | `ad_account_id`, `entity`, `entity_id` |
-| `snapchat_ads_manage_audiences` | snapchat_ads | snapchat_ads.py | SAM audiences | `action`, `ad_account_id` |
+Its 32 operations (§10) were 52 registered tools until P6.2 (2026-10-02). It is
+`EXPERIMENTAL` (per-company opt-in `tools.experimental.social_api`) and has **no billing
+SKU** — a social call costs the platform `$0` in HireBuddha's ledger even when it spends
+the tenant's ad budget.
 
 ### 5.9 Tools that exist but are not in the global registry
 
@@ -916,87 +864,76 @@ container runtime is on, and is metered as compute rather than as an LLM call.
 
 ---
 
-## 10. `social/` — 13 platforms, 52 tools
+## 10. `social/` — one primitive, 8 platforms
+
+Since P6.2 (2026-10-02, R2 doc phase 3, decision D17) there is **one registered social
+tool**, [`social_api`](../../backend/src/ai/tools/social/social_api.py):
+
+```text
+social_api(platform, operation, payload)
+  operation = "describe"  ->  {"platform", "operations": [{"operation", "description", "writes", "parameters"}]}
+  operation = <verb>       ->  the platform's result (JSON)
+```
+
+The model asks a platform what it can do, then calls one operation with its payload —
+progressive disclosure inside the tool: one function declaration in the prompt instead of
+up to 52. How to post, report or answer comments on a platform belongs in a SKILL's
+instructions, not in schemas (6.3). `social_api` checks the payload against the
+operation's schema (missing required fields, unknown fields) before anything is sent.
+A refused or failed call names what is wrong and which operations or platforms exist.
+
+The per-verb classes are its **operations**, not registered tools: each platform module
+(`linkedin.py`, `twitter.py`, `facebook.py`, `instagram.py`, `google_ads.py`,
+`youtube.py`, `tiktok.py`, `reddit.py`) holds `SocialMediaTool` subclasses; the
+operation is the class's name without the platform prefix (`twitter_create_post` →
+`twitter` / `create_post`). An operation whose verb is create, publish, upload, send,
+save or manage is a **write** (`describe` says so); the resilience layer never re-runs
+`social_api` (it is in `WRITE_TOOLS`).
+
+**One platform list (D17).** The platforms are the keys of `PLATFORM_REFRESH_CONFIG`
+([social_connection_service.py](../../backend/src/ai/social_connection_service.py)): the
+connection API's `VALID_PLATFORMS` is that set, and `social_api` has operations for
+exactly those (a test holds the three equal). Before P6.2 the connection API took 8
+platforms and tools existed for 13, so the 20 tools of `pinterest`, `meta_ads`,
+`linkedin_ads`, `linkedin_sales_navigator` and `snapchat_ads` could never get a
+credential; they are deleted (git keeps them). A platform is added with its connection,
+its refresh and its operations together.
 
 ```mermaid
 flowchart TD
-    T["any social tool - run_with_context"] --> P["json.loads input"]
-    P --> C{"company_id in context ?"}
-    C -->|no| E1["error - cannot resolve credentials"]
+    T["social_api - invoke"] --> V{"platform in the list, operation known, payload fits ?"}
+    V -->|no| E0["failed call naming what is wrong"]
+    V -->|describe| D["the platform's operations and schemas"]
+    V -->|yes| O["the operation - SocialMediaTool.run_with_context"]
+    O --> C{"company_id in context ?"}
+    C -->|no| E1["NO_CONTEXT_ERROR"]
     C -->|yes| R["social_connection_service.resolve_connection company_id platform account_name"]
     R --> DB[("social_connections - AES-256-GCM encrypted tokens")]
     DB --> TK{"token expiring within 10 minutes ?"}
-    TK -->|yes and refresh config exists| RF["POST platform token_url with refresh_token"]
+    TK -->|yes| RF["POST platform token_url with refresh_token"]
     TK -->|no| OK["use access_token"]
     RF --> OK
-    OK --> X["subclass _execute params credentials context"]
-    X --> API["_api_request - httpx - 2 retries on timeout or connect error only"]
-    API --> J["json.dumps result"]
-```
-
-Every platform tool subclasses
-[`SocialMediaTool`](../../backend/src/ai/tools/social/base.py:25), which owns
-input parsing, credential resolution, the HTTP helper and error mapping. A
-subclass only sets `name`, `description`, `platform`, and implements
-`_execute` plus `get_function_schema`.
-
-```python
-# backend/src/ai/tools/social/base.py
-class SocialMediaTool(Tool):
-    platform: str = ""
-    status: ToolStatus = ToolStatus.EXPERIMENTAL
-
-    @abstractmethod
-    async def _execute(self, params, credentials, context) -> Dict[str, Any]: ...
-
-    @staticmethod
-    async def _api_request(method, url, headers=None, json_body=None,
-                           params=None, data=None, timeout=DEFAULT_TIMEOUT):
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for attempt in range(MAX_RETRIES + 1):
-                try:
-                    resp = await client.request(...)
-                    resp.raise_for_status()
-                    return resp
-                except httpx.HTTPStatusError:
-                    raise  # Don't retry client errors
-                except (httpx.TimeoutException, httpx.ConnectError) as e:
-                    if attempt == MAX_RETRIES:
-                        raise
+    OK --> X["_execute params credentials context"]
+    X --> API["_api_request - httpx"]
 ```
 
 ### Platform capability and auth matrix
 
-`Token refresh` means the platform has an entry in `PLATFORM_REFRESH_CONFIG`
-([social_connection_service.py:23](../../backend/src/ai/social_connection_service.py:23)).
-A platform without one cannot auto-refresh — when its access token expires the
-tool fails and a human must reconnect.
+| Platform key | API base | Operations | Auth |
+|---|---|---|---|
+| `linkedin` | `api.linkedin.com/rest` | create_post, get_analytics, manage_comments, get_profile | OAuth2 bearer |
+| `twitter` | `api.x.com/2` | create_post, search, get_mentions, get_analytics | OAuth2 bearer |
+| `facebook` | `graph.facebook.com/v22.0` | create_post, get_insights, manage_comments, send_message | OAuth2 page token, `fb_exchange_token` refresh |
+| `instagram` | Facebook Graph | publish_media, get_insights, manage_comments, discover_hashtags | OAuth2 via Facebook, `ig_refresh_token` |
+| `google_ads` | `googleads.googleapis.com/v18` | create_campaign, report, manage_keywords, get_ad_groups | OAuth2 refresh token |
+| `youtube` | `googleapis.com/youtube/v3` | upload_video, manage_playlists, get_analytics, manage_comments | OAuth2 refresh token |
+| `tiktok` | `open.tiktokapis.com/v2` | publish_video, get_videos, get_analytics, manage_comments | OAuth2 |
+| `reddit` | `oauth.reddit.com` | create_post, search, manage_comments, get_analytics | OAuth2 |
 
-| Platform key | API base | Capabilities | Auth | Token refresh |
-|---|---|---|---|---|
-| `linkedin` | `api.linkedin.com/rest` | post, analytics, comments, profile | OAuth2 bearer | yes |
-| `twitter` | `api.x.com/2` | post, search, mentions, analytics | OAuth2 bearer | yes |
-| `facebook` | `graph.facebook.com/v22.0` | post, insights, comments, Messenger | OAuth2 page token | yes — `fb_exchange_token` |
-| `instagram` | Facebook Graph | publish, insights, comments, hashtags | OAuth2 via Facebook | yes — `ig_refresh_token` |
-| `google_ads` | `googleads.googleapis.com/v18` | campaign, GAQL report, keywords, ad groups | OAuth2 refresh token | yes |
-| `youtube` | `googleapis.com/youtube/v3` | upload, playlists, analytics, comments | OAuth2 refresh token | yes |
-| `tiktok` | `open.tiktokapis.com/v2` | publish, list videos, analytics, comments | OAuth2 | yes |
-| `reddit` | `oauth.reddit.com` | post, search, comments, analytics | OAuth2 | yes |
-| `pinterest` | `api.pinterest.com/v5` | pin, boards, analytics, search | OAuth2 bearer | **no** |
-| `meta_ads` | `graph.facebook.com/v22.0` | campaign, ad sets, insights, audiences | OAuth2 bearer | **no** |
-| `linkedin_ads` | `api.linkedin.com/rest` | campaign, creatives, report, DMP segments | OAuth2 bearer | **no** |
-| `linkedin_sales_navigator` | `api.linkedin.com/rest/salesNavigator` | lead search, lead detail, save, lists | OAuth2 bearer | **no** |
-| `snapchat_ads` | `adsapi.snapchat.com/v1` | campaign, ad squads, report, SAM audiences | OAuth2 bearer | **no** |
-
-Two more caveats the package README states plainly
-([tools/README.md](../../backend/src/ai/tools/README.md)): none of the 52
-are wired to a production entity, and several are unfinished. Three platforms
-were deleted on 2026-10-01 because they could not work as written: `quora`
-(4 tools against `api.quora.com/v1`, which is not a public API — TL-23), `x_ads`
-(OAuth2 bearer and JSON where the X Ads API needs OAuth 1.0a and form encoding —
-TL-24) and `youtube_ads` (Google Ads v17 while `google_ads` uses v18, and
-`customer_id` from the model — TL-25; a YouTube campaign is a `VIDEO` campaign
-in the `google_ads` family).
+None is wired to a production entity, and several operations are unfinished (TL-43…TL-49,
+6.6). Eight platforms were deleted in all: `quora`, `x_ads` and `youtube_ads` on
+2026-10-01 because they could not work as written (TL-23–TL-25), and the five above in
+P6.2.
 
 ---
 
@@ -1781,7 +1718,7 @@ Whether that lands twice depends on whether the company has an active
 definitely does. Worth verifying against [14 — Billing & credits](14-billing-and-credits.md)
 before trusting a per-image figure.
 
-**A tool with no SKU is free to the platform's ledger.** All 52 social tools,
+**A tool with no SKU is free to the platform's ledger.** `social_api`,
 all four email tools, all four CRM tools and every document tool resolve to
 `$0`. `crm_update_lead` can write to a customer CRM and `linkedin_create_post`
 can publish to a company page, and neither leaves a cost line.
@@ -1872,7 +1809,7 @@ was deleted under FE-30.)
 | `image_generation` | yes — Vertex | yes | **yes — real dollars** | model must be a configured task default; reference image confined to the company's files |
 | `video_generate` | yes — Vertex Veo | yes | **yes — real dollars** | 8 s per clip; frame paths confined to the company's files |
 | `video_edit`, `video_add_sound` | no | yes | compute only | 300 s ffmpeg timeout; input and output paths confined to the company's files |
-| 52 × `social/*` | yes — 13 third-party APIs | no | **yes — the tenant's ad budget** | OAuth token scoping only. EXPERIMENTAL status is not enforced at execution |
+| `social_api` | yes — 8 third-party APIs | no | **yes — the tenant's ad budget** | OAuth token scoping only. EXPERIMENTAL status is not enforced at execution |
 | `crm/*` | yes — tenant endpoints, Google | no | no | credentials scoped by `company_id` |
 | `sandbox_code` | **yes — unrestricted under the default runtime** | yes — anywhere the OS user can write | compute | see §12.2 |
 | `terminal` | **yes — unrestricted under the default runtime** | yes | compute | 13-pattern blocklist |
@@ -1918,7 +1855,7 @@ Credentials never live in tool code. Every path resolves them per call:
 | Source table | Decryption | Consumers |
 |---|---|---|
 | `integration_registry.encrypted_api_key` | `common.security.decrypt_api_key` (AES-256-GCM) | `web_search`, `scraper_tool`, `image_generation`, `crm/*` |
-| `social_connections.encrypted_access_token` / `encrypted_refresh_token` | same | all 52 social tools via `resolve_connection` |
+| `social_connections.encrypted_access_token` / `encrypted_refresh_token` | same | `social_api`'s operations via `resolve_connection` |
 | `email_connections.encrypted_app_password` | same | all four email tools |
 
 The sandbox runtimes build an explicit minimal `env` (`PATH`, `HOME`, `TMPDIR`,
@@ -1953,7 +1890,8 @@ reading the backend's `.env` file off the host filesystem.
 | [tools/sandbox/egress_proxy.py](../../backend/src/ai/tools/sandbox/egress_proxy.py) | 160 | allow-list egress networks and the tinyproxy container |
 | [tools/sandbox/metering.py](../../backend/src/ai/tools/sandbox/metering.py) | 65 | sandbox-seconds usage attribution |
 | [tools/sandbox/skill_files.py](../../backend/src/ai/tools/sandbox/skill_files.py) | 170 | a run's version assets written into `.skills/<slug>/<version>/`; the prompt's Skill Files section |
-| [tools/social/base.py](../../backend/src/ai/tools/social/base.py) | 173 | `SocialMediaTool` — credentials, HTTP helper, EXPERIMENTAL default |
+| [tools/social/social_api.py](../../backend/src/ai/tools/social/social_api.py) | 160 | `social_api` — the one social tool; operations, `describe`, the platform list |
+| [tools/social/base.py](../../backend/src/ai/tools/social/base.py) | 173 | `SocialMediaTool` — an operation's credentials, HTTP helper |
 | [docker/sandbox/Dockerfile](../../backend/docker/sandbox/Dockerfile) | 66 | the `hb-sandbox` image |
 | [docker/egress-proxy/tinyproxy.conf](../../backend/docker/egress-proxy/tinyproxy.conf) | 33 | `FilterDefaultDeny` proxy config |
 | [frontend/.../ToolManagement.tsx](../../frontend/src/pages/ai/ToolManagement.tsx) | 445 | admin tool registry screen |
@@ -2005,9 +1943,9 @@ reading the backend's `.env` file off the host filesystem.
   new `.pptx/.docx/.xlsx/.pdf` files to auto-register. Any document another
   process writes to `/tmp` during that window gets attributed to this run.
 
-- **Social tokens for 5 of 13 platforms cannot be refreshed.** No entry in
-  `PLATFORM_REFRESH_CONFIG` means the connection dies when the access token
-  expires and a human must reconnect.
+- **A social platform is three things or none.** `social_api` reaches only the platforms
+  in `PLATFORM_REFRESH_CONFIG`, which is also the connection API's list (D17). Adding a
+  platform means its connection, its token refresh and its operations together.
 
 ---
 

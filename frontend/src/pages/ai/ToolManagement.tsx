@@ -202,7 +202,7 @@ export const ToolManagement: React.FC = () => {
         setSyncing(true);
         try {
             const result = await toolService.syncBuiltIn();
-            alert(`Sync complete: ${result.created} new tool(s) registered, ${result.updated ?? 0} brought up to date.`);
+            alert(`Sync complete: ${result.created} new tool(s) registered, ${result.updated ?? 0} brought up to date, ${result.removed ?? 0} removed.`);
             fetchTools();
         } catch (err) {
             console.error('Failed to sync built-in tools:', err);

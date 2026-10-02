@@ -17,7 +17,9 @@ BACKEND = Path(__file__).resolve().parents[2]
 
 def test_no_tool_of_a_deleted_platform_is_registered() -> None:
     names = set(ToolRegistry._tools)
-    for prefix in ("quora_", "x_ads_", "youtube_ads_"):
+    for prefix in ("quora_", "x_ads_", "youtube_ads_",
+                   # no connection could be made for them (D17, P6.2)
+                   "pinterest_", "meta_ads_", "linkedin_ads_", "linkedin_sales_", "snapchat_ads_"):
         assert not [n for n in names if n.startswith(prefix)], prefix
 
 
@@ -30,6 +32,11 @@ def test_the_unwired_modules_are_deleted() -> None:
         "src/ai/tools/social/quora.py",
         "src/ai/tools/social/x_ads.py",
         "src/ai/tools/social/youtube_ads.py",
+        "src/ai/tools/social/pinterest.py",
+        "src/ai/tools/social/meta_ads.py",
+        "src/ai/tools/social/linkedin_ads.py",
+        "src/ai/tools/social/linkedin_sales_nav.py",
+        "src/ai/tools/social/snapchat_ads.py",
         "src/ai/tools/documents/xlsx_engine.py",
         "src/ai/tools/mcp/adapter.py",
         "templates/docx",

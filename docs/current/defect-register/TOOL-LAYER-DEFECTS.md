@@ -778,7 +778,7 @@ duplicate; if the process dies between them the original stays put.
 
 ### TL-40 — Eight of sixteen platforms cannot refresh their tokens
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.2, decision D17)** — the platforms are one list, `PLATFORM_REFRESH_CONFIG`: the connection API's `VALID_PLATFORMS` is that set and `social_api` has operations for exactly those 8, each of which refreshes its tokens (a test holds them equal). The 5 platforms no connection could be made for (`pinterest`, `meta_ads`, `linkedin_ads`, `linkedin_sales_navigator`, `snapchat_ads`) are deleted with their 20 tools; the other 32 per-verb tools are operations of `social_api`.
 
 `quora`, `pinterest`, `meta_ads`, `linkedin_ads`, `linkedin_sales_navigator`,
 `youtube_ads`, `x_ads` and `snapchat_ads` have no entry in

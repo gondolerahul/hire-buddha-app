@@ -26,12 +26,10 @@ TOOLS = sorted(ToolRegistry._tools.items())
 # Advertised parameters the code never reads — each is a defect, with the
 # plan item that removes it. The list may only shrink.
 KNOWN_DRIFT = {
-    ("linkedin_create_post", "image_url"): "TL-47, P6.6",
-    ("linkedin_get_analytics", "time_range"): "found in P6.10, P6.6",
-    ("youtube_upload_video", "video_url"): "TL-43, P6.6",
-    ("youtube_upload_video", "thumbnail_url"): "TL-43, P6.6",
-    ("linkedin_ads_manage_creatives", "image_url"): "platform deleted in P6.2 (D17)",
-    ("linkedin_sales_search_leads", "company_size"): "platform deleted in P6.2 (D17)",
+    ("social_api:linkedin.create_post", "image_url"): "TL-47, P6.6",
+    ("social_api:linkedin.get_analytics", "time_range"): "found in P6.10, P6.6",
+    ("social_api:youtube.upload_video", "video_url"): "TL-43, P6.6",
+    ("social_api:youtube.upload_video", "thumbnail_url"): "TL-43, P6.6",
 }
 
 
@@ -58,11 +56,21 @@ def _reads(cls: type, prop: str) -> bool:
                 or re.search(r"\.%s\b" % re.escape(prop), module))
 
 
+def _untyped_schemas():
+    """Every hand-written schema: unconverted tools, and ``social_api``'s
+    operations (their schemas are what ``describe`` shows the model)."""
+    from src.ai.tools.social.social_api import operations
+    for name, tool in TOOLS:
+        if tool.Params is None:
+            yield name, tool
+    for platform, ops in operations().items():
+        for verb, op in ops.items():
+            yield f"social_api:{platform}.{verb}", op
+
+
 def test_every_advertised_parameter_is_read():
     drift = set()
-    for name, tool in TOOLS:
-        if tool.Params is not None:
-            continue  # the schema is the model the tool reads
+    for name, tool in _untyped_schemas():
         for prop in tool.get_function_schema()["parameters"]["properties"]:
             if prop != "input" and not _reads(type(tool), prop):
                 drift.add((name, prop))

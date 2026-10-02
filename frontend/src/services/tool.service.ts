@@ -64,8 +64,8 @@ export const toolService = {
         return response.data;
     },
 
-    syncBuiltIn: async (): Promise<{ status: string; created: number; updated?: number }> => {
-        const response = await apiClient.post<{ status: string; created: number; updated?: number }>('/ai/tool-registry/sync-built-in');
+    syncBuiltIn: async (): Promise<{ status: string; created: number; updated?: number; removed?: number }> => {
+        const response = await apiClient.post<{ status: string; created: number; updated?: number; removed?: number }>('/ai/tool-registry/sync-built-in');
         return response.data;
     },
 };

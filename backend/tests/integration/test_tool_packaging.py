@@ -63,7 +63,7 @@ async def test_sync_brings_existing_rows_up_to_date_and_keeps_the_admins_state(d
     assert (row.description, row.category, row.function_schema) == (
         tool.description, "utility", tool.get_function_schema())
     assert (row.is_enabled, row.display_name) == (False, "Calc (admin's name)")
-    assert (await svc.sync_built_in_tools()) == {"created": 0, "updated": 0}       # nothing left to do
+    assert (await svc.sync_built_in_tools()) == {"created": 0, "updated": 0, "removed": 0}  # nothing left to do
 
 
 @pytest.mark.asyncio
@@ -76,3 +76,16 @@ async def test_the_list_shows_the_codes_description_whatever_the_row_says(db):
     assert listed["description"] == ToolRegistry._tools["calculator"].description
     assert listed["function_schema"] == ToolRegistry._tools["calculator"].get_function_schema()
     assert listed["category"] == "utility"
+
+
+@pytest.mark.asyncio
+async def test_a_row_of_a_tool_that_is_gone_is_neither_listed_nor_kept(db):
+    db.add(ToolRegistryEntry(name="twitter_create_post", display_name="twitter_create_post",
+                             description="per-verb tool before P6.2", category="general",
+                             tool_type="BUILT_IN", function_schema={}, is_enabled=True))
+    await db.flush()
+    svc = ToolManagementService(db)
+    assert "twitter_create_post" not in {t["name"] for t in await svc.list_all_tools()}
+    assert (await svc.sync_built_in_tools())["removed"] == 1
+    assert (await db.execute(select(ToolRegistryEntry).where(
+        ToolRegistryEntry.name == "twitter_create_post"))).scalar_one_or_none() is None
