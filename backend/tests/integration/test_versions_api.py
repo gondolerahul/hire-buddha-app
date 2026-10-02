@@ -39,7 +39,7 @@ async def world(db, monkeypatch):
     db.add(ent)
     await db.flush()
     head = await capture_head(db, ent.id)
-    return SimpleNamespace(mine=mine, other=other, entity=ent, head=head)
+    return SimpleNamespace(mine=mine, other=other, entity=ent, entity_id=ent.id, head=head)
 
 
 def _client(db, role, company) -> httpx.AsyncClient:
@@ -62,7 +62,7 @@ def _client(db, role, company) -> httpx.AsyncClient:
 
 
 def _url(world, tail=""):
-    return f"/api/v1/ai/entities/{world.entity.id}/versions{tail}"
+    return f"/api/v1/ai/entities/{world.entity_id}/versions{tail}"
 
 
 @pytest.mark.asyncio
@@ -109,7 +109,9 @@ async def test_what_a_draft_refuses(db, world):
     async with _client(db, "tenant_admin", world.mine) as c:
         assert (await c.post(_url(world), json={"changes": {"status": "ARCHIVED"}})).status_code == 422
         assert (await c.post(_url(world), json={"changes": {"bogus": 1}})).status_code == 422
-        assert (await c.post(_url(world), json={"changes": {}})).status_code == 409   # identical to v1
+        copy = await c.post(_url(world), json={"changes": {}})                     # a draft may start as v1's copy
+        assert copy.status_code == 201
+        assert (await c.post(_url(world, f"/{copy.json()['id']}/publish"))).status_code == 409   # but not be published
         assert (await c.put(_url(world, f"/{world.head}/assets/a.py"), json={"body": "x"})).status_code == 409
         draft = (await c.post(_url(world), json={"changes": {"goal": "other"}})).json()
         assert (await c.put(_url(world, f"/{draft['id']}/assets/../a.py"), json={"body": "x"})).status_code in (404, 422)

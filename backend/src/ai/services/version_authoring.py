@@ -103,8 +103,9 @@ async def create_draft(
     """A new unpublished version: the base's definition and files plus ``changes``.
 
     ``changes`` are definition fields only (``SNAPSHOT_FIELDS``); status, tags
-    and placement belong to the entity. Refused (:class:`VersionConflict`) when
-    the draft would be identical to an existing version.
+    and placement belong to the entity. A draft may start as a copy of its
+    base — to add files, say; it cannot be *published* while it matches a
+    published version.
     """
     from src.ai.orm.entity import HierarchicalEntity
     from src.ai.orm.versions import EntityAsset, EntityVersion
@@ -129,19 +130,18 @@ async def create_draft(
         select(func.max(EntityVersion.version_number)).where(EntityVersion.entity_id == entity.id)
     )).scalar() or 0
     snapshot = {**copy.deepcopy(base.snapshot), **copy.deepcopy(changes)}
-    async with db.begin_nested():  # an identical draft leaves nothing behind
-        draft = EntityVersion(
-            entity_id=entity.id, company_id=entity.company_id, version_number=number + 1,
-            label=snapshot.get("version"), snapshot=snapshot, content_hash=f"pending-{uuid.uuid4().hex}",
-            published=False, created_by=user_id, created_at=datetime.utcnow(),
-        )
-        db.add(draft)
-        await db.flush()
-        for a in await list_assets(db, base.id):
-            db.add(EntityAsset(entity_version_id=draft.id, path=a.path, content_hash=a.content_hash,
-                               language=a.language, body=a.body, size_bytes=a.size_bytes))
-        await db.flush()
-        await rehash_version(db, draft)
+    draft = EntityVersion(
+        entity_id=entity.id, company_id=entity.company_id, version_number=number + 1,
+        label=snapshot.get("version"), snapshot=snapshot, content_hash=f"pending-{uuid.uuid4().hex}",
+        published=False, created_by=user_id, created_at=datetime.utcnow(),
+    )
+    db.add(draft)
+    await db.flush()
+    for a in await list_assets(db, base.id):
+        db.add(EntityAsset(entity_version_id=draft.id, path=a.path, content_hash=a.content_hash,
+                           language=a.language, body=a.body, size_bytes=a.size_bytes))
+    await db.flush()
+    await rehash_version(db, draft)
     return draft
 
 
@@ -150,7 +150,9 @@ async def publish(
 ) -> "EntityVersion":
     """Make a version the head: its definition goes onto the row; new runs execute it.
 
-    A draft becomes published; an older published version is a rollback.
+    A draft becomes published; an older published version is a rollback. A
+    draft that matches a published version is refused (:class:`VersionConflict`):
+    publish that version instead.
     """
     version = await get_version(db, entity.id, version_id)
     definition = {f: copy.deepcopy(version.snapshot.get(f)) for f in SNAPSHOT_FIELDS}
@@ -162,8 +164,10 @@ async def publish(
     await db.flush()
     head_id = await capture_head(db, entity.id, created_by=user_id)
     head = await get_version(db, entity.id, head_id) if head_id else version
-    if head.id != version.id:  # pragma: no cover - the definition did not round-trip
-        raise VersionConflict(f"version {version.version_number} could not be made the head")
+    if head.id != version.id:  # the capture found a published version with this content
+        raise VersionConflict(
+            f"version {version.version_number} is identical to version {head.version_number}; publish that"
+        )
     head.published = True
     head.published_at = datetime.utcnow()
     head.published_by = user_id

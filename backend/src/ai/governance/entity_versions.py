@@ -100,8 +100,13 @@ def capture_head_sync(conn: "Connection", entity_id: UUID, *, created_by: Option
     digest = content_hash(snapshot, ((a["path"], a["content_hash"]) for a in head_assets))
     now = datetime.utcnow()
 
+    # A published version first; else a draft with that content (the row was
+    # given it), which the capture publishes.
     found = conn.execute(
-        select(vers.c.id, vers.c.published).where(vers.c.entity_id == entity_id, vers.c.content_hash == digest)
+        select(vers.c.id, vers.c.published)
+        .where(vers.c.entity_id == entity_id, vers.c.content_hash == digest)
+        .order_by(vers.c.published.desc(), vers.c.version_number.desc())
+        .limit(1)
     ).first()
     version_id: UUID
     if found is not None:

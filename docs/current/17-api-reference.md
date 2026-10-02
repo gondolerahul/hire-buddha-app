@@ -486,10 +486,10 @@ Editing the entity (`PUT`) still takes effect for new runs; these routes add exp
 
 | Route | Rules |
 |---|---|
-| `POST …/versions` | `changes` is an entity update restricted to the definition (`name`, `display_name`, `description`, `goal`, `type`, `version` and the nine blocks); `status`, `tags`, `parent_id` and the template fields are **422** (they belong to the entity). The base (default: the head) is copied with its files. A draft identical to an existing version is **409**. The composition rule is checked |
+| `POST …/versions` | `changes` is an entity update restricted to the definition (`name`, `display_name`, `description`, `goal`, `type`, `version` and the nine blocks); `status`, `tags`, `parent_id` and the template fields are **422** (they belong to the entity). The base (default: the head) is copied with its files; a draft may start identical to it (to add files, say). The composition rule is checked |
 | `PUT/DELETE …/assets/{path}` | Drafts only — a published version is **409**. Path and size rules as in 03 §4.1a (**422**) |
 | `POST …/test-run` | A run pinned to that version (any version, draft or published), checked as that version describes the entity; same admission as `POST /ai/execute` |
-| `POST …/publish` | `tenant_admin`, `partner_admin`, `app_admin` (D13). Copies the definition onto the entity row and makes the version the head; publishing an older version rolls back |
+| `POST …/publish` | `tenant_admin`, `partner_admin`, `app_admin` (D13). Copies the definition onto the entity row and makes the version the head; publishing an older version rolls back. A draft identical to a published version is **409** (publish that one) |
 
 Reads follow the entity's visibility (another company's entity is 404). Writes need the
 entity in the caller's companies; only `app_admin` changes a template (PO-23). Each write

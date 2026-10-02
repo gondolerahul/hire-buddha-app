@@ -56,7 +56,7 @@ class AssetRejected(ValueError):
 
 
 class VersionConflict(ValueError):
-    """The version cannot take the change (published, or now identical to another). Maps to 409."""
+    """The version cannot take the change (it is published; or, publishing, it matches a published one). Maps to 409."""
 
 
 def valid_asset_path(path: str) -> str:
@@ -99,22 +99,17 @@ async def _draft(db: "AsyncSession", version_id: UUID) -> "EntityVersion":
 async def rehash_version(db: "AsyncSession", version: "EntityVersion") -> str:
     """Recompute a draft's hash from its snapshot and assets.
 
-    Refuses (:class:`VersionConflict`) when the draft would then be identical
-    to another version of the entity: the same content is the same version.
+    A draft may match another version while it is edited (a new draft starts
+    as a copy of its base); publishing one that matches a published version is
+    refused (``version_authoring.publish``).
     """
     from src.ai.governance.entity_versions import content_hash
-    from src.ai.orm.versions import EntityAsset, EntityVersion
+    from src.ai.orm.versions import EntityAsset
 
     manifest = (await db.execute(
         select(EntityAsset.path, EntityAsset.content_hash).where(EntityAsset.entity_version_id == version.id)
     )).all()
     digest = content_hash(version.snapshot, [(p, h) for p, h in manifest])
-    twin = (await db.execute(select(EntityVersion.version_number).where(
-        EntityVersion.entity_id == version.entity_id, EntityVersion.content_hash == digest,
-        EntityVersion.id != version.id,
-    ))).scalar_one_or_none()
-    if twin is not None:
-        raise VersionConflict(f"the draft would be identical to version {twin}")
     version.content_hash = digest
     await db.flush()
     return digest
@@ -148,15 +143,14 @@ async def put_asset(db: "AsyncSession", version_id: UUID, path: str, body: str) 
         body=body, size_bytes=len(data), language=language_for(path),
         content_hash=hashlib.sha256(data).hexdigest(),
     )
-    async with db.begin_nested():  # a refused rehash undoes the write too
-        if existing is None:
-            existing = EntityAsset(entity_version_id=version_id, path=path, **fields)
-            db.add(existing)
-        else:
-            for k, v in fields.items():
-                setattr(existing, k, v)
-        await db.flush()
-        await rehash_version(db, version)
+    if existing is None:
+        existing = EntityAsset(entity_version_id=version_id, path=path, **fields)
+        db.add(existing)
+    else:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+    await db.flush()
+    await rehash_version(db, version)
     return existing
 
 
@@ -165,11 +159,10 @@ async def delete_asset(db: "AsyncSession", version_id: UUID, path: str) -> bool:
     from src.ai.orm.versions import EntityAsset
 
     version = await _draft(db, version_id)
-    async with db.begin_nested():  # a refused rehash undoes the delete too
-        gone = await db.execute(delete(EntityAsset).where(
-            EntityAsset.entity_version_id == version_id, EntityAsset.path == path,
-        ))
-        if not gone.rowcount:  # type: ignore[attr-defined]
-            return False
-        await rehash_version(db, version)
+    gone = await db.execute(delete(EntityAsset).where(
+        EntityAsset.entity_version_id == version_id, EntityAsset.path == path,
+    ))
+    if not gone.rowcount:  # type: ignore[attr-defined]
+        return False
+    await rehash_version(db, version)
     return True

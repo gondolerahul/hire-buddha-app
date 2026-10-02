@@ -310,7 +310,7 @@ in [governance/entity_versions.py](../../backend/src/ai/governance/entity_versio
 | `version_number` | 1, 2, … per entity (`uq_entity_versions_number`) |
 | `label` | The entity's `version` string at the time |
 | `snapshot` | JSON (not JSONB — `io_contract` key order is meaning, DM-13): `name`, `display_name`, `description`, `goal`, `type`, `version` and the nine blocks (`SNAPSHOT_FIELDS`) |
-| `content_hash` | SHA-256 of the snapshot and its asset manifest. Unique per entity (`uq_entity_versions_content`): the same content is the same version |
+| `content_hash` | SHA-256 of the snapshot and its asset manifest. Unique among an entity's **published** versions (`uq_entity_versions_published_content`, partial): the same content is the same version. A draft may match one while it is edited (it starts as a copy of its base); publishing it is then refused (migration `p5_draft_hash`) |
 | `published`, `published_at`, `published_by` | A draft is authored and test-run; a published version has been the head |
 | `created_by`, `created_at` | Who captured or drafted it |
 
@@ -334,8 +334,7 @@ are UTF-8 text without NUL, at most 512 KiB each, 500 files and 8 MiB a version.
 relative POSIX, at most 12 levels and 255 characters, each part letters, digits, `_`, `-`
 and `.` and never starting with `.` (no `..`, no hidden files). They are put and deleted
 on **drafts** only (a published version raises `VersionConflict`, 409); each change re-hashes
-the draft inside a savepoint, and a change that would make the draft identical to another
-version is refused and undone. The API process stores bodies and never runs them.
+the draft. The API process stores bodies and never runs them.
 
 **Drafts and publishing** ([services/version_authoring.py](../../backend/src/ai/services/version_authoring.py), API in [17 §6](17-api-reference.md#entity-versions--apiv1aientitiesentity_idversions)): a draft is an unpublished version — a base's definition and files plus changes — that can be test-run pinned to itself. Publishing copies its definition onto the row, points `active_version_id` at it and captures, which finds the same hash and marks it published; publishing an older version is a rollback.
 

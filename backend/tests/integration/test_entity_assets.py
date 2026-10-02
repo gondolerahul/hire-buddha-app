@@ -112,25 +112,11 @@ async def test_deleting_rehashes_and_a_missing_asset_is_false(db):
 
 
 @pytest.mark.asyncio
-async def test_a_draft_cannot_become_a_copy_of_another_version(db):
+async def test_a_draft_may_match_a_published_version_while_it_is_edited(db):
     ent, head, draft = await _draft(db)
     head_row = (await db.execute(select(EntityVersion).where(EntityVersion.id == head))).scalar_one()
-    draft.snapshot = dict(head_row.snapshot)            # same definition as the head, no files yet
-    await db.flush()
-    await put_asset(db, draft.id, "a.py", "x")           # differs from the head by its file
-    with pytest.raises(VersionConflict):
-        await delete_asset(db, draft.id, "a.py")         # would make it the head again
-
-
-@pytest.mark.asyncio
-async def test_a_refused_change_leaves_the_draft_as_it_was(db):
-    ent, head, draft = await _draft(db)
-    head_row = (await db.execute(select(EntityVersion).where(EntityVersion.id == head))).scalar_one()
-    draft.snapshot = dict(head_row.snapshot)
+    draft.snapshot = dict(head_row.snapshot)            # back to the head's definition
     await db.flush()
     await put_asset(db, draft.id, "a.py", "x")
-    before = draft.content_hash
-    with pytest.raises(VersionConflict):
-        await delete_asset(db, draft.id, "a.py")
-    paths = (await db.execute(select(EntityAsset.path).where(EntityAsset.entity_version_id == draft.id))).scalars().all()
-    assert paths == ["a.py"] and draft.content_hash == before
+    assert await delete_asset(db, draft.id, "a.py") is True
+    assert draft.content_hash == head_row.content_hash   # allowed; publishing it is refused (P5.6 API)

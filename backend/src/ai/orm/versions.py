@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,8 +23,11 @@ class EntityVersion(Base):
     __tablename__ = "entity_versions"
     __table_args__ = (
         UniqueConstraint("entity_id", "version_number", name="uq_entity_versions_number"),
-        # A version is its content: the same content is the same version.
-        UniqueConstraint("entity_id", "content_hash", name="uq_entity_versions_content"),
+        Index("ix_entity_versions_content", "entity_id", "content_hash"),
+        # A published version is its content: no two share it. A draft may
+        # match one while it is edited; publishing it is refused.
+        Index("uq_entity_versions_published_content", "entity_id", "content_hash",
+              unique=True, postgresql_where=text("published")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
