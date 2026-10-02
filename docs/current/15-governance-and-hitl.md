@@ -1010,7 +1010,7 @@ marquee/most-dangerous capability"*:
 
 | Flag | Default | Controls |
 |---|---|---|
-| `tools.resilience_v2_enabled` | `True` | v2 retry / circuit-breaker policies |
+| `tools.resilience_v2_enabled` | — | Deleted (P8.6, EP-22): the healing ladder is unconditional |
 
 `tools.cost_attribution_required` was deleted (AK-10): it was the last canary of
 the cost-attribution programme and nothing read it. The invariant is enforced by

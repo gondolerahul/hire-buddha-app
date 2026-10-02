@@ -474,7 +474,7 @@ writing the file twice.
 
 ### EP-22 — With the resilience flag off, REACT tool calls get no healing at all
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P8.6)** — the TOOL_CALL path was already on `ToolResilience` (TL-51); the REACT path now always uses it, and the flag and the unhealed branch are deleted. `tests/unit/test_one_healing_ladder.py`.
 
 The failure-classification and self-healing ladder exists **twice**: inline in
 `_execute_tool_call` for direct `TOOL_CALL` steps, and in `ToolResilience` for the

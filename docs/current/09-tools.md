@@ -61,10 +61,8 @@ flowchart TD
     B --> C["ToolAccess.schemas - only what the model may call"]
     C --> D["build_sandwich_prompt - schemas become LLM function declarations"]
     D --> E["LLM picks a tool and emits a function_call"]
-    E --> F{"tools.resilience_v2_enabled ?"}
-    F -->|yes| G["ToolResilience.run_function_call"]
-    F -->|no| H["ToolExecutor.execute_from_function_calls"]
-    G --> H
+    E --> G["ToolResilience.run_function_call (always, EP-22)"]
+    G --> H["ToolExecutor.execute_from_function_calls"]
     H --> R{"ToolAccess.resolve name ?"}
     R -->|refused| Z["skipped ToolResult - not run, not retried, not billed"]
     R -->|allowed| I["Tool.invoke - validate against Params, then execute; unconverted tools through one adapter"]
@@ -1527,22 +1525,12 @@ A successful fallback renames the result: `alt_tr.tool = f"{tool_id}→{alt_tool
 
 ### 15.4 Which paths use `ToolResilience`
 
-Both. The direct `TOOL_CALL` step (`_execute_tool_call`) calls
-`ToolResilience.run` unconditionally (TL-51 removed its inline copy of the
-classifier, which had drifted). The REACT / automatic-function-calling path
-uses it behind a flag:
-
-```python
-# backend/src/ai/step_executor.py
-if await FeatureFlags(self.db).is_on("tools.resilience_v2_enabled",
-                                     company_id=run.company_id,
-                                     entity_id=getattr(entity, "id", None)):
-    _resilience = ToolResilience(reformat_fn=self._reformat_tool_input,
-                                 tool_executor=ToolExecutor)
-```
-
-The flag defaults to `True`
-([core/feature_flags.py:87](../../backend/src/ai/core/feature_flags.py:87)).
+Both, unconditionally. The direct `TOOL_CALL` step (`_execute_tool_call`) calls
+`ToolResilience.run` (TL-51 removed its inline copy of the classifier, which had drifted),
+and since P8.6 (2026-10-03, EP-22) the REACT / automatic-function-calling path always calls
+`ToolResilience.run_function_call`. Before, a flag (`tools.resilience_v2_enabled`) decided,
+and with it off a model's tool calls got no reformat retry and no fallback; the flag is
+deleted.
 
 ---
 
@@ -2019,8 +2007,8 @@ reading the backend's `.env` file off the host filesystem.
 - [14 — Billing, costing & credits](14-billing-and-credits.md) — where
   `usage_logs`, `CostLedger` and `CreditService` take the numbers from §18.
 - [15 — Governance, HITL & feature flags](15-governance-and-hitl.md) — the
-  `FeatureFlags` service behind `tools.experimental.*`,
-  `tools.resilience_v2_enabled` and `sandbox.container_runtime_enabled`.
+  `FeatureFlags` service behind `tools.experimental.*` and
+  `sandbox.container_runtime_enabled`.
 - [18 — Infrastructure & deployment](18-infrastructure-and-deployment.md) —
   building and pinning the `hb-sandbox` and `hb-egress-proxy` images.
 - Design intent: [`docs/phase11/plan/10_track_8_tool_and_cost.md`](../phase11/plan/10_track_8_tool_and_cost.md)

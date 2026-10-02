@@ -1517,7 +1517,7 @@ The logic above exists twice:
 | Path | Implementation | Enabled by |
 |------|----------------|------------|
 | Direct `TOOL_CALL` steps | Inline in [`_execute_tool_call`](../../backend/src/ai/step_executor.py:310) | always |
-| REACT / AFC tool calls | [`ToolResilience`](../../backend/src/ai/tools/resilience.py:124) | feature flag `tools.resilience_v2_enabled` ([step_executor.py:870](../../backend/src/ai/step_executor.py:870)) |
+| REACT / AFC tool calls | [`ToolResilience`](../../backend/src/ai/tools/resilience.py) | always (P8.6, EP-22; the `tools.resilience_v2_enabled` flag is deleted) |
 
 `ToolResilience` is the extracted, testable version
 ([`classify_tool_failure`](../../backend/src/ai/tools/resilience.py:62) returns

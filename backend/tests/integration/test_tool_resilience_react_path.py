@@ -2,7 +2,7 @@
 
 The Track 8 deferred item I just shipped routes every LLM-driven tool
 call (REACT / AFC path) through ``ToolResilience.run_function_call``
-when the ``tools.resilience_v2_enabled`` flag is ON. That gives the
+(since P8.6 always; the ``tools.resilience_v2_enabled`` flag is gone). That gives the
 REACT path the same reformat-retry + fallback chain as the direct
 TOOL_CALL path.
 

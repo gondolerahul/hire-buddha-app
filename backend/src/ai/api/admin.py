@@ -1051,17 +1051,18 @@ async def programme_exit_checklist(
         "detail": "Track 3 acceptance gate",
     })
 
-    # 7. tools.resilience_v2_enabled default true
+    # 7. One tool healing ladder: since P8.6 (EP-22) there is no flag to turn
+    # it off, so the REACT and direct paths cannot diverge.
     try:
         from src.ai.core.feature_flags import DEFAULTS
-        ok = DEFAULTS.get("tools.resilience_v2_enabled") is True
+        ok = "tools.resilience_v2_enabled" not in DEFAULTS
     except Exception:                                                          # pragma: no cover
         ok = False
     items.append({
         "id": "EXIT-7",
-        "title": "Tool resilience v2 default ON (T8)",
+        "title": "Tool resilience on every path (T8, EP-22)",
         "satisfied": ok,
-        "detail": "REACT + direct paths unified",
+        "detail": "REACT + direct paths unified; no flag",
     })
 
     # 8. planner.v2_enabled default true

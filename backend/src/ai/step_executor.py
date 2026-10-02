@@ -780,48 +780,29 @@ class StepExecutorService:
 
         all_tool_results = []
 
-        # Route reasoning-mode tool calls through ToolResilience when enabled so
-        # the REACT/AFC path gets the same reformat-retry + fallback healing as
-        # the direct TOOL_CALL path. When the flag is off (or setup fails), the
-        # closure falls back to the raw executor — behaviour is unchanged.
-        _resilience = None
-        try:
-            from src.ai.core.feature_flags import FeatureFlags
-            if await FeatureFlags(self.db).is_on(
-                "tools.resilience_v2_enabled",
-                company_id=run.company_id,
-                entity_id=getattr(entity, "id", None),
-            ):
-                from src.ai.tools.resilience import ToolResilience
-                _resilience = ToolResilience(
-                    reformat_fn=self._reformat_tool_input,
-                    tool_executor=ToolExecutor,
-                    access=access,
-                )
-        except Exception as _res_err:
-            logger.debug(f"ToolResilience setup skipped: {_res_err}")
-            _resilience = None
+        # One healing ladder for every tool call (EP-22): the REACT path's calls
+        # go through ToolResilience like a TOOL_CALL step's. Before, a flag
+        # (tools.resilience_v2_enabled) decided, and with it off a model's
+        # tool calls got no reformat retry and no fallback.
+        from src.ai.tools.resilience import ToolResilience
+        _resilience = ToolResilience(
+            reformat_fn=self._reformat_tool_input,
+            tool_executor=ToolExecutor,
+            access=access,
+        )
 
         async def _execute_tools(function_calls: list) -> list:
             """Adapter: called by LLMRouter's REACT loop per tool-call turn."""
             results = []
             for fc in function_calls:
-                if _resilience is not None:
-                    _tr_single = await _resilience.run_function_call(
-                        run=run,
-                        entity=entity,
-                        function_call=fc,
-                        extra_context=extra_context,
-                        step_name=getattr(step, "name", "") or "",
-                        step_description=getattr(step, "description", "") or "",
-                    )
-                    _tr_list = [_tr_single]
-                else:
-                    _tr_list = await ToolExecutor.execute_from_function_calls(
-                        [fc],
-                        extra_context=extra_context,
-                        access=access,
-                    )
+                _tr_list = [await _resilience.run_function_call(
+                    run=run,
+                    entity=entity,
+                    function_call=fc,
+                    extra_context=extra_context,
+                    step_name=getattr(step, "name", "") or "",
+                    step_description=getattr(step, "description", "") or "",
+                )]
                 for _tr in _tr_list:
                     self._log_tool_call(run, step, access, _tr, _tr.args, _tr.latency_ms or 0)
                     all_tool_results.append(_tr.to_dict())

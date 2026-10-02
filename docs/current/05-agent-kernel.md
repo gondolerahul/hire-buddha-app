@@ -1671,7 +1671,7 @@ through to env + defaults, so deploy order does not matter.
 | `meta_agent.skill_promotion_cron` | `True` | **Live.** Off for a company → `skill_promotion_scan` skips its entities. |
 | `meta_agent.prompt_evolution_cron` | `True` | **Live.** Off for a company → `meta_agent_prompt_evolution` skips its Meta-Agent. |
 | `meta_agent.tool_synthesis_enabled` | `False` | Kill switch for LLM-authored tools. Even ON it stays Meta-Agent-only, container-exec-only, DRAFT-register-only. |
-| `tools.resilience_v2_enabled` | `True` | Tool retry/fallback. |
+| `tools.resilience_v2_enabled` | — | Deleted (P8.6, EP-22): tool retry/fallback is unconditional. |
 | `planner.v2_enabled` | `True` | Planner v2. |
 | `sandbox.container_runtime_enabled` | `True` | Per-tenant container sandbox. |
 | `sandbox.persistent_browser_enabled` | `False` | Per-tenant persistent browser profile. |

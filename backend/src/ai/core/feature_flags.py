@@ -93,7 +93,6 @@ DEFAULTS: dict[str, bool] = {
     # Tool & cost consolidation defaults. (tools.cost_resolver_v2_enabled is
     # gone: ToolCostResolver is the only tool price lookup, unconditionally —
     # BC-17. The flag was declared and never read.)
-    "tools.resilience_v2_enabled": True,
     # Planner v2 (multi-candidate generation + invariants + judge).
     "planner.v2_enabled": True,
     # Per-tenant container sandbox (Phase 12 `02` S4) — THE switch (TX-01):
