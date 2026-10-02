@@ -751,6 +751,70 @@ and run → 4.4 override through the registry → 4.5 reformat span → 4.6 one 
 | 5.6 | Authoring API: create a version, attach assets, test-run a draft, publish through the existing approval flow | R2 (doc phase 4, API half) |
 | 5.7 | Doc Factory boilerplate split: inlined generator code moves into assets of the SKILL versions | R2 (doc phase 0) |
 
+#### P5 detailed design (written 2026-10-02, before P5.1)
+
+Re-read against the code at `3eeb8f5`. What holds today, and what changes the plan's wording:
+
+- Every executor (`SingleStep`, `DAG`, `Debate`, `Recursive`, `ChildEntity`), the loop
+  (`run.entity` at bootstrap) and the worker read **the live row** through `run.entity`.
+  EP-10 as recorded: an edit lands in a run already in flight at its next step.
+- **Seven writers change entity rows without `update_entity`** (admin promote, clone
+  helpers, `router.py` capability edits, the meta entity tools, reseed, the IO-contract
+  backfill, meta-cognition migration). A version scheme that relies on writers creating
+  versions would miss them, so **a run pins what the row says when the run is created**.
+- Eight places create an `ExecutionRun` (API trigger, retry, refine, child step, CORTEX
+  child, gateway, scheduled resume, voice). Pinning lives in **one** place: a
+  `before_insert` listener on `ExecutionRun`, like DM-09's company fill.
+- The only entity approval today is the Architecture Board's DRAFT→ACTIVE promote
+  (admin roles); `human_approvals` belongs to a run (`run_id NOT NULL`).
+- Doc Factory prompts call `python scripts/docx/office/validate.py`; `sandbox_provision`
+  symlinks the repo's `SeedDocumentFactory/scripts` (174 files, 3.7 MB) into **every**
+  tenant workspace. In container mode the mount is read-only; in host mode (the default
+  until P11, TL-01) it is a directory every tenant's code can write and every tenant runs.
+
+**Model — `src/ai/governance/entity_versions.py`, `orm/versions.py`:**
+
+| Piece | What it is |
+|---|---|
+| `entity_versions` | Append-only: `entity_id`, `company_id`, `version_number` (1, 2, … per entity), `label` (the old `version` string), `snapshot` (JSON, key order kept: name, display_name, description, goal, type and the nine blocks), `content_hash` (snapshot + asset manifest), `published`, `published_at/by`, `created_by/at`. Unique `(entity_id, version_number)` and `(entity_id, content_hash)` |
+| `entity_assets` | `entity_version_id`, `path`, `content_hash`, `language`, `body`, `size_bytes`; unique `(entity_version_id, path)`. Limits: 512 KiB a file, 8 MiB and 500 files a version; relative POSIX paths, no `..`, no leading `/` or `.`-segments |
+| `hierarchical_entities.active_version_id` | The published version the row's content matches (the head) |
+| `execution_runs.entity_version_id` | The version the run executes |
+| `capture_head(db, entity)` | Snapshot the row; reuse the version with that hash or append one (published, assets carried from the previous head), under a row lock on the entity; move `active_version_id`. Called by create/update and by the pin |
+| Pin | `before_insert` on `ExecutionRun`: if no `entity_version_id` was given, capture the head and pin it. A test run of a draft passes the draft's id |
+| `run_entity(db, run)` | The entity as the run's version describes it — a detached `HierarchicalEntity` built from the snapshot over the live row's identity and lifecycle fields (`id`, `company_id`, `parent_id`, `status`). Every executor, the loop and the worker read it instead of `run.entity`; a run with no version (created before the migration) reads the live row and emits `agent.entity.unpinned_run` |
+| Migration | Tables and columns; one published version 1 per existing entity, `active_version_id` set; historical runs stay unpinned |
+
+**Decisions (added to §9):** D12 — an edit through the API or any other writer still
+takes effect for **new** runs (captured as a published version); a run in flight keeps its
+pin. Drafts are explicit, through the versions API (the entity editor has no publish step;
+the skill editor screen is a follow-up). D13 — publishing a draft needs an admin role,
+the gate the Board's promote uses; it copies the snapshot onto the row and moves
+`active_version_id`. D14 — a run sees the assets of its own version and of its ancestor
+runs' versions, so a SKILL's files reach its ACTIONs (one rule at every level). D15 — each
+run pins its own entity when it is created; a child dispatched after its entity was edited
+runs the edit (pinning a whole tree at the root is later work).
+
+**Materialisation (5.4):** `<tenant workspace>/.skills/<slug>/<version_number>/`, written by
+the worker (never the API process, which only stores bodies), with a `.content-hash` marker;
+a marker that matches is a no-op. The step's sandwich prompt gains a "Skill files" section
+naming each materialised root and its files (capped list). 5.7 moves the Doc Factory
+scripts into assets of the family SKILL versions, rewrites the prompts to the listed root,
+and deletes the shared symlink.
+
+**Envelope (5.5):** the loop already stops at `governance.max_cost_usd` between iterations;
+it becomes a stop between steps too (spend read from the rows). Sandbox time is metered
+per call with the run (`meter_sandbox_usage`) — verified, and the SKU seeded. A report
+groups runs by version: runs, success rate, total and mean cost, tokens and duration.
+
+**Authoring API (5.6), under `/ai/entities/{id}/versions`:** list; read (snapshot and asset
+manifest); create a draft (head plus changes); put or delete an asset of a draft; test-run a
+draft (D6); publish (D13). Published versions are immutable (409).
+
+**Commit order:** 5.1 tables, migration, `capture_head` and the pin → 5.2 `run_entity`
+everywhere → 5.3 assets → 5.4 materialisation and the prompt section → 5.6 authoring API →
+5.5 envelope and report → 5.7 Doc Factory split.
+
 ### P6 — Tool stack collapse (R2, doc phase 3) and one execution path
 
 | # | Work | Ids |
@@ -851,6 +915,10 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D9 | Versions and assets exist for every level (`entity_versions`, `entity_assets`), not a SKILL-only table | R1 forbids a SKILL-only mechanism; EP-10 needs it for every entity |
 | D10 | A declared flag must have a reader. Unread flags are wired at a one-line choke point or deleted; a census test enforces it | Pattern 2 in the register README |
 | D11 | `cost_estimator_refresh` is deleted, not repaired (PC-26) | Tool charges are fixed per call (a median restates the price); the job never persisted its result; `CreditGuard.estimate` already learns from the entity's recent bills |
+| D12 | An edit (through the API or any writer) takes effect for new runs, captured as a published version; runs in flight keep their pin; drafts are explicit through the versions API | The entity editor has no publish step, and seven writers change rows directly; EP-10 is about runs in flight |
+| D13 | Publishing a draft needs an admin role (the Board promote's gate), not a `human_approvals` row | That table belongs to a run; there is no other entity approval flow |
+| D14 | A run sees the assets of its own version and its ancestor runs' versions | One rule at every level (R1); a SKILL's files reach the ACTIONs it delegates to |
+| D15 | Each run pins its own entity at creation; a parent does not pin its children's versions | Tree pinning needs the subtree captured at the root; later work |
 
 ---
 
@@ -950,3 +1018,5 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P4.7 | LP-I9 | `bf10015` | `test_interaction_rows.py` |
 | P4.8 | AK-11 (remainder) | `07bb740` | `test_cost_frames.py`; `critic_pipeline.py` deduplicated to stay within the planning/ cap |
 | **P4 done** | AK-02, AK-I1, BC-I3, PC-03 (cost), PC-20, LP-05, EP-24, TX-I1, TL-33, LP-I9, AK-11 | — | Unit + integration 1846 passed + the 8 known failures (the layout cap, then fixed). **Live** through the restarted worker (run `a13cae0f…`): total $0.0375 = Σ its rows $0.037542; no unattributed rows; planner and critic calls have interaction rows. The live run also found **PC-27** (new, High): the post critic judges output cut to 160 characters, so the run looped on `INCOMPLETE` until cancelled — scheduled first in P7 |
+| P7.0 (ahead of P5) | PC-27 | `3eeb8f5` | `test_critic_input.py` (4 tests fail on the old code). **Worse than recorded:** the cut summary was also every run's `result_data.output`, read by parents, episodes and the UI. Unit 1516 passed + 4 known; integration 250 + 2 known; parity passes. **Live re-run pending:** Vertex ADC needs `gcloud auth application-default login` (run `8bba900e…` failed at the first call with `RefreshError`, $0) |
+| — | P5 detailed design | — | Written into §8 P5 before P5.1; decisions D12–D15 |
