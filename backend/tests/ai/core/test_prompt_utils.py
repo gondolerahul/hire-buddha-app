@@ -83,3 +83,24 @@ class TestFilterContextForStep:
         step = PlanStep(name="test", type=StepType.THOUGHT)
         result = filter_context_for_step(step, ctx, {"type": "EXPLICIT", "explicit_keys": ["a", "c"]})
         assert result == {"a": 1, "c": 3}
+
+
+class TestDependenciesNarrowThePolicy:
+    """P8.5 — EP-12: a step's input_dependencies narrow the entity's
+    context_policy instead of replacing it (with a policy) or being ignored
+    (without one)."""
+
+    def _step(self, *deps):
+        return PlanStep(name="write", type=StepType.THOUGHT, target={"input_dependencies": list(deps)})
+
+    def test_without_a_policy_dependencies_still_narrow(self):
+        ctx = {"input": "go", "s1": "notes", "s2": "draft", "s3": "noise", "__memory__": "m"}
+        # Before: no policy meant the full context, dependencies ignored.
+        assert filter_context_for_step(self._step("s1"), ctx, None) == {"input": "go", "s1": "notes",
+                                                                        "__memory__": "m"}
+
+    def test_a_dependency_outside_the_policy_is_not_brought_back(self):
+        ctx = {"input": "go", "s1": "notes", "s2": "draft", "s3": "final"}
+        policy = {"type": "LAST_N", "n": 2}            # keeps input, s2, s3
+        # Before: dependencies replaced the policy, so s1 came back.
+        assert filter_context_for_step(self._step("s1", "s3"), ctx, policy) == {"input": "go", "s3": "final"}

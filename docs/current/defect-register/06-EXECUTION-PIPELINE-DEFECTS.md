@@ -361,7 +361,7 @@ as a trap.
 
 ### EP-12 — `input_dependencies` silently overrides `context_policy`
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P8.5)** — the policy applies first (FULL when unset), then a step's dependencies narrow what it kept; a dependency outside the policy is logged, not brought back. Documented in 06 §context. `tests/ai/core/test_prompt_utils.py::TestDependenciesNarrowThePolicy`.
 
 If a step declares `input_dependencies`, only `input` plus those dependencies reach it —
 whatever the entity's `context_policy` says.

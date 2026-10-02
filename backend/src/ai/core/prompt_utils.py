@@ -6,10 +6,13 @@ between worker.py and step_executor.py. These are pure utility functions
 with no database or service dependencies.
 """
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from src.ai.schemas import PlanStep
+
+logger = logging.getLogger(__name__)
 
 
 def parse_variables(text: str, variables: dict[str, Any]) -> str:
@@ -184,31 +187,33 @@ def filter_context_for_step(
     full_context: dict[str, Any],
     context_policy: Optional[Dict[str, Any]] = None
 ) -> dict[str, Any]:
+    """The context a step sees: the entity's ``context_policy``, then the
+    step's ``input_dependencies`` (EP-12).
+
+    The policy (``FULL`` when unset) is applied first. A step that declares
+    ``input_dependencies`` then sees only ``input``, those dependencies and the
+    platform's internal keys from what the policy kept — its dependencies
+    narrow the policy; they do not replace it. A dependency the policy left out
+    is logged, and the step runs without it. Before, dependencies replaced the
+    policy when one was set and were ignored when none was: two controls, one
+    winning silently.
     """
-    Filter context based on step's explicit inputs and policy.
+    policed = _apply_policy(full_context, context_policy or {})
+    deps = list(step.target.input_dependencies or []) if step.target else []
+    if not deps:
+        return policed
+    keep = {"input", *deps}
+    narrowed = {k: v for k, v in policed.items() if k in keep or (k.startswith("__") and k.endswith("__"))}
+    dropped = [d for d in deps if d in full_context and d not in policed]
+    if dropped:
+        logger.warning(
+            "Step '%s': its input_dependencies %s are outside the entity's context_policy (%s) "
+            "and are not shown to it", step.name, dropped, (context_policy or {}).get("type", "FULL"))
+    return narrowed
 
-    Args:
-        step: The plan step being executed
-        full_context: Full execution context dictionary
-        context_policy: Policy configuration from logic_gate
 
-    Returns:
-        Filtered context dictionary
-    """
-    if not context_policy:
-        return full_context
-
-    # Check for explicit input dependencies in step target
-    if step.target and hasattr(step.target, 'input_dependencies'):
-        deps = step.target.input_dependencies or []
-        if deps:
-            filtered = {"input": full_context.get("input")}
-            for dep in deps:
-                if dep in full_context:
-                    filtered[dep] = full_context[dep]
-            return filtered
-
-    # Apply context policy
+def _apply_policy(full_context: dict[str, Any], context_policy: Dict[str, Any]) -> dict[str, Any]:
+    """The context the entity's policy keeps (FULL, LAST_N, SLIDING_WINDOW, EXPLICIT)."""
     policy_type = context_policy.get("type", "FULL")
 
     if policy_type == "LAST_N":

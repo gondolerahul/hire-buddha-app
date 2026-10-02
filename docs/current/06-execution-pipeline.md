@@ -432,12 +432,11 @@ Plus `summarize_threshold` (default `8000` in the schema, but
 `preserve_keys`, which are never trimmed
 ([step_executor.py:1164](../../backend/src/ai/step_executor.py:1164)).
 
-> **Precedence trap:** `filter_context_for_step` short-circuits. If the step's
-> `target.input_dependencies` is non-empty, **only** `input` + those deps are
-> passed and `context_policy` is ignored entirely
-> ([prompt_utils.py:197-204](../../backend/src/ai/core/prompt_utils.py:197)).
-> And if `context_policy` is absent altogether, the function returns the full
-> context unfiltered.
+> **Precedence** (since P8.5, 2026-10-03, EP-12): the policy applies first (`FULL` when
+> absent); a step with `target.input_dependencies` then sees only `input`, those
+> dependencies and the internal `__…__` keys *from what the policy kept*. Dependencies
+> narrow the policy; a dependency the policy left out is logged and not shown. Before,
+> dependencies replaced the policy when one was set and were ignored when none was.
 
 ```json
 {
@@ -1212,14 +1211,15 @@ Two hard-won details are worth reading in the source:
 ```mermaid
 flowchart TD
     CTX["context_state dict"] --> FILT["filter_context_for_step"]
-    FILT --> D{"target.input_dependencies non-empty?"}
-    D -- yes --> ONLY["keep only 'input' plus each dep - context_policy IGNORED"]
-    D -- no --> POL{"context_policy.type"}
+    FILT --> POL{"context_policy.type"}
     POL -- FULL or absent --> ALL["everything"]
     POL -- LAST_N --> LASTN["input plus last n keys"]
     POL -- SLIDING_WINDOW --> SW["most recent first up to max_chars"]
     POL -- EXPLICIT --> EXP["only explicit_keys"]
-    ONLY & ALL & LASTN & SW & EXP --> SUM{"json size > summarize_threshold?"}
+    ALL & LASTN & SW & EXP --> D{"target.input_dependencies non-empty?"}
+    D -- yes --> ONLY["narrow to input, the deps and internal keys - within the policy (EP-12)"]
+    D -- no --> SUM
+    ONLY --> SUM{"json size > summarize_threshold?"}
     SUM -- yes --> TRIM["keep 'input' plus preserve_keys plus last 3, LLM-summarise the rest into earlier_context_summary"]
     SUM -- no --> PV
     TRIM --> PV["parse_variables prompt_template, filtered_context"]
