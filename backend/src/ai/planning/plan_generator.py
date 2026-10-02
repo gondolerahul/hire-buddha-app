@@ -273,22 +273,6 @@ class PlanGenerator:
             judge_reasoning=getattr(chosen, "_judge_reasoning", ""),
         )
 
-    async def replan(
-        self,
-        state: Any,
-        *,
-        proposed_subgoals: Optional[list[Any]] = None,
-        failed_step: Optional[dict[str, Any]] = None,
-        n: int = 2,
-    ) -> PlanCandidates:
-        ctx = self._ctx_from_state(state, proposed_subgoals, failed_step)
-        result = await self.generate(ctx, n=n)
-        await self._emit("agent.plan.replan",
-                         by="strategist",
-                         reason="failed_step" if failed_step else "supervisor",
-                         new_steps=len(result.chosen.steps))
-        return result
-
     # ------------------------------------------------------------------
     # Candidate generation
     # ------------------------------------------------------------------
@@ -547,38 +531,6 @@ class PlanGenerator:
         except Exception as exc:                                            # noqa: BLE001
             logger.warning(f"PlanJudge selection failed: {exc}")
             return self._cheapest(ranked)
-
-    # ------------------------------------------------------------------
-    # Replan context builder
-    # ------------------------------------------------------------------
-
-    def _ctx_from_state(
-        self,
-        state: Any,
-        proposed_subgoals: Optional[list[Any]],
-        failed_step: Optional[dict[str, Any]],
-    ) -> PlanContext:
-        entity = getattr(state, "entity", None)
-        static_plan = {"steps": list(getattr(state, "plan_steps", []) or [])}
-        goal = ""
-        if entity is not None:
-            goal = getattr(entity, "goal", "") or ""
-        elif proposed_subgoals:
-            goal = "\n".join(getattr(g, "description", str(g)) for g in proposed_subgoals)
-        return PlanContext(
-            entity=entity,
-            input_data={},
-            static_plan=static_plan,
-            intelligence_rules=[],
-            anti_patterns=[],
-            task_class=getattr(state, "task_class", "general"),
-            budget=getattr(state, "budget", None),
-            company_id=getattr(state, "company_id", None),
-            run_id=getattr(state, "run_id", None),
-            goal=goal,
-            proposed_subgoals=list(proposed_subgoals or []),
-            failed_step=failed_step,
-        )
 
     # ------------------------------------------------------------------
     # Tiny helpers

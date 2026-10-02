@@ -178,34 +178,6 @@ async def test_generate_emits_events_per_candidate() -> None:
 
 
 # ---------------------------------------------------------------------------
-# replan path
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_replan_emits_replan_event_and_returns_candidates() -> None:
-    events: list[tuple[str, dict]] = []
-
-    async def emit(name, **payload):
-        events.append((name, payload))
-
-    llm = _llm_router([_good_plan(), _good_plan(),
-                       json.dumps({"winner": 0, "scores": [0.9, 0.8]})])
-    gen = PlanGenerator(llm_router=llm, emit_event=emit)
-    fake_state = SimpleNamespace(
-        entity=_entity(tools=["web_search"],
-                       governance={"max_cost_usd": 1.0}),
-        plan_steps=[],
-        task_class="research_topic",
-        budget=None,
-        company_id=None,
-    )
-    result = await gen.replan(fake_state, failed_step={"name": "x", "error": "y"})
-    assert result.chosen.steps
-    assert any(e[0] == "agent.plan.replan" for e in events)
-
-
-# ---------------------------------------------------------------------------
 # Single-candidate fast path
 # ---------------------------------------------------------------------------
 

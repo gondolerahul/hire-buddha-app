@@ -990,20 +990,17 @@ an explicit argument. Treat the key as a documented no-op: it is still scrubbed
 from prompts and stripped from child input, so leaving it alone is harmless, but
 do not build on it.
 
-### 7.4 `PlanGenerator.replan` is dead code
+### 7.4 One replan path, observable
 
-[`PlanGenerator.replan`](../../backend/src/ai/planning/plan_generator.py:234)
-builds a `PlanContext` straight from `AgentState` — which is exactly what
-`adapt_plan` should be doing — but **nothing calls it**. `grep -rn "\.replan("
-src/` returns no production hits. The module docstring claiming it is
-"invoked by AgentLoop's supervisor-triggered REPLAN path" is wrong; that path
-goes through `PlannerService.adapt_plan`.
-
-Related: `PlanGenerator` is always constructed as
-`PlanGenerator(llm_router=..., db=...)` with no `emit_event`, so **none of the
-`agent.plan.*` telemetry events** (`generation_start`, `candidate_generated`,
-`invariant_violation`, `judge_decision`, `chosen`, `replan`,
-`binding_violation`, `binding_fallback`) are ever emitted in production.
+Since P7.9 (2026-10-02, PC-13, PC-14) `PlanGenerator.replan` and its `_ctx_from_state`
+are deleted: nothing called them, and the context they built from `AgentState` had no
+entity. Replans run through `PlannerService.adapt_plan`, which passes the entity and run
+(PC-20) and the finished steps (P7.7). Both planning paths build the generator with
+`emit_event=run_plan_events(run_id)`, so the `agent.plan.*` events (`generation_start`,
+`candidate_generated`, `invariant_violation`, `judge_decision`, `chosen`,
+`binding_violation`, `binding_fallback`) fire for the run, and `adapt_plan` adds
+`agent.plan.replan` (`by`, `new_steps`, `kept`). Before, every caller left `emit_event`
+unset and no planning event fired.
 
 ---
 
@@ -2224,12 +2221,8 @@ them.
 * **The post critic never sees intelligence rules.** `intelligence_reader` is
   hard-coded to `None` in `_build_real_critic_pipeline`, so `intel_rules`
   is always `"(none)"`.
-* **`PlanGenerator` never emits its telemetry.** It is always constructed
-  without `emit_event`, so no `agent.plan.*` event ever fires.
-* **`PlanGenerator.replan` has no caller.** Re-planning goes through
-  `PlannerService.adapt_plan`, which passes `entity=None` and therefore disables
-  four of the nine invariants (it passes no child roster either) and skips billing the
-  replan tokens.
+* **Planning emits its telemetry, and there is one replan path** (since P7.9;
+  `adapt_plan` has passed the entity and run since PC-20).
 * **REPLAN clears `completed_step_ids`.** Guarded for static-plan entities only;
   a dynamic entity really does restart its plan from scratch.
 * **`__completed_steps__` is documented but dead** — nothing writes or reads it

@@ -20,6 +20,18 @@ from src.ai.usage_service import UsageService
 logger = logging.getLogger(__name__)
 
 
+def run_plan_events(run_id: Any) -> Any:
+    """The ``emit_event`` a ``PlanGenerator`` gets: its ``agent.plan.*`` events,
+    tagged with the run (PC-14). Without it no planning event fired."""
+    if run_id is None:
+        return None
+    from src.ai.core.agent_loop_sse import event_async
+
+    async def emit(name: str, **payload: Any) -> None:
+        await event_async(name, run_id=str(run_id), **payload)
+    return emit
+
+
 def keep_completed(old_plan: list[dict[str, Any]], new_plan: list[dict[str, Any]],
                    completed_ids: set[str]) -> list[dict[str, Any]]:
     """A replan's plan: the finished steps of ``old_plan``, then ``new_plan``
@@ -174,7 +186,7 @@ class PlannerService:
             known_child_ids=known_child_ids,
             run_id=getattr(run, "id", None),
         )
-        gen = PlanGenerator(llm_router=self.llm, db=self.db)
+        gen = PlanGenerator(llm_router=self.llm, db=self.db, emit_event=run_plan_events(ctx.run_id))
         result = await gen.generate(ctx, n=n_candidates)
         steps = self._assign_step_ids(list(result.chosen.steps), start_from=1)
         return {
@@ -386,8 +398,12 @@ class PlannerService:
                     child_roster=child_roster,
                     known_child_ids=known_child_ids,
                 )
-                gen = PlanGenerator(llm_router=self.llm, db=self.db)
+                emit = run_plan_events(run_id)
+                gen = PlanGenerator(llm_router=self.llm, db=self.db, emit_event=emit)
                 result = await gen.generate(ctx, n=2)
+                if emit is not None:
+                    await emit("agent.plan.replan", by=str((failed_step or {}).get("name") or "replan"),
+                               new_steps=len(result.chosen.steps), kept=len(completed_steps))
                 return self._assign_step_ids(
                     list(result.chosen.steps),
                     start_from=len(completed_steps) + 1,
