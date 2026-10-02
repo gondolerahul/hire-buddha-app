@@ -65,7 +65,7 @@ async def test_the_pipeline_puts_the_cost_on_the_verdict_and_the_record(monkeypa
     monkeypatch.setattr(pipe, "_step_description", lambda _s: "step", raising=False)
     state = SimpleNamespace(iteration=1, company_id=uuid4(), run_id=uuid4())
 
-    verdict = await pipe.alignment(state, SimpleNamespace(summary="output"))
+    verdict = await pipe.alignment(state, SimpleNamespace(output="output"))
 
     assert verdict.cost_usd == Decimal("0.0021")
     assert record.alignment_cost_usd == Decimal("0.0021")

@@ -97,6 +97,6 @@ async def test_the_post_critic_passes_the_prompt_it_sent(db, monkeypatch):
     monkeypatch.setattr(pipe, "_render_intel_rules", AsyncMock(return_value=""), raising=False)
     monkeypatch.setattr(pipe, "_cumulative_critic_cost", Decimal("0"), raising=False)
     state = SimpleNamespace(run_id=run.id, company_id=company, iteration=1)
-    await pipe.post_action(state, SimpleNamespace(outcome="success", summary="the output"))
+    await pipe.post_action(state, SimpleNamespace(outcome="success", summary="[success] the out", output="the output"))
     assert seen.get("attribution") == "critic_post"
     assert seen["system_prompt"] == cp.POST_PROMPT_SYSTEM and "the output" in seen["user_prompt"]

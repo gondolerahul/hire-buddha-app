@@ -346,7 +346,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 
 | ID | Merged | Defect | Sev | Status | Phase |
 |---|---|---|---|---|---|
-| **PC-27** | — | The post critic and the alignment check judge the step output cut to 160 characters (`Observer._summarise`), so any longer answer is `INCOMPLETE`, retried and replanned until a cap (found in the P4 live run) | High | 🆕 | P7 (first) |
+| **PC-27** | — | The post critic and the alignment check judge the step output cut to 160 characters (`Observer._summarise`), so any longer answer is `INCOMPLETE`, retried and replanned until a cap; the same cut text was every run's stored result (found in the P4 live run) | High | ✔ | P7.0 (done ahead of P5) |
 | **PC-06** | PC-I1 | Every retry strategy executes identically | High | ✅ | P7 |
 | **PC-07** | (EP-05 row) | `retry_policy` is schema-only; retries are immediate | Medium | ✅ | P7 |
 | **PC-08** | — | `FailureTag.severity` is never consulted | Low | ✅ | P7 |
@@ -771,7 +771,7 @@ and run → 4.4 override through the registry → 4.5 reformat span → 4.6 one 
 
 | # | Work | Ids |
 |---|---|---|
-| 7.0 | The critics judge the step's output, not its 160-character summary — first, because every other P7 item acts on their verdicts | PC-27 |
+| 7.0 | The critics judge the step's output, not its 160-character summary — first, because every other P7 item acts on their verdicts. **Done 2026-10-02, ahead of P5** (see §12) | PC-27 |
 | 7.1 | Retry strategies carry their fields onto the `Move`; the executor honours model escalation, prompt rewrite, fallback tool, ask-user | PC-06 |
 | 7.2 | Backoff from `logic_gate.retry_policy` (and it becomes the per-step retry bound) | PC-07 |
 | 7.3 | Severity orders the choice | PC-08 |

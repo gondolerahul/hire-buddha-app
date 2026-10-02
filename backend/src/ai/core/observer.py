@@ -14,7 +14,25 @@ if TYPE_CHECKING:
     from src.ai.core.executors.base import ActionResult
 
 
-__all__ = ["Observer"]
+__all__ = ["CRITIC_OUTPUT_TOKENS", "Observer", "bounded_output"]
+
+# How much of a step's output a critic reads (PC-27). Executors already bound
+# their output at 8000 characters, so in practice a critic sees all of it.
+CRITIC_OUTPUT_TOKENS = 2000
+_CHARS_PER_TOKEN = 4
+
+
+def bounded_output(text: str, max_tokens: int = CRITIC_OUTPUT_TOKENS) -> str:
+    """``text`` within a token budget, saying so when the system cut it.
+
+    The critics once judged the 160-character timeline summary and called
+    every longer answer ``INCOMPLETE`` (PC-27); a cut they cannot see looks
+    like the step's own fault, so a cut is always marked.
+    """
+    limit = max_tokens * _CHARS_PER_TOKEN
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}\n[… {len(text) - limit} more characters cut by the system, not by the step]"
 
 
 class Observer:
@@ -31,6 +49,7 @@ class Observer:
                 str(nid) for nid in (action_result.cortex_nodes_written or [])
             ],
             summary=self._summarise(action_result, outcome),
+            output=action_result.output or "",
         )
 
     # ------------------------------------------------------------------
@@ -65,6 +84,7 @@ class Observer:
 
     @staticmethod
     def _summarise(ar: "ActionResult", outcome: str) -> str:
+        """One timeline line. Not for judging: the critics read ``output``."""
         if ar.error:
             return f"[{outcome}] {ar.error[:200]}"
         out = (ar.output or "")[:160]

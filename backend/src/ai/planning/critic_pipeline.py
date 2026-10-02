@@ -54,6 +54,7 @@ from src.ai.core.agent_state import (
     PreCriticVerdict,
     SupervisorVerdict,
 )
+from src.ai.core.observer import bounded_output
 from src.ai.planning.critic_prompts import (
     POST_PROMPT_SYSTEM,
     POST_PROMPT_USER,
@@ -73,11 +74,6 @@ __all__ = [
     "CriticMode",
     "resolve_critic_model",
 ]
-
-
-# ---------------------------------------------------------------------------
-# StepHealthRecord
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -355,7 +351,8 @@ class RealCriticPipeline:
                     task=self.config.task_description or "(none)",
                     step_desc=self._step_description(state),
                     outcome=observation.outcome,
-                    output=(observation.summary or "")[:2000] or "(empty)",
+                    # Whole output (PC-27); a failed step with none shows its error.
+                    output=bounded_output(observation.output or observation.summary) or "(empty)",
                     prior_history=prior_history,
                     intel_rules=intel_rules,
             )
@@ -413,7 +410,7 @@ class RealCriticPipeline:
         if self._budget_mode(state) is CriticMode.DEGRADED:
             return self._skipped_alignment(record)
 
-        if not (observation.summary and self.config.entity_goal):
+        if not (observation.output and self.config.entity_goal):
             return self._skipped_alignment(record)
 
         try:
@@ -422,7 +419,7 @@ class RealCriticPipeline:
             result = await verifier.verify_step_alignment(
                 entity_goal=self.config.entity_goal,
                 task_desc=self.config.task_description,
-                step_output=observation.summary,
+                step_output=observation.output,
                 step_name=self._step_description(state),
             )
             aligned = bool(result.get("aligned", True))

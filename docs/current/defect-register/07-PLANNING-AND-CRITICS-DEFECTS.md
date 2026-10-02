@@ -168,8 +168,19 @@ Pydantic field**, so it cannot be set through the API — see
 
 ### PC-27 — The post critic judges the step's output cut to 160 characters
 
-**✅ Verified · High** · **Status: open** — found 2026-10-02 during the P4 live run of the
-[consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md); scheduled first in P7.
+**✅ Verified · High** · **Status: ✅ fixed 2026-10-02** (P7.0 of the
+[consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), done ahead of P5) — found the same
+day during the P4 live run.
+
+**Fixed:** `Observation.output` carries the step's whole output; the post critic and the
+alignment check judge it through `bounded_output` (`CRITIC_OUTPUT_TOKENS` = 2000 tokens,
+the executors' own 8000-character bound, with a marked cut); the summary stays the
+timeline line. **Worse than recorded:** the same summary was every run's result —
+`AgentLoop._final_output` returned it, so `result_data.output` was `"[success] "` + 160
+characters, and that is what parent runs, run episodes and the UI read (live: run
+`ad8e1313…` stored 169 characters; the parity golden `research_agent_brief.json` holds
+the cut text). The run's result is now the last step's whole output. Evidence:
+`tests/unit/test_critic_input.py`.
 
 The post critic (and the alignment check) judge `observation.summary`, and
 `Observer._summarise` builds it as `"[<outcome>] " + output[:160]`

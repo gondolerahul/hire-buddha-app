@@ -34,7 +34,7 @@ VERIFICATION_PROMPT = """You are a strict quality control checker for an autonom
 The entity's GOAL is: {goal}
 The entity's current TASK is: {task_description}
 
-A step named "{step_name}" just completed with the following output (first 2000 chars):
+A step named "{step_name}" just completed with the following output (complete unless a line says the system cut it):
 ---
 {step_output}
 ---
@@ -97,6 +97,7 @@ class GoalAlignmentVerifier:
             return {"aligned": True, "confidence": 1.0, "issues": [], "correction_hint": ""}
 
         try:
+            from src.ai.core.observer import bounded_output
             from src.ai.llm.router import LLMRouter
             llm = LLMRouter(db=self.db, company_id=self.company_id)
 
@@ -104,7 +105,7 @@ class GoalAlignmentVerifier:
                 goal=entity_goal,
                 task_description=task_desc,
                 step_name=step_name,
-                step_output=step_output[:2000],
+                step_output=bounded_output(step_output),
             )
 
             response = await llm.call_llm(

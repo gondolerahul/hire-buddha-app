@@ -1408,9 +1408,11 @@ class AgentLoop:
 
     @staticmethod
     def _final_output(state: AgentState) -> str:
-        # Prefer last observation summary, then any context_state['output'].
-        if state.last_observation and state.last_observation.summary:
-            return state.last_observation.summary
+        # The last step's output, whole — not its timeline summary, which
+        # stored "[success] " + 160 characters as every run's result and
+        # handed that to parents and episodes (PC-27).
+        if state.last_observation and state.last_observation.output:
+            return state.last_observation.output
         out = state.context_state.get("output") or state.context_state.get("result")
         return str(out) if out else ""
 

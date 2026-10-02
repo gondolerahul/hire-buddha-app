@@ -1274,7 +1274,7 @@ flowchart TD
 | `task` | `config.task_description` — in practice the **entity's `name`**, set in `_build_real_critic_pipeline` |
 | `step_desc` | `"executor={x} move={y}"` from `state.last_action`, or `"(initial step)"` |
 | `outcome` | `observation.outcome` — one of `success`, `partial`, `fail`, `blocked` |
-| `output` | `observation.summary`, truncated to 2000 chars |
+| `output` | `observation.output`, whole within `CRITIC_OUTPUT_TOKENS` (2000 tokens; a system cut is marked), or `observation.summary` for a failed step with no output. It was the 160-character summary until PC-27, so every longer answer was judged `INCOMPLETE` |
 | `prior_history` | last 3 `StepHealthRecord`s rendered as `iter=N post=X tags=[...] align=Y` |
 | `intel_rules` | top 3 intelligence rules — **always `"(none)"`**, because `intelligence_reader` is passed as `None` at [agent_loop.py:930](../../backend/src/ai/core/agent_loop.py:930) |
 
@@ -1325,7 +1325,7 @@ flowchart TD
     C -->|no| PASS["aligned true, drift 0.0 - no LLM"]
     C -->|yes| D{"DEGRADED?"}
     D -->|yes| PASS
-    D -->|no| E{"observation.summary AND entity_goal both non-empty?"}
+    D -->|no| E{"observation.output AND entity_goal both non-empty?"}
     E -->|no| PASS
     E -->|yes| F["GoalAlignmentVerifier.verify_step_alignment"]
     F --> G{"output starts with an error marker?"}

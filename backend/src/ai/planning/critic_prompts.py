@@ -45,7 +45,7 @@ POST_PROMPT_USER = (
     "Task description: {task}\n"
     "Step description: {step_desc}\n"
     "Observation outcome: {outcome}\n"
-    "Step output (truncated to 2000 chars):\n---\n{output}\n---\n"
+    "Step output (complete unless a line says the system cut it):\n---\n{output}\n---\n"
     "Recent prior health records (last 3):\n{prior_history}\n"
     "Top intelligence rules (top 3):\n{intel_rules}\n\n"
     "Closed set of failure tags:\n"

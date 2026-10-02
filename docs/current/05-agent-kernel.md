@@ -1004,7 +1004,7 @@ flowchart LR
 |-------|---------|---------|--------------|
 | `pre_action` | `PreCriticVerdict` | every iteration | `move.plan_fragment` is set (loop-side), pipeline is DEGRADED, or `critic_pipeline.pre_critic_enabled` off |
 | `post_action` | `PostCriticVerdict` | every iteration | pipeline DEGRADED |
-| `alignment` | `AlignmentVerdict` | `iteration % goal_validation_interval == 0`, default interval **2** | DEGRADED, or no observation summary / entity goal |
+| `alignment` | `AlignmentVerdict` | `iteration % goal_validation_interval == 0`, default interval **2** | DEGRADED, or no observation output / entity goal |
 | `supervisor` | `SupervisorVerdict` | `iteration % meta_review_interval == 0`, default interval **3**, never at iteration 0 | — |
 
 `AgentLoop._compose` builds a `RealCriticPipeline` only when
@@ -1277,7 +1277,16 @@ dependencies, ~70 lines. It turns an `ActionResult` into an `Observation`:
 | `novelty_score` | CORTEX nodes written → `1.0`; output longer than 200 chars → `0.6`; else `0.5` |
 | `goal_delta_estimate` | `success` → `+0.1`; `fail` → `-0.1`; else `0.0` |
 | `cortex_node_ids_written` | stringified `ar.cortex_nodes_written` |
-| `summary` | `"[outcome] error[:200]"` on error, else `"[outcome] tools=a,b output[:160]"` |
+| `summary` | `"[outcome] error[:200]"` on error, else `"[outcome] tools=a,b output[:160]"` — one line for the timeline, the Perceiver and the Reflector |
+| `output` | `ar.output`, whole — what the critics judge and what becomes the run's result |
+
+The critics judged `summary` until PC-27 (2026-10-02): any answer longer than 160
+characters reached them cut mid-word, the post critic returned `REVISE`/`INCOMPLETE`
+every iteration and the supervisor replanned until a cap. They now judge `output`
+through `bounded_output` — a budget of `CRITIC_OUTPUT_TOKENS` (2000 tokens, ≈8000
+characters, the bound executors already apply), with a line saying the system cut
+it if it ever does, so a cut is never mistaken for the step's own. A failed step
+with no output shows the post critic its `summary`, which carries the error.
 
 Note it can never emit `"blocked"`, which is why `state.blockers` stays empty
 in practice (see §18).
@@ -1435,11 +1444,14 @@ once the run truly ends.
    `llm_interaction_logs` and a NULL `billed_amount`.
 2. Reload a fresh `ExecutionRun` (the passed-in one has expired attributes).
 3. `status`, `completed_at`.
-4. `total_cost_usd = max(budget.usd_used, existing)` — never clobber the
-   engine-billed cost downward.
-5. `total_tokens = max(budget tokens, subtree rollup, existing)`.
+4. `total_cost_usd` / `total_tokens` = `run_spend` — the run's usage rows plus its
+   children's totals (P4.1, AK-02); the loop is the only writer.
+5. `context_state["__cortex_tree_id__"]` when the run has a CORTEX tree.
 6. `error_message[:1000]` if any.
-7. `result_data = {"output": output[:8000], "steps": step_results}` — **only if
+7. `result_data = {"output": output[:8000], "steps": step_results}`, where `output`
+   is the last observation's whole `output` (else `context_state["output"]`) — not
+   its timeline `summary`, which stored `"[success] "` + 160 characters as every
+   run's result until PC-27 — **only if
    `result_data` is currently empty**, so a nested engine's own result is not
    clobbered. The refine flow in `service.py` reads `result_data["steps"]` back.
 8. `_settle_billing(fresh)` — `GovernanceService.settle_billing`, skipped for

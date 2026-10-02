@@ -93,7 +93,8 @@ class Observation:
     novelty_score: float                                          # 0..1
     goal_delta_estimate: float                                    # -1..1
     cortex_node_ids_written: list[str] = field(default_factory=list)
-    summary: str = ""
+    summary: str = ""                                             # one line, for the timeline
+    output: str = ""                                              # what the step produced, whole (PC-27)
 
 
 @dataclass
