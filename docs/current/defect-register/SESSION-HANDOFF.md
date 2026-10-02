@@ -53,7 +53,7 @@
 > policy, no Perceiver, every executor on its own session, an adaptive iteration cap, plan
 > costing against the entity's cap, batched SSE, typed step signals, outputs stored once).
 > Decisions D19–D23. **Next is P9** (LLM providers) per the plan. On this machine the DB is
-> at `p7_drop_source_trust` and both workers must be restarted on the P8 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
+> at `p7_drop_source_trust` and both workers run the P8 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
 > any live run (the PC-27 live re-run is pending). Run unit tests with `PYTHONUTF8=1` or the
 > layout-lint test fails on a cp1252 decode. Unit baseline: **4** known failures (the
 > Windows sandbox tests); integration: the 2 known `test_cost_attribution` failures. New
