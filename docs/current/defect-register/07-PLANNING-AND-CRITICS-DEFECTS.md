@@ -207,7 +207,7 @@ characters); the observation summary stays a summary for the timeline.
 
 ### PC-06 — Every retry strategy executes identically
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-02, P7.1)** — the remedy is a `StepDirective` on the copy of each step the retry dispatches, so it survives the queue; the step executor escalates to the `thinking` model, appends the critic's correction, starts a tool step at its fallback, or asks a person first (`GovernanceService.ask_user`, a HITL request whose answer becomes the correction). A remedy the step has no means for falls back to a prompt rewrite, and the event says so. `tests/unit/test_retry_directives.py`.
 
 `pick_retry` chooses between seven strategies:
 

@@ -355,6 +355,54 @@ class GovernanceService:
                 f"HITL checkpoint timed out after {cp.timeout_ms}ms: {trigger_desc}"
             )
 
+    async def ask_user(self, run: 'ExecutionRun', step_obj: PlanStep, question: str,
+                       *, timeout_ms: int = 300000) -> str:
+        """Ask a person before a step runs again, and wait for the answer (PC-06).
+
+        The critic chose ``ASK_USER``: the step needs something only a person
+        can give. The question is a HITL request on the run (trigger
+        ``ASK_USER``); the reviewer answers by approving it with notes, which
+        are returned. A rejection, an approval with no answer, or the timeout
+        raises: the step fails rather than run again on a guess.
+        """
+        trigger = f"ASK_USER: {step_obj.name}"[:255]
+        approval = HumanApproval(
+            run_id=run.id, checkpoint_trigger=trigger, status="PENDING",
+            context_snapshot={"trigger": trigger, "phase": "BEFORE", "question": question,
+                              "step": {"name": step_obj.name, "step_id": step_obj.step_id,
+                                       "description": step_obj.description}},
+            timeout_ms=timeout_ms,
+        )
+        self.db.add(approval)
+        await self.db.commit()
+        await self.db.refresh(approval)
+        try:
+            await self.redis.publish(f"execution:{run.id}", json.dumps({
+                "status": "HITL_PENDING", "approval_id": str(approval.id),
+                "trigger": trigger, "message": question,
+            }))
+        except Exception as pub_err:
+            logger.warning(f"ASK_USER notice not published: {pub_err}")
+
+        decision = await self._await_hitl_decision(approval.id, timeout_ms / 1000.0)
+        if decision is None:
+            await self.db.execute(
+                update(HumanApproval)
+                .where(HumanApproval.id == approval.id, HumanApproval.status == "PENDING")
+                .values(status="TIMEOUT")
+            )
+            await self.db.commit()
+            raise Exception(f"Nobody answered the question for step '{step_obj.name}' "
+                            f"within {timeout_ms // 1000}s: {question}")
+        if decision != "APPROVED":
+            raise Exception(f"The reviewer declined to answer for step '{step_obj.name}'")
+        answer = (await self.db.execute(
+            select(HumanApproval.reviewer_notes).where(HumanApproval.id == approval.id)
+        )).scalar_one_or_none()
+        if not answer or not str(answer).strip():
+            raise Exception(f"The reviewer approved step '{step_obj.name}' without an answer")
+        return str(answer).strip()
+
     # The decisions a reviewer can record on an approval row.
     _HITL_DECISIONS = ("APPROVED", "REJECTED")
 

@@ -1764,25 +1764,22 @@ through to `ABANDON`.
 ### 14.3 What changes between attempts
 
 `RetryExecutor.build` produces a JSON-serialisable dict (so it survives
-`AgentState` snapshot/restore) that the loop rehydrates into a `Move`:
+`AgentState` snapshot/restore) that the loop rehydrates into a `Move`. Since P7.1
+(2026-10-02, PC-06) the remedy is a `directive` (`StepDirective`) written onto the copy
+of each step in the retry's plan fragment, so it travels with the step through any
+executor; the step executor honours it:
 
-| Strategy | Extra key on the scaffold | What actually differs |
-|----------|--------------------------|----------------------|
-| `RETRY_AS_IS` | — | Nothing but the `rationale`. The same plan fragment re-runs; only non-determinism in the model changes the result. |
-| `RETRY_DIFFERENT_MODEL` | `force_model_escalation: True` | Signals the executor to escalate. |
-| `RETRY_DIFFERENT_PROMPT` | `prompt_rewrite_hint: <post_critic_suggestion>` | The critic's suggestion is carried forward. |
-| `RETRY_DIFFERENT_TOOL` | `use_fallback_tool: True` | Signals a fallback tool. |
-| `ASK_USER` | `ask_user: True`, `concerns`, `suggestion` | No plan fragment at all. |
-| `NONE` / `ABANDON` | — | `build` returns `None`; nothing is queued. |
+| Strategy | Directive on the step | What actually differs |
+|----------|----------------------|----------------------|
+| `RETRY_AS_IS` | `strategy` only | The same step re-runs. |
+| `RETRY_DIFFERENT_MODEL` | `escalate_model`, `prompt_hint` (the critic's suggestion) | The step's LLM calls resolve through task type `thinking` (the company's reasoning model), unless the entity names a model of its own; the suggestion is appended as "## Correction". |
+| `RETRY_DIFFERENT_PROMPT` | `prompt_hint` | The critic's suggestion (or its verdict) is appended to the step prompt as "## Correction". |
+| `RETRY_DIFFERENT_TOOL` | `use_fallback_tool` | A `TOOL_CALL` step starts at its tool's fallback. A step with no fallback gets a prompt rewrite naming the failed tool instead, and `agent.retry.picked` reports `RETRY_DIFFERENT_PROMPT` with `picked` = the original choice. |
+| `ASK_USER` | `ask_user` (the question) | Before the step runs again, `GovernanceService.ask_user` opens a HITL request (trigger `ASK_USER`) and waits; the reviewer's notes become the step's correction. A rejection, an empty answer or the timeout fails the step. |
+| `NONE` / `ABANDON` | — | `build` returns `None`; nothing is queued (also when the move had no plan fragment). |
 
-> **Important:** `_move_from_retry`
-> ([agent_loop.py:1464](../../backend/src/ai/core/agent_loop.py:1464)) copies
-> only `retry_move_id`/`original_move_id`, `executor`, `plan_fragment` and
-> `rationale` into the rebuilt `Move`. The `force_model_escalation`,
-> `prompt_rewrite_hint`, `use_fallback_tool` and `ask_user` keys are **dropped**.
-> As of this code, every retry strategy is effectively `RETRY_AS_IS` from the
-> executor's point of view. The strategy name survives only in the
-> `agent.retry.picked` event and the move's rationale text.
+Before P7.1 the remedy was a key on the queued dict that `_move_from_retry` dropped, and
+every strategy ran as `RETRY_AS_IS`.
 
 ### 14.4 Backoff
 

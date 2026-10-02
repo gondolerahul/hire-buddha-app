@@ -293,6 +293,17 @@ class StepEngine:
         # the step that crosses the cap finishes; the following step is blocked.
         await self._enforce_cost_cap(run, governance)
 
+        # ── A retry the critic sent to a person (ASK_USER, PC-06): the answer
+        # becomes the step's correction; no answer fails the step. ──────────
+        from src.ai.step_executor import step_directive
+        _directive = step_directive(step_obj)
+        if _directive is not None and _directive.ask_user:
+            assert self._governance is not None
+            answer = await self._governance.ask_user(run, step_obj, _directive.ask_user)
+            hint = "\n".join(h for h in (_directive.prompt_hint, f"The user answered: {answer}") if h)
+            step_obj = step_obj.model_copy(update={
+                "directive": _directive.model_copy(update={"ask_user": None, "prompt_hint": hint})})
+
         # ── HITL: Evaluate BEFORE_STEP and COST_THRESHOLD checkpoints ───────
         await self._evaluate_hitl_checkpoints(
             run, entity, step_obj, context_state, phase="BEFORE",

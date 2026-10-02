@@ -18,6 +18,7 @@ from src.ai.schemas.enums import StepType
 from src.ai.schemas.prompts import DEFAULT_PLANNING_SYSTEM_PROMPT
 
 __all__ = [
+    "StepDirective",
     "PlanStepTarget",
     "PlanStep",
     "StaticPlan",
@@ -28,6 +29,27 @@ __all__ = [
     "Planning",
     "ExitCondition",
 ]
+
+
+class StepDirective(BaseModel):
+    """How the loop wants a step run this time — set by the loop, not authored.
+
+    A corrective retry (PC-06) or a critic (PC-02, PC-03) writes it onto the
+    copy of the step it dispatches; the step executor honours it:
+
+    * ``escalate_model`` — the step's LLM calls resolve through task type
+      ``thinking`` (the company's reasoning model) unless the entity names a
+      model of its own;
+    * ``prompt_hint`` — appended to the step prompt under "## Correction";
+    * ``use_fallback_tool`` — a ``TOOL_CALL`` step starts at its tool's fallback;
+    * ``ask_user`` — the question goes to a person first (a HITL request), and
+      their answer becomes the ``prompt_hint``.
+    """
+    strategy: str = ""
+    escalate_model: bool = False
+    prompt_hint: Optional[str] = None
+    use_fallback_tool: bool = False
+    ask_user: Optional[str] = None
 
 
 class ExitCondition(BaseModel):
@@ -91,6 +113,9 @@ class PlanStep(BaseModel):
     # reasoning mode (REACT / CHAIN_OF_THOUGHT). It supersedes the deprecated
     # entity-level ``reasoning_config.reasoning_mode``.
     reasoning_hint: Optional[str] = None
+    # Set by the loop on the copy of a step it dispatches (a retry's remedy, a
+    # critic's correction); never part of an authored plan.
+    directive: Optional[StepDirective] = None
 
     # Legacy per-step spelling, mapped onto reasoning_hint by the validator below.
     extra_accepted_keys: ClassVar[frozenset[str]] = frozenset({"reasoning_mode"})

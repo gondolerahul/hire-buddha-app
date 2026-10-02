@@ -21,7 +21,7 @@ from src.ai.models import (
     ExecutionRun, HierarchicalEntity, LLMInteractionLog,
     ToolInteractionLog, RunStatus,
 )
-from src.ai.schemas import StepType, PlanStep
+from src.ai.schemas import StepType, PlanStep, StepDirective
 from src.ai.tool_executor import ToolExecutor
 from src.ai.llm.router import LLMRouter
 from src.ai.usage_service import UsageService
@@ -35,6 +35,20 @@ logger = logging.getLogger(__name__)
 from src.ai.core.prompt_utils import parse_variables, build_sandwich_prompt, filter_context_for_step
 from src.ai.core.exceptions import UncertaintySignal
 from src.ai.schemas import DEFAULT_REVIEW_SYSTEM_PROMPT as DEFAULT_REVIEW_PROMPT
+
+
+def step_directive(step: Any) -> Optional[StepDirective]:
+    """The loop's directive on this run of the step, if any (PC-06)."""
+    directive = getattr(step, "directive", None)
+    return directive if isinstance(directive, StepDirective) else None
+
+
+def with_correction(user_prompt: str, step: Any) -> str:
+    """The step prompt with the directive's correction appended (PC-06, PC-02, PC-03)."""
+    directive = step_directive(step)
+    if directive is None or not directive.prompt_hint:
+        return user_prompt
+    return f"{user_prompt}\n\n## Correction\n{directive.prompt_hint}"
 
 
 def prompt_context_block(filtered_context: dict, context: dict) -> Optional[str]:
@@ -416,6 +430,15 @@ class StepExecutorService:
                     else:
                         raw_input = ""
             
+            # A retry of a failed tool starts at its fallback (PC-06).
+            _directive = step_directive(step)
+            if _directive is not None and _directive.use_fallback_tool:
+                from src.ai.tool_fallback import get_fallback_tool
+                alt_tool, alt_input = get_fallback_tool(tool_id, raw_input or "")
+                if alt_tool:
+                    logger.info(f"Retry of '{step.name}': {tool_id} -> fallback {alt_tool}")
+                    tool_id, raw_input = alt_tool, alt_input
+
             # What the tool is told about the call: built by the platform from
             # the run and the entity, never from run input (TL-53, P3.2).
             from src.ai.governance.tool_access import ExecutionContext
@@ -600,6 +623,11 @@ class StepExecutorService:
         task_type = config.get("task_type", "text_generation")
         # Allow entity-level model override (e.g. Pro for synthesizer).
         model_override = config.get("model_name")
+        # A retry that escalates the model runs on the company's reasoning
+        # model, unless the entity names a model of its own (PC-06).
+        _directive = step_directive(step)
+        if _directive is not None and _directive.escalate_model and not model_override:
+            task_type = "thinking"
 
         # Filter and optionally summarize context
         filtered_context = filter_context_for_step(step, context, logic_gate.get("context_policy"))
@@ -733,7 +761,7 @@ class StepExecutorService:
         _step_hint = getattr(step, "reasoning_hint", None)
         reasoning_mode = str(_step_hint).upper() if _step_hint else "REACT"
 
-        user_prompt = compose_step_prompt(step, filtered_context, context.get("input"))
+        user_prompt = with_correction(compose_step_prompt(step, filtered_context, context.get("input")), step)
         # ``$SKILL_FILES`` names the nearest version's files folder (R2).
         from src.ai.tools.sandbox.skill_files import fill_skill_files
         _skills = await self._skill_files(run)

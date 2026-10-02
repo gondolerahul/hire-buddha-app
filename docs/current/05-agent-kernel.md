@@ -630,7 +630,9 @@ state.chosen_executor = move.executor
 
 `_move_from_retry` ([agent_loop.py:1464](../../backend/src/ai/core/agent_loop.py:1464))
 rehydrates the JSON-serialisable retry dict back into a `Move`. This is why the
-queue stores dicts and not `Move` objects — it has to survive `snapshot()`.
+queue stores dicts and not `Move` objects — it has to survive `snapshot()`. The retry's
+remedy is a `directive` on each step of the fragment (P7.1, PC-06), so it survives too;
+see [07 §14.3](07-planning-and-critics.md).
 
 **What can go wrong:** `next_move` is `async` but does no I/O except the bandit
 call, which is wrapped in try/except.

@@ -674,7 +674,10 @@ class AgentLoop:
                         await event_async(
                             "agent.retry.picked",
                             run_id=str(state.run_id), iteration=state.iteration,
-                            strategy=retry_decision.strategy.value,
+                            # What the retry really does: a remedy this step
+                            # has no means for falls back to a prompt rewrite.
+                            strategy=follow_up["strategy"],
+                            picked=retry_decision.strategy.value,
                             tags=[t.value for t in record.post_critic_tags],
                         )
             else:

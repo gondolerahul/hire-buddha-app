@@ -135,7 +135,9 @@ def test_retry_executor_builds_followup_with_metadata() -> None:
     follow_up = RetryExecutor().build(decision, move, rec)
     assert follow_up is not None
     assert follow_up["strategy"] == RetryStrategy.RETRY_DIFFERENT_PROMPT.value
-    assert follow_up["prompt_rewrite_hint"] == "wrap in JSON"
+    # The remedy rides on the step, where the step executor reads it (PC-06).
+    [step] = follow_up["plan_fragment"]
+    assert step["directive"]["prompt_hint"] == "wrap in JSON"
     assert follow_up["original_move_id"] == "m1"
 
 
@@ -152,11 +154,14 @@ def test_retry_executor_ask_user_payload() -> None:
     rec.post_critic_suggestion = "what timeframe?"
     decision = pick_retry(rec, _state(used_pct=0.1))
     move = Move(move_id="m1", goal_id=None, executor="SingleStep",
-                plan_fragment=[], rationale="orig")
+                plan_fragment=[{"step_id": "s1"}], rationale="orig")
     follow_up = RetryExecutor().build(decision, move, rec)
     assert follow_up is not None
-    assert follow_up["ask_user"] is True
-    assert follow_up["suggestion"] == "what timeframe?"
+    [step] = follow_up["plan_fragment"]
+    assert step["directive"]["ask_user"] == "what timeframe?"
+    # Nothing concrete to run again: no retry.
+    empty = Move(move_id="m2", goal_id=None, executor="SingleStep", plan_fragment=[], rationale="orig")
+    assert RetryExecutor().build(decision, empty, rec) is None
 
 
 # ---------------------------------------------------------------------------
