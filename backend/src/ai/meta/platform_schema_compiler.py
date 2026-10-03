@@ -11,7 +11,7 @@ via the platform_introspect meta-tool.
 """
 from __future__ import annotations
 
-import hashlib
+import copy
 import json
 import logging
 from datetime import datetime, timezone
@@ -21,9 +21,13 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.meta.schema_drift import note_schema_version, schema_version
+
 logger = logging.getLogger(__name__)
 
-
+# The sections that change only when the code does, built once per process
+# (MI-I4): entity levels, step types, modes, constraints, composition rules, …
+_STATIC_SECTIONS: Optional[Dict[str, Any]] = None
 class PlatformSchemaCompiler:
     """Compiles the HireBuddha platform surface into a queryable schema."""
 
@@ -53,23 +57,15 @@ class PlatformSchemaCompiler:
         """
         schema: Dict[str, Any] = {
             "compiled_at": datetime.now(timezone.utc).isoformat(),
-            "entity_types": self._compile_entity_types(),
-            "step_types": self._compile_step_types(),
-            "reasoning_modes": self._compile_reasoning_modes(),
-            "execution_modes": self._compile_execution_modes(),
+            **self._static_sections(),
             "tools": self._compile_tools(include_tenant=include_tenant_tools),
             "model_endpoints": await self._compile_model_endpoints(),
-            "constraints": self._compile_constraints(),
-            "composition_rules": self._compile_composition_rules(),
-            "memory_modes": self._compile_memory_modes(),
-            "hitl_triggers": self._compile_hitl_triggers(),
-            "io_contract_spec": self._compile_io_contract_spec(),
-            "behavioral_annotations": self._compile_behavioral_annotations(),
         }
 
-        # Compute schema hash for drift detection
-        schema_str = json.dumps(schema, sort_keys=True, default=str)
-        schema["schema_version"] = hashlib.sha256(schema_str.encode()).hexdigest()[:16]
+        # Content hash for drift detection; a change since the company's last
+        # compile drops its cached manifest (MI-19).
+        schema["schema_version"] = schema_version(schema)
+        await note_schema_version(self.company_id, schema["schema_version"])
 
         self._cached_schema = schema
         self._cached_hash = schema["schema_version"]
@@ -95,16 +91,30 @@ class PlatformSchemaCompiler:
         self._cached_schema["model_endpoints"] = await self._compile_model_endpoints()
         self._cached_schema["compiled_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Recompute hash
-        schema_str = json.dumps(self._cached_schema, sort_keys=True, default=str)
-        new_hash = hashlib.sha256(schema_str.encode()).hexdigest()[:16]
-
+        new_hash = schema_version(self._cached_schema)
         if new_hash != self._cached_hash:
-            logger.info(f"Platform schema drift detected: {self._cached_hash} → {new_hash}")
             self._cached_hash = new_hash
             self._cached_schema["schema_version"] = new_hash
+        await note_schema_version(self.company_id, new_hash)
 
         return self._cached_schema
+
+    def _static_sections(self) -> Dict[str, Any]:
+        global _STATIC_SECTIONS
+        if _STATIC_SECTIONS is None:
+            _STATIC_SECTIONS = {
+                "entity_types": self._compile_entity_types(),
+                "step_types": self._compile_step_types(),
+                "reasoning_modes": self._compile_reasoning_modes(),
+                "execution_modes": self._compile_execution_modes(),
+                "constraints": self._compile_constraints(),
+                "composition_rules": self._compile_composition_rules(),
+                "memory_modes": self._compile_memory_modes(),
+                "hitl_triggers": self._compile_hitl_triggers(),
+                "io_contract_spec": self._compile_io_contract_spec(),
+                "behavioral_annotations": self._compile_behavioral_annotations(),
+            }
+        return copy.deepcopy(_STATIC_SECTIONS)
 
     def get_cached(self) -> Optional[Dict[str, Any]]:
         """Return cached schema without recompilation."""

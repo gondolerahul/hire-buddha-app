@@ -602,16 +602,20 @@ flowchart LR
 
 ### 14.2 Drift detection
 
-```python
-# backend/src/ai/meta/platform_schema_compiler.py
-schema_str = json.dumps(schema, sort_keys=True, default=str)
-schema["schema_version"] = hashlib.sha256(schema_str.encode()).hexdigest()[:16]
-```
+`schema_drift.schema_version` is a 16-hex-char hash of the schema's **content** —
+everything but `compiled_at` and the version itself (MI-19, 2026-10-03; it used to hash
+`compiled_at` too, so every compile "drifted"). `note_schema_version` keeps the last version
+each company's agents were shown in Redis (`meta:schema_version:{company}`), so drift is
+seen across processes and compiler instances. When it changes — a tool added or removed, a
+model configured — the company's cached manifest (`meta:manifest:{company}`, the Tier-1
+summary) is dropped so the next prompt shows the new surface, and `meta.schema.drift` is
+emitted. The promotion side of drift is the Validator's `granted_tools_exist` check
+([§8](#8-role-5--validator)).
 
-A stable 16-hex-char fingerprint of the whole capability surface. `sort_keys=True`
-makes it deterministic. If a tool is added, a model is configured, or a
-constraint changes, the version changes — which is how the platform detects that
-an agent's cached self-knowledge is stale.
+The sections that change only with the code (entity levels, step types, modes,
+constraints, composition rules, memory modes, HITL triggers, the IO-contract spec,
+behavioural annotations) are built once per process (MI-I4); each compile copies them and
+recomputes only tools and model endpoints.
 
 ### 14.3 The compact summary
 

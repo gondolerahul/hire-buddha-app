@@ -375,7 +375,12 @@ can silently reduce every later spec's test coverage to nothing.
 
 ### MI-19 — Drift detection compares a hash nothing acts on
 
-**📄 Doc-reported · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-03, P10.6)** — worse than recorded: the hash
+included `compiled_at`, so every compile "drifted", and drift was compared only within one
+compiler instance (every caller builds a new one). The hash covers content; the last
+version per company is kept in Redis; a change drops the company's cached manifest and emits
+`meta.schema.drift` (`ai/meta/schema_drift.py`). Promotion is gated on the current surface by
+the Validator's `granted_tools_exist` (P10.1). Test: `tests/unit/test_schema_drift.py`.
 
 The platform schema compiler computes a hash of the compiled capability surface and
 detects drift between the compiled "firmware" and the live platform.
@@ -413,6 +418,10 @@ Either wire the Meta-Agent entity in as the rewriter — the docstring anticipat
 this — or run one critique and stop. The current shape is the worst of both.
 
 ### MI-I4 — Cache the platform schema compilation
+
+**Status: done (2026-10-03, P10.6)** — the code-only sections are built once per process
+and copied per compile; the Tier-1 summary stays cached per company in Redis (5 min) and is
+dropped on drift (MI-19).
 
 **Effect: medium.** `platform_schema_compiler.py` is 898 lines that walk the entire
 capability surface — every tool, every schema, every enum — to produce the "firmware" JSON
