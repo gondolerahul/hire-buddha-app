@@ -1210,6 +1210,51 @@ confidence pruning (MI-15); human-queue counts (MI-17); drift gates promotion (M
 cached schema compile (MI-I4); skill promotion produces a draft SKILL version through the
 P5 authoring path (R2 §11).
 
+*Detailed design (2026-10-03, before P10.1).* Re-read against the code at `ffb3975`.
+
+- **The Board (MI-20, D27).** Nothing outside `ai/meta/board/` constructs a Board role but
+  `ToolSmith` (tool synthesis). Wiring the full chain into publication would mean running
+  seven billed test runs per publish and waiting on them, for a gate whose case runner
+  never existed. What is cheap, deterministic and real is the **Validator**: it becomes the
+  gate every publication passes — publishing a draft version, and promoting a `DRAFT`
+  entity to `ACTIVE` — answering 422 with the failed checks. It gains the check the drift
+  gate needs (MI-19): every tool the definition grants is a tool the platform has now.
+  RequirementChat, Curator, Architect, Critic, TestDriver, Promoter and `golden_outcomes`
+  are deleted with their tests (git keeps them); MI-04, MI-05, MI-06, MI-07 and MI-18
+  described code that never ran and become invalid; MI-08 is moot. A person still decides
+  (D13: the admin role); explicit test runs stay the versions API's `test-run`.
+- **Fail closed (MI-01).** `check_semantic_duplicate` answers "cannot tell" on an
+  exception, and the caller refuses the creation; a `meta.gate.failed` event names the
+  gate and the error.
+- **One creation gate (MI-02, MI-03, D28).** The anti-sprawl gates move into
+  `AIService.create_entity`, applied to creations an **agent** makes (`origin="agent"`):
+  `meta_entity_creator`'s CREATE and VERSION modes, which used to check two gates in CREATE
+  only. A person creating through the API is not gated — the person is the decision.
+  Beside the daily limit, a burst limit (3 a minute per company, `RedisRateLimiter`, which
+  gets its first caller) refuses a runaway loop; an unreadable Redis refuses too. VERSION
+  mode gets the adaptation-chain check it never ran.
+- **Semantic reuse (MI-09).** A semantic score ≥ 0.85 makes a candidate at least ADAPT,
+  and ≥ 0.95 a duplicate for the anti-sprawl gate, whatever the other signals say.
+- **Tree pruning (MI-15).** Over the cap, rows are archived (`status` complete,
+  `archived_at`), not deleted, lowest retention first: evidence count, then age; rows with
+  evidence ≥ 3 or severity `high` are never archived. Readers see active rows only.
+- **Review queues (MI-17).** `GET /ai/meta/review_queue` counts what waits for a person —
+  prompt candidates, skill candidates, `DRAFT` entities and `DRAFT` tools — and the
+  Meta-Intelligence page shows it.
+- **Drift and the compile (MI-19, MI-I4).** Worse than recorded: `schema_version` hashed
+  `compiled_at`, so every compile "drifted". The hash covers content only; the static
+  sections (entity types, step types, modes, constraints, composition rules, …) are built
+  once per process; a refresh that finds drift drops the company's cached manifest so
+  agents see the new surface, and emits `meta.schema.drift`.
+- **Skill promotion (R2 §11).** `POST /meta/skill_candidates/{id}/promote` wrote the row
+  directly, with `capabilities.tool_ids` (a shape nothing reads) and steps with no target;
+  it now creates a `DRAFT` SKILL through `AIService.create_entity` — tool grants, `TOOL_CALL`
+  steps with targets, version 1 — which `promote` then publishes through the Validator.
+
+**Commit order:** 10.1 MI-20 (Validator gate, deletions) → 10.2 MI-01 → 10.3 MI-02/MI-03 →
+10.4 MI-09 → 10.5 MI-15 → 10.6 MI-19/MI-I4 → 10.7 MI-17 → 10.8 skill promotion → 10.9 docs
+(MI-08, MI-11).
+
 ### P11 — Sandbox hardening (infrastructure-dependent)
 
 Durable per-tenant workspace (TL-16), egress through the proxy (TL-15), video paths
@@ -1251,6 +1296,8 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D23 | The Perceiver is deleted, not wired | Memory already reaches the step prompt; the strategist is deterministic; nothing set its cursor |
 | D24 | `anthropic` is declared, the adapter kept (LP-07) | Five critic-ladder entries route to Claude; the adapter is complete |
 | D25 | `routing_mode` is replaced by one fallback integration per task type; a ReAct loop falls back only before its first tool call (LP-08) | A second provider when the first is exhausted is what "router" promised; re-running a loop after a tool ran would repeat its side effects |
+| D27 | The Board's Validator is the gate every publication passes; the other Board roles (bar ToolSmith) are deleted (MI-20) | It is the deterministic, cheap, real part; the rest never ran and wiring it would bill seven test runs per publish |
+| D28 | Anti-sprawl gates run inside `create_entity` for creations an agent makes; a person creating through the API is not gated (MI-02) | One place no agent path can skip; a person's choice is the decision the gates stand in for |
 | D26 | Text streams on Gemini; Anthropic and Azure deliver each turn's text when the turn completes (LP-I7) | Gemini is the configured provider everywhere; assembling streamed tool-call deltas for two providers nobody runs is untestable here |
 
 ---
@@ -1404,3 +1451,19 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P8.9 | AK-21 | `e17ec5e` | `test_step_signals.py`. The loop's signals are a typed `StepSignals` ContextVar (D22); the context dict carries data |
 | P8.4 | EP-18, EP-I6 | `c4570c9` | `test_outputs_once.py`. Outputs stored once by id; `{{name}}` resolves through the name map; unique names (API 422, planner rename, editor flag) |
 | **P8 done** | EP-04, EP-05, EP-08, EP-12, EP-18, EP-20, EP-22, EP-23, EP-I6, EP-I9, AK-05, AK-18, AK-21, AK-I8, AK-I9 | — | Unit and ai 1727 + the 4 known sandbox tests (deselected); integration and parity 340 + the 2 known `test_cost_attribution` failures; typecheck, layout lint, tsc and eslint pass; local DB at `p7_drop_source_trust`. **Remaining from P6:** TL-38 cursor input, TL-46 `person_generation`, the D16 census, FE-32. **Not live-verified with an LLM** (Vertex ADC expired) |
+| — | P9 detailed design | `6af40d8` | Written into §8 P9 before P9.1; decisions D24–D26 |
+| P9.1 | LP-23 | `ad3cea6` | `test_llm_retry.py::test_the_sdk_parses_a_finish_reason_newer_than_itself` fails on the old import-time patch; the SDK keeps unknown reasons itself |
+| P9.2 | LP-07 (D-12) | `3ed0b6a` | `test_llm_packaging.py` builds the `AsyncAnthropicVertex` client; `anthropic ^0.69` declared (D24) |
+| P9.3 | LP-09 | `f6745a5` | `test_task_types.py` scans the code for every task type it resolves (4 fail on the old code) |
+| P9.4 | LP-11 | `d3f1100` | `test_service_category.py`; `ServiceCategory` enum, 422 on write, `ck_integration_registry_service_category` (migration `p9_service_category`, validated locally) |
+| P9.5 | LP-12 | `bdb34f8` | `test_adc_key.py`: a Vertex-backed integration is created and routed without a key |
+| P9.6 | LP-21 | `77220cd` | `test_platform_company.py`: one reader (`src/auth/platform.py`), `uq_companies_one_app` (migration `p9_one_app_company`), exact provider match. Worse than recorded: six readers, not one |
+| P9.7 | LP-10 | `f2ba99b` | `test_model_health.py`; `/api/v1/health` has a `models` block (live: `ok`); the error names `/ai-config` and the seed |
+| P9.8 | LP-17, LP-20 | `3a481c2` | `test_tool_call_ids.py` (collection fails on the old code). Worse than recorded: Anthropic sent one `tool_use_id` twice; the step executor never read `top_p` |
+| P9.9 | LP-18 | `b0f9b26` | `test_gemini_schema.py`: 4 of 5 fail on the old translation; every registered tool translates without the fallback |
+| P9.10 | LP-24 | `d6bc9e2` | `test_multimodal.py`. **Found:** LP-26 (new, open) — video frame analysis is never billed |
+| P9.11 | LP-22, LP-I5 | `6233a25` | `test_resolution_cache.py`: 100 routers, one resolution; a change in another process is seen within a second (integration generation in Redis) |
+| P9.12 | LP-08, LP-15, LP-I2 | `6561663` | `test_llm_fallback.py`, `test_task_fallback.py`; migration `p9_task_fallback`; breaker; the AI config page's fallback picker checked in the browser (D25) |
+| P9.13 | LP-I7 | `ffb3975` | `test_text_streaming.py` + vitest reducer case; Gemini streams, the others per turn (D26); `step_delta` frames |
+| **P9 done** | LP-07…LP-12, LP-15, LP-17, LP-18, LP-20…LP-24, LP-I2, LP-I5, LP-I7 (D-12) | — | Unit 1789 + the known chaos failure; integration 342 + the 2 known `test_cost_attribution` failures; parity 2 passed after the harness fix below; typecheck, layout lint, tsc, eslint pass; local DB at `p9_task_fallback`; API and workers restarted. **Not live-verified with an LLM** (Vertex ADC expired). **Found:** the parity gate had failed since P4.7 (`bf10015`) — it counted the planner's and critics' new interaction rows as steps (fixed in the harness, `tests/parity/extract.py`); LP-26 |
+| — | P10 detailed design | — | Written into §8 P10 before P10.1; decisions D27, D28 |

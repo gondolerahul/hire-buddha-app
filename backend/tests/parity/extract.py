@@ -120,8 +120,15 @@ async def extract_run_result(
     # if the engine didn't persist a plan to ``run.dynamic_plan`` (static
     # entities under the loop), fall back to the count of LLM interactions
     # so the count reflects real work rather than reading 0.
+    # Only a step's own calls count: since P4.7 (LP-I9) the planner, critics
+    # and alignment check write interaction rows too (``step_name`` ``__x__``,
+    # ``reasoning_mode`` PLANNER), and the reformat retry its own.
+    step_rows = [r for r in llm_rows
+                 if not (r.step_name or "").startswith("__")
+                 and (r.reasoning_mode or "").upper() != "PLANNER"
+                 and not (r.input_prompt or "").startswith("[REFORMAT]")]
     persisted_steps = len(step_summaries)
-    effective_steps = persisted_steps or len(llm_rows)
+    effective_steps = persisted_steps or len(step_rows)
 
     return RunResult(
         run_id=str(run.id),
