@@ -1188,48 +1188,27 @@ flowchart LR
     S --> N1 --> N2
 ```
 
-### 11.1 The Gemini translation is the only lossy one
+### 11.1 The Gemini translation
 
-Gemini needs typed `Schema` objects, so the adapter rebuilds the schema by hand:
-
-```python
-# backend/src/ai/llm/gemini_adapter.py
-_GEMINI_TYPE_MAP = {
-    "string": "STRING", "integer": "INTEGER", "number": "NUMBER",
-    "boolean": "BOOLEAN", "array": "ARRAY", "object": "OBJECT",
-}
-
-def _prop_to_schema(self, prop_def: Dict) -> Any:
-    prop_type = self._GEMINI_TYPE_MAP.get(prop_def.get("type", "string"), "STRING")
-    kwargs = {"type": prop_type, "description": prop_def.get("description", "")}
-    if "enum" in prop_def:
-        kwargs["enum"] = [str(v) for v in prop_def["enum"]]
-    if prop_type == "ARRAY":
-        items_def = prop_def.get("items")
-        kwargs["items"] = self._prop_to_schema(items_def) if isinstance(items_def, dict) \
-                          else types.Schema(type="STRING")
-    if prop_type == "OBJECT":
-        ...recurse into properties, copy nested required...
-    return types.Schema(**kwargs)
-```
-
-What survives and what does not:
+Gemini needs typed `Schema` objects, so `GeminiAdapter._prop_to_schema` rebuilds each
+property. Until LP-18 (2026-10-03) it kept only type, description, enums (as strings),
+items and properties. What it does now:
 
 | JSON-Schema construct | Gemini | Azure | Anthropic |
 |---|---|---|---|
 | `type` (6 primitives) | ✅ mapped to uppercase | ✅ verbatim | ✅ verbatim |
-| unknown `type` | ⚠️ silently becomes `STRING` | ✅ verbatim | ✅ verbatim |
+| `type: [X, "null"]` | ✅ `X` with `nullable` | ✅ | ✅ |
+| `anyOf` / `oneOf` | ✅ `any_of` (one non-null variant is merged; a `null` variant → `nullable`) | ✅ | ✅ |
 | `description` | ✅ | ✅ | ✅ |
-| `enum` | ✅ **coerced to strings** — integer enums become `["1","2"]` | ✅ | ✅ |
-| nested `object` | ✅ recursive | ✅ | ✅ |
-| `array` without `items` | ⚠️ invented as `items: STRING` | ✅ | ✅ |
-| `required` | ✅ top level and nested | ✅ | ✅ |
-| `default`, `format`, `pattern`, `minimum`, `oneOf`, `$ref` | ❌ **dropped** | ✅ | ✅ |
-| malformed property | ⚠️ replaced with a bare `STRING`, warning logged, tool survives | n/a | n/a |
-
-So a tool whose schema relies on `oneOf` or `pattern` behaves differently on
-Gemini than on Azure. When a tool misbehaves on one provider only, this table is
-the first place to look.
+| string `enum` | ✅ | ✅ | ✅ |
+| non-string `enum` | ⚠️ the type is kept and the values are listed in the description — Gemini's `enum` is string-only | ✅ | ✅ |
+| `pattern`, `default`, `minimum`, `maximum`, `minLength`, `maxLength`, `minItems`, `maxItems`, `minProperties`, `maxProperties` | ✅ copied | ✅ | ✅ |
+| `exclusiveMinimum` / `exclusiveMaximum` | ⚠️ described (`Must be > 0.`) | ✅ | ✅ |
+| `format` | ✅ where Vertex accepts it (`date-time`, `int32`/`int64`, `float`/`double`), else described | ✅ | ✅ |
+| nested `object`, `required` | ✅ recursive | ✅ | ✅ |
+| `array` without `items` | ⚠️ invented as `items: STRING` (Gemini requires it) | ✅ | ✅ |
+| `$ref` | n/a — typed tools inline them (`tools/base._plain_schema`) | | |
+| malformed property | ⚠️ replaced with a bare `STRING`, warning logged; `tests/unit/test_gemini_schema.py` checks that no registered tool hits it | n/a | n/a |
 
 ### 11.2 The three ReAct protocols
 
@@ -1955,9 +1934,8 @@ Checklist for the adapter itself, learned from the three that exist:
     `thoughts_token_count`, so it can be much larger than the visible answer. Use
     `thinking_tokens` for the split.
 14. *(Fixed, LP-20.)* `top_p` reaches every ReAct path.
-15. **Gemini's tool-schema translation is lossy.** `oneOf`, `pattern`,
-    `default`, `format` and numeric bounds are discarded; integer `enum` values
-    become strings.
+15. *(Fixed, LP-18.)* Gemini's tool-schema translation keeps unions, patterns,
+    defaults and bounds; see §11.1 for what is described rather than sent.
 16. *(Fixed, LP-17.)* Tool results go back to their call by position and id on every provider.
 17. **A ReAct loop that exhausts `MAX_REACT_TURNS = 12` fails its step**
     (`finish_reason = "MAX_TURNS"`, LP-19). Raise the cap rather than expect a

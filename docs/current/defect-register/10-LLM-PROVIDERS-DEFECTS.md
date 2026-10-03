@@ -459,7 +459,13 @@ and pair on that.
 
 ### LP-18 — Gemini's tool-schema translation is lossy
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P9.9)** — `anyOf`/`oneOf` become
+`any_of` (a `null` variant or `type: [X, "null"]` becomes `nullable`); `pattern`, `default`
+and every numeric, length, item and property bound are copied; `format` is copied where
+Vertex accepts it and described otherwise; a non-string `enum` keeps its type and lists its
+values in the description (Gemini's `enum` is string-only), so an integer comes back as an
+integer. Test: `tests/unit/test_gemini_schema.py` (4 of 5 fail on the old code; the fifth
+checks every registered tool translates without the malformed-property fallback).
 
 `oneOf`, `pattern`, `default`, `format` and numeric bounds are all discarded, and integer
 `enum` values become strings.

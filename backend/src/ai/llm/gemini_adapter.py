@@ -9,6 +9,7 @@ Extracted from llm_router.py during Phase 10B restructuring.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -94,24 +95,86 @@ class GeminiAdapter(BaseLLMAdapter):
         "array": "ARRAY",
         "object": "OBJECT",
     }
+    # JSON Schema keyword → types.Schema field, copied as they are (LP-18).
+    _SCHEMA_FIELDS = {
+        "pattern": "pattern", "default": "default", "minimum": "minimum", "maximum": "maximum",
+        "minLength": "min_length", "maxLength": "max_length", "minItems": "min_items",
+        "maxItems": "max_items", "minProperties": "min_properties", "maxProperties": "max_properties",
+    }
+    # The ``format`` values Vertex accepts per type; another format would be a
+    # 400, so it is described instead.
+    _FORMATS = {"STRING": {"date-time", "enum"}, "INTEGER": {"int32", "int64"}, "NUMBER": {"float", "double"}}
 
     def _prop_to_schema(self, prop_def: Dict) -> Any:
-        """Recursively convert a JSON-Schema property dict to a Gemini types.Schema.
+        """A JSON Schema as a Gemini ``types.Schema``, without losing the contract.
 
-        Handles nested objects, arrays with items, and enum values — all of which
-        the Gemini API strictly validates.
+        It used to keep only type, description, string enums, items and
+        properties: ``oneOf``/``anyOf``, ``pattern``, ``default``, ``format``
+        and every bound were dropped, and an integer ``enum`` was sent as
+        strings, so Gemini saw a weaker contract than Azure (LP-18). Now:
+
+        - ``anyOf`` / ``oneOf`` → ``any_of`` (a ``null`` variant → ``nullable``),
+          and ``type: [X, "null"]`` → ``nullable``;
+        - ``pattern``, ``default``, numeric, length, item and property bounds are copied;
+        - ``format`` is copied where Vertex accepts it, else described;
+        - Gemini's ``enum`` is string-only, so a non-string ``enum`` keeps its type
+          and lists the allowed values in the description (an integer comes back
+          as an integer); exclusive bounds are described too.
         """
         from google.genai import types
 
-        prop_type = self._GEMINI_TYPE_MAP.get(prop_def.get("type", "string"), "STRING")
-        kwargs: Dict[str, Any] = {
-            "type": prop_type,
-            "description": prop_def.get("description", ""),
-        }
+        prop_def = dict(prop_def)
+        notes: List[str] = []
+        nullable = False
 
-        # Enum values
+        raw_type = prop_def.get("type")
+        if isinstance(raw_type, list):
+            nullable = "null" in raw_type
+            concrete = [t for t in raw_type if t != "null"]
+            raw_type = concrete[0] if concrete else None
+
+        variants = prop_def.get("anyOf") or prop_def.get("oneOf")
+        if variants and raw_type is None:
+            concrete_variants = [v for v in variants if isinstance(v, dict) and v.get("type") != "null"]
+            nullable = nullable or len(concrete_variants) < len(variants)
+            if len(concrete_variants) == 1:
+                merged = {k: v for k, v in prop_def.items() if k not in ("anyOf", "oneOf")}
+                merged.update(concrete_variants[0])
+                if prop_def.get("description"):
+                    merged["description"] = prop_def["description"]
+                schema = self._prop_to_schema(merged)
+                if nullable:
+                    schema.nullable = True
+                return schema
+            return types.Schema(
+                any_of=[self._prop_to_schema(v) for v in concrete_variants],
+                description=prop_def.get("description", ""),
+                nullable=nullable or None,
+            )
+
+        prop_type = self._GEMINI_TYPE_MAP.get(raw_type or "string", "STRING")
+        kwargs: Dict[str, Any] = {"type": prop_type}
+
+        for json_key, field_name in self._SCHEMA_FIELDS.items():
+            if json_key in prop_def:
+                kwargs[field_name] = prop_def[json_key]
+        for json_key, word in (("exclusiveMinimum", ">"), ("exclusiveMaximum", "<")):
+            if json_key in prop_def:
+                notes.append(f"Must be {word} {prop_def[json_key]}.")
+
+        fmt = prop_def.get("format")
+        if fmt:
+            if fmt in self._FORMATS.get(prop_type, set()):
+                kwargs["format"] = fmt
+            else:
+                notes.append(f"Format: {fmt}.")
+
         if "enum" in prop_def:
-            kwargs["enum"] = [str(v) for v in prop_def["enum"]]
+            values = list(prop_def["enum"])
+            if prop_type == "STRING" and all(isinstance(v, str) for v in values):
+                kwargs["enum"] = values
+            else:
+                notes.append("Allowed values: " + ", ".join(json.dumps(v) for v in values) + ".")
 
         # Array → must have items
         if prop_type == "ARRAY":
@@ -134,6 +197,10 @@ class GeminiAdapter(BaseLLMAdapter):
             if nested_required:
                 kwargs["required"] = nested_required
 
+        if nullable:
+            kwargs["nullable"] = True
+        description = prop_def.get("description", "")
+        kwargs["description"] = " ".join([description, *notes]).strip() if notes else description
         return types.Schema(**kwargs)
 
     def get_tool_declarations(self, tool_schemas: List[Dict]) -> Any:
@@ -146,9 +213,8 @@ class GeminiAdapter(BaseLLMAdapter):
         declarations = []
         for schema in tool_schemas:
             props = {}
-            required = []
             raw_props = schema.get("parameters", {}).get("properties", {})
-            raw_required = schema.get("parameters", {}).get("required", [])
+            required = schema.get("parameters", {}).get("required", []) or []
             for prop_name, prop_def in raw_props.items():
                 try:
                     props[prop_name] = self._prop_to_schema(prop_def)
@@ -162,8 +228,6 @@ class GeminiAdapter(BaseLLMAdapter):
                         type="STRING",
                         description=prop_def.get("description", ""),
                     )
-            if raw_required:
-                required = raw_required
 
             declarations.append(
                 types.FunctionDeclaration(
