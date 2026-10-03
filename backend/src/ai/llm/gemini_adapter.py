@@ -38,19 +38,6 @@ class GeminiAdapter(BaseLLMAdapter):
         from src.common.genai_factory import build_vertex_genai_client_sync
         return build_vertex_genai_client_sync(self.service_metadata)
 
-    def _sdk_validation_error(self, exc: Exception) -> Optional[RuntimeError]:
-        """The SDK failed to parse a ``finish_reason`` newer than it knows.
-        It is an error: nothing retries it (LP-04)."""
-        if "ValidationError" in type(exc).__name__ and "finish_reason" in str(exc):
-            logger.error("Gemini SDK could not parse a finish_reason for %s: %s", self.model_name, exc)
-            error = RuntimeError(
-                f"Gemini SDK validation error for model {self.model_name}: the response "
-                f"carried a finish_reason this google-genai version does not know. Error: {exc}"
-            )
-            error.__cause__ = exc
-            return error
-        return None
-
     def _configured_thinking_budget(self) -> Optional[int]:
         raw = self.service_metadata.get("thinking_budget")
         if raw is None:
@@ -248,14 +235,11 @@ class GeminiAdapter(BaseLLMAdapter):
                 generate_config.tools = [types.Tool(function_declarations=declarations)]
 
         start = time.monotonic()
-        try:
-            response = await call_provider(lambda: client.aio.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=generate_config,
-            ), what=f"gemini {self.model_name}")
-        except Exception as e:
-            raise self._sdk_validation_error(e) or e
+        response = await call_provider(lambda: client.aio.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+            config=generate_config,
+        ), what=f"gemini {self.model_name}")
         latency_ms = int((time.monotonic() - start) * 1000)
         self._warn_if_truncated(response, max_tokens)
 
@@ -324,16 +308,12 @@ class GeminiAdapter(BaseLLMAdapter):
         finish_reason = "stop"
         for turn in range(max_react_turns):
             start = time.monotonic()
-            try:
-                response = await call_provider(lambda: client.aio.models.generate_content(
-                    model=self.model_name,
-                    contents=contents,
-                    config=generate_config,
-                ), what=f"gemini {self.model_name} (react turn {turn + 1})")
-            except Exception as e:
-                # An error, not an end of turn: ending the loop here returned
-                # whatever text it had as if the model had finished (LP-04).
-                raise self._sdk_validation_error(e) or e
+            # An error propagates: it is not an end of turn (LP-04).
+            response = await call_provider(lambda: client.aio.models.generate_content(
+                model=self.model_name,
+                contents=contents,
+                config=generate_config,
+            ), what=f"gemini {self.model_name} (react turn {turn + 1})")
             latency_ms = int((time.monotonic() - start) * 1000)
             total_latency_ms += latency_ms
             self._warn_if_truncated(response, max_tokens)

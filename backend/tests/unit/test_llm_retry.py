@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 
@@ -171,11 +171,7 @@ def test_sdk_clients_do_not_retry_on_their_own():
         assert adapter._build_client().max_retries == 0
 
 
-# ── LP-04: the Gemini SDK validation error ──────────────────────────────────
-
-
-class ValidationError(Exception):
-    """Named like pydantic's, which is how the adapter recognises it."""
+# ── LP-04 / LP-23: an SDK error is an error, and the SDK is not patched ────
 
 
 class _GeminiBroken:
@@ -183,7 +179,7 @@ class _GeminiBroken:
         self.aio = SimpleNamespace(models=SimpleNamespace(generate_content=self._generate))
 
     async def _generate(self, **_kw):
-        raise ValidationError("1 validation error for Candidate finish_reason: Input should be ...")
+        raise ValueError("bad request")
 
 
 def _gemini(monkeypatch):
@@ -195,13 +191,13 @@ def _gemini(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_gemini_validation_error_fails_a_react_loop(monkeypatch):
+async def test_a_gemini_error_fails_a_react_loop(monkeypatch):
     adapter = _gemini(monkeypatch)
 
     async def tools(_calls):
         return []
 
-    with pytest.raises(RuntimeError, match="finish_reason"):
+    with pytest.raises(ValueError, match="bad request"):
         await adapter.generate_with_tools_react(
             system_prompt="s", initial_messages=[{"role": "user", "parts": [{"text": "hi"}]}],
             tool_schemas=[], execute_tool_fn=tools,
@@ -209,9 +205,25 @@ async def test_the_gemini_validation_error_fails_a_react_loop(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_gemini_validation_error_does_not_claim_a_retry(monkeypatch, caplog):
+async def test_a_gemini_error_does_not_claim_a_retry(monkeypatch, caplog):
     adapter = _gemini(monkeypatch)
-    with caplog.at_level(logging.DEBUG), pytest.raises(RuntimeError, match="finish_reason"):
+    with caplog.at_level(logging.DEBUG), pytest.raises(ValueError):
         await adapter.generate(system_prompt="s", messages=[{"role": "user", "parts": [{"text": "hi"}]}])
     assert "retrying" not in caplog.text.lower()
     assert retry_mod  # the module under test is importable
+
+
+def test_the_sdk_parses_a_finish_reason_newer_than_itself():
+    """LP-23: the stock google-genai keeps an unknown reason; nothing patches it."""
+    import warnings
+
+    import src.ai.llm.types  # noqa: F401 — importing it must not touch the SDK
+    from google.genai import types
+
+    assert types.Candidate.model_fields["finish_reason"].annotation is not Optional[str]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        response = types.GenerateContentResponse.model_validate(
+            {"candidates": [{"finish_reason": "A_REASON_FROM_THE_FUTURE",
+                             "content": {"parts": [{"text": "hi"}]}}]})
+    assert "A_REASON_FROM_THE_FUTURE" in str(response.candidates[0].finish_reason)

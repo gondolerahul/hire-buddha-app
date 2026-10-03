@@ -491,7 +491,11 @@ handle the rotation request.
 
 ### LP-23 — The FinishReason monkey-patch mutates the installed SDK at import
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P9.1)** — the patch is deleted, with
+the Gemini adapter's handler for the error it worked around (LP-04's). google-genai 1.75
+parses an unknown `finish_reason` itself: its enum keeps the value and warns. Test:
+`tests/unit/test_llm_retry.py::test_the_sdk_parses_a_finish_reason_newer_than_itself`
+(fails on the old code, whose import rewrote `Candidate.finish_reason` to `Optional[str]`).
 
 Importing `src.ai.llm.types` patches `google-genai`'s `FinishReason` enum in place. It is
 a workaround for an SDK validation bug, and it is invisible from the call site.
