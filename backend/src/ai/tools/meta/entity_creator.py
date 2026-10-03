@@ -172,7 +172,7 @@ class MetaEntityCreatorTool(Tool):
             return json.dumps({
                 "success": False,
                 "error": dup_check["message"],
-                "gate": "semantic_duplicate",
+                "gate": "semantic_duplicate_unavailable" if dup_check.get("unavailable") else "semantic_duplicate",
                 "existing_entity_id": dup_check.get("existing_entity_id"),
                 "similarity_score": dup_check.get("similarity_score"),
             })

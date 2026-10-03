@@ -882,10 +882,8 @@ flowchart LR
 
 Stated plainly, since a new developer should know:
 
-- **Several gates fail open.** `check_semantic_duplicate` returns
-  `is_duplicate: False` on any exception. The Curator wraps both anti-sprawl
-  calls in `except Exception: pass`. If the registry search breaks, duplicate
-  protection quietly disappears.
+- *(Resolved 2026-10-03, MI-01.)* The duplicate gate fails closed: when it cannot run it
+  refuses the creation and emits `meta.gate.failed`.
 - **`AntiSprawlGuard` only advises.** Enforcement depends on
   `MetaEntityCreatorTool` honouring the result. Any other creation path bypasses
   it entirely.

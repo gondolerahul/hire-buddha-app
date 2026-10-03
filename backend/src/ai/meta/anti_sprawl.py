@@ -117,7 +117,8 @@ class AntiSprawlGuard:
         existing entity details.
 
         This is a HARD GATE — near-duplicates must use VERSION mode
-        instead of CREATE.
+        instead of CREATE. When the check cannot run it answers
+        ``is_duplicate: True, unavailable: True``: it fails closed (MI-01).
         """
         from src.ai.meta.registry_search_service import (
             RegistrySearchService,
@@ -155,8 +156,16 @@ class AntiSprawlGuard:
             }
 
         except Exception as e:
-            logger.warning(f"Semantic duplicate check failed: {e}. Allowing creation.")
+            # Fail closed (MI-01): a gate that cannot evaluate refuses. It used
+            # to answer "no duplicate" on any error, so a broken registry search
+            # turned duplicate protection off with no signal anywhere.
+            from src.ai.core.events import event
+            logger.error("Semantic duplicate check failed; creation refused: %s", e)
+            event("meta.gate.failed", gate="semantic_duplicate", company_id=str(self.company_id),
+                  error=f"{type(e).__name__}: {e}")
             return {
-                "is_duplicate": False,
-                "message": f"Duplicate check skipped due to error: {e}",
+                "is_duplicate": True,
+                "unavailable": True,
+                "message": ("The duplicate check could not run, so nothing was created. "
+                            f"Try again shortly. ({type(e).__name__}: {e})"),
             }

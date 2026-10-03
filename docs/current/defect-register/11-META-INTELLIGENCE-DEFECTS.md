@@ -68,7 +68,11 @@ The three to read first:
 
 ### MI-01 — The duplicate check fails open
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P10.2)** — on an exception the check
+answers `is_duplicate: True, unavailable: True` and the creation is refused with a message
+saying the check could not run; a `meta.gate.failed` event names the gate and the error. The
+Curator's `except: pass` went with the Curator (MI-20). Test:
+`tests/unit/test_anti_sprawl_fails_closed.py`.
 
 `check_semantic_duplicate` ends with:
 
