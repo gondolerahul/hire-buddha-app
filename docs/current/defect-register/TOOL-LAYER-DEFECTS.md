@@ -718,7 +718,12 @@ the UI offers a filter that matches nothing.
 
 ### TL-36 — `terminal` scans all of `/tmp` and mis-attributes artifacts
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P11.2)** — each `terminal` and
+`sandbox_code` call gets an empty drop box, `<workspace>/.artifacts/<run>/<call>/`, exported as
+`$ARTIFACTS_DIR`; what lands there is saved as the run's artifacts and the directory removed
+(`sandbox/drop_box.py`). Both scans, the 100-byte floor and the exclusion list are deleted.
+Tests: `tests/unit/test_drop_box.py`; in the real container,
+`test_container_runtime_docker.py::test_terminal_keeps_what_the_command_put_in_the_drop_box`.
 
 After every command, `TerminalTool` walks all of `/tmp` to depth 3 looking for
 `.pptx/.docx/.xlsx/.pdf` files with `mtime >= since_ts`, and registers what it finds as

@@ -189,30 +189,9 @@ async def test_replan_proceeds_for_dynamic_entity():
     await loop._handle_replan(state, supervise=SimpleNamespace(proposed_subgoals=[]))
 
 
-# ---------------------------------------------------------------------------
-# §4.5 — sandbox scratch-dir is not auto-registered
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_sandbox_skips_scratch_dir(tmp_path):
-    from src.ai.tools.sandbox.sandbox_executor import SandboxCodeTool
-
-    sandbox = str(tmp_path)
-    scratch = os.path.join(sandbox, "scratch")
-    os.makedirs(scratch, exist_ok=True)
-    # A document written ONLY under scratch/ must not be auto-registered, so the
-    # registration path returns "" without ever touching the DB.
-    with open(os.path.join(scratch, "output.xlsx"), "wb") as f:
-        f.write(b"x" * 256)  # > 100-byte floor
-
-    report = await SandboxCodeTool()._register_new_artifacts(
-        sandbox_dir=sandbox,
-        pre_existing_files=set(),
-        company_id=str(uuid4()),
-        context={"run_id": str(uuid4())},
-    )
-    assert report == ""
+# §4.5 (scratch files are not auto-registered) holds by construction since
+# TL-36: nothing in the workspace is registered, only $ARTIFACTS_DIR
+# (tests/unit/test_drop_box.py).
 
 
 # ---------------------------------------------------------------------------

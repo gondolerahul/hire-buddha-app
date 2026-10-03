@@ -32,7 +32,6 @@ import json
 import logging
 import os
 import re
-import time
 from typing import Any, Dict, Optional
 
 from src.ai.tools.base import Tool
@@ -89,6 +88,8 @@ class TerminalTool(Tool):
         "the shell command to run. Optional 'working_dir' sets the "
         "working directory (default /tmp). Optional 'timeout_s' "
         "overrides the 30-second default (max 120). "
+        "Save a deliverable the user should get into the directory in $ARTIFACTS_DIR: it is "
+        "kept as an artifact of the run (other files stay in the workspace). "
         "Returns JSON with exit_code, stdout, stderr, and timed_out fields."
     )
 
@@ -166,20 +167,13 @@ class TerminalTool(Tool):
                 )
             })
 
-        # 2b. Snapshot existing files before execution (for artifact detection)
-        pre_existing_files = set()
-        if company_id and working_dir and working_dir != "/tmp":
-            try:
-                for root, _, files in os.walk(working_dir):
-                    for fn in files:
-                        pre_existing_files.add(os.path.join(root, fn))
-            except OSError:
-                pass
-
-        # 3. Execute
-        _cmd_start_ts = time.time()
+        # 3. Execute. Deliverables go in $ARTIFACTS_DIR and are kept as the
+        # run's artifacts when the command ends (TL-36): nothing is scanned.
+        from src.ai.tools.sandbox.drop_box import drop_box, report
         try:
-            result = await self._run_subprocess(command, working_dir, timeout_s, context)
+            async with drop_box(context, generated_by="terminal") as box:
+                result = await self._run_subprocess(command, working_dir, timeout_s, context,
+                                                    extra_env=box.env if box else None)
         except Exception as exc:
             logger.error(f"TerminalTool unexpected error: {exc}", exc_info=True)
             return json.dumps({
@@ -189,20 +183,14 @@ class TerminalTool(Tool):
                 "timed_out": False,
             })
 
-        # 4. Post-execution: detect new document files and register as artifacts
-        if company_id and working_dir and working_dir != "/tmp" and pre_existing_files is not None:
-            artifact_report = await self._register_new_artifacts(
-                working_dir, pre_existing_files, str(company_id), context,
-                since_ts=_cmd_start_ts,
-            )
-            if artifact_report:
-                # Append artifact report to the JSON result
-                try:
-                    result_dict = json.loads(result)
-                    result_dict["artifacts"] = artifact_report
-                    result = json.dumps(result_dict, default=str)
-                except (json.JSONDecodeError, TypeError):
-                    result = result + "\n\n" + artifact_report
+        kept = report(box)
+        if kept:
+            try:
+                result_dict = json.loads(result)
+                result_dict["artifacts"] = kept
+                result = json.dumps(result_dict, default=str)
+            except (json.JSONDecodeError, TypeError):
+                result = result + "\n\n" + kept
 
         return result
 
@@ -212,6 +200,7 @@ class TerminalTool(Tool):
         working_dir: str,
         timeout_s: int,
         context: Optional[Dict[str, Any]] = None,
+        extra_env: Optional[Dict[str, str]] = None,
     ) -> str:
         """Run ``bash -c command`` via the SandboxRuntime; shape the result
         into the tool's JSON contract (output cap + wording unchanged)."""
@@ -229,6 +218,7 @@ class TerminalTool(Tool):
                 "TMPDIR": "/tmp",
                 "LANG": "C.UTF-8",
                 "SAL_USE_VCLPLUGIN": "svp",  # LibreOffice headless rendering
+                **(extra_env or {}),
             },
         )
 
@@ -273,153 +263,6 @@ class TerminalTool(Tool):
             "stderr": stderr,
             "timed_out": False,
         })
-
-    # ------------------------------------------------------------------
-    # Document file extensions that should be auto-registered as artifacts
-    # ------------------------------------------------------------------
-    _ARTIFACT_EXTENSIONS = {
-        ".pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", "documents"),
-        ".docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "documents"),
-        ".xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "documents"),
-        ".pdf":  ("application/pdf", "documents"),
-        ".csv":  ("text/csv", "documents"),
-        ".json": ("application/json", "documents"),
-        ".html": ("text/html", "documents"),
-        ".png":  ("image/png", "images"),
-        ".jpg":  ("image/jpeg", "images"),
-        ".svg":  ("image/svg+xml", "images"),
-    }
-
-    # Broad-scan config for deliverables written OUTSIDE the scoped working dir.
-    # The doc-factory agent routinely writes the final deck to an absolute /tmp
-    # path or an ad-hoc subdir (e.g. /tmp/quarterly_bank_review/deck.pptx), which
-    # the working-dir snapshot misses entirely — the cause of "run completed but
-    # no artifact on the page". Restricted to real document deliverables + a
-    # depth cap so the walk stays cheap and doesn't sweep up intermediate assets.
-    _BROAD_SCAN_ROOT = "/tmp"
-    _BROAD_SCAN_MAX_DEPTH = 3
-    _BROAD_DOC_EXTENSIONS = (".pptx", ".docx", ".xlsx", ".pdf")
-    _SCAN_EXCLUDE_DIRS = ("venv", "__pycache__", "node_modules", "scripts", ".git", ".cache")
-
-    async def _register_new_artifacts(
-        self, sandbox_dir: str, pre_existing_files: set, company_id: str, context,
-        since_ts: float = 0.0,
-    ) -> str:
-        """Detect newly-written document files and register them as artifacts.
-
-        Two passes:
-          1. New files under the scoped ``sandbox_dir`` vs the pre-execution
-             snapshot (all artifact extensions).
-          2. Document deliverables (.pptx/.docx/.xlsx/.pdf) written ANYWHERE
-             under /tmp during this command (``mtime >= since_ts``). This
-             catches absolute-path / ad-hoc-subdir writes that pass (1) misses.
-             The mtime gate means a file only registers when actually created or
-             rewritten by this command, so unchanged files aren't re-registered
-             across the many commands in a run.
-
-        Registered artifacts are linked to the run/agent (from ``context``) so
-        they surface under the execution on the artifacts page.
-        """
-        from uuid import UUID as _UUID
-
-        seen: set = set()
-        new_files = []  # (full_path, fn, ext, sz)
-
-        def _consider(full_path, fn, ext, sz):
-            rp = os.path.realpath(full_path)
-            if rp in seen:
-                return
-            seen.add(rp)
-            new_files.append((full_path, fn, ext, sz))
-
-        # Pass 1 — working-dir diff (all artifact extensions).
-        try:
-            for root, _, files in os.walk(sandbox_dir):
-                rel_root = os.path.relpath(root, sandbox_dir)
-                if any(s in rel_root for s in self._SCAN_EXCLUDE_DIRS):
-                    continue
-                for fn in files:
-                    full_path = os.path.join(root, fn)
-                    if full_path in pre_existing_files:
-                        continue
-                    ext = os.path.splitext(fn)[1].lower()
-                    if ext in self._ARTIFACT_EXTENSIONS:
-                        try:
-                            sz = os.path.getsize(full_path)
-                        except OSError:
-                            continue
-                        if sz >= 100:
-                            _consider(full_path, fn, ext, sz)
-        except OSError:
-            pass
-
-        # Pass 2 — broad /tmp scan for document deliverables touched by this cmd.
-        if since_ts:
-            base_depth = self._BROAD_SCAN_ROOT.rstrip("/").count(os.sep)
-            try:
-                for root, dirs, files in os.walk(self._BROAD_SCAN_ROOT):
-                    if (root.rstrip("/").count(os.sep) - base_depth) >= self._BROAD_SCAN_MAX_DEPTH:
-                        dirs[:] = []
-                    dirs[:] = [d for d in dirs if d not in self._SCAN_EXCLUDE_DIRS]
-                    for fn in files:
-                        ext = os.path.splitext(fn)[1].lower()
-                        if ext not in self._BROAD_DOC_EXTENSIONS:
-                            continue
-                        full_path = os.path.join(root, fn)
-                        try:
-                            st = os.stat(full_path)
-                        except OSError:
-                            continue
-                        if st.st_mtime + 1e-6 < since_ts:
-                            continue  # not created/modified by this command
-                        if st.st_size >= 100:
-                            _consider(full_path, fn, ext, st.st_size)
-            except OSError:
-                pass
-
-        if not new_files:
-            return ""
-
-        # Run/agent linkage so the artifact shows under the execution.
-        def _ctx_uuid(key):
-            try:
-                v = context.get(key) if context else None
-                return _UUID(str(v)) if v else None
-            except Exception:
-                return None
-        run_id = _ctx_uuid("run_id")
-        agent_id = _ctx_uuid("agent_id")
-
-        registered = []
-        try:
-            from src.common.database import AsyncSessionLocal
-            from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-
-            async with AsyncSessionLocal() as db:
-                art_svc = ArtifactService(db)
-                _cid = _UUID(str(company_id))
-                for full_path, fn, ext, sz in new_files:
-                    mime_type, file_category = self._ARTIFACT_EXTENSIONS[ext]
-                    try:
-                        with open(full_path, "rb") as f:
-                            data = f.read()
-                        artifact = await art_svc.save_artifact(
-                            file_bytes=data, file_name=fn, mime_type=mime_type,
-                            file_category=file_category, origin=ORIGIN_SYSTEM,
-                            company_id=_cid, purpose="Auto-generated by terminal execution",
-                            generated_by="terminal", run_id=run_id, agent_id=agent_id,
-                        )
-                        registered.append(f"  • {fn} ({sz:,} bytes) — [Download](/api/v1/artifacts/{artifact.id}/download)")
-                        logger.info(f"TerminalTool: auto-registered artifact '{fn}' ({sz} bytes) → {artifact.id}")
-                    except Exception as e:
-                        logger.warning(f"TerminalTool: failed to register artifact '{fn}': {e}")
-        except Exception as e:
-            logger.warning(f"TerminalTool: artifact registration failed: {e}")
-            return ""
-
-        if not registered:
-            return ""
-        return "📎 **Generated Artifacts:**\n" + "\n".join(registered)
 
     def get_function_schema(self) -> Dict[str, Any]:
         return {

@@ -132,3 +132,42 @@ async def test_lifecycle_pause_resume_destroy(runtime) -> None:
     assert await mgr._status(name) == "running"
     await runtime.destroy()
     assert await mgr._status(name) is None
+
+
+@pytest.mark.asyncio
+async def test_terminal_keeps_what_the_command_put_in_the_drop_box(monkeypatch) -> None:
+    """TL-36, in the real container: $ARTIFACTS_DIR is a host directory the
+    command writes into; that file is kept, a file elsewhere is not."""
+    import json
+    from types import SimpleNamespace
+
+    import src.ai.artifact_service as artifacts
+    import src.ai.tools.sandbox.runtime as runtime_mod
+    from src.ai.tools.sandbox.terminal_tool import TerminalTool
+    from src.common.config import settings
+
+    async def on(_company_id):
+        return True
+
+    kept = []
+
+    async def save(context, **kw):
+        kept.append(kw["file_name"])
+        return SimpleNamespace(id=uuid.uuid4())
+
+    monkeypatch.setattr(runtime_mod, "container_runtime_enabled", on)
+    monkeypatch.setattr(settings, "SANDBOX_IMAGE", _IMAGE)
+    monkeypatch.setattr(artifacts, "save_tool_output", save)
+    company_id = f"itest-{uuid.uuid4().hex[:12]}"
+    try:
+        out = json.loads(await TerminalTool().run_with_context(json.dumps({
+            "command": 'echo report > "$ARTIFACTS_DIR/report.txt" && echo junk > not-kept.txt && echo done',
+        }), {"company_id": company_id, "run_id": str(uuid.uuid4())}))
+        assert out["exit_code"] == 0, out
+        assert kept == ["report.txt"]
+        assert "report.txt" in out["artifacts"]
+        assert os.path.exists(os.path.join(tenant_workspace(company_id), "not-kept.txt"))
+    finally:
+        await TenantSandboxManager().destroy(company_id)
+        for root in company_roots(company_id):
+            shutil.rmtree(root, ignore_errors=True)

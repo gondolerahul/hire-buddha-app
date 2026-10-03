@@ -98,8 +98,10 @@ class SandboxCodeTool(Tool):
     name = "sandbox_code"
     description = (
         "Execute a Python or Bash code snippet in an isolated subprocess sandbox. "
-        "The code runs in your workspace directory: write output files with "
-        "relative paths (e.g. 'report.xlsx' or 'scratch/chart.png'). "
+        "The code runs in your workspace directory. Save a deliverable the user should get "
+        "into the directory in the ARTIFACTS_DIR environment variable "
+        "(e.g. os.path.join(os.environ['ARTIFACTS_DIR'], 'report.xlsx')): it is kept as an "
+        "artifact of the run. Other files stay in the workspace. "
         "Returns stdout on success, or an error message with stderr on failure."
     )
 
@@ -146,16 +148,6 @@ class SandboxCodeTool(Tool):
         else:
             sandbox_dir = None
 
-        # 2. Snapshot existing files before execution (for artifact detection)
-        pre_existing_files = set()
-        if sandbox_dir:
-            try:
-                for root, _, files in os.walk(sandbox_dir):
-                    for fn in files:
-                        pre_existing_files.add(os.path.join(root, fn))
-            except OSError:
-                pass
-
         # 3. Write code to temp file and execute
         try:
             with tempfile.NamedTemporaryFile(
@@ -168,158 +160,31 @@ class SandboxCodeTool(Tool):
                 f.write(code)
                 tmp_path = f.name
 
+            # Deliverables go in $ARTIFACTS_DIR and are kept as the run's
+            # artifacts when the code ends (TL-36): nothing is scanned.
+            from src.ai.tools.sandbox.drop_box import drop_box, report
             try:
-                result = await self._run_subprocess(
-                    interpreter=interpreter,
-                    script_path=tmp_path,
-                    timeout_s=timeout_s,
-                    working_dir=sandbox_dir,
-                    context=context,
-                )
+                async with drop_box(context, generated_by="sandbox_code") as box:
+                    result = await self._run_subprocess(
+                        interpreter=interpreter,
+                        script_path=tmp_path,
+                        timeout_s=timeout_s,
+                        working_dir=sandbox_dir,
+                        context=context,
+                        extra_env=box.env if box else None,
+                    )
             finally:
                 try:
                     os.unlink(tmp_path)
                 except OSError:
                     pass
 
-            # 4. Post-execution: detect new document files and register as artifacts
-            if sandbox_dir and company_id:
-                artifact_report = await self._register_new_artifacts(
-                    sandbox_dir, pre_existing_files, company_id, context
-                )
-                if artifact_report:
-                    result = result + "\n\n" + artifact_report
-
-            return result
+            kept = report(box)
+            return result + "\n\n" + kept if kept else result
 
         except Exception as exc:
             logger.error(f"SandboxCodeTool unexpected error: {exc}", exc_info=True)
             return f"Error: unexpected sandbox failure — {exc}"
-
-    # ------------------------------------------------------------------
-    # Document file extensions that should be auto-registered as artifacts
-    # ------------------------------------------------------------------
-    _ARTIFACT_EXTENSIONS: Dict[str, tuple[str, str]] = {
-        # ext → (mime_type, file_category)
-        ".pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", "documents"),
-        ".docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "documents"),
-        ".xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "documents"),
-        ".pdf":  ("application/pdf", "documents"),
-        ".csv":  ("text/csv", "documents"),
-        ".json": ("application/json", "documents"),
-        ".html": ("text/html", "documents"),
-        ".htm":  ("text/html", "documents"),
-        ".png":  ("image/png", "images"),
-        ".jpg":  ("image/jpeg", "images"),
-        ".jpeg": ("image/jpeg", "images"),
-        ".svg":  ("image/svg+xml", "images"),
-        ".txt":  ("text/plain", "text"),
-        ".md":   ("text/markdown", "text"),
-    }
-
-    async def _register_new_artifacts(
-        self,
-        sandbox_dir: str,
-        pre_existing_files: set,
-        company_id: str,
-        context: Optional[Dict[str, Any]],
-    ) -> str:
-        """Detect new document files created during execution and register as artifacts.
-
-        Returns a human-readable report string, or empty string if nothing found.
-        """
-        from uuid import UUID as _UUID
-
-        # 1. Discover new files
-        new_files = []
-        try:
-            for root, _, files in os.walk(sandbox_dir):
-                # Skip venv, __pycache__, node_modules, scripts directories.
-                # ``scratch`` is a reserved working area: agents (e.g.
-                # doc-factory-lite) write intermediate/probe files there and then
-                # register exactly ONE final output explicitly via the
-                # ``document_save`` tool. Auto-registering scratch files is what
-                # produced ~15 artifacts (incl. throwaway test.xlsx) for a single
-                # request — see the document-factory redesign notes §4.5.
-                rel_root = os.path.relpath(root, sandbox_dir)
-                if any(skip in rel_root
-                       for skip in ("venv", "__pycache__", "node_modules", "scripts", ".git", "scratch")):
-                    continue
-                for fn in files:
-                    full_path = os.path.join(root, fn)
-                    if full_path in pre_existing_files:
-                        continue
-                    ext = os.path.splitext(fn)[1].lower()
-                    if ext in self._ARTIFACT_EXTENSIONS:
-                        file_size = os.path.getsize(full_path)
-                        # Skip trivially small files (< 100 bytes — likely empty/errored)
-                        if file_size >= 100:
-                            new_files.append((full_path, fn, ext, file_size))
-        except OSError as e:
-            logger.warning(f"SandboxCodeTool: artifact scan failed: {e}")
-            return ""
-
-        if not new_files:
-            return ""
-
-        # 2. Register each file as an artifact
-        registered = []
-        try:
-            from src.common.database import AsyncSessionLocal
-            from src.ai.artifact_service import ArtifactService, ORIGIN_SYSTEM
-
-            async with AsyncSessionLocal() as db:
-                art_svc = ArtifactService(db)
-                _company_uuid = _UUID(str(company_id))
-                _run_id = None
-                if context and context.get("run_id"):
-                    try:
-                        _run_id = _UUID(str(context["run_id"]))
-                    except (ValueError, TypeError):
-                        pass
-
-                for full_path, fn, ext, file_size in new_files:
-                    mime_type, file_category = self._ARTIFACT_EXTENSIONS[ext]
-                    try:
-                        with open(full_path, "rb") as f:
-                            file_bytes = f.read()
-
-                        artifact = await art_svc.save_artifact(
-                            file_bytes=file_bytes,
-                            file_name=fn,
-                            mime_type=mime_type,
-                            file_category=file_category,
-                            origin=ORIGIN_SYSTEM,
-                            company_id=_company_uuid,
-                            purpose=f"Auto-generated by sandbox execution",
-                            generated_by="sandbox_code",
-                            run_id=_run_id,
-                        )
-                        registered.append({
-                            "file": fn,
-                            "size": file_size,
-                            "artifact_id": str(artifact.id),
-                            "download_url": f"/api/v1/artifacts/{artifact.id}/download",
-                        })
-                        logger.info(
-                            f"SandboxCodeTool: auto-registered artifact '{fn}' "
-                            f"({file_size} bytes, {mime_type}) → {artifact.id}"
-                        )
-                    except Exception as e:
-                        logger.warning(f"SandboxCodeTool: failed to register artifact '{fn}': {e}")
-
-        except Exception as e:
-            logger.warning(f"SandboxCodeTool: artifact registration failed: {e}")
-            return ""
-
-        if not registered:
-            return ""
-
-        # 3. Build report
-        lines = ["📎 **Generated Artifacts:**"]
-        for r in registered:
-            lines.append(f"  • {r['file']} ({r['size']:,} bytes) — [Download](/api/v1/artifacts/{r['artifact_id']}/download)")
-        return "\n".join(lines)
 
     @staticmethod
     def _extract_code_from_text(raw_text: str) -> tuple[str, str]:
@@ -409,7 +274,9 @@ class SandboxCodeTool(Tool):
         else:
             return text, "bash"
 
-    async def _run_subprocess(self, interpreter: str, script_path: str, timeout_s: int, working_dir: str = None, context: Optional[Dict[str, Any]] = None) -> str:
+    async def _run_subprocess(self, interpreter: str, script_path: str, timeout_s: int, working_dir: str = None,
+                              context: Optional[Dict[str, Any]] = None,
+                              extra_env: Optional[Dict[str, str]] = None) -> str:
         """Run the script via the SandboxRuntime; shape the result into the
         tool's string contract (output cap + error wording unchanged)."""
         from src.ai.tools.sandbox.runtime import run_sandbox_exec
@@ -423,6 +290,7 @@ class SandboxCodeTool(Tool):
             "TMPDIR": working_dir or "/tmp",
             "LANG": "C.UTF-8",
             "SAL_USE_VCLPLUGIN": "svp",  # LibreOffice headless rendering
+            **(extra_env or {}),
         }
 
         res = await run_sandbox_exec(

@@ -595,7 +595,7 @@ Legend for external dependency: `—` = pure local compute.
 
 | Tool id | Category | File | What it does | Key parameters | External dependency | Status | SKU / cost |
 |---|---|---|---|---|---|---|---|
-| `sandbox_code` | execution | [sandbox/sandbox_executor.py](../../backend/src/ai/tools/sandbox/sandbox_executor.py) | Runs a Python or Bash snippet, auto-registers produced documents as artifacts | `language`, `code`, `timeout_s` | host subprocess or Docker | ACTIVE | `sandbox-runtime` seconds |
+| `sandbox_code` | execution | [sandbox/sandbox_executor.py](../../backend/src/ai/tools/sandbox/sandbox_executor.py) | Runs a Python or Bash snippet; what it writes to `$ARTIFACTS_DIR` is kept as artifacts | `language`, `code`, `timeout_s` | host subprocess or Docker | ACTIVE | `sandbox-runtime` seconds |
 | `terminal` | execution | [sandbox/terminal_tool.py](../../backend/src/ai/tools/sandbox/terminal_tool.py) | `bash -c` with a destructive-command blocklist | `command`, `working_dir`, `timeout_s` | host subprocess or Docker | ACTIVE | `sandbox-runtime` seconds |
 | `headless_browser` | browser | [sandbox/browser_tool.py](../../backend/src/ai/tools/sandbox/browser_tool.py) | Playwright Chromium: navigate / click / type / screenshot / get_text / evaluate | `action`, `url`, `selector`, `text`, `javascript`, `timeout_ms`, `wait_for` | Playwright Chromium | ACTIVE | `headless-browser` |
 
@@ -711,9 +711,9 @@ flowchart TD
         A3 --> A4["one copy under artifact/system-generated/COMPANY/DATE/ - row with the run, agent and campaign ids"]
     end
     subgraph P2["Path 2 - Document Factory via sandbox"]
-        B1["sandbox_code or terminal writes arbitrary Python or Node"] --> B2["runs inside the sandbox workdir /tmp/sandbox/COMPANY"]
+        B1["sandbox_code or terminal writes arbitrary Python or Node"] --> B2["runs inside the tenant workspace ROOT/COMPANY"]
         B2 --> B3["produces pptx docx xlsx pdf"]
-        B3 --> B4a["auto-registered by the post-exec artifact scan"]
+        B3 --> B4a["kept from the call's ARTIFACTS_DIR drop box"]
         B3 --> B4b["or explicitly via document_save"]
     end
     A4 --> D["artifacts table plus /api/v1/artifacts/ID/download"]
@@ -1263,11 +1263,9 @@ policy of its own** — that is applied by `docker run` flags.
 **`sandbox_code`** (typed since P6.8). `Params`: `language`, `code`, `timeout_s` — held to
 1–120 s (TL-61: it took any timeout the model chose). A plan step's text fills `code`;
 fenced code is unwrapped and its language taken. Writes the snippet to a `NamedTemporaryFile`
-inside the tenant sandbox dir, execs the interpreter, deletes the temp file,
-then diffs the directory to find new files. Any new file with a known extension
-and size ≥ 100 bytes is auto-registered as an artifact. `venv`, `__pycache__`,
-`node_modules`, `scripts`, `.git` and **`scratch`** are excluded — `scratch` was
-added after a single run produced ~15 junk artifacts. If the input is not JSON it
+inside the tenant sandbox dir, execs the interpreter, deletes the temp file. A
+deliverable is whatever the code put in **`$ARTIFACTS_DIR`** (the drop box, below); nothing
+else in the workspace becomes an artifact. If the input is not JSON it
 falls back to language auto-detection by scoring Python / Bash / JS keyword
 signals, and JavaScript is wrapped into a heredoc that pipes to `node`. A run's skill
 files are in the same working directory (§12.3).
@@ -1280,10 +1278,16 @@ command-level guard is a 13-pattern regex blocklist
 speed bump, not a security boundary — it does not stop `curl | sh`, reading
 `/etc/passwd`, `rm -rf /home`, or exfiltrating the host's environment.
 
-Its artifact scan is broader than `sandbox_code`'s: a second pass walks all of
-`/tmp` to depth 3 looking for `.pptx/.docx/.xlsx/.pdf` with `mtime >= since_ts`,
-because the doc-factory agent routinely writes the final deliverable to an
-ad-hoc absolute path.
+**The drop box (TL-36, P11.2).** Each `terminal` and `sandbox_code` call gets an empty
+directory, `<workspace>/.artifacts/<run>/<call>/`, exported as `$ARTIFACTS_DIR`
+([`sandbox/drop_box.py`](../../backend/src/ai/tools/sandbox/drop_box.py)). When the call
+ends, every regular file in it — at most 20, each at most 25 MB, links never — is saved as
+an artifact of the run through `save_tool_output`, the directory is removed, and the tool's
+output lists what was kept. Both tools' descriptions tell the model so. Before, `terminal`
+walked all of `/tmp` to depth 3 for recent documents (filing another run's or another
+tenant's file under this run) and both diffed the working directory behind an exclusion
+list; both scans are deleted. The Document Factory still keeps its final document through
+`document_save`.
 
 **`headless_browser`** (typed since P6.8). **A call is one browser session**: `steps` (1–10
 actions — `navigate`, `click`, `type`, `screenshot`, `get_text`, `evaluate`) run in order on
@@ -1997,9 +2001,8 @@ reading the backend's `.env` file off the host filesystem.
   shared `/tmp/sandbox/output` symlink that pointed at whichever company ran last
   is gone (TL-07); generated code writes relative to its working directory.
 
-- **`terminal` scans all of `/tmp` to depth 3 after every command** looking for
-  new `.pptx/.docx/.xlsx/.pdf` files to auto-register. Any document another
-  process writes to `/tmp` during that window gets attributed to this run.
+- *(Fixed, TL-36.)* A file is an artifact because the code put it in `$ARTIFACTS_DIR`;
+  nothing is scanned.
 
 - **A social platform is three things or none.** `social_api` reaches only the platforms
   in `PLATFORM_REFRESH_CONFIG`, which is also the connection API's list (D17). Adding a
