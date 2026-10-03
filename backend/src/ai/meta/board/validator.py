@@ -1,9 +1,9 @@
 """
-ai.meta.board.validator — Role 5: deterministic spec checks.
+ai.meta.board.validator — deterministic checks every publication passes (D27).
 
-Catches obvious structural defects before the TestDriver burns budget.
-Returns a typed report so the Promoter's gate G2 can simply check
-``ValidatorReport.passed``.
+``src/ai/governance/publication.py`` runs it before a draft version is
+published and before a ``DRAFT`` entity is promoted; a failed check is a 422
+naming it. (It was the Board's role 5 and had no caller, MI-20.)
 
 Implemented checks::
 
@@ -15,11 +15,15 @@ Implemented checks::
   6. governance_caps_set            — max_cost_usd > 0 AND timeout_ms > 0
   7. cost_estimate_under_cap        — estimated cost (heuristic) ≤ max_cost_usd
   8. review_mechanism_consistent    — if review enabled, prompt template not empty
+  9. granted_tools_exist            — every granted tool is one the platform has now,
+                                      for the company (MI-19: a definition written
+                                      against an older surface is caught here)
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
+from uuid import UUID
 
 
 from src.ai.schemas.enums import EntityType
@@ -59,9 +63,10 @@ class ValidatorReport:
 class ValidatorRole:
     """Synchronous, pure-function checker. Cheap to call."""
 
-    async def check(self, draft: Any) -> ValidatorReport:
+    async def check(self, draft: Any, *, company_id: Optional[UUID] = None) -> ValidatorReport:
         spec = _spec_payload(draft)
         return ValidatorReport(checks=[
+            self._granted_tools_exist(spec, company_id),
             self._json_shape_ok(spec),
             self._entity_type_valid(spec),
             self._no_cycle_in_children(spec),
@@ -146,10 +151,24 @@ class ValidatorRole:
         )
 
     @staticmethod
+    def _granted_tools_exist(spec: dict[str, Any], company_id: Optional[UUID]) -> CheckResult:
+        from src.ai.planning.plan_invariants import declared_tool_ids
+        from src.ai.tools.base import ToolRegistry
+        import src.ai.tools  # noqa: F401 — every built-in tool registered
+
+        unknown = sorted(t for t in declared_tool_ids(spec.get("capabilities") or {})
+                         if ToolRegistry.get_tool(t, company_id) is None)
+        return CheckResult(
+            "granted_tools_exist",
+            passed=not unknown,
+            reason=("not tools of this platform: " + ",".join(unknown[:5])) if unknown else "",
+        )
+
+    @staticmethod
     def _governance_caps_set(spec: dict[str, Any]) -> CheckResult:
         gov = spec.get("governance") or {}
         cost = gov.get("max_cost_usd")
-        timeout = gov.get("timeout_ms")
+        timeout = gov.get("timeout_ms", 60000)  # the schema's default
         ok = bool(cost) and bool(timeout) and float(cost or 0) > 0 and int(timeout or 0) > 0
         return CheckResult(
             "governance_caps_set",

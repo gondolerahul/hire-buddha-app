@@ -128,7 +128,8 @@ and the recovery is slow.
 
 ### MI-04 — Promoter gate G5 accepts any curator decision
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: invalid (2026-10-03, MI-20)** — the Promoter had no caller
+and is deleted; publication is gated by the Validator (D27).
 
 ```python
 d = getattr(decision, "decision", None)
@@ -148,7 +149,8 @@ name does say so, which makes it easy to over-read in the safety table.
 
 ### MI-05 — A skipped test case is not a failed one
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: invalid (2026-10-03, MI-20)** — the TestDriver had no
+caller and is deleted.
 
 The TestDriver runs a budget-bounded five-case suite. A suite that runs out of budget and
 **skips** cases can still report `passed=True`.
@@ -168,7 +170,8 @@ is misleading if read directly.
 
 ### MI-06 — The Architect cannot revise, so the critic loop cannot converge
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: invalid (2026-10-03, MI-20)** — the Architect and the critic
+loop had no caller and are deleted.
 
 `Architect.revise` is the role that acts on critic feedback. The base implementation:
 
@@ -197,7 +200,8 @@ for no benefit.
 
 ### MI-07 — `MAX_REVISE_ROUNDS = 2` means three critiques
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: invalid (2026-10-03, MI-20)** — deleted with the
+BoardCritic.
 
 The loop is `range(max_rounds + 1)`. So the constant named "max revise rounds" produces one
 more critique than it reads as.
@@ -211,7 +215,8 @@ that is three billed critic calls per spec, all of which see the same draft.
 
 ### MI-08 — Five of seven Board roles never call an LLM
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: moot (2026-10-03, MI-20)** — two roles are left, neither
+calls an LLM; the design doc's §3 says so.
 
 Only the Critic and (potentially) the Architect call a model; the TestDriver spends by
 executing. The other five are deterministic.
@@ -242,8 +247,15 @@ every request cannot by itself change any decision.
 
 ### MI-20 — The seven-role Board has no production caller
 
-**✅ Verified · High** · **Status: open** — found 2026-10-01 during the flag census
-(AK-10) for [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
+**✅ Verified · High** · **Status: fixed (2026-10-03, P10.1, D27)** — the Validator is the
+gate every publication passes (a draft version's publish, a `DRAFT` entity's promote), with a
+ninth check that every granted tool exists (MI-19); RequirementChat, Curator, Architect,
+BoardCritic, TestDriver, Promoter, `golden_outcomes`, the consolidation planner and the
+critic tiebreak are deleted with their tests and their seven flags. Tests:
+`tests/integration/test_publication_gate.py`,
+`tests/integration/test_versions_api.py::test_a_draft_that_fails_the_publication_checks_is_not_published`.
+Found 2026-10-01 during the flag census (AK-10) for
+[`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
 
 `src/ai/meta/board/` implements RequirementChat, Curator, Architect, Critic,
 Validator, TestDriver and Promoter, with unit tests. Outside the package, nothing
@@ -332,7 +344,8 @@ then be approved in bulk without review.
 
 ### MI-18 — The test budget is shared and exhaustion looks like a pass
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: invalid (2026-10-03, MI-20)** — the TestDriver and
+`meta_agent.testdriver_budget_usd` are deleted.
 
 The TestDriver suite runs against a shared `$3.00` budget. Exhaustion produces skipped
 cases ([MI-05](#mi-05--a-skipped-test-case-is-not-a-failed-one)) rather than an error.

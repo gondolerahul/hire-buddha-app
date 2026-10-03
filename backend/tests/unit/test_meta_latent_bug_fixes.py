@@ -6,8 +6,7 @@ broken code path silently produced a degraded result instead of raising. These
 tests pin the *behaviour* of the fixed path so a re-introduction of the original
 signature/await/column mismatch fails loudly instead of going quiet again.
 
-  1. Curator CREATE gate — ``check_creation_allowed`` was called with kwargs the
-     method never accepted (TypeError swallowed → gate never ran).
+  1. (Curator CREATE gate — its tests went with the Curator, MI-20.)
   2. RegistrySearchService IO-compat — ``db.get`` was used synchronously on an
      AsyncSession (coroutine → AttributeError → scoring broken).
   3. PlatformSchemaCompiler model endpoints — the query referenced columns that
@@ -21,7 +20,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from src.ai.meta.board.curator import Curator
 from src.ai.meta.platform_schema_compiler import PlatformSchemaCompiler
 from src.ai.meta.registry_search_service import (
     MatchCandidate,
@@ -29,142 +27,6 @@ from src.ai.meta.registry_search_service import (
     RegistrySearchService,
     SearchRequest,
 )
-
-
-# ---------------------------------------------------------------------------
-# Bug 1 — Curator CREATE anti-sprawl gate actually fires
-# ---------------------------------------------------------------------------
-
-
-class _FakeSearch:
-    def __init__(self, db: Any, company_id: UUID) -> None:
-        pass
-
-    async def recommend(self, request: Any) -> dict[str, Any]:
-        # Force the CREATE branch with at least one candidate available so the
-        # gate can downgrade CREATE -> ADAPT.
-        return {
-            "decision": "CREATE",
-            "candidates": [{"entity_id": "cand-1"}],
-            "rationale": "no strong match",
-        }
-
-
-class _FakeSprawl:
-    """Mirrors the *real* AntiSprawlGuard.check_creation_allowed signature.
-
-    If the curator regresses to passing ``description=``/``entity_type=`` the
-    call raises TypeError, the curator swallows it, and the CREATE gate never
-    downgrades — which the assertions below then catch.
-    """
-
-    def __init__(self, db: Any, company_id: UUID) -> None:
-        self.creation_calls: list[tuple[Optional[UUID], int]] = []
-
-    async def check_creation_allowed(
-        self,
-        meta_agent_user_id: Optional[UUID] = None,
-        daily_limit: int = 10,
-    ) -> dict[str, Any]:
-        self.creation_calls.append((meta_agent_user_id, daily_limit))
-        return {"allowed": False, "message": "Daily creation limit reached (10/10 today)."}
-
-    async def check_semantic_duplicate(
-        self,
-        description: str,
-        required_tools: List[str],
-        preferred_type: Optional[str] = None,
-    ) -> dict[str, Any]:
-        return {"is_duplicate": False}
-
-
-class _FakeMetaTree:
-    def __init__(self, db: Any, company_id: UUID) -> None:
-        pass
-
-    async def record_curator_decision(self, **kwargs: Any) -> UUID:
-        return uuid4()
-
-
-@pytest.mark.asyncio
-async def test_curator_creation_gate_downgrades_create_to_adapt(monkeypatch) -> None:
-    captured: dict[str, _FakeSprawl] = {}
-
-    def _make_sprawl(db: Any, company_id: UUID) -> _FakeSprawl:
-        guard = _FakeSprawl(db, company_id)
-        captured["guard"] = guard
-        return guard
-
-    monkeypatch.setattr(
-        "src.ai.meta.registry_search_service.RegistrySearchService", _FakeSearch
-    )
-    monkeypatch.setattr("src.ai.meta.anti_sprawl.AntiSprawlGuard", _make_sprawl)
-    monkeypatch.setattr(
-        "src.ai.meta.meta_intelligence_tree.MetaIntelligenceTree", _FakeMetaTree
-    )
-
-    curator = Curator(db=object(), company_id=uuid4())
-    decision = await curator.decide(
-        {"description": "summarise invoices", "preferred_type": "SKILL"}
-    )
-
-    # The gate fired (call succeeded with the real signature) and, since the
-    # limit was exceeded with a candidate present, CREATE became ADAPT.
-    assert captured["guard"].creation_calls == [(None, 10)]
-    assert decision.decision == "ADAPT"
-    assert "AntiSprawl declined CREATE" in decision.rationale
-    # The rationale surfaces the guard's actual return key ("message").
-    assert "Daily creation limit reached" in decision.rationale
-
-
-class _DuplicateSprawl(_FakeSprawl):
-    """Creation is allowed, but the spec is a near-duplicate of an existing entity.
-
-    Returns exactly the keys the real ``AntiSprawlGuard.check_semantic_duplicate``
-    returns on a hit.
-    """
-
-    async def check_creation_allowed(
-        self,
-        meta_agent_user_id: Optional[UUID] = None,
-        daily_limit: int = 10,
-    ) -> dict[str, Any]:
-        return {"allowed": True}
-
-    async def check_semantic_duplicate(
-        self,
-        description: str,
-        required_tools: List[str],
-        preferred_type: Optional[str] = None,
-    ) -> dict[str, Any]:
-        return {
-            "is_duplicate": True,
-            "existing_entity_id": "11111111-2222-3333-4444-555555555555",
-            "existing_entity_name": "Invoice Summariser",
-            "similarity_score": 0.93,
-            "message": "Near-duplicate detected",
-        }
-
-
-@pytest.mark.asyncio
-async def test_curator_duplicate_rationale_names_the_existing_entity(monkeypatch) -> None:
-    """MI-10: the rationale a reviewer reads names the duplicate, not ``?``."""
-    monkeypatch.setattr(
-        "src.ai.meta.registry_search_service.RegistrySearchService", _FakeSearch
-    )
-    monkeypatch.setattr("src.ai.meta.anti_sprawl.AntiSprawlGuard", _DuplicateSprawl)
-    monkeypatch.setattr(
-        "src.ai.meta.meta_intelligence_tree.MetaIntelligenceTree", _FakeMetaTree
-    )
-
-    decision = await Curator(db=object(), company_id=uuid4()).decide(
-        {"description": "summarise invoices", "preferred_type": "SKILL"}
-    )
-
-    assert decision.decision == "ADAPT"
-    assert "11111111-2222-3333-4444-555555555555" in decision.rationale
-    assert "Invoice Summariser" in decision.rationale
-    assert "?" not in decision.rationale
 
 
 # ---------------------------------------------------------------------------

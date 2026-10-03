@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.governance.entity_assets import AssetRejected, VersionConflict, delete_asset, put_asset
+from src.ai.governance.publication import PublicationRefused
 from src.ai.schemas.execution import ExecutionRunCreate, ExecutionRunResponse
 from src.ai.schemas.versions import (
     AssetBody,
@@ -158,6 +159,8 @@ async def publish(entity_id: UUID, version_id: UUID, db: AsyncSession = Depends(
     try:
         async with db.begin_nested():
             head = await authoring.publish(db, entity, version_id, user_id=user.id)
+    except PublicationRefused as exc:
+        raise HTTPException(status_code=422, detail={"message": str(exc), "failed_checks": exc.failed})
     except (LookupError, VersionConflict, authoring.NotAVersionField) as exc:
         _refuse(exc)
     await db.commit()

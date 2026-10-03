@@ -63,10 +63,3 @@ def test_registry_search_offers_every_level() -> None:
     schema = MetaRegistrySearchTool().get_function_schema()
     assert schema["parameters"]["properties"]["preferred_type"]["enum"] == SIX
 
-
-def test_a_wide_spec_is_high_stakes_at_any_level() -> None:
-    from src.ai.meta.spec_tiebreak import is_high_stakes
-
-    for level in ("AGENT", "LOOP", "GRAPH"):
-        assert is_high_stakes({"type": level, "children": list(range(6))}, governance_ceiling_usd=10.0)
-    assert not is_high_stakes({"type": "LOOP", "children": [1, 2]}, governance_ceiling_usd=10.0)

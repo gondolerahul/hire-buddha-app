@@ -394,7 +394,7 @@ async def promote_draft_entity(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
-    """Flip a DRAFT entity to ACTIVE (admin override of the Board pipeline)."""
+    """Flip a DRAFT entity to ACTIVE once it passes the publication checks (D27)."""
     from src.ai.orm.entity import HierarchicalEntity
     ent = (await db.execute(
         select(HierarchicalEntity).where(HierarchicalEntity.id == entity_id)
@@ -407,6 +407,14 @@ async def promote_draft_entity(
         raise HTTPException(
             status_code=409, detail=f"entity status is {ent.status!r}, expected DRAFT",
         )
+    # The publication checks (D27): this route was the Board's admin override,
+    # and with no Board it was the only gate there was.
+    from src.ai.governance.entity_versions import snapshot_of
+    from src.ai.governance.publication import PublicationRefused, require_publishable
+    try:
+        await require_publishable(snapshot_of(ent), ent.company_id)
+    except PublicationRefused as exc:
+        raise HTTPException(status_code=422, detail={"message": str(exc), "failed_checks": exc.failed})
     ent.status = "ACTIVE"
     ent.updated_at = datetime.utcnow()
     meta = dict(ent.metadata_extensions or {})
@@ -848,7 +856,7 @@ async def kpi_risk_indicators(
         "status": "ok" if reject_rate <= 0.50
                   else ("warn" if reject_rate <= 0.60 else "breach"),
         "details": "> 50% → Meta-Agent is producing low-quality drafts; "
-                   "investigate before extending board_routing.",
+                   "investigate before relying on agent-created entities.",
     })
 
     # R-PRG-7 — Hidden dependency on legacy module: layout lint violations.

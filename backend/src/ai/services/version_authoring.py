@@ -157,6 +157,11 @@ async def publish(
     version = await get_version(db, entity.id, version_id)
     definition = {f: copy.deepcopy(version.snapshot.get(f)) for f in SNAPSHOT_FIELDS}
     await _require_composition(db, entity, definition)
+    if not version.published:
+        # A draft passes the publication checks (D27); a rollback to a version
+        # already published does not re-run them.
+        from src.ai.governance.publication import require_publishable
+        await require_publishable(definition, entity.company_id)
     for field, value in definition.items():
         setattr(entity, field, value)
     # The head's files are the version's, so the capture below hashes to it.

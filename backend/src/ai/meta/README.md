@@ -17,27 +17,20 @@ HierarchicalEntities.
 | `anti_sprawl.py` | Per-company AntiSprawlGuard: blocks CREATE on near-duplicates / over-cap counts. |
 | `meta_intelligence_tree.py` | Platform-scoped IntelligenceTree (per company). 7 sections (`SECTIONS`): anti-patterns, spec patterns, test failures, curator decisions, tool reliability, prompt candidates, composition graph. LRU-pruned at 200 rows / section (MI-15). |
 | `skill_library.py` | Detects repeated successful tool chains across recent runs and writes `skill_candidate` nodes for HITL promotion. |
-| `board/` | The 7 roles. See below. **No production caller** — the Meta-Agent creates entities through `meta_entity_creator`; only `ToolSmith` is used, by tool synthesis (MI-20). |
+| `board/` | What is left of the Architecture Board (MI-20, D27): `ValidatorRole`, the publication gate, and `ToolSmith`, used by tool synthesis. |
 
-### `meta/board/` — Architecture Board roles
+### `meta/board/`
 
 | Role | Purpose |
 |------|---------|
-| `requirement_chat.py::RequirementChat` | Normalises raw user request → typed `Spec`. |
-| `curator.py::Curator` | REUSE / ADAPT / COMPOSE / CREATE decision. Wraps RegistrySearch + AntiSprawl + MetaIntelligenceTree audit. |
-| `architect.py::Architect` | Builds / revises the draft entity payload. |
-| `critic.py::BoardCritic` | Drives `meta_spec_critic` tool with a max-2 revise loop. |
-| `validator.py::ValidatorRole` | 8 deterministic spec checks. |
-| `test_driver.py::TestDriver` | Suite under shared budget — smoke / regression / boundary / hostile / comparative. |
-| `promoter.py::Promoter` | 6 gates → DRAFT → ACTIVE; optional HITL. |
+| `validator.py::ValidatorRole` | 9 deterministic checks; `governance/publication.py` runs them before a draft version is published or a `DRAFT` entity promoted (D27). |
+| `tool_smith.py::ToolSmith` | Drafts a tool's source for the tool-synthesis pipeline. |
+
+RequirementChat, Curator, Architect, BoardCritic, TestDriver and Promoter had no caller and were deleted on 2026-10-03 (MI-20).
 
 ## Key types
 
-- `Spec`, `CuratorDecision`, `ArchitectDraft`.
-- `CriticReport` (verdict / concerns / rules_referenced / rounds).
 - `ValidatorReport`, `CheckResult`.
-- `TestCaseResult`, `SuiteResult`.
-- `PromoterGateResult`, `PromotionDecision`.
 - `MetaIntelligenceTree` (per company); `AntiPatternRow`.
 - `SkillLibrary`, `ChainCandidate`.
 

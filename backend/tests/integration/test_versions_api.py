@@ -35,7 +35,8 @@ async def world(db, monkeypatch):
     other = Company(name=f"p56o-{uuid.uuid4().hex[:6]}", type="TENANT", status="active")
     db.add_all([mine, other])
     await db.flush()
-    ent = HierarchicalEntity(company_id=mine.id, type="ACTION", status="ACTIVE", name="authored", goal="v1 goal")
+    ent = HierarchicalEntity(company_id=mine.id, type="ACTION", status="ACTIVE", name="authored", goal="v1 goal",
+                             governance={"max_cost_usd": 0.5})  # publication needs a cost cap (D27)
     db.add(ent)
     await db.flush()
     head = await capture_head(db, ent.id)
@@ -127,3 +128,20 @@ async def test_who_may_do_what(db, world):
         assert (await c.post(_url(world, f"/{draft.json()['id']}/publish"))).status_code == 403
     async with _client(db, "tenant_admin", world.other) as c:
         assert (await c.get(_url(world))).status_code == 404               # another company sees nothing
+
+
+@pytest.mark.asyncio
+async def test_a_draft_that_fails_the_publication_checks_is_not_published(db, world):
+    """D27 (MI-20): the Validator gates publication; it was on no path at all."""
+    async with _client(db, "tenant_admin", world.mine) as c:
+        r = await c.post(_url(world), json={"changes": {
+            "governance": {},  # no cost cap
+            "capabilities": {"tools": [{"tool_id": "no_such_tool"}]},
+        }})
+        draft = r.json()
+        r = await c.post(_url(world, f"/{draft['id']}/publish"))
+    assert r.status_code == 422, r.text
+    failed = {c["name"] for c in r.json()["detail"]["failed_checks"]}
+    assert failed == {"governance_caps_set", "granted_tools_exist"}
+    await db.refresh(world.entity)
+    assert world.entity.active_version_id == world.head  # the head did not move

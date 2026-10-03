@@ -10,12 +10,16 @@ the whole tenant.
 Layout::
 
     MetaIntelligenceTree (scope=tenant, owner=meta-agent role)
-    ├── 📏 Architecture Anti-Patterns      ← written by Critic
-    ├── 🎯 Spec Patterns                    ← written by Curator + Promoter
-    ├── 🚨 Test Failure Tags                ← written by TestDriver
-    ├── 🧠 Curator Decisions                ← written by Curator
-    ├── 🔧 Tool Reliability                 ← written by post-Promoter monitor
-    └── 📝 Prompt-Update Candidates         ← written by prompt-evo cron
+    ├── 📏 Architecture Anti-Patterns      ← meta_spec_critic
+    ├── 🎯 Spec Patterns                    ← skill library (skill candidates)
+    ├── 🚨 Test Failure Tags
+    ├── 🧠 Curator Decisions
+    ├── 🔧 Tool Reliability
+    ├── 📝 Prompt-Update Candidates         ← prompt-evo cron
+    └── 🔗 Composition Graph
+
+    The Board roles that were to write the test-failure, curator and
+    reliability sections were deleted unused (MI-20); the sections stay.
 
 Nodes inside each section are typed by ``metadata_extra["kind"]``
 (e.g. ``"anti_pattern"``, ``"skill_candidate"``,

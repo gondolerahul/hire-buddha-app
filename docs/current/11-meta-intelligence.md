@@ -131,302 +131,46 @@ nothing in tokens and are unit-testable as pure functions.
 
 ## 3. The Architecture Board — seven roles
 
-| # | Role | Class | File | Lines | LLM? | Output type |
-|---|---|---|---|---|---|---|
-| 1 | RequirementChat | `RequirementChat` | [requirement_chat.py](../../backend/src/ai/meta/board/requirement_chat.py) | 62 | No | `Spec` |
-| 2 | Curator | `Curator` | [curator.py](../../backend/src/ai/meta/board/curator.py) | 145 | Indirect | `CuratorDecision` |
-| 3 | Architect | `Architect` | [architect.py](../../backend/src/ai/meta/board/architect.py) | 60 | Overridable | `ArchitectDraft` |
-| 4 | Critic | `BoardCritic` | [critic.py](../../backend/src/ai/meta/board/critic.py) | 118 | Yes | `CriticReport` |
-| 5 | Validator | `ValidatorRole` | [validator.py](../../backend/src/ai/meta/board/validator.py) | 197 | No | `ValidatorReport` |
-| 6 | TestDriver | `TestDriver` | [test_driver.py](../../backend/src/ai/meta/board/test_driver.py) | 219 | Executes | `SuiteResult` |
-| 7 | Promoter | `Promoter` | [promoter.py](../../backend/src/ai/meta/board/promoter.py) | 170 | No | `PromotionDecision` |
+**Since 2026-10-03 (MI-20, decision D27) two roles are left.** The seven-role Board was
+built, with unit tests, and nothing outside `ai/meta/board/` ever constructed a role but
+ToolSmith: the Meta-Agent created entities through `meta_entity_creator`, and the Board's
+gates were on no creation path. What stays:
 
-Supporting: [golden_outcomes.py](../../backend/src/ai/meta/board/golden_outcomes.py) (81),
-[tool_smith.py](../../backend/src/ai/meta/board/tool_smith.py) (125).
+| Role | Class | File | What it does now |
+|---|---|---|---|
+| Validator | `ValidatorRole` | [validator.py](../../backend/src/ai/meta/board/validator.py) | The gate every publication passes ([§8](#8-role-5--validator)) |
+| ToolSmith | `ToolSmith` | [tool_smith.py](../../backend/src/ai/meta/board/tool_smith.py) | Drafts a tool's source for tool synthesis ([§16](#16-tool-synthesis--agents-writing-tools)) |
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant MA as Meta-Agent (AgentLoop)
-    participant RC as RequirementChat
-    participant CU as Curator
-    participant RS as RegistrySearch
-    participant AS as AntiSprawlGuard
-    participant MIT as MetaIntelligenceTree
-    participant AR as Architect
-    participant CR as BoardCritic
-    participant VA as Validator
-    participant TD as TestDriver
-    participant PR as Promoter
-
-    U->>MA: "I need an agent that drafts ticket replies"
-    MA->>RC: clarify(raw_request)
-    RC-->>MA: Spec{description, preferred_type, required_tools, tags}
-
-    MA->>CU: decide(spec)
-    CU->>RS: recommend(SearchRequest)
-    RS-->>CU: {decision, candidates, rationale}
-    alt decision == CREATE
-        CU->>AS: check_creation_allowed()
-        CU->>AS: check_semantic_duplicate()
-        Note over CU,AS: either gate can downgrade CREATE to ADAPT
-    end
-    CU->>MIT: record_curator_decision(...)
-    MIT-->>CU: decision_node_id
-    CU-->>MA: CuratorDecision
-
-    MA->>AR: draft payload
-    loop up to MAX_REVISE_ROUNDS = 2
-        MA->>CR: review_with_revision(draft, architect)
-        CR->>CR: meta_spec_critic tool
-        alt verdict PASS or BLOCK
-            CR-->>MA: CriticReport
-        else REVISE
-            CR->>AR: revise(draft, concerns)
-        end
-    end
-
-    MA->>VA: check(draft)
-    VA-->>MA: ValidatorReport (8 checks)
-
-    MA->>TD: run suite (shared budget)
-    TD-->>MA: SuiteResult
-
-    MA->>PR: promote(draft, reports...)
-    PR-->>MA: PromotionDecision
-    MA-->>U: outcome
-```
-
----
+RequirementChat, Curator, Architect, BoardCritic, TestDriver, Promoter, `golden_outcomes`,
+the Curator's consolidation planner and the critic tiebreak were deleted, with the seven
+`meta_agent.*` flags that gated them (git keeps them). §4–§7, §9 and §10 say what each was.
 
 ## 4. Role 1 — RequirementChat
 
-The simplest role. It **does not call an LLM** — the Meta-Agent's own REACT loop
-already did the clarifying conversation. This class just normalises whatever
-came out into a stable contract.
-
-```python
-# backend/src/ai/meta/board/requirement_chat.py
-@dataclass
-class Spec:
-    """Canonical request envelope passed between Board roles."""
-    description: str
-    preferred_type: Optional[str] = None      # ACTION / SKILL / AGENT / PROCESS
-    required_tools: list[str] = field(default_factory=list)
-    tags: list[str] = field(default_factory=list)
-    extra: dict[str, Any] = field(default_factory=dict)
-```
-
-`clarify()` accepts a `str`, a `dict`, or anything else and always returns a
-`Spec`. It reads `description` **or** `intent`, and `preferred_type` **or**
-`type`, so both naming conventions work. Any unrecognised keys are swept into
-`extra` rather than dropped.
-
-```mermaid
-flowchart LR
-    IN{"raw_request type?"}
-    IN -->|str| S1["Spec(description=stripped)"]
-    IN -->|dict| S2["Read description or intent<br/>preferred_type or type<br/>required_tools, tags<br/>rest to extra"]
-    IN -->|other| S3["Spec(description=str(x))"]
-    S1 --> OUT["Spec"]
-    S2 --> OUT
-    S3 --> OUT
-```
-
----
+*Deleted 2026-10-03 (MI-20).* It turned a request into a `Spec`; no path called it.
 
 ## 5. Role 2 — Curator
 
-The Curator answers one question: **should we build this at all?**
-
-```python
-# backend/src/ai/meta/board/curator.py
-@dataclass
-class CuratorDecision:
-    decision: str                                  # REUSE / ADAPT / COMPOSE / CREATE
-    rationale: str = ""
-    candidates: list[dict[str, Any]] = field(default_factory=list)
-    top_candidate_id: Optional[str] = None
-    decision_node_id: Optional[str] = None         # MetaIntelligenceTree audit row
-```
-
-It glues three services together:
-
-```mermaid
-flowchart TD
-    SPEC["Spec"] --> RS["RegistrySearchService.recommend"]
-    RS --> DEC{"decision"}
-    DEC -->|REUSE / ADAPT / COMPOSE| REC["Record and return"]
-    DEC -->|CREATE| G1{"check_creation_allowed<br/>daily limit"}
-    G1 -->|blocked AND candidates exist| DOWN1["Downgrade to ADAPT"]
-    G1 -->|allowed| G2{"check_semantic_duplicate<br/>similarity > 0.85"}
-    DOWN1 --> G2
-    G2 -->|duplicate AND candidates exist| DOWN2["Downgrade to ADAPT"]
-    G2 -->|unique| REC
-    DOWN2 --> REC
-    REC --> MIT["record_curator_decision to MetaIntelligenceTree"]
-    MIT --> OUT["CuratorDecision"]
-```
-
-Three behaviours worth knowing:
-
-**1. RegistrySearch failure defaults to CREATE.**
-
-```python
-# backend/src/ai/meta/board/curator.py
-except Exception as exc:
-    logger.warning("RegistrySearch failed; defaulting to CREATE: %s", exc)
-    rec = {"decision": "CREATE", "candidates": [], "rationale": str(exc)}
-```
-
-If search is broken, the system builds rather than blocks. Fail-open on
-availability, and the anti-sprawl gates still run afterwards.
-
-**2. Anti-sprawl gates only apply to `CREATE`.** They are skipped entirely for
-REUSE / ADAPT / COMPOSE — those decisions are already reuse.
-
-**3. A downgrade needs a candidate.** Both gates only downgrade to `ADAPT`
-`if candidates`. If the daily limit is hit and there is nothing to adapt, the
-decision stays `CREATE` and the actual block happens later, in
-`MetaEntityCreatorTool`. The Curator's downgrade is an optimisation, not the
-enforcement point. A semantic-duplicate hit names the existing entity in the
-rationale — `'<existing_entity_name>' (<existing_entity_id>, similarity <score>)`,
-the keys `check_semantic_duplicate` returns — so the human reviewing the
-decision knows which entity to adapt.
-
-> ⚠️ Both anti-sprawl calls are wrapped in bare `except Exception: pass`. A
-> failing gate silently allows the original decision through. The hard
-> enforcement lives in the tool ([§12](#12-anti-sprawl-and-consolidation)).
-
-The audit write to `MetaIntelligenceTree` records the decision with
-`outcome=None`; the Promoter later annotates it with what actually happened.
-That closed loop is what makes curator decisions learnable.
-
----
+*Deleted 2026-10-03 (MI-20).* It mapped a reuse recommendation to REUSE / ADAPT / COMPOSE / CREATE and applied the anti-sprawl gates; no path called it. The gates now run in the creation service ([§12](#12-anti-sprawl-and-consolidation)).
 
 ## 6. Role 3 — Architect
 
-In the current code the Architect is deliberately thin:
-
-```python
-# backend/src/ai/meta/board/architect.py
-"""
-In Track 5 the Architect is **not** a new LLM agent — the existing
-Meta-Agent runtime entity already produces draft specs. This module
-just defines the typed envelope and a tiny *revise* helper the
-Critic loop drives.
-"""
-```
-
-`revise()` does not rewrite the draft. It **records the Critic's concerns** into
-`metadata_extensions.architect_revisions` so a later layer — a human or an
-LLM-backed subclass — can act on them:
-
-```python
-# backend/src/ai/meta/board/architect.py
-new_payload = dict(draft.payload)
-meta = dict(new_payload.get("metadata_extensions") or {})
-revs = list(meta.get("architect_revisions") or [])
-revs.extend(concerns)
-meta["architect_revisions"] = revs
-new_payload["metadata_extensions"] = meta
-```
-
-> ⚠️ **This is a real limitation, not a subtlety.** The base `Architect.revise`
-> is an annotation step, not a rewrite. In the two-round Critic loop, round 2
-> re-critiques a draft whose *content is unchanged* — only its metadata grew.
-> Unless a subclass overrides `revise` with a genuine LLM rewrite, a `REVISE`
-> verdict will usually recur and the loop will end in `BLOCK` with
-> `"max revise rounds reached"`. The docstring calls this out: *"A subclass may
-> plug in a real LLM revision."*
-
-```mermaid
-sequenceDiagram
-    participant CR as BoardCritic
-    participant AR as Architect (base)
-    participant T as meta_spec_critic tool
-
-    CR->>T: round 0 - critique draft
-    T-->>CR: REVISE + concerns
-    CR->>AR: revise(draft, concerns)
-    AR-->>CR: draft with concerns appended to metadata only
-    CR->>T: round 1 - critique (payload unchanged)
-    T-->>CR: likely REVISE again
-    CR->>CR: round == max_rounds
-    Note over CR: verdict forced to BLOCK<br/>blocked_reason = "max revise rounds reached"
-```
-
----
+*Deleted 2026-10-03 (MI-20).* Its `revise` appended the critic's concerns to metadata and returned the draft unchanged, so the critic loop could not converge (MI-06).
 
 ## 7. Role 4 — BoardCritic
 
-Drives the `meta_spec_critic` tool with a bounded revise loop.
-
-```python
-# backend/src/ai/meta/board/critic.py
-MAX_REVISE_ROUNDS: int = 2
-
-@dataclass
-class CriticReport:
-    verdict: str = "REVISE"                     # PASS / REVISE / BLOCK
-    concerns: list[dict[str, Any]] = field(default_factory=list)
-    rules_referenced: list[str] = field(default_factory=list)
-    rounds: int = 0
-    blocked_reason: str = ""
-```
-
-| Verdict | Meaning | Loop behaviour |
-|---|---|---|
-| `PASS` | Spec is acceptable | Return immediately |
-| `REVISE` | Fixable concerns | Call `architect.revise`, re-critique |
-| `BLOCK` | Fundamental problem | Return immediately; Promoter G1 fails |
-
-```mermaid
-stateDiagram-v2
-    [*] --> Round0
-    Round0 --> PASS: verdict PASS
-    Round0 --> BLOCK: verdict BLOCK
-    Round0 --> Revise0: verdict REVISE
-    Revise0 --> Round1: architect.revise
-    Round1 --> PASS: verdict PASS
-    Round1 --> BLOCK: verdict BLOCK
-    Round1 --> Revise1: verdict REVISE
-    Revise1 --> Round2: architect.revise
-    Round2 --> PASS: verdict PASS
-    Round2 --> BLOCK: verdict BLOCK or max rounds
-    PASS --> [*]
-    BLOCK --> [*]
-```
-
-The loop runs `range(self.max_rounds + 1)` — so with the default it critiques up
-to **three** times (rounds 0, 1, 2) with **two** revisions between them.
-
-**Two defensive behaviours.** Unparseable tool output degrades to `REVISE`
-rather than crashing:
-
-```python
-# backend/src/ai/meta/board/critic.py
-try:
-    parsed = json.loads(raw)
-except Exception:
-    logger.warning("BoardCritic could not parse tool output; defaulting to REVISE")
-    return CriticReport(verdict="REVISE")
-```
-
-And a tool error becomes a non-blocking `med`-severity concern, so a transient
-critic failure cannot permanently block promotion.
-
-`CriticReport` also exposes `has_blocking_concern` (any concern with
-`blocks_promotion`) and `passed`. `rules_referenced` links back to the
-`MetaIntelligenceTree` anti-patterns the critic consulted — see
-[§13](#13-the-metaintelligencetree).
-
----
+*Deleted 2026-10-03 (MI-20).* It looped `meta_spec_critic` up to `MAX_REVISE_ROUNDS + 1` times (MI-07). `meta_spec_critic` itself is still a registered, `EXPERIMENTAL` tool.
 
 ## 8. Role 5 — Validator
 
-Eight deterministic checks, no LLM, cheap. It exists to catch structural
-defects **before the TestDriver burns budget**.
+Nine deterministic checks, no LLM, cheap — **the gate every publication passes**
+(D27): publishing a draft version (`POST /ai/entities/{id}/versions/{vid}/publish`; a
+rollback to an already published version is not re-checked) and promoting a `DRAFT`
+entity (`POST /ai/admin/meta/entities/{id}/promote`). A failed check is a 422 with
+`failed_checks`. The ninth check, `granted_tools_exist`, refuses a definition that grants a
+tool the platform no longer has (MI-19). A definition must declare
+`governance.max_cost_usd` to be published (the cost envelope, R2); `timeout_ms` defaults
+to the schema's 60 000. `src/ai/governance/publication.py`.
 
 ```python
 # backend/src/ai/meta/board/validator.py
@@ -488,151 +232,11 @@ top-level `tool_id`.
 
 ## 9. Role 6 — TestDriver
 
-The only role that spends real money. It runs a **budget-bounded suite of five
-case types in a fixed order**.
-
-```python
-# backend/src/ai/meta/board/test_driver.py
-"""
-  1. ``smoke``       — minimum-input sanity check
-  2. ``regression``  — (ADAPT only) parity-check vs the source entity
-  3. ``boundary``    — empty / oversize / unicode-edge inputs
-  4. ``hostile``     — adversarial / malformed inputs
-  5. ``comparative`` — only when a strong reuse candidate exists
-"""
-DEFAULT_SUITE_BUDGET_USD: Decimal = Decimal("3.00")
-```
-
-```mermaid
-flowchart TD
-    START["remaining = budget (3.00 USD default)"] --> SMOKE["1 smoke - input 'ping'"]
-    SMOKE --> CHK1{"smoke passed<br/>AND remaining > 0?"}
-    CHK1 -->|no| STOP["Suite ends - fails"]
-    CHK1 -->|yes| REG{"Curator decision<br/>== ADAPT?"}
-    REG -->|yes| RUNREG["2 regression vs source entity"]
-    REG -->|no| BOUND
-    RUNREG --> BOUND["3 boundary - empty, oversize, unicode"]
-    BOUND --> HOST["4 hostile - adversarial input"]
-    HOST --> COMP{"strong reuse<br/>candidate exists?"}
-    COMP -->|yes| RUNCOMP["5 comparative"]
-    COMP -->|no| DONE
-    RUNCOMP --> DONE["SuiteResult"]
-
-    BOUND -.budget exhausted.-> SKIP["remaining cases skipped<br/>notes = 'budget exhausted'"]
-    HOST -.budget exhausted.-> SKIP
-    SKIP --> DONE
-```
-
-### 9.1 Pass semantics
-
-```python
-# backend/src/ai/meta/board/test_driver.py
-@property
-def passed(self) -> bool:
-    # Suite passes when no non-skipped case failed AND smoke ran + passed.
-    if not self.cases:
-        return False
-    smoke = next((c for c in self.cases if c.name == "smoke"), None)
-    if not smoke or not smoke.passed:
-        return False
-    return all(c.passed for c in self.cases if not c.skipped)
-```
-
-| Situation | `passed` |
-|---|---|
-| No cases ran | `False` |
-| Smoke missing or failed | `False` |
-| Smoke passed, later cases skipped for budget | **`True`** |
-| Smoke passed, a non-skipped case failed | `False` |
-
-**Skipped is not failed.** A suite that exhausts its budget after smoke can
-still report `passed=True` — which is why the Promoter has a *separate* gate
-(G4) for budget exhaustion. Without G4, budget starvation would be a silent
-route to promotion.
-
-### 9.2 Budget
-
-The shared budget comes from `meta_agent.testdriver_budget_usd` in
-`FeatureFlags.NUMERIC_DEFAULTS` (default `Decimal("3.00")`) — see
-[15 — Governance and feature flags](15-governance-and-hitl.md). Each case
-deducts its `cost_usd` from the remaining pool.
-
-The per-case runner is **injectable** (`TestRunner` type alias), so the suite
-logic is unit-testable without live LLM calls; production wires in
-`meta_entity_executor`.
-
-`SuiteResult.to_dict()` truncates each case's `output` to 240 characters for
-the audit record.
-
----
+*Deleted 2026-10-03 (MI-20).* It ran a budget-bounded test suite through a case runner that was never written. A draft is test-run through the versions API (`POST /ai/entities/{id}/versions/{vid}/test-run`).
 
 ## 10. Role 7 — Promoter
 
-Six gates. All must pass.
-
-```python
-# backend/src/ai/meta/board/promoter.py
-"""
-  G1 — Critic verdict is PASS (no unresolved BLOCK)
-  G2 — Validator report passed all deterministic checks
-  G3 — TestDriver suite passed (smoke + every non-skipped case)
-  G4 — TestDriver did not blow its budget
-  G5 — Curator decision is recorded (any decision is allowed; missing → fail)
-  G6 — Runtime cost cap is set (governance.max_cost_usd > 0)
-"""
-```
-
-```mermaid
-flowchart TD
-    IN["draft + 4 reports"] --> G1{"G1 Critic PASS?"}
-    G1 --> G2{"G2 Validator all checks?"}
-    G2 --> G3{"G3 Suite passed?"}
-    G3 --> G4{"G4 Budget not blown?"}
-    G4 --> G5{"G5 Curator decision recorded?"}
-    G5 --> G6{"G6 max_cost_usd > 0?"}
-    G6 --> ANY{"any failures?"}
-    ANY -->|yes| REJECT["REJECT<br/>failed_gates listed"]
-    ANY -->|no| HITL{"hitl_required?"}
-    HITL -->|yes| PEND["PENDING_HITL"]
-    HITL -->|no| FLIP["flip_callback(draft)"]
-    FLIP -->|ok| PROMOTED["PROMOTED + entity_id"]
-    FLIP -->|raises| REJECT
-```
-
-All six gates are evaluated **before** any failure check, so a rejection lists
-every failed gate at once rather than the first one.
-
-```python
-# backend/src/ai/meta/board/promoter.py
-gates = [
-    self._g1(critic_report), self._g2(validator_report),
-    self._g3(suite_result), self._g4(suite_result),
-    self._g5(curator_decision), self._g6(draft),
-]
-failures = [g for g in gates if not g.passed]
-if failures:
-    return PromotionDecision(
-        outcome="REJECT",
-        failed_gates=[g.name for g in failures],
-        reason="; ".join(g.reason for g in failures if g.reason),
-    )
-```
-
-| Outcome | When |
-|---|---|
-| `REJECT` | Any gate failed, **or** `flip_callback` raised |
-| `PENDING_HITL` | All gates passed but `hitl_required=True` |
-| `PROMOTED` | All gates passed, flip succeeded; carries `entity_id` |
-
-G5 is deliberately permissive — *any* curator decision passes; only a **missing**
-decision fails. It enforces that the reuse question was asked, not which answer
-was given.
-
-`flip_callback` is injectable so tests need no live DB. It performs the
-`DRAFT → ACTIVE` lifecycle flip described in
-[06 — Execution pipeline](06-execution-pipeline.md).
-
----
+*Deleted 2026-10-03 (MI-20).* Its six gates read the outputs of roles that never ran; G5 checked only that a Curator decision existed (MI-04). Publication is gated by the Validator ([§8](#8-role-5--validator)) and decided by an admin (D13).
 
 ## 11. RegistrySearch — the reuse decision engine
 
@@ -1248,12 +852,11 @@ human. Worth internalising as a table:
 | Capability | Autonomous? | Guard |
 |---|---|---|
 | Create an entity | Gated | Daily limit 10/company/24h; semantic duplicate > 0.85 blocks |
-| Promote an entity to ACTIVE | Gated | 6 Promoter gates; optional `hitl_required` |
-| Merge duplicate entities | **No** | `propose_plans` emits proposals; human approves |
+| Promote an entity to ACTIVE, or publish a draft version | Gated | The Validator's nine checks (D27), then an admin |
 | Promote a skill candidate | **No** | Human approves via admin API |
 | Synthesise a new tool | Gated | 4 stages, then `DRAFT` + `trust=low` |
 | Edit the Meta-Agent's own prompt | **No** | Candidate + `approve_prompt_candidate` |
-| Spend on tests | Gated | Shared `$3.00` budget; Promoter G4 rejects on exhaustion |
+| Spend on tests | **No** | A person starts a draft's test run (versions API) |
 
 ```mermaid
 flowchart LR
@@ -1268,7 +871,6 @@ flowchart LR
         G3["Register DRAFT tool"]
     end
     subgraph Human["Requires a human"]
-        H1["Merge entities"]
         H2["Promote skill candidate"]
         H3["Approve prompt change"]
         H4["Promote DRAFT tool"]
@@ -1289,8 +891,8 @@ Stated plainly, since a new developer should know:
   it entirely.
 - **The daily limit is per company, not per user or per minute.** Ten entities
   can be created in ten seconds.
-- **The base Architect cannot actually revise** ([§6](#6-role-3--architect)), so
-  the two-round critic loop rarely converges to `PASS` on its own.
+- *(Resolved 2026-10-03, MI-20.)* The Architect that could not revise is deleted with the
+  rest of the unused Board.
 
 ---
 
@@ -1303,26 +905,17 @@ Stated plainly, since a new developer should know:
 | [registry_search_service.py](../../backend/src/ai/meta/registry_search_service.py) | 655 | Four-phase REUSE/ADAPT/COMPOSE/CREATE scorer |
 | [meta_agent_template.py](../../backend/src/ai/meta/meta_agent_template.py) | 410 | The Meta-Agent runtime entity template |
 | [tool_validator.py](../../backend/src/ai/meta/tool_validator.py) | 236 | AST static gate for synthesised tools |
-| [board/test_driver.py](../../backend/src/ai/meta/board/test_driver.py) | 219 | Budget-bounded 5-case suite |
 | [tool_sandbox_tester.py](../../backend/src/ai/meta/tool_sandbox_tester.py) | 215 | Container replay of tool examples |
 | [seed_meta_agent.py](../../backend/src/ai/meta/seed_meta_agent.py) | 198 | One-shot seeder |
-| [board/validator.py](../../backend/src/ai/meta/board/validator.py) | 197 | 8 deterministic spec checks |
+| [board/validator.py](../../backend/src/ai/meta/board/validator.py) | 215 | 9 deterministic checks; the publication gate (D27) |
 | [skill_library.py](../../backend/src/ai/meta/skill_library.py) | 188 | Repeated tool-chain detection |
 | [tool_synthesis_pipeline.py](../../backend/src/ai/meta/tool_synthesis_pipeline.py) | 183 | 4-stage tool synthesis orchestrator |
-| [consolidation.py](../../backend/src/ai/meta/consolidation.py) | 181 | Merge-plan proposals for duplicate clusters |
-| [board/promoter.py](../../backend/src/ai/meta/board/promoter.py) | 170 | 6 promotion gates |
 | [anti_sprawl.py](../../backend/src/ai/meta/anti_sprawl.py) | 162 | Daily limit, adaptation chain, semantic duplicate |
-| [board/curator.py](../../backend/src/ai/meta/board/curator.py) | 145 | REUSE/ADAPT/COMPOSE/CREATE glue + audit |
 | [reseed_meta_agent.py](../../backend/src/ai/meta/reseed_meta_agent.py) | 130 | Re-seed helper |
 | [tool_red_team.py](../../backend/src/ai/meta/tool_red_team.py) | 127 | Adversarial review of synthesised tools |
 | [board/tool_smith.py](../../backend/src/ai/meta/board/tool_smith.py) | 125 | LLM tool-source generation |
 | [prompt_evolution.py](../../backend/src/ai/meta/prompt_evolution.py) | 123 | Self-prompt-edit candidate generator |
-| [board/critic.py](../../backend/src/ai/meta/board/critic.py) | 118 | `meta_spec_critic` loop, max 2 revise rounds |
-| [spec_tiebreak.py](../../backend/src/ai/meta/spec_tiebreak.py) | 107 | Tie-breaking between equally-scored specs |
 | [meta_cognition_migration.py](../../backend/src/ai/meta/meta_cognition_migration.py) | 92 | Pre-deploy backfill for the defaults flip |
-| [board/golden_outcomes.py](../../backend/src/ai/meta/board/golden_outcomes.py) | 81 | Golden-outcome fixtures |
-| [board/requirement_chat.py](../../backend/src/ai/meta/board/requirement_chat.py) | 62 | Raw request → `Spec` |
-| [board/architect.py](../../backend/src/ai/meta/board/architect.py) | 60 | Draft envelope + revise stub |
 
 Related: [tools/meta/entity_creator.py](../../backend/src/ai/tools/meta/entity_creator.py)
 (the enforcement point for anti-sprawl),

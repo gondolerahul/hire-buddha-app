@@ -24,15 +24,6 @@ KNOWN_UNREAD: dict[str, str] = {
     "memory.scope_policy_enforced": "register 08, deferred",
     "memory.embedding_resolver_v2": "register 08, deferred",
     "memory_v2.canonical": "register 08, deferred",
-    # The seven-role Architecture Board has no production caller (MI-20);
-    # these gate it and are decided with it in P10.
-    "meta_agent.board_routing": "MI-20, P10",
-    "meta_agent.spec_critic_required": "MI-20, P10",
-    "meta_agent.draft_lifecycle": "MI-20, P10",
-    "meta_agent.testdriver_suite_enabled": "MI-20, P10",
-    "meta_agent.testdriver_budget_usd": "MI-20, P10",
-    "meta_agent.curator_consolidation_enabled": "MI-20, P10",
-    "meta_agent.spec_critic_tiebreak": "MI-20, P10",
 }
 
 

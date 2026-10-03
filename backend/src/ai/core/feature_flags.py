@@ -71,17 +71,6 @@ DEFAULTS: dict[str, bool] = {
     "critic_pipeline.calibration_enabled": True,
     "bandit.enabled": True,
     "task_classifier.v2_enabled": False,
-    # Meta-Agent Board defaults. The seven-role Board has no production caller
-    # (MI-20); these flags gate it and are decided with it in P10 of the
-    # consolidated plan.
-    "meta_agent.board_routing": True,
-    "meta_agent.spec_critic_required": True,
-    "meta_agent.draft_lifecycle": True,
-    "meta_agent.testdriver_suite_enabled": True,
-    "meta_agent.curator_consolidation_enabled": False,
-    # Third-model tiebreak for high-stakes spec-critic disagreements (Phase 12
-    # `06` §4.3). Default OFF; enabled per company.
-    "meta_agent.spec_critic_tiebreak": False,
     # The two weekly Meta-Agent crons (skill_promotion_scan,
     # meta_agent_prompt_evolution) skip when their flag is off.
     "meta_agent.skill_promotion_cron": True,
@@ -132,7 +121,6 @@ NUMERIC_DEFAULTS: dict[str, float] = {
     # "finish, don't expand" directive (Phase 12 `07` §2).
     "agent_loop.budget_pressure_threshold": 0.70,
     # Meta-Agent test driver suite budget (USD). Gates the unwired Board (MI-20).
-    "meta_agent.testdriver_budget_usd": 3.00,
     # Planner candidate count.
     "planner.n_candidates": 3,
 }
