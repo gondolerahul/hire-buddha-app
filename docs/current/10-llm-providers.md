@@ -383,96 +383,35 @@ the most recently updated row (LP-21; it was `ILIKE '%name%'` with no order).
 
 ---
 
-## 5. The API-key TTL cache
+## 5. Resolution caches and the integration generation
 
-Declared in `pyproject.toml` as `cachetools = "^5.3.0"  # P0.2: TTL cache for
-API key resolution`. It lives at module scope in
-[config/service.py](../../backend/src/config/service.py), so it is **per Python
-process**, not shared across workers.
+Since LP-22 / LP-I5 (2026-10-03) one module,
+[config/resolution_cache.py](../../backend/src/config/resolution_cache.py), holds both
+caches and one rule invalidates them.
 
-```python
-# backend/src/config/service.py
-try:
-    from cachetools import TTLCache
-    _API_KEY_CACHE: TTLCache = TTLCache(maxsize=512, ttl=60)
-    _CACHE_AVAILABLE = True
-except ImportError:
-    _API_KEY_CACHE = {}  # type: ignore[assignment]
-    _CACHE_AVAILABLE = False
+| Cache | Key | Value | Used by |
+|---|---|---|---|
+| `ConfigService._API_KEYS` | `(company_id, provider, model_name)` | the decrypted key | `resolve_api_key` (voice, live sessions) |
+| `router._RESOLUTIONS` | `(company_id, task_type, model_override)` | the resolved adapter (provider, model, key, metadata) | every `LLMRouter`, whichever call site built it |
 
+**The rule.** Every write through `ConfigService` to the registry or the task defaults
+(create, update, delete of an integration; set or delete a task default) increments the
+Redis counter `config:integration_generation` (`bump_generation`). A cached value
+remembers the generation it was made under and is used only while the counter still holds
+it; the counter is re-read at most once a second per process. So a key rotation reaches
+every API and worker process within about a second. When Redis cannot be read an entry
+lives 60 s — the old bound — and the writing process clears its own caches at once.
+Entries also expire after 10 minutes.
 
-def _cache_bust(company_id: UUID, provider: Optional[str] = None):
-    """Remove all cached entries for a company (called on create/update/delete)."""
-    if not _CACHE_AVAILABLE:
-        return
-    prefix = str(company_id)
-    stale = [k for k in list(_API_KEY_CACHE.keys()) if k.startswith(prefix)]
-    for k in stale:
-        _API_KEY_CACHE.pop(k, None)
-```
+The generation is read *before* resolving and the value stored under it, so a write that
+lands while a resolution is in flight makes that entry stale rather than hiding.
 
-| Property | Value |
-|---|---|
-| Implementation | `cachetools.TTLCache` |
-| Max size | 512 entries (LRU eviction beyond that) |
-| TTL | **60 seconds** |
-| Key format | `f"{company_id}:{provider}:{model_name or ''}"` |
-| Value | the **decrypted plaintext** API key |
-| Scope | one in-process dict per uvicorn/arq worker |
-| Invalidation | `_cache_bust(company_id)` on create, update and delete of any integration row |
-| Degradation | if `cachetools` is missing, `_CACHE_AVAILABLE = False` and every lookup hits the DB. Nothing breaks. |
+Before: `resolve_api_key` had a per-process `cachetools.TTLCache` (60 s) cleared only in
+the process that rotated the key, so other workers served a revoked key for up to a minute;
+and `LLMRouter` cached adapters per *instance*, while each of sixteen call sites built its
+own router, so a run resolved its model through the database on nearly every call.
 
-```mermaid
-sequenceDiagram
-    participant C as Caller
-    participant SVC as ConfigService
-    participant CACHE as "_API_KEY_CACHE TTL 60s"
-    participant DB as Postgres
-
-    C->>SVC: "resolve_api_key co, google, gemini-2.5-flash"
-    SVC->>CACHE: "get co:google:gemini-2.5-flash"
-    alt hit
-        CACHE-->>SVC: plaintext key
-        SVC-->>C: key
-    else miss
-        SVC->>DB: "up to 6 waterfall steps, each with APP fallback"
-        DB-->>SVC: encrypted key
-        SVC->>SVC: decrypt_api_key
-        SVC->>CACHE: "store for 60s"
-        SVC-->>C: key
-    end
-
-    Note over SVC,CACHE: "PATCH or DELETE on any integration calls _cache_bust company_id"
-```
-
-Two consequences to keep in mind:
-
-- **`resolve_model_for_task` does not use this cache.** The LLM router path
-  decrypts on every miss of its own adapter cache. Only the waterfall path is
-  cached.
-- **Only successful lookups are cached.** A `None` result is re-queried every
-  time, so a misconfigured company pays the full 12-query cost on every call.
-- Because the cache is per-process and busting is local, rotating a key on one
-  API worker leaves other workers serving the old key for up to 60 seconds.
-
-### 5.1 The second cache: per-router adapter memoisation
-
-`LLMRouter` keeps its own dict for the lifetime of the instance (usually one
-run, or one step):
-
-```python
-# backend/src/ai/llm/router.py
-cache_key = f"{self.company_id}:{task_type}:{model_override or ''}"
-if cache_key in self._adapter_cache:
-    return self._adapter_cache[cache_key]
-```
-
-This is labelled `Phase 4 (PERF-4)`. It caches the *adapter object* (which holds
-the plaintext key), so a long-lived `LLMRouter` will not observe a key rotation
-at all. Routers are constructed per run, so in practice the staleness window is
-one run.
-
----
+Only successful lookups are cached; a `None` result is re-queried every time.
 
 ## 6. Task defaults and model routing
 
@@ -1943,8 +1882,7 @@ Checklist for the adapter itself, learned from the three that exist:
 18. *(Fixed, LP-23.)* There is no SDK patch; google-genai keeps an unknown `finish_reason`.
 19. *(Fixed, LP-21.)* One APP company, read only by `platform_company_id`.
 20. *(Fixed, LP-21.)* `get_integration_by_provider` matches the provider exactly.
-21. **The TTL cache is per process and only busted locally.** After a key
-    rotation, other workers serve the old key for up to 60 seconds.
+21. *(Fixed, LP-22.)* A key rotation reaches every process within a second (§5).
 22. ~~**`LLMResponse.cost_usd` is hardcoded `0.0`.**~~ Deleted (LP-02, 2026-10-01).
 23. **`service_category` is free text** and the values in the model's own column
     comment (`IMAGE_GEN`, `VIDEO_GEN`) are not the values the code queries for.

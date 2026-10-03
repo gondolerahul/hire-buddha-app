@@ -18,8 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ai.llm.types import Attachment, LLMResponse
 from src.ai.llm.base import BaseLLMAdapter
 from src.ai.core.trace import span as _trace_span
+from src.config.resolution_cache import ResolutionCache, current_generation
 
 logger = logging.getLogger(__name__)
+
+# Resolved adapters per (company, task type, override), shared by every router
+# in the process and valid while the integration generation is (LP-I5, LP-22).
+# A run used to resolve its model on every call: each call site built its own
+# router, and each router its own cache.
+_RESOLUTIONS = ResolutionCache()
 
 
 def _record_llm_span(sp, resp: "LLMResponse") -> None:
@@ -106,24 +113,25 @@ class LLMRouter:
     def __init__(self, db: AsyncSession, company_id: UUID):
         self.db = db
         self.company_id = company_id
-        self._adapter_cache: dict = {}  # Per-run cache to avoid repeated DB lookups
 
     async def _resolve_adapter(self, task_type: str, model_override: Optional[str] = None) -> BaseLLMAdapter:
         """Resolve the correct adapter based on task defaults.
-        
-        Phase 4 (PERF-4): Results are cached per (company_id, task_type,
-        model_override) tuple for the lifetime of this LLMRouter instance
-        to avoid repeated ConfigService DB queries within a single run.
-        
+
+        Cached per (company, task type, override) for every router in the
+        process until a registry or task-default write changes the integration
+        generation (``src/config/resolution_cache.py``).
+
         Args:
             task_type: The task type to resolve the model for.
             model_override: Optional model name override from entity config.
                            When set, the adapter uses this model instead of the
                            integration's default (e.g. "gemini-3.1-pro-preview").
         """
-        cache_key = f"{self.company_id}:{task_type}:{model_override or ''}"
-        if cache_key in self._adapter_cache:
-            return self._adapter_cache[cache_key]
+        cache_key = (self.company_id, task_type, model_override or "")
+        generation = await current_generation()
+        cached = _RESOLUTIONS.get(cache_key, generation)
+        if cached is not ResolutionCache.MISS:
+            return cached
 
         from src.config.service import ConfigService
         config_svc = ConfigService(self.db)
@@ -168,7 +176,7 @@ class LLMRouter:
             model_name=effective_model,
             service_metadata=integration.service_metadata or {},
         )
-        self._adapter_cache[cache_key] = adapter
+        _RESOLUTIONS.put(cache_key, adapter, generation)
         return adapter
 
     async def call_llm(

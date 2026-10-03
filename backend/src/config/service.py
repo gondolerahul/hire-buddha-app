@@ -7,28 +7,11 @@ from src.config.models import IntegrationRegistry, ModelTaskDefault, ServiceCate
 from src.config.schemas import IntegrationRegistryCreate, IntegrationRegistryUpdate, ModelTaskDefaultCreate
 from src.common.security import encrypt_api_key, decrypt_api_key
 
-# ---------------------------------------------------------------------------
-# P0.2 — In-process TTL cache for API key resolution.
-# Prevents N×6 sequential DB queries per LLM call at high concurrency.
-# Requires: pip install cachetools
-# ---------------------------------------------------------------------------
-try:
-    from cachetools import TTLCache
-    _API_KEY_CACHE: TTLCache = TTLCache(maxsize=512, ttl=60)
-    _CACHE_AVAILABLE = True
-except ImportError:
-    _API_KEY_CACHE = {}  # type: ignore[assignment]
-    _CACHE_AVAILABLE = False
+from src.config.resolution_cache import ResolutionCache, bump_generation, current_generation
 
-
-def _cache_bust(company_id: UUID, provider: Optional[str] = None):
-    """Remove all cached entries for a company (called on create/update/delete)."""
-    if not _CACHE_AVAILABLE:
-        return
-    prefix = str(company_id)
-    stale = [k for k in list(_API_KEY_CACHE.keys()) if k.startswith(prefix)]
-    for k in stale:
-        _API_KEY_CACHE.pop(k, None)
+# Key lookups, valid while the integration generation is (LP-22): a write here
+# makes every process re-resolve within a second, not just this one.
+_API_KEYS = ResolutionCache(maxsize=512)
 
 
 class ConfigService:
@@ -56,12 +39,14 @@ class ConfigService:
           5. Any active key for provider
           6. Case-insensitive provider alias (google ↔ Gemini)
 
-        Results are cached for 60 seconds to avoid repeated DB queries.
-        Cache is invalidated when integration entries are mutated.
+        Results are cached until a registry write changes the integration
+        generation (every process), or 60 s when Redis cannot be read.
         """
-        cache_key = f"{company_id}:{provider}:{model_name or ''}"
-        if _CACHE_AVAILABLE and cache_key in _API_KEY_CACHE:
-            return _API_KEY_CACHE[cache_key]
+        cache_key = (company_id, provider, model_name or "")
+        generation = await current_generation()
+        cached = _API_KEYS.get(cache_key, generation)
+        if cached is not ResolutionCache.MISS:
+            return cached
 
         key: Optional[str] = None
 
@@ -84,8 +69,8 @@ class ConfigService:
             if alias:
                 key = await self.get_api_key_by_provider(company_id, alias)
 
-        if key and _CACHE_AVAILABLE:
-            _API_KEY_CACHE[cache_key] = key
+        if key:
+            _API_KEYS.put(cache_key, key, generation)
 
         return key
 
@@ -106,8 +91,7 @@ class ConfigService:
         self.db.add(entry)
         await self.db.commit()
         await self.db.refresh(entry)
-        # Invalidate API key cache for this company
-        _cache_bust(entry.company_id)
+        await bump_generation()
         return entry
 
     async def get_registry_entries(self, company_id: Optional[UUID] = None) -> list[IntegrationRegistry]:
@@ -147,17 +131,14 @@ class ConfigService:
         
         await self.db.commit()
         await self.db.refresh(entry)
-        # Invalidate API key cache for this company
-        _cache_bust(entry.company_id)
+        await bump_generation()
         return entry
 
     async def delete_registry_entry(self, entry_id: UUID) -> bool:
         entry = await self.get_registry_entry(entry_id)
-        company_id = entry.company_id
         await self.db.delete(entry)
         await self.db.commit()
-        # Invalidate API key cache for this company
-        _cache_bust(company_id)
+        await bump_generation()
         return True
 
     async def _get_app_company_id(self) -> Optional[UUID]:
@@ -351,6 +332,7 @@ class ConfigService:
             existing.routing_mode = routing_mode
             await self.db.commit()
             await self.db.refresh(existing)
+            await bump_generation()
             return existing
         else:
             new_default = ModelTaskDefault(
@@ -362,6 +344,7 @@ class ConfigService:
             self.db.add(new_default)
             await self.db.commit()
             await self.db.refresh(new_default)
+            await bump_generation()
             return new_default
 
     async def get_task_default(
@@ -439,6 +422,7 @@ class ConfigService:
             raise HTTPException(status_code=404, detail=f"No default configured for task '{task_type}'")
         await self.db.delete(entry)
         await self.db.commit()
+        await bump_generation()
         return True
 
     async def resolve_model_by_name(

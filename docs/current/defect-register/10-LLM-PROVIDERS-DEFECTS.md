@@ -542,7 +542,12 @@ pick up an unrelated provider whose name contains the search term.
 
 ### LP-22 — The API-key cache is per process and busted only locally
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P9.11)** — every registry or
+task-default write through `ConfigService` increments the Redis counter
+`config:integration_generation`; a cached key or adapter is used only while the counter
+holds the value it was cached under, re-read at most once a second, so a rotation reaches
+every process within about a second (60 s TTL when Redis is unreadable, as before).
+`src/config/resolution_cache.py`. Test: `tests/unit/test_resolution_cache.py`.
 
 The TTL cache is in-process with a 60-second TTL, and invalidation on key rotation only
 clears the local copy. After a rotation, **other workers keep serving the old key for up
@@ -627,6 +632,13 @@ The field is on the response; it is simply not read. For reasoning models this c
 of the spend, so the platform is currently absorbing that cost.
 
 ### LP-I5 — Cache the resolved model per run, not per call
+
+**Status: done (2026-10-03, P9.11)** — adapters are cached per (company, task type,
+override) for every router in the process, valid while the integration generation is
+(LP-22). One process-wide cache rather than a run-scoped one: sixteen call sites build
+their own router, and a run sees a configuration change at its next call either way.
+`tests/unit/test_resolution_cache.py::test_a_run_resolves_its_model_once` — 100 routers,
+one database resolution.
 
 **Effect: medium.** Every LLM call resolves the model through `model_task_defaults` and
 `integration_registry`. For a 30-iteration run with four critic stages, that is well over a

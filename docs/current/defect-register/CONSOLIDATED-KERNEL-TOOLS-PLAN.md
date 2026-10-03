@@ -1169,8 +1169,10 @@ holds, and what moved:
   exist; `get_integration_by_provider` matches the provider name exactly (case-folded).
 - **LP-22 + LP-I5:** routers are built per call site (16 sites), each with its own adapter
   cache; `resolve_model_for_task` hits the database every time and only the voice path's
-  key lookup is cached (60 s, local bust only). One rule: a run resolves each
-  `(task type, override)` once (a run-scoped cache the loop opens), and every cached
+  key lookup is cached (60 s, local bust only). One rule: each
+  `(company, task type, override)` is resolved once per process (as built: one
+  process-wide cache, since sixteen call sites build their own router; a run-scoped one
+  would see a change at the next call all the same), and every cached
   resolution carries the **integration generation** — a Redis counter every registry or
   task-default write increments. A lookup whose generation moved re-resolves, so a
   rotation reaches every process within a second (the generation is re-read at most once a
