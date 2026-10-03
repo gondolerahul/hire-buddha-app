@@ -348,7 +348,10 @@ what keeps this from being live today.
 
 ### MI-17 — Prompt evolution writes candidates nothing surfaces urgently
 
-**📄 Doc-reported · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-03, P10.7)** — `GET /ai/admin/meta/review_queue`
+counts what waits for a person in the company: unapproved prompt candidates, unpromoted skill
+candidates, `DRAFT` entities and `DRAFT` synthesized tools; the Meta Intelligence page shows
+the counts above its tabs (checked in the browser). Test: `tests/integration/test_review_queue.py`.
 
 `meta_agent_prompt_evolution` runs weekly and writes prompt-update candidates into the
 tree. It never auto-applies — an admin must POST the approve endpoint.
@@ -445,6 +448,9 @@ should carry `ran`, `passed`, `failed`, `skipped`. Then G4 is a sanity check rat
 the only thing standing between an untested spec and promotion.
 
 ### MI-I7 — Notify when human-gated queues have items
+
+**Status: done (2026-10-03, P10.7)** with MI-17 — counts on the page, from one endpoint; no
+digest is sent.
 
 **Effect: medium.** Four things wait for a human: merge proposals, skill candidates,
 prompt candidates and DRAFT tool promotions. None of them notifies anyone.

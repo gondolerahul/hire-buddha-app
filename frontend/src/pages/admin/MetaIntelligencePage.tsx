@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useState } from 'react';
 
-import { metaService } from '@/services/meta.service';
+import { metaService, type ReviewQueue } from '@/services/meta.service';
 import type {
     AntiPatternRow,
     PromptCandidate,
@@ -21,6 +21,10 @@ type Tab = 'anti' | 'skill' | 'prompt';
 
 export const MetaIntelligencePage: React.FC = () => {
     const [tab, setTab] = useState<Tab>('anti');
+    const [queue, setQueue] = useState<ReviewQueue | null>(null);
+    useEffect(() => {
+        metaService.reviewQueue().then(setQueue).catch(() => setQueue(null));
+    }, []);
 
     return (
         <div className="page-container meta-intel-page">
@@ -28,6 +32,16 @@ export const MetaIntelligencePage: React.FC = () => {
                 <h1>Meta Intelligence</h1>
                 <p>Anti-patterns, skill candidates, and prompt-update HITL queue.</p>
             </header>
+
+            {queue && (
+                <div className="meta-intel-page__queue" aria-label="Waiting for review">
+                    <strong>{queue.total}</strong> waiting for review:
+                    <span>{queue.prompt_candidates} prompt updates</span>
+                    <span>{queue.skill_candidates} skill candidates</span>
+                    <span>{queue.draft_entities} draft entities</span>
+                    <span>{queue.draft_tools} draft tools</span>
+                </div>
+            )}
 
             <nav className="meta-intel-page__tabs">
                 <button
@@ -40,13 +54,13 @@ export const MetaIntelligencePage: React.FC = () => {
                     className={tab === 'skill' ? 'active' : ''}
                     onClick={() => setTab('skill')}
                 >
-                    Skill Candidates
+                    Skill Candidates{queue?.skill_candidates ? ` (${queue.skill_candidates})` : ''}
                 </button>
                 <button
                     className={tab === 'prompt' ? 'active' : ''}
                     onClick={() => setTab('prompt')}
                 >
-                    Prompt Updates
+                    Prompt Updates{queue?.prompt_candidates ? ` (${queue.prompt_candidates})` : ''}
                 </button>
             </nav>
 

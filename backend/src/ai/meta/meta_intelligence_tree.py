@@ -487,6 +487,16 @@ class MetaIntelligenceTree:
             },
         )
 
+    async def pending_review_counts(self) -> dict[str, int]:
+        """Rows waiting for a person (MI-17): unapproved prompt candidates and
+        unpromoted skill candidates."""
+        prompts = await self._list_kind("prompt_cand", "prompt_update_candidate", MAX_ROWS_PER_SECTION * 2)
+        skills = await self._list_kind("spec_patterns", "skill_candidate", MAX_ROWS_PER_SECTION * 2)
+        return {
+            "prompt_candidates": sum(1 for r in prompts if not r.get("metadata", {}).get("approved")),
+            "skill_candidates": sum(1 for r in skills if not r.get("metadata", {}).get("promoted")),
+        }
+
     async def list_skill_candidates(self, limit: int = 20) -> list[dict[str, Any]]:
         return await self._list_kind("spec_patterns", "skill_candidate", limit)
 

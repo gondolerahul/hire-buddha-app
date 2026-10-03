@@ -251,6 +251,36 @@ async def get_bandit_state(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/meta/review_queue")
+async def review_queue(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
+) -> dict:
+    """What waits for a person in this company (MI-17): prompt candidates to
+    approve, skill candidates to promote, DRAFT entities to publish and DRAFT
+    synthesized tools to review. Nothing used to say any of it was waiting."""
+    from sqlalchemy import func as sa_func
+    from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
+    from src.ai.orm.entity import HierarchicalEntity
+    from src.ai.orm.tools import ToolRegistryEntry
+
+    counts = await MetaIntelligenceTree(db, user.company_id).pending_review_counts()
+    counts["draft_entities"] = int((await db.execute(
+        select(sa_func.count(HierarchicalEntity.id)).where(
+            HierarchicalEntity.company_id == user.company_id,
+            HierarchicalEntity.status == "DRAFT",
+            HierarchicalEntity.deleted_at.is_(None),
+        ))).scalar() or 0)
+    counts["draft_tools"] = int((await db.execute(
+        select(sa_func.count(ToolRegistryEntry.id)).where(
+            ToolRegistryEntry.company_id == user.company_id,
+            ToolRegistryEntry.tool_type == "SYNTHESIZED",
+            ToolRegistryEntry.configuration["status"].astext == "DRAFT",
+        ))).scalar() or 0)
+    counts["total"] = sum(counts.values())
+    return counts
+
+
 @router.get("/meta/skill_candidates")
 async def list_skill_candidates(
     limit: int = Query(20, ge=1, le=100),

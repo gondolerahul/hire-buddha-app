@@ -8,7 +8,21 @@ import type {
     SkillCandidate,
 } from '@/types/agentKernel';
 
+/** What waits for a person in this company (MI-17). */
+export interface ReviewQueue {
+    prompt_candidates: number;
+    skill_candidates: number;
+    draft_entities: number;
+    draft_tools: number;
+    total: number;
+}
+
 export const metaService = {
+    async reviewQueue(): Promise<ReviewQueue> {
+        const { data } = await apiClient.get<ReviewQueue>('/ai/admin/meta/review_queue');
+        return data;
+    },
+
     async listSkillCandidates(limit = 25): Promise<SkillCandidate[]> {
         const { data } = await apiClient.get('/ai/admin/meta/skill_candidates', {
             params: { limit },

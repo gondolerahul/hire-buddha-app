@@ -508,6 +508,10 @@ variety is expressed in JSONB metadata. Adding a row kind requires no migration.
 
 ### 13.3 API surface
 
+`GET /ai/admin/meta/review_queue` counts what waits for a person in the caller's company —
+unapproved prompt candidates, unpromoted skill candidates, `DRAFT` entities and `DRAFT`
+synthesized tools — and the Meta Intelligence page shows it above its tabs (MI-17).
+
 | Method | Section | Purpose |
 |---|---|---|
 | `add_anti_pattern`, `query_anti_patterns` | anti_patterns | Critic writes; critic prompt reads top-k |
