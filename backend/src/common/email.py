@@ -39,15 +39,12 @@ class EmailService:
             from src.common.database import AsyncSessionLocal
             from src.config.models import IntegrationRegistry
             from src.common.security import decrypt_api_key
-            from src.auth.models import Company
             from sqlalchemy import select
 
             async with AsyncSessionLocal() as db:
                 # Get the APP company ID
-                result = await db.execute(
-                    select(Company.id).where(Company.type == "APP").limit(1)
-                )
-                app_company_id = result.scalar_one_or_none()
+                from src.auth.platform import platform_company_id
+                app_company_id = await platform_company_id(db)
 
                 if not app_company_id:
                     logger.warning(

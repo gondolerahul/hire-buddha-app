@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import CheckConstraint, Column, String, Boolean, ForeignKey, DateTime, Integer, Numeric, Text
+from sqlalchemy import CheckConstraint, Column, Index, text, String, Boolean, ForeignKey, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -8,6 +8,10 @@ from src.common.database import Base
 
 class Company(Base):
     __tablename__ = "companies"
+    # At most one APP (platform) company; see src/auth/platform.py (LP-21).
+    __table_args__ = (
+        Index("uq_companies_one_app", "type", unique=True, postgresql_where=text("type = 'APP'")),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False)

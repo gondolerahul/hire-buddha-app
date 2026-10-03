@@ -1,7 +1,7 @@
 from typing import Optional, Tuple
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from fastapi import HTTPException, status
 from src.config.models import IntegrationRegistry, ModelTaskDefault, ServiceCategory
 from src.config.schemas import IntegrationRegistryCreate, IntegrationRegistryUpdate, ModelTaskDefaultCreate
@@ -162,11 +162,8 @@ class ConfigService:
 
     async def _get_app_company_id(self) -> Optional[UUID]:
         """Get the ID of the platform (APP) company."""
-        from src.auth.models import Company
-        result = await self.db.execute(
-            select(Company.id).where(Company.type == "APP").limit(1)
-        )
-        return result.scalar_one_or_none()
+        from src.auth.platform import platform_company_id
+        return await platform_company_id(self.db)
 
     async def get_api_key_by_sku(self, company_id: UUID, service_sku: str) -> str:
         # 1. Try company-specific key
@@ -292,29 +289,24 @@ class ConfigService:
         return None
 
     async def get_integration_by_provider(self, company_id: UUID, provider_name: str) -> Optional[IntegrationRegistry]:
-        """Get the full integration entry by provider with platform fallback."""
-        # 1. Company specific
-        result = await self.db.execute(
-            select(IntegrationRegistry).where(
-                IntegrationRegistry.company_id == company_id,
-                IntegrationRegistry.provider_name.ilike(f"%{provider_name}%"),
-                IntegrationRegistry.status == "active"
-            )
-        )
-        entry = result.scalars().first()
-        if entry: return entry
-
-        # 2. Platform fallback
+        """The company's active integration of exactly this provider (case-folded),
+        else the platform's; the most recently updated row wins. It used to be
+        ``ILIKE '%name%'`` with no order, so ``google`` could pick up any
+        provider whose name contains it (LP-21)."""
+        owners = [company_id]
         app_company_id = await self._get_app_company_id()
         if app_company_id and app_company_id != company_id:
-            result = await self.db.execute(
+            owners.append(app_company_id)
+        for owner in owners:
+            entry = (await self.db.execute(
                 select(IntegrationRegistry).where(
-                    IntegrationRegistry.company_id == app_company_id,
-                    IntegrationRegistry.provider_name.ilike(f"%{provider_name}%"),
-                    IntegrationRegistry.status == "active"
-                )
-            )
-            return result.scalars().first()
+                    IntegrationRegistry.company_id == owner,
+                    func.lower(IntegrationRegistry.provider_name) == provider_name.lower(),
+                    IntegrationRegistry.status == "active",
+                ).order_by(IntegrationRegistry.updated_at.desc(), IntegrationRegistry.id).limit(1)
+            )).scalar_one_or_none()
+            if entry:
+                return entry
         return None
 
     # ------------------------------------------------------------------

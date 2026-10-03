@@ -46,7 +46,6 @@ class ToolManagementService:
         tenant's synthesized tools, source and audit included.
         """
         from sqlalchemy import or_
-        from src.auth.models import Company
         from src.auth.visibility import visible_company_ids
 
         stmt = select(ToolRegistryEntry)
@@ -55,7 +54,8 @@ class ToolManagementService:
         scope = await visible_company_ids(self.db, viewer)
         if scope is None:
             return stmt
-        platform = select(Company.id).where(Company.type == "APP")
+        from src.auth.platform import platform_company_query
+        platform = platform_company_query()
         return stmt.where(or_(
             ToolRegistryEntry.company_id.is_(None),
             ToolRegistryEntry.company_id.in_(platform),

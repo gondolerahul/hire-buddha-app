@@ -92,7 +92,6 @@ async def resolve_tata_credentials(db: AsyncSession, company_id: UUID) -> Option
     """The Tata credentials that apply to ``company_id``: its own active ``tata_tele``
     row, else the platform (APP) company's. Deterministic: exact provider name, and the
     most recently updated row wins if there were ever more than one."""
-    from src.auth.models import Company
     from src.config.models import IntegrationRegistry
 
     async def row_for(cid: UUID):
@@ -109,7 +108,8 @@ async def resolve_tata_credentials(db: AsyncSession, company_id: UUID) -> Option
 
     entry = await row_for(company_id)
     if entry is None:
-        app_id = (await db.execute(select(Company.id).where(Company.type == "APP").limit(1))).scalar_one_or_none()
+        from src.auth.platform import platform_company_id
+        app_id = await platform_company_id(db)
         if app_id and app_id != company_id:
             entry = await row_for(app_id)
     if entry is None:

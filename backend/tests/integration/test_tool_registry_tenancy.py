@@ -27,6 +27,14 @@ async def _company(db, kind="TENANT"):
     return c
 
 
+async def _platform(db):
+    """The APP company: there is at most one (LP-21)."""
+    from src.auth.models import Company
+    from src.auth.platform import platform_company_id
+    found = await platform_company_id(db)
+    return await db.get(Company, found) if found else await _company(db, "APP")
+
+
 def _entry(company_id, name, tool_type="SYNTHESIZED"):
     from src.ai.orm.tools import ToolRegistryEntry
     return ToolRegistryEntry(company_id=company_id, name=name, tool_type=tool_type,
@@ -66,7 +74,7 @@ async def test_built_in_names_stay_unique(db):
 async def test_a_tenant_lists_its_own_and_platform_tools_only(db):
     from src.ai.tool_management_service import ToolManagementService
 
-    mine, theirs, platform = await _company(db), await _company(db), await _company(db, "APP")
+    mine, theirs, platform = await _company(db), await _company(db), await _platform(db)
     own, other, shared = (f"t_{uuid.uuid4().hex[:6]}" for _ in range(3))
     db.add_all([_entry(mine.id, own), _entry(theirs.id, other), _entry(platform.id, shared, "CUSTOM")])
     await db.flush()

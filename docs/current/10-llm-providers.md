@@ -303,7 +303,7 @@ flowchart TD
     A["resolve_model_for_task company_id, task_type"] --> B["get_task_default"]
     B --> C{"model_task_defaults row for THIS company and task_type?"}
     C -->|yes| F["use it"]
-    C -->|no| D["_get_app_company_id - SELECT id FROM companies WHERE type = APP LIMIT 1"]
+    C -->|no| D["platform_company_id - the one APP company"]
     D --> E{"APP row for task_type?"}
     E -->|yes| F
     E -->|no| G["return None, None -> RuntimeError: No model configured"]
@@ -320,8 +320,10 @@ Two things to notice:
 1. The **integration row is loaded by primary key**, so a tenant's task default
    may legitimately point at an APP-owned integration and vice versa. Ownership
    of the *default* and ownership of the *integration* are independent.
-2. `_get_app_company_id` does `SELECT id FROM companies WHERE type = 'APP' LIMIT 1`
-   with no ordering. If two APP companies exist the winner is arbitrary.
+2. The APP company comes from `src/auth/platform.py:platform_company_id`, the only
+   reader (LP-21). The partial unique index `uq_companies_one_app` allows one; the query
+   orders by `created_at, id`, so a database the index could not be built on still
+   answers the same company every time. Six readers used to take `LIMIT 1` with no order.
 
 ### 4.2 Path B — `resolve_api_key` (the six-step waterfall)
 
@@ -376,9 +378,8 @@ whole-row twins, `get_integration_by_sku` and `get_integration_by_provider`,
 follow the same pattern and are what `genai_factory` uses to find a Vertex
 project id.
 
-> Watch out: `get_integration_by_provider` matches with
-> `provider_name.ilike("%name%")` — a *substring* match. Searching for `"google"`
-> will also match a hypothetical `"google_ads"` row.
+`get_integration_by_provider` matches the provider name exactly, case-folded, and takes
+the most recently updated row (LP-21; it was `ILIKE '%name%'` with no order).
 
 ---
 
@@ -1801,7 +1802,7 @@ flowchart TD
     D -->|no| E["SELECT id FROM companies WHERE type = 'APP'"]
     E --> F{"exactly one APP company?"}
     F -->|none| F1["Create the APP company. Every fallback depends on it."]
-    F -->|"more than one"| F2["LIMIT 1 picks arbitrarily. Deduplicate."]
+    F -->|"more than one"| F2["The oldest wins, and uq_companies_one_app is missing. Merge them."]
     F -->|one| G["SELECT * FROM model_task_defaults WHERE company_id = :app AND task_type = :X"]
     G --> H{"row?"}
     H -->|no| H1["Set the default in AI Routing and Task Defaults as app_admin."]
@@ -1972,13 +1973,9 @@ Checklist for the adapter itself, learned from the three that exist:
 17. **A ReAct loop that exhausts `MAX_REACT_TURNS = 12` fails its step**
     (`finish_reason = "MAX_TURNS"`, LP-19). Raise the cap rather than expect a
     cut-off answer to pass.
-18. **The FinishReason monkey-patch runs at import of `src.ai.llm.types`** and
-    mutates the installed SDK. Remember it exists before upgrading
-    `google-genai`.
-19. **`_get_app_company_id` does `LIMIT 1` with no ordering.** Two APP companies
-    means non-deterministic fallback.
-20. **`get_integration_by_provider` uses `ILIKE '%name%'`** — a substring match
-    that can pick up unrelated providers.
+18. *(Fixed, LP-23.)* There is no SDK patch; google-genai keeps an unknown `finish_reason`.
+19. *(Fixed, LP-21.)* One APP company, read only by `platform_company_id`.
+20. *(Fixed, LP-21.)* `get_integration_by_provider` matches the provider exactly.
 21. **The TTL cache is per process and only busted locally.** After a key
     rotation, other workers serve the old key for up to 60 seconds.
 22. ~~**`LLMResponse.cost_usd` is hardcoded `0.0`.**~~ Deleted (LP-02, 2026-10-01).

@@ -321,11 +321,8 @@ class VoiceUsageLogger:
 
         if not entry:
             # Fall back to APP company SKUs (platform-level pricing shared across all tenants)
-            from src.auth.models import Company
-            app_result = await self.db.execute(
-                select(Company.id).where(Company.type == "APP").limit(1)
-            )
-            app_company_id = app_result.scalar_one_or_none()
+            from src.auth.platform import platform_company_id
+            app_company_id = await platform_company_id(self.db)
             if app_company_id and app_company_id != company_id:
                 result = await self.db.execute(
                     select(IntegrationRegistry).where(

@@ -15,9 +15,8 @@ logger = logging.getLogger(__name__)
 
 async def app_company_id(db: AsyncSession) -> Optional[UUID]:
     """The platform (APP) company, which owns the cost-bearing SKUs."""
-    from src.auth.models import Company
-    result = await db.execute(select(Company.id).where(Company.type == "APP").limit(1))
-    return result.scalar_one_or_none()
+    from src.auth.platform import platform_company_id
+    return await platform_company_id(db)
 
 
 _UNIT_NOUNS: dict[str, str] = {

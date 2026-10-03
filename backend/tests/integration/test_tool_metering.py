@@ -52,7 +52,7 @@ async def _app_company(db):
     return app
 
 
-def _sku(company_id, sku, cost, unit="per_request", category="API"):
+def _sku(company_id, sku, cost, unit="per_request", category="API_TOOL"):
     return IntegrationRegistry(company_id=company_id, provider_name="test", service_sku=sku,
                                component_type="tool", internal_cost=Decimal(cost), cost_unit=unit,
                                status="active", service_category=category)
@@ -105,9 +105,9 @@ async def test_a_per_thousand_price_is_charged_per_call(db):
 
 
 @pytest.mark.asyncio
-async def test_a_custom_api_row_does_not_price_other_tools(db):
+async def test_another_tools_price_row_does_not_price_other_tools(db):
     company, run = await _tenant_run(db)
-    db.add(_sku(company, f"my_crm_{uuid.uuid4().hex[:4]}", "0.75", category="CUSTOM_API"))
+    db.add(_sku(company, f"my_crm_{uuid.uuid4().hex[:4]}", "0.75", category="API_TOOL"))
     await db.flush()
     assert await _executor(db, company)._charge_tool(run, "calculator") == Decimal("0")
     assert await _cost(db, run.id) == Decimal("0")

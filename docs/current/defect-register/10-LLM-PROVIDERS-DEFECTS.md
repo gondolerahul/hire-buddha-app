@@ -485,7 +485,14 @@ Only the single-turn `generate()` honours it. Setting it in the builder and usin
 
 ### LP-21 — `_get_app_company_id` is `LIMIT 1` with no ordering
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P9.6)** — worse than recorded: six
+readers, not one (`ConfigService`, `UsageService`, the tool registry's visibility filter, the
+system mailer, Tata credentials, the voice usage logger). `src/auth/platform.py` is the only
+reader now (ordered by `created_at, id`), and migration `p9_one_app_company` adds the
+partial unique index `uq_companies_one_app` (built locally; a database with two APP
+companies is warned and keeps the ordered answer). `get_integration_by_provider` matches
+the provider exactly, case-folded, newest row first. Test:
+`tests/integration/test_platform_company.py`.
 
 The APP-company credential fallback picks a row with no `ORDER BY`. Two APP companies
 means a non-deterministic fallback — a run could use either one's key, and therefore
