@@ -57,3 +57,6 @@ deploy/backup/logs/
 hirebuddha-signing-backup-*.tar.gz
 *.jks
 keystore.properties*
+
+# Durable sandbox workspaces (TL-16): tenant files, never committed
+backend/var/

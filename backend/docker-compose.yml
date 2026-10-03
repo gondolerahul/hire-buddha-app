@@ -10,7 +10,13 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+      # Tenant sandbox workspaces (TL-16): durable, and at the same path on the
+      # host, because the tenant containers the API starts are siblings on the
+      # host's Docker daemon and mount this directory by path. (Starting them
+      # also needs the daemon's socket and the docker CLI in the image.)
+      - /var/lib/hirebuddha/sandbox:/var/lib/hirebuddha/sandbox
     environment:
+      - SANDBOX_WORKSPACE_ROOT=/var/lib/hirebuddha/sandbox
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/hirebuddha
       - REDIS_URL=redis://redis:6379
       - SECRET_KEY=dev_secret_key_change_in_production

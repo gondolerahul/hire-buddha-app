@@ -8,30 +8,61 @@ these two functions. There used to be four copies of
 """
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from typing import Any
 
 __all__ = [
-    "workspace_root", "tenant_workspace", "company_roots",
+    "workspace_root", "tenant_workspace", "company_roots", "skills_root", "drop_box_root",
     "PathOutsideWorkspace", "confine_path", "confine_params", "safe_filename",
 ]
+
+logger = logging.getLogger(__name__)
+
+# ``backend/var/sandbox``: durable, outside the system temp directory (TL-16).
+_DEFAULT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "var", "sandbox")
+_warned_ephemeral = False
 
 
 def workspace_root() -> str:
     """The directory holding every tenant's workspace.
 
-    ``settings.SANDBOX_WORKSPACE_ROOT`` when set, else ``<system temp>/sandbox``.
+    ``settings.SANDBOX_WORKSPACE_ROOT`` when set, else ``backend/var/sandbox``.
+    It used to default to ``<system temp>/sandbox``, which a reboot or
+    ``systemd-tmpfiles`` empties (TL-16). A deployment with several nodes points
+    it at storage every node sees: the tenant container mounts it by path.
     """
+    global _warned_ephemeral
     from src.common.config import settings
 
     configured = (getattr(settings, "SANDBOX_WORKSPACE_ROOT", "") or "").strip()
-    return configured or os.path.join(tempfile.gettempdir(), "sandbox")
+    root = configured or os.path.normpath(_DEFAULT_ROOT)
+    if not _warned_ephemeral and _inside(os.path.realpath(root), tempfile.gettempdir()):
+        _warned_ephemeral = True
+        logger.warning("SANDBOX_WORKSPACE_ROOT %s is in the system temp directory: tenant "
+                       "workspaces will not survive a reboot (TL-16)", root)
+    return root
 
 
 def tenant_workspace(company_id: Any) -> str:
-    """The workspace directory of one company: ``<root>/<company_id>``."""
+    """The workspace directory of one company: ``<root>/<company_id>``.
+
+    Inside it, two roots a tenant container sees read-only or as a drop box:
+    ``.skills/`` (published skill files, :func:`skills_root`) and
+    ``.artifacts/`` (:func:`drop_box_root`)."""
     return os.path.join(workspace_root(), str(company_id))
+
+
+def skills_root(company_id: Any) -> str:
+    """Materialised skill files (P5.4). Read-only inside the container."""
+    return os.path.join(tenant_workspace(company_id), ".skills")
+
+
+def drop_box_root(company_id: Any) -> str:
+    """Where tool code puts deliverables (TL-36): ``$ARTIFACTS_DIR`` is a
+    directory under it per call."""
+    return os.path.join(tenant_workspace(company_id), ".artifacts")
 
 
 # ---------------------------------------------------------------------------

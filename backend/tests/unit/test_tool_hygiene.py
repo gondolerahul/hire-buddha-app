@@ -31,8 +31,9 @@ def test_every_sandbox_path_shares_one_workspace_root(monkeypatch: pytest.Monkey
     assert runtime._sandbox_base_dir() == "/srv/hb-workspaces"
     assert tenant_manager._sandbox_base_dir() == "/srv/hb-workspaces"
 
+    # The default is durable, not the temp directory (TL-16).
     monkeypatch.setattr(settings, "SANDBOX_WORKSPACE_ROOT", "")
-    assert workspace_root() == os.path.join(tempfile.gettempdir(), "sandbox")
+    assert workspace_root().replace("\\", "/").endswith("backend/var/sandbox")
 
 
 class _T(Tool):

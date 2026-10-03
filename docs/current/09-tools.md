@@ -1152,22 +1152,35 @@ stateDiagram-v2
     Running --> Absent: destroy - docker rm -f
     note right of Absent
         The bind-mounted workspace
-        /tmp/sandbox/COMPANY_ID
+        ROOT/COMPANY_ID
         survives container removal
     end note
 ```
 
 The workspace model matters: the host directory `<root>/{company_id}` is
 bind-mounted into the container **at the identical absolute path**. `<root>` is
-`settings.SANDBOX_WORKSPACE_ROOT`, or `<system temp>/sandbox` (`/tmp/sandbox`)
-when unset; every sandbox path derives from
+`settings.SANDBOX_WORKSPACE_ROOT`, or `backend/var/sandbox` when unset (TL-16, P11.1:
+it used to be `<system temp>/sandbox`, emptied by a reboot; a root under the temp directory
+is warned about at first use). A deployment with several nodes points it at storage every
+node sees; the compose file mounts `/var/lib/hirebuddha/sandbox` at the same path on the
+host. Every sandbox path derives from
 [`sandbox/workspace.py`](../../backend/src/ai/tools/sandbox/workspace.py)
-(`workspace_root`, `tenant_workspace` — TL-29, 2026-10-01). The default is
-node-local and lost on reboot (TL-16); a durable deployment points the setting at
-a mounted volume. That is why
-existing tools — which write a script to a host path and then exec it — work
-unchanged under either runtime, and why `_ffmpeg` concat lists are valid in
-both.
+(`workspace_root`, `tenant_workspace` — TL-29). That is why existing tools — which write a
+script to a host path and then exec it — work unchanged under either runtime, and why
+`_ffmpeg` concat lists are valid in both.
+
+**What the container sees** (`tenant_manager.mounted_roots`, P11.1):
+
+| Host directory | Inside | Why |
+|---|---|---|
+| `<root>/<company>` | read-write | the workspace |
+| `<root>/<company>/.skills` | **read-only** | the published skill files: tenant code cannot rewrite what a version ships |
+| the company's two artifact directories (`artifact/system-generated/<company>`, `artifact/user-uploads/<company>`) | **read-only** | a tool can read an artifact the model names, such as a video to edit (TL-17) |
+
+On a Windows host (development) a `C:\...` path is not a container path, so each directory
+is mounted under `/host/<drive>/...` and `ContainerRuntime.exec` translates host paths in
+the argv, working directory and environment, and container paths back in the output
+(`sandbox/container_paths.py`; identity on Linux).
 
 **Skill files (R2, P5.4).** A run's scripts arrive the same way. Before a step runs,
 `StepExecutorService._execute_step` (once per run) calls

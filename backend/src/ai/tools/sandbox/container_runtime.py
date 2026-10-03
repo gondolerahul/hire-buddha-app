@@ -43,9 +43,11 @@ from src.ai.tools.sandbox.runtime import (
     ExecResult,
     SubprocessRuntime,
 )
+from src.ai.tools.sandbox.container_paths import to_container_text, to_host_text
 from src.ai.tools.sandbox.tenant_manager import (
     SandboxDockerError,
     TenantSandboxManager,
+    mounted_roots,
 )
 
 # `timeout` exit codes (coreutils): 124 = TERM after duration, 137 = KILL after
@@ -83,17 +85,19 @@ class ContainerRuntime:
         except SandboxDockerError as exc:
             return ExecResult(returncode=-1, launch_error=str(exc))
 
+        # Host paths in, container paths back out (identity on a Linux host).
+        roots = mounted_roots(self.company_id)
         exec_args: List[str] = ["exec", "-u", "10001:10001"]
         if cwd:
-            exec_args += ["-w", cwd]
+            exec_args += ["-w", to_container_text(cwd, roots)]
         for key, val in (env or {}).items():
-            exec_args += ["-e", f"{key}={val}"]
+            exec_args += ["-e", f"{key}={to_container_text(str(val), roots)}"]
         # Enforce the timeout inside the container so the real process dies.
         wrapped = [
             "timeout",
             "--kill-after=2",
             f"{int(max(1, timeout))}",
-            *argv,
+            *(to_container_text(str(a), roots) for a in argv),
         ]
         exec_args += [name, *wrapped]
 
@@ -123,8 +127,8 @@ class ContainerRuntime:
             )
 
         rc = proc.returncode if proc.returncode is not None else -1
-        stdout = out_b.decode("utf-8", errors="replace")
-        stderr = err_b.decode("utf-8", errors="replace")
+        stdout = to_host_text(out_b.decode("utf-8", errors="replace"), roots)
+        stderr = to_host_text(err_b.decode("utf-8", errors="replace"), roots)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         if rc in _TIMEOUT_RCS:

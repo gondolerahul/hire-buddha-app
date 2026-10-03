@@ -1,21 +1,16 @@
-"""ContainerRuntime end-to-end against a real Docker daemon — Phase 12 `02` S4.
+"""ContainerRuntime end-to-end against a real Docker daemon and the real
+``hb-sandbox`` image (Phase 12 `02` S4; P11).
 
-Docker-gated: the whole module skips when Docker is unavailable, so CI and the
-hermetic unit suite never need a daemon (they ride SubprocessRuntime + the mocked
-tests in tests/unit/test_container_runtime.py).
-
-To stay fast and avoid a network pull of the heavy hb-sandbox image, these tests
-build a tiny local image (``FROM backend-app:latest`` + a ``sleep infinity`` CMD)
-that already carries python3 and coreutils ``timeout`` — the two things the
-runtime's exec path needs. The real hb-sandbox image is byte-compatible with this
-contract; building/verifying it is a documented ops step (docker/sandbox/README.md).
+Docker-gated: the module skips when Docker or the image is unavailable, so CI
+and the hermetic unit suite never need a daemon (they ride SubprocessRuntime +
+the mocked tests in tests/unit/test_container_runtime.py). Build the image with
+``backend/docker/sandbox/build.sh``.
 """
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
-import tempfile
 import uuid
 
 import pytest
@@ -26,9 +21,9 @@ from src.ai.tools.sandbox.tenant_manager import (
     TenantSandboxConfig,
     TenantSandboxManager,
 )
+from src.ai.tools.sandbox.workspace import company_roots, skills_root, tenant_workspace
 
-_TEST_IMAGE = "hb-sandbox-test:local"
-_BASE_IMAGE = "backend-app:latest"
+_IMAGE = "hb-sandbox:local"
 
 
 def _docker_ok() -> bool:
@@ -36,7 +31,7 @@ def _docker_ok() -> bool:
         return False
     try:
         return subprocess.run(
-            ["docker", "info"],
+            ["docker", "image", "inspect", _IMAGE],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=15,
@@ -45,54 +40,20 @@ def _docker_ok() -> bool:
         return False
 
 
-def _base_present() -> bool:
-    try:
-        return subprocess.run(
-            ["docker", "image", "inspect", _BASE_IMAGE],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=15,
-        ).returncode == 0
-    except Exception:
-        return False
-
-
-pytestmark = pytest.mark.skipif(
-    not _docker_ok() or not _base_present(),
-    reason="Docker unavailable or backend-app:latest base image absent",
-)
-
-
-@pytest.fixture(scope="module")
-def test_image() -> str:
-    stage = tempfile.mkdtemp()
-    with open(os.path.join(stage, "Dockerfile"), "w") as fh:
-        fh.write(f'FROM {_BASE_IMAGE}\nUSER root\nCMD ["sleep", "infinity"]\n')
-    subprocess.run(
-        ["docker", "build", "-t", _TEST_IMAGE, stage],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        timeout=180,
-    )
-    shutil.rmtree(stage, ignore_errors=True)
-    return _TEST_IMAGE
+pytestmark = pytest.mark.skipif(not _docker_ok(), reason=f"Docker or {_IMAGE} unavailable")
 
 
 @pytest_asyncio.fixture
-async def runtime(test_image):  # type: ignore[no-untyped-def]
+async def runtime():  # type: ignore[no-untyped-def]
     company_id = f"itest-{uuid.uuid4().hex[:12]}"
-    cfg = TenantSandboxConfig(image=test_image, network="none")
-    mgr = TenantSandboxManager(config=cfg)
-    rt = ContainerRuntime(company_id=company_id, manager=mgr)
+    cfg = TenantSandboxConfig(image=_IMAGE, network="none")
+    rt = ContainerRuntime(company_id=company_id, manager=TenantSandboxManager(config=cfg))
     try:
         yield rt
     finally:
         await rt.destroy()
-
-
-def _host_dir(company_id: str) -> str:
-    return os.path.join(tempfile.gettempdir(), "sandbox", company_id)
+        for root in company_roots(company_id):
+            shutil.rmtree(root, ignore_errors=True)
 
 
 @pytest.mark.asyncio
@@ -103,26 +64,50 @@ async def test_exec_runs_in_container(runtime) -> None:
 
 
 @pytest.mark.asyncio
-async def test_bind_mount_identical_path(runtime) -> None:
-    host_dir = _host_dir(runtime.company_id)
-    # Materialize a script on the host; the container sees it at the same path.
-    await runtime.exec(["python3", "-c", "print('warm')"])  # ensure container
+async def test_the_workspace_is_the_same_files_on_both_sides(runtime) -> None:
+    host_dir = tenant_workspace(runtime.company_id)
+    await runtime.exec(["python3", "-c", "print('warm')"])  # creates the dirs
     script = os.path.join(host_dir, "job.py")
     with open(script, "w") as fh:
-        fh.write("print('from bind mount')\n")
+        fh.write("import os; open('made-inside.txt','w').write('x'); print(os.getcwd())\n")
     res = await runtime.exec(["python3", script], cwd=host_dir)
     assert res.ok, res.stderr
-    assert "from bind mount" in res.stdout
+    assert os.path.exists(os.path.join(host_dir, "made-inside.txt"))
+    # The path the code printed is the host's path (translated back on Windows).
+    assert os.path.normcase(os.path.normpath(res.stdout.strip())) == os.path.normcase(os.path.normpath(host_dir))
+
+
+@pytest.mark.asyncio
+async def test_skill_files_are_read_only_inside(runtime) -> None:
+    """TL-16: tenant code cannot rewrite the files a published version ships."""
+    skills = skills_root(runtime.company_id)
+    await runtime.exec(["true"])
+    with open(os.path.join(skills, "tool.py"), "w") as fh:
+        fh.write("print('shipped')\n")
+    res = await runtime.exec(["python3", os.path.join(skills, "tool.py")])
+    assert res.ok and "shipped" in res.stdout, res.stderr
+    write = await runtime.exec(["sh", "-c", f"echo evil > {os.path.join(skills, 'tool.py')}"])
+    assert write.returncode != 0 and "Read-only" in write.stderr
+
+
+@pytest.mark.asyncio
+async def test_the_companys_artifacts_are_readable_not_writable(runtime) -> None:
+    """TL-17: a tool may read an artifact the model names; nothing writes there."""
+    system_dir = company_roots(runtime.company_id)[1]
+    os.makedirs(system_dir, exist_ok=True)
+    with open(os.path.join(system_dir, "clip.txt"), "w") as fh:
+        fh.write("frames")
+    await runtime.exec(["true"])
+    read = await runtime.exec(["cat", os.path.join(system_dir, "clip.txt")])
+    assert read.ok and read.stdout == "frames", read.stderr
+    write = await runtime.exec(["sh", "-c", f"touch {os.path.join(system_dir, 'x')}"])
+    assert write.returncode != 0
 
 
 @pytest.mark.asyncio
 async def test_network_default_deny(runtime) -> None:
     res = await runtime.exec(
-        [
-            "python3",
-            "-c",
-            "import socket; socket.create_connection(('1.1.1.1', 53), 2)",
-        ],
+        ["python3", "-c", "import socket; socket.create_connection(('1.1.1.1', 53), 2)"],
         timeout=10,
     )
     assert res.returncode != 0

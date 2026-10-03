@@ -28,10 +28,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+from src.ai.tools.sandbox.container_paths import mount_args
 from src.common.config import settings
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,15 @@ def _sandbox_base_dir() -> str:
     from src.ai.tools.sandbox.workspace import workspace_root
 
     return workspace_root()
+
+
+def mounted_roots(company_id: str) -> List[str]:
+    """The host directories a tenant container sees: the workspace first
+    (read-write), then the read-only ones."""
+    from src.ai.tools.sandbox.workspace import company_roots, skills_root, tenant_workspace
+
+    # company_roots: the workspace, then the company's two artifact directories.
+    return [tenant_workspace(company_id), skills_root(company_id), *company_roots(company_id)[1:]]
 
 
 class TenantSandboxManager:
@@ -135,11 +144,13 @@ class TenantSandboxManager:
     # ------------------------------------------------------------------
 
     def _mounts(self, company_id: str) -> List[str]:
-        host_dir = os.path.join(_sandbox_base_dir(), company_id)
-        os.makedirs(host_dir, exist_ok=True)
-        # Only the tenant's own workspace: scripts arrive as the run's skill
-        # files (``skill_files``), not as a directory shared by every tenant.
-        return ["-v", f"{host_dir}:{host_dir}"]
+        """The tenant's directories, at the paths the tools use on the host
+        (TL-16, TL-17): its workspace read-write; inside it the published skill
+        files read-only, so tenant code cannot rewrite what a version ships;
+        and the company's artifact directories read-only, so a tool can read an
+        artifact the model names. Nothing of another tenant's."""
+        roots = mounted_roots(company_id)
+        return mount_args([(roots[0], False), *((r, True) for r in roots[1:])])
 
     # ------------------------------------------------------------------
     # lifecycle

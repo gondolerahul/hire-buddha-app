@@ -462,7 +462,13 @@ not true.
 
 ### TL-16 — The tenant workspace lives in `/tmp` and is node-local
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P11.1)** — the default root is
+`backend/var/sandbox` (git-ignored), a root under the temp directory is warned about, and the
+compose file mounts `/var/lib/hirebuddha/sandbox` at the same host path; a multi-node
+deployment points `SANDBOX_WORKSPACE_ROOT` at shared storage. The container sees three roots:
+the workspace read-write, `.skills/` read-only, the company's artifact directories read-only
+(and a Windows host maps paths under `/host/...`). Verified against the real `hb-sandbox`
+image: `tests/integration/test_container_runtime_docker.py` (7 passed), `tests/unit/test_workspace_roots.py`.
 
 `_sandbox_base_dir()` returns `os.path.join(tempfile.gettempdir(), "sandbox")`, so the
 "persistent" per-tenant workspace is `/tmp/sandbox/{company_id}`. It does not survive a
@@ -484,7 +490,10 @@ identically on both sides of the boundary: `workspace` (rw scratch, TTL'd), `ski
 
 ### TL-17 — The video tools write outside the bind-mount
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P11.1)** — the outputs had already moved
+into the workspace (P3.5) and `output_path` is confined; what was left is an input: an artifact
+the model names lives in the company's artifact directories, which the container now mounts
+read-only. `test_container_runtime_docker.py::test_the_companys_artifacts_are_readable_not_writable`.
 
 `_BASE_ARTIFACT_DIR` resolves to `<repo>/artifact/system-generated`. Every ffmpeg
 invocation routes through `run_sandbox_exec` with input and output paths under that
