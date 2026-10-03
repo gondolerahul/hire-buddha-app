@@ -1127,6 +1127,74 @@ provider match (LP-21); cross-process key invalidation over Redis (LP-22); the
 `FinishReason` patch scoped or removed on the current SDK (LP-23); multimodal parts
 (LP-24); per-run model resolution (LP-I5); streaming (LP-I7).
 
+*Detailed design (2026-10-03, before P9.1).* Re-read against the code at `03a7fb2`. What
+holds, and what moved:
+
+- **LP-23 is now dead weight.** google-genai 1.75 parses an unknown `finish_reason` itself
+  (its `CaseInSensitiveEnum` makes a pseudo-member and warns); a probe without the patch
+  parses `SOMETHING_BRAND_NEW` and `UNEXPECTED_TOOL_CALL`. The patch and the adapter's
+  `_sdk_validation_error` (LP-04's handler for the same error) are deleted; a test parses
+  an unknown reason with the stock SDK.
+- **LP-07:** `anthropic` is still undeclared and not installed. Five critic-ladder entries
+  route to Claude, so it is declared (D24), not the adapter deleted.
+- **LP-09:** the local APP company already has `vision`, `goal_validation` and `embedding`
+  defaults — written by `seed_integration_registry.py` straight through the service, which
+  never checked the list; the API still 422s them. One list (`TASK_TYPES`); the unused
+  `TaskType` literal goes; a test fails when code names a task type the list lacks.
+- **LP-10, partly done:** `seed_integration_registry.py` (2189713) seeds the defaults, but
+  nothing points a fresh install at it. The "No model configured" error names the page
+  (`/ai-config`) and the seed; `GET /api/v1/health` reports `models: missing` (degraded)
+  when the platform has no `text_generation` default.
+- **LP-11:** code queries `IMAGE_GENERATION`/`VIDEO_GENERATION`/`EMBEDDING`/`SANDBOX`; the
+  column comment says `IMAGE_GEN`/`VIDEO_GEN`; the create modal offers a third list.
+  `ServiceCategory` (str enum) is the one list: write validation (422), the old spellings
+  renamed by a migration, a `CHECK` added `NOT VALID` and validated when clean, the modal
+  lists it.
+- **LP-12:** the seed stores the placeholder key because the create schema requires one and
+  the router raises without one. A Vertex-backed provider (`google`, `gemini`,
+  `google_vertex`, `anthropic`, `anthropic_vertex`) needs no key: optional on create,
+  not required by the router.
+- **LP-17, worse:** Anthropic answers two calls to one tool with the *first* call's
+  `tool_use_id` twice, which the API rejects; Gemini sends no call id. Each adapter gives
+  every call an `id` (the provider's, else `call_<turn>_<n>`), the results are paired with
+  the calls by position (one result per call, checked), and each provider gets its id back.
+- **LP-18:** the Gemini translation keeps `anyOf`/`oneOf` (as `any_of`), `pattern`,
+  `default`, `format`, numeric and length bounds, `nullable` and nested `$ref`-free
+  objects; a non-string `enum` keeps its type (Gemini's `enum` is string-only) and lists
+  the allowed values in the description, so integers come back as integers.
+- **LP-20:** `top_p` reaches every ReAct path (router, three adapters) and the step
+  executor passes the entity's `reasoning_config.top_p`, which nothing read.
+- **LP-21:** six places read the APP company with `LIMIT 1` and no order. One helper,
+  `platform_company_id(db)`, and a partial unique index so a second APP company cannot
+  exist; `get_integration_by_provider` matches the provider name exactly (case-folded).
+- **LP-22 + LP-I5:** routers are built per call site (16 sites), each with its own adapter
+  cache; `resolve_model_for_task` hits the database every time and only the voice path's
+  key lookup is cached (60 s, local bust only). One rule: a run resolves each
+  `(task type, override)` once (a run-scoped cache the loop opens), and every cached
+  resolution carries the **integration generation** — a Redis counter every registry or
+  task-default write increments. A lookup whose generation moved re-resolves, so a
+  rotation reaches every process within a second (the generation is re-read at most once a
+  second); without Redis the 60 s TTL is the bound, as before.
+- **LP-08 (D25):** `routing_mode` is deleted; `model_task_defaults.fallback_integration_id`
+  replaces it. When the primary's call fails after its retries with a retryable error, the
+  router calls the fallback (billable: `-in`/`-out` SKUs checked on write). A ReAct loop
+  falls back only if no tool ran yet (otherwise a tool would run twice). A per-process
+  breaker opens after three consecutive exhausted failures and sends calls straight to the
+  fallback for 60 s. The AI config page picks a fallback instead of the dead toggle.
+- **LP-24:** messages carry `{"inline_data": {"mime_type", "data"}}` parts; each adapter
+  translates them (Gemini bytes part, Anthropic base64 image block, OpenAI data URL).
+  `call_llm(attachments=…)`; the video gateway sends the frame as a part on `vision`
+  instead of base64 text, and spans and logs record `[image/jpeg, N bytes]`.
+- **LP-I7:** `call_llm`/`call_llm_react` take an optional text sink (`delta`, `reset` on a
+  retried attempt). Gemini streams (`generate_content_stream`); Anthropic and Azure hand
+  each turn's text over when it completes (D26). The step executor's sink publishes
+  throttled `step_delta` frames straight to the run's channel (not batched, not logged); the
+  run page shows the live text under the running step.
+
+**Commit order:** 9.1 LP-23 → 9.2 LP-07 → 9.3 LP-09 → 9.4 LP-11 → 9.5 LP-12 → 9.6 LP-21 →
+9.7 LP-10 → 9.8 LP-17 + LP-20 → 9.9 LP-18 → 9.10 LP-24 → 9.11 LP-22 + LP-I5 → 9.12 LP-08 →
+9.13 LP-I7.
+
 ### P10 — Meta-intelligence
 
 **First decide the Board (MI-20):** wire Validator → TestDriver → Promoter as the
@@ -1179,6 +1247,9 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D21 | Input validation checks the subset of JSON Schema the builder produces, without a new dependency | `type`, `properties`, `required`, `enum`, `items` is every schema the platform writes |
 | D22 | Loop-to-step signals travel in a typed `ContextVar`, not in the context dict | The dict is the steps' data; a ContextVar is typed, per task (parallel branches), and needs no copy-back |
 | D23 | The Perceiver is deleted, not wired | Memory already reaches the step prompt; the strategist is deterministic; nothing set its cursor |
+| D24 | `anthropic` is declared, the adapter kept (LP-07) | Five critic-ladder entries route to Claude; the adapter is complete |
+| D25 | `routing_mode` is replaced by one fallback integration per task type; a ReAct loop falls back only before its first tool call (LP-08) | A second provider when the first is exhausted is what "router" promised; re-running a loop after a tool ran would repeat its side effects |
+| D26 | Text streams on Gemini; Anthropic and Azure deliver each turn's text when the turn completes (LP-I7) | Gemini is the configured provider everywhere; assembling streamed tool-call deltas for two providers nobody runs is untestable here |
 
 ---
 
