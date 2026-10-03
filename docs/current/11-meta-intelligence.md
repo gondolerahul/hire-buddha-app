@@ -296,9 +296,12 @@ c.combined_score = (
 | Execution | 0.25 | Historical success rate, cost efficiency, recency |
 | IO contract | 0.15 | Input/output schema property overlap |
 
-Semantic dominates, but it can never decide alone: a perfect 1.0 semantic score
-contributes only 0.35, well under the 0.60 `ADAPT` threshold. An entity must
-match on *behaviour and shape and track record* to be reused.
+Semantic weighs most, and since MI-09 (2026-10-03) it can decide on its own: a semantic
+score ≥ `SEMANTIC_ADAPT_FLOOR` (0.85) makes a candidate at least `ADAPT`, and ≥
+`SEMANTIC_DUPLICATE_FLOOR` (0.95) a duplicate for the anti-sprawl gate. Before, a perfect
+1.0 contributed only 0.35, under the 0.60 `ADAPT` threshold, so the embedding-backed score
+could never change a decision. `REUSE` still needs the weighted score (0.85): running an
+entity unchanged needs its shape and track record to agree too.
 
 ### 11.2 The result type
 

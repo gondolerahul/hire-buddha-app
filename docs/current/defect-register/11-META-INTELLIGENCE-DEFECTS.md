@@ -240,7 +240,10 @@ that.
 
 ### MI-09 — Semantic similarity alone can never trigger reuse
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P10.4)** — a semantic score ≥ 0.85
+makes a candidate at least ADAPT and ≥ 0.95 a duplicate for the anti-sprawl gate, whatever
+the other signals; REUSE still needs the weighted score. Test:
+`tests/unit/test_semantic_reuse.py` (both fail on the old code).
 
 Semantic score carries weight 0.35 in the four-phase scorer, and the ADAPT threshold is
 0.60. A **perfect** semantic match therefore scores 0.35 and falls short.

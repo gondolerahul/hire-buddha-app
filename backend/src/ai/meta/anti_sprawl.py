@@ -135,7 +135,9 @@ class AntiSprawlGuard:
 
             candidates = await search_svc.search(request, top_k=1)
 
-            if candidates and candidates[0].combined_score > threshold:
+            # A near-identical request is a duplicate on meaning alone (MI-09).
+            if candidates and (candidates[0].combined_score > threshold
+                               or candidates[0].semantic_score >= search_svc.SEMANTIC_DUPLICATE_FLOOR):
                 best = candidates[0]
                 return {
                     "is_duplicate": True,

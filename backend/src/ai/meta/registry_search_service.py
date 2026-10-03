@@ -101,6 +101,13 @@ class RegistrySearchService:
     ADAPT_THRESHOLD = 0.60
     COMPOSE_THRESHOLD = 0.40
 
+    # A semantic score this high makes a candidate at least ADAPT on its own,
+    # and one this high a duplicate for the anti-sprawl gate (MI-09). With a
+    # 0.35 weight a perfect semantic match scored 0.35 and could never reach
+    # ADAPT (0.60), so the most expensive signal could not decide anything.
+    SEMANTIC_ADAPT_FLOOR = 0.85
+    SEMANTIC_DUPLICATE_FLOOR = 0.95
+
     # V2 four-factor weighting
     STRUCTURAL_WEIGHT = 0.25
     IO_CONTRACT_WEIGHT = 0.15
@@ -537,7 +544,7 @@ class RegistrySearchService:
         for c in candidates:
             if c.combined_score >= self.REUSE_THRESHOLD:
                 c.match_type = MatchType.REUSE
-            elif c.combined_score >= self.ADAPT_THRESHOLD:
+            elif c.combined_score >= self.ADAPT_THRESHOLD or c.semantic_score >= self.SEMANTIC_ADAPT_FLOOR:
                 c.match_type = MatchType.ADAPT
                 # Generate diff spec for adaptation
                 c.diff_spec = self._generate_diff_spec(c, request)
