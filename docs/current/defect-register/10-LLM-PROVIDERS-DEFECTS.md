@@ -135,7 +135,7 @@ one.
 `ai/llm/retry.call_provider` wraps every provider call (each `generate`, each ReAct
 turn): a per-attempt timeout and up to 3 attempts on timeouts, connection errors and
 408/409/425/429/5xx/529, with exponential backoff, full jitter and `Retry-After`;
-SDK-level retries are off. Provider fallback and circuit breaking remain unbuilt (P9).
+SDK-level retries are off. Provider fallback and circuit breaking: LP-08 (P9.12).
 Test: `tests/unit/test_llm_retry.py`.
 
 | Concern | Status |
@@ -333,7 +333,14 @@ so nobody can configure a path that cannot work.
 
 ### LP-08 — `routing_mode` is stored, returned, and never read
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P9.12)** — built, not deleted (D25):
+migration `p9_task_fallback` drops `routing_mode` and adds
+`model_task_defaults.fallback_integration_id`. `LLMRouter._with_fallback` calls it when
+the default's call fails with a retryable error after its retries; a ReAct loop falls back
+only before its first tool ran; an override never falls back; a per-process breaker sends
+a model's calls straight to the fallback for 60 s after three exhausted failures. Writing a
+fallback checks it is another active, billable integration. The AI config page picks it.
+Tests: `tests/unit/test_llm_fallback.py`, `tests/integration/test_task_fallback.py`.
 
 `ModelTaskDefault.routing_mode` is a real column with values `single` and `router`. It is
 accepted by the create endpoint, persisted, and returned by the read endpoint. The
@@ -443,7 +450,7 @@ debugging.
 |---|---|---|---|
 | **LP-13** | `src/ai/core/reasoning/` | Registers `REACT` and `CHAIN_OF_THOUGHT` strategies. `get_reasoning` is defined and exported and has **no callers** — the step executor branches on the mode string directly. The adapters also pass a `config=` kwarg the router silently swallows | ✅ Verified · **fixed (2026-10-01)** — deleted |
 | **LP-14** | `LLMResponse.cost_usd` | See [LP-02](#lp-02--llmresponsecost_usd-is-hardcoded-to-zero). Deleting it is the fix | ✅ Verified · **fixed (2026-10-01)** with LP-02 |
-| **LP-15** | `routing_mode` | See [LP-08](#lp-08--routing_mode-is-stored-returned-and-never-read). Remove the column, the schema fields and the disabled UI control — or build the fallback router it implies | ✅ Verified |
+| **LP-15** | `routing_mode` | See [LP-08](#lp-08--routing_mode-is-stored-returned-and-never-read). Remove the column, the schema fields and the disabled UI control — or build the fallback router it implies | ✅ Verified · **fixed (2026-10-03)** with LP-08 — the fallback was built and the column dropped |
 | **LP-16** | The `_scrub_internal_keys` reference in `INTERNAL_KEYS.md` | `prompt_utils._scrub_internal_keys` does not exist. Scrubbing is inline in the step executor only. The doc sends readers to a function that was never written | ✅ Verified · **fixed (2026-10-01)** — `INTERNAL_KEYS.md` says where the filtering really happens |
 
 ---
@@ -608,6 +615,8 @@ Every agent run on the platform passes through this function. Thirty lines here 
 more than any amount of retry logic further up the stack.
 
 ### LP-I2 — Then add provider fallback
+
+**Status: done (2026-10-03, P9.12)** with LP-08.
 
 **Effect: large.** Once retry exists, fallback is the natural next step: a second
 integration per task type, used when the first is exhausted or unavailable. The data model

@@ -299,11 +299,12 @@ class ConfigService:
         company_id: UUID,
         task_type: str,
         integration_id: UUID,
-        routing_mode: str = "single",
+        fallback_integration_id: Optional[UUID] = None,
     ) -> ModelTaskDefault:
         """
         Upsert the default model for a given task type.
-        Creates if not exists, updates if already set.
+        Creates if not exists, updates if already set. A fallback must be
+        another active integration and, for a model, billable (LP-08).
         """
         # Verify integration exists and belongs to this company (or APP company)
         result = await self.db.execute(
@@ -315,6 +316,8 @@ class ConfigService:
         integration = result.scalar_one_or_none()
         if not integration:
             raise HTTPException(status_code=404, detail="Integration not found or inactive")
+        if fallback_integration_id is not None:
+            await self._check_fallback(integration_id, fallback_integration_id)
 
         # Check for existing entry
         existing_result = await self.db.execute(
@@ -329,7 +332,7 @@ class ConfigService:
 
         if existing:
             existing.integration_id = integration_id
-            existing.routing_mode = routing_mode
+            existing.fallback_integration_id = fallback_integration_id
             await self.db.commit()
             await self.db.refresh(existing)
             await bump_generation()
@@ -339,13 +342,51 @@ class ConfigService:
                 company_id=company_id,
                 task_type=task_type,
                 integration_id=integration_id,
-                routing_mode=routing_mode,
+                fallback_integration_id=fallback_integration_id,
             )
             self.db.add(new_default)
             await self.db.commit()
             await self.db.refresh(new_default)
             await bump_generation()
             return new_default
+
+    async def _check_fallback(self, integration_id: UUID, fallback_id: UUID) -> None:
+        if fallback_id == integration_id:
+            raise HTTPException(status_code=422, detail="The fallback must be another integration")
+        fallback = (await self.db.execute(
+            select(IntegrationRegistry).where(IntegrationRegistry.id == fallback_id,
+                                              IntegrationRegistry.status == "active")
+        )).scalar_one_or_none()
+        if fallback is None:
+            raise HTTPException(status_code=404, detail="Fallback integration not found or inactive")
+        if fallback.service_category == ServiceCategory.LLM and fallback.model_name:
+            skus = set((await self.db.execute(
+                select(IntegrationRegistry.service_sku).where(
+                    IntegrationRegistry.company_id == fallback.company_id,
+                    IntegrationRegistry.model_name == fallback.model_name,
+                    IntegrationRegistry.status == "active",
+                )
+            )).scalars())
+            missing = {f"{fallback.model_name}-in", f"{fallback.model_name}-out"} - skus
+            if missing:
+                raise HTTPException(status_code=422, detail=(
+                    f"Fallback model '{fallback.model_name}' cannot be billed: no active "
+                    f"{', '.join(sorted(missing))} SKU"))
+
+    async def resolve_fallback_for_task(
+        self, company_id: UUID, task_type: str
+    ) -> Tuple[Optional[IntegrationRegistry], Optional[str]]:
+        """The task default's fallback integration and key, or ``(None, None)``."""
+        task_default = await self.get_task_default(company_id, task_type)
+        if not task_default or not task_default.fallback_integration_id:
+            return None, None
+        fallback = (await self.db.execute(
+            select(IntegrationRegistry).where(IntegrationRegistry.id == task_default.fallback_integration_id,
+                                              IntegrationRegistry.status == "active")
+        )).scalar_one_or_none()
+        if fallback is None:
+            return None, None
+        return fallback, decrypt_api_key(fallback.encrypted_api_key) if fallback.encrypted_api_key else None
 
     async def get_task_default(
         self, company_id: UUID, task_type: str

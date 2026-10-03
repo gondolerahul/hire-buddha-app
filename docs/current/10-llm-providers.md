@@ -118,7 +118,7 @@ erDiagram
         uuid company_id FK
         string task_type UK
         uuid integration_id FK
-        string routing_mode
+        uuid fallback_integration_id FK
         bool is_default
     }
 ```
@@ -501,26 +501,25 @@ A model with no such integration is refused with a `RuntimeError` before any cal
 Before, the override changed only the model id: provider and key stayed the task
 default's (`"gpt-4o"` went to Vertex AI), and a model with no SKU ran and billed $0.
 
-### 6.4 `routing_mode` is dead
+### 6.4 A fallback integration per task type
 
-`model_task_defaults.routing_mode` accepts `"single"` or `"router"` and the
-docstring promises "use LLM router logic". Grep the backend: the column is
-written, read back in API responses, and **never consulted by any dispatch
-code**. The UI reflects this honestly:
+`model_task_defaults.fallback_integration_id` (LP-08, decision D25; it replaced
+`routing_mode`, which was stored, returned and read by nothing) names the integration the
+router calls when the default fails:
 
-```tsx
-// frontend/src/pages/ai-config/AIModelConfigPage.tsx
-<button
-    className={currentMode === 'router' ? 'active' : ''}
-    onClick={() => handleTaskChange(task.id, 'routing_mode', 'router')}
-    disabled // Disabled temporarily for beta until full router capability is exposed to UI
->
-    Fallback Router
-</button>
-```
+| When | What the router does (`LLMRouter._with_fallback`) |
+|---|---|
+| The default's call fails with a **retryable** error after its retries (timeout, connection, 408/409/425/429/5xx/529) | calls the fallback once, with its own retries; the span records `fallback_from` and `fallback_reason` |
+| A non-retryable error (400, 401, 404, validation) | raises; a fallback would fail the same way |
+| A ReAct loop fails after a tool already ran | raises: re-running the loop elsewhere would run that tool again |
+| The entity sets a `model_override` | never falls back — the override is an explicit choice |
+| Three consecutive exhausted failures of one model (per process) | the **breaker** opens: for 60 s calls go straight to the fallback; the first call after that tries the default again, and a success closes it |
 
-There is no multi-provider fallback anywhere in the LLM layer. Treat
-`routing_mode` as reserved-for-future-use.
+The fallback is looked up only when needed and cached like the default (§5). Writing one
+(`POST /config/task-defaults` with `fallback_integration_id`) checks that it is another
+active integration and, for a model, that its `-in` and `-out` SKUs exist — the response is
+billed as the fallback's model. The AI config page has a Fallback Integration picker in
+place of the old, disabled "Fallback Router" toggle.
 
 ### 6.5 The one place a *different* model is deliberately chosen
 
@@ -709,8 +708,8 @@ called, writes included.
 | Retry | up to `LLM_CALL_MAX_ATTEMPTS` (3) attempts on a timeout, a connection error, or HTTP 408/409/425/429/5xx/529 (`status_code` / `code` / `response.status_code`, or an exception named like `RateLimit…`, `…Timeout…`, `APIConnectionError`). Anything else — 400, 401, 403, 404, a validation error — is raised at once. |
 | Backoff | exponential with full jitter from `LLM_RETRY_BASE_SECONDS` (1 s), capped at `LLM_RETRY_MAX_DELAY_SECONDS` (30 s), never shorter than the response's `Retry-After`. Each retry logs a warning naming the attempt. |
 | SDK retries | off (`max_retries=0` on the OpenAI/Azure and Anthropic clients; `google-genai` has none by default), so the two policies do not multiply. |
-| Provider fallback | **Not implemented.** One task type → one integration → one provider. |
-| Circuit breaking | **Not implemented.** |
+| Provider fallback | a task default may name a fallback integration, called when the default's retries are exhausted (§6.4, LP-08) |
+| Circuit breaking | per process and model: three exhausted failures send calls to the fallback for 60 s (§6.4) |
 | Streaming | **Not implemented** for text. No `generate_content_stream`, no `stream=True`. Streaming exists only in the voice/Live path (§14) and in the gateway's HTTP proxy. |
 
 The Gemini SDK can fail to parse a `finish_reason` newer than it knows (a
@@ -1657,7 +1656,7 @@ sequenceDiagram
     Admin->>P: "pick an integration for Thinking"
     P->>P: "mark pendingChanges - shows Unsaved Changes"
     Admin->>P: click Save
-    P->>API: "POST /api/v1/config/task-defaults {task_type, integration_id, routing_mode}"
+    P->>API: "POST /api/v1/config/task-defaults {task_type, integration_id, fallback_integration_id}"
     API->>API: "validate task_type against TASK_TYPES - else 422"
     API->>API: "set_task_default - upsert on company_id plus task_type"
     API-->>P: "ModelTaskDefaultResponse with the joined integration"
@@ -1843,10 +1842,9 @@ Checklist for the adapter itself, learned from the three that exist:
 1. **`cost_unit` is parsed and validated** (LP-01). `per_1k_tokens`,
    `per_1M_tokens` and `1M Tokens` all price correctly; a unit the parser does
    not know is refused when the registry row is written.
-2. **`routing_mode` does nothing.** No code reads it. There is no fallback
-   router; the UI button is disabled for a reason.
+2. *(Fixed, LP-08.)* `routing_mode` is gone; a task default may name a fallback (§6.4).
 3. **Retries and timeouts are per provider call** (LP-03): a 429 or 5xx is
-   retried up to 3 times with backoff; there is still no provider fallback.
+   retried up to 3 times with backoff, then the task's fallback is called if it has one.
 4. **Anthropic is unreachable.** The adapter is complete, the factory wires it,
    the docs explain how to configure it — and the `anthropic` package is not a
    dependency. First call raises `RuntimeError`.

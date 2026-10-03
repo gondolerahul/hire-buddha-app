@@ -92,19 +92,20 @@ class ModelResponse(BaseModel):
 class ModelTaskDefaultCreate(BaseModel):
     task_type: str  # One of TASK_TYPES values
     integration_id: UUID
-    routing_mode: Literal["single", "router"] = "single"
+    # Called when the default's call fails after its retries (LP-08).
+    fallback_integration_id: Optional[UUID] = None
     company_id: Optional[UUID] = None  # If None, use current user's company
 
 class ModelTaskDefaultUpdate(BaseModel):
     integration_id: Optional[UUID] = None
-    routing_mode: Optional[Literal["single", "router"]] = None
+    fallback_integration_id: Optional[UUID] = None
 
 class ModelTaskDefaultResponse(BaseModel):
     id: UUID
     company_id: UUID
     task_type: str
     integration_id: UUID
-    routing_mode: str
+    fallback_integration_id: Optional[UUID] = None
     is_default: bool
     created_at: datetime
     updated_at: datetime

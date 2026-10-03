@@ -105,7 +105,9 @@ class ModelTaskDefault(Base):
 
     task_type: one of the TASK_TYPES constants above
     integration_id: FK to IntegrationRegistry — the model to use for this task
-    routing_mode: 'single' (use integration_id model directly) or 'router' (use LLM router logic)
+    fallback_integration_id: the model the router calls when the default's call
+        fails after its retries (LP-08); it replaced ``routing_mode``, which
+        nothing read
     """
     __tablename__ = "model_task_defaults"
     __table_args__ = (
@@ -116,10 +118,11 @@ class ModelTaskDefault(Base):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     task_type = Column(String(50), nullable=False)       # e.g., "text_generation"
     integration_id = Column(UUID(as_uuid=True), ForeignKey("integration_registry.id"), nullable=False)
-    routing_mode = Column(String(20), nullable=False, default="single")  # "single" | "router"
+    fallback_integration_id = Column(UUID(as_uuid=True), ForeignKey("integration_registry.id", ondelete="SET NULL"),
+                                     nullable=True)
     is_default = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     company = relationship("src.auth.models.Company")
-    integration = relationship("IntegrationRegistry")
+    integration = relationship("IntegrationRegistry", foreign_keys=[integration_id])

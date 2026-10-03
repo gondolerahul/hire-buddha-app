@@ -180,7 +180,7 @@ async def list_task_defaults(
             "company_id": d.company_id,
             "task_type": d.task_type,
             "integration_id": d.integration_id,
-            "routing_mode": d.routing_mode,
+            "fallback_integration_id": d.fallback_integration_id,
             "is_default": d.is_default,
             "created_at": d.created_at,
             "updated_at": d.updated_at,
@@ -214,7 +214,7 @@ async def set_task_default(
         company_id=company_id,
         task_type=body.task_type,
         integration_id=body.integration_id,
-        routing_mode=body.routing_mode,
+        fallback_integration_id=body.fallback_integration_id,
     )
 
     # Load integration for response
@@ -229,7 +229,7 @@ async def set_task_default(
         "company_id": default.company_id,
         "task_type": default.task_type,
         "integration_id": default.integration_id,
-        "routing_mode": default.routing_mode,
+        "fallback_integration_id": default.fallback_integration_id,
         "is_default": default.is_default,
         "created_at": default.created_at,
         "updated_at": default.updated_at,

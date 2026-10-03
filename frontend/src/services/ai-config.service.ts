@@ -6,7 +6,8 @@ export interface ModelTaskDefault {
     company_id: string;
     task_type: string;
     integration_id: string;
-    routing_mode: 'single' | 'router';
+    // Called when the default's call fails after its retries (LP-08).
+    fallback_integration_id: string | null;
     is_default: boolean;
     created_at: string;
     updated_at: string;
@@ -18,7 +19,7 @@ export interface ModelTaskDefault {
 export interface ModelTaskDefaultCreate {
     task_type: string;
     integration_id: string;
-    routing_mode: 'single' | 'router';
+    fallback_integration_id: string | null;
 }
 
 export const aiConfigService = {

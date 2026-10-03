@@ -37,7 +37,7 @@ export const AIModelConfigPage: React.FC = () => {
     const [integrations, setIntegrations] = useState<Integration[]>([]);
 
     // Local changes before saving
-    const [pendingChanges, setPendingChanges] = useState<Record<string, { integration_id: string, routing_mode: 'single' | 'router' }>>({});
+    const [pendingChanges, setPendingChanges] = useState<Record<string, { integration_id: string, fallback_integration_id: string }>>({});
 
     useEffect(() => {
         fetchData();
@@ -67,11 +67,11 @@ export const AIModelConfigPage: React.FC = () => {
         }
     };
 
-    const handleTaskChange = (taskType: string, field: 'integration_id' | 'routing_mode', value: string) => {
+    const handleTaskChange = (taskType: string, field: 'integration_id' | 'fallback_integration_id', value: string) => {
         setPendingChanges(prev => {
             const current = prev[taskType] || {
                 integration_id: taskDefaults[taskType]?.integration_id || '',
-                routing_mode: taskDefaults[taskType]?.routing_mode || 'single'
+                fallback_integration_id: taskDefaults[taskType]?.fallback_integration_id || ''
             };
 
             return {
@@ -96,7 +96,7 @@ export const AIModelConfigPage: React.FC = () => {
             const saved = await aiConfigService.setTaskDefault({
                 task_type: taskType,
                 integration_id: payload.integration_id,
-                routing_mode: payload.routing_mode
+                fallback_integration_id: payload.fallback_integration_id || null
             });
 
             setTaskDefaults(prev => ({
@@ -187,7 +187,7 @@ export const AIModelConfigPage: React.FC = () => {
                     const pending = pendingChanges[task.id];
 
                     const currentIntegrationId = pending?.integration_id ?? activeDefault?.integration_id ?? '';
-                    const currentMode = pending?.routing_mode ?? activeDefault?.routing_mode ?? 'single';
+                    const currentFallbackId = pending?.fallback_integration_id ?? activeDefault?.fallback_integration_id ?? '';
                     const hasUnsavedChanges = !!pending;
 
                     return (
@@ -230,23 +230,26 @@ export const AIModelConfigPage: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* Routing Mode */}
+                                    {/* Fallback: called when the default fails after its retries (LP-08) */}
                                     <div className="space-y-1">
-                                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Routing Mode</label>
-                                        <div className="mode-toggle">
-                                            <button
-                                                className={currentMode === 'single' ? 'active' : ''}
-                                                onClick={() => handleTaskChange(task.id, 'routing_mode', 'single')}
+                                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Fallback Integration</label>
+                                        <div className="relative">
+                                            <select
+                                                value={currentFallbackId}
+                                                onChange={(e) => handleTaskChange(task.id, 'fallback_integration_id', e.target.value)}
+                                                disabled={!currentIntegrationId}
+                                                className="w-full bg-black/40 border border-white/10 rounded-lg py-2.5 pl-3 pr-10 text-white text-sm focus:border-rose-gold/50 focus:ring-1 focus:ring-rose-gold/50 appearance-none outline-none transition-all"
                                             >
-                                                Strict Single
-                                            </button>
-                                            <button
-                                                className={currentMode === 'router' ? 'active' : ''}
-                                                onClick={() => handleTaskChange(task.id, 'routing_mode', 'router')}
-                                                disabled // Disabled temporarily for beta until full router capability is exposed to UI
-                                            >
-                                                Fallback Router
-                                            </button>
+                                                <option value="">-- None --</option>
+                                                {integrations
+                                                    .filter(int => int.id !== currentIntegrationId)
+                                                    .map(int => (
+                                                        <option key={int.id} value={int.id}>
+                                                            {int.provider_name} {int.model_name ? `(${int.model_name})` : ''} — {int.service_sku || int.component_type}
+                                                        </option>
+                                                    ))}
+                                            </select>
+                                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                                         </div>
                                     </div>
 

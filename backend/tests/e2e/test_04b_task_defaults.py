@@ -30,7 +30,6 @@ async def test_admin_creates_task_default(
     payload = {
         "task_type": "text_generation",
         "integration_id": str(gemini_integration.id),
-        "routing_mode": "single"
     }
     
     response = await async_client.post("/api/v1/config/task-defaults", headers=headers, json=payload)
@@ -52,7 +51,6 @@ async def test_list_task_defaults(
         company_id=app_company.id,
         task_type="thinking",
         integration_id=gemini_integration.id,
-        routing_mode="single",
         is_default=True
     )
     db_session.add(td)
@@ -84,16 +82,14 @@ async def test_update_task_default_upsert(
     payload = {
         "task_type": "speech_to_speech",
         "integration_id": str(gemini_integration.id),
-        "routing_mode": "single"
     }
     resp1 = await async_client.post("/api/v1/config/task-defaults", headers=headers, json=payload)
     assert resp1.status_code == 200
     
-    # Then update (using POST as upsert)
-    payload["routing_mode"] = "router"
+    # Then update (using POST as upsert): no fallback named, none stored (LP-08)
     resp2 = await async_client.post("/api/v1/config/task-defaults", headers=headers, json=payload)
     assert resp2.status_code == 200
-    assert resp2.json()["routing_mode"] == "router"
+    assert resp2.json()["fallback_integration_id"] is None
 
 @pytest.mark.asyncio
 async def test_delete_task_default(
