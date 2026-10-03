@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Numeric, ForeignKey, UniqueConstraint
+from enum import StrEnum
+from sqlalchemy import CheckConstraint, Column, String, Boolean, DateTime, Text, Numeric, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from src.common.database import Base
@@ -28,10 +29,35 @@ TASK_TYPES = [
 ]
 
 
+class ServiceCategory(StrEnum):
+    """What an integration row is for. The one list (LP-11): the API validates
+    against it, the code queries with it, and a CHECK constraint holds the
+    column to it. It used to be free text, and the column comment, the create
+    modal and the resolvers each named different values (``IMAGE_GEN`` against
+    ``IMAGE_GENERATION``), so a row made by the comment was never found."""
+    LLM = "LLM"                            # text models: -in / -out token SKUs
+    LLM_LIVE = "LLM_LIVE"                  # realtime voice models
+    EMBEDDING = "EMBEDDING"
+    IMAGE_GENERATION = "IMAGE_GENERATION"
+    VIDEO_GENERATION = "VIDEO_GENERATION"
+    SANDBOX = "SANDBOX"                    # sandbox seconds
+    COMMUNICATION = "COMMUNICATION"        # telephony and messaging providers
+    EMAIL = "EMAIL"
+    SOCIAL_MEDIA = "SOCIAL_MEDIA"
+    API_TOOL = "API_TOOL"                  # priced third-party tool APIs
+    OTHER = "OTHER"
+
+
 class IntegrationRegistry(Base):
     __tablename__ = "integration_registry"
+    # The category CHECK is added NOT VALID by its migration and validated when
+    # the table held no other value; see migrations/versions/p9_service_category.py.
     __table_args__ = (
         UniqueConstraint('company_id', 'service_sku', name='uq_integration_company_sku'),
+        CheckConstraint(
+            "service_category IN (" + ", ".join(f"'{c.value}'" for c in ServiceCategory) + ")",
+            name="ck_integration_registry_service_category",
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -39,8 +65,7 @@ class IntegrationRegistry(Base):
     provider_name = Column(String, nullable=False)  # e.g., google, anthropic, azure_openai
     model_name = Column(String, nullable=True)       # e.g., gemini-2.0-flash, claude-3-5-sonnet
     service_sku = Column(String, nullable=False)     # e.g., gemini-2.0-flash-in
-    service_category = Column(String, nullable=False, default="LLM")
-    # Categories: LLM, LLM_LIVE, IMAGE_GEN, AUDIO_GEN, VIDEO_GEN, 3D_GEN, API_TOOL, COMMUNICATION
+    service_category = Column(String, nullable=False, default=ServiceCategory.LLM.value)  # a ServiceCategory
     component_type = Column(String, nullable=False)
     # Types: input_token, output_token, analysis, minute, character, flat_fee, image, video_second
     encrypted_api_key = Column(Text, nullable=True)

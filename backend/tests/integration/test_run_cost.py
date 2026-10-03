@@ -39,7 +39,7 @@ async def _company_with_prices(db):
                             cost_unit="per_1M_tokens", status="active", service_category="LLM"),
         IntegrationRegistry(company_id=c.id, provider_name="test", service_sku="p41_tool",
                             component_type="tool", internal_cost=Decimal("0.05"),
-                            cost_unit="per_request", status="active", service_category="API"),
+                            cost_unit="per_request", status="active", service_category="API_TOOL"),
     ])
     ent = HierarchicalEntity(company_id=c.id, type="AGENT", status="ACTIVE", name="spender")
     db.add(ent)

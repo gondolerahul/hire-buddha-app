@@ -181,7 +181,7 @@ class ToolCostResolver:
     # ------------------------------------------------------------------
 
     async def _registry_row(self, tool_id: str, company_id: UUID) -> Any:
-        from src.config.models import IntegrationRegistry as _IR
+        from src.config.models import IntegrationRegistry as _IR, ServiceCategory
         skus = [tool_id, *TOOL_SKU_MAP.get(tool_id, [])]
         return (await self.db.execute(
             select(_IR).where(
@@ -189,7 +189,7 @@ class ToolCostResolver:
                 or_(*(_IR.service_sku == sku for sku in skus)),
                 _IR.status == "active",
                 _IR.internal_cost.isnot(None),
-                _IR.service_category != "LLM",
+                _IR.service_category != ServiceCategory.LLM,
             ).limit(1)
         )).scalar_one_or_none()
 

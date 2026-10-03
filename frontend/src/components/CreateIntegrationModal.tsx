@@ -26,12 +26,16 @@ const COMPONENT_TYPES = [
     { id: 'per_second', name: 'Per Second (Video)' }
 ];
 
+// ServiceCategory in backend/src/config/models.py — the API refuses anything else (LP-11).
 const SERVICE_CATEGORIES = [
     { id: 'LLM', name: 'LLM (AI Model)' },
+    { id: 'LLM_LIVE', name: 'Live Voice Model' },
+    { id: 'EMBEDDING', name: 'Embedding' },
     { id: 'COMMUNICATION', name: 'Communication (Twilio/Exotel)' },
     { id: 'API_TOOL', name: 'API Tool (Apollo/Clay/Zapier)' },
     { id: 'IMAGE_GENERATION', name: 'Image Generation' },
     { id: 'VIDEO_GENERATION', name: 'Video Generation' },
+    { id: 'SANDBOX', name: 'Sandbox Time' },
     { id: 'EMAIL', name: 'Email (IMAP/SMTP)' },
     { id: 'SOCIAL_MEDIA', name: 'Social Media (WhatsApp/Instagram)' },
     { id: 'OTHER', name: 'Other' }

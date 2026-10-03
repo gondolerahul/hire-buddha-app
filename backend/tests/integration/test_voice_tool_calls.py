@@ -56,7 +56,7 @@ async def _voice_call(db):
     db.add(agent)
     db.add(IntegrationRegistry(company_id=c.id, provider_name="test", service_sku="p37_book_meeting",
                                component_type="tool", internal_cost=Decimal("0.03"),
-                               cost_unit="per_request", status="active", service_category="API"))
+                               cost_unit="per_request", status="active", service_category="API_TOOL"))
     await db.flush()
     session = SimpleNamespace(id=uuid.uuid4(), company_id=c.id, agent_id=agent.id,
                               customer_id=uuid.uuid4(), session_metadata={"campaign_id": None})

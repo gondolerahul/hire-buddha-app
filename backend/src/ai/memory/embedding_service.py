@@ -150,13 +150,13 @@ class EmbeddingService:
             logger.debug(f"ModelTaskDefault lookup for embedding failed: {e}")
 
         try:
-            from src.config.models import IntegrationRegistry
+            from src.config.models import IntegrationRegistry, ServiceCategory
 
             # Priority 2: Explicit EMBEDDING category
             result = await self.db.execute(
                 select(IntegrationRegistry).where(
                     IntegrationRegistry.company_id == self.company_id,
-                    IntegrationRegistry.service_category == "EMBEDDING",
+                    IntegrationRegistry.service_category == ServiceCategory.EMBEDDING,
                     IntegrationRegistry.status == "active",
                 )
             )
@@ -174,7 +174,7 @@ class EmbeddingService:
                     IntegrationRegistry.provider_name.in_(["google", "gemini"]),
                     IntegrationRegistry.model_name.ilike("%embed%"),
                     IntegrationRegistry.service_category.notin_(
-                        ["LLM", "IMAGE_GENERATION", "VOICE"]
+                        [ServiceCategory.LLM, ServiceCategory.LLM_LIVE, ServiceCategory.IMAGE_GENERATION]
                     ),
                     IntegrationRegistry.status == "active",
                 )

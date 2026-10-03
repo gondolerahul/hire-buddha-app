@@ -267,7 +267,7 @@ class VideoGenerateTool(Tool):
             from sqlalchemy import select
 
             from src.common.database import AsyncSessionLocal
-            from src.config.models import IntegrationRegistry
+            from src.config.models import IntegrationRegistry, ServiceCategory
             from src.config.service import ConfigService
 
             async with AsyncSessionLocal() as db:
@@ -276,7 +276,7 @@ class VideoGenerateTool(Tool):
                 result = await db.execute(
                     select(IntegrationRegistry).where(
                         IntegrationRegistry.company_id == company_uuid,
-                        IntegrationRegistry.service_category == "VIDEO_GENERATION",
+                        IntegrationRegistry.service_category == ServiceCategory.VIDEO_GENERATION,
                         IntegrationRegistry.status == "active",
                     )
                 )

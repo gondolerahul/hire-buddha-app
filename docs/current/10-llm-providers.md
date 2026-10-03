@@ -131,7 +131,7 @@ erDiagram
 | `provider_name` | str | Drives adapter selection. Case-insensitive in the router. | `google`, `azure_openai`, `anthropic`, `twilio`, `firecrawl` |
 | `model_name` | str, nullable | The model id sent to the provider. | `gemini-2.5-flash` |
 | `service_sku` | str | **Billing key.** Unique per company. Usage rows join on this. | `gemini-2.5-flash-in` |
-| `service_category` | str | Coarse grouping. Free-text, see §2.3. | `LLM`, `LLM_LIVE`, `EMBEDDING` |
+| `service_category` | str | Coarse grouping, one of `ServiceCategory` (§2.3). | `LLM`, `LLM_LIVE`, `EMBEDDING` |
 | `component_type` | str | What the `internal_cost` is *per*. | `input_token`, `output_token`, `minute`, `image` |
 | `encrypted_api_key` | text | AES-256-GCM ciphertext, base64. Never returned by the API. | `q0Z...` |
 | `internal_cost` | numeric(18,6) | Platform's raw cost per `cost_unit`. | `0.30` |
@@ -168,34 +168,25 @@ voice Realtime path defaults it to `2025-04-01-preview`
 ([live_client_factory.py:170](../../backend/src/voice/live_client_factory.py:170)).
 Always set it explicitly.
 
-### 2.3 `service_category` is not an enum
+### 2.3 `service_category` is one list
 
-The column comment in `models.py` lists `LLM, LLM_LIVE, IMAGE_GEN, AUDIO_GEN,
-VIDEO_GEN, 3D_GEN, API_TOOL, COMMUNICATION`. The code actually queries for a
-*different* set, and the frontend offers a third. There is no validation
-anywhere — it is a free-text string.
+`ServiceCategory` in [config/models.py](../../backend/src/config/models.py) is the list
+(LP-11, 2026-10-03). The create and update API answer 422 for anything else, the code
+queries with the enum, and the `ck_integration_registry_service_category` constraint
+(migration `p9_service_category`) holds the column to it. Before, the column was free
+text: its comment said `IMAGE_GEN` / `VIDEO_GEN` while the resolvers queried
+`IMAGE_GENERATION` / `VIDEO_GENERATION`, and the credentials guide recommended `SEARCH`,
+`SCRAPING` and `PAYMENT`; the migration renamed those spellings.
 
-| Value | Written by | Read by |
-|---|---|---|
-| `LLM` | UI default, all guides | [config/router.py:41](../../backend/src/config/router.py:41) model list, [step_executor.py:480](../../backend/src/ai/step_executor.py:480) cost exclusion |
-| `LLM_LIVE` | Credentials guide | [config/router.py:41](../../backend/src/config/router.py:41), [platform_schema_compiler.py:392](../../backend/src/ai/meta/platform_schema_compiler.py:392) |
-| `EMBEDDING` | manual | [embedding_service.py:159](../../backend/src/ai/memory/embedding_service.py:159) |
-| `IMAGE_GENERATION` | UI, guide | [image_generation.py:103](../../backend/src/ai/tools/media/image_generation.py:103) |
-| `VIDEO_GENERATION` | UI, guide | [video_generate.py:263](../../backend/src/ai/tools/media/video/video_generate.py:263) |
-| `CUSTOM_API` | manual | [tool_cost_resolver.py:174](../../backend/src/ai/governance/tool_cost_resolver.py:174) |
-| `EMAIL`, `SOCIAL_MEDIA`, `API_TOOL`, `OTHER` | UI | tenant-permission check only |
-
-The comment's `IMAGE_GEN` / `VIDEO_GEN` values are **not** what the code looks
-for. Use `IMAGE_GENERATION` and `VIDEO_GENERATION`.
-
-### 2.4 The registry is not only for LLMs
-
-Twilio, Tata Tele, Razorpay, Firecrawl, SerpAPI, Google CSE and system SMTP all
-store their credentials here too — same encryption, same fallback rules. See
-[12 — Voice & telephony](12-voice-and-telephony.md) and
-[09 — Tools](09-tools.md). This document only covers the LLM path.
-
----
+| Value | Read by |
+|---|---|
+| `LLM` | [config/router.py](../../backend/src/config/router.py) model list, `run_cost.run_spend` token sum, `resolve_model_by_name`, tool-price exclusion in `tool_cost_resolver.py` |
+| `LLM_LIVE` | the model list, [platform_schema_compiler.py](../../backend/src/ai/meta/platform_schema_compiler.py) |
+| `EMBEDDING` | [embedding_service.py](../../backend/src/ai/memory/embedding_service.py) step 2 |
+| `IMAGE_GENERATION` | [image_generation.py](../../backend/src/ai/tools/media/image_generation.py) |
+| `VIDEO_GENERATION` | [video_generate.py](../../backend/src/ai/tools/media/video/video_generate.py) |
+| `SANDBOX` | the sandbox-seconds SKU (`scripts/seed_sandbox_sku.py`) |
+| `COMMUNICATION`, `API_TOOL`, `EMAIL`, `SOCIAL_MEDIA`, `OTHER` | tool prices (`tool_cost_resolver.py` reads any non-`LLM` row by SKU) and the tenant-permission check: tenants manage `EMAIL`, `SOCIAL_MEDIA`, `API_TOOL` and `OTHER` |
 
 ## 3. Credential encryption at rest
 

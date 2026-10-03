@@ -9,7 +9,7 @@ async def gemini_integration(db_session: AsyncSession, app_company):
     """Create a dummy integration for testing task defaults."""
     integration = IntegrationRegistry(
         company_id=app_company.id,
-        service_category="llm",
+        service_category="LLM",
         provider_name="google",
         model_name="gemini-2.0-flash-exp",
         credentials_enc=b"dummy",

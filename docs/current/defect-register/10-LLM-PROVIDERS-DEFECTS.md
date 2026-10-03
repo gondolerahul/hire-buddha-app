@@ -379,7 +379,13 @@ error message name the exact page to visit.
 
 ### LP-11 — `service_category` is free text and the code queries for different values
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P9.4)** — `ServiceCategory`
+(`config/models.py`) is the one list: create/update validate against it (422), every query
+uses it, and `p9_service_category` adds `ck_integration_registry_service_category`
+(`NOT VALID`, validated on a clean table — it validated locally) after renaming the
+comment's and the credentials guide's spellings (`IMAGE_GEN`, `VIDEO_GEN`, `SEARCH`,
+`SCRAPING`, `CUSTOM_API`, `PAYMENT`, `API`, lower case). The create modal lists the
+enum. Test: `tests/integration/test_service_category.py`.
 
 `service_category` is a plain string column. The values named in the model's own column
 comment — `IMAGE_GEN`, `VIDEO_GEN` — are not the values the resolution code queries for.

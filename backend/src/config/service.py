@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from fastapi import HTTPException, status
-from src.config.models import IntegrationRegistry, ModelTaskDefault
+from src.config.models import IntegrationRegistry, ModelTaskDefault, ServiceCategory
 from src.config.schemas import IntegrationRegistryCreate, IntegrationRegistryUpdate, ModelTaskDefaultCreate
 from src.common.security import encrypt_api_key, decrypt_api_key
 
@@ -469,7 +469,7 @@ class ConfigService:
                 select(IntegrationRegistry).where(
                     IntegrationRegistry.company_id == owner,
                     IntegrationRegistry.model_name == model_name,
-                    IntegrationRegistry.service_category == "LLM",
+                    IntegrationRegistry.service_category == ServiceCategory.LLM,
                     IntegrationRegistry.status == "active",
                 )
             )).scalars().all()

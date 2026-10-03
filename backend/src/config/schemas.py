@@ -4,6 +4,8 @@ from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
 
+from src.config.models import ServiceCategory
+
 # ---------------------------------------------------------------------------
 # Integration Registry schemas
 # ---------------------------------------------------------------------------
@@ -30,6 +32,9 @@ def _known_cost_unit(value: Optional[str]) -> Optional[str]:
 
 class IntegrationRegistryCreate(IntegrationRegistryBase):
     company_id: UUID
+    # Written values are one of the list (LP-11); reads stay ``str`` so a row
+    # from before the constraint still renders.
+    service_category: ServiceCategory = ServiceCategory.LLM
     api_key: str = Field(..., alias="api_key")
 
     _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
@@ -38,7 +43,7 @@ class IntegrationRegistryUpdate(BaseModel):
     provider_name: Optional[str] = None
     model_name: Optional[str] = None
     service_sku: Optional[str] = None
-    service_category: Optional[str] = None
+    service_category: Optional[ServiceCategory] = None
     component_type: Optional[str] = None
     internal_cost: Optional[Decimal] = None
     cost_unit: Optional[str] = None

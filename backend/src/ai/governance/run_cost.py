@@ -37,13 +37,13 @@ async def run_spend(db: Any, run_id: Optional[UUID]) -> RunSpend:
         return RunSpend(Decimal("0"), 0)
     from src.ai.orm.execution import ExecutionRun
     from src.ai.orm.usage import UsageLog
-    from src.config.models import IntegrationRegistry
+    from src.config.models import IntegrationRegistry, ServiceCategory
 
     own_cost, own_tokens = (await db.execute(
         select(
             func.coalesce(func.sum(UsageLog.calculated_cost), 0),
             func.coalesce(func.sum(UsageLog.raw_quantity).filter(
-                IntegrationRegistry.service_category == "LLM"), 0),
+                IntegrationRegistry.service_category == ServiceCategory.LLM), 0),
         )
         .select_from(UsageLog)
         .outerjoin(IntegrationRegistry, IntegrationRegistry.id == UsageLog.sku_id)

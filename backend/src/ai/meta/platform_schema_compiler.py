@@ -338,7 +338,7 @@ class PlatformSchemaCompiler:
             return []
 
         try:
-            from src.config.models import IntegrationRegistry
+            from src.config.models import IntegrationRegistry, ServiceCategory
 
             # IntegrationRegistry has no is_enabled/category/is_default columns.
             # Enabled rows are status=='active'; LLM endpoints are the LLM /
@@ -348,7 +348,7 @@ class PlatformSchemaCompiler:
                 select(IntegrationRegistry).where(
                     IntegrationRegistry.company_id == self.company_id,
                     IntegrationRegistry.status == "active",
-                    IntegrationRegistry.service_category.in_(["LLM", "LLM_LIVE"]),
+                    IntegrationRegistry.service_category.in_([ServiceCategory.LLM, ServiceCategory.LLM_LIVE]),
                 )
             )
             integrations = result.scalars().all()

@@ -95,12 +95,12 @@ class ImageGenerationTool(Tool):
                     company_uuid = _UUID(str(company_id))
 
                     # Strategy 1: any IMAGE_GENERATION category entry for this company
-                    from src.config.models import IntegrationRegistry
+                    from src.config.models import IntegrationRegistry, ServiceCategory
                     from sqlalchemy import select
                     result = await db.execute(
                         select(IntegrationRegistry).where(
                             IntegrationRegistry.company_id == company_uuid,
-                            IntegrationRegistry.service_category == "IMAGE_GENERATION",
+                            IntegrationRegistry.service_category == ServiceCategory.IMAGE_GENERATION,
                             IntegrationRegistry.status == "active",
                         )
                     )

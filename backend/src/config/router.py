@@ -13,7 +13,7 @@ from src.config.schemas import (
     ModelTaskDefaultCreate,
     ModelTaskDefaultResponse,
 )
-from src.config.models import ModelTaskDefault, TASK_TYPES
+from src.config.models import ModelTaskDefault, ServiceCategory, TASK_TYPES
 from src.config.service import ConfigService
 from src.auth.dependencies import get_current_user, RoleChecker
 from src.auth.roles import Role
@@ -39,7 +39,7 @@ async def list_models(
     seen_models = set()
 
     for integration in integrations:
-        if integration.service_category in ("LLM", "LLM_LIVE") and integration.model_name not in seen_models:
+        if integration.service_category in (ServiceCategory.LLM, ServiceCategory.LLM_LIVE) and integration.model_name not in seen_models:
             models.append({
                 "model_key": integration.model_name,
                 "model_name": integration.model_name,
@@ -53,7 +53,8 @@ async def list_models(
 
 
 # Categories that tenant users are allowed to manage
-TENANT_ALLOWED_CATEGORIES = {"EMAIL", "SOCIAL_MEDIA", "API_TOOL", "OTHER"}
+TENANT_ALLOWED_CATEGORIES = {ServiceCategory.EMAIL, ServiceCategory.SOCIAL_MEDIA, ServiceCategory.API_TOOL,
+                             ServiceCategory.OTHER}
 
 
 @router.post("/integrations", response_model=IntegrationRegistryResponse)
