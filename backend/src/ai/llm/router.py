@@ -15,7 +15,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm.types import LLMResponse
+from src.ai.llm.types import Attachment, LLMResponse
 from src.ai.llm.base import BaseLLMAdapter
 from src.ai.core.trace import span as _trace_span
 
@@ -182,15 +182,17 @@ class LLMRouter:
         max_tokens: Optional[int] = None,
         top_p: float = 1.0,
         model_override: Optional[str] = None,
+        attachments: Optional[List[Attachment]] = None,
         **kwargs,
     ) -> LLMResponse:
         """
         Single-turn (or last-turn) LLM call.
-        Constructs messages from history + current user_prompt.
+        Constructs messages from history + current user_prompt, with any
+        ``attachments`` (images, PDFs) as parts beside the text (LP-24).
         """
         adapter = await self._resolve_adapter(task_type, model_override=model_override)
         messages = list(history or [])
-        messages.append({"role": "user", "parts": [{"text": user_prompt}]})
+        messages.append({"role": "user", "parts": [{"text": user_prompt}, *(a.part() for a in attachments or [])]})
 
         async with _trace_span(
             "llm", model_override or task_type,
@@ -198,6 +200,7 @@ class LLMRouter:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             history=history,
+            attachments=[a.describe() for a in attachments] if attachments else None,
         ) as _sp:
             resp = await adapter.generate(
                 system_prompt=system_prompt,

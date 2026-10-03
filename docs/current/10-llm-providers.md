@@ -905,7 +905,7 @@ if not output and response.text:
 | Safety settings | ❌ | never set — Vertex defaults apply. A `SAFETY` finish reason surfaces as empty output |
 | Response MIME type / JSON mode | ❌ | JSON is requested in the prompt and parsed defensively |
 | Grounding / Google Search tool | ❌ | not wired |
-| Multimodal input | ❌ | only `Part.from_text` |
+| Multimodal input | ✅ | an `inline_data` part becomes `Part.from_bytes`; `call_llm(attachments=[Attachment(mime_type, data)])` (LP-24) |
 | Cached content | ❌ | not used |
 
 ### 8.4 No SDK patch

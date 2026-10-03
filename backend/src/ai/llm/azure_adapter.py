@@ -14,7 +14,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from src.ai.llm.retry import call_provider
-from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
+from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse, inline_parts
 from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,16 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             elif isinstance(parts, str):
                 content = parts
 
-            if content:
+            blobs = inline_parts(parts)
+            if blobs:
+                # Images as data URLs beside the text (LP-24).
+                import base64
+                items: List[Dict[str, Any]] = [{"type": "text", "text": content}] if content else []
+                items += [{"type": "image_url", "image_url": {
+                    "url": f"data:{b['mime_type']};base64,{base64.b64encode(b['data']).decode('ascii')}"}}
+                    for b in blobs]
+                result.append({"role": role, "content": items})
+            elif content:
                 result.append({"role": role, "content": content})
 
         return result

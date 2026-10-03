@@ -13,7 +13,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.ai.llm.retry import call_provider
-from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
+from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse, inline_parts
 from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 
 logger = logging.getLogger(__name__)
@@ -63,10 +63,24 @@ class AnthropicAdapter(BaseLLMAdapter):
             elif isinstance(parts, str):
                 content = parts
 
-            if content:
+            blobs = inline_parts(parts)
+            if blobs:
+                # Images (and PDFs) as content blocks beside the text (LP-24).
+                blocks: List[Dict[str, Any]] = [self._file_block(b) for b in blobs]
+                if content:
+                    blocks.append({"type": "text", "text": content})
+                anthropic_messages.append({"role": role, "content": blocks})
+            elif content:
                 anthropic_messages.append({"role": role, "content": content})
 
         return system_prompt, anthropic_messages
+
+    @staticmethod
+    def _file_block(blob: Dict[str, Any]) -> Dict[str, Any]:
+        import base64
+        kind = "document" if blob["mime_type"] == "application/pdf" else "image"
+        return {"type": kind, "source": {"type": "base64", "media_type": blob["mime_type"],
+                                         "data": base64.b64encode(blob["data"]).decode("ascii")}}
 
     @staticmethod
     def _sampling(temperature: float, top_p: float) -> Dict[str, Any]:

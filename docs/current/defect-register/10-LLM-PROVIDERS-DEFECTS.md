@@ -45,12 +45,12 @@
 
 | Tier | Theme | Count | When to do it |
 |---|---|---|---|
-| [T0](#2-t0--money-and-availability) | Money and availability | 7 | Before the first paying tenant |
+| [T0](#2-t0--money-and-availability) | Money and availability | 8 | Before the first paying tenant |
 | [T1](#3-t1--configuration-that-cannot-work) | Configuration that cannot work | 6 | Before anyone follows the setup guide |
 | [T2](#4-t2--delete) | Delete | 4 | **Now** — free |
 | [T3](#5-t3--correctness-in-the-adapters) | Correctness in the adapters | 8 | When the provider is next touched |
 
-**Total: 25 defects, 10 improvements.**
+**Total: 26 defects, 10 improvements.**
 
 The three to read first:
 
@@ -278,6 +278,21 @@ Live on `gemini-2.5-flash`, the same three calls before and after the fix:
 
 The thinking tokens are billed since
 [LP-06](#lp-06--gemini-thinking-tokens-are-not-counted) was fixed.
+
+---
+
+### LP-26 — A video call's frame analysis is never billed
+
+**✅ Verified · Medium** · **Status: open** — found 2026-10-03 while fixing LP-24.
+
+`VideoSession._analyze_video_frame` calls the `vision` model every few seconds of a live
+video call and writes no `usage_logs` row: there is no run to attribute it to, and the
+call site never logs usage. Every frame description is free to the tenant.
+
+- [`gateway/video_gateway.py`](../../../backend/src/gateway/video_gateway.py) — `_analyze_video_frame`
+
+**Fix:** attribute the frames to the call's run (as voice tool calls are, TL-20) and write
+the usage row through `log_llm_response_usage`.
 
 ---
 
@@ -556,7 +571,13 @@ any other library in the process that reads that enum gets the patched version.
 
 ### LP-24 — Multimodal input does not work
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P9.10)** — a message part may be
+`{"inline_data": {"mime_type", "data"}}` (`types.Attachment`); Gemini sends it as a bytes
+part, Anthropic as an image (or PDF document) block, Azure as a data URL.
+`LLMRouter.call_llm(attachments=…)` adds them beside the prompt text, and the span records
+`[image/jpeg, N bytes]`, never the bytes. The video gateway sends its frame that way on
+`vision` (a task type since LP-09). Found while fixing: the frame calls are never billed —
+**LP-26**. Test: `tests/unit/test_multimodal.py`.
 
 The adapters only build text parts. The video gateway works around this by base64-encoding
 a JPEG **into the user prompt string** and requesting `task_type="vision"` — a task type

@@ -21,6 +21,30 @@ logger = logging.getLogger(__name__)
 # Unified response dataclass — provider-agnostic
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class Attachment:
+    """A file sent to the model beside the prompt text (LP-24): an image, or
+    a PDF where the provider takes one. In a message it is the part
+    ``{"inline_data": {"mime_type": ..., "data": <bytes>}}``; each adapter
+    translates it. It never enters a prompt string, a span or a log — those
+    record :meth:`describe`."""
+    mime_type: str
+    data: bytes
+
+    def part(self) -> Dict[str, Any]:
+        return {"inline_data": {"mime_type": self.mime_type, "data": self.data}}
+
+    def describe(self) -> str:
+        return f"[{self.mime_type}, {len(self.data)} bytes]"
+
+
+def inline_parts(parts: Any) -> List[Dict[str, Any]]:
+    """The ``inline_data`` payloads among a message's parts."""
+    if not isinstance(parts, list):
+        return []
+    return [p["inline_data"] for p in parts if isinstance(p, dict) and isinstance(p.get("inline_data"), dict)]
+
+
 # ``finish_reason`` of a ReAct loop that ran out of turns while the model was
 # still calling tools: the model was cut off mid-task, not finished (LP-19).
 FINISH_MAX_TURNS = "MAX_TURNS"

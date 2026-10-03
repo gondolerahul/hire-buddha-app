@@ -261,6 +261,10 @@ class GeminiAdapter(BaseLLMAdapter):
                 for p in parts:
                     if isinstance(p, dict) and "text" in p:
                         content_parts.append(types.Part.from_text(text=p["text"]))
+                    elif isinstance(p, dict) and isinstance(p.get("inline_data"), dict):
+                        # An image or document, as bytes (LP-24).
+                        blob = p["inline_data"]
+                        content_parts.append(types.Part.from_bytes(data=blob["data"], mime_type=blob["mime_type"]))
                     elif isinstance(p, str):
                         content_parts.append(types.Part.from_text(text=p))
             elif isinstance(parts, str):

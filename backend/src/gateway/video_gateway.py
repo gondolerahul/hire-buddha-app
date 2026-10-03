@@ -299,15 +299,14 @@ class VideoSession:
         Uses the company's configured vision/multimodal model (falls back to Gemini Flash).
         """
         try:
-            import base64
             from src.common.database import AsyncSessionLocal
             from src.ai.llm.router import LLMRouter
+            from src.ai.llm.types import Attachment
             from uuid import UUID
 
             async with AsyncSessionLocal() as db:
                 router = LLMRouter(db=db, company_id=UUID(self.agent_info["company_id"]))
-                b64_frame = base64.b64encode(jpeg_bytes).decode("utf-8")
-
+                # The frame is an image part, not base64 text in the prompt (LP-24).
                 resp = await router.call_llm(
                     task_type="vision",
                     system_prompt=(
@@ -315,7 +314,8 @@ class VideoSession:
                         "Describe what you see briefly (2-3 sentences): "
                         "who is present, their apparent emotion/mood, and any relevant visual context."
                     ),
-                    user_prompt=f"[Image: data:image/jpeg;base64,{b64_frame}]",
+                    user_prompt="Describe this frame.",
+                    attachments=[Attachment(mime_type="image/jpeg", data=jpeg_bytes)],
                 )
                 if resp.output:
                     self.vision_context = resp.output[:500]  # Cap to 500 chars
