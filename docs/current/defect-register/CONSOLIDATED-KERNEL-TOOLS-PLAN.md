@@ -1263,6 +1263,55 @@ drop box that replaces the `/tmp` scans (TL-36), and then the container default 
 (TL-01, TL-02 complete, TL-42 becomes acceptable). These need the `hb-sandbox` and
 `hb-egress-proxy` images and a volume, so they are verified on an environment with Docker.
 
+*Detailed design (2026-10-03, before P11.1).* Re-read against the code at `e14bdd0`; both
+images build on this machine (Docker Desktop), so every item is verified against real
+containers. What holds, and what moved:
+
+- **TL-16:** `SANDBOX_WORKSPACE_ROOT` exists (TL-29) but defaults to `<temp>/sandbox`. The
+  default becomes a durable directory (`backend/var/sandbox`, git-ignored); the compose file
+  mounts a named volume there; a root under the system temp directory logs a warning at
+  start. A multi-node deployment points the setting at shared storage — the identical-path
+  bind mount needs every node to see the same tree. Each tenant directory has three roots
+  the container sees at the same paths: the workspace itself (read-write), `.skills/`
+  (P5.4's materialised skill files, **read-only**), and `.artifacts/` (the drop box, below).
+- **TL-17, mostly done earlier:** the video tools already write under the workspace (P3.5),
+  and paths are confined; what is left is an *input* — an artifact the model names lives
+  under the company's artifact directories, which the container cannot see. Those two
+  directories are mounted read-only at their host paths.
+- **TL-36:** `terminal` and `sandbox_code` find deliverables by scanning: `terminal` walks
+  all of `/tmp`; both diff the working directory with an exclusion list. They become one
+  rule: a file is an artifact because the code put it in `$ARTIFACTS_DIR`
+  (`<workspace>/.artifacts/<run>/<call>/`, exported to every exec); after the exec each file
+  there is saved as an artifact of the run and the directory removed. Both scans and the
+  exclusion list are deleted; the tools' descriptions and the step prompt's Skill Files
+  section say where deliverables go.
+- **TL-15:** `ContainerRuntime.exec` never passed `egress`. `run_sandbox_exec(...,
+  network=…)` takes the call's network policy — `none` (default), `allowlist` (a synthesized
+  tool whose spec says `ALLOWLIST`: the existing tinyproxy, `SANDBOX_EGRESS_ALLOWLIST`) or
+  `web` (below) — and the runtime runs it in that container.
+- **TL-18:** the host cannot reach a container on `--network none`, and a published port
+  does not work on Docker Desktop, so the browser is not driven over a socket: the session's
+  steps go into the workspace as JSON, a runner (written there by the platform, read-only to
+  the tenant) runs them with the image's Playwright and writes results back. Its network is
+  `web`: the container joins the internal egress network and reaches the internet only
+  through a second proxy mode in the same image — a small forward proxy that **resolves
+  every host and refuses private, loopback, link-local, ULA and metadata addresses** (what
+  `net_guard` does on the host; tinyproxy cannot check a resolved address). Screenshots land
+  in the drop box. On the host runtime the browser path is unchanged.
+- **TL-02:** the synthesis harness already runs under the workspace (P3.9). Left: it calls
+  `inst.run(input)` without context, and `SandboxedSynthesizedTool` replays the whole harness
+  per call. The harness calls `run_with_context(input, context)` with the tool context
+  (server-minted, P3.2), and a call writes the tool source once per version
+  (content-hashed, like skill files) and execs a small per-call driver.
+- **TL-01 (D29):** `SANDBOX_CONTAINER_RUNTIME_ENABLED` defaults to **true**. A host without
+  Docker or the image refuses sandbox calls with a message naming the setting (P3.9 made the
+  failure loud); development sets it false in `.env` deliberately. TL-42's blocklist is
+  then a speed bump inside a real boundary, as the entry allows.
+
+**Commit order:** 11.1 TL-16 + TL-17 (roots and mounts) → 11.2 TL-36 (drop box) → 11.3 TL-15
+(network per call) → 11.4 TL-18 (browser in the container, web egress) → 11.5 TL-02 → 11.6
+TL-01 flip (TL-42).
+
 ---
 
 ## 9. Decisions taken in this plan
@@ -1298,6 +1347,7 @@ The product owner can reverse any of these; each is isolated to one commit.
 | D25 | `routing_mode` is replaced by one fallback integration per task type; a ReAct loop falls back only before its first tool call (LP-08) | A second provider when the first is exhausted is what "router" promised; re-running a loop after a tool ran would repeat its side effects |
 | D27 | The Board's Validator is the gate every publication passes; the other Board roles (bar ToolSmith) are deleted (MI-20) | It is the deterministic, cheap, real part; the rest never ran and wiring it would bill seven test runs per publish |
 | D28 | Anti-sprawl gates run inside `create_entity` for creations an agent makes; a person creating through the API is not gated (MI-02) | One place no agent path can skip; a person's choice is the decision the gates stand in for |
+| D29 | The container runtime is the default; a host without Docker or the image refuses sandbox calls, and development opts out in `.env` (TL-01) | The host runtime runs model code as the backend's OS user; a safe default must not depend on remembering a flag |
 | D26 | Text streams on Gemini; Anthropic and Azure deliver each turn's text when the turn completes (LP-I7) | Gemini is the configured provider everywhere; assembling streamed tool-call deltas for two providers nobody runs is untestable here |
 
 ---
@@ -1467,3 +1517,14 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P9.13 | LP-I7 | `ffb3975` | `test_text_streaming.py` + vitest reducer case; Gemini streams, the others per turn (D26); `step_delta` frames |
 | **P9 done** | LP-07…LP-12, LP-15, LP-17, LP-18, LP-20…LP-24, LP-I2, LP-I5, LP-I7 (D-12) | — | Unit 1789 + the known chaos failure; integration 342 + the 2 known `test_cost_attribution` failures; parity 2 passed after the harness fix below; typecheck, layout lint, tsc, eslint pass; local DB at `p9_task_fallback`; API and workers restarted. **Not live-verified with an LLM** (Vertex ADC expired). **Found:** the parity gate had failed since P4.7 (`bf10015`) — it counted the planner's and critics' new interaction rows as steps (fixed in the harness, `tests/parity/extract.py`); LP-26 |
 | — | P10 detailed design | — | Written into §8 P10 before P10.1; decisions D27, D28 |
+| P10.1 | MI-20 (D27); MI-04, MI-05, MI-06, MI-07, MI-18 invalid; MI-08 moot | `b7644b7` | `test_publication_gate.py`, `test_versions_api.py`: the Validator gates a draft's publish and a DRAFT's promote (422 with failed checks), plus `granted_tools_exist`; six Board roles, the consolidation planner, the tiebreak and seven flags deleted |
+| P10.2 | MI-01 | `37c44b7` | `test_anti_sprawl_fails_closed.py`: a broken search refuses and emits `meta.gate.failed` |
+| P10.3 | MI-02, MI-03, TL-28 (D28) | `39b3514` | `test_creation_gate.py`: the gate runs inside `create_entity` for agent creations — burst 3/min (fails closed), daily, adaptation chain (VERSION mode never ran it), duplicate |
+| P10.4 | MI-09 | `8811a05` | `test_semantic_reuse.py`: semantic ≥ 0.85 is at least ADAPT, ≥ 0.95 a duplicate |
+| P10.5 | MI-15 | `4890186` | `test_meta_tree_pruning.py`: archived by evidence then age, never deleted; a recurring pattern comes back |
+| P10.6 | MI-19, MI-I4 | `35b11a5` | `test_schema_drift.py`. Worse than recorded: the hash included `compiled_at`; drift is now remembered per company and drops the cached manifest |
+| P10.7 | MI-17, MI-I7 | `6882ec4` | `test_review_queue.py`; the Meta Intelligence page shows the counts (checked in the browser) |
+| P10.8 | R2 §11 | `c4174d4` | `test_skill_promotion.py`: a candidate becomes a DRAFT SKILL with grants, targets and a version, then is published through the Validator |
+| P10.9 | MI-11 | `e14bdd0` | Docs |
+| **P10 done** | MI-01…MI-03, MI-09, MI-11, MI-15, MI-17, MI-19, MI-20, MI-I1…MI-I10, TL-28 (MI-04…MI-08, MI-18 invalid or moot) | — | Unit, integration and parity 2126 passed + the known chaos failure; typecheck and layout lint pass. MI-16 (TL-02) is P11 |
+| — | P11 detailed design | — | Written into §8 P11 before P11.1; decision D29. Both images build here (`hb-sandbox:local` 3.1 GB, `hb-egress-proxy:local`) |
