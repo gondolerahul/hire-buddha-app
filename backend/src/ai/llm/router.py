@@ -16,7 +16,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai.llm.types import Attachment, LLMResponse
+from src.ai.llm.types import Attachment, LLMResponse, TextSink
 from src.ai.llm.base import BaseLLMAdapter
 from src.ai.llm.retry import is_retryable
 from src.ai.core.trace import span as _trace_span
@@ -246,6 +246,7 @@ class LLMRouter:
         call: Callable[[BaseLLMAdapter], Awaitable[LLMResponse]],
         span: Any,
         may_fall_back: Callable[[], bool] = lambda: True,
+        text_sink: Optional[TextSink] = None,
     ) -> LLMResponse:
         """Call the task's model; when its retries are exhausted (or its breaker
         is open) and the task has a fallback, call that instead (LP-08, D25). An
@@ -276,6 +277,8 @@ class LLMRouter:
             logger.warning("LLMRouter: %s/%s exhausted for %s (%s: %s); calling its fallback %s",
                            *key, task_type, type(exc).__name__, exc, getattr(spare, "model_name", "?"))
             span.update(fallback_from=getattr(primary, "model_name", None), fallback_reason=type(exc).__name__)
+            if text_sink is not None:
+                await text_sink.reset()  # the default's partial text is void
             return await call(spare)
         _BREAKER.succeeded(key)
         return response
@@ -292,6 +295,7 @@ class LLMRouter:
         top_p: float = 1.0,
         model_override: Optional[str] = None,
         attachments: Optional[List[Attachment]] = None,
+        text_sink: Optional[TextSink] = None,
         **kwargs,
     ) -> LLMResponse:
         """
@@ -317,8 +321,9 @@ class LLMRouter:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 top_p=top_p,
+                text_sink=text_sink,
                 **kwargs,
-            ), _sp)
+            ), _sp, text_sink=text_sink)
             _record_llm_span(_sp, resp)
             return resp
 
@@ -335,10 +340,12 @@ class LLMRouter:
         max_react_turns: int = 10,
         model_override: Optional[str] = None,
         top_p: float = 1.0,
+        text_sink: Optional[TextSink] = None,
         **kwargs,
     ) -> LLMResponse:
         """
-        Full REACT loop for agentic tasks.
+        Full REACT loop for agentic tasks. ``text_sink`` receives the model's
+        text as it is produced (LP-I7).
         execute_tool_fn: async(function_calls: list) -> list of {tool, output, success},
         one per call in order; each call carries an ``id`` (LP-17).
         """
@@ -373,8 +380,9 @@ class LLMRouter:
                 max_tokens=max_tokens,
                 max_react_turns=max_react_turns,
                 top_p=top_p,
+                text_sink=text_sink,
                 **kwargs,
-            ), _sp, may_fall_back=lambda: not tools_ran)
+            ), _sp, may_fall_back=lambda: not tools_ran, text_sink=text_sink)
             _record_llm_span(_sp, resp)
             return resp
 

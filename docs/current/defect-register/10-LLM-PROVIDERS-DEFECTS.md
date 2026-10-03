@@ -665,6 +665,14 @@ Redis is already a dependency and already used for pub/sub.
 
 ### LP-I7 — Stream text responses
 
+**Status: done (2026-10-03, P9.13)** — `call_llm`/`call_llm_react` take a `text_sink`
+(`delta`, `reset`). Gemini streams (`generate_content_stream`; a retried attempt resets the
+sink); Anthropic and Azure deliver each turn's text when it completes (D26). The step
+executor publishes throttled `step_delta` frames on the run's channel
+(`agent_loop_sse.StepTextStream`), and the run page shows the live text. Tests:
+`tests/unit/test_text_streaming.py`, the reducer case in `useExecutionEvents.test.ts`.
+Not exercised against Vertex (ADC expired).
+
 **Effect: medium for perceived speed.** Streaming exists only in the voice path. For a
 long generation, the user watches a spinner for the entire call even though the SSE trace
 infrastructure to relay tokens already exists.

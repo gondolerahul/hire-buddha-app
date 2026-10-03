@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any, AsyncIterator, Optional
@@ -23,7 +24,7 @@ from src.ai.core.events import event
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["set_sse_redis", "event_async", "iteration_batch", "flush_batch"]
+__all__ = ["set_sse_redis", "event_async", "iteration_batch", "flush_batch", "StepTextStream"]
 
 # An iteration's SSE frames, published together (AK-I9): (run_id, bodies).
 # Each iteration used to publish eight or more messages — start, pressure,
@@ -32,6 +33,7 @@ __all__ = ["set_sse_redis", "event_async", "iteration_batch", "flush_batch"]
 _BATCH: ContextVar[Optional[tuple[str, list[dict[str, Any]]]]] = ContextVar("sse_batch", default=None)
 
 _SSE_REDIS: Any = None
+_monotonic = time.monotonic  # one seam for tests
 
 # Internal event name → frontend reducer ``type``. Every key must be a name the
 # kernel really emits, and every value a ``case`` in the reducer:
@@ -94,6 +96,60 @@ async def event_async(name: str, **payload: Any) -> None:
         )
     except Exception as exc:                                               # pragma: no cover
         logger.warning("AgentLoop SSE publish failed for %s: %s", name, exc)
+
+
+class StepTextStream:
+    """A running step's text, as ``step_delta`` frames on the run's channel (LP-I7).
+
+    Published straight away — not batched with the iteration, not logged, not
+    an OTel event: it is a view, and the step's output is recorded when the
+    step ends. Throttled to a frame every ``FLUSH_SECONDS`` or ``FLUSH_CHARS``.
+    Frames: ``{"type": "step_delta", "step": name, "text": ...}``, ``reset``
+    (the text so far is void) and ``done``.
+    """
+
+    FLUSH_SECONDS = 0.25
+    FLUSH_CHARS = 400
+
+    def __init__(self, run_id: Any, step: str):
+        self.run_id = str(run_id)
+        self.step = step
+        self._buffer: list[str] = []
+        self._size = 0
+        self._last = 0.0
+
+    @staticmethod
+    def enabled() -> bool:
+        return _SSE_REDIS is not None
+
+    async def _publish(self, **body: Any) -> None:
+        if _SSE_REDIS is None:
+            return
+        try:
+            await _SSE_REDIS.publish(f"execution:{self.run_id}",
+                                     json.dumps({"type": "step_delta", "step": self.step, **body}))
+        except Exception as exc:                                           # pragma: no cover
+            logger.debug("step_delta publish failed for %s: %s", self.run_id, exc)
+
+    async def _flush(self) -> None:
+        if self._buffer:
+            text, self._buffer, self._size = "".join(self._buffer), [], 0
+            self._last = _monotonic()
+            await self._publish(text=text)
+
+    async def delta(self, text: str) -> None:
+        self._buffer.append(text)
+        self._size += len(text)
+        if self._size >= self.FLUSH_CHARS or _monotonic() - self._last >= self.FLUSH_SECONDS:
+            await self._flush()
+
+    async def reset(self) -> None:
+        self._buffer, self._size = [], 0
+        await self._publish(reset=True)
+
+    async def close(self) -> None:
+        await self._flush()
+        await self._publish(done=True)
 
 
 async def flush_batch() -> None:

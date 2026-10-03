@@ -53,7 +53,8 @@ class BaseLLMAdapter(ABC):
         top_p: float = 1.0,
         **kwargs,
     ) -> LLMResponse:
-        """Single-turn generation."""
+        """Single-turn generation. ``text_sink`` (a ``TextSink``), when given,
+        receives the answer's text as it is produced (LP-I7)."""
         ...
 
     @abstractmethod

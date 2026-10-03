@@ -171,6 +171,13 @@ export const AgentLoopExecutionDetail: React.FC<Props> = ({
                     </div>
                 )}
 
+                {Object.entries(events.liveText).map(([step, text]) => (
+                    <div key={step} className="agentk-agentloop-detail__live" aria-live="polite">
+                        <strong>Live output — {step}</strong>
+                        <pre>{text || '…'}</pre>
+                    </div>
+                ))}
+
                 {orderedIters.length === 0 ? (
                     <p className="agentk-agentloop-detail__empty">
                         No iterations yet. Waiting for the worker…

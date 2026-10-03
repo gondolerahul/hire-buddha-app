@@ -710,7 +710,7 @@ called, writes included.
 | SDK retries | off (`max_retries=0` on the OpenAI/Azure and Anthropic clients; `google-genai` has none by default), so the two policies do not multiply. |
 | Provider fallback | a task default may name a fallback integration, called when the default's retries are exhausted (§6.4, LP-08) |
 | Circuit breaking | per process and model: three exhausted failures send calls to the fallback for 60 s (§6.4) |
-| Streaming | **Not implemented** for text. No `generate_content_stream`, no `stream=True`. Streaming exists only in the voice/Live path (§14) and in the gateway's HTTP proxy. |
+| Streaming | `call_llm`/`call_llm_react(text_sink=…)` (LP-I7): Gemini streams; Anthropic and Azure hand each turn's text over when it completes (D26). The step executor's sink (`agent_loop_sse.StepTextStream`) publishes throttled `step_delta` frames — every 0.25 s or 400 characters, plus `reset` and `done` — on the run's SSE channel, unbatched and unlogged; the run page shows them as "Live output" under the running step. A move to the fallback resets the sink. |
 
 The Gemini SDK can fail to parse a `finish_reason` newer than it knows (a
 pydantic `ValidationError`). `GeminiAdapter._sdk_validation_error` turns it into
@@ -838,7 +838,7 @@ if not output and response.text:
 | `max_tokens` | ✅ | the **answer** budget. On a thinking model it becomes `max_output_tokens = max_tokens + thinking_budget` (see the next row). A `MAX_TOKENS` finish logs a warning with the answer and thinking token counts |
 | Function calling | ✅ | full JSON-Schema → `types.Schema` conversion, recursive |
 | Multi-turn ReAct | ✅ | native function-response protocol: one `FunctionResponse` per call, in call order, with the call's name and (when the model gave one) its `id` (LP-17) |
-| Streaming | ❌ | no `generate_content_stream` anywhere in the text path |
+| Streaming | ✅ | with a `text_sink`, `generate_content_stream`: each text part reaches the sink as it arrives, a retried attempt resets it, and the parts are gathered into the usual response (LP-I7) |
 | Thinking budget | ⚠️ | Gemini 2.5 and 3 count thinking tokens against `max_output_tokens`, so a capped call used to spend its whole budget thinking and return a cut-off answer (LP-25). Now a capped call on a `gemini-2.5*` / `gemini-3*` model sends `ThinkingConfig(thinking_budget=1024)` and adds those 1024 tokens to `max_output_tokens`. Uncapped calls keep the model's dynamic thinking. `service_metadata.thinking_budget` overrides the budget for every call on that integration; `0` turns thinking off where the model allows it (Flash and Flash-Lite, not Pro). No `thinking_level` yet. The `thinking` *task type* only routes to a different model; the `CHAIN_OF_THOUGHT` mode is prompt scaffolding in [step_executor.py:1068](../../backend/src/ai/step_executor.py:1068) |
 | Safety settings | ❌ | never set — Vertex defaults apply. A `SAFETY` finish reason surfaces as empty output |
 | Response MIME type / JSON mode | ❌ | JSON is requested in the prompt and parsed defensively |

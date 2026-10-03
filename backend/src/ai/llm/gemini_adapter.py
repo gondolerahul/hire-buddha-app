@@ -12,10 +12,11 @@ from __future__ import annotations
 import json
 import logging
 import time
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.ai.llm.retry import call_provider
-from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
+from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse, TextSink
 from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,54 @@ class GeminiAdapter(BaseLLMAdapter):
     def _build_client(self):
         from src.common.genai_factory import build_vertex_genai_client_sync
         return build_vertex_genai_client_sync(self.service_metadata)
+
+    async def _generate(self, client: Any, contents: List, config: Any, what: str,
+                        text_sink: Optional[TextSink]) -> Any:
+        """One provider call. With a ``text_sink`` the answer streams
+        (``generate_content_stream``) and each text part reaches the sink as it
+        arrives (LP-I7); the parts are gathered into a response of the same
+        shape, so the caller does not care which path ran. A retried attempt
+        resets the sink first."""
+        if text_sink is None:
+            return await call_provider(lambda: client.aio.models.generate_content(
+                model=self.model_name, contents=contents, config=config,
+            ), what=what)
+        attempts = 0
+
+        async def consume() -> Any:
+            nonlocal attempts
+            attempts += 1
+            if attempts > 1:
+                await text_sink.reset()
+            parts: List[Any] = []
+            texts: List[str] = []
+            usage: Any = None
+            finish: Any = None
+            stream = await client.aio.models.generate_content_stream(
+                model=self.model_name, contents=contents, config=config,
+            )
+            async for chunk in stream:
+                if getattr(chunk, "usage_metadata", None) is not None:
+                    usage = chunk.usage_metadata
+                candidate = chunk.candidates[0] if getattr(chunk, "candidates", None) else None
+                if candidate is None:
+                    continue
+                if getattr(candidate, "finish_reason", None):
+                    finish = candidate.finish_reason
+                content = getattr(candidate, "content", None)
+                for part in (getattr(content, "parts", None) or []):
+                    parts.append(part)
+                    text = getattr(part, "text", None)
+                    if text and not getattr(part, "function_call", None) and not getattr(part, "thought", False):
+                        texts.append(text)
+                        await text_sink.delta(text)
+            return SimpleNamespace(
+                candidates=[SimpleNamespace(content=SimpleNamespace(parts=parts), finish_reason=finish or "STOP")],
+                text="".join(texts),
+                usage_metadata=usage if usage is not None else SimpleNamespace(),
+            )
+
+        return await call_provider(consume, what=f"{what} (stream)")
 
     def _configured_thinking_budget(self) -> Optional[int]:
         raw = self.service_metadata.get("thinking_budget")
@@ -283,6 +332,7 @@ class GeminiAdapter(BaseLLMAdapter):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         top_p: float = 1.0,
+        text_sink: Optional[TextSink] = None,
         **kwargs,
     ) -> LLMResponse:
         from google.genai import types
@@ -303,11 +353,8 @@ class GeminiAdapter(BaseLLMAdapter):
                 generate_config.tools = [types.Tool(function_declarations=declarations)]
 
         start = time.monotonic()
-        response = await call_provider(lambda: client.aio.models.generate_content(
-            model=self.model_name,
-            contents=contents,
-            config=generate_config,
-        ), what=f"gemini {self.model_name}")
+        response = await self._generate(client, contents, generate_config,
+                                        f"gemini {self.model_name}", text_sink)
         latency_ms = int((time.monotonic() - start) * 1000)
         self._warn_if_truncated(response, max_tokens)
 
@@ -350,6 +397,7 @@ class GeminiAdapter(BaseLLMAdapter):
         max_tokens: Optional[int] = None,
         max_react_turns: int = 10,
         top_p: float = 1.0,
+        text_sink: Optional[TextSink] = None,
         **kwargs,
     ) -> LLMResponse:
         """Gemini REACT loop — uses Gemini-specific function_response protocol."""
@@ -380,11 +428,8 @@ class GeminiAdapter(BaseLLMAdapter):
         for turn in range(max_react_turns):
             start = time.monotonic()
             # An error propagates: it is not an end of turn (LP-04).
-            response = await call_provider(lambda: client.aio.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=generate_config,
-            ), what=f"gemini {self.model_name} (react turn {turn + 1})")
+            response = await self._generate(client, contents, generate_config,
+                                            f"gemini {self.model_name} (react turn {turn + 1})", text_sink)
             latency_ms = int((time.monotonic() - start) * 1000)
             total_latency_ms += latency_ms
             self._warn_if_truncated(response, max_tokens)

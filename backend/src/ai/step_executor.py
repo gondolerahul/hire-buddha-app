@@ -847,11 +847,11 @@ class StepExecutorService:
         if reasoning_mode == "CHAIN_OF_THOUGHT":
             output, response = await self._execute_chain_of_thought(
                 llm_router, full_system_prompt, user_prompt, task_type,
-                config, tool_schemas, _execute_tools
+                config, tool_schemas, _execute_tools, run=run, step=step,
             )
         else:
             # Default: REACT mode (tool-calling loop)
-            response = await llm_router.call_llm_react(
+            response = await self._react_streamed(llm_router, run, step,
                 task_type=task_type,
                 system_prompt=full_system_prompt,
                 user_prompt=user_prompt,
@@ -915,7 +915,7 @@ class StepExecutorService:
     # ═══════════════════════════════════════════════════════════════════════
 
     async def _execute_chain_of_thought(self, llm_router, system_prompt, user_prompt,
-                                         task_type, config, tool_schemas, execute_tool_fn):
+                                         task_type, config, tool_schemas, execute_tool_fn, run=None, step=None):
         """CHAIN_OF_THOUGHT: Structured thinking with explicit reasoning chain extraction."""
         cot_system = system_prompt + """
 
@@ -932,7 +932,8 @@ Step 2: [your analysis]
 [Your final answer here]
 </answer>"""
 
-        response = await llm_router.call_llm_react(
+        response = await self._react_streamed(
+            llm_router, run, step,
             task_type=task_type,
             system_prompt=cot_system,
             user_prompt=user_prompt,
@@ -952,6 +953,20 @@ Step 2: [your analysis]
             output = answer_match.group(1).strip()
 
         return output, response
+
+    @staticmethod
+    async def _react_streamed(llm_router, run, step, **kwargs):
+        """A ReAct call whose text reaches the run page as it is produced
+        (LP-I7): ``step_delta`` frames on the run's SSE channel, when the loop
+        has one."""
+        from src.ai.core.agent_loop_sse import StepTextStream
+        sink = (StepTextStream(run.id, getattr(step, "name", "") or "")
+                if run is not None and StepTextStream.enabled() else None)
+        try:
+            return await llm_router.call_llm_react(text_sink=sink, **kwargs)
+        finally:
+            if sink is not None:
+                await sink.close()
 
     async def _log_usage(self, run, model_name: str, prompt_tokens: int, completion_tokens: int, log,
                          attribution: str = "actor_step"):

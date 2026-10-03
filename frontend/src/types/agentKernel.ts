@@ -494,6 +494,8 @@ export type AgentEvent =
     | { type: 'task_class_classified'; entity_id?: string | null; task_class: string; classifier_version: string }
     | { type: 'dreaming_triggered'; entity_id: string; reason: 'success' | 'failure' }
     | { type: 'cost_charged'; attribution: CostAttribution | string; sku?: string | null; amount_usd: number; latency_ms?: number; persisted: boolean }
+    // A running step's text as it is generated (LP-I7): text to append, a reset, or done.
+    | { type: 'step_delta'; step: string; text?: string; reset?: boolean; done?: boolean }
     | { type: 'plan_candidate_generated'; style: string; estimated_cost_usd: string; latency_estimate_s: number }
     | { type: 'plan_chosen'; style: string; expected_cost_usd: string; alternates: string[] }
     | { type: 'plan_invariant_violation'; candidate_idx: number; violations: string[] }

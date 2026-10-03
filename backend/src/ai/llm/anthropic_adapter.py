@@ -13,7 +13,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.ai.llm.retry import call_provider
-from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse, inline_parts
+from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse, TextSink, inline_parts
 from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         top_p: float = 1.0,
+        text_sink: Optional[TextSink] = None,
         **kwargs,
     ) -> LLMResponse:
         client = self._build_client()
@@ -142,6 +143,8 @@ class AnthropicAdapter(BaseLLMAdapter):
                     "args": block.input or {},
                 })
 
+        if text_sink is not None and output:
+            await text_sink.delta(output)  # whole, not streamed (D26)
         return LLMResponse(
             output=output,
             function_calls=function_calls,
@@ -163,6 +166,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         max_tokens: Optional[int] = None,
         max_react_turns: int = 10,
         top_p: float = 1.0,
+        text_sink: Optional[TextSink] = None,
         **kwargs,
     ) -> LLMResponse:
         """Anthropic REACT loop — uses tool_use/tool_result block protocol."""
@@ -204,6 +208,9 @@ class AnthropicAdapter(BaseLLMAdapter):
 
             # Append assistant turn
             messages.append({"role": "assistant", "content": response.content})
+
+            if text_sink is not None and turn_text:
+                await text_sink.delta(turn_text)  # each turn whole, not streamed (D26)
 
             if function_calls:
                 all_function_calls.extend(function_calls)

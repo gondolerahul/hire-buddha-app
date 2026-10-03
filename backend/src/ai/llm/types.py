@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,16 @@ def inline_parts(parts: Any) -> List[Dict[str, Any]]:
     if not isinstance(parts, list):
         return []
     return [p["inline_data"] for p in parts if isinstance(p, dict) and isinstance(p.get("inline_data"), dict)]
+
+
+class TextSink(Protocol):
+    """Where a call's text goes while it is generated (LP-I7). ``reset`` says
+    the text so far is void: a provider attempt was retried, or the router
+    moved to the fallback."""
+
+    async def delta(self, text: str) -> None: ...
+
+    async def reset(self) -> None: ...
 
 
 # ``finish_reason`` of a ReAct loop that ran out of turns while the model was

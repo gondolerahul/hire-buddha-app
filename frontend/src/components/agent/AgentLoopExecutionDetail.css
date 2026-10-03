@@ -20,6 +20,21 @@
     border-left: 3px solid var(--color-warning, #d80);
     font-size: 13px;
 }
+.agentk-agentloop-detail__live {
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 3px solid var(--color-rose-gold, #b76e79);
+    font-size: 13px;
+}
+.agentk-agentloop-detail__live pre {
+    margin: 6px 0 0;
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-family: inherit;
+}
 .agentk-agentloop-detail__empty {
     padding: 32px;
     text-align: center;

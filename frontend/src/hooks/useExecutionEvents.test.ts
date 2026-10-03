@@ -23,6 +23,8 @@ const _INITIAL: ExecutionEventState = {
     replans: [],
     taskClass: undefined,
     costByAttribution: {},
+    spans: {},
+    liveText: {},
     unknownEvents: [],
 };
 
@@ -98,6 +100,21 @@ describe('executionEventReducer', () => {
         ]);
         expect(next.costByAttribution.critic_post).toBeCloseTo(0.008);
         expect(next.costByAttribution.tool).toBeCloseTo(0.02);
+    });
+
+    it('shows a step text while it streams, and drops it when done (LP-I7)', () => {
+        const streaming = apply(_INITIAL, [
+            { type: 'step_delta', step: 'research', text: 'Hello ' },
+            { type: 'step_delta', step: 'research', text: 'world' },
+        ]);
+        expect(streaming.liveText.research).toBe('Hello world');
+        const retried = apply(streaming, [
+            { type: 'step_delta', step: 'research', reset: true },
+            { type: 'step_delta', step: 'research', text: 'Hi' },
+        ]);
+        expect(retried.liveText.research).toBe('Hi');
+        const done = apply(retried, [{ type: 'step_delta', step: 'research', done: true }]);
+        expect(done.liveText).toEqual({});
     });
 
     it('records task class for the run', () => {

@@ -62,6 +62,8 @@ export interface ExecutionEventState {
     costByAttribution: Partial<Record<CostAttribution, number>>;
     /** Flat span map keyed by span_id; the component assembles the tree. */
     spans: Record<string, TraceSpan>;
+    /** Text of the steps generating right now, by step name (LP-I7). */
+    liveText: Record<string, string>;
     unknownEvents: unknown[];
 }
 
@@ -73,6 +75,7 @@ const _INITIAL: ExecutionEventState = {
     taskClass: undefined,
     costByAttribution: {},
     spans: {},
+    liveText: {},
     unknownEvents: [],
 };
 
@@ -226,6 +229,13 @@ export function executionEventReducer(
         }
         case 'task_class_classified':
             return { ...state, taskClass: event.task_class };
+        case 'step_delta': {
+            const liveText = { ...state.liveText };
+            if (event.done) delete liveText[event.step];
+            else if (event.reset) liveText[event.step] = '';
+            else liveText[event.step] = (liveText[event.step] ?? '') + (event.text ?? '');
+            return { ...state, liveText };
+        }
         case 'cost_charged': {
             const att = event.attribution as CostAttribution;
             const next = { ...state.costByAttribution };
