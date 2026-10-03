@@ -105,7 +105,9 @@ class MetaIntelligenceTree:
         )
         from sqlalchemy import select
 
-        # One platform-scoped tree per company.
+        # One platform-scoped tree per company. It belongs to no entity
+        # (``entity_id`` is NULL): find it by company, the INTELLIGENCE domain
+        # and ``scope_level`` TENANT — a filter on ``entity_id`` finds nothing (MI-11).
         result = await self.db.execute(
             select(CortexTree).where(
                 CortexTree.company_id == self.company_id,

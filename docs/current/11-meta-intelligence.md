@@ -456,6 +456,11 @@ That is the crucial distinction: **no `entity_id`, `scope_level=TENANT`**. It is
 the same `cortex_trees` / `cortex_nodes` tables, just unowned by any single
 entity.
 
+**Finding the tree (MI-11).** It belongs to no entity: `entity_id` is NULL. Query it by
+`company_id`, `memory_domain = INTELLIGENCE` and `scope_level = TENANT`
+(`MetaIntelligenceTree.ensure_tree` does); a filter on `entity_id` returns nothing,
+not an error.
+
 ### 13.1 The seven sections
 
 ```python
