@@ -24,9 +24,17 @@ class AIService:
         self.db = db
 
     # Entity CRUD
-    async def create_entity(self, entity_in: HierarchicalEntityCreate, company_id: UUID, user_id: UUID = None) -> HierarchicalEntity:
+    async def create_entity(self, entity_in: HierarchicalEntityCreate, company_id: UUID, user_id: UUID = None,
+                            *, origin: str = "user", source_entity_id: Optional[UUID] = None) -> HierarchicalEntity:
+        """Create an entity. ``origin="agent"`` — an agent creating at runtime —
+        passes the anti-sprawl gate first (MI-02, D28); ``source_entity_id``
+        marks a new version of an existing entity."""
         # Prepare data, handling nested Pydantic models and ensuring JSON serializability (e.g. UUID -> str)
         entity_data = entity_in.model_dump(mode='json')
+        if origin == "agent":
+            from src.ai.governance.creation_gate import require_agent_creation
+            await require_agent_creation(self.db, company_id, entity_data, user_id=user_id,
+                                         source_entity_id=source_entity_id)
         
         # Templates are public — no company association
         effective_company_id = None if entity_data.get("is_template") else company_id

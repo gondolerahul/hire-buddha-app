@@ -99,7 +99,11 @@ too strict for a background job, at minimum emit a metric so a broken gate is vi
 
 ### MI-02 — `AntiSprawlGuard` advises, and only one caller listens
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P10.3, D28)** — confirmed, and the one
+caller checked CREATE mode only: its VERSION mode skipped every gate. The gates run in
+`AIService.create_entity(..., origin="agent")` (`governance/creation_gate.py`), so no agent
+path can create without them; a person creating through the API is not gated (D28). VERSION
+mode now runs the adaptation-chain check. Test: `tests/unit/test_creation_gate.py`.
 
 The guard returns a decision. It does not block anything. Enforcement depends entirely on
 `MetaEntityCreatorTool` choosing to honour the result.
@@ -119,7 +123,10 @@ exactly one of several ways an entity can be created.
 
 ### MI-03 — The daily creation limit is company-wide with no rate limit
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P10.3)** — a burst limit of 3 agent
+creations a minute per company runs first, through `RedisRateLimiter` (its first caller,
+TL-28), which now takes `fail_open=False`: an unreachable Redis refuses instead of lifting
+the limit. Test: `tests/unit/test_creation_gate.py`.
 
 The limit is 10 entities per company per rolling 24 hours. It is not per user and not
 rate-limited within the window, so **ten entities can be created in ten seconds** and then

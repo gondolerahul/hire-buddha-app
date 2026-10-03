@@ -130,52 +130,13 @@ class MetaEntityCreatorTool(Tool):
 
     async def _create_entity(self, params: Dict, db, company_id: UUID,
                               user_id: Optional[UUID]) -> str:
-        """Create a new entity from the provided payload.
-
-        V2: Enforces anti-sprawl hard gates before creation:
-          1. Daily creation limit check
-          2. Semantic deduplication check
-        """
+        """Create a new entity from the provided payload. The creation
+        service runs the anti-sprawl gate for it (``origin="agent"``, MI-02)."""
         from src.ai.schemas import HierarchicalEntityCreate
         from src.ai.service import AIService
-        from src.ai.meta.anti_sprawl import AntiSprawlGuard
+        from src.ai.governance.creation_gate import CreationRefused
 
         payload = params.get("entity_payload", {})
-
-        # --- Anti-Sprawl Hard Gate 1: Daily creation limit ---
-        anti_sprawl = AntiSprawlGuard(db, company_id)
-        creation_check = await anti_sprawl.check_creation_allowed(user_id)
-        if not creation_check["allowed"]:
-            return json.dumps({
-                "success": False,
-                "error": creation_check["message"],
-                "gate": "daily_limit",
-            })
-
-        # --- Anti-Sprawl Hard Gate 2: Semantic deduplication ---
-        description = payload.get("description", "")
-        tools = []
-        caps = payload.get("capabilities", {})
-        if isinstance(caps, dict):
-            tools = [
-                t.get("tool_id", "") for t in caps.get("tools", [])
-                if isinstance(t, dict) and t.get("tool_id")
-            ]
-        preferred_type = payload.get("type")
-
-        dup_check = await anti_sprawl.check_semantic_duplicate(
-            description=description,
-            required_tools=tools,
-            preferred_type=preferred_type,
-        )
-        if dup_check.get("is_duplicate"):
-            return json.dumps({
-                "success": False,
-                "error": dup_check["message"],
-                "gate": "semantic_duplicate_unavailable" if dup_check.get("unavailable") else "semantic_duplicate",
-                "existing_entity_id": dup_check.get("existing_entity_id"),
-                "similarity_score": dup_check.get("similarity_score"),
-            })
 
         # Validate via Pydantic first
         try:
@@ -187,7 +148,11 @@ class MetaEntityCreatorTool(Tool):
             })
 
         service = AIService(db)
-        entity = await service.create_entity(entity_in, company_id, user_id)
+        try:
+            entity = await service.create_entity(entity_in, company_id, user_id, origin="agent")
+        except CreationRefused as refused:
+            return json.dumps({"success": False, "error": str(refused), "gate": refused.gate,
+                               **{k: v for k, v in refused.details.items() if v is not None}})
 
         logger.info(f"Meta-Agent created entity: {entity.name} (id={entity.id})")
 
@@ -253,8 +218,14 @@ class MetaEntityCreatorTool(Tool):
                 "error": f"Schema validation failed after modifications: {str(e)}",
             })
 
+        from src.ai.governance.creation_gate import CreationRefused
         service = AIService(db)
-        entity = await service.create_entity(entity_in, company_id, user_id)
+        try:
+            entity = await service.create_entity(entity_in, company_id, user_id, origin="agent",
+                                                 source_entity_id=source.id)
+        except CreationRefused as refused:
+            return json.dumps({"success": False, "error": str(refused), "gate": refused.gate,
+                               **{k: v for k, v in refused.details.items() if v is not None}})
 
         logger.info(
             f"Meta-Agent versioned entity: {source.name} v{source.version} "

@@ -39,16 +39,19 @@ class RedisRateLimiter:
         key: str,
         limit: int,
         window_seconds: int,
+        fail_open: bool = True,
     ) -> bool:
         """Check rate limit and consume one token if allowed.
 
         Uses a Redis sorted set where each member is a timestamp.
         Old entries outside the window are pruned atomically.
 
-        Returns True if the request is allowed (count <= limit).
+        Returns True if the request is allowed (count <= limit). When Redis
+        cannot be used the answer is ``fail_open``: a gate passes ``False``
+        so an outage refuses instead of lifting the limit (MI-03).
         """
         if not self.redis:
-            return True  # No Redis = no limiting
+            return fail_open
 
         now = time.time()
         window_start = now - window_seconds
@@ -77,7 +80,7 @@ class RedisRateLimiter:
             return allowed
         except Exception as e:
             logger.warning(f"Rate limiter error for '{key}': {e}")
-            return True  # Fail open — don't block on Redis errors
+            return fail_open
 
     async def get_remaining(
         self,

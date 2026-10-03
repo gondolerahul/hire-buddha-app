@@ -19,7 +19,6 @@ that lands mid-resolution then makes the entry stale instead of hiding.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import Any, Dict, Hashable, Optional, Tuple
@@ -33,21 +32,11 @@ MAX_TTL = 600.0
 
 _monotonic = time.monotonic  # one seam for tests; asyncio's own clock is left alone
 _memo: Tuple[Optional[int], float] = (None, float("-inf"))
-_clients: Dict[int, Any] = {}
 
 
 def _client() -> Any:
-    """A Redis client for the running loop (a client is bound to one loop)."""
-    import redis.asyncio as redis
-
-    from src.common.config import settings
-
-    loop_id = id(asyncio.get_running_loop())
-    client = _clients.get(loop_id)
-    if client is None:
-        client = redis.from_url(settings.REDIS_URL, socket_connect_timeout=0.5, socket_timeout=0.5)
-        _clients[loop_id] = client
-    return client
+    from src.common.redis_client import shared_redis
+    return shared_redis()
 
 
 async def current_generation() -> Optional[int]:

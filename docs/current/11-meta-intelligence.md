@@ -332,7 +332,18 @@ something scored as it did rather than only the final number.
 
 ## 12. Anti-sprawl and consolidation
 
-### 12.1 The three hard gates
+### 12.1 The gates
+
+**Where they run (MI-02, D28, 2026-10-03).** `AIService.create_entity(..., origin="agent")`
+runs `src/ai/governance/creation_gate.py` before anything is written, so every entity an
+agent creates — `meta_entity_creator`'s CREATE and VERSION modes today — passes it. A
+person creating through the API is not gated. In order: a **burst limit** of 3 agent
+creations a minute per company (`RedisRateLimiter`, refusing when Redis is unreachable,
+MI-03); the **daily limit**; for a new version, the **adaptation chain**; for a new
+entity, the **semantic duplicate** check, which refuses when it cannot run (MI-01). A
+refusal is `CreationRefused(gate, message)`; the tool returns it as `{"success": false,
+"gate": …}`. Before, the tool itself checked the daily limit and the duplicate in CREATE
+mode only.
 
 [anti_sprawl.py](../../backend/src/ai/meta/anti_sprawl.py):
 
@@ -411,41 +422,10 @@ So the Curator's rationale string always renders `?` instead of the duplicate's
 id. Cosmetic — the decision downgrade still works — but the audit trail loses
 the pointer.
 
-### 12.2 Consolidation — from blocking to merging
+### 12.2 Consolidation
 
-[consolidation.py](../../backend/src/ai/meta/consolidation.py) extends
-anti-sprawl from *refuse* to *repair*:
-
-```python
-# backend/src/ai/meta/consolidation.py
-"""Anti-sprawl was *block-only*: it refused near-duplicate creation. This turns it
-into *consolidate* — when a cluster of ≥N near-duplicate entities (pairwise
-similarity > threshold) already exists, the Curator proposes a **merge plan**:
-pick a winner, list the losers, re-point references, archive the losers, and fork
-their intelligence rules into the winner.
-"""
-DEFAULT_MIN_CLUSTER = 5
-```
-
-```mermaid
-flowchart LR
-    CLUSTER["Cluster of >= 5<br/>near-duplicate entities"] --> WIN["select_winner"]
-    WIN --> PLAN["build_merge_plan"]
-    PLAN --> P1["Re-point references"]
-    PLAN --> P2["Archive losers"]
-    PLAN --> P3["Fork intelligence rules into winner"]
-    PLAN --> HUMAN{"Human approval"}
-    HUMAN -->|approved| EXEC["Execute merge"]
-    HUMAN -->|rejected| NOOP["Nothing changes"]
-
-    style HUMAN fill:#4a3a2d,stroke:#a85
-```
-
-**A merge is never executed automatically.** `propose_plans` emits proposals and
-an audit row only. `select_winner` and `build_merge_plan` are pure functions, so
-the selection policy is unit-testable.
-
----
+*Deleted 2026-10-03 (MI-20).* `consolidation.py` proposed merge plans for clusters of
+near-duplicates; nothing called it, and its flag was read by nothing.
 
 ## 13. The MetaIntelligenceTree
 
@@ -851,7 +831,7 @@ human. Worth internalising as a table:
 
 | Capability | Autonomous? | Guard |
 |---|---|---|
-| Create an entity | Gated | Daily limit 10/company/24h; semantic duplicate > 0.85 blocks |
+| Create an entity (an agent) | Gated | Inside `create_entity`: 3/minute and 10/day per company, the adaptation chain, semantic duplicate (fails closed) |
 | Promote an entity to ACTIVE, or publish a draft version | Gated | The Validator's nine checks (D27), then an admin |
 | Promote a skill candidate | **No** | Human approves via admin API |
 | Synthesise a new tool | Gated | 4 stages, then `DRAFT` + `trust=low` |
@@ -884,11 +864,9 @@ Stated plainly, since a new developer should know:
 
 - *(Resolved 2026-10-03, MI-01.)* The duplicate gate fails closed: when it cannot run it
   refuses the creation and emits `meta.gate.failed`.
-- **`AntiSprawlGuard` only advises.** Enforcement depends on
-  `MetaEntityCreatorTool` honouring the result. Any other creation path bypasses
-  it entirely.
-- **The daily limit is per company, not per user or per minute.** Ten entities
-  can be created in ten seconds.
+- *(Resolved 2026-10-03, MI-02.)* The gates run in the creation service for every agent
+  creation, not in one tool.
+- *(Resolved 2026-10-03, MI-03.)* A burst limit (3 a minute) sits beside the daily one.
 - *(Resolved 2026-10-03, MI-20.)* The Architect that could not revise is deleted with the
   rest of the unused Board.
 
