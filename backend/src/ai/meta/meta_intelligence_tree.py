@@ -49,10 +49,13 @@ SECTIONS: dict[str, str] = {
     "composition":     "🔗 Composition Graph",
 }
 
-# Cap on how many anti-pattern nodes we keep per section. The Critic
-# prompt only reads top_k anyway; older rows are pruned via LRU on
-# ``last_seen``.
+# Active rows per section. Past it, the least useful rows are archived — not
+# deleted — lowest evidence first, then oldest (MI-15). It used to delete the
+# oldest by ``updated_at``, so a rare anti-pattern that had not recurred lately,
+# the one most worth remembering, went first and left no record.
 MAX_ROWS_PER_SECTION: int = 200
+# Never archived: well-evidenced or severe rows, and rows waiting for a person.
+KEEP_EVIDENCE_AT: int = 3
 
 
 @dataclass
@@ -232,10 +235,13 @@ class MetaIntelligenceTree:
         # De-dup by title — bump evidence_count if it already exists.
         existing = await self._find_in_section(section.id, title)
         if existing is not None:
+            from src.ai.memory.cortex_models import CortexNodeStatus
             meta = dict(existing.metadata_extra or {})
             meta["evidence_count"] = int(meta.get("evidence_count", 1)) + evidence_count
             meta["last_seen"] = datetime.utcnow().isoformat()
+            meta.pop("archived_at", None)          # it recurred: back in the working set
             existing.metadata_extra = meta
+            existing.status = CortexNodeStatus.ACTIVE
             await self.db.flush()
             return cast(UUID, existing.id)
         node_id = await self._add_node(
@@ -270,9 +276,11 @@ class MetaIntelligenceTree:
         section = await self.section_node("anti_patterns")
         if section is None:
             return []
+        from src.ai.memory.cortex_models import CortexNodeStatus
         rows = (await self.db.execute(
             select(CortexNode).where(
                 CortexNode.parent_id == section.id,
+                CortexNode.status == CortexNodeStatus.ACTIVE,
             ).order_by(CortexNode.updated_at.desc()).limit(top_k * 5)
         )).scalars().all()
 
@@ -656,9 +664,11 @@ class MetaIntelligenceTree:
         section = await self.section_node(section_key)
         if section is None:
             return []
+        from src.ai.memory.cortex_models import CortexNodeStatus
         rows = (await self.db.execute(
             select(CortexNode).where(
                 CortexNode.parent_id == section.id,
+                CortexNode.status == CortexNodeStatus.ACTIVE,
             ).order_by(CortexNode.created_at.desc()).limit(limit * 3)
         )).scalars().all()
         out: list[dict[str, Any]] = []
@@ -683,19 +693,36 @@ class MetaIntelligenceTree:
         return out
 
     async def _maybe_prune_section(self, section_id: UUID) -> None:
-        from sqlalchemy import select, func
-        from src.ai.memory.cortex_models import CortexNode
-        count = (await self.db.execute(
-            select(func.count(CortexNode.id)).where(CortexNode.parent_id == section_id)
-        )).scalar() or 0
-        if count <= MAX_ROWS_PER_SECTION:
+        from sqlalchemy import select
+        from src.ai.memory.cortex_models import CortexNode, CortexNodeStatus
+        rows = list((await self.db.execute(
+            select(CortexNode).where(CortexNode.parent_id == section_id,
+                                     CortexNode.status == CortexNodeStatus.ACTIVE)
+        )).scalars().all())
+        excess = len(rows) - MAX_ROWS_PER_SECTION
+        if excess <= 0:
             return
-        # Delete the oldest rows beyond the cap.
-        excess = count - MAX_ROWS_PER_SECTION
-        oldest = (await self.db.execute(
-            select(CortexNode).where(CortexNode.parent_id == section_id)
-            .order_by(CortexNode.updated_at.asc()).limit(excess)
-        )).scalars().all()
-        for row in oldest:
-            await self.db.delete(row)
+        archivable = sorted((r for r in rows if not _kept(r.metadata_extra or {})), key=_retention)
+        now = datetime.utcnow().isoformat()
+        for row in archivable[:excess]:
+            meta = dict(row.metadata_extra or {})
+            meta["archived_at"] = now
+            row.metadata_extra = meta
+            row.status = CortexNodeStatus.COMPLETE
         await self.db.flush()
+
+
+def _kept(meta: dict[str, Any]) -> bool:
+    """Rows never archived: well evidenced, severe, or waiting for a person."""
+    if int(meta.get("evidence_count", 1) or 1) >= KEEP_EVIDENCE_AT or meta.get("severity") == "high":
+        return True
+    kind = meta.get("kind")
+    return (kind == "prompt_update_candidate" and not meta.get("approved")) or (
+        kind == "skill_candidate" and not meta.get("promoted"))
+
+
+def _retention(row: Any) -> tuple[int, str]:
+    """Archive order: least evidence first, then least recently seen."""
+    meta = row.metadata_extra or {}
+    seen = str(meta.get("last_seen") or (row.updated_at.isoformat() if getattr(row, "updated_at", None) else ""))
+    return (int(meta.get("evidence_count", 1) or 1), seen)

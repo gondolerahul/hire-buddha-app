@@ -308,7 +308,11 @@ version passes before publication. Otherwise delete the package and its flags.
 
 ### MI-15 — Tree sections cap at 200 rows and drop the oldest silently
 
-**📄 Doc-reported · Medium**
+**✅ Verified · Medium** · **Status: fixed (2026-10-03, P10.5)** — over the cap, rows are
+archived (not deleted), lowest evidence first, then least recently seen; rows with evidence
+≥ 3, severity `high`, or waiting for a person are never archived; readers see active rows,
+and a recurring archived anti-pattern comes back. Test:
+`tests/integration/test_meta_tree_pruning.py`.
 
 Each MetaIntelligenceTree section is LRU-pruned at 200 rows on `last_seen`. Old
 anti-patterns, prompt candidates and calibration rules disappear with no record.

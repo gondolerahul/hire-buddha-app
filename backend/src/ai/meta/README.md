@@ -15,7 +15,7 @@ HierarchicalEntities.
 | `meta_cognition_migration.py` | Pre-deploy backfill: preserves explicit `registry_search` / `self_modification` for AGENT/PROCESS entities that relied on the old auto-on default. |
 | `registry_search_service.py` | Phase-aware structural + semantic search over existing entities. |
 | `anti_sprawl.py` | Per-company AntiSprawlGuard: blocks CREATE on near-duplicates / over-cap counts. |
-| `meta_intelligence_tree.py` | Platform-scoped IntelligenceTree (per company). 7 sections (`SECTIONS`): anti-patterns, spec patterns, test failures, curator decisions, tool reliability, prompt candidates, composition graph. LRU-pruned at 200 rows / section (MI-15). |
+| `meta_intelligence_tree.py` | Platform-scoped IntelligenceTree (per company). 7 sections (`SECTIONS`): anti-patterns, spec patterns, test failures, curator decisions, tool reliability, prompt candidates, composition graph. 200 active rows / section; past it the least-evidenced rows are archived, not deleted (MI-15). |
 | `skill_library.py` | Detects repeated successful tool chains across recent runs and writes `skill_candidate` nodes for HITL promotion. |
 | `board/` | What is left of the Architecture Board (MI-20, D27): `ValidatorRole`, the publication gate, and `ToolSmith`, used by tool synthesis. |
 

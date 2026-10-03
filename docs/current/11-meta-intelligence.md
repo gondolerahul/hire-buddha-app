@@ -520,23 +520,22 @@ variety is expressed in JSONB metadata. Adding a row kind requires no migration.
 
 ### 13.4 Pruning
 
-Each section is capped at **200 rows**, pruned LRU on `last_seen`:
-
-```python
-# backend/src/ai/meta/meta_intelligence_tree.py
-# Cap on how many anti-pattern nodes we keep per section. The Critic
-# prompt only reads top_k anyway; older rows are pruned via LRU on
-# ``last_seen``.
-MAX_ROWS_PER_SECTION: int = 200
-```
+Each section keeps at most **200 active rows** (`MAX_ROWS_PER_SECTION`). Past it, rows are
+**archived, not deleted** (MI-15, 2026-10-03): `status` complete and `metadata_extra.archived_at`
+set, lowest `evidence_count` first, then least recently seen. Never archived: rows with
+evidence ≥ 3 (`KEEP_EVIDENCE_AT`) or severity `high`, and rows waiting for a person (an
+unapproved prompt candidate, an unpromoted skill candidate). Readers see active rows only;
+an archived anti-pattern that recurs comes back with its evidence. Before, the 200 least
+recently updated rows survived and the rest were deleted — a rare anti-pattern, the one
+most worth keeping, went first.
 
 `_maybe_prune_section` enforces this. The tree is created with
 `max_children=200` to match. Sections missing on an older tree are created
 lazily by `section_node`, so adding a new `SECTIONS` entry is backward
 compatible with existing trees.
 
-`AntiPatternRow` carries `evidence_count`, so a repeated anti-pattern increments
-rather than duplicating — which is also what keeps it fresh under LRU.
+`AntiPatternRow` carries `evidence_count`, so a repeated anti-pattern increments rather
+than duplicating — which is also what keeps it in the working set.
 
 ---
 
