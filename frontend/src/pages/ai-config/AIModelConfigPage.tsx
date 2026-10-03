@@ -13,7 +13,9 @@ import './AIModelConfigPage.css';
 const TASK_TYPES = [
     { id: 'text_generation', name: 'Text Generation', icon: MessageSquare, category: 'llm', description: 'Standard completions, reasoning, and conversational agent responses.' },
     { id: 'thinking', name: 'Thinking (Reasoning)', icon: Brain, category: 'llm', description: 'Complex planning and chain-of-thought processing before answering.' },
+    { id: 'goal_validation', name: 'Goal Validation', icon: Brain, category: 'llm', description: 'Checks each plan step against the entity\'s goal before it runs.' },
     { id: 'embedding', name: 'Embedding', icon: Search, category: 'llm', description: 'Vector embedding generation for semantic search, memory retrieval, and similarity matching.' },
+    { id: 'vision', name: 'Vision', icon: ImageIcon, category: 'llm', description: 'Describes images, such as frames from a live video call.' },
     { id: 'speech_to_speech', name: 'Live Streaming (Voice)', icon: Mic, category: 'realtime', description: 'Real-time WebSocket streaming models for low-latency voice AI.' },
     { id: 'text_to_image', name: 'Text to Image', icon: ImageIcon, category: 'image', description: 'Generating images from prompts.' },
     { id: 'image_to_image', name: 'Image to Image', icon: ImageIcon, category: 'image', description: 'Modifying images based on visual inputs and prompts.' },

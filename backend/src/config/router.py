@@ -258,6 +258,9 @@ async def list_task_types(
         "descriptions": {
             "text_generation": "Generate text, chat, Q&A, summarization",
             "thinking": "Complex reasoning, planning, analysis",
+            "goal_validation": "Checking a plan step against the entity's goal",
+            "embedding": "Vector embeddings for memory and knowledge search",
+            "vision": "Describing images, such as live video frames",
             "text_to_image": "Generate images from text prompts",
             "image_to_image": "Transform or edit existing images",
             "text_to_speech": "Convert text to audio speech",

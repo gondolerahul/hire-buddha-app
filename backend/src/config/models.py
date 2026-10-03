@@ -6,11 +6,16 @@ from sqlalchemy.orm import relationship
 from src.common.database import Base
 
 # ---------------------------------------------------------------------------
-# Supported AI task types — drives model routing decisions
+# Supported AI task types — drives model routing decisions. The one list: the
+# task-defaults API accepts exactly these, and tests/unit/test_task_types.py
+# fails when code resolves a task type that is not here (LP-09).
 # ---------------------------------------------------------------------------
 TASK_TYPES = [
     "text_generation",
     "thinking",
+    "goal_validation",
+    "embedding",
+    "vision",
     "text_to_image",
     "image_to_image",
     "text_to_speech",

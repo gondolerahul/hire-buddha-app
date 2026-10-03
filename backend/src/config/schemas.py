@@ -5,23 +5,6 @@ from uuid import UUID
 from decimal import Decimal
 
 # ---------------------------------------------------------------------------
-# Task Types for AI model routing
-# ---------------------------------------------------------------------------
-TaskType = Literal[
-    "text_generation",
-    "thinking",
-    "text_to_image",
-    "image_to_image",
-    "text_to_speech",
-    "text_to_music",
-    "text_to_video",
-    "text_to_3d",
-    "image_to_video",
-    "audio_to_video",
-    "speech_to_speech",
-]
-
-# ---------------------------------------------------------------------------
 # Integration Registry schemas
 # ---------------------------------------------------------------------------
 

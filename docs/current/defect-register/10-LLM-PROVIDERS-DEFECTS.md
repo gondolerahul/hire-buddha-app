@@ -335,7 +335,12 @@ behave identically.
 
 ### LP-09 — Three task types the code uses are rejected by the API
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P9.3)** — the three are in
+`TASK_TYPES`, the one list (the unused `TaskType` literal in `config/schemas.py` is gone);
+`GET /config/task-types` describes them and the AI config page offers all three. The local
+APP company already had rows for them, written by `seed_integration_registry.py` straight
+through the service. Test: `tests/unit/test_task_types.py` scans the code for every task
+type it resolves (all four fail on the old code).
 
 `TASK_TYPES` contains eleven values. It does **not** contain `embedding`, `vision` or
 `goal_validation`. All three are used as task types in live code:

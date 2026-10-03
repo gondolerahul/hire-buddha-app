@@ -493,6 +493,9 @@ from `GET /api/v1/config/task-types`.
 |---|---|---|
 | `text_generation` | Generate text, chat, Q&A, summarization | Default for almost everything — step executor, critics, planner, summariser, meta-tools |
 | `thinking` | Complex reasoning, planning, analysis | Plan generation, plan judge, deeper reasoning steps |
+| `goal_validation` | Checking a plan step against the entity's goal | [planner_service.py](../../backend/src/ai/planning/planner_service.py) goal check |
+| `embedding` | Vector embeddings for memory and knowledge search | [embedding_service.py](../../backend/src/ai/memory/embedding_service.py) step 1 |
+| `vision` | Describing images, such as live video frames | [video_gateway.py](../../backend/src/gateway/video_gateway.py) |
 | `text_to_image` | Generate images from text prompts | [image_generation.py:137](../../backend/src/ai/tools/media/image_generation.py:137) |
 | `image_to_image` | Transform or edit existing images | declared, no caller found |
 | `text_to_speech` | Convert text to audio speech | declared, no caller found |
@@ -508,19 +511,13 @@ seeds it. Until an app admin configures at least `text_generation`, every agent
 run fails with `RuntimeError: No model configured for task type
 'text_generation'`.
 
-### 6.2 Three task types the code uses but the API rejects
+### 6.2 One task list
 
-This is the most important drift in this document.
-
-| Task type used in code | Where | In `TASK_TYPES`? | Consequence |
-|---|---|---|---|
-| `embedding` | [embedding_service.py:133](../../backend/src/ai/memory/embedding_service.py:133) reads it; the admin UI offers it | ❌ No | `POST /config/task-defaults` returns **422**. The UI card renders but cannot be saved. Only a direct DB insert works. |
-| `vision` | [video_gateway.py:312](../../backend/src/gateway/video_gateway.py:312) | ❌ No | Always raises `No model configured for task type 'vision'`, swallowed by the surrounding `except`. Video-call frame analysis is effectively dead. |
-| `goal_validation` | [planner_service.py:231](../../backend/src/ai/planning/planner_service.py:231) | ❌ No | Same. The caller catches it and returns a hardcoded `{"score": 50, ...}`. |
-
-`get_task_default` queries by raw string, so a manually inserted row *does*
-work — the 422 lives only in the write endpoint
-([config/router.py:211](../../backend/src/config/router.py:211)).
+Until 2026-10-03 `embedding`, `vision` and `goal_validation` were resolved by live code but
+missing from `TASK_TYPES`, so `POST /config/task-defaults` answered 422 for them and the
+AI config page's Embedding card could never be saved (LP-09). They are in the list now,
+the page offers all three, and `tests/unit/test_task_types.py` fails when code resolves a
+task type the list lacks.
 
 ### 6.3 The routing decision, end to end
 
@@ -1498,9 +1495,8 @@ flowchart TD
 | Attribution | `"embedding"`, with an `embedding_phase` of `ingestion` or `retrieval` |
 | Client | `build_vertex_genai_client(db, company_id)` — looks up a `google` then `gemini` integration for `project_id` |
 
-Step 1 of the resolver is the one an admin cannot reach: as covered in §6.2,
-`embedding` is not in `TASK_TYPES`, so the write endpoint rejects it. In
-practice everyone lands on step 2, 3 or 4.
+Step 1 of the resolver is set on the AI config page (`embedding` is a task type since
+LP-09, §6.2).
 
 Also note step 1 queries `ModelTaskDefault` **without** the APP-company fallback
 — it filters on `_MTD.company_id == self.company_id` directly. Tenants do not
@@ -1808,9 +1804,7 @@ RuntimeError: No model configured for task type 'text_generation'
 
 ```mermaid
 flowchart TD
-    A["No model configured for task type X"] --> B{"Is X in TASK_TYPES?"}
-    B -->|"no - vision, goal_validation, embedding"| B1["Expected. The API cannot create this default. Insert a model_task_defaults row directly, or accept the caller's fallback."]
-    B -->|yes| C["SELECT * FROM model_task_defaults WHERE company_id = :co AND task_type = :X"]
+    A["No model configured for task type X"] --> C["SELECT * FROM model_task_defaults WHERE company_id = :co AND task_type = :X"]
     C --> D{"row?"}
     D -->|no| E["SELECT id FROM companies WHERE type = 'APP'"]
     E --> F{"exactly one APP company?"}
