@@ -1,6 +1,6 @@
 # 11. Meta-Intelligence & the Meta-Agent Board
 
-> **What this document covers:** the layer that reasons about the platform itself — the seven-role Meta-Agent Board that turns a user request into a tested, promoted entity; the platform schema compiler that gives agents self-knowledge; anti-sprawl and consolidation; the skill library; and the tool-synthesis pipeline.
+> **What this document covers:** the layer that reasons about the platform itself — the publication gate (what is left of the seven-role Meta-Agent Board, MI-20); the platform schema compiler that gives agents self-knowledge; anti-sprawl and consolidation; the skill library; and the tool-synthesis pipeline.
 > **Who should read it:** anyone working on agent-generated entities, self-improvement, or the admin surfaces that expose them.
 > **Prerequisites:** [06 — Execution pipeline](06-execution-pipeline.md) for what a `HierarchicalEntity` is, and [08 — Memory and CORTEX](08-memory-and-cortex.md) for the tree substrate this layer reuses.
 
@@ -33,6 +33,12 @@
 ---
 
 ## 1. The 60-second version
+
+> **2026-10-03 (MI-20, D27):** the seven-role Board described below was never on a creation
+> path, and five of its roles are deleted. Today: the Meta-Agent creates entities through
+> `meta_entity_creator`, which passes the creation gate in `create_entity` (§12); a
+> person publishes a draft, which passes the Validator (§8). The flow chart is the design
+> the Board had, kept for history.
 
 Ordinary agents do work. The **meta layer** builds and governs the agents
 themselves.
@@ -701,6 +707,13 @@ explicitly approve them via the admin API.
 `sample_run_ids` so a reviewer can inspect the evidence before approving.
 
 The scan runs weekly via the `skill_promotion_scan` cron ([§18](#18-scheduled-jobs)).
+
+**Promotion (R2 §11, 2026-10-03).** `POST /ai/admin/meta/skill_candidates/{id}/promote` makes
+a `DRAFT` SKILL through `AIService.create_entity`: the chain's tools as grants
+(`capabilities.tools`), one `TOOL_CALL` step per tool with its `target` and the previous
+step as its input, a `max_cost_usd` of 1.0, version 1. `POST /ai/admin/meta/entities/{id}/promote`
+then publishes it through the Validator (§8). It used to write the row directly, with
+`capabilities.tool_ids` — a key nothing reads — and steps without targets.
 
 ---
 

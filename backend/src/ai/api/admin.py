@@ -351,17 +351,21 @@ async def promote_skill_candidate(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
-    """Create a SKILL HierarchicalEntity from a skill_candidate node.
+    """Create a DRAFT SKILL from a skill_candidate node (R2 §11).
 
-    Reads the cached chain off the candidate, materialises a new SKILL
-    with a `tool_call` step per chain element, marks the candidate as
-    promoted, and returns the new entity_id.
+    The skill is made through ``AIService.create_entity`` like any entity — the
+    composition rule, version 1, tool *grants* and ``TOOL_CALL`` steps with
+    targets — and stays ``DRAFT``: ``POST /meta/entities/{id}/promote`` publishes
+    it through the Validator (D27). It used to be written straight to the row
+    with ``capabilities.tool_ids`` (a key nothing reads) and steps with no
+    target, so the skill could not run its own chain.
     """
     if user.company_id is None:
         raise HTTPException(status_code=400, detail="user has no company")
 
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
-    from src.ai.orm.entity import HierarchicalEntity
+    from src.ai.schemas import HierarchicalEntityCreate
+    from src.ai.service import AIService
 
     tree = MetaIntelligenceTree(db, user.company_id)
     candidate = await tree.get_skill_candidate(node_id)
@@ -376,37 +380,35 @@ async def promote_skill_candidate(
 
     default_name = "skill_" + "_".join(t.replace(" ", "_") for t in chain)[:60]
     skill_name = (name or default_name)[:120]
-
     steps = [
         {
-            "id": f"s{i+1}",
+            "step_id": f"step_{i + 1}",
+            "order": i + 1,
+            "name": f"{i + 1}. {tool_id}",
             "type": "TOOL_CALL",
-            "tool_id": tool_id,
-            "depends_on": [f"s{i}"] if i > 0 else [],
+            "target": {"tool_id": tool_id,
+                       "input_dependencies": [f"step_{i}"] if i > 0 else []},
         }
         for i, tool_id in enumerate(chain)
     ]
-
-    entity = HierarchicalEntity(
-        company_id=user.company_id,
-        created_by=user.id,
-        type="SKILL",
-        status="DRAFT",
-        name=skill_name,
-        display_name=f"Skill: {' → '.join(chain)}",
-        description=candidate.get("summary") or f"Promoted from chain {chain}",
-        tags=["promoted_from_chain"],
-        planning={"static_plan": {"steps": steps}},
-        capabilities={"tool_ids": list(dict.fromkeys(chain))},
-        governance={"max_cost_usd": 1.0, "max_runtime_seconds": 300},
-        metadata_extensions={
+    entity_in = HierarchicalEntityCreate.model_validate({
+        "type": "SKILL",
+        "status": "DRAFT",
+        "name": skill_name,
+        "display_name": f"Skill: {' → '.join(chain)}",
+        "description": candidate.get("summary") or f"Promoted from chain {chain}",
+        "goal": f"Run {' → '.join(chain)} on the input, each step on the previous one's output.",
+        "tags": ["promoted_from_chain"],
+        "planning": {"static_plan": {"steps": steps}},
+        "capabilities": {"tools": [{"tool_id": t} for t in dict.fromkeys(chain)]},
+        "governance": {"max_cost_usd": 1.0},
+        "metadata_extensions": {
             "promoted_from_skill_candidate": str(node_id),
             "source_chain": list(chain),
             "source_frequency": candidate.get("content", {}).get("frequency"),
         },
-    )
-    db.add(entity)
-    await db.flush()
+    })
+    entity = await AIService(db).create_entity(entity_in, user.company_id, user.id)
     await tree.mark_skill_candidate_promoted(node_id, promoted_entity_id=entity.id)
     await db.commit()
     return {
