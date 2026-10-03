@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.ai.llm.retry import call_provider
 from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
-from src.ai.llm.base import BaseLLMAdapter
+from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +249,7 @@ class GeminiAdapter(BaseLLMAdapter):
             for part in response.candidates[0].content.parts:
                 if hasattr(part, "function_call") and part.function_call:
                     function_calls.append({
+                        "id": call_id(getattr(part.function_call, "id", None), 1, len(function_calls)),
                         "name": part.function_call.name,
                         "args": dict(part.function_call.args) if part.function_call.args else {},
                     })
@@ -280,6 +281,7 @@ class GeminiAdapter(BaseLLMAdapter):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_react_turns: int = 10,
+        top_p: float = 1.0,
         **kwargs,
     ) -> LLMResponse:
         """Gemini REACT loop — uses Gemini-specific function_response protocol."""
@@ -291,6 +293,7 @@ class GeminiAdapter(BaseLLMAdapter):
         generate_config = types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=temperature,
+            top_p=top_p,  # the ReAct path dropped it (LP-20)
         )
         self._apply_output_limits(generate_config, max_tokens)
 
@@ -326,13 +329,17 @@ class GeminiAdapter(BaseLLMAdapter):
 
             turn_text = ""
             function_calls = []
+            provider_ids: List[Optional[str]] = []
             model_parts = []
 
             if response.candidates and response.candidates[0].content.parts:
                 for part in response.candidates[0].content.parts:
                     model_parts.append(part)
                     if hasattr(part, "function_call") and part.function_call:
+                        provider_id = getattr(part.function_call, "id", None)
+                        provider_ids.append(provider_id)
                         function_calls.append({
+                            "id": call_id(provider_id, turn + 1, len(function_calls)),
                             "name": part.function_call.name,
                             "args": dict(part.function_call.args) if part.function_call.args else {},
                         })
@@ -350,13 +357,15 @@ class GeminiAdapter(BaseLLMAdapter):
                 # Execute tools
                 tool_results = await execute_tool_fn(function_calls)
 
-                # Build function response parts (Gemini protocol)
+                # One function response per call, in the call's order, with the
+                # call's name and — when the model gave one — its id (LP-17).
                 response_parts = [
-                    types.Part.from_function_response(
-                        name=tr["tool"],
+                    types.Part(function_response=types.FunctionResponse(
+                        id=provider_id,
+                        name=fc["name"],
                         response={"output": str(tr["output"]), "success": tr["success"]},
-                    )
-                    for tr in tool_results
+                    ))
+                    for provider_id, (fc, tr) in zip(provider_ids, pair_tool_results(function_calls, tool_results))
                 ]
                 contents.append(types.Content(role="user", parts=response_parts))
                 if turn_text:

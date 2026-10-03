@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.ai.llm.retry import call_provider
 from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
-from src.ai.llm.base import BaseLLMAdapter
+from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,15 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         return system_prompt, anthropic_messages
 
+    @staticmethod
+    def _sampling(temperature: float, top_p: float) -> Dict[str, Any]:
+        """``top_p`` only when set: newer Claude models refuse ``temperature``
+        and ``top_p`` together, and 1.0 is the default anyway (LP-20)."""
+        args: Dict[str, Any] = {"temperature": temperature}
+        if top_p is not None and top_p < 1.0:
+            args["top_p"] = top_p
+        return args
+
     def get_tool_declarations(self, tool_schemas: List[Dict]) -> List[Dict]:
         """Convert JSON Schema tool defs to Anthropic tool format."""
         tools = []
@@ -102,8 +111,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             system=system_prompt,
             messages=anthropic_messages,
             max_tokens=max_tokens or 8096,
-            temperature=temperature,
-            top_p=top_p,
+            **self._sampling(temperature, top_p),
             **kwargs_extra,
         ), what=f"anthropic {self.model_name}")
         latency_ms = int((time.monotonic() - start) * 1000)
@@ -115,6 +123,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                 output += block.text
             elif block.type == "tool_use":
                 function_calls.append({
+                    "id": call_id(getattr(block, "id", None), 1, len(function_calls)),
                     "name": block.name,
                     "args": block.input or {},
                 })
@@ -139,6 +148,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_react_turns: int = 10,
+        top_p: float = 1.0,
         **kwargs,
     ) -> LLMResponse:
         """Anthropic REACT loop — uses tool_use/tool_result block protocol."""
@@ -160,7 +170,7 @@ class AnthropicAdapter(BaseLLMAdapter):
                 system=system_prompt,
                 messages=messages,
                 max_tokens=max_tokens or 8096,
-                temperature=temperature,
+                **self._sampling(temperature, top_p),
                 tools=tool_defs if tool_defs else [],
             ), what=f"anthropic {self.model_name} (react turn {turn + 1})")
             latency_ms = int((time.monotonic() - start) * 1000)
@@ -170,14 +180,13 @@ class AnthropicAdapter(BaseLLMAdapter):
 
             turn_text = ""
             function_calls = []
-            assistant_content = []
 
             for block in response.content:
-                assistant_content.append(block)
                 if block.type == "text":
                     turn_text += block.text
                 elif block.type == "tool_use":
-                    function_calls.append({"name": block.name, "args": block.input or {}})
+                    function_calls.append({"id": call_id(getattr(block, "id", None), turn + 1, len(function_calls)),
+                                           "name": block.name, "args": block.input or {}})
 
             # Append assistant turn
             messages.append({"role": "assistant", "content": response.content})
@@ -186,20 +195,11 @@ class AnthropicAdapter(BaseLLMAdapter):
                 all_function_calls.extend(function_calls)
                 tool_results = await execute_tool_fn(function_calls)
 
-                # Build tool_result blocks for Anthropic
-                tool_result_content = []
-                for tr in tool_results:
-                    # Find matching tool_use block id
-                    matching_block = next(
-                        (b for b in assistant_content if getattr(b, "type", "") == "tool_use" and b.name == tr["tool"]),
-                        None
-                    )
-                    tool_use_id = getattr(matching_block, "id", tr["tool"]) if matching_block else tr["tool"]
-                    tool_result_content.append({
-                        "type": "tool_result",
-                        "tool_use_id": tool_use_id,
-                        "content": str(tr["output"]),
-                    })
+                # One tool_result per tool_use, with that block's id (LP-17).
+                tool_result_content = [
+                    {"type": "tool_result", "tool_use_id": fc["id"], "content": str(tr["output"])}
+                    for fc, tr in pair_tool_results(function_calls, tool_results)
+                ]
 
                 messages.append({"role": "user", "content": tool_result_content})
                 if turn_text:

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from src.ai.llm.retry import call_provider
 from src.ai.llm.types import FINISH_MAX_TURNS, LLMResponse
-from src.ai.llm.base import BaseLLMAdapter
+from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         self,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        top_p: float = 1.0,
     ) -> Dict[str, Any]:
         """Prepare chat completion arguments based on model type requirements."""
         args: Dict[str, Any] = {}
@@ -187,6 +188,9 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             args["temperature"] = 1.0
         else:
             args["temperature"] = temperature
+            # Reasoning models refuse top_p; 1.0 is the default (LP-20).
+            if top_p is not None and top_p < 1.0:
+                args["top_p"] = top_p
 
         return args
 
@@ -206,6 +210,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         kwargs_extra: Dict[str, Any] = self._prepare_completion_args(
             temperature=temperature,
             max_tokens=max_tokens,
+            top_p=top_p,
         )
         if tools:
             kwargs_extra["tools"] = self.get_tool_declarations(tools)
@@ -215,7 +220,6 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         response = await call_provider(lambda: client.chat.completions.create(
             model=self._get_deployment(),
             messages=oai_messages,
-            top_p=top_p,
             **kwargs_extra,
         ), what=f"azure_openai {self.model_name}")
         latency_ms = int((time.monotonic() - start) * 1000)
@@ -230,7 +234,8 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
                     args = json.loads(tc.function.arguments)
                 except Exception:
                     args = {"raw": tc.function.arguments}
-                function_calls.append({"name": tc.function.name, "args": args, "_id": tc.id})
+                function_calls.append({"id": call_id(tc.id, 1, len(function_calls)),
+                                       "name": tc.function.name, "args": args})
 
         return LLMResponse(
             output=output,
@@ -252,6 +257,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_react_turns: int = 10,
+        top_p: float = 1.0,
         **kwargs,
     ) -> LLMResponse:
         """Azure OpenAI REACT loop — uses tool_calls / tool message protocol."""
@@ -268,6 +274,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         completion_args = self._prepare_completion_args(
             temperature=temperature,
             max_tokens=max_tokens,
+            top_p=top_p,
         )
 
         finish_reason = "stop"
@@ -301,19 +308,16 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
                         args = json.loads(tc.function.arguments)
                     except Exception:
                         args = {"raw": tc.function.arguments}
-                    function_calls.append({"name": tc.function.name, "args": args, "_id": tc.id})
+                    function_calls.append({"id": call_id(tc.id, turn + 1, len(function_calls)),
+                                           "name": tc.function.name, "args": args})
 
             if function_calls:
                 all_function_calls.extend(function_calls)
                 tool_results = await execute_tool_fn(function_calls)
 
-                # Append one tool message per result
-                for tr, fc in zip(tool_results, function_calls):
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": fc.get("_id", fc["name"]),
-                        "content": str(tr["output"]),
-                    })
+                # One tool message per call, with its id.
+                for fc, tr in pair_tool_results(function_calls, tool_results):
+                    messages.append({"role": "tool", "tool_call_id": fc["id"], "content": str(tr["output"])})
 
                 if turn_text:
                     combined_output += turn_text

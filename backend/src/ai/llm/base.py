@@ -9,9 +9,29 @@ Extracted from llm_router.py during Phase 10B restructuring.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.ai.llm.types import LLMResponse
+
+
+def call_id(provider_id: Optional[str], turn: int, index: int) -> str:
+    """A tool call's id: the provider's, else one made for the turn (LP-17)."""
+    return provider_id or f"call_{turn}_{index}"
+
+
+def pair_tool_results(function_calls: List[Dict[str, Any]],
+                      results: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Each tool result with the call it answers, by position.
+
+    ``execute_tool_fn`` returns one result per call, in order. Gemini and
+    Anthropic used to find a result's call by tool *name*, so two calls to one
+    tool in a turn — the normal case for a search — were answered with the
+    first call's id twice (LP-17). A result also names the tool that *ran*,
+    which may be a fallback, so the call's own name and id are what go back.
+    """
+    if len(results) != len(function_calls):
+        raise RuntimeError(f"tool executor returned {len(results)} results for {len(function_calls)} calls")
+    return list(zip(function_calls, results))
 
 
 class BaseLLMAdapter(ABC):
@@ -46,12 +66,14 @@ class BaseLLMAdapter(ABC):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         max_react_turns: int = 10,
+        top_p: float = 1.0,
         **kwargs,
     ) -> LLMResponse:
         """
         Full REACT loop: calls generate, executes tool calls, continues until
         no more tool calls or max turns reached.
-        execute_tool_fn: async callable(function_calls: list) -> list of tool results
+        execute_tool_fn: async callable(function_calls: list) -> list of tool results,
+        one per call in the same order. Every call carries an ``id``.
         """
         ...
 

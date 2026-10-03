@@ -223,11 +223,13 @@ class LLMRouter:
         max_tokens: Optional[int] = None,
         max_react_turns: int = 10,
         model_override: Optional[str] = None,
+        top_p: float = 1.0,
         **kwargs,
     ) -> LLMResponse:
         """
         Full REACT loop for agentic tasks.
-        execute_tool_fn: async(function_calls: list) -> list of {tool, output, success}
+        execute_tool_fn: async(function_calls: list) -> list of {tool, output, success},
+        one per call in order; each call carries an ``id`` (LP-17).
         """
         adapter = await self._resolve_adapter(task_type, model_override=model_override)
         messages = list(history or [])
@@ -251,6 +253,7 @@ class LLMRouter:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 max_react_turns=max_react_turns,
+                top_p=top_p,
                 **kwargs,
             )
             _record_llm_span(_sp, resp)

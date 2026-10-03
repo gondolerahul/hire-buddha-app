@@ -858,6 +858,7 @@ class StepExecutorService:
                 tool_schemas=tool_schemas,
                 execute_tool_fn=_execute_tools,
                 temperature=config.get("temperature", 0.7),
+                top_p=config.get("top_p", 1.0),  # reasoning_config.top_p was read by nothing (LP-20)
                 max_tokens=config.get("max_tokens"),
                 max_react_turns=MAX_REACT_TURNS,
                 model_override=model_override,
@@ -938,6 +939,7 @@ Step 2: [your analysis]
             tool_schemas=tool_schemas,
             execute_tool_fn=execute_tool_fn,
             temperature=config.get("temperature", 0.5),
+            top_p=config.get("top_p", 1.0),
             max_tokens=config.get("max_tokens"),
             max_react_turns=MAX_REACT_TURNS,
             model_override=config.get("__model_override"),

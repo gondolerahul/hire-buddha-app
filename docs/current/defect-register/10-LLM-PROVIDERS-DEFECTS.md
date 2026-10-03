@@ -437,7 +437,13 @@ debugging.
 
 ### LP-17 — Tool results are paired to calls by name on two of three providers
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P9.8)** — worse than recorded:
+Anthropic answered two calls to one tool with the first call's `tool_use_id` twice, which
+the API rejects, and Gemini answered with the name of the tool that *ran* (a fallback's,
+when one answered). Every adapter gives each call an `id` (`base.call_id`: the provider's,
+else `call_<turn>_<n>`) and answers the calls with `base.pair_tool_results` — by position,
+one result per call, a count mismatch is an error. Test: `tests/unit/test_tool_call_ids.py`
+(collection fails on the old code).
 
 Gemini and Anthropic pair a tool result back to its call by **tool name**. Only Azure uses
 a real call id.
@@ -482,7 +488,11 @@ Every downstream critic and status decision treats them the same.
 
 ### LP-20 — `top_p` is silently dropped in every ReAct path
 
-**📄 Doc-reported · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-03, P9.8)** — worse than recorded: the step
+executor never read `reasoning_config.top_p` at all. The router and all three ReAct loops
+take it; the step executor passes it. Claude gets it only below 1.0 (newer models refuse it
+beside `temperature`), and an OpenAI reasoning model never does. Test:
+`tests/unit/test_tool_call_ids.py::test_top_p_reaches_every_react_loop`.
 
 Only the single-turn `generate()` honours it. Setting it in the builder and using `REACT`
 — the default reasoning mode — has no effect.

@@ -896,10 +896,10 @@ if not output and response.text:
 |---|---|---|
 | System instruction | ✅ | `GenerateContentConfig.system_instruction`; `role="system"` messages are dropped from `contents` |
 | `temperature` | ✅ | both paths |
-| `top_p` | ⚠️ | passed in `generate()`, **omitted** in the ReAct path |
+| `top_p` | ✅ | both paths (the ReAct path dropped it until LP-20); the step executor passes `reasoning_config.top_p` |
 | `max_tokens` | ✅ | the **answer** budget. On a thinking model it becomes `max_output_tokens = max_tokens + thinking_budget` (see the next row). A `MAX_TOKENS` finish logs a warning with the answer and thinking token counts |
 | Function calling | ✅ | full JSON-Schema → `types.Schema` conversion, recursive |
-| Multi-turn ReAct | ✅ | native `Part.from_function_response` protocol |
+| Multi-turn ReAct | ✅ | native function-response protocol: one `FunctionResponse` per call, in call order, with the call's name and (when the model gave one) its `id` (LP-17) |
 | Streaming | ❌ | no `generate_content_stream` anywhere in the text path |
 | Thinking budget | ⚠️ | Gemini 2.5 and 3 count thinking tokens against `max_output_tokens`, so a capped call used to spend its whole budget thinking and return a cut-off answer (LP-25). Now a capped call on a `gemini-2.5*` / `gemini-3*` model sends `ThinkingConfig(thinking_budget=1024)` and adds those 1024 tokens to `max_output_tokens`. Uncapped calls keep the model's dynamic thinking. `service_metadata.thinking_budget` overrides the budget for every call on that integration; `0` turns thinking off where the model allows it (Flash and Flash-Lite, not Pro). No `thinking_level` yet. The `thinking` *task type* only routes to a different model; the `CHAIN_OF_THOUGHT` mode is prompt scaffolding in [step_executor.py:1068](../../backend/src/ai/step_executor.py:1068) |
 | Safety settings | ❌ | never set — Vertex defaults apply. A `SAFETY` finish reason surfaces as empty output |
@@ -908,25 +908,12 @@ if not output and response.text:
 | Multimodal input | ❌ | only `Part.from_text` |
 | Cached content | ❌ | not used |
 
-### 8.4 The FinishReason monkey-patch
+### 8.4 No SDK patch
 
-`google-genai` is pinned at `^0.4.0`, whose Pydantic model rejects
-`finish_reason` values newer than the SDK. Rather than upgrade, the codebase
-patches the SDK at import time:
-
-```python
-# backend/src/ai/llm/types.py
-if hasattr(candidate_cls, 'model_fields') and 'finish_reason' in candidate_cls.model_fields:
-    field_info = candidate_cls.model_fields['finish_reason']
-    permissive_type = typing.Optional[str]
-    field_info.annotation = permissive_type
-    candidate_cls.__annotations__['finish_reason'] = permissive_type
-    candidate_cls.model_rebuild(force=True)
-```
-
-It runs unconditionally when `src.ai.llm.types` is imported and swallows every
-failure. If you upgrade `google-genai`, delete this and re-test — a silently
-half-applied patch is worse than none.
+Until 2026-10-03 `src/ai/llm/types.py` rewrote google-genai's `Candidate.finish_reason` to
+`Optional[str]` at import, for an SDK that rejected reasons newer than itself. google-genai
+1.75 keeps an unknown value itself (its enum makes a pseudo-member and warns), so the patch
+is deleted (LP-23), with the adapter's handler for the same error.
 
 ### 8.5 Token accounting
 
@@ -1020,8 +1007,8 @@ else:
 ```
 
 Substring matching on the model name is fragile — `"o1"` matches
-`"gpt-4o-1120"`. And note `top_p` is still passed unconditionally in
-`generate()`, which some reasoning deployments reject.
+`"gpt-4o-1120"`. `top_p` is sent only below 1.0 and never to a reasoning model, which
+refuses it (LP-20).
 
 ### 9.4 Sequence
 
@@ -1056,7 +1043,7 @@ sequenceDiagram
 |---|---|---|
 | System prompt | ✅ | prepended as a `system` message |
 | `temperature` | ✅ | forced to `1.0` for `gpt-5`/`o1`/`o3` |
-| `top_p` | ⚠️ | passed in `generate()`, **omitted** in the ReAct path |
+| `top_p` | ✅ | both paths, below 1.0 and not for reasoning models (LP-20) |
 | `max_tokens` | ✅ | auto-mapped to `max_completion_tokens` for reasoning models |
 | Function calling | ✅ | native OpenAI `tools` array with `tool_call_id` round-tripping |
 | Multi-turn ReAct | ✅ | `tool_calls` + `role: "tool"` messages |
@@ -1288,7 +1275,7 @@ Loop-control differences that matter:
 | Behaviour | Gemini | Azure | Anthropic |
 |---|---|---|---|
 | Turn cap | `max_react_turns`, default 10 from the base signature; step executor passes `MAX_REACT_TURNS = 12` | same | same |
-| Result → call pairing | by **name** | by **`_id`** (correct) | by **name** |
+| Result → call pairing | by position, the call's `id` and name (LP-17) | by position, `tool_call_id` | by position, `tool_use_id` |
 | Success flag reaches the model | ✅ `{"output": ..., "success": ...}` | ❌ only `str(output)` | ❌ only `str(output)` |
 | SDK cannot parse `finish_reason` | raises `RuntimeError` (LP-04) | n/a | n/a |
 | Tokens | summed across turns | summed across turns | summed across turns |
@@ -1896,8 +1883,8 @@ Checklist for the adapter itself, learned from the three that exist:
 - Return `LLMResponse` with `model_name = self.model_name` (billing SKUs derive
   from it) and `provider = self._provider_name`.
 - Populate `prompt_tokens` and `completion_tokens` or nothing is billed.
-- Carry a per-call id on tool calls (like Azure's `_id`) so ReAct results pair
-  correctly.
+- Give every tool call an `id` (`base.call_id`: the provider's, else `call_<turn>_<n>`) and
+  answer the calls with `base.pair_tool_results` — by position, one result per call.
 - Sum tokens and latency across turns in the ReAct loop.
 - Accept and ignore `**kwargs` — callers pass extras.
 
@@ -1967,13 +1954,11 @@ Checklist for the adapter itself, learned from the three that exist:
 13. **Thinking tokens count as output.** Since LP-06, `completion_tokens` includes
     `thoughts_token_count`, so it can be much larger than the visible answer. Use
     `thinking_tokens` for the split.
-14. **`top_p` is silently dropped in every ReAct path.** Only the single-turn
-    `generate()` honours it.
+14. *(Fixed, LP-20.)* `top_p` reaches every ReAct path.
 15. **Gemini's tool-schema translation is lossy.** `oneOf`, `pattern`,
     `default`, `format` and numeric bounds are discarded; integer `enum` values
     become strings.
-16. **Tool results are paired to calls by tool *name* on Gemini and Anthropic.**
-    Two parallel calls to the same tool mis-pair. Only Azure uses a real id.
+16. *(Fixed, LP-17.)* Tool results go back to their call by position and id on every provider.
 17. **A ReAct loop that exhausts `MAX_REACT_TURNS = 12` fails its step**
     (`finish_reason = "MAX_TURNS"`, LP-19). Raise the cap rather than expect a
     cut-off answer to pass.
