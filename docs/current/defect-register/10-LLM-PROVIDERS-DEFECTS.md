@@ -285,7 +285,10 @@ The thinking tokens are billed since
 
 ### LP-07 — Any Claude integration fails on its first call
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P9.2)** — `anthropic = "^0.69"` is
+declared (the lock gained it and `docstring-parser`, nothing upgraded); the adapter is kept
+(D24). Test: `tests/unit/test_llm_packaging.py` builds the adapter's `AsyncAnthropicVertex`
+client (fails on the old code: no `anthropic`).
 
 `pyproject.toml` declares `google-genai` and `openai`. It does **not** declare `anthropic`.
 `AnthropicAdapter._build_client` starts with:

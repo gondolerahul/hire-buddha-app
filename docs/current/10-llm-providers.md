@@ -67,7 +67,7 @@ flowchart TD
     F --> G{"provider_name"}
     G -->|google / gemini| H["GeminiAdapter - Vertex AI"]
     G -->|azure_openai / openai| I["AzureOpenAIAdapter"]
-    G -->|anthropic| J["AnthropicAdapter - SDK not installed"]
+    G -->|anthropic| J["AnthropicAdapter - Vertex AI"]
     G -->|anything else| H
     H --> K["LLMResponse - output, function_calls, prompt_tokens, completion_tokens, latency_ms"]
     I --> K
@@ -1082,44 +1082,28 @@ which at least intercepts one specific `ValidationError`.
 
 ## 10. Anthropic Claude via Vertex AI — real or aspirational
 
-**Short answer: the adapter is real, complete and unreachable. Claude support is
-aspirational as the app is currently packaged.**
-
-Here is the evidence, in order.
-
-```mermaid
-flowchart TD
-    A["anthropic_adapter.py exists - 218 lines, fully implemented"] --> B["router._get_adapter maps anthropic and anthropic_vertex to it"]
-    B --> C["AnthropicAdapter._build_client does 'import anthropic'"]
-    C --> D{"is the anthropic package a dependency?"}
-    D -->|"pyproject.toml - NOT listed"| E["ImportError"]
-    D -->|".venv site-packages - NOT present"| E
-    E --> F["RuntimeError - anthropic package not installed. Run: pip install anthropic"]
-    F --> G["every Claude call fails at client construction, before any HTTP request"]
-```
+**Short answer: real.** Until 2026-10-03 the adapter was complete and unreachable:
+`anthropic` was not a dependency, so every call raised "anthropic package not
+installed" before reaching Vertex AI (LP-07). It is declared now
+(`anthropic = "^0.69"` in `pyproject.toml`, decision D24 in the
+[consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md)), and
+`tests/unit/test_llm_packaging.py` builds the adapter's `AsyncAnthropicVertex` client.
 
 | Check | Result |
 |---|---|
-| Adapter file exists and is complete | ✅ [anthropic_adapter.py](../../backend/src/ai/llm/anthropic_adapter.py), 218 lines, both abstract methods implemented, tool translation and a full `tool_use`/`tool_result` ReAct loop |
-| Wired into the factory | ✅ `("anthropic", "anthropic_vertex")` in [router.py:85](../../backend/src/ai/llm/router.py:85) |
+| Adapter file exists and is complete | ✅ [anthropic_adapter.py](../../backend/src/ai/llm/anthropic_adapter.py), both abstract methods implemented, tool translation and a full `tool_use`/`tool_result` ReAct loop |
+| Wired into the factory | ✅ `("anthropic", "anthropic_vertex")` in [router.py](../../backend/src/ai/llm/router.py) |
 | Model-name sanitiser knows Claude | ✅ `publishers/anthropic/models/` prefix is stripped |
-| Cost estimator knows Claude prices | ✅ `claude-haiku`, `claude-sonnet-4-5`, `claude-opus-4-1` in `MODEL_PRICE_FACTOR` |
 | Critic ladder recommends Claude | ✅ five of nine ladder entries point at Claude models |
-| `anthropic` in `pyproject.toml` | ❌ **not present** — only `google-genai` and `openai` are declared |
-| `anthropic` installed in `backend/.venv` | ❌ **not present** |
-| Documented in the credentials guide | ✅ [AI_MODEL_CREDENTIALS_GUIDE.md §4.2](../../docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md) gives full setup curl commands |
+| `anthropic` in `pyproject.toml` | ✅ since LP-07 |
+| Documented in the credentials guide | ✅ [AI_MODEL_CREDENTIALS_GUIDE.md §4.2](../../docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md) |
 
-So: an admin can follow the guide, register an `anthropic` integration, point
-`thinking` at it, and every call will die with
-`RuntimeError: anthropic package not installed. Run: pip install anthropic`
-before a single byte reaches Vertex AI.
+To use it: enable Claude in the Vertex AI Model Garden for your project, register an
+`anthropic` integration with `service_metadata = {"project_id": ..., "region":
+"us-east5"}` and its `-in`/`-out` SKUs. Not yet exercised against Vertex from this
+repository: no Claude model is enabled in the development project.
 
-**To make it real:** add `anthropic = "^0.40"` (or current) to
-`pyproject.toml`, reinstall, enable Claude in the Vertex AI Model Garden for
-your project, and set `service_metadata = {"project_id": ..., "region":
-"us-east5"}`. The adapter code itself should then work.
-
-### 10.1 What the adapter does, for when it is enabled
+### 10.1 What the adapter does
 
 ```mermaid
 sequenceDiagram
