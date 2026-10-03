@@ -150,10 +150,10 @@ class LLMRouter:
                 task_type=task_type,
             )
             if not integration:
+                from src.config.model_health import HOW_TO_CONFIGURE
                 raise RuntimeError(
                     f"No model configured for task type '{task_type}' "
-                    f"(company_id={self.company_id}). "
-                    f"Please configure a default in the AI Model Configuration page."
+                    f"(company {self.company_id}, and no platform default). {HOW_TO_CONFIGURE}"
                 )
             effective_model = integration.model_name or ""
         from src.config.models import needs_api_key

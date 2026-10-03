@@ -499,10 +499,14 @@ from `GET /api/v1/config/task-types`.
 | `audio_to_video` | Generate video synchronized with audio | declared, no caller found |
 | `speech_to_speech` | Real-time bidirectional voice conversation | [live_client_factory.py:59](../../backend/src/voice/live_client_factory.py:59), [azure_realtime.py:338](../../backend/src/voice/azure_realtime.py:338) |
 
-**There is no shipped default.** `model_task_defaults` starts empty; nothing
-seeds it. Until an app admin configures at least `text_generation`, every agent
-run fails with `RuntimeError: No model configured for task type
-'text_generation'`.
+**Defaults come from a seed.** `model_task_defaults` starts empty on a fresh
+database; `db-scripts/seed_integration_registry.py` registers Gemini and the embedding
+model for the APP company and sets `text_generation`, `thinking`, `goal_validation`,
+`vision` and `embedding`. Until it runs (or an app admin sets them on `/ai-config`), every
+run fails with "No model configured for task type …", and the error names the page and
+the seed (LP-10). `GET /api/v1/health` reports `models: {"status": "missing", "missing":
+[…]}` — and `degraded` — while the platform lacks a `text_generation` or `thinking`
+default with an active integration (`src/config/model_health.py`).
 
 ### 6.2 One task list
 

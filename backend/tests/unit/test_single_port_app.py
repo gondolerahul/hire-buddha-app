@@ -35,6 +35,11 @@ def worker_consuming(monkeypatch):
 
     monkeypatch.setattr(router_mounts, "worker_status", ok)
 
+    async def models_ok():
+        return {"status": "ok", "missing": []}
+
+    monkeypatch.setattr(router_mounts, "model_status", models_ok)
+
 
 def _http_routes() -> set[tuple[str, str]]:
     return {

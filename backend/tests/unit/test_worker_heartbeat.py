@@ -117,6 +117,7 @@ async def test_health_is_degraded_unless_the_worker_is_ok(monkeypatch, worker, s
 
     block = {"status": worker, "queues": {}}
     monkeypatch.setattr(router_mounts, "worker_status", AsyncMock(return_value=block))
+    monkeypatch.setattr(router_mounts, "model_status", AsyncMock(return_value={"status": "ok", "missing": []}))
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/v1/health")

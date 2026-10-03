@@ -363,7 +363,13 @@ first resolution step can never find a row.
 
 ### LP-10 — Nothing is seeded, so a fresh install cannot run an agent
 
-**📄 Doc-reported · High**
+**✅ Verified · High** · **Status: fixed (2026-10-03, P9.7)** — the seed half was done
+earlier (`seed_integration_registry.py`, `2189713`, sets the platform's task defaults); what
+was left is that nothing pointed a fresh install at it. The "No model configured" error now
+names the page (`/ai-config`) and the seed, and `GET /api/v1/health` has a `models` block —
+`missing` (and `degraded`) while the APP company has no `text_generation` or `thinking`
+default with an active integration, `unknown` when the database does not answer in 2 s.
+Live: the local API reports `models: ok`. Test: `tests/unit/test_model_health.py`.
 
 `model_task_defaults` starts empty. Until an `app_admin` configures `text_generation`,
 every run fails with "No model configured".

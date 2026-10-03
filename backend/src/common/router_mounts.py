@@ -11,6 +11,7 @@ import logging
 from fastapi import APIRouter, FastAPI, Request
 
 from src.common.worker_health import worker_status
+from src.config.model_health import model_status
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,8 @@ health_router = APIRouter(tags=["health"])
 @health_router.get("/api/v1/health")
 @health_router.get("/health", include_in_schema=False)
 async def health(request: Request) -> dict:
-    """Liveness, the routers that failed to mount, and whether a worker is consuming.
+    """Liveness, the routers that failed to mount, whether a worker is consuming,
+    and whether the platform has the model defaults a run needs.
 
     Always 200: every replica runs the same code, so a 503 here would pull all
     of them out of rotation for one broken feature area — or for a dead
@@ -55,11 +57,14 @@ async def health(request: Request) -> dict:
 
     unmounted = getattr(request.app.state, "unmounted_routers", [])
     worker = await worker_status()
+    models = await model_status()
     return {
-        "status": "degraded" if unmounted or worker["status"] != "ok" else "ok",
+        "status": "degraded" if unmounted or worker["status"] != "ok" or models["status"] == "missing" else "ok",
         "unmounted_routers": unmounted,
         # Live arq workers per queue, and the queue's due jobs (SA-I4).
         "worker": worker,
+        # The platform defaults a run needs (LP-10).
+        "models": models,
         # Configuration, not health: disabled until INTERNAL_TOKEN is a real secret.
         "internal_events": "enabled" if settings.internal_events_enabled else "disabled",
     }

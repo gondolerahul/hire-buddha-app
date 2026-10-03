@@ -178,7 +178,7 @@ Verify each service:
 |---|---|
 | Backend API | `curl -s localhost:8000/` → `{"message":"Welcome to HireBuddha Platform v2.0"}` |
 | Swagger | open `http://localhost:8000/docs` |
-| Health | `curl -s localhost:8000/api/v1/health` → `{"status":"ok","unmounted_routers":[],"worker":{"status":"ok","queues":{"arq:queue":{"workers":1,"due_jobs":0,"oldest_due_seconds":0}}},"internal_events":"disabled"}`. `worker.status` is `down` until the worker has started (it beats every 10 s) |
+| Health | `curl -s localhost:8000/api/v1/health` → `{"status":"ok","unmounted_routers":[],"worker":{"status":"ok","queues":{"arq:queue":{"workers":1,"due_jobs":0,"oldest_due_seconds":0}}},"models":{"status":"ok","missing":[]},"internal_events":"disabled"}`. `worker.status` is `down` until the worker has started (it beats every 10 s); `models.status` is `missing` until the platform has `text_generation` and `thinking` defaults (`db-scripts/seed_integration_registry.py`, LP-10) |
 | Frontend | open `http://localhost:3000` |
 | Worker booted | `.venv/bin/python -c "from src.ai.worker import WorkerSettings; print(len(WorkerSettings.functions), 'jobs;', len(WorkerSettings.cron_jobs), 'crons')"` |
 | Redis | `redis-cli ping` → `PONG` |

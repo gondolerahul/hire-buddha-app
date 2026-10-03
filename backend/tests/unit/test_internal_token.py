@@ -34,6 +34,11 @@ def worker_consuming(monkeypatch):
 
     monkeypatch.setattr(router_mounts, "worker_status", ok)
 
+    async def models_ok():
+        return {"status": "ok", "missing": []}
+
+    monkeypatch.setattr(router_mounts, "model_status", models_ok)
+
 
 async def _call(method: str, path: str, **kwargs) -> httpx.Response:
     transport = httpx.ASGITransport(app=app)
