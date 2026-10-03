@@ -97,7 +97,7 @@ class ConfigService:
             from src.voice.tata_credentials import normalize_tata_metadata
             entry_data["service_metadata"], meta_key = normalize_tata_metadata(entry_data.get("service_metadata"))
             api_key = api_key or meta_key
-        encrypted_key = encrypt_api_key(api_key)
+        encrypted_key = encrypt_api_key(api_key) if api_key else None  # none for ADC (LP-12)
 
         entry = IntegrationRegistry(
             **entry_data,

@@ -156,14 +156,15 @@ class LLMRouter:
                     f"Please configure a default in the AI Model Configuration page."
                 )
             effective_model = integration.model_name or ""
-        if not api_key:
+        from src.config.models import needs_api_key
+        if not api_key and needs_api_key(integration.provider_name):
             raise RuntimeError(
                 f"No API key found for integration '{integration.provider_name}/{effective_model}'. "
                 f"Please check the Service Integration configuration."
             )
         adapter = _get_adapter(
             provider_name=integration.provider_name,
-            api_key=api_key,
+            api_key=api_key or "",
             model_name=effective_model,
             service_metadata=integration.service_metadata or {},
         )

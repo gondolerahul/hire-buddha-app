@@ -14,9 +14,9 @@ WHAT IT CREATES (APP company, idempotent — existing SKUs are skipped):
   • sandbox-runtime              sandbox seconds (scripts/seed_sandbox_sku.py) —
                                  without it sandbox work is never billed (R2 §10)
 
-Vertex AI authenticates with Application Default Credentials, so no real key is
-stored: the router still requires a non-empty key (LP-12), so the documented
-placeholder ``vertex-ai-service-account`` is written instead.
+Vertex AI authenticates with Application Default Credentials, so no key is
+stored (LP-12: a Vertex-backed provider needs none; it used to take the
+placeholder ``vertex-ai-service-account``).
 
 Prices are Vertex list prices (USD) and use the cost_unit spellings that
 UsageService recognises (``per_million_tokens`` / ``per_million_characters``).
@@ -45,8 +45,6 @@ from src.common.database import AsyncSessionLocal
 from src.config.models import IntegrationRegistry
 from src.config.schemas import IntegrationRegistryCreate
 from src.config.service import ConfigService
-
-VERTEX_PLACEHOLDER_KEY = "vertex-ai-service-account"
 
 LLM_MODEL = "gemini-2.5-flash"
 EMBEDDING_MODEL = "text-embedding-005"
@@ -99,7 +97,6 @@ async def seed(project_id: str, region: str) -> None:
                 internal_cost=cost,
                 cost_unit=unit,
                 service_metadata={"project_id": project_id, "region": region},
-                api_key=VERTEX_PLACEHOLDER_KEY,
             ))
             print(f"  [OK]   {sku} ({category}, ${cost} {unit})  → id={entry.id}")
             by_sku[sku] = entry

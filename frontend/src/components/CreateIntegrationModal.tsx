@@ -41,6 +41,10 @@ const SERVICE_CATEGORIES = [
     { id: 'OTHER', name: 'Other' }
 ];
 
+// Providers that authenticate with Google Application Default Credentials and
+// store no key (ADC_PROVIDERS in backend/src/config/models.py, LP-12).
+const ADC_PROVIDERS = new Set(['google', 'gemini', 'google_vertex', 'anthropic', 'anthropic_vertex']);
+
 // Categories that tenant users are allowed to manage
 const TENANT_ALLOWED_CATEGORY_IDS = new Set(['EMAIL', 'SOCIAL_MEDIA', 'API_TOOL', 'OTHER']);
 
@@ -145,8 +149,9 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
                 internal_cost: Number(formData.internal_cost)
             };
 
-            // If editing and api_key is empty, remove it from payload so it's not updated to empty
-            if (editingIntegration && !formData.api_key) {
+            // An empty key is not sent: an edit keeps the stored one, and an ADC
+            // provider stores none.
+            if (!formData.api_key) {
                 delete (payload as any).api_key;
             }
 
@@ -172,6 +177,7 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
     };
 
     const isTwilio = formData.provider_name.toLowerCase() === 'twilio';
+    const usesAdc = ADC_PROVIDERS.has(formData.provider_name.toLowerCase());
 
     return (
         <div className="modal-overlay">
@@ -273,11 +279,12 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
 
                     <div className="col-span-2">
                         <GlassInput
-                            label={editingIntegration ? "API Key / Auth Token (Leave blank to keep current)" : "API Key / Auth Token"}
+                            label={editingIntegration ? "API Key / Auth Token (Leave blank to keep current)"
+                                : usesAdc ? "API Key (not needed: Vertex AI uses the service account)" : "API Key / Auth Token"}
                             type="password"
                             value={formData.api_key}
                             onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-                            required={!editingIntegration}
+                            required={!editingIntegration && !usesAdc}
                         />
                     </div>
 

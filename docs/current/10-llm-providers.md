@@ -256,10 +256,11 @@ sequenceDiagram
 - The padding scheme means `ENCRYPTION_MASTER_KEY="abc"` silently becomes
   `abc` + 29 NUL bytes. Weak keys do not error; they just work badly. Use a real
   32-byte secret.
-- For **Vertex AI providers the stored key is a placeholder**. Google auth uses
-  Application Default Credentials from `GOOGLE_APPLICATION_CREDENTIALS`, not the
-  registry key. The resolver still *requires* a non-null key or it raises, so
-  convention is to store the literal string `vertex-ai-service-account`.
+- **Vertex AI providers store no key** (`ADC_PROVIDERS` in `config/models.py`:
+  `google`, `gemini`, `google_vertex`, `anthropic`, `anthropic_vertex`). Google auth uses
+  Application Default Credentials, not the registry key. Until LP-12 (2026-10-03) the
+  create schema and the router required a key anyway, so guides stored the placeholder
+  `vertex-ai-service-account`; rows that still hold it work unchanged.
 
 ---
 
@@ -1809,7 +1810,7 @@ flowchart TD
     I --> J{"exists and status = active?"}
     J -->|no| J1["Row deleted or deactivated. Re-point the default."]
     J -->|yes| K{"encrypted_api_key IS NOT NULL?"}
-    K -->|no| K1["No API key found for integration. Even Vertex needs a placeholder - PATCH with api_key = vertex-ai-service-account"]
+    K -->|no| K1["No API key found for integration - only a non-Vertex provider needs one; PATCH its api_key"]
     K -->|yes| L["Config is fine - the failure is downstream. Check ADC, project_id, azure_endpoint."]
 ```
 
@@ -1948,8 +1949,8 @@ Checklist for the adapter itself, learned from the three that exist:
    Tenant admins do not see the page (PO-02).
 8. **`GET /config/integrations` as `app_admin` returns every company's rows**
    with no pagination.
-9. **Vertex AI ignores the stored API key but still requires one to be
-   non-null.** Store `vertex-ai-service-account` as a placeholder.
+9. **Vertex AI needs no stored key** (LP-12). Leave `api_key` out for `google`,
+   `gemini` and `anthropic` integrations.
 10. **An entity `model_override` changes the model id but not the provider.**
     Overriding a Gemini default with `gpt-4o` sends `gpt-4o` to Vertex AI.
 11. **The `-in`/`-out` SKUs are string-concatenated from whatever model name the

@@ -48,6 +48,19 @@ class ServiceCategory(StrEnum):
     OTHER = "OTHER"
 
 
+# Providers that authenticate with Google Application Default Credentials (the
+# service account) and ignore a stored key: Gemini and Claude through Vertex AI,
+# and Gemini Live through AI Studio, which falls back to ADC without one.
+ADC_PROVIDERS = frozenset({"google", "gemini", "google_vertex", "anthropic", "anthropic_vertex"})
+
+
+def needs_api_key(provider_name: str | None) -> bool:
+    """Whether an integration of this provider must store a key (LP-12). An
+    ADC provider used to need a placeholder (``vertex-ai-service-account``)
+    because the create schema and the router both refused an empty key."""
+    return (provider_name or "").lower() not in ADC_PROVIDERS
+
+
 class IntegrationRegistry(Base):
     __tablename__ = "integration_registry"
     # The category CHECK is added NOT VALID by its migration and validated when

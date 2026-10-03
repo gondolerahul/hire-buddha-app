@@ -312,7 +312,6 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
     "service_sku": "gemini-2.0-flash-in",
     "service_category": "LLM",
     "component_type": "input_token",
-    "api_key": "vertex-ai-service-account",
     "internal_cost": 0.000075,
     "cost_unit": "per_1k_tokens",
     "service_metadata": {
@@ -332,7 +331,6 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
     "service_sku": "gemini-2.5-flash-in",
     "service_category": "LLM",
     "component_type": "input_token",
-    "api_key": "vertex-ai-service-account",
     "internal_cost": 0.00015,
     "cost_unit": "per_1k_tokens",
     "service_metadata": {
@@ -352,7 +350,6 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
     "service_sku": "gemini-embedding-004",
     "service_category": "LLM",
     "component_type": "input_token",
-    "api_key": "vertex-ai-service-account",
     "internal_cost": 0.000010,
     "cost_unit": "per_1k_tokens",
     "service_metadata": {
@@ -372,7 +369,6 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
     "service_sku": "gemini-2.5-flash-live",
     "service_category": "LLM_LIVE",
     "component_type": "minute",
-    "api_key": "vertex-ai-service-account",
     "internal_cost": 0.040,
     "cost_unit": "per_minute",
     "service_metadata": {
@@ -392,7 +388,6 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
     "service_sku": "gemini-image-gen",
     "service_category": "IMAGE_GENERATION",
     "component_type": "image",
-    "api_key": "vertex-ai-service-account",
     "internal_cost": 0.040,
     "cost_unit": "per_image",
     "service_metadata": {
@@ -412,7 +407,6 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
     "service_sku": "veo-3.1-video-gen",
     "service_category": "VIDEO_GENERATION",
     "component_type": "video_second",
-    "api_key": "vertex-ai-service-account",
     "internal_cost": 0.350,
     "cost_unit": "per_video",
     "service_metadata": {
@@ -422,7 +416,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 ```
 
-> **Note on `api_key` field:** For Vertex AI, the actual authentication is handled by the GCP Service Account (via `GOOGLE_APPLICATION_CREDENTIALS` environment variable or Workload Identity). The `api_key` field in the Integration Registry is stored but not used for authentication — Vertex AI uses Application Default Credentials (ADC). You can set it to any placeholder value like `"vertex-ai-service-account"`.
+> **Note on `api_key` field:** For Vertex AI, authentication is handled by the GCP Service Account (via `GOOGLE_APPLICATION_CREDENTIALS` or Workload Identity) — Application Default Credentials. Leave `api_key` out for `google`, `gemini` and `anthropic` integrations; it is optional for them and required for every other provider (LP-12).
 
 #### 4.2: Register Anthropic Claude (via Vertex AI)
 
@@ -438,7 +432,6 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
     "service_sku": "claude-3-5-sonnet-in",
     "service_category": "LLM",
     "component_type": "input_token",
-    "api_key": "vertex-ai-service-account",
     "internal_cost": 0.003,
     "cost_unit": "per_1k_tokens",
     "service_metadata": {
@@ -539,10 +532,7 @@ INSERT INTO integration_registry (
     'gemini-2.0-flash-in',
     'LLM',
     'input_token',
-    -- Use the encrypt_api_key() function from your Python code to encrypt:
-    -- from src.common.security import encrypt_api_key
-    -- encrypt_api_key('vertex-ai-service-account')
-    'ENCRYPTED_PLACEHOLDER',
+    NULL,  -- Vertex AI authenticates with ADC: no key
     0.000075,
     'per_1k_tokens',
     '{"project_id": "YOUR_GCP_PROJECT_ID", "region": "us-central1"}'::jsonb,

@@ -64,7 +64,8 @@ class LiveClientFactory:
                 "No speech_to_speech model configured. "
                 "Please set a default in the AI Model Configuration page."
             )
-        if not api_key:
+        from src.config.models import needs_api_key
+        if not api_key and needs_api_key(integration.provider_name):
             raise RuntimeError(
                 f"No API key found for speech_to_speech model "
                 f"'{integration.provider_name}/{integration.model_name}'. "
@@ -101,7 +102,7 @@ class LiveClientFactory:
 
     async def _create_gemini_client(
         self,
-        api_key: str,
+        api_key: Optional[str],
         model_name: str,
         meta: Dict,
         system_instruction: str,
@@ -138,7 +139,7 @@ class LiveClientFactory:
 
     async def _create_azure_client(
         self,
-        api_key: str,
+        api_key: Optional[str],
         model_name: str,
         meta: Dict,
         system_instruction: str,

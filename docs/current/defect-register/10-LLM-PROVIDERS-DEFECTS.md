@@ -399,7 +399,13 @@ gets "No model configured" for a model that is plainly configured on the screen.
 
 ### LP-12 — Vertex requires a placeholder API key it then ignores
 
-**📄 Doc-reported · Low**
+**✅ Verified · Low** · **Status: fixed (2026-10-03, P9.5)** — `needs_api_key(provider)`
+(`config/models.py`, with `ADC_PROVIDERS`) is the one rule: the create schema, the router
+and the live voice factory require a key only for a provider that does not authenticate
+with ADC; none is stored for `google`/`gemini`/`anthropic`. The column was already
+nullable — the schema and the router were what refused it. The registry seed, the
+credentials guide and the create modal stop using the placeholder; rows that hold it work
+unchanged. Test: `tests/unit/test_adc_key.py` (the three ADC cases fail on the old code).
 
 Vertex AI authenticates with application default credentials and ignores the stored key —
 but `encrypted_api_key` is non-nullable, so the admin must store something. The

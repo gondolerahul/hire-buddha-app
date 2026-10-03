@@ -1,10 +1,10 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
 
-from src.config.models import ServiceCategory
+from src.config.models import ServiceCategory, needs_api_key
 
 # ---------------------------------------------------------------------------
 # Integration Registry schemas
@@ -35,9 +35,17 @@ class IntegrationRegistryCreate(IntegrationRegistryBase):
     # Written values are one of the list (LP-11); reads stay ``str`` so a row
     # from before the constraint still renders.
     service_category: ServiceCategory = ServiceCategory.LLM
-    api_key: str = Field(..., alias="api_key")
+    # Optional for a provider that authenticates with ADC (LP-12); required
+    # for every other provider. ``tata_tele`` may carry it in its metadata.
+    api_key: Optional[str] = Field(None, alias="api_key")
 
     _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
+
+    @model_validator(mode="after")
+    def _key_when_needed(self):
+        if not self.api_key and needs_api_key(self.provider_name) and self.provider_name != "tata_tele":
+            raise ValueError(f"api_key is required for provider '{self.provider_name}'")
+        return self
 
 class IntegrationRegistryUpdate(BaseModel):
     provider_name: Optional[str] = None
