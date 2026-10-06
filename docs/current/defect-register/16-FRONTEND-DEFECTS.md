@@ -40,7 +40,7 @@
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 6 | 0 |
 | [T3](#5-t3--performance) | Performance | 7 | 6 | 1 |
 
-**Total: 32 defects (28 fixed, 4 open), 10 improvements (5 done, 1 partly done, 4 open).**
+**Total: 32 defects (29 fixed, 3 open), 10 improvements (5 done, 1 partly done, 4 open).**
 Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
 way and added (FE-26 to FE-31). The user ran two of the package changes this session's
 permission check refused, committed in `dc21c2f`: the unused packages are gone (FE-12) and
@@ -80,7 +80,7 @@ permission check refused, committed in `dc21c2f`: the unused packages are gone (
 | FE-29 | The session list's recording link always answers 401 *(new)* | ✅ fixed `cb3026f` |
 | FE-30 | Three more unreferenced files *(new)* | ✅ fixed `a7db850` |
 | FE-31 | Reloading the Artifacts page shows the API's 404 *(new)* | ✅ fixed `c222808` |
-| FE-32 | The agent-loop run page shows none of the run's files *(new, 2026-10-02)* | open |
+| FE-32 | The agent-loop run page shows none of the run's files *(new, 2026-10-02)* | ✅ fixed (2026-10-06) |
 
 | ID | Improvement | Status |
 |---|---|---|
@@ -687,7 +687,7 @@ last refreshed. Both pages and the artifact preview use it, so FE-28's fix lands
 
 ### FE-32 — The agent-loop run page shows none of the run's files
 
-**✅ Verified · Medium** · **Status: open** — found 2026-10-02 while checking P6.7 (EP-21).
+**✅ Verified · Medium** · **Status: fixed (2026-10-06)** — found 2026-10-02 while checking P6.7 (EP-21). `components/agent/RunFiles.tsx` lists the run tree's files with a download each, and holds the one `downloadArtifactFile`; the page fetches the files once (`artifactService.list({ run_id })`) for both layouts, and the agent-loop layout renders the list above its iteration timeline. Checked in the browser on a local run with a file attached through `save_tool_output` (row and file removed afterwards): the list shows it and Download fetches it through the API. Test: `RunFiles.test.tsx` (vitest).
 
 `ExecutionDetail` renders `AgentLoopExecutionDetail` instead of the trace view whenever
 `agent_loop.enabled` is on, and the backend default turns it on for every company (there are

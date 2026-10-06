@@ -1,0 +1,58 @@
+.agentk-run-files {
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 3px solid var(--color-secondary, #2a8);
+}
+.agentk-run-files__title {
+    margin: 0 0 8px;
+    font-size: 15px;
+    color: var(--color-text-primary, #fff);
+}
+.agentk-run-files__count {
+    margin-left: 6px;
+    font-size: 12px;
+    color: var(--color-text-secondary, #888);
+}
+.agentk-run-files__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.agentk-run-files__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    min-width: 0;
+}
+.agentk-run-files__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.agentk-run-files__meta {
+    color: var(--color-text-secondary, #888);
+    font-size: 12px;
+}
+.agentk-run-files__download {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.agentk-run-files__download:hover {
+    background: rgba(255, 255, 255, 0.08);
+}

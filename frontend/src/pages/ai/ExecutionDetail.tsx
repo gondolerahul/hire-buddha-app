@@ -10,44 +10,14 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
 import { Artifact, artifactService } from '@/services/artifact.service';
+import { RunFiles, downloadArtifactFile } from '@/components/agent/RunFiles';
 import { ExecutionRun, RunStatus, EntityType, LLMInteractionLog, ToolInteractionLog } from '@/types';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { AgentLoopExecutionDetail } from '@/components/agent/AgentLoopExecutionDetail';
 import './ExecutionDetail.css';
-import { API_BASE_URL, API_ORIGIN } from '@/config/api';
+import { API_BASE_URL } from '@/config/api';
 
 const _API_BASE = API_BASE_URL;
-
-// Authenticated file download — uses apiClient (with auto token-refresh)
-// for /api/ routes, falls back to direct fetch for static artifact paths.
-const downloadArtifactFile = async (fileUrl: string, filename?: string) => {
-    try {
-        let blob: Blob;
-        if (fileUrl.startsWith('/api/')) {
-            // Use apiClient which has the 401→refresh interceptor
-            const response = await apiClient.get(fileUrl.replace(/^\/api\/v1/, ''), {
-                responseType: 'blob',
-            });
-            blob = response.data as Blob;
-        } else {
-            // Static file path (e.g. /artifact/system-generated/...) — no auth needed,
-            // but it is the API's, not the app's, when the two are on different origins
-            const response = await fetch(`${API_ORIGIN}${fileUrl}`);
-            if (!response.ok) throw new Error('Download failed');
-            blob = await response.blob();
-        }
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename || 'document';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-    } catch (err) {
-        console.error('Artifact download failed:', err);
-    }
-};
 
 // ─── Step Result from result_data.steps ─────────────────────────────────────
 interface StepResult {
@@ -669,7 +639,11 @@ export const ExecutionDetail: React.FC = () => {
                         </div>
                     </div>
                 </header>
-                <AgentLoopExecutionDetail runId={run.id} streamUrl={streamUrl} />
+                <AgentLoopExecutionDetail
+                    runId={run.id}
+                    streamUrl={streamUrl}
+                    headerBlock={<RunFiles artifacts={runArtifacts} />}
+                />
             </div>
         );
     }
