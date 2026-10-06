@@ -76,9 +76,12 @@ class Settings(BaseSettings):
     LLM_RETRY_MAX_DELAY_SECONDS: float = 30.0
     WAITING_ON_CHILDREN_TIMEOUT_SECONDS: int = 3600
 
-    # Phase 12 `02` S4 — per-tenant container sandbox. OFF by default;
-    # SubprocessRuntime stays the dev/CI default and the production rollback.
-    SANDBOX_CONTAINER_RUNTIME_ENABLED: bool = False
+    # Phase 12 `02` S4 — per-tenant container sandbox. ON by default (TL-01,
+    # D29): model-written code runs in the company's container, never as the
+    # backend's OS user. A host without Docker or the hb-sandbox image refuses
+    # sandbox calls with a message naming this setting; a development machine
+    # opts out in .env (SANDBOX_CONTAINER_RUNTIME_ENABLED=false).
+    SANDBOX_CONTAINER_RUNTIME_ENABLED: bool = True
     SANDBOX_IMAGE: str = "hb-sandbox:local"
     SANDBOX_NETWORK: str = "none"
     SANDBOX_MEMORY: str = "1g"

@@ -32,7 +32,7 @@ def _sandbox_container_default() -> bool:
         from src.common.config import settings
         return bool(settings.SANDBOX_CONTAINER_RUNTIME_ENABLED)
     except Exception:                                                     # pragma: no cover
-        return False
+        return True   # the container is the safe default (TL-01)
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +86,8 @@ DEFAULTS: dict[str, bool] = {
     "planner.v2_enabled": True,
     # Per-tenant container sandbox (Phase 12 `02` S4) — THE switch (TX-01):
     # company row, then global row, then AI_FLAG_ env, then this default, which
-    # is the deployment's SANDBOX_CONTAINER_RUNTIME_ENABLED. It was declared True
-    # here while the runtime ignored it and ran the host sandbox.
+    # is the deployment's SANDBOX_CONTAINER_RUNTIME_ENABLED (on since TL-01). It
+    # was declared True here while the runtime ignored it and ran the host sandbox.
     "sandbox.container_runtime_enabled": _sandbox_container_default(),
     # Per-tenant persistent browser profile canary (Phase 12 `02` S5). Default
     # OFF (ephemeral context). Resolved per-company and threaded into the tool

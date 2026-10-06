@@ -86,7 +86,7 @@ class ContainerRuntime:
         try:
             name = await self.manager.ensure(self.company_id, network=self.network)
         except SandboxDockerError as exc:
-            return ExecResult(returncode=-1, launch_error=str(exc))
+            return ExecResult(returncode=-1, launch_error=unavailable(exc))
 
         # Host paths in, container paths back out (identity on a Linux host).
         roots = mounted_roots(self.company_id)
@@ -113,7 +113,7 @@ class ContainerRuntime:
             )
         except FileNotFoundError:
             return ExecResult(
-                returncode=-1, launch_error="docker CLI not found on PATH"
+                returncode=-1, launch_error=unavailable("docker CLI not found on PATH")
             )
 
         try:
@@ -203,6 +203,15 @@ class ContainerRuntime:
 
     async def destroy(self) -> None:
         await self.manager.destroy(self.company_id)
+
+
+def unavailable(reason: Any) -> str:
+    """Why a sandbox call was refused, and what decides it (TL-01, D29): the
+    container is the default, and there is no fallback to the host."""
+    return (f"the container sandbox is unavailable on this host: {reason}. Code runs only in the "
+            "company's container (SANDBOX_CONTAINER_RUNTIME_ENABLED is on): start Docker and build "
+            "hb-sandbox (backend/docker/sandbox/build.sh), or, on a development machine, set "
+            "SANDBOX_CONTAINER_RUNTIME_ENABLED=false in .env")
 
 
 def install_browser_runner(company_id: str) -> str:

@@ -327,7 +327,7 @@ evicted.
 
 ### MI-16 — Tool synthesis runs its test harness outside the sandbox
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed as [TL-02](TOOL-LAYER-DEFECTS.md#tl-02--tool-synthesis-executes-generated-code-outside-the-sandbox) (2026-10-06, P11.5)** — the harness runs in the company's workspace and calls `run_with_context`; a synthesized tool is installed once per version and each call execs a driver in the container, which is the default since TL-01 (P11.6).
 
 Recorded in full as
 [TL-02](TOOL-LAYER-DEFECTS.md#tl-02--tool-synthesis-executes-generated-code-outside-the-sandbox).

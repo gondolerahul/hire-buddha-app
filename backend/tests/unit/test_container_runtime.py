@@ -152,7 +152,8 @@ def _runtime_with_ensure(monkeypatch, name: Optional[str] = "hb-sandbox-c1"):
 async def test_exec_ensure_failure_is_launch_error(monkeypatch) -> None:
     rt = _runtime_with_ensure(monkeypatch, name=None)
     res = await rt.exec(["python3", "-c", "print(1)"])
-    assert res.launch_error == "daemon down"
+    assert "daemon down" in res.launch_error
+    assert "SANDBOX_CONTAINER_RUNTIME_ENABLED" in res.launch_error   # what decides it (TL-01)
     assert res.ok is False
 
 
@@ -228,3 +229,28 @@ async def test_exec_wraps_argv_in_timeout(monkeypatch) -> None:
     # cwd threaded as -w; the timeout duration appears as a positional arg.
     assert "-w" in args and "/tmp/sandbox/c1" in args
     assert "7" in args
+
+
+# --------------------------------------------------------------------------
+# the container is the default (TL-01, D29)
+# --------------------------------------------------------------------------
+
+def test_the_container_is_the_deployment_default() -> None:
+    """The host runtime runs model code as the backend's OS user; a safe
+    default must not depend on remembering to set a flag."""
+    from src.common.config import Settings
+
+    assert Settings.model_fields["SANDBOX_CONTAINER_RUNTIME_ENABLED"].default is True
+
+
+@pytest.mark.asyncio
+async def test_without_a_database_or_a_setting_the_container_decides(monkeypatch) -> None:
+    from src.ai.core import feature_flags as ff
+    from src.common import database
+
+    def _no_db():
+        raise OSError("database unavailable")
+
+    monkeypatch.setattr(database, "AsyncSessionLocal", _no_db)
+    monkeypatch.setitem(ff.DEFAULTS, "sandbox.container_runtime_enabled", True)
+    assert isinstance(await resolve_sandbox_runtime({"company_id": "c1"}), ContainerRuntime)

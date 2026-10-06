@@ -112,7 +112,7 @@ LLM-authored code can reach the host. Several are one-line fixes.
 
 ### TL-01 — The default sandbox runs LLM-authored code as the backend OS user
 
-**✅ Verified · Critical** · **Status: partly fixed (2026-10-01, P3.9)** — a container runtime that cannot be built now raises instead of silently running the code on the host, and the switch is one truthful setting (TX-01). Open: the default is still the host runtime — the flip needs the sandbox images and a durable workspace (P11). One face closed in P5.7 (2026-10-02): `sandbox_provision` symlinked the repo's Document Factory scripts into every tenant workspace, so in host mode one tenant's code could rewrite scripts every tenant runs; the symlink is deleted and the scripts are per-tenant skill files.
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.9; 2026-10-06, P11.6)** — a container runtime that cannot be built now raises instead of silently running the code on the host, and the switch is one truthful setting (TX-01) (P3.9). `SANDBOX_CONTAINER_RUNTIME_ENABLED` defaults to **true** (decision D29), after the durable workspace (TL-16), read-only skills and artifacts (TL-17), the drop box (TL-36), per-call networks (TL-15) and the browser in the container (TL-18). A host without Docker or the image refuses sandbox calls with a message naming the setting; a development `.env` opts out deliberately (`.env.example` says how), and the VM setup's next steps build both images. Tests: `tests/unit/test_container_runtime.py` (the default, and the refusal names the setting). One face closed in P5.7 (2026-10-02): `sandbox_provision` symlinked the repo's Document Factory scripts into every tenant workspace, so in host mode one tenant's code could rewrite scripts every tenant runs; the symlink is deleted and the scripts are per-tenant skill files.
 
 `get_sandbox_runtime` returns `SubprocessRuntime` unless
 `SANDBOX_CONTAINER_RUNTIME_ENABLED` or the per-company
@@ -855,7 +855,7 @@ and [TL-30](#4-t2--delete) at the same time.
 
 ### TL-42 — The `terminal` blocklist is a speed bump, not a boundary
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: accepted (2026-10-06, P11.6)** — the condition below is met: the container is the default runtime (TL-01), so the blocklist is a speed bump inside a real boundary. On a development machine that opts out to the host runtime it is still the only thing between a prompt and the host; that opt-out is the developer's own machine.
 
 Thirteen regexes (`rm -rf /`, `mkfs`, `dd of=/dev/`, fork bomb, `shutdown`, `reboot`,
 `halt`, `poweroff`, `init 0`, `init 6`, `> /dev/sd[a-z]`, `chmod 777 /`) cannot

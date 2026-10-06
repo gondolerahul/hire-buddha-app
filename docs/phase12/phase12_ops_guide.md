@@ -58,7 +58,7 @@ Publish the scanned images to your production container registry (e.g., Google A
    ```bash
    export SANDBOX_EGRESS_ALLOWLIST="googleapis.com,google.com" # update with required endpoints
    ```
-2. Flip the feature flag `sandbox.container_runtime_enabled` on a **per-company basis** in the database:
+2. Since TL-01 (2026-10-06) the container runtime is the default (`SANDBOX_CONTAINER_RUNTIME_ENABLED=true`), so there is nothing to turn on: build or pull both images on every worker host before deploying, or sandbox calls are refused. The per-company row below is now how a company is *held back* (`enabled = false`) while a problem is investigated — never a production default. The original canary, for reference — flip the feature flag `sandbox.container_runtime_enabled` on a **per-company basis** in the database:
    ```sql
    INSERT INTO feature_flags (id, company_id, entity_id, flag_key, enabled, created_at, updated_at)
    VALUES (

