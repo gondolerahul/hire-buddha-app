@@ -67,12 +67,33 @@ async def test_proxy_ensure_idempotent_when_running(monkeypatch) -> None:
         if args[:2] == ("network", "inspect"):
             return (0, "", "")  # networks already exist
         if args[:1] == ("inspect",):
-            return (0, "running\n", "")  # proxy already running
+            return (0, f"running {mgr.config_hash}\n", "")  # this proxy, already running
         raise AssertionError(f"unexpected docker call: {args}")
 
     monkeypatch.setattr(mgr, "_docker", fake_docker)
     url = await mgr.ensure()
     assert url.endswith(str(mgr.proxy_port))
+
+
+@pytest.mark.asyncio
+async def test_a_running_proxy_with_another_configuration_is_replaced(monkeypatch) -> None:
+    """A changed allow-list never reached a proxy that was already running: a
+    running container of that name was reused whatever it was."""
+    old = EgressProxyManager(allowlist="googleapis.com")
+    mgr = EgressProxyManager(allowlist="example.com")
+    assert old.config_hash != mgr.config_hash
+    rec = _DockerRecorder()
+
+    async def fake_docker(*args, timeout=60.0, check=True):
+        if args[:1] == ("inspect",):
+            return (0, f"running {old.config_hash}\n", "")
+        return await rec(*args, timeout=timeout, check=check)
+
+    monkeypatch.setattr(mgr, "_docker", fake_docker)
+    await mgr.ensure()
+    assert rec.find("rm", "-f", "hb-egress-proxy")
+    run = rec.find("run", "hb-egress-proxy")[0]
+    assert f"hb-egress-config={mgr.config_hash}" in run and "ALLOWLIST=example.com" in run
 
 
 def test_container_name_egress_suffix() -> None:

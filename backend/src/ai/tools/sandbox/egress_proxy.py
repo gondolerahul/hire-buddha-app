@@ -29,6 +29,7 @@ Idempotent + docker-CLI-only, mirroring ``TenantSandboxManager``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import Optional, Tuple
 
@@ -38,6 +39,9 @@ from src.common.config import settings
 logger = logging.getLogger(__name__)
 
 _LABEL = "hb-egress"
+# The proxy's configuration, as a label: a running proxy whose label differs
+# (another allow-list, image, network or port) is replaced, not reused.
+_CONFIG_LABEL = "hb-egress-config"
 # The proxy container per mode.
 _MODES = {"allowlist": "hb-egress-proxy", "web": "hb-egress-web"}
 
@@ -66,6 +70,13 @@ class EgressProxyManager:
         self.uplink_network = uplink_network or settings.SANDBOX_EGRESS_UPLINK_NETWORK
         self.proxy_port = proxy_port or settings.SANDBOX_EGRESS_PROXY_PORT
         self.allowlist = allowlist or settings.SANDBOX_EGRESS_ALLOWLIST
+
+    @property
+    def config_hash(self) -> str:
+        """What this proxy is: mode, image, networks, port and allow-list."""
+        parts = (self.mode, self.proxy_image, self.internal_network, self.uplink_network,
+                 str(self.proxy_port), self.allowlist if self.mode == "allowlist" else "")
+        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
     @property
     def proxy_url(self) -> str:
@@ -114,13 +125,16 @@ class EgressProxyManager:
         await self._docker(*args)
         logger.info("created egress network %s (internal=%s)", name, internal)
 
-    async def _proxy_status(self) -> Optional[str]:
+    async def _proxy_status(self) -> Tuple[Optional[str], str]:
+        """The proxy container's state and configuration label, or ``(None, "")``."""
         rc, out, _ = await self._docker(
-            "inspect", "-f", "{{.State.Status}}", self.name, check=False
+            "inspect", "-f", f'{{{{.State.Status}}}} {{{{index .Config.Labels "{_CONFIG_LABEL}"}}}}',
+            self.name, check=False,
         )
-        if rc != 0:
-            return None
-        return out.strip() or None
+        if rc != 0 or not out.strip():
+            return None, ""
+        status, _, config = out.strip().partition(" ")
+        return status, config.strip()
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -136,13 +150,18 @@ class EgressProxyManager:
             await self._ensure_network(self.uplink_network, internal=False)
             await self._ensure_network(self.internal_network, internal=True)
 
-            status = await self._proxy_status()
-            if status == "running":
-                return self.proxy_url
-            if status == "paused":
-                await self._docker("unpause", self.name)
-                return self.proxy_url
-            # Any other state (exited/created/dead/restarting/None-but-present)
+            status, config = await self._proxy_status()
+            if config == self.config_hash:
+                if status == "running":
+                    return self.proxy_url
+                if status == "paused":
+                    await self._docker("unpause", self.name)
+                    return self.proxy_url
+            elif status is not None:
+                # It used to be reused whatever it was: a changed allow-list
+                # never reached a proxy that was already running.
+                logger.info("replacing egress proxy %s: its configuration changed", self.name)
+            # Any other state (exited/created/dead/restarting/another config)
             # → remove and recreate clean. rm is a no-op if it's truly absent.
             await self._docker("rm", "-f", self.name, check=False)
 
@@ -160,6 +179,7 @@ class EgressProxyManager:
                 "run", "-d",
                 "--name", self.name,
                 "--label", f"{_LABEL}=1",
+                "--label", f"{_CONFIG_LABEL}={self.config_hash}",
                 "--restart", "unless-stopped",
                 "--network", self.uplink_network,
                 "--cap-drop", "ALL",
