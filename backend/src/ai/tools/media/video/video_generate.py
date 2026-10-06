@@ -42,6 +42,22 @@ _MIME_BY_EXT = {
 }
 
 
+async def person_generation(company_id: Any) -> str:
+    """Whom a company's videos may depict: ``allow_adult`` unless the company
+    turned on ``tools.video.people_of_all_ages`` (TL-46)."""
+    from uuid import UUID
+
+    from src.ai.core.feature_flags import FeatureFlags
+    from src.common.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            on = await FeatureFlags(db).is_on("tools.video.people_of_all_ages", company_id=UUID(str(company_id)))
+    except Exception:  # noqa: BLE001 - the stricter policy when the flag cannot be read
+        on = False
+    return "allow_all" if on else "allow_adult"
+
+
 class VideoGenerateTool(Tool):
     """Generate a single AI video segment from a text prompt (+ optional frames)."""
     timeout_seconds = 600  # per call (EP-08)
@@ -160,6 +176,7 @@ class VideoGenerateTool(Tool):
             from src.common.genai_factory import build_vertex_genai_client_sync
 
             client = build_vertex_genai_client_sync(service_metadata)
+            people = await person_generation(company_id)
             output_path = os.path.join(
                 company_video_dir(company_id), f"clip_{uuid.uuid4().hex[:8]}.mp4"
             )
@@ -172,6 +189,7 @@ class VideoGenerateTool(Tool):
                 end_frame_path=end_frame_path,
                 output_path=output_path,
                 generate_audio=bool(is_audio_required),
+                person_generation=people,
             )
 
             artifact = await register_video_artifact(
@@ -189,6 +207,7 @@ class VideoGenerateTool(Tool):
                     "artifact_id": str(artifact.id),
                     "duration_seconds": duration,
                     "has_audio": is_audio_required,
+                    "person_generation": people,
                 }
             )
         except TimeoutError as exc:
@@ -209,12 +228,14 @@ class VideoGenerateTool(Tool):
         end_frame_path: Optional[str] = None,
         output_path: str,
         generate_audio: bool = True,
+        person_generation: str = "allow_adult",
     ) -> str:
         """Generate one clip and save it to ``output_path`` (returns the path)."""
         config = types.GenerateVideosConfig(
             number_of_videos=1,
             duration_seconds=str(duration),  # type: ignore[arg-type]  # Veo API accepts str
-            person_generation="allow_all",
+            # The company's policy (TL-46); it was "allow_all" for everyone.
+            person_generation=person_generation,
             # The option the call asked for, so ``has_audio`` in the result is
             # what was requested of Veo; it used to be reported, never sent (TL-46).
             generate_audio=generate_audio,

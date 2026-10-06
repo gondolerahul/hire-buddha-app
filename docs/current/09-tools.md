@@ -888,6 +888,12 @@ now a plan of several `video_generate` calls joined by `video_edit`. `MAX_SEGMEN
 ([_support.py:24](../../backend/src/ai/tools/media/video/_support.py:24)) and
 `calculate_segments` picks the largest legal segment sizes (8, 6, 5, 4).
 
+Whom a clip may depict is the company's policy (TL-46, 2026-10-06): Veo's
+`person_generation` is `allow_adult` — Veo's own default, allowed in every region — unless
+the company turns on the `tools.video.people_of_all_ages` flag, which sends `allow_all`
+(minors included; restricted in some regions). It used to be `allow_all` for everyone. The
+result reports the policy it was generated under; an unreadable flag means the stricter one.
+
 All ffmpeg work goes through
 [`_ffmpeg.run_ffmpeg`](../../backend/src/ai/tools/media/video/_ffmpeg.py), which
 calls `run_sandbox_exec` — so ffmpeg runs in the tenant container when the

@@ -927,7 +927,7 @@ As written, every Reel publish races the encoder.
 
 ### TL-46 — `video_generate` ignores `is_audio_required` and reports it back
 
-**✅ Verified · Medium** · **Status: partly fixed (2026-10-02, P6.6)** — `is_audio_required` is sent to Veo as `generate_audio`, so `has_audio` reports what was asked; `person_generation` is still hardcoded. The artifact's run and agent ids are fixed in P6.7 (TL-59): the video tools register through `save_tool_output` with the call's context. `tests/unit/test_social_operations.py`.
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.6; 2026-10-06)** — `is_audio_required` is sent to Veo as `generate_audio`, so `has_audio` reports what was asked (P6.6). `person_generation` is the company's policy: `allow_adult` (Veo's default) unless the company turns on `tools.video.people_of_all_ages`, which sends `allow_all`; an unreadable flag means the stricter policy, and the result reports it (`test_whom_a_video_may_depict_is_the_companys_policy`). The artifact's run and agent ids are fixed in P6.7 (TL-59): the video tools register through `save_tool_output` with the call's context. `tests/unit/test_social_operations.py`.
 
 The parameter is parsed, never passed to `GenerateVideosConfig`, and then returned in
 the result as `"has_audio": is_audio_required` — so the model is told a setting was

@@ -94,6 +94,11 @@ DEFAULTS: dict[str, bool] = {
     # context as ``persistent_browser``; master is
     # settings.SANDBOX_PERSISTENT_BROWSER_ENABLED.
     "sandbox.persistent_browser_enabled": False,
+    # Whom video_generate may depict (TL-46): off sends Veo
+    # person_generation="allow_adult" (Veo's own default, allowed everywhere);
+    # a company that turns this on gets "allow_all", which includes minors and
+    # is restricted in some regions. It was hardcoded "allow_all" for everyone.
+    "tools.video.people_of_all_ages": False,
     # Memory v2 canonicalisation defaults.
     "memory.v2_canonical": True,
     "memory.viewport_compact": True,

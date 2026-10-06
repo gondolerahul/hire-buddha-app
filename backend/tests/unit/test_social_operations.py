@@ -165,3 +165,42 @@ async def test_video_generate_sends_the_audio_option_it_reports():
         await VideoGenerateTool()._generate_single_video(
             client=client, model_name="veo", prompt="p", duration=4, output_path="x.mp4", generate_audio=False)
     assert seen["config"].generate_audio is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("on, people", [(False, "allow_adult"), (True, "allow_all")])
+async def test_whom_a_video_may_depict_is_the_companys_policy(monkeypatch, on, people):
+    """TL-46: person_generation was "allow_all" for every company."""
+    from src.ai.core.feature_flags import FeatureFlags
+    from src.ai.tools.media.video import video_generate as vg
+    seen = {}
+
+    async def _is_on(self, key, *, company_id=None, **_kw):
+        seen["key"] = key
+        return on
+
+    def _generate(**kw):
+        seen["config"] = kw["config"]
+        raise RuntimeError("stop after the request")
+
+    monkeypatch.setattr(FeatureFlags, "is_on", _is_on)
+    policy = await vg.person_generation(CTX["company_id"])
+    assert seen["key"] == "tools.video.people_of_all_ages" and policy == people
+    client = SimpleNamespace(models=SimpleNamespace(generate_videos=_generate))
+    with pytest.raises(RuntimeError):
+        await vg.VideoGenerateTool()._generate_single_video(
+            client=client, model_name="veo", prompt="p", duration=4, output_path="x.mp4",
+            person_generation=policy)
+    assert seen["config"].person_generation == people
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_policy_is_the_stricter_one(monkeypatch):
+    from src.ai.core.feature_flags import FeatureFlags
+    from src.ai.tools.media.video import video_generate as vg
+
+    async def _broken(self, *_a, **_kw):
+        raise OSError("database unavailable")
+
+    monkeypatch.setattr(FeatureFlags, "is_on", _broken)
+    assert await vg.person_generation(CTX["company_id"]) == "allow_adult"
