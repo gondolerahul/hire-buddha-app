@@ -324,12 +324,16 @@ class VideoSession:
                     user_prompt="Describe this frame.",
                     attachments=[Attachment(mime_type="image/jpeg", data=jpeg_bytes)],
                 )
-                # Billed to the call's run; it used to be free (LP-26).
-                await self.spend.record(db, resp, attribution="video_frame",
-                                        system_prompt=system_prompt, user_prompt="Describe this frame.")
                 if resp.output:
                     self.vision_context = resp.output[:500]  # Cap to 500 chars
                     logger.debug(f"[VideoSession] Vision context updated: {self.vision_context[:100]}...")
+                # Billed to the call's run; it used to be free (LP-26). A
+                # billing failure is logged, and never costs the call its context.
+                try:
+                    await self.spend.record(db, resp, attribution="video_frame",
+                                            system_prompt=system_prompt, user_prompt="Describe this frame.")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"[VideoSession] Could not bill a frame description: {exc}")
         except Exception as exc:
             logger.debug(f"[VideoSession] Vision analysis error: {exc}")
 

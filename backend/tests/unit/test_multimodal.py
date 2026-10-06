@@ -116,8 +116,15 @@ async def test_the_video_gateway_sends_the_frame_as_an_image(monkeypatch):
 
     monkeypatch.setattr("src.ai.llm.router.LLMRouter", _Router)
     monkeypatch.setattr("src.common.database.AsyncSessionLocal", lambda: _Session())
-    session = SimpleNamespace(agent_info={"company_id": str(uuid.uuid4())}, vision_context="")
+    billed = []
+
+    class _Spend:
+        async def record(self, db, response, **kw):
+            billed.append((response.output, kw["attribution"]))
+
+    session = SimpleNamespace(agent_info={"company_id": str(uuid.uuid4())}, vision_context="", spend=_Spend())
     await video_gateway.VideoSession._analyze_video_frame(session, JPEG)
+    assert billed == [("One person, smiling.", "video_frame")]          # LP-26
 
     (call,) = calls
     assert call["task_type"] == "vision"
