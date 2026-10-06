@@ -86,7 +86,9 @@ export type CostAttribution =
     | 'child_run'
     | 'embedding'
     | 'meta_spec_critic'
-    | 'test_driver';
+    | 'test_driver'
+    | 'sandbox'
+    | 'video_frame';
 
 export type ToolStatus = 'ACTIVE' | 'EXPERIMENTAL' | 'DEPRECATED';
 

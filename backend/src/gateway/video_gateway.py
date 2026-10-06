@@ -101,6 +101,11 @@ class VideoSession:
         self._ai_audio_task: Optional[asyncio.Task] = None
         self._frame_sample_task: Optional[asyncio.Task] = None
         self.vision_context: str = ""        # Latest visual context from the AI vision model
+        # The run the frame descriptions are billed to (LP-26).
+        from src.gateway.call_spend import CallSpend
+        self.spend = CallSpend(company_id=agent_info["company_id"], agent_id=agent_info["agent_id"],
+                               channel="video", session_id=session_id)
+        self._frame_tasks: Set[asyncio.Task] = set()
         self.audio_track = None
         self.video_track = None
 
@@ -280,10 +285,11 @@ class VideoSession:
                     img.save(buf, format="JPEG", quality=60)
                     jpeg_bytes = buf.getvalue()
 
-                    # Send to vision model asynchronously
-                    asyncio.create_task(
-                        self._analyze_video_frame(jpeg_bytes)
-                    )
+                    # Send to vision model asynchronously; kept, so the call's
+                    # end waits for it before settling what it cost (LP-26).
+                    task = asyncio.create_task(self._analyze_video_frame(jpeg_bytes))
+                    self._frame_tasks.add(task)
+                    task.add_done_callback(self._frame_tasks.discard)
                 except Exception as exc:
                     logger.debug(f"[VideoSession] Frame processing error: {exc}")
 
@@ -304,19 +310,23 @@ class VideoSession:
             from src.ai.llm.types import Attachment
             from uuid import UUID
 
+            system_prompt = (
+                "You are analyzing a video frame from a live video call. "
+                "Describe what you see briefly (2-3 sentences): "
+                "who is present, their apparent emotion/mood, and any relevant visual context."
+            )
             async with AsyncSessionLocal() as db:
                 router = LLMRouter(db=db, company_id=UUID(self.agent_info["company_id"]))
                 # The frame is an image part, not base64 text in the prompt (LP-24).
                 resp = await router.call_llm(
                     task_type="vision",
-                    system_prompt=(
-                        "You are analyzing a video frame from a live video call. "
-                        "Describe what you see briefly (2-3 sentences): "
-                        "who is present, their apparent emotion/mood, and any relevant visual context."
-                    ),
+                    system_prompt=system_prompt,
                     user_prompt="Describe this frame.",
                     attachments=[Attachment(mime_type="image/jpeg", data=jpeg_bytes)],
                 )
+                # Billed to the call's run; it used to be free (LP-26).
+                await self.spend.record(db, resp, attribution="video_frame",
+                                        system_prompt=system_prompt, user_prompt="Describe this frame.")
                 if resp.output:
                     self.vision_context = resp.output[:500]  # Cap to 500 chars
                     logger.debug(f"[VideoSession] Vision context updated: {self.vision_context[:100]}...")
@@ -324,7 +334,7 @@ class VideoSession:
             logger.debug(f"[VideoSession] Vision analysis error: {exc}")
 
     async def close(self) -> None:
-        """Gracefully close the session."""
+        """Gracefully close the session, and settle what its model calls cost."""
         self.is_running = False
         if self._ai_audio_task:
             self._ai_audio_task.cancel()
@@ -332,6 +342,15 @@ class VideoSession:
             self._frame_sample_task.cancel()
         if self.pc:
             await self.pc.close()
+        if self._frame_tasks:
+            await asyncio.wait(set(self._frame_tasks), timeout=30)
+        try:
+            from src.common.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as db:
+                await self.spend.finish(db)
+        except Exception as exc:  # noqa: BLE001 - a billing hiccup must not break teardown
+            logger.warning(f"[VideoSession] Could not settle the call's model use: {exc}")
 
 
 # ===========================================================================

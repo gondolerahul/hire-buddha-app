@@ -803,7 +803,7 @@ Interface 5, `WS /stream/video`, is a WebRTC signalling channel:
 | SDP offer → answer | Implemented (`setRemoteDescription`, `createAnswer`, `setLocalDescription`) |
 | Client → server ICE candidates | Implemented, via `RTCIceCandidate(...)` built from the candidate string |
 | Server → client ICE candidates | Registered on a `pc.on("icecandidate")` handler. aiortc does not emit trickle-ICE events, so this almost certainly never fires. |
-| Video frame sampling → vision model → `vision_context` | Implemented (5 s interval, JPEG q60, capped at 500 chars) |
+| Video frame sampling → vision model → `vision_context` | Implemented (5 s interval, JPEG q60, capped at 500 chars). Billed since LP-26 (2026-10-06): the first description opens a run for the call (its agent, channel `video`), each writes `video_frame` usage and interaction rows against it, and the call's end waits for in-flight descriptions (up to 30 s), closes the run with the sum of its rows and settles it like any top-level run ([`call_spend.py`](../../backend/src/gateway/call_spend.py)). Before, every description was free |
 | Audio track → AI live client | **Broken.** See below. |
 | AI audio → client | Sent as binary WS frames, not as an RTP track back into the peer connection |
 | Zoom / Teams bot | Not in this repo. The docstring documents the contract for a bot you would have to build. |

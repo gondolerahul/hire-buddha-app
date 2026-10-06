@@ -29,6 +29,8 @@ const _ATTRIBUTION_COLORS: Record<string, string> = {
     embedding:        '#888',
     meta_spec_critic: '#a06fff',
     test_driver:      '#d80',
+    sandbox:          '#0aa',
+    video_frame:      '#2a8',
 };
 
 export const CostAttributionDashboard: React.FC = () => {

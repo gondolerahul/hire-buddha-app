@@ -42,6 +42,7 @@ class CostAttribution(str, Enum):
     META_SPEC_CRITIC = "meta_spec_critic"
     TEST_DRIVER      = "test_driver"
     SANDBOX          = "sandbox"
+    VIDEO_FRAME      = "video_frame"   # a live video call's frame descriptions (LP-26)
 
 
 VALID_ATTRIBUTIONS: set[str] = {a.value for a in CostAttribution}

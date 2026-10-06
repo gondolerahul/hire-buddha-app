@@ -283,7 +283,7 @@ The thinking tokens are billed since
 
 ### LP-26 — A video call's frame analysis is never billed
 
-**✅ Verified · Medium** · **Status: open** — found 2026-10-03 while fixing LP-24.
+**✅ Verified · Medium** · **Status: fixed (2026-10-06)** — found 2026-10-03 while fixing LP-24. `gateway/call_spend.py`: the first frame description opens a run for the call (its agent, channel `video`), every description writes its usage rows (attribution `video_frame`) and interaction row against it, and the call's end waits for in-flight descriptions, closes the run with the sum of its rows and settles it (TB formula, credits). Test: `tests/integration/test_video_frame_billing.py`.
 
 `VideoSession._analyze_video_frame` calls the `vision` model every few seconds of a live
 video call and writes no `usage_logs` row: there is no run to attribute it to, and the
