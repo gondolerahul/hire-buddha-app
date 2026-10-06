@@ -52,12 +52,25 @@
 > per-tool timeouts, one healing ladder, a fallback chain, dependencies inside the context
 > policy, no Perceiver, every executor on its own session, an adaptive iteration cap, plan
 > costing against the entity's cap, batched SSE, typed step signals, outputs stored once).
-> Decisions D19–D23. **Next is P9** (LLM providers) per the plan. On this machine the DB is
-> at `p7_drop_source_trust` and both workers run the P8 code. **Vertex ADC is expired** — run `gcloud auth application-default login` before
-> any live run (the PC-27 live re-run is pending). Run unit tests with `PYTHONUTF8=1` or the
-> layout-lint test fails on a cp1252 decode. Unit baseline: **4** known failures (the
-> Windows sandbox tests); integration: the 2 known `test_cost_attribution` failures. New
-> entries: **TL-68** (P3), **PC-27** (P4, fixed), **PO-23** (P5, open), **FE-32** (P6, open).
+> Decisions D19–D23. **P9 is done** (LLM providers, `ad3cea6` … `ffb3975`, D24–D26), **P10 is
+> done** (meta-intelligence, `b7644b7` … `e14bdd0`, D27–D28) and **P11 is done** (sandbox
+> hardening, `dd270b5` … `8149a15`, D29): durable workspaces, read-only skills and artifacts,
+> the drop box, a network policy per call (`none`/`allowlist`/`web`), Chromium inside the
+> container behind a proxy that refuses internal addresses, synthesized tools installed once
+> and called with their context, and **the container is the default runtime**. The plan's
+> remainders are fixed too (2026-10-06): TL-38 cursor input, TL-46 `person_generation`,
+> LP-26 video frame billing, FE-32 run files on the agent-loop page. **The consolidated plan
+> is complete**; what stays open is outside it: **PO-23** (register 01), the D16 census (23
+> tools on the adapter, a list that may only shrink), and live LLM verification. On this
+> machine the DB is at `p9_task_fallback`. **Since TL-01 a sandbox call needs Docker Desktop
+> running and both images built** (`backend/docker/sandbox/build.sh`,
+> `backend/docker/egress-proxy/build.sh`); `.env` does not opt out — set
+> `SANDBOX_CONTAINER_RUNTIME_ENABLED=false` there to use the host runtime. **Vertex ADC is
+> expired** — run `gcloud auth application-default login` before any live run (live re-runs
+> since P7 are pending). Run unit tests with `PYTHONUTF8=1` or the layout-lint test fails on
+> a cp1252 decode. Unit baseline: **4** known failures (the Windows sandbox tests);
+> integration: the 2 known `test_cost_attribution` failures. New entries: **TL-68** (P3),
+> **PC-27** (P4, fixed), **PO-23** (P5, open), **FE-32** (P6, fixed), **LP-26** (P9, fixed).
 
 ---
 

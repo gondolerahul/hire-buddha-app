@@ -288,7 +288,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-27** | TX-I3 | `templates/docx/*.docx` — no code reference | — | ✅ | P0 |
 | **TL-22** | — | The MCP package has no transport, no config and no caller | Medium | ✅ | P0 (delete) |
 | **TL-40** | — | Eight platforms cannot refresh tokens; three platform lists disagree (PO-07) | Medium | ✔ | P6 |
-| **TL-43…TL-49** | — | Seven social integrations report false success (upload never uploads, publish never polls, …) | High | ✔ (TL-46 in part) | P6 |
+| **TL-43…TL-49** | — | Seven social integrations report false success (upload never uploads, publish never polls, …) | High | ✔ (TL-46's `person_generation` remainder 2026-10-06) | P6 |
 
 ### WS-E — Tools: one execution path
 
@@ -297,7 +297,7 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TL-41** | TX-I2, TL-30 | Four dispatch paths; the typed one falls back silently; two `ToolResult` classes | Medium | ✅ | P6 |
 | **TL-59** | EP-21, EP-I5 | Tool outputs written twice and orphaned from their run; the run page finds artifacts by regex | Medium | ✅ | P6 |
 | **TL-37** | TX-I5 | Social base never retries 429/5xx | Medium | ✔ | P6 |
-| **TL-38** | TX-I6 | No pagination in any social list call | Medium | ✔ | P6 |
+| **TL-38** | TX-I6 | No pagination in any social list call | Medium | ✔ (cursor input 2026-10-06) | P6 |
 | **TL-39** | TX-I7, EP-14 | No idempotency on any write tool; `tool_interaction_logs.idempotency_key` is dead | Medium | ✔ | P6 |
 | **TL-31** | — | `_ffmpeg.trim_clip`'s accurate fallback raises `ValueError` | Medium | ✔ | P6 |
 | **TL-32** | TX-I10, TL-57 | Blocking SDK / `imaplib` / `smtplib` calls on the event loop | Medium | ✔ | P6 |
@@ -337,9 +337,9 @@ Severity is the highest any merged entry gave. **Phase** is where the plan in §
 | **TX-02** | TX-I4 | Tool instances are process-wide singletons | High | ✅ | P3 |
 | **TX-04** | MI-13 | `meta_spec_critic` is a `Tool` outside the registry | Low | 📄 | P3 |
 | **TL-06** | — | Registry read endpoints returned every tenant's rows | Critical | ✔ (DM-08, `d7fd9ac`) — the list route still returns `configuration` (synthesized source) to anyone who can see the row; closed in P3 | P3 |
-| **TX-01** | — | The per-company container-sandbox flag says on; the runtime runs off | Critical | 🔁 | P3 (one switch) |
-| **TL-01** | — | The default sandbox runs LLM code as the backend user; a Docker failure silently downgrades | Critical | ✅ | P3 (loud failure) / P11 (default flip) |
-| **TL-02** | MI-16 | Tool synthesis runs its harness outside the sandbox | Critical | ✅ | P3 (workdir) / P11 |
+| **TX-01** | — | The per-company container-sandbox flag says on; the runtime runs off | Critical | ✔ | P3 (one switch) |
+| **TL-01** | — | The default sandbox runs LLM code as the backend user; a Docker failure silently downgrades | Critical | ✔ | P3 (loud failure) / P11 (default flip) |
+| **TL-02** | MI-16 | Tool synthesis runs its harness outside the sandbox | Critical | ✔ | P3 (workdir) / P11 |
 | **TL-09** | — | Subject data (recipient, lead, ad account, attachment) is model-chosen | Critical | ✅ | P6 (✔ `85125a6`) |
 
 ### WS-G — Self-correction that corrects
@@ -1528,3 +1528,16 @@ Updated as each fix lands. Columns: phase · ids · commit · evidence.
 | P10.9 | MI-11 | `e14bdd0` | Docs |
 | **P10 done** | MI-01…MI-03, MI-09, MI-11, MI-15, MI-17, MI-19, MI-20, MI-I1…MI-I10, TL-28 (MI-04…MI-08, MI-18 invalid or moot) | — | Unit, integration and parity 2126 passed + the known chaos failure; typecheck and layout lint pass. MI-16 (TL-02) is P11 |
 | — | P11 detailed design | — | Written into §8 P11 before P11.1; decision D29. Both images build here (`hb-sandbox:local` 3.1 GB, `hb-egress-proxy:local`) |
+| P11.1 | TL-16, TL-17 | `dd270b5` | `test_workspace_roots.py`; against the real `hb-sandbox:local` image, 7 Docker tests (same files on both sides, skill files read-only, artifacts readable not writable, default-deny network, in-container timeout, lifecycle). Windows hosts mount under `/host/<drive>/…` and paths are translated |
+| P11.2 | TL-36 | `411730c`, `4ae4282` | `test_drop_box.py`; in the real container a terminal command's file in `$ARTIFACTS_DIR` is kept and one in the workspace is not. The follow-up fixes a test stand-in the P11.2 gate (drop-box tests only) missed |
+| P11.3–11.4 | TL-15, TL-18 | `ab37ea6` | `test_sandbox_network.py` (7 of 9 fail on the old code), `test_browser_in_container.py`; against the real images: an `allowlist` call reaches only its hosts and has no direct route; Chromium in the `web` container loads example.com and keeps its screenshot, and is refused the metadata address, an internal container and `localhost`. **Found:** the proxy image built on Windows never started (CRLF `entrypoint.sh`; `.gitattributes` added); the sandbox image lacked the Python `playwright` package; every browser step with a `url` but `navigate` raised `NameError`; `SANDBOX_EGRESS_PROXY_ENABLED` had no reader (deleted). 11.3 and 11.4 share one commit: both change how a call's network reaches its container |
+| P11.5 | TL-02, MI-16 | `3d559c9` | `test_synthesized_tool_calls.py` (4 of 8 fail on the old code); in the real container a synthesized tool's call runs as uid 10001 and sees the run id |
+| P11 gate | TL-15 | `687a50e` | Found by the integration gate: a running egress proxy was reused whatever its allow-list, so a changed `SANDBOX_EGRESS_ALLOWLIST` never applied. The proxy carries a configuration label and is replaced when it differs |
+| P11.6 | TL-01, TL-42 (D29) | `8149a15` | `test_container_runtime.py`: the container is the default and the refusal names the setting. `.env.example` shows the development opt-out; the VM setup builds both images |
+| **P11 done** | TL-01, TL-02, TL-15, TL-16, TL-17, TL-18, TL-36, TL-42, MI-16 | — | Unit 1807 + the 4 known Windows sandbox failures; integration and parity 371 + the 2 known `test_cost_attribution` failures (see the closing row for the final gates); Docker tests 14 against `hb-sandbox:local` and `hb-egress-proxy:local`; typecheck and layout lint pass. The sandbox default is the container: this machine's `.env` does not opt out, so local workers need Docker Desktop running and both images built |
+| Remainders | TL-46 | `5038e87` | `person_generation` is the company's policy (`tools.video.people_of_all_ages`, default `allow_adult`) |
+| Remainders | TL-38 | `5fb1a1b` | A list's `next_page` goes back as `payload.page` and is applied to the request it came from (`test_social_resilience.py`) |
+| Remainders | LP-26 | `639f2ae` | A video call's frame descriptions are on a run and settled at the call's end (`test_video_frame_billing.py`, Postgres) |
+| Remainders | FE-32 | `13b0d75` | The agent-loop run page lists the run's files (`RunFiles.test.tsx`; checked in the browser) |
+| Remainders | LP-26 | `ae5eb8b` | Found by the final gate: a billing error also dropped the frame's description; the context is set first and billing has its own guard |
+| **Plan done** | P0–P11 and the remainders | — | Final gates on this machine: unit and ai 1817 + the 4 known Windows sandbox failures; integration and parity 375 + the 2 known `test_cost_attribution` failures (one earlier run also lost `test_egress_proxy_docker`'s allow-listed fetch of example.com to the network; it passed alone, with the container tests twice, and in the next full run); 14 Docker tests against the real images; typecheck, layout lint, `tsc`, eslint and vitest pass. **Open outside the plan:** PO-23 (register 01); the D16 census (23 tools on the adapter). **Not live-verified with an LLM:** Vertex ADC is expired |
