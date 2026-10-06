@@ -1,35 +1,18 @@
 """
 HeadlessBrowserTool — Headless browser interaction for AI agents.
 
-Uses Playwright (Chromium) to provide full browser capabilities including
-JavaScript rendering, clicking, typing, screenshots, and text extraction.
+One call is one Chromium session: the model gives ``steps`` (navigate, click,
+type, screenshot, get_text, evaluate), run in order on one page. The steps are
+a request the sandbox runtime runs with
+:mod:`~src.ai.tools.sandbox.browser_runner` (TL-18): inside the company's
+``web`` container under the container runtime — its only way out the egress
+proxy that refuses private addresses — or in-process behind the host's SSRF
+guard. Screenshots go to the call's drop box and are kept as the run's
+artifacts (TL-36).
 
-Safety features:
-  - Hard timeout per action (default 30s, max 120s)
-  - Output capped at 16384 characters for text responses
-  - Browser context is ephemeral (no persistent cookies/state)
-  - URL validation (blocks file://, javascript:, data: protocols)
-
-Input schema (JSON string):
-    {
-        "action":     "navigate|click|type|screenshot|get_text|evaluate",
-        "url":        "https://example.com",    # required for navigate
-        "selector":   "#login-button",           # required for click/type/get_text on element
-        "text":       "hello",                   # required for type
-        "javascript": "document.title",          # required for evaluate
-        "timeout_ms": 30000,                     # optional, max 120000
-        "wait_for":   "networkidle"              # optional: load|domcontentloaded|networkidle
-    }
-
-Output (JSON string):
-    {
-        "status":  "success",
-        "action":  "navigate",
-        "url":     "https://example.com",
-        "title":   "Example Domain",
-        "content": "... page text ...",
-        "screenshot_path": "/path/to/screenshot.png"  # only for screenshot action
-    }
+Output (JSON string): ``status``, ``steps`` (each step's result), the last
+``url`` and ``title``, ``error`` naming the first step that failed, and
+``blocked_requests`` the host guard refused.
 """
 from __future__ import annotations
 
@@ -43,50 +26,8 @@ from src.ai.tools.base import Tool, ToolOutput, ToolParams
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Safety constants
-# ---------------------------------------------------------------------------
-_MAX_OUTPUT_CHARS = 16384
 _DEFAULT_TIMEOUT_MS = 30000
 _MAX_TIMEOUT_MS = 120000
-
-
-_VALID_WAIT_UNTIL = {"load", "domcontentloaded", "networkidle", "commit"}
-
-
-async def guard_requests(page: Any) -> list[str]:
-    """Check every request the page makes against the SSRF guard (TL-08).
-
-    Navigation, redirects, frames, subresources and script-driven requests all
-    pass through Playwright's router, so ``evaluate`` cannot reach an internal
-    host either. Returns the list the refused URLs are appended to.
-    """
-    from src.common.net_guard import BlockedURL, check_url
-
-    refused: list[str] = []
-    verdicts: dict[str, bool] = {}  # per host, for the life of the session
-
-    async def _route(route: Any) -> None:
-        url = route.request.url
-        if url.startswith(("data:", "blob:", "about:")):  # in-page, no network
-            await route.continue_()
-            return
-        from urllib.parse import urlsplit
-        key = urlsplit(url).netloc.lower()
-        if key not in verdicts:
-            try:
-                await check_url(url)
-                verdicts[key] = True
-            except BlockedURL:
-                verdicts[key] = False
-        if verdicts[key]:
-            await route.continue_()
-        else:
-            refused.append(url)
-            await route.abort("blockedbyclient")
-
-    await page.route("**/*", _route)
-    return refused
 
 
 class BrowserStep(ToolParams):
@@ -123,13 +64,9 @@ class HeadlessBrowserParams(ToolParams):
 
 
 class HeadlessBrowserTool(Tool):
-    """
-    Interact with web pages using a headless Chromium browser.
-
-    Supports navigation, clicking, typing, screenshots, text extraction,
-    and JavaScript evaluation. Each invocation creates an isolated browser
-    context that is automatically destroyed after execution.
-    """
+    """Interact with web pages using a headless Chromium browser: one session
+    per call, the steps in order, nothing kept between calls (unless the
+    company keeps a browser profile, S5)."""
     timeout_seconds = 180  # per call (EP-08)
 
     name = "headless_browser"
@@ -138,7 +75,8 @@ class HeadlessBrowserTool(Tool):
         "Interact with web pages using a headless browser (Chromium). Each call is one "
         "browser session: give the actions as 'steps', run in order on one page "
         "(navigate, click, type, screenshot, get_text, evaluate), so a login and a read "
-        "happen in one call. Nothing is kept between calls. Returns JSON with each step's result."
+        "happen in one call. Nothing is kept between calls. Returns JSON with each step's result; "
+        "a screenshot is kept as a file of the run."
     )
     Params = HeadlessBrowserParams
 
@@ -157,38 +95,30 @@ class HeadlessBrowserTool(Tool):
         return ToolOutput(output=json.dumps(result))
 
     async def _run_session(self, params: "HeadlessBrowserParams", context: Dict[str, Any]) -> Dict[str, Any]:
-        """One browser session: the steps in order on one page (TL-62).
-
-        The runtime owns the browser's lifecycle; nothing outlives the call.
-        Stops at the first step that fails.
-        """
+        """One browser session, run by the runtime the company's switch picks;
+        stops at the first step that fails."""
         import time as _time
 
+        from src.ai.tools.sandbox.drop_box import drop_box
         from src.ai.tools.sandbox.runtime import (
             resolve_persistent_browser_dir,
             resolve_sandbox_runtime,
         )
 
         runtime = await resolve_sandbox_runtime(context)
-        user_data_dir = await resolve_persistent_browser_dir(context)
-        timeout_ms = params.timeout_ms
         steps = [step.model_dump(exclude_none=True) for step in params.steps]
         if params.url:
             steps.insert(0, {"action": "navigate", "url": params.url})
-        done: list[Dict[str, Any]] = []
-        refused: list[str] = []
+        request: Dict[str, Any] = {
+            "steps": steps,
+            "timeout_ms": params.timeout_ms,
+            "user_data_dir": await resolve_persistent_browser_dir(context),
+        }
         _session_start = _time.monotonic()
         try:
-            async with runtime.open_browser_session(
-                timeout_ms=timeout_ms, user_data_dir=user_data_dir
-            ) as session:
-                page = session.page
-                refused = await guard_requests(page)
-                for step in steps:
-                    outcome = await self._step(page, step, timeout_ms, context)
-                    done.append(outcome)
-                    if outcome.get("status") == "error":
-                        break
+            async with drop_box(context, generated_by="headless_browser") as box:
+                request["out_dir"] = box.path if box else None
+                session = await runtime.run_browser(request, timeout=float(self.timeout_seconds - 10))
         finally:
             try:
                 from src.ai.tools.sandbox.metering import meter_sandbox_usage
@@ -200,6 +130,8 @@ class HeadlessBrowserTool(Tool):
                 )
             except Exception:  # noqa: BLE001 - metering must never break a tool
                 pass
+        done: List[Dict[str, Any]] = list(session.get("steps") or [])
+        _attach_screenshots(done, box.saved if box else [])
         failed = next((d for d in done if d.get("status") == "error"), None)
         result: Dict[str, Any] = {
             "status": "error" if failed else "success",
@@ -208,218 +140,24 @@ class HeadlessBrowserTool(Tool):
             "title": next((d.get("title") for d in reversed(done) if d.get("title")), None),
         }
         if failed:
-            result["error"] = f"step {len(done)} ({failed.get('action')}): {failed.get('error')}"
+            result["error"] = f"step {done.index(failed) + 1} ({failed.get('action')}): {failed.get('error')}"
+        refused = session.get("blocked_requests") or []
         if refused:
             result["blocked_requests"] = refused[:20]
         return result
 
-    async def _step(self, page: Any, step: Dict[str, Any], timeout_ms: int, context: Dict[str, Any]) -> Dict[str, Any]:
-        action = step["action"]
-        if action == "navigate":
-            return await self._action_navigate(page, step, timeout_ms)
-        if action == "click":
-            return await self._action_click(page, step, timeout_ms)
-        if action == "type":
-            return await self._action_type(page, step, timeout_ms)
-        if action == "screenshot":
-            return await self._action_screenshot(page, step, timeout_ms, context)
-        if action == "get_text":
-            return await self._action_get_text(page, step, timeout_ms)
-        return await self._action_evaluate(page, step)
 
-    # ------------------------------------------------------------------
-    # Action implementations
-    # ------------------------------------------------------------------
-
-    async def _action_navigate(self, page, args: dict, timeout_ms: int) -> dict:
-        url = (args.get("url") or "").strip()
-        if not url:
-            return {"status": "error", "action": "navigate", "error": "'url' is required for navigate action."}
-        from src.common.net_guard import BlockedURL, check_url
-        try:
-            await check_url(url)
-        except BlockedURL as exc:
-            return {"status": "error", "action": "navigate", "error": f"URL refused: {exc}"}
-
-        wait_until = args.get("wait_for", "load")
-        if wait_until not in _VALID_WAIT_UNTIL:
-            wait_until = "load"
-
-        await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-
-        title = await page.title()
-        text = await page.inner_text("body")
-        if len(text) > _MAX_OUTPUT_CHARS:
-            text = text[:_MAX_OUTPUT_CHARS] + f"\n... [truncated, {len(text)} total chars]"
-
-        return {
-            "status": "success",
-            "action": "navigate",
-            "url": page.url,
-            "title": title,
-            "content": text,
-        }
-
-    async def _action_click(self, page, args: dict, timeout_ms: int) -> dict:
-        url = (args.get("url") or "").strip()
-        selector = (args.get("selector") or "").strip()
-        if not selector:
-            return {"status": "error", "action": "click", "error": "'selector' is required for click action."}
-
-        # Navigate first if URL provided
-        if url:
-            if _is_url_blocked(url):
-                return {"status": "error", "action": "click", "error": f"URL scheme blocked: {url}"}
-            wait_until = args.get("wait_for", "load")
-            if wait_until not in _VALID_WAIT_UNTIL:
-                wait_until = "load"
-            await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-
-        await page.click(selector, timeout=timeout_ms)
-        # Wait for any navigation/network that clicking might trigger
-        await page.wait_for_load_state("domcontentloaded", timeout=min(timeout_ms, 10000))
-
-        title = await page.title()
-        return {
-            "status": "success",
-            "action": "click",
-            "url": page.url,
-            "title": title,
-            "selector": selector,
-            "message": f"Clicked element matching '{selector}'",
-        }
-
-    async def _action_type(self, page, args: dict, timeout_ms: int) -> dict:
-        url = (args.get("url") or "").strip()
-        selector = (args.get("selector") or "").strip()
-        text = args.get("text", "")
-        if not selector:
-            return {"status": "error", "action": "type", "error": "'selector' is required for type action."}
-        if text is None:
-            return {"status": "error", "action": "type", "error": "'text' is required for type action."}
-
-        if url:
-            if _is_url_blocked(url):
-                return {"status": "error", "action": "type", "error": f"URL scheme blocked: {url}"}
-            wait_until = args.get("wait_for", "load")
-            if wait_until not in _VALID_WAIT_UNTIL:
-                wait_until = "load"
-            await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-
-        await page.fill(selector, str(text), timeout=timeout_ms)
-        title = await page.title()
-        return {
-            "status": "success",
-            "action": "type",
-            "url": page.url,
-            "title": title,
-            "selector": selector,
-            "message": f"Typed into element matching '{selector}'",
-        }
-
-    async def _action_screenshot(
-        self, page, args: dict, timeout_ms: int, context: Optional[dict] = None
-    ) -> dict:
-        url = (args.get("url") or "").strip()
-        selector = (args.get("selector") or "").strip()
-
-        if url:
-            if _is_url_blocked(url):
-                return {"status": "error", "action": "screenshot", "error": f"URL scheme blocked: {url}"}
-            wait_until = args.get("wait_for", "load")
-            if wait_until not in _VALID_WAIT_UNTIL:
-                wait_until = "load"
-            await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-
-        import uuid
-        file_name = f"screenshot_{uuid.uuid4().hex[:8]}.png"
-
-        if selector:
-            element = await page.query_selector(selector)
-            if element:
-                image = await element.screenshot(timeout=timeout_ms)
-            else:
-                return {"status": "error", "action": "screenshot", "error": f"Element '{selector}' not found."}
-        else:
-            image = await page.screenshot(full_page=True, timeout=timeout_ms)
-
-        title = await page.title()
-
-        # The image is kept as an artifact of the call's run — the one write
-        # path (TL-59); it used to land in a /tmp directory every company shared.
-        from src.ai.artifact_service import save_tool_output
-        try:
-            saved = await save_tool_output(
-                context, file_name=file_name, file_bytes=image, mime_type="image/png",
-                file_category="screenshots", generated_by="headless_browser",
-                purpose=f"Browser screenshot of {url or 'current page'}",
-            )
-        except Exception as art_err:  # noqa: BLE001
-            return {"status": "error", "action": "screenshot", "error": f"could not keep the screenshot: {art_err}"}
-
-        return {
-            "status": "success",
-            "action": "screenshot",
-            "url": page.url,
-            "title": title,
-            "screenshot_path": saved.file_path,
-            "artifact_id": str(saved.id),
-            "message": f"Screenshot saved to {saved.file_path}",
-        }
-
-    async def _action_get_text(self, page, args: dict, timeout_ms: int) -> dict:
-        url = (args.get("url") or "").strip()
-        selector = (args.get("selector") or "").strip()
-
-        if url:
-            if _is_url_blocked(url):
-                return {"status": "error", "action": "get_text", "error": f"URL scheme blocked: {url}"}
-            wait_until = args.get("wait_for", "load")
-            if wait_until not in _VALID_WAIT_UNTIL:
-                wait_until = "load"
-            await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-
-        if selector:
-            element = await page.query_selector(selector)
-            if not element:
-                return {"status": "error", "action": "get_text", "error": f"Element '{selector}' not found."}
-            text = await element.inner_text()
-        else:
-            text = await page.inner_text("body")
-
-        if len(text) > _MAX_OUTPUT_CHARS:
-            text = text[:_MAX_OUTPUT_CHARS] + f"\n... [truncated, {len(text)} total chars]"
-
-        title = await page.title()
-        return {
-            "status": "success",
-            "action": "get_text",
-            "url": page.url,
-            "title": title,
-            "content": text,
-        }
-
-    async def _action_evaluate(self, page, args: dict) -> dict:
-        url = (args.get("url") or "").strip()
-        javascript = (args.get("javascript") or "").strip()
-        if not javascript:
-            return {"status": "error", "action": "evaluate", "error": "'javascript' is required for evaluate action."}
-
-        if url:
-            if _is_url_blocked(url):
-                return {"status": "error", "action": "evaluate", "error": f"URL scheme blocked: {url}"}
-            await page.goto(url, wait_until="load")
-
-        result = await page.evaluate(javascript)
-        result_str = str(result)
-        if len(result_str) > _MAX_OUTPUT_CHARS:
-            result_str = result_str[:_MAX_OUTPUT_CHARS] + f"\n... [truncated]"
-
-        title = await page.title()
-        return {
-            "status": "success",
-            "action": "evaluate",
-            "url": page.url,
-            "title": title,
-            "result": result_str,
-        }
+def _attach_screenshots(steps: List[Dict[str, Any]], saved: List[Dict[str, Any]]) -> None:
+    """A screenshot step names the file it wrote; after the drop box is
+    collected it names the artifact instead, or fails if it was not kept."""
+    kept = {r["file"]: r for r in saved}
+    for step in steps:
+        name = step.pop("file", None)
+        if name is None:
+            continue
+        record = kept.get(name)
+        if record is None:
+            step.update(status="error", error="could not keep the screenshot")
+            continue
+        step.update(artifact_id=record["artifact_id"], download_url=record["download_url"],
+                    message=f"Screenshot kept: {record['download_url']}")

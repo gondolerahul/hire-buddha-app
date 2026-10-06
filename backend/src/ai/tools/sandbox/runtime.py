@@ -7,10 +7,11 @@ delegate to, so the *execution substrate* can later be swapped (a persistent
 per-tenant Docker `ContainerRuntime`, `02` S4) without touching the tools.
 
 * ``SandboxRuntime`` — the Protocol (exec, file ops, browser session, lifecycle).
-* ``ExecResult`` / ``BrowserSession`` — the DTOs the Protocol traffics in.
-* ``SubprocessRuntime`` — today's behavior (host asyncio subprocess + a fresh
-  Playwright Chromium per session). The default in dev/CI and the production
-  rollback path.
+* ``ExecResult`` — the DTO the Protocol's ``exec`` returns. A browser session
+  is a request the runtime runs (``run_browser``): the steps travel, not a
+  page, so the browser can run inside the container (TL-18).
+* ``SubprocessRuntime`` — the host runtime (asyncio subprocess; a browser
+  session in-process behind the SSRF guard). Development's runtime.
 * ``resolve_sandbox_runtime`` — what the tools call: ``ContainerRuntime`` when
   the one switch, ``sandbox.container_runtime_enabled``, is on for the company
   (its default is the deployment's ``SANDBOX_CONTAINER_RUNTIME_ENABLED``),
@@ -24,14 +25,13 @@ the runtime a fully-built argv/env (or browser action) and shape the
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import time
 from dataclasses import dataclass
 from typing import (
     Any,
-    AsyncIterator,
+    Dict,
     List,
     Mapping,
     Optional,
@@ -39,16 +39,6 @@ from typing import (
     Sequence,
     runtime_checkable,
 )
-
-# Default Chromium context settings — preserved verbatim from the legacy
-# HeadlessBrowserTool so SubprocessRuntime is byte-for-byte today's behavior.
-_DEFAULT_VIEWPORT = {"width": 1280, "height": 720}
-_DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 "
-    "HireBuddha-AI-Agent/1.0"
-)
-
 
 logger = logging.getLogger(__name__)
 
@@ -81,40 +71,6 @@ class ExecResult:
         )
 
 
-class BrowserSession:
-    """A live browser page plus the Playwright objects backing it.
-
-    Yielded by ``SandboxRuntime.open_browser_session``. The tool's action
-    methods operate on ``.page``; the runtime owns teardown.
-    """
-
-    def __init__(
-        self,
-        page: Any,
-        *,
-        _playwright: Any = None,
-        _browser: Any = None,
-        _context: Any = None,
-    ) -> None:
-        self.page = page
-        self._playwright = _playwright
-        self._browser = _browser
-        self._context = _context
-
-    async def aclose(self) -> None:
-        for closer in (
-            getattr(self._context, "close", None),
-            getattr(self._browser, "close", None),
-            getattr(self._playwright, "stop", None),
-        ):
-            if closer is None:
-                continue
-            try:
-                await closer()
-            except Exception:  # pragma: no cover - best-effort teardown
-                pass
-
-
 @runtime_checkable
 class SandboxRuntime(Protocol):
     """The execution substrate the sandbox tools delegate to.
@@ -135,20 +91,11 @@ class SandboxRuntime(Protocol):
         """Run ``argv`` to completion (or ``timeout``), capturing stdout/stderr."""
         ...
 
-    def open_browser_session(
-        self,
-        *,
-        timeout_ms: int = 30000,
-        viewport: Optional[Mapping[str, int]] = None,
-        user_agent: Optional[str] = None,
-        persona: Optional[str] = None,
-        user_data_dir: Optional[str] = None,
-    ) -> "contextlib.AbstractAsyncContextManager[BrowserSession]":
-        """Async context manager yielding a ``BrowserSession``.
-
-        ``user_data_dir`` (S5): when set, a persistent Chromium profile rooted
-        there is reused, so cookies/logins survive across sessions.
-        """
+    async def run_browser(self, request: Mapping[str, Any], *, timeout: float) -> Dict[str, Any]:
+        """Run one browser session: ``request`` is a
+        :mod:`~src.ai.tools.sandbox.browser_runner` request (``steps``,
+        ``timeout_ms``, ``user_data_dir``, ``out_dir``); the result is its
+        ``steps`` and ``blocked_requests``."""
         ...
 
     # --- file ops (host FS today; tenant volume under ContainerRuntime) ---
@@ -163,10 +110,47 @@ class SandboxRuntime(Protocol):
     async def destroy(self) -> None: ...
 
 
+async def guard_requests(page: Any) -> list[str]:
+    """Check every request a host page makes against the SSRF guard (TL-08).
+
+    Navigation, redirects, frames, subresources and script-driven requests all
+    pass through Playwright's router, so ``evaluate`` cannot reach an internal
+    host either. Returns the list the refused URLs are appended to. (In the
+    container the egress proxy does this, for the address it connects to.)
+    """
+    from urllib.parse import urlsplit
+
+    from src.common.net_guard import BlockedURL, check_url
+
+    refused: list[str] = []
+    verdicts: dict[str, bool] = {}  # per host, for the life of the session
+
+    async def _route(route: Any) -> None:
+        url = route.request.url
+        if url.startswith(("data:", "blob:", "about:")):  # in-page, no network
+            await route.continue_()
+            return
+        key = urlsplit(url).netloc.lower()
+        if key not in verdicts:
+            try:
+                await check_url(url)
+                verdicts[key] = True
+            except BlockedURL:
+                verdicts[key] = False
+        if verdicts[key]:
+            await route.continue_()
+        else:
+            refused.append(url)
+            await route.abort("blockedbyclient")
+
+    await page.route("**/*", _route)
+    return refused
+
+
 class SubprocessRuntime:
-    """Today's behavior behind the Protocol: host asyncio subprocesses + a
-    fresh ephemeral Playwright Chromium per browser session. No persistence,
-    no container — the dev/CI default and the production rollback path."""
+    """The host runtime: asyncio subprocesses as the backend's OS user, and a
+    browser session in-process. Development's runtime; production runs the
+    container runtime (TL-01)."""
 
     def __init__(self, company_id: Optional[str] = None) -> None:
         self.company_id = company_id
@@ -217,50 +201,17 @@ class SubprocessRuntime:
             duration_ms=int((time.monotonic() - start) * 1000),
         )
 
-    @contextlib.asynccontextmanager
-    async def open_browser_session(
-        self,
-        *,
-        timeout_ms: int = 30000,
-        viewport: Optional[Mapping[str, int]] = None,
-        user_agent: Optional[str] = None,
-        persona: Optional[str] = None,  # noqa: ARG002 - reserved for callers
-        user_data_dir: Optional[str] = None,
-    ) -> AsyncIterator[BrowserSession]:
-        # Imported lazily so the module loads without Playwright; the caller
-        # catches ImportError to reproduce the tool's "not installed" message.
-        from playwright.async_api import async_playwright
+    async def run_browser(self, request: Mapping[str, Any], *, timeout: float) -> Dict[str, Any]:
+        """On the host, in-process: every navigation is checked against the
+        SSRF guard first, and every request the page makes is routed through
+        it (TL-08). Playwright is imported lazily; the tool reports its absence."""
+        from src.ai.tools.sandbox import browser_runner
+        from src.common.net_guard import check_url
 
-        pw = await async_playwright().start()
-        if user_data_dir:
-            # S5 persistent profile: launch_persistent_context owns the browser,
-            # so there is no separate browser handle; closing the context tears
-            # everything down. The profile dir persists cookies/logins on close.
-            os.makedirs(user_data_dir, exist_ok=True)
-            ctx = await pw.chromium.launch_persistent_context(
-                user_data_dir,
-                headless=True,
-                viewport=dict(viewport) if viewport else dict(_DEFAULT_VIEWPORT),
-                user_agent=user_agent or _DEFAULT_USER_AGENT,
-            )
-            page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-            page.set_default_timeout(timeout_ms)
-            session = BrowserSession(page, _playwright=pw, _browser=None, _context=ctx)
-        else:
-            browser = await pw.chromium.launch(headless=True)
-            ctx = await browser.new_context(
-                viewport=dict(viewport) if viewport else dict(_DEFAULT_VIEWPORT),
-                user_agent=user_agent or _DEFAULT_USER_AGENT,
-            )
-            page = await ctx.new_page()
-            page.set_default_timeout(timeout_ms)
-            session = BrowserSession(
-                page, _playwright=pw, _browser=browser, _context=ctx
-            )
-        try:
-            yield session
-        finally:
-            await session.aclose()
+        return await asyncio.wait_for(
+            browser_runner.run_session(dict(request), check_url=check_url, guard=guard_requests),
+            timeout=timeout,
+        )
 
     # --- file ops (thin host-FS wrappers) ---
     async def write_file(self, path: str, content: bytes) -> None:
@@ -289,7 +240,7 @@ class SubprocessRuntime:
 
 
 def get_sandbox_runtime(
-    context: Optional[Mapping[str, Any]] = None, *, container: bool = False,
+    context: Optional[Mapping[str, Any]] = None, *, container: bool = False, network: str = "none",
 ) -> SandboxRuntime:
     """The runtime for this call: ``ContainerRuntime`` when ``container``, else
     ``SubprocessRuntime``. Use :func:`resolve_sandbox_runtime`, which decides
@@ -305,7 +256,7 @@ def get_sandbox_runtime(
     if container:
         from src.ai.tools.sandbox.container_runtime import ContainerRuntime
 
-        return ContainerRuntime(company_id=company_id)
+        return ContainerRuntime(company_id=company_id, network=network)
     return SubprocessRuntime(company_id=company_id)
 
 
@@ -362,11 +313,13 @@ async def container_runtime_enabled(company_id: Optional[str]) -> bool:
 
 
 async def resolve_sandbox_runtime(
-    context: Optional[Mapping[str, Any]] = None,
+    context: Optional[Mapping[str, Any]] = None, *, network: str = "none",
 ) -> "SandboxRuntime":
-    """The runtime for a tool call, chosen by the one switch for its company."""
+    """The runtime for a tool call, chosen by the one switch for its company.
+    ``network`` is the call's policy — ``none``, ``allowlist`` (TL-15) or
+    ``web`` (TL-18) — which only the container runtime can enforce."""
     company_id = (context or {}).get("company_id")
-    return get_sandbox_runtime(context, container=await container_runtime_enabled(company_id))
+    return get_sandbox_runtime(context, container=await container_runtime_enabled(company_id), network=network)
 
 
 async def resolve_persistent_browser_dir(
@@ -421,11 +374,14 @@ async def run_sandbox_exec(
     cwd: Optional[str] = None,
     timeout: float = 30.0,
     env: Optional[Mapping[str, str]] = None,
+    network: str = "none",
 ) -> ExecResult:
     """Resolve the runtime (with per-company canary), run ``argv``, and meter the
     cost (Phase 12 `02` S6). The single entry point the exec-based sandbox tools
-    use so runtime selection + cost attribution live in one place."""
-    runtime = await resolve_sandbox_runtime(context)
+    use so runtime selection + cost attribution live in one place. ``network``
+    is the call's policy (TL-15): it used to be dropped, so every container
+    ran ``--network none`` and the egress proxy had no caller."""
+    runtime = await resolve_sandbox_runtime(context, network=network)
     res = await runtime.exec(argv, cwd=cwd, timeout=timeout, env=env)
     try:
         from src.ai.tools.sandbox.metering import meter_sandbox_usage

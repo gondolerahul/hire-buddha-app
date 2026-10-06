@@ -271,7 +271,7 @@ the prompt, or an env var the runtime sets per exec.
 
 ### TL-08 — No SSRF guard on `scraper_tool` or `headless_browser`
 
-**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.5)** — [`common/net_guard.py`](../../../backend/src/common/net_guard.py): only `http(s)`, and every address the host resolves to must be public (loopback, private, link-local/metadata, CGNAT, multicast, reserved and IPv4-mapped forms refused). The scraper checks before calling Firecrawl; the browser routes every request its page makes — redirects, frames, subresources, `evaluate`'s fetches — through the guard. Evidence: the old browser check let `http://169.254.169.254/` through; `tests/unit/test_tool_paths_and_fetches.py`. DNS rebinding remains for the egress proxy (TL-15).
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.5)** — [`common/net_guard.py`](../../../backend/src/common/net_guard.py): only `http(s)`, and every address the host resolves to must be public (loopback, private, link-local/metadata, CGNAT, multicast, reserved and IPv4-mapped forms refused). The scraper checks before calling Firecrawl; the browser routes every request its page makes — redirects, frames, subresources, `evaluate`'s fetches — through the guard. Evidence: the old browser check let `http://169.254.169.254/` through; `tests/unit/test_tool_paths_and_fetches.py`. DNS rebinding: closed for the browser in the container, whose proxy connects only to the address it checked (TL-18, 2026-10-06); the host runtime and the scraper (which fetches through Firecrawl) keep the check-then-fetch guard.
 
 Neither tool has a URL allow-list or a private-address deny list.
 `http://169.254.169.254/` (cloud instance metadata) and `http://localhost:8000/` (the
@@ -441,7 +441,16 @@ redeploying.
 
 ### TL-15 — `NetworkPolicy` and the egress proxy are wired to nothing
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-06, P11.3)** — every sandbox call carries a
+network policy (`run_sandbox_exec(..., network=…)`: `none` by default, `allowlist`) and the
+container runtime ensures the company's container for that policy (`hb-sandbox-<co>` or
+`hb-sandbox-<co>-allowlist`); the synthesis harness and every synthesized-tool call pass the
+tool's declared policy (`FULL` runs with no network). The unread `SANDBOX_EGRESS_PROXY_ENABLED`
+is deleted. **Found:** the proxy image built on Windows never started — `entrypoint.sh` was
+checked out with CRLF (`#!/bin/sh\r`); a `.gitattributes` keeps `*.sh` and `backend/docker/**`
+LF. Tests: `tests/unit/test_sandbox_network.py` (7 of 9 fail on the old code); in real
+containers, `test_an_allowlist_call_reaches_only_the_allowlist` — an allow-listed host is
+reached, another is refused, a direct socket has no route.
 
 `TenantSandboxManager.ensure()` accepts `egress: bool = False` and would join the
 container to the allow-list network with `HTTP(S)_PROXY` injected.
@@ -512,7 +521,20 @@ under the default host runtime it can write anywhere the backend user can.
 
 ### TL-18 — Chromium never enters the container
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-10-06, P11.4)** — a browser session is a request
+the runtime runs (`run_browser`), and the step semantics live in one module,
+`sandbox/browser_runner.py` (standard library and Playwright only). The container runtime
+writes it under the read-only `.skills/` root and execs it in the company's `web` container,
+whose only way out is `hb-egress-web` — a mode of the egress image that resolves each host and
+connects only to a public address it checked (so DNS rebinding is closed too); a proxy refusal
+is a refused step. Screenshots go to the call's drop box. The host runtime runs the same module
+in-process behind the SSRF guard. **Found:** the sandbox image had the browsers but not the
+Python `playwright` package (pinned now to the base's 1.58.0); and every step with a `url`
+other than `navigate` raised `NameError` (`_is_url_blocked` no longer existed). Tests:
+`tests/unit/test_browser_in_container.py` (collection fails on the old code: no runner); in
+the real containers, `test_the_browser_runs_in_the_container_behind_the_web_proxy` —
+example.com loads and its screenshot is kept; the metadata address, an internal container
+and `localhost` are refused.
 
 `ContainerRuntime.open_browser_session` delegates to an embedded `SubprocessRuntime`.
 Enabling the container runtime does not sandbox `headless_browser` at all — Chromium

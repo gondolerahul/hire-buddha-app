@@ -1134,8 +1134,10 @@ Resource limits, by runtime:
 ### 12.3 Container lifecycle
 
 [`TenantSandboxManager`](../../backend/src/ai/tools/sandbox/tenant_manager.py)
-owns one container per company, named `hb-sandbox-{company_id}` (or
-`hb-sandbox-{company_id}-egress`). It shells out to the `docker` CLI rather than
+owns one container per company and network policy: `hb-sandbox-{company_id}` for a
+call with no network, `hb-sandbox-{company_id}-allowlist` for one behind the egress proxy
+(§12.4). A running container's network is fixed, so code that must have no network never
+shares a container with an allow-listed call. It shells out to the `docker` CLI rather than
 taking an SDK dependency, and serialises concurrent `ensure()` calls with a
 per-company asyncio lock.
 
@@ -1208,14 +1210,28 @@ the seed's Phase 7 through the versions API, and the action prompts name them as
 
 ### 12.4 The egress proxy
 
-When a tool's `NetworkPolicy` is `ALLOWLIST`, the container needs a few approved
-hosts but not the open internet.
+Every sandbox call carries a network policy — `run_sandbox_exec(..., network=…)`, default
+`none` — and the container runtime runs it in the container for that policy (TL-15; the
+argument used to be dropped, so every container ran `--network none` and this proxy had no
+caller). A synthesized tool whose `NetworkPolicy` is `ALLOWLIST` runs with `allowlist`: it
+needs a few approved hosts but not the open internet.
 [`EgressProxyManager`](../../backend/src/ai/tools/sandbox/egress_proxy.py)
-builds that.
+builds that. `FULL` is never granted: such a tool runs with no network. The third
+policy, `web`, is the browser's (TL-18): any public host, never an internal address.
+There is no switch to turn a proxy on; each is started the first time a call needs it.
+
+| Policy | Sandbox container | Proxy container | What gets through |
+|---|---|---|---|
+| `none` | `hb-sandbox-{company}` (`--network none`) | — | nothing |
+| `allowlist` | `hb-sandbox-{company}-allowlist` | `hb-egress-proxy` (tinyproxy) | hosts matching `SANDBOX_EGRESS_ALLOWLIST` |
+| `web` | `hb-sandbox-{company}-web` | `hb-egress-web` ([web_proxy.py](../../backend/docker/egress-proxy/web_proxy.py)) | any host whose every resolved address is public; the proxy connects to the address it checked |
+
+One image, `MODE` picks the proxy. The web proxy exists because tinyproxy filters
+names, not the addresses it connects to.
 
 ```mermaid
 graph LR
-    SBX["hb-sandbox-COMPANY-egress"] 
+    SBX["hb-sandbox-COMPANY-allowlist"] 
     SBX2["sandbox container on hb-egress-internal - docker network --internal - NO route to internet"]
     PROXY["hb-egress-proxy - tinyproxy - dual homed"]
     UP["hb-egress-uplink - normal bridge with internet"]
@@ -1237,21 +1253,25 @@ Two layers of defence, deliberately:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SANDBOX_EGRESS_PROXY_ENABLED` | `false` | master switch |
 | `SANDBOX_EGRESS_IMAGE` | `hb-egress-proxy:local` | proxy image |
 | `SANDBOX_EGRESS_NETWORK` | `hb-egress-internal` | the internal sandbox net |
 | `SANDBOX_EGRESS_UPLINK_NETWORK` | `hb-egress-uplink` | proxy's internet-facing net |
 | `SANDBOX_EGRESS_PROXY_PORT` | `8888` | proxy port |
 | `SANDBOX_EGRESS_ALLOWLIST` | `googleapis.com,google.com` | comma-separated host suffixes |
 
-The proxy container keeps `SETUID`/`SETGID` (everything else dropped) so
-tinyproxy can drop from root to its own user.
+The tinyproxy container keeps `SETUID`/`SETGID` (everything else dropped) so
+tinyproxy can drop from root to its own user; the web proxy runs as `nobody` with no
+capabilities and a read-only root. A `.gitattributes` keeps the image's files LF: built from
+a Windows checkout with CRLF, `entrypoint.sh` could not start (`#!/bin/sh` followed by a
+carriage return).
 
 ### 12.5 The sandbox image
 
 [backend/docker/sandbox/Dockerfile](../../backend/docker/sandbox/Dockerfile)
-builds `hb-sandbox` from `mcr.microsoft.com/playwright/python:v1.58.0-noble` —
-pinned so the bundled Chromium always matches the host's Playwright version.
+builds `hb-sandbox` from `mcr.microsoft.com/playwright/python:v1.58.0-noble`. The base
+ships the browsers (`/ms-playwright`) but not the Python package; `requirements.txt` pins
+`playwright==1.58.0`, the version those browser builds belong to (TL-18 found it missing:
+nothing had run a browser in the container before).
 On top it installs ffmpeg, LibreOffice headless, Liberation fonts, Node and npm,
 `pptxgenjs`, the Python document libraries from
 [requirements.txt](../../backend/docker/sandbox/requirements.txt), and bakes the
@@ -1295,19 +1315,25 @@ one page, after an optional `url`; the first failing step stops the session and 
 names it. So a login and a read happen in one call; nothing is kept between calls. Before
 P6.8 (TL-62) each call opened a fresh session for one action, so `click`/`type`/`get_text`
 never composed. The single-action form (`{"action": ..., "url": ...}`) is accepted as one
-step. Every request the page makes —
-navigation, redirects, frames, subresources, and anything `evaluate`'s JavaScript
-fetches — goes through Playwright's router and the SSRF guard
-([common/net_guard.py](../../backend/src/common/net_guard.py), since 2026-10-01,
-TL-08): only `http(s)` to hosts that resolve to public addresses. Refused
-requests are listed in the result's `blocked_requests`. (Before, only the
-top-level URL's scheme was checked, so `http://169.254.169.254/` was reachable.) Sessions
-are ephemeral by default; setting `sandbox.persistent_browser_enabled` gives the
-company a persistent Chromium profile under
-`/tmp/sandbox/{company}/.browser/{persona}` so cookies and logins survive.
-Even under `ContainerRuntime`, Chromium still runs **on the host** —
-`ContainerRuntime.open_browser_session` delegates to an embedded
-`SubprocessRuntime` ([container_runtime.py:161](../../backend/src/ai/tools/sandbox/container_runtime.py:161)).
+step. Only `http(s)` URLs are opened.
+
+**Where the browser runs (TL-18, 2026-10-06).** A session is a request — the steps, the
+timeout, the profile directory, the drop box — that the runtime runs with
+[sandbox/browser_runner.py](../../backend/src/ai/tools/sandbox/browser_runner.py), the one
+place the step semantics live (it imports only the standard library and Playwright):
+
+| Runtime | How | Network |
+|---|---|---|
+| `ContainerRuntime` | The platform writes the runner to `.skills/.platform/browser/` (read-only in the container, rewritten only when the runner changes) and the request to `.browser-calls/<id>/request.json`, then `docker exec`s `python3 browser_runner.py request.json` in the company's **`web` container** (`hb-sandbox-{company}-web`) with the image's Playwright. The result is one JSON line on stdout | The container is on the `--internal` egress network; its only way out is `hb-egress-web` (§12.4), which resolves each host and connects only to a public address it checked — so DNS rebinding cannot reach an internal host either |
+| `SubprocessRuntime` (development) | In-process, `browser_runner.run_session` with the host's guards as hooks | Every request the page makes — navigation, redirects, frames, subresources, anything `evaluate` fetches — goes through Playwright's router and the SSRF guard ([common/net_guard.py](../../backend/src/common/net_guard.py), TL-08); refused requests are listed in `blocked_requests` |
+
+Until TL-18, `ContainerRuntime.open_browser_session` handed back a page from an embedded
+`SubprocessRuntime`: with the container runtime on, Chromium and `evaluate`'s JavaScript still
+ran on the host as the backend's OS user. A screenshot is written to the call's drop box
+(`$ARTIFACTS_DIR`, §12.2) and kept as an artifact of the run; the step names its
+`artifact_id`. Sessions are ephemeral by default; `sandbox.persistent_browser_enabled` gives
+the company a persistent Chromium profile under `<workspace>/.browser/{persona}` so cookies
+and logins survive (the container sees the same directory).
 
 ---
 
@@ -1391,7 +1417,8 @@ The `ToolSpec` a synthesizer must supply
 ([schemas/tools.py:42](../../backend/src/ai/schemas/tools.py:42)) constrains the
 result up front: `name` must match `^[a-z][a-z0-9_]{2,48}$`, `allowed_imports`
 is an explicit allow-list, and `network_policy` is one of `none` (default),
-`allowlist` (gated on the egress proxy) or `full` (never granted in Phase 12).
+`allowlist` (the call runs behind the egress proxy, §12.4) or `full` (never granted: it
+runs with no network).
 
 ---
 
@@ -1875,7 +1902,7 @@ was deleted under FE-30.)
 | `crm/*` | yes — tenant endpoints, Google | no | no | credentials scoped by `company_id` |
 | `sandbox_code` | **yes — unrestricted under the default runtime** | yes — anywhere the OS user can write | compute | see §12.2 |
 | `terminal` | **yes — unrestricted under the default runtime** | yes | compute | 13-pattern blocklist |
-| `headless_browser` | yes — public http/https hosts | yes — screenshots | compute | every request the page makes passes the SSRF guard; `evaluate` runs arbitrary JS by design |
+| `headless_browser` | yes — public http/https hosts | yes — screenshots, to the drop box | compute | in the container, the `web` proxy refuses internal addresses; on the host, every request passes the SSRF guard; `evaluate` runs arbitrary JS by design |
 | `meta_entity_creator` | no | no | indirectly — creates agents that spend | 3-per-execution limit, daily cap, semantic dedupe |
 | `meta_entity_executor` | no | no | **yes — triggers a child run** | hard `$1.00` cap |
 | `tool_synthesis` | no directly | no | yes — LLM calls | Meta-Agent only, kill switch, AST validator, sandbox test, red team, DRAFT-only registration |
@@ -1898,7 +1925,8 @@ was deleted under FE-30.)
    (TL-08): both refuse hosts that resolve to loopback, private, link-local
    (instance metadata), CGNAT, multicast or reserved addresses, and the browser
    checks every request its page makes. DNS rebinding is out of reach of a
-   check-then-fetch guard; the egress proxy (TL-15, P11) closes it.
+   check-then-fetch guard; in the container the browser's proxy connects only to
+   the address it checked, which closes it (TL-18, 2026-10-06).
 
 4. ~~**Tool status is decorative at execution time.**~~ Fixed 2026-10-01 (TL-13):
    `ToolAccess` refuses an `EXPERIMENTAL`/`DRAFT` tool unless the company opted in,
@@ -1949,7 +1977,9 @@ reading the backend's `.env` file off the host filesystem.
 | [tools/sandbox/runtime.py](../../backend/src/ai/tools/sandbox/runtime.py) | 456 | `SandboxRuntime` Protocol, `SubprocessRuntime`, runtime selection, `run_sandbox_exec` |
 | [tools/sandbox/tenant_manager.py](../../backend/src/ai/tools/sandbox/tenant_manager.py) | 282 | per-tenant container lifecycle and isolation flags |
 | [tools/sandbox/container_runtime.py](../../backend/src/ai/tools/sandbox/container_runtime.py) | 193 | `docker exec` implementation of the Protocol |
-| [tools/sandbox/egress_proxy.py](../../backend/src/ai/tools/sandbox/egress_proxy.py) | 160 | allow-list egress networks and the tinyproxy container |
+| [tools/sandbox/egress_proxy.py](../../backend/src/ai/tools/sandbox/egress_proxy.py) | 175 | the egress networks and one proxy container per mode (`allowlist`, `web`) |
+| [tools/sandbox/browser_runner.py](../../backend/src/ai/tools/sandbox/browser_runner.py) | 230 | a browser session's steps, in the container or in-process |
+| [docker/egress-proxy/web_proxy.py](../../backend/docker/egress-proxy/web_proxy.py) | 140 | the `web` mode: any public address, never an internal one |
 | [tools/sandbox/metering.py](../../backend/src/ai/tools/sandbox/metering.py) | 65 | sandbox-seconds usage attribution |
 | [tools/sandbox/skill_files.py](../../backend/src/ai/tools/sandbox/skill_files.py) | 170 | a run's version assets written into `.skills/<slug>/<version>/`; the prompt's Skill Files section |
 | [tools/social/social_api.py](../../backend/src/ai/tools/social/social_api.py) | 160 | `social_api` — the one social tool; operations, `describe`, the platform list |

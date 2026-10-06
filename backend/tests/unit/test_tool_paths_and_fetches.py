@@ -197,7 +197,7 @@ async def test_the_scraper_refuses_an_internal_url_before_any_request(company, m
 
 @pytest.mark.asyncio
 async def test_the_browser_checks_every_request_the_page_makes():
-    from src.ai.tools.sandbox.browser_tool import guard_requests
+    from src.ai.tools.sandbox.runtime import guard_requests
 
     page = SimpleNamespace(handler=None)
 
@@ -221,9 +221,10 @@ async def test_the_browser_checks_every_request_the_page_makes():
 
 @pytest.mark.asyncio
 async def test_browser_navigate_refuses_an_internal_url():
-    from src.ai.tools.sandbox.browser_tool import HeadlessBrowserTool
+    from src.ai.tools.sandbox.browser_runner import run_step
+    from src.common.net_guard import check_url
     page = SimpleNamespace(goto=AsyncMock())
-    out = await HeadlessBrowserTool()._action_navigate(page, {"url": "http://localhost:8000/"}, 1000)
+    out = await run_step(page, {"action": "navigate", "url": "http://localhost:8000/"}, 1000, None, check_url)
     assert out["status"] == "error" and "URL refused" in out["error"]
     page.goto.assert_not_awaited()
 

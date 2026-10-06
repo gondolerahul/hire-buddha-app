@@ -77,7 +77,7 @@ async def test_proxy_ensure_idempotent_when_running(monkeypatch) -> None:
 
 def test_container_name_egress_suffix() -> None:
     assert TenantSandboxManager.container_name("c1") == "hb-sandbox-c1"
-    assert TenantSandboxManager.container_name("c1", egress=True) == "hb-sandbox-c1-egress"
+    assert TenantSandboxManager.container_name("c1", network="allowlist") == "hb-sandbox-c1-allowlist"
 
 
 @pytest.mark.asyncio
@@ -92,10 +92,10 @@ async def test_sandbox_ensure_egress_uses_internal_net_and_proxy_env(monkeypatch
 
     monkeypatch.setattr(EgressProxyManager, "ensure", fake_proxy_ensure)
 
-    name = await mgr.ensure("acme", egress=True)
-    assert name == "hb-sandbox-acme-egress"
+    name = await mgr.ensure("acme", network="allowlist")
+    assert name == "hb-sandbox-acme-allowlist"
 
-    run = rec.find("run", "hb-sandbox-acme-egress")
+    run = rec.find("run", "hb-sandbox-acme-allowlist")
     assert run
     flat = run[0]
     # joined the internal egress network, not --network none.

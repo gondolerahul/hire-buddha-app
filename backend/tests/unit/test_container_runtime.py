@@ -139,7 +139,7 @@ class _FakeProc:
 def _runtime_with_ensure(monkeypatch, name: Optional[str] = "hb-sandbox-c1"):
     rt = ContainerRuntime(company_id="c1")
 
-    async def _ensure(_company_id: str) -> str:
+    async def _ensure(_company_id: str, network: str = "none") -> str:
         if name is None:
             raise SandboxDockerError("daemon down")
         return name

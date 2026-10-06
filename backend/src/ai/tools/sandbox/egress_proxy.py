@@ -1,19 +1,26 @@
-"""ai.tools.sandbox.egress_proxy — the sandbox network gate (Phase 12 `02`/`06`).
+"""ai.tools.sandbox.egress_proxy — the sandbox's ways out (Phase 12 `02`/`06`).
 
-When a tool's ``NetworkPolicy`` is ``ALLOWLIST`` (synthesized / network-using
-tools), the sandbox container must reach a *few* approved hosts without getting
-the open internet. ``EgressProxyManager`` stands up the mechanism that makes
-that safe:
+A sandbox call with no network runs ``--network none``. The two that need one
+reach it only through a proxy of this module, one container per mode:
+
+* ``allowlist`` (a synthesized tool whose ``NetworkPolicy`` is ``ALLOWLIST``,
+  TL-15): ``hb-egress-proxy``, tinyproxy over ``SANDBOX_EGRESS_ALLOWLIST`` —
+  a *few* approved hosts, not the open internet;
+* ``web`` (the browser, TL-18): ``hb-egress-web``, any public host, but it
+  resolves each host itself and connects only to a public address it checked —
+  never loopback, private, link-local (metadata), CGNAT or ULA.
+
+``EgressProxyManager`` stands up the mechanism that makes that safe:
 
   * an ``--internal`` docker network (``SANDBOX_EGRESS_NETWORK``) with **no**
     route to the internet — the sandbox joins only this;
   * a normal "uplink" bridge network (``SANDBOX_EGRESS_UPLINK_NETWORK``) that
     does have internet;
-  * one **dual-homed** ``hb-egress-proxy`` container attached to *both*, running
-    tinyproxy with ``FilterDefaultDeny`` over ``SANDBOX_EGRESS_ALLOWLIST``.
+  * one **dual-homed** proxy container per mode attached to *both* (the same
+    image, ``MODE`` picks tinyproxy or ``web_proxy.py``).
 
-So the sandbox's only route out is the proxy, and the proxy only permits the
-allow-list. Even if tool code ignores the ``HTTP(S)_PROXY`` env, the internal
+So the sandbox's only route out is the proxy, and the proxy only permits what
+its mode allows. Even if tool code ignores the ``HTTP(S)_PROXY`` env, the internal
 network gives it nowhere to connect. Verified end-to-end:
 allow-listed host reachable, others refused, no-proxy egress has no route.
 
@@ -30,12 +37,13 @@ from src.common.config import settings
 
 logger = logging.getLogger(__name__)
 
-_PROXY_NAME = "hb-egress-proxy"
 _LABEL = "hb-egress"
+# The proxy container per mode.
+_MODES = {"allowlist": "hb-egress-proxy", "web": "hb-egress-web"}
 
 
 class EgressProxyManager:
-    """Ensure the egress networks + the dual-homed allow-list proxy exist."""
+    """Ensure the egress networks + the dual-homed proxy of one mode exist."""
 
     _lock = asyncio.Lock()
 
@@ -47,7 +55,12 @@ class EgressProxyManager:
         uplink_network: Optional[str] = None,
         proxy_port: Optional[int] = None,
         allowlist: Optional[str] = None,
+        mode: str = "allowlist",
     ) -> None:
+        if mode not in _MODES:
+            raise ValueError(f"unknown egress mode {mode!r}")
+        self.mode = mode
+        self.name = _MODES[mode]
         self.proxy_image = proxy_image or settings.SANDBOX_EGRESS_IMAGE
         self.internal_network = internal_network or settings.SANDBOX_EGRESS_NETWORK
         self.uplink_network = uplink_network or settings.SANDBOX_EGRESS_UPLINK_NETWORK
@@ -57,7 +70,7 @@ class EgressProxyManager:
     @property
     def proxy_url(self) -> str:
         """The HTTP(S)_PROXY value a sandbox container on the internal net uses."""
-        return f"http://{_PROXY_NAME}:{self.proxy_port}"
+        return f"http://{self.name}:{self.proxy_port}"
 
     # ------------------------------------------------------------------
     # docker CLI helper (same shape as TenantSandboxManager._docker)
@@ -103,7 +116,7 @@ class EgressProxyManager:
 
     async def _proxy_status(self) -> Optional[str]:
         rc, out, _ = await self._docker(
-            "inspect", "-f", "{{.State.Status}}", _PROXY_NAME, check=False
+            "inspect", "-f", "{{.State.Status}}", self.name, check=False
         )
         if rc != 0:
             return None
@@ -127,34 +140,39 @@ class EgressProxyManager:
             if status == "running":
                 return self.proxy_url
             if status == "paused":
-                await self._docker("unpause", _PROXY_NAME)
+                await self._docker("unpause", self.name)
                 return self.proxy_url
             # Any other state (exited/created/dead/restarting/None-but-present)
             # → remove and recreate clean. rm is a no-op if it's truly absent.
-            await self._docker("rm", "-f", _PROXY_NAME, check=False)
+            await self._docker("rm", "-f", self.name, check=False)
 
             # Create on the uplink network, then attach the internal one so the
-            # proxy is dual-homed. cap-drop ALL but keep SETUID/SETGID so
-            # tinyproxy can drop from root to its own user (the conf's User/Group).
+            # proxy is dual-homed. tinyproxy keeps SETUID/SETGID (all else
+            # dropped) to drop from root to its own user (the conf's User/Group);
+            # the web proxy runs as nobody with no capabilities at all.
+            if self.mode == "allowlist":
+                mode_args = ["--cap-add", "SETUID", "--cap-add", "SETGID",
+                             "-e", f"ALLOWLIST={self.allowlist}"]
+            else:
+                mode_args = ["--user", "65534:65534", "--read-only",
+                             "-e", "MODE=web", "-e", f"PORT={self.proxy_port}"]
             await self._docker(
                 "run", "-d",
-                "--name", _PROXY_NAME,
+                "--name", self.name,
                 "--label", f"{_LABEL}=1",
                 "--restart", "unless-stopped",
                 "--network", self.uplink_network,
                 "--cap-drop", "ALL",
-                "--cap-add", "SETUID",
-                "--cap-add", "SETGID",
                 "--security-opt", "no-new-privileges",
-                "-e", f"ALLOWLIST={self.allowlist}",
+                *mode_args,
                 self.proxy_image,
                 timeout=120.0,
             )
-            await self._docker("network", "connect", self.internal_network, _PROXY_NAME)
-            logger.info("started egress proxy %s (allowlist=%s)", _PROXY_NAME, self.allowlist)
+            await self._docker("network", "connect", self.internal_network, self.name)
+            logger.info("started egress proxy %s (mode=%s)", self.name, self.mode)
             return self.proxy_url
 
     async def destroy(self) -> None:
-        await self._docker("rm", "-f", _PROXY_NAME, check=False)
+        await self._docker("rm", "-f", self.name, check=False)
         await self._docker("network", "rm", self.internal_network, check=False)
         await self._docker("network", "rm", self.uplink_network, check=False)

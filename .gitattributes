@@ -1,0 +1,5 @@
+# Files that run inside Linux containers or on Linux hosts keep LF on every
+# checkout. With core.autocrlf on Windows they used to get CRLF, and an image
+# built from that checkout could not start: "#!/bin/sh\r" is not an interpreter.
+*.sh                   text eol=lf
+backend/docker/**      text eol=lf

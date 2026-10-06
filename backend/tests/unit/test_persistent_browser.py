@@ -13,10 +13,8 @@ import os
 import pytest
 
 from src.ai.tools.sandbox import runtime as runtime_mod
-from src.ai.tools.sandbox.runtime import (
-    SubprocessRuntime,
-    resolve_persistent_browser_dir,
-)
+from src.ai.tools.sandbox.browser_runner import open_page
+from src.ai.tools.sandbox.runtime import resolve_persistent_browser_dir
 
 
 def _chromium_available() -> bool:
@@ -80,31 +78,29 @@ async def test_resolve_dir_settings_master_on(monkeypatch) -> None:
 @pytest.mark.skipif(not _chromium_available(), reason="Playwright Chromium not installed")
 @pytest.mark.asyncio
 async def test_cookie_persists_across_sessions(tmp_path) -> None:
-    rt = SubprocessRuntime()
     profile = str(tmp_path / "profile")
     future = 4102444800  # 2100-01-01
 
-    async with rt.open_browser_session(user_data_dir=profile) as s:
-        await s.page.context.add_cookies([
+    async with open_page(user_data_dir=profile) as page:
+        await page.context.add_cookies([
             {"name": "sid", "value": "abc123", "url": "https://example.test",
              "expires": future},
         ])
 
-    async with rt.open_browser_session(user_data_dir=profile) as s:
-        cookies = await s.page.context.cookies("https://example.test")
+    async with open_page(user_data_dir=profile) as page:
+        cookies = await page.context.cookies("https://example.test")
     assert any(c["name"] == "sid" and c["value"] == "abc123" for c in cookies)
 
 
 @pytest.mark.skipif(not _chromium_available(), reason="Playwright Chromium not installed")
 @pytest.mark.asyncio
 async def test_ephemeral_session_does_not_persist(tmp_path) -> None:
-    rt = SubprocessRuntime()
     # Ephemeral (no user_data_dir): cookie set, new ephemeral session is clean.
-    async with rt.open_browser_session() as s:
-        await s.page.context.add_cookies([
+    async with open_page() as page:
+        await page.context.add_cookies([
             {"name": "sid", "value": "abc123", "url": "https://example.test",
              "expires": 4102444800},
         ])
-    async with rt.open_browser_session() as s:
-        cookies = await s.page.context.cookies("https://example.test")
+    async with open_page() as page:
+        cookies = await page.context.cookies("https://example.test")
     assert not any(c["name"] == "sid" for c in cookies)

@@ -77,7 +77,7 @@ async def test_run_sandbox_exec_meters_after_exec(monkeypatch) -> None:
         async def exec(self, argv, **kw):  # noqa: ANN001
             return ExecResult(returncode=0, stdout="ok", duration_ms=1234)
 
-    async def _resolve(_ctx):
+    async def _resolve(_ctx, network="none"):
         return _FakeRuntime()
 
     metered = {}

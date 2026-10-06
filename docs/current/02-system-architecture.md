@@ -1021,7 +1021,6 @@ Loaded by the API and the Arq worker.
 | `SANDBOX_REAP_SECONDS` | `86400` | Delete after 24 h. |
 | `SANDBOX_COST_SKU` | `sandbox-runtime` | SKU that sandbox seconds are metered against. |
 | `SANDBOX_PERSISTENT_BROWSER_ENABLED` | `False` | Persist a Chromium profile per tenant so logins survive. |
-| `SANDBOX_EGRESS_PROXY_ENABLED` | `False` | Turn on the allow-list egress proxy. |
 | `SANDBOX_EGRESS_IMAGE` | `hb-egress-proxy:local` | Proxy image. |
 | `SANDBOX_EGRESS_NETWORK` | `hb-egress-internal` | The `--internal` network the sandbox joins. |
 | `SANDBOX_EGRESS_UPLINK_NETWORK` | `hb-egress-uplink` | Proxy's internet-facing network. |

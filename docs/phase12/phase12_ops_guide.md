@@ -54,9 +54,8 @@ Publish the scanned images to your production container registry (e.g., Google A
    * `SANDBOX_EGRESS_IMAGE=<registry-path>/hb-egress-proxy@sha256:...`
 
 ### Step 1.3: Canary Rollout
-1. Enable the egress network proxy globally for worker processes:
+1. Set the hosts the egress proxy permits (a tool that declares `ALLOWLIST` runs behind it; there is no switch to turn on):
    ```bash
-   export SANDBOX_EGRESS_PROXY_ENABLED=true
    export SANDBOX_EGRESS_ALLOWLIST="googleapis.com,google.com" # update with required endpoints
    ```
 2. Flip the feature flag `sandbox.container_runtime_enabled` on a **per-company basis** in the database:

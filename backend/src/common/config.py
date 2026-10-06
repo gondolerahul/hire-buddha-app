@@ -104,12 +104,12 @@ class Settings(BaseSettings):
     # Chromium profile under the tenant workspace so cookies/logins survive across
     # calls. OFF by default (ephemeral context = today's behavior).
     SANDBOX_PERSISTENT_BROWSER_ENABLED: bool = False
-    # S7 egress proxy (Phase 12 `02`/`06`): the network gate for synthesized /
-    # network-using tools. When ALLOWLIST is in force the sandbox container joins
-    # an --internal docker network (no direct internet) whose only route out is a
-    # dual-homed tinyproxy enforcing SANDBOX_EGRESS_ALLOWLIST. OFF by default
-    # (NetworkPolicy.NONE → --network none stays today's behavior).
-    SANDBOX_EGRESS_PROXY_ENABLED: bool = False
+    # Egress proxy (Phase 12 `02`/`06`, TL-15): a sandbox call whose network
+    # policy is ``allowlist`` (a synthesized tool that declares ALLOWLIST) runs
+    # in a container on an --internal docker network (no direct internet) whose
+    # only route out is a dual-homed tinyproxy enforcing SANDBOX_EGRESS_ALLOWLIST.
+    # Every other call runs --network none. The policy is the call's, so there
+    # is no master switch (the old SANDBOX_EGRESS_PROXY_ENABLED had no reader).
     SANDBOX_EGRESS_IMAGE: str = "hb-egress-proxy:local"
     SANDBOX_EGRESS_NETWORK: str = "hb-egress-internal"
     SANDBOX_EGRESS_UPLINK_NETWORK: str = "hb-egress-uplink"

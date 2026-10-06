@@ -198,8 +198,13 @@ class ToolSandboxTester:
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(content)
             argv: Sequence[str] = ["python", "_harness.py"]
+            # The tool's declared policy reaches the container (TL-15): an
+            # ALLOWLIST tool runs behind the allow-list proxy, anything else
+            # with no network.
+            from src.ai.schemas.tools import NetworkPolicy
+            network = "allowlist" if spec.network_policy == NetworkPolicy.ALLOWLIST else "none"
             try:
-                res = await exec_fn(context, argv, cwd=workdir, timeout=timeout)
+                res = await exec_fn(context, argv, cwd=workdir, timeout=timeout, network=network)
             except Exception as exc:  # noqa: BLE001
                 return SandboxTestReport(ok=False, error=f"exec failed: {type(exc).__name__}: {exc}")
 

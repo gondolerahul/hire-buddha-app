@@ -14,35 +14,37 @@ file-op / browser / lifecycle surface.
 * File ops act on the host side of the bind-mount — the container sees the same
   bytes at the same path, so a plain host read/write is correct and avoids a
   ``docker cp`` round-trip.
-* ``open_browser_session`` delegates to an embedded ``SubprocessRuntime`` (host,
-  ephemeral) for now; moving Chromium into the container with a persistent
-  profile is S5 (``sandbox.persistent_browser_enabled``).
+* ``run_browser`` runs a browser session's steps inside the company's ``web``
+  container (TL-18): the platform writes the runner under the read-only
+  ``.skills/`` root and the request into the workspace, and execs the runner
+  with the image's Playwright. Chromium reaches the internet only through the
+  egress proxy that refuses private addresses; screenshots land in the call's
+  drop box. It used to open Chromium on the host.
 * Lifecycle methods forward to the manager.
 
-This is selected by ``get_sandbox_runtime`` only when the container runtime is
-enabled (settings/flag, default OFF); on any Docker failure the tools' factory
-falls back to ``SubprocessRuntime``.
+Selected by ``resolve_sandbox_runtime`` when the one switch is on for the
+company; a Docker failure is an error, never a fallback to the host (TL-01).
 """
 from __future__ import annotations
 
 import asyncio
-import contextlib
+import hashlib
+import json
 import os
+import shutil
 import time
+import uuid
 from typing import (
     Any,
-    AsyncIterator,
+    Dict,
     List,
     Mapping,
     Optional,
     Sequence,
 )
 
-from src.ai.tools.sandbox.runtime import (
-    BrowserSession,
-    ExecResult,
-    SubprocessRuntime,
-)
+from src.ai.tools.sandbox import browser_runner
+from src.ai.tools.sandbox.runtime import ExecResult
 from src.ai.tools.sandbox.container_paths import to_container_text, to_host_text
 from src.ai.tools.sandbox.tenant_manager import (
     SandboxDockerError,
@@ -65,11 +67,12 @@ class ContainerRuntime:
         company_id: Optional[str] = None,
         *,
         manager: Optional[TenantSandboxManager] = None,
+        network: str = "none",
     ) -> None:
         self.company_id = str(company_id) if company_id else "_shared"
         self.manager = manager or TenantSandboxManager()
-        # Host, ephemeral browser sessions until S5 moves Chromium in-container.
-        self._browser_fallback = SubprocessRuntime(company_id=company_id)
+        # The call's network policy (TL-15): it picks the container.
+        self.network = network
 
     async def exec(
         self,
@@ -81,7 +84,7 @@ class ContainerRuntime:
     ) -> ExecResult:
         start = time.monotonic()
         try:
-            name = await self.manager.ensure(self.company_id)
+            name = await self.manager.ensure(self.company_id, network=self.network)
         except SandboxDockerError as exc:
             return ExecResult(returncode=-1, launch_error=str(exc))
 
@@ -148,28 +151,33 @@ class ContainerRuntime:
             duration_ms=duration_ms,
         )
 
-    @contextlib.asynccontextmanager
-    async def open_browser_session(
-        self,
-        *,
-        timeout_ms: int = 30000,
-        viewport: Optional[Mapping[str, int]] = None,
-        user_agent: Optional[str] = None,
-        persona: Optional[str] = None,
-        user_data_dir: Optional[str] = None,
-    ) -> AsyncIterator[BrowserSession]:
-        # The browser runs on the host for now (S5 persistence via the profile
-        # dir, which lives on the bind-mounted tenant workspace so it is the same
-        # bytes the container would see); running Chromium *inside* the container
-        # over CDP is a later hardening.
-        async with self._browser_fallback.open_browser_session(
-            timeout_ms=timeout_ms,
-            viewport=viewport,
-            user_agent=user_agent,
-            persona=persona,
-            user_data_dir=user_data_dir,
-        ) as session:
-            yield session
+    async def run_browser(self, request: Mapping[str, Any], *, timeout: float) -> Dict[str, Any]:
+        """The session's steps, run by the runner in the company's ``web``
+        container (TL-18). A runner that reports nothing is an error."""
+        from src.ai.tools.sandbox.workspace import tenant_workspace
+
+        runner = install_browser_runner(self.company_id)
+        call_dir = os.path.join(tenant_workspace(self.company_id), ".browser-calls", uuid.uuid4().hex[:12])
+        os.makedirs(call_dir, exist_ok=True)
+        request_path = os.path.join(call_dir, "request.json")
+        with open(request_path, "w", encoding="utf-8") as fh:
+            json.dump({"steps": list(request.get("steps") or []),
+                       "timeout_ms": int(request.get("timeout_ms") or 30000)}, fh)
+        # Chromium writes its caches under HOME; the image's root is read-only.
+        env = {"HOME": "/tmp"}
+        if request.get("out_dir"):
+            env["ARTIFACTS_DIR"] = str(request["out_dir"])
+        if request.get("user_data_dir"):
+            env[browser_runner.PROFILE_ENV] = str(request["user_data_dir"])
+        web = self if self.network == "web" else ContainerRuntime(self.company_id, manager=self.manager, network="web")
+        try:
+            res = await web.exec(["python3", runner, request_path], cwd=call_dir, timeout=timeout, env=env)
+        finally:
+            shutil.rmtree(call_dir, ignore_errors=True)
+        if browser_runner.MARKER not in res.stdout:
+            reason = res.launch_error or ("timed out" if res.timed_out else (res.stderr or res.stdout)[-500:])
+            raise RuntimeError(f"the browser runner failed in the container: {reason}")
+        return json.loads(res.stdout.split(browser_runner.MARKER, 1)[1].strip().splitlines()[0])
 
     # --- file ops: host side of the bind-mount (container sees the same bytes) ---
     async def write_file(self, path: str, content: bytes) -> None:
@@ -185,13 +193,25 @@ class ContainerRuntime:
 
     # --- lifecycle: forward to the manager ---
     async def ensure(self) -> None:
-        await self.manager.ensure(self.company_id)
+        await self.manager.ensure(self.company_id, network=self.network)
 
     async def pause(self) -> None:
-        await self.manager.pause(self.company_id)
+        await self.manager.pause(self.company_id, network=self.network)
 
     async def resume(self) -> None:
-        await self.manager.resume(self.company_id)
+        await self.manager.resume(self.company_id, network=self.network)
 
     async def destroy(self) -> None:
         await self.manager.destroy(self.company_id)
+
+
+def install_browser_runner(company_id: str) -> str:
+    """Write the runner under the company's ``.skills/`` root, which the
+    container mounts read-only, once per runner version; return its host path."""
+    from src.ai.tools.sandbox.skill_files import SKILLS_DIR, materialise
+
+    with open(browser_runner.__file__, encoding="utf-8") as fh:
+        source = fh.read()
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    root = materialise(company_id, f"{SKILLS_DIR}/.platform/browser", digest, {"browser_runner.py": source})
+    return os.path.join(root, "browser_runner.py")

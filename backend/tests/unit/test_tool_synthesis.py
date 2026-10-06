@@ -77,7 +77,7 @@ class _FakeLLM:
 def _fake_exec(rows):
     """Build an injected exec_fn that returns a canned harness report."""
 
-    async def _exec(context, argv, *, cwd=None, timeout=30.0, env=None):
+    async def _exec(context, argv, *, cwd=None, timeout=30.0, env=None, network="none"):
         stdout = "___HARNESS___" + json.dumps(rows)
         return SimpleNamespace(exit_code=0, stdout=stdout, stderr="")
 
@@ -118,7 +118,7 @@ async def test_the_harness_runs_in_the_companys_workspace() -> None:
     from src.ai.tools.sandbox.workspace import tenant_workspace
     seen = {}
 
-    async def _exec(context, argv, *, cwd=None, timeout=30.0, env=None):
+    async def _exec(context, argv, *, cwd=None, timeout=30.0, env=None, network="none"):
         seen["cwd"] = cwd
         return SimpleNamespace(exit_code=1, stdout="", stderr="")
 
@@ -156,7 +156,7 @@ async def test_sandbox_tester_fails_on_wrong_output() -> None:
 async def test_sandbox_tester_real_subprocess_smoke() -> None:
     """The harness actually runs the synthesized tool out-of-process."""
 
-    async def _real_exec(context, argv, *, cwd=None, timeout=30.0, env=None):
+    async def _real_exec(context, argv, *, cwd=None, timeout=30.0, env=None, network="none"):
         proc = subprocess.run(
             [sys.executable, "_harness.py"], cwd=cwd,
             capture_output=True, text=True, timeout=timeout,

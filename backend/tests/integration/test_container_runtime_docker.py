@@ -171,3 +171,76 @@ async def test_terminal_keeps_what_the_command_put_in_the_drop_box(monkeypatch) 
         await TenantSandboxManager().destroy(company_id)
         for root in company_roots(company_id):
             shutil.rmtree(root, ignore_errors=True)
+
+
+_PROBE = (
+    "import sys, urllib.request\n"
+    "try:\n"
+    "    urllib.request.urlopen(sys.argv[1], timeout=15)\n"
+    "    print('reached')\n"
+    "except Exception as exc:\n"
+    "    print('refused', type(exc).__name__, exc)\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_an_allowlist_call_reaches_only_the_allowlist() -> None:
+    """TL-15: the call's network policy reaches the container. An allowlist
+    container's only way out is the proxy, which passes only the allow-list."""
+    if subprocess.run(["docker", "image", "inspect", "hb-egress-proxy:local"],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+        pytest.skip("hb-egress-proxy:local not built")
+    company_id = f"itest-{uuid.uuid4().hex[:12]}"
+    rt = ContainerRuntime(company_id=company_id, network="allowlist",
+                          manager=TenantSandboxManager(config=TenantSandboxConfig(image=_IMAGE)))
+    try:
+        allowed = await rt.exec(["python3", "-c", _PROBE, "https://www.google.com/"], timeout=40)
+        other = await rt.exec(["python3", "-c", _PROBE, "https://example.com/"], timeout=40)
+        direct = await rt.exec(["python3", "-c",
+                                "import socket; socket.create_connection(('1.1.1.1', 443), 3); print('direct')"],
+                               timeout=20)
+        assert "reached" in allowed.stdout, allowed.stdout + allowed.stderr
+        assert "refused" in other.stdout, other.stdout
+        assert "direct" not in direct.stdout              # the internal network has no route out
+        assert await rt.manager._status(f"hb-sandbox-{company_id}-allowlist") == "running"
+    finally:
+        await rt.manager.destroy(company_id)
+        for root in company_roots(company_id):
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_the_browser_runs_in_the_container_behind_the_web_proxy() -> None:
+    """TL-18: Chromium runs in the company's ``web`` container. Its only way out
+    is the proxy that refuses internal addresses; a screenshot lands in the
+    call's drop box."""
+    if subprocess.run(["docker", "image", "inspect", "hb-egress-proxy:local"],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+        pytest.skip("hb-egress-proxy:local not built")
+    from src.ai.tools.sandbox.workspace import drop_box_root
+
+    company_id = f"itest-{uuid.uuid4().hex[:12]}"
+    rt = ContainerRuntime(company_id=company_id,
+                          manager=TenantSandboxManager(config=TenantSandboxConfig(image=_IMAGE)))
+    out_dir = os.path.join(drop_box_root(company_id), "run", "call")
+    os.makedirs(out_dir)
+    try:
+        public = await rt.run_browser({"steps": [{"action": "navigate", "url": "https://example.com/"},
+                                                 {"action": "screenshot"}],
+                                       "timeout_ms": 30000, "out_dir": out_dir}, timeout=150)
+        assert [s["status"] for s in public["steps"]] == ["success", "success"], public
+        assert public["steps"][0]["title"] == "Example Domain"
+        assert os.listdir(out_dir) == [public["steps"][1]["file"]]
+
+        for internal in ("http://169.254.169.254/latest/meta-data/", "http://hb-egress-proxy:8888/",
+                         "http://localhost:8000/"):
+            res = await rt.run_browser({"steps": [{"action": "navigate", "url": internal}],
+                                        "timeout_ms": 15000}, timeout=90)
+            [step] = res["steps"]
+            assert step["status"] == "error", (internal, step)
+
+        assert await rt.manager._status(f"hb-sandbox-{company_id}-web") == "running"
+    finally:
+        await rt.manager.destroy(company_id)
+        for root in company_roots(company_id):
+            shutil.rmtree(root, ignore_errors=True)

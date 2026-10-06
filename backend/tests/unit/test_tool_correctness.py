@@ -67,23 +67,26 @@ class _Page:
     async def title(self):
         return "t"
 
+    async def goto(self, url, **_kw):
+        self.log.append(("goto", url))
+
 
 @pytest.fixture
 def browser(monkeypatch):
-    import src.ai.tools.sandbox.browser_tool as bt
+    import src.ai.tools.sandbox.browser_runner as br
     import src.ai.tools.sandbox.runtime as runtime
+    import src.common.net_guard as net_guard
     sessions = []
     page = _Page()
     page.log = []
 
-    class _Runtime:
-        @asynccontextmanager
-        async def open_browser_session(self, **_kw):
-            sessions.append(page)
-            yield SimpleNamespace(page=page)
+    @asynccontextmanager
+    async def _open_page(**_kw):
+        sessions.append(page)
+        yield page
 
     async def _resolve(_ctx):
-        return _Runtime()
+        return runtime.SubprocessRuntime()
 
     async def _dir(_ctx):
         return None
@@ -91,22 +94,27 @@ def browser(monkeypatch):
     async def _guard(_page):
         return []
 
+    async def _public(_url):
+        return None
+
+    monkeypatch.setattr(br, "open_page", _open_page)
     monkeypatch.setattr(runtime, "resolve_sandbox_runtime", _resolve)
     monkeypatch.setattr(runtime, "resolve_persistent_browser_dir", _dir)
-    monkeypatch.setattr(bt, "guard_requests", _guard)
-    monkeypatch.setattr(bt, "meter_sandbox_usage", None, raising=False)
+    monkeypatch.setattr(runtime, "guard_requests", _guard)
+    monkeypatch.setattr(net_guard, "check_url", _public)
 
     def _action(name):
-        async def act(self, pg, args, *_a):
-            pg.log.append((name, args.get("url") or args.get("selector")))
-            if args.get("selector") == "#missing":
-                return {"status": "error", "action": name, "error": "not found"}
-            return {"status": "success", "action": name, "url": "https://example.com/after"}
+        async def act(pg, step, *_a):
+            pg.log.append((name, step.get("url") or step.get("selector")))
+            if step.get("selector") == "#missing":
+                raise LookupError("not found")
+            return {"url": "https://example.com/after"}
         return act
 
     for name in ("navigate", "click", "type", "get_text", "screenshot"):
-        monkeypatch.setattr(bt.HeadlessBrowserTool, f"_action_{name}", _action(name))
-    return SimpleNamespace(tool=bt.HeadlessBrowserTool(), sessions=sessions, page=page)
+        monkeypatch.setitem(br.ACTIONS, name, _action(name))
+    from src.ai.tools.sandbox.browser_tool import HeadlessBrowserTool
+    return SimpleNamespace(tool=HeadlessBrowserTool(), sessions=sessions, page=page)
 
 
 @pytest.mark.asyncio
@@ -117,22 +125,22 @@ async def test_steps_run_in_order_on_one_page_in_one_session(browser):
         {"action": "get_text"},
     ]}, CTX)
     assert out.success and len(browser.sessions) == 1
-    assert browser.page.log == [("navigate", "https://example.com/login"), ("type", "#user"),
-                                ("click", "#go"), ("get_text", None)]
+    assert browser.page.log == [("goto", "https://example.com/login"), ("navigate", "https://example.com/login"),
+                                ("type", "#user"), ("click", "#go"), ("get_text", None)]
 
 
 @pytest.mark.asyncio
 async def test_a_failing_step_stops_the_session_and_says_which(browser):
     out = await browser.tool.invoke({"steps": [{"action": "click", "selector": "#missing"},
                                                {"action": "get_text"}]}, CTX)
-    assert not out.success and out.error == "step 1 (click): not found"
+    assert not out.success and out.error == "step 1 (click): LookupError: not found"
     assert browser.page.log == [("click", "#missing")]
 
 
 @pytest.mark.asyncio
 async def test_the_single_action_form_is_one_step(browser):
     out = await browser.tool.invoke({"action": "navigate", "url": "https://example.com"}, CTX)
-    assert out.success and browser.page.log == [("navigate", "https://example.com")]
+    assert out.success and browser.page.log == [("goto", "https://example.com"), ("navigate", "https://example.com")]
 
 
 def test_every_fallback_into_the_browser_is_a_call_it_accepts():
