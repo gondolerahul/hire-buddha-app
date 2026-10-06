@@ -80,7 +80,7 @@ async def test_the_terminal_runs_in_the_tenant_workspace(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "SANDBOX_WORKSPACE_ROOT", str(tmp_path), raising=False)
     seen = {}
 
-    async def _run(self, command, working_dir, timeout_s, context=None):
+    async def _run(self, command, working_dir, timeout_s, context=None, extra_env=None):
         seen["cwd"] = working_dir
         return '{"exit_code": 0, "stdout": "", "stderr": ""}'
 
