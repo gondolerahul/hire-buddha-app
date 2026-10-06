@@ -136,7 +136,7 @@ outbound network, and no cgroup memory/CPU/PID limits. The real isolation —
 
 ### TL-02 — Tool synthesis executes generated code outside the sandbox
 
-**✅ Verified · Critical** · **Status: partly fixed (2026-10-01, P3.9)** — the harness workdir is created under the company's workspace (the directory a tenant container mounts), and a call without a company is refused. Open (P11): the harness still calls `inst.run` without context, and `SandboxedSynthesizedTool` still replays the harness per call.
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, P3.9; 2026-10-06, P11.5)** — the harness workdir is created under the company's workspace (the directory a tenant container mounts), and a call without a company is refused (P3.9). The harness calls `run_with_context(input, context)` with the call's server-minted context, and `SandboxedSynthesizedTool` writes the tool once per version (content-hashed) under the read-only `.skills/.synth/<name>/<hash>/` and execs a small per-call driver under the tool's declared network policy (P11.5). Tests: `tests/unit/test_synthesized_tool_calls.py` (4 of 8 fail on the old code; the other 4 — network policies and the company refusal — held since TL-15); in the real container, `test_a_synthesized_tool_runs_in_the_container_with_its_context` (uid 10001, the run id reaches the tool). The default flip (TL-01) is what makes the container the place this runs.
 
 `ToolSandboxTester.run_examples` allocates its harness workdir with
 `tempfile.mkdtemp(prefix="toolsynth_")` — bare `/tmp`, not the tenant workspace. That

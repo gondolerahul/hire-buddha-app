@@ -7,7 +7,9 @@ workspace and executed through :func:`run_sandbox_exec` (container-when-enabled,
 
 The harness deliberately ships a *minimal* ``src.ai.tools.base`` stub into the
 workdir so the synthesized ``from src.ai.tools.base import Tool`` resolves
-without exposing the real platform package to sandboxed code.
+without exposing the real platform package to sandboxed code. It calls the
+tool the way a run will — ``run_with_context`` with the call's server-minted
+context — under the tool's declared network policy (TL-02, TL-15).
 """
 from __future__ import annotations
 
@@ -25,36 +27,12 @@ logger = logging.getLogger(__name__)
 __all__ = ["ExampleOutcome", "SandboxTestReport", "ToolSandboxTester", "build_harness_files"]
 
 
-# A self-contained stub of the Tool base so synthesized code imports cleanly in
-# the sandbox without the real platform package present.
-_BASE_STUB = '''
-from abc import ABC, abstractmethod
-
-
-class ToolStatus:
-    ACTIVE = "ACTIVE"
-    DRAFT = "DRAFT"
-
-
-class Tool(ABC):
-    name = ""
-    description = ""
-    status = "ACTIVE"
-
-    @abstractmethod
-    async def run(self, input_data):
-        ...
-
-    async def run_with_context(self, input_data, context=None):
-        return await self.run(input_data)
-'''
-
-
-def _harness_main(examples: List[dict[str, Any]]) -> str:
+def _harness_main(examples: List[dict[str, Any]], context: Mapping[str, Any]) -> str:
     return f'''
 import asyncio, importlib.util, inspect, json, sys, traceback
 
 EXAMPLES = json.loads({json.dumps(json.dumps(examples))})
+CONTEXT = json.loads({json.dumps(json.dumps(dict(context)))})
 
 
 def _load_tool_class():
@@ -75,7 +53,7 @@ async def _run():
     for ex in EXAMPLES:
         rec = {{"input": ex["input"], "ok": False}}
         try:
-            out = await inst.run(ex["input"])
+            out = await inst.run_with_context(ex["input"], CONTEXT)
             rec["output"] = str(out)[:2000]
             rec["errored"] = False
         except Exception as exc:  # noqa: BLE001
@@ -96,21 +74,18 @@ if __name__ == "__main__":
 '''
 
 
-def build_harness_files(source: str, spec: ToolSpec) -> dict[str, str]:
-    """Pure builder: filename → content for the sandbox run."""
+def build_harness_files(
+    source: str, spec: ToolSpec, context: Optional[Mapping[str, Any]] = None,
+) -> dict[str, str]:
+    """Pure builder: POSIX path → content for the sandbox run."""
+    from src.ai.tools.sandbox.synthesized_tool import sandbox_context, tool_files
+
     examples = [
         {"input": ex.input, "expected_contains": ex.expected_contains,
          "should_error": ex.should_error}
         for ex in spec.examples
     ]
-    return {
-        "synth_tool.py": source,
-        os.path.join("src", "ai", "tools", "base.py"): _BASE_STUB,
-        os.path.join("src", "__init__.py"): "",
-        os.path.join("src", "ai", "__init__.py"): "",
-        os.path.join("src", "ai", "tools", "__init__.py"): "",
-        "_harness.py": _harness_main(examples),
-    }
+    return {**tool_files(source), "_harness.py": _harness_main(examples, sandbox_context(context))}
 
 
 @dataclass
@@ -192,19 +167,17 @@ class ToolSandboxTester:
             os.makedirs(base, exist_ok=True)
             workdir = tempfile.mkdtemp(prefix="toolsynth_", dir=base)
         try:
-            for rel, content in build_harness_files(source, spec).items():
-                path = os.path.join(workdir, rel)
+            for rel, content in build_harness_files(source, spec, context).items():
+                path = os.path.join(workdir, *rel.split("/"))
                 os.makedirs(os.path.dirname(path) or workdir, exist_ok=True)
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(content)
             argv: Sequence[str] = ["python", "_harness.py"]
-            # The tool's declared policy reaches the container (TL-15): an
-            # ALLOWLIST tool runs behind the allow-list proxy, anything else
-            # with no network.
-            from src.ai.schemas.tools import NetworkPolicy
-            network = "allowlist" if spec.network_policy == NetworkPolicy.ALLOWLIST else "none"
+            # The tool's declared policy reaches the container (TL-15).
+            from src.ai.tools.sandbox.synthesized_tool import sandbox_network
             try:
-                res = await exec_fn(context, argv, cwd=workdir, timeout=timeout, network=network)
+                res = await exec_fn(context, argv, cwd=workdir, timeout=timeout,
+                                    network=sandbox_network(spec.network_policy))
             except Exception as exc:  # noqa: BLE001
                 return SandboxTestReport(ok=False, error=f"exec failed: {type(exc).__name__}: {exc}")
 

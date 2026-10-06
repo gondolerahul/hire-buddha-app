@@ -1071,7 +1071,8 @@ sandbox images and a durable workspace volume (P11).
 
 The tool-synthesis test harness (`ToolSandboxTester`) writes its files under the
 company's workspace — the directory a tenant container mounts — rather than bare
-`/tmp`, which only the host runtime could see (TL-02, in part).
+`/tmp`, which only the host runtime could see, and calls the tool the way a run will:
+`run_with_context(input, context)` with the call's server-minted context (TL-02).
 
 ### 12.2 The trust boundary
 
@@ -1409,9 +1410,14 @@ if not enabled:
 ```
 
 plus the registry-level `tools.experimental.tool_synthesis` opt-in, plus the rule
-that synthesized source **never runs in-process** —
-`SandboxedSynthesizedTool.run_with_context` replays every call through
-`ToolSandboxTester` so the code only ever executes inside the container.
+that synthesized source **never runs in-process**. `SandboxedSynthesizedTool` writes the
+tool's source, a stub of the `Tool` base and a small driver once per version (by content
+hash) under the company's read-only `.skills/.synth/<name>/<hash>/`; each call writes its
+input and the server-minted context's scalars (company, user, run, agent — never the loop's
+`__` state) to a request file and execs the driver in the sandbox under the tool's declared
+network policy. Only the driver's one JSON line comes back. Until TL-02 (2026-10-06) each call
+replayed the whole test harness — six files written and graded — and the tool never saw a
+context.
 
 The `ToolSpec` a synthesizer must supply
 ([schemas/tools.py:42](../../backend/src/ai/schemas/tools.py:42)) constrains the

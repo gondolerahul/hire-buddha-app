@@ -105,7 +105,7 @@ def test_build_harness_files_ships_base_stub() -> None:
     files = build_harness_files(WORD_COUNT_SRC, _spec())
     assert "synth_tool.py" in files
     assert "_harness.py" in files
-    assert "class Tool" in files["src/ai/tools/base.py".replace("/", __import__("os").sep)]
+    assert "class Tool" in files["src/ai/tools/base.py"]
 
 
 # The harness runs in the company's workspace (TL-02), so it needs a company.

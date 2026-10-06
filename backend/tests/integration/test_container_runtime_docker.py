@@ -8,6 +8,7 @@ the mocked tests in tests/unit/test_container_runtime.py). Build the image with
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -242,5 +243,47 @@ async def test_the_browser_runs_in_the_container_behind_the_web_proxy() -> None:
         assert await rt.manager._status(f"hb-sandbox-{company_id}-web") == "running"
     finally:
         await rt.manager.destroy(company_id)
+        for root in company_roots(company_id):
+            shutil.rmtree(root, ignore_errors=True)
+
+
+_WHO_SRC = '''
+import json, os
+from src.ai.tools.base import Tool
+
+
+class WhoTool(Tool):
+    name = "who_tool"
+
+    async def run(self, input_data):
+        return "no context"
+
+    async def run_with_context(self, input_data, context=None):
+        return json.dumps({"input": input_data, "run": (context or {}).get("run_id"),
+                           "uid": os.getuid()})
+'''
+
+
+@pytest.mark.asyncio
+async def test_a_synthesized_tool_runs_in_the_container_with_its_context(monkeypatch) -> None:
+    """TL-02: a call execs the installed tool's driver in the tenant container,
+    as the sandbox user, with the server-minted context."""
+    from src.ai.schemas.tools import ToolSpec
+    from src.ai.tools.sandbox import runtime as runtime_mod
+    from src.ai.tools.sandbox.synthesized_tool import SandboxedSynthesizedTool
+    from src.common.config import settings
+
+    async def _on(_cid):
+        return True
+
+    monkeypatch.setattr(runtime_mod, "container_runtime_enabled", _on)
+    monkeypatch.setattr(settings, "SANDBOX_IMAGE", _IMAGE, raising=False)
+    company_id = f"itest-{uuid.uuid4().hex[:12]}"
+    tool = SandboxedSynthesizedTool(ToolSpec(name="who_tool", description="d"), _WHO_SRC)
+    try:
+        out = json.loads(await tool.run_with_context("hello", {"company_id": company_id, "run_id": "r-1"}))
+        assert out == {"input": "hello", "run": "r-1", "uid": 10001}
+    finally:
+        await TenantSandboxManager().destroy(company_id)
         for root in company_roots(company_id):
             shutil.rmtree(root, ignore_errors=True)
