@@ -22,7 +22,7 @@ from pydantic import Field, field_validator
 from src.ai.social_connection_service import PLATFORM_REFRESH_CONFIG
 from src.ai.tools.base import Tool, ToolOutput, ToolParams, ToolStatus
 from src.ai.tools.social import facebook, google_ads, instagram, linkedin, reddit, tiktok, twitter, youtube
-from src.ai.tools.social.base import SocialMediaTool
+from src.ai.tools.social.base import PAGE_PARAM, SocialMediaTool
 
 __all__ = ["SOCIAL_PLATFORMS", "SocialAPITool", "operations"]
 
@@ -95,7 +95,7 @@ class SocialAPITool(Tool):
                 "platform": params.platform,
                 "operations": [
                     {"operation": verb, "description": op.description, "writes": writes(verb),
-                     "parameters": op.get_function_schema()["parameters"]}
+                     "parameters": _parameters(verb, op)}
                     for verb, op in sorted(platform_ops.items())
                 ],
             }))
@@ -104,7 +104,7 @@ class SocialAPITool(Tool):
             return ToolOutput.failed(
                 f"{params.platform} has no operation '{params.operation}'; one of {sorted(platform_ops)} "
                 f"(or '{DESCRIBE}')", code="unknown_operation")
-        problem = _payload_problem(op, params.payload)
+        problem = _payload_problem(params.operation, op, params.payload)
         if problem:
             return ToolOutput.failed(f"{params.platform}.{params.operation}: {problem}",
                                      code="invalid_arguments")
@@ -116,9 +116,23 @@ class SocialAPITool(Tool):
         return ToolOutput(output=out, metadata=meta)
 
 
-def _payload_problem(op: SocialMediaTool, payload: Dict[str, Any]) -> Optional[str]:
+_PAGE_SCHEMA = {"type": "string", "description": (
+    "To continue a list: the 'next_page' the previous call returned (when it said "
+    "'truncated'). Leave it out for the first page.")}
+
+
+def _parameters(verb: str, op: SocialMediaTool) -> Dict[str, Any]:
+    """The operation's parameters as the model sees them: a read also takes
+    ``page``, the cursor a truncated result gave (TL-38)."""
+    schema = dict(op.get_function_schema()["parameters"])
+    if not writes(verb):
+        schema["properties"] = {**schema.get("properties", {}), PAGE_PARAM: _PAGE_SCHEMA}
+    return schema
+
+
+def _payload_problem(verb: str, op: SocialMediaTool, payload: Dict[str, Any]) -> Optional[str]:
     """What is wrong with ``payload`` against the operation's schema, if anything."""
-    schema = op.get_function_schema()["parameters"]
+    schema = _parameters(verb, op)
     properties = schema.get("properties", {})
     missing = [k for k in schema.get("required", []) if payload.get(k) in (None, "")]
     unknown = sorted(set(payload) - set(properties))

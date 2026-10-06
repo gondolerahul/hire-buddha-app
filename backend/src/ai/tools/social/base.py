@@ -7,6 +7,7 @@ Provides shared functionality:
 - Standard JSON function schema pattern
 """
 import asyncio
+import base64
 import contextvars
 import json
 import logging
@@ -14,6 +15,7 @@ import random
 from abc import abstractmethod
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
@@ -34,6 +36,9 @@ _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # The next-page markers the responses of one operation carried (TL-38).
 _PAGES: contextvars.ContextVar[Optional[List[str]]] = contextvars.ContextVar("social_pages", default=None)
+# The page a call asked for: applied to the request it came from (TL-38).
+_CURSOR: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("social_cursor", default=None)
+PAGE_PARAM = "page"
 
 
 def _backoff(attempt: int) -> float:
@@ -90,6 +95,66 @@ def next_page(body: Any) -> Optional[str]:
     return None
 
 
+def _page_key(body: Dict[str, Any], url: str) -> Optional[str]:
+    """The request parameter that carries :func:`next_page`'s cursor back to
+    the platform, for the response shapes it reads; ``None`` when the cursor
+    cannot be sent back (a Graph ``paging.next`` URL with no ``after``)."""
+    paging = body.get("paging")
+    if isinstance(paging, dict):
+        if paging.get("next"):
+            cursors = paging.get("cursors") if isinstance(paging.get("cursors"), dict) else {}
+            if cursors.get("after") or "after" in parse_qs(urlsplit(str(paging["next"])).query):
+                return "after"
+            return None
+        return "start"                                       # LinkedIn
+    if body.get("nextPageToken") or body.get("next_page_token"):
+        return "pageToken"                                   # Google, YouTube
+    if isinstance(body.get("meta"), dict) and body["meta"].get("next_token"):
+        # X: recent search takes next_token, timelines and mentions pagination_token.
+        return "next_token" if "/tweets/search/" in urlsplit(url).path else "pagination_token"
+    data = body.get("data")
+    if isinstance(data, dict) and data.get("after"):
+        return "after"                                       # Reddit
+    return "cursor"                                          # TikTok
+
+
+def encode_page(method: str, url: str, key: Optional[str], value: str) -> str:
+    """The ``next_page`` a result gives the model: which request it continues,
+    the parameter that carries it, and the platform's cursor. Opaque to the
+    model, and only ever applied to the request it came from."""
+    record = {"r": f"{method.upper()} {urlsplit(url).path}", "k": key, "v": value}
+    return base64.urlsafe_b64encode(json.dumps(record, separators=(",", ":")).encode()).decode().rstrip("=")
+
+
+def decode_page(token: Any) -> Optional[Dict[str, Any]]:
+    """The record :func:`encode_page` wrote, or ``None`` for anything else."""
+    if not isinstance(token, str) or not token:
+        return None
+    try:
+        record = json.loads(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(record, dict) or not isinstance(record.get("r"), str) or "v" not in record:
+        return None
+    return record
+
+
+def _with_cursor(method: str, url: str, params: Optional[Dict[str, Any]],
+                 json_body: Optional[Dict[str, Any]]) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """The request's parameters with the asked-for page applied, when this is
+    the request the page came from: a query parameter on a read, a body field
+    on a JSON request (TikTok and Google Ads list by POST)."""
+    cursor = _CURSOR.get()
+    if not cursor or cursor.get("used") or not cursor.get("k"):
+        return params, json_body
+    if cursor["r"] != f"{method.upper()} {urlsplit(url).path}":
+        return params, json_body
+    cursor["used"] = True
+    if method.upper() != "GET" and json_body is not None:
+        return params, {**json_body, cursor["k"]: cursor["v"]}
+    return {**(params or {}), cursor["k"]: cursor["v"]}, json_body
+
+
 class SocialMediaTool(Tool):
     """
     Abstract base class for social media platform tools.
@@ -143,6 +208,11 @@ class SocialMediaTool(Tool):
             platform_user_id=params.get("platform_user_id"),
         )
 
+        page = params.pop(PAGE_PARAM, None) if isinstance(params, dict) else None
+        cursor = decode_page(page) if page is not None else None
+        if page is not None and cursor is None:
+            return json.dumps({"error": f"'{PAGE_PARAM}' is not a next_page this tool returned"})
+
         if not credentials or not credentials.get("access_token"):
             return json.dumps({
                 "error": (
@@ -152,6 +222,7 @@ class SocialMediaTool(Tool):
             })
 
         pages = _PAGES.set([])
+        asked = _CURSOR.set({**cursor, "used": False} if cursor else None)
         try:
             result = await self._execute(params, credentials, context)
             more = _PAGES.get() or []
@@ -160,6 +231,10 @@ class SocialMediaTool(Tool):
                 # cursor (TL-38). Results used to read as the complete set.
                 result["truncated"] = True
                 result["next_page"] = more[-1]
+            applied = _CURSOR.get()
+            if applied and not applied["used"] and isinstance(result, dict):
+                # A page from another operation: this call fetched the first page.
+                result["page_ignored"] = True
             return json.dumps(result)
         except httpx.HTTPStatusError as e:
             logger.error(f"[{self.name}] HTTP error: {e.response.status_code} {e.response.text}")
@@ -175,6 +250,7 @@ class SocialMediaTool(Tool):
             return json.dumps({"error": f"{self.name} failed: {str(e)}"})
         finally:
             _PAGES.reset(pages)
+            _CURSOR.reset(asked)
 
     @abstractmethod
     async def _execute(
@@ -219,6 +295,7 @@ class SocialMediaTool(Tool):
         30 s. Raises ``httpx.HTTPStatusError`` on the final 4xx/5xx.
         """
         write = method.upper() in _WRITE_METHODS
+        params, json_body = _with_cursor(method, url, params, json_body)
         async with httpx.AsyncClient(timeout=timeout) as client:
             for attempt in range(MAX_RETRIES + 1):
                 last = attempt == MAX_RETRIES
@@ -254,11 +331,12 @@ class SocialMediaTool(Tool):
                 pages = _PAGES.get()
                 if pages is not None:
                     try:
-                        marker = next_page(resp.json())
+                        body = resp.json()
                     except ValueError:
-                        marker = None
+                        body = None
+                    marker = next_page(body)
                     if marker:
-                        pages.append(marker)
+                        pages.append(encode_page(method, url, _page_key(body, url), marker))
                 return resp
         raise RuntimeError("unreachable")  # pragma: no cover
 

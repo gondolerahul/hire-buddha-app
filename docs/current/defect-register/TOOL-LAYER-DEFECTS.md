@@ -785,7 +785,7 @@ The only real exponential backoff in the tool layer is SerpAPI-specific.
 
 ### TL-38 — No pagination in any social list call
 
-**✅ Verified · Medium** · **Status: fixed for the signal (2026-10-02, P6.4)** — a list response's next-page marker (each platform's shape: `paging.next`, LinkedIn start/count/total, `meta.next_token`, `nextPageToken`, Reddit `after`, TikTok `has_more`) makes the operation's result say `truncated: true` with `next_page`; an operation does not yet take a cursor to fetch that page.
+**✅ Verified · Medium** · **Status: fixed (2026-10-02, P6.4; 2026-10-06)** — a list response's next-page marker (each platform's shape: `paging.next`, LinkedIn start/count/total, `meta.next_token`, `nextPageToken`, Reddit `after`, TikTok `has_more`) makes the operation's result say `truncated: true` with `next_page` (P6.4). Every read operation now takes that `next_page` back as `page`: the token names the request it continues and the parameter the platform reads its cursor from, and the social base applies it to that request only (`page_ignored` when it belongs to another operation; refused when it is not a token this tool gave; writes do not take it). `tests/unit/test_social_resilience.py`.
 
 Every `list` / `search` / `get_*` action across all 16 platforms returns page one and
 reports it to the model as the complete set. No cursor is read, no `next` is followed,

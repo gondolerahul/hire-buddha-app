@@ -16,6 +16,8 @@ import pytest
 import src.ai.tools.social.base as base
 from src.ai.tools.social.base import SocialMediaTool, next_page
 
+_REAL_CLIENT = httpx.AsyncClient
+
 
 @pytest.fixture
 def server(monkeypatch):
@@ -98,7 +100,7 @@ async def test_a_client_error_is_not_retried_and_retries_end(server):
     ({"data": {"has_more": False, "cursor": 40}}, None),
     ({"data": [1, 2]}, None),
 ])
-def test_each_platforms_next_page(body, cursor):
+def test_each_platforms_next_page(body, cursor):  # noqa: D103
     assert next_page(body) == cursor
 
 
@@ -110,4 +112,90 @@ async def test_a_list_operation_says_it_is_partial(server, monkeypatch):
     server.script += [ok({"data": [{"id": "1", "text": "a"}], "meta": {"next_token": "NEXT"}})]
     out = json.loads(await TwitterSearchTool().run_with_context(
         json.dumps({"query": "ai"}), {"company_id": "00000000-0000-0000-0000-000000000001"}))
-    assert out["truncated"] is True and out["next_page"] == "NEXT"
+    assert out["truncated"] is True
+    assert base.decode_page(out["next_page"])["v"] == "NEXT"
+
+
+# ── the next page can be fetched (TL-38) ────────────────────────────────
+
+@pytest.fixture
+def connected(server, monkeypatch):
+    import src.ai.social_connection_service as conns
+    monkeypatch.setattr(conns, "resolve_connection",
+                        AsyncMock(return_value={"access_token": "t", "platform_user_id": "42"}))
+    requests: list = []
+    real = _REAL_CLIENT
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return server.script.pop(0)
+
+    monkeypatch.setattr(base.httpx, "AsyncClient",
+                        lambda timeout=None: real(transport=httpx.MockTransport(handler), timeout=timeout))
+    return requests
+
+
+_CTX = {"company_id": "00000000-0000-0000-0000-000000000001"}
+
+
+async def _call(tool, payload):
+    return json.loads(await tool.run_with_context(json.dumps(payload), _CTX))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name, payload, param", [
+    ("TwitterSearchTool", {"query": "ai"}, "next_token"),
+    ("TwitterGetMentionsTool", {}, "pagination_token"),
+])
+async def test_the_next_page_is_fetched_with_the_platforms_cursor(server, connected, tool_name, payload, param):
+    """An operation said ``truncated`` and gave ``next_page``, but took no
+    cursor: the model could see there was more and never fetch it."""
+    from src.ai.tools.social import twitter
+    tool = getattr(twitter, tool_name)()
+    server.script += [ok({"data": [{"id": "1", "text": "a"}], "meta": {"next_token": "NT2"}}),
+                      ok({"data": [{"id": "2", "text": "b"}], "meta": {}})]
+    first = await _call(tool, payload)
+    second = await _call(tool, {**payload, "page": first["next_page"]})
+    assert connected[0].url.params.get(param) is None
+    assert connected[1].url.params[param] == "NT2"
+    assert "truncated" not in second and "page_ignored" not in second
+
+
+@pytest.mark.asyncio
+async def test_a_list_read_by_post_takes_the_cursor_in_its_body(server, connected):
+    from src.ai.tools.social.tiktok import TikTokGetVideosTool
+    server.script += [ok({"data": {"videos": [{"id": 1}], "has_more": True, "cursor": 20}}),
+                      ok({"data": {"videos": [{"id": 2}], "has_more": False, "cursor": 40}})]
+    first = await _call(TikTokGetVideosTool(), {})
+    await _call(TikTokGetVideosTool(), {"page": first["next_page"]})
+    assert json.loads(connected[1].content)["cursor"] == "20"
+
+
+@pytest.mark.asyncio
+async def test_a_page_from_another_operation_is_not_applied(server, connected):
+    from src.ai.tools.social.twitter import TwitterGetMentionsTool, TwitterSearchTool
+    server.script += [ok({"data": [], "meta": {"next_token": "NT2"}}), ok({"data": [], "meta": {}})]
+    first = await _call(TwitterSearchTool(), {"query": "ai"})
+    out = await _call(TwitterGetMentionsTool(), {"page": first["next_page"]})
+    assert out["page_ignored"] is True
+    assert "next_token" not in connected[1].url.params and "pagination_token" not in connected[1].url.params
+
+
+@pytest.mark.asyncio
+async def test_a_page_this_tool_did_not_give_is_refused(server, connected):
+    from src.ai.tools.social.twitter import TwitterSearchTool
+    out = await _call(TwitterSearchTool(), {"query": "ai", "page": "not-a-page"})
+    assert "not a next_page" in out["error"] and connected == []
+
+
+@pytest.mark.asyncio
+async def test_reads_take_a_page_and_writes_do_not():
+    from src.ai.tools.social.social_api import SocialAPITool
+    described = json.loads((await SocialAPITool().invoke(
+        {"platform": "twitter", "operation": "describe"}, _CTX)).output)
+    ops = {o["operation"]: o for o in described["operations"]}
+    assert "page" in ops["search"]["parameters"]["properties"]
+    assert "page" not in ops["create_post"]["parameters"]["properties"]
+    refused = await SocialAPITool().invoke(
+        {"platform": "twitter", "operation": "create_post", "payload": {"text": "hi", "page": "x"}}, _CTX)
+    assert not refused.success and "unknown ['page']" in refused.error
