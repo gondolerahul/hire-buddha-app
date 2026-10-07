@@ -1,34 +1,43 @@
 """
 Interface 2: Unified Webhook Endpoint.
 
-Single endpoint: POST /webhook/inbound
+A tenant's providers post to ``POST /webhook/inbound/{endpoint_id}``. The
+endpoint (``gateway.models.WebhookEndpoint``) names the company, the source and
+the secret, so:
+  1. the request is checked with that source's signature scheme
+     (``gateway.webhook_signatures``) — a missing or wrong signature is a 401 and
+     nothing is queued (GW-01);
+  2. the source's normaliser turns the body into a standard EventEnvelope for the
+     endpoint's company — never one named in the request;
+  3. it is queued as a process_gateway_event arq job (src/gateway/envelope.py),
+     and the answer is 202 only once Redis has the job — 503 otherwise, so the
+     provider retries (SA-09).
 
-Uses the Strategy Pattern to:
-  1. Identify the source (email, CRM, LinkedIn, GitHub, generic)
-  2. Validate the signature (per-provider)
-  3. Normalize to a standard EventEnvelope
-  4. Queue it as a process_gateway_event arq job (src/gateway/envelope.py)
-  5. Return 202 only once Redis has the job — 503 otherwise, so the provider
-     retries (SA-09)
+The bare ``POST /webhook/inbound`` (tenant from ``?client_id=``, scheme sniffed
+from the request's own headers, every check returning True) answers 401.
 
-Adding a new webhook source = add a new WebhookStrategy subclass.
+Adding a source = a name in ``WEBHOOK_SOURCES``, a normaliser here and a check
+in ``webhook_signatures.SIGNERS``.
 """
-# No ``from __future__ import annotations``: the endpoint is wrapped by
+# No ``from __future__ import annotations``: the endpoints are wrapped by
 # ``limiter.exempt``, and FastAPI would resolve string annotations against the
 # wrapper's module (slowapi), turning ``request: Request`` into a query param.
-import hashlib
-import hmac
-import json
 import logging
 import uuid
-from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.database import get_db
 from src.common.rate_limit import limiter
 from src.gateway.envelope import EventEnvelope, queue_event
+from src.gateway.webhook_signatures import SignedRequest, verify_signature
 
 logger = logging.getLogger(__name__)
 
@@ -36,56 +45,25 @@ router = APIRouter(tags=["Webhooks"])
 
 
 # ===========================================================================
-# Webhook Strategy Base
+# Normalisers — one per source
 # ===========================================================================
 
-class WebhookStrategy(ABC):
-    """Base strategy for detecting and normalizing a specific webhook source."""
+class WebhookStrategy:
+    """Turns one source's payload into ``event_type`` and ``normalized_data``."""
 
-    @abstractmethod
-    def can_handle(self, request_headers: dict, payload: dict) -> bool:
-        """Return True if this strategy can handle the given request."""
+    source = "generic"
 
-    @abstractmethod
-    def get_source(self) -> str:
-        """Return the normalized source name."""
+    def normalize(self, headers: dict, payload: dict, query_params: dict) -> Dict[str, Any]:
+        raise NotImplementedError
 
-    @abstractmethod
-    def normalize(
-        self, request_headers: dict, payload: dict, query_params: dict
-    ) -> Dict[str, Any]:
-        """
-        Return a dict with:
-          client_id, event_type, normalized_data
-        """
-
-    def validate_signature(self, request_headers: dict, raw_body: bytes) -> bool:
-        """Override for signature validation. Default: always True (no validation)."""
-        return True
-
-
-# ===========================================================================
-# Concrete Strategies
-# ===========================================================================
 
 class EmailWebhookStrategy(WebhookStrategy):
-    """
-    Handles webhooks from email providers (Mailgun, SendGrid, Postmark, etc.).
-    Detects via X-Mailgun-* or X-Sg-Signature or X-Postmark-* headers.
-    """
+    """Email providers (Mailgun, SendGrid, Postmark, …)."""
 
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return any(
-            k.lower().startswith(("x-mailgun", "x-sg-", "x-postmark"))
-            for k in headers
-        )
-
-    def get_source(self) -> str:
-        return "email"
+    source = "email"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": "new_email",
             "normalized_data": {
                 "from": payload.get("from") or payload.get("sender"),
@@ -99,36 +77,16 @@ class EmailWebhookStrategy(WebhookStrategy):
 
 
 class CRMWebhookStrategy(WebhookStrategy):
-    """
-    Handles CRM webhooks (HubSpot, Salesforce, Zoho, etc.).
-    Detects via X-HubSpot-Signature, X-Salesforce-* or payload structure.
-    """
+    """CRM webhooks (HubSpot, Salesforce, Zoho, …)."""
 
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return any(
-            k.lower().startswith(("x-hubspot", "x-salesforce", "x-zoho"))
-            for k in headers
-        ) or "crm_event" in payload
-
-    def get_source(self) -> str:
-        return "crm"
+    source = "crm"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        # Detect sub-type from payload
         event_type = payload.get("subscriptionType") or payload.get("crm_event", "crm_update")
-
-        # Extract entity_id (target agent) from payload or query params.
-        # This allows CRM webhooks to route leads to a specific voice agent
-        # instead of the generic "first active agent" fallback.
-        entity_id = (
-            payload.get("entity_id")
-            or query_params.get("entity_id", "")
-        )
-
+        # A CRM payload may name the agent a lead should go to.
+        entity_id = payload.get("entity_id") or query_params.get("entity_id", "")
         properties = payload.get("properties", {})
-
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": event_type,
             "normalized_data": {
                 "object_type": payload.get("objectTypeId") or payload.get("object_type", "contact"),
@@ -146,35 +104,11 @@ class CRMWebhookStrategy(WebhookStrategy):
 
 
 class LinkedInWebhookStrategy(WebhookStrategy):
-    """
-    Handles LinkedIn webhook events (connection requests, messages, etc.).
-    Detects via X-Li-Signature or payload structure.
-    """
-
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return (
-            "x-li-signature" in {k.lower() for k in headers}
-            or payload.get("type", "").startswith("linkedin.")
-            or "linkedin" in payload.get("source", "").lower()
-        )
-
-    def get_source(self) -> str:
-        return "linkedin"
-
-    def validate_signature(self, headers: dict, raw_body: bytes) -> bool:
-        # LinkedIn sends HMAC-SHA256 signature in X-Li-Signature
-        signature = headers.get("X-Li-Signature") or headers.get("x-li-signature", "")
-        if not signature:
-            return True  # No signature = unauthenticated (log warning)
-        # TODO: validate against configured LinkedIn client secret
-        logger.warning("[WebhookRouter] LinkedIn signature validation not yet configured")
-        return True
+    source = "linkedin"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        event_type = payload.get("type", "linkedin.event")
         return {
-            "client_id": query_params.get("client_id", ""),
-            "event_type": event_type,
+            "event_type": payload.get("type", "linkedin.event"),
             "normalized_data": {
                 "actor": payload.get("actor"),
                 "object": payload.get("object"),
@@ -185,26 +119,13 @@ class LinkedInWebhookStrategy(WebhookStrategy):
 
 
 class GitHubWebhookStrategy(WebhookStrategy):
-    """Handles GitHub webhooks (push, PR, issue events)."""
+    """GitHub push, PR and issue events."""
 
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return "x-github-event" in {k.lower() for k in headers}
-
-    def get_source(self) -> str:
-        return "github"
-
-    def validate_signature(self, headers: dict, raw_body: bytes) -> bool:
-        sig256 = headers.get("X-Hub-Signature-256") or headers.get("x-hub-signature-256", "")
-        if not sig256:
-            return True
-        # TODO: validate HMAC-SHA256 against configured GitHub webhook secret
-        logger.warning("[WebhookRouter] GitHub signature validation not yet configured")
-        return True
+    source = "github"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        event_name = headers.get("X-GitHub-Event") or headers.get("x-github-event", "push")
+        event_name = headers.get("x-github-event", "push")
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": f"github.{event_name}",
             "normalized_data": {
                 "repository": payload.get("repository", {}).get("full_name"),
@@ -216,105 +137,65 @@ class GitHubWebhookStrategy(WebhookStrategy):
 
 
 class TwilioWebhookStrategy(WebhookStrategy):
-    """
-    Handles Twilio webhooks (call status, SMS, etc) routed via the unified endpoint.
-    Detects via X-Twilio-Signature header.
-    """
+    """Twilio status and message callbacks."""
 
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return "x-twilio-signature" in {k.lower() for k in headers}
-
-    def get_source(self) -> str:
-        return "twilio"
+    source = "twilio"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": "twilio." + payload.get("EventType", "status_update"),
             "normalized_data": payload,
         }
 
 
+def _meta_events(payload: dict) -> list:
+    events = []
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            events.append({"field": change.get("field"), "value": change.get("value")})
+        for msg in entry.get("messaging", []):
+            events.append({"messaging": msg})
+    return events
+
+
 class FacebookWebhookStrategy(WebhookStrategy):
-    """
-    Handles Facebook webhooks (Page events, Messenger).
-    Detects via X-Hub-Signature-256 header with 'sha256=' prefix.
-    Also handles the hub.challenge verification for webhook subscription.
-    """
+    """Facebook Page and Messenger events."""
 
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        has_hub_sig = "x-hub-signature-256" in {k.lower() for k in headers}
-        is_fb_payload = payload.get("object") in ("page", "instagram", "permissions")
-        return has_hub_sig or is_fb_payload
-
-    def get_source(self) -> str:
-        return "facebook"
-
-    def validate_signature(self, headers: dict, raw_body: bytes) -> bool:
-        sig = headers.get("X-Hub-Signature-256") or headers.get("x-hub-signature-256", "")
-        if not sig:
-            return True
-        # TODO: validate HMAC-SHA256 against configured Facebook app secret
-        logger.warning("[WebhookRouter] Facebook signature validation not yet configured")
-        return True
+    source = "facebook"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
         obj = payload.get("object", "page")
-        entries = payload.get("entry", [])
-        events = []
-        for entry in entries:
-            for change in entry.get("changes", []):
-                events.append({
-                    "field": change.get("field"),
-                    "value": change.get("value"),
-                })
-            for msg in entry.get("messaging", []):
-                events.append({"messaging": msg})
-
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": f"facebook.{obj}",
-            "normalized_data": {
-                "object": obj,
-                "events": events,
-                "raw": payload,
-            },
+            "normalized_data": {"object": obj, "events": _meta_events(payload), "raw": payload},
+        }
+
+
+class InstagramWebhookStrategy(WebhookStrategy):
+    """Instagram events (Meta Graph API)."""
+
+    source = "instagram"
+
+    def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
+        return {
+            "event_type": "instagram.webhook",
+            "normalized_data": {"events": _meta_events(payload), "raw": payload},
         }
 
 
 class TwitterWebhookStrategy(WebhookStrategy):
-    """
-    Handles X/Twitter webhook events (Account Activity API).
-    Detects via X-Twitter-Webhooks-Signature header.
-    """
+    """X/Twitter Account Activity events."""
 
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return (
-            "x-twitter-webhooks-signature" in {k.lower() for k in headers}
-            or "for_user_id" in payload
-        )
-
-    def get_source(self) -> str:
-        return "twitter"
-
-    def validate_signature(self, headers: dict, raw_body: bytes) -> bool:
-        sig = headers.get("X-Twitter-Webhooks-Signature") or headers.get("x-twitter-webhooks-signature", "")
-        if not sig:
-            return True
-        logger.warning("[WebhookRouter] Twitter signature validation not yet configured")
-        return True
+    source = "twitter"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        user_id = payload.get("for_user_id", "")
-        # Twitter sends events under keys like tweet_create_events, follow_events, etc.
+        # Events arrive under keys like tweet_create_events, follow_events, …
         event_types = [k for k in payload.keys() if k.endswith("_events")]
         primary_event = event_types[0] if event_types else "unknown_event"
-
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": f"twitter.{primary_event}",
             "normalized_data": {
-                "for_user_id": user_id,
+                "for_user_id": payload.get("for_user_id", ""),
                 "event_type": primary_event,
                 "events": payload.get(primary_event, []),
                 "raw": payload,
@@ -322,133 +203,28 @@ class TwitterWebhookStrategy(WebhookStrategy):
         }
 
 
-class InstagramWebhookStrategy(WebhookStrategy):
-    """
-    Handles Instagram webhook events (via Meta Graph API).
-    Instagram webhooks share the X-Hub-Signature-256 with Facebook but have
-    object='instagram' in the payload.
-    """
-
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return payload.get("object") == "instagram"
-
-    def get_source(self) -> str:
-        return "instagram"
-
-    def validate_signature(self, headers: dict, raw_body: bytes) -> bool:
-        sig = headers.get("X-Hub-Signature-256") or headers.get("x-hub-signature-256", "")
-        if not sig:
-            return True
-        logger.warning("[WebhookRouter] Instagram signature validation not yet configured")
-        return True
-
-    def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        entries = payload.get("entry", [])
-        events = []
-        for entry in entries:
-            for change in entry.get("changes", []):
-                events.append({
-                    "field": change.get("field"),
-                    "value": change.get("value"),
-                })
-            for msg in entry.get("messaging", []):
-                events.append({"messaging": msg})
-
-        return {
-            "client_id": query_params.get("client_id", ""),
-            "event_type": "instagram.webhook",
-            "normalized_data": {
-                "events": events,
-                "raw": payload,
-            },
-        }
-
-
 class TikTokWebhookStrategy(WebhookStrategy):
-    """
-    Handles TikTok webhook events.
-    Detects via X-TikTok-Signature header.
-    """
-
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return "x-tiktok-signature" in {k.lower() for k in headers}
-
-    def get_source(self) -> str:
-        return "tiktok"
-
-    def validate_signature(self, headers: dict, raw_body: bytes) -> bool:
-        sig = headers.get("X-TikTok-Signature") or headers.get("x-tiktok-signature", "")
-        if not sig:
-            return True
-        logger.warning("[WebhookRouter] TikTok signature validation not yet configured")
-        return True
+    source = "tiktok"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        event_type = payload.get("event", "tiktok.event")
         return {
-            "client_id": query_params.get("client_id", ""),
-            "event_type": f"tiktok.{event_type}",
+            "event_type": f"tiktok.{payload.get('event', 'tiktok.event')}",
             "normalized_data": payload,
         }
 
 
-class GenericWebhookStrategy(WebhookStrategy):
-    """
-    Fallback strategy for unrecognized webhook sources.
-    Reads source from ?source= query parameter.
-    """
-
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return True  # Always matches (must be last in the list)
-
-    def get_source(self) -> str:
-        return "generic"
-
-    def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        source = query_params.get("source", "unknown")
-        event_type = query_params.get("event_type") or payload.get("type", "generic_event")
-        return {
-            "client_id": query_params.get("client_id", ""),
-            "event_type": event_type,
-            "normalized_data": {
-                "source": source,
-                "raw": payload,
-            },
-        }
-
-
 class YouTubeWebhookStrategy(WebhookStrategy):
-    """YouTube PubSubHubbub / Data API webhook notifications.
+    """YouTube WebSub (PubSubHubbub) notifications."""
 
-    YouTube sends notifications via PubSubHubbub (Atom feed) or the YouTube
-    Data API v3 for subscription-based push notifications. The Content-Type
-    is typically application/atom+xml.
-    """
-
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        ct = headers.get("content-type", "")
-        link_header = headers.get("link", "")
-        return (
-            "atom+xml" in ct
-            or "youtube.com" in link_header
-            or "pubsubhubbub" in headers.get("x-hub-signature", "").lower()
-            or payload.get("hub.topic", "").startswith("https://www.youtube.com/")
-        )
-
-    def get_source(self) -> str:
-        return "youtube"
+    source = "youtube"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
-        # YouTube PubSubHubbub delivers Atom XML; payload is pre-parsed or raw
         entry = payload.get("feed", {}).get("entry", payload.get("entry", {}))
-        video_id = ""
-        channel_id = ""
+        video_id = channel_id = ""
         if isinstance(entry, dict):
             video_id = entry.get("yt:videoId", entry.get("videoId", ""))
             channel_id = entry.get("yt:channelId", entry.get("channelId", ""))
-
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": "youtube.video.published",
             "normalized_data": {
                 "video_id": video_id,
@@ -460,132 +236,180 @@ class YouTubeWebhookStrategy(WebhookStrategy):
 
 
 class PinterestWebhookStrategy(WebhookStrategy):
-    """Pinterest webhook notifications.
-
-    Pinterest signs webhook payloads using X-Pinterest-Signature header
-    and sends events for pin creation, board updates, etc.
-    """
-
-    def can_handle(self, headers: dict, payload: dict) -> bool:
-        return (
-            "x-pinterest-signature" in headers
-            or payload.get("source") == "pinterest"
-            or "pinterest" in headers.get("user-agent", "").lower()
-        )
-
-    def get_source(self) -> str:
-        return "pinterest"
+    source = "pinterest"
 
     def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
         event_type = payload.get("event", payload.get("type", "unknown"))
-        data = payload.get("data", payload)
-
         return {
-            "client_id": query_params.get("client_id", ""),
             "event_type": f"pinterest.{event_type}",
-            "normalized_data": {
-                "event": event_type,
-                "data": data,
-                "raw": payload,
-            },
+            "normalized_data": {"event": event_type, "data": payload.get("data", payload), "raw": payload},
         }
 
-# ---------------------------------------------------------------------------
-# Strategy registry — order matters (GenericWebhookStrategy MUST be last)
-# ---------------------------------------------------------------------------
 
-WEBHOOK_STRATEGIES: list[WebhookStrategy] = [
-    EmailWebhookStrategy(),
-    CRMWebhookStrategy(),
-    LinkedInWebhookStrategy(),
-    GitHubWebhookStrategy(),
-    TwilioWebhookStrategy(),
-    # Social media platform webhooks
-    InstagramWebhookStrategy(),  # Must come before Facebook (both use X-Hub-Signature-256)
-    FacebookWebhookStrategy(),
-    TwitterWebhookStrategy(),
-    TikTokWebhookStrategy(),
-    YouTubeWebhookStrategy(),
-    PinterestWebhookStrategy(),
-    GenericWebhookStrategy(),   # ← fallback, always last
-]
+class GenericWebhookStrategy(WebhookStrategy):
+    """Any other system; ``?source=`` and ``?event_type=`` describe the event."""
+
+    source = "generic"
+
+    def normalize(self, headers: dict, payload: dict, query_params: dict) -> dict:
+        return {
+            "event_type": query_params.get("event_type") or payload.get("type", "generic_event"),
+            "normalized_data": {"source": query_params.get("source", "unknown"), "raw": payload},
+        }
 
 
-def detect_strategy(headers: dict, payload: dict) -> WebhookStrategy:
-    for strategy in WEBHOOK_STRATEGIES:
-        if strategy.can_handle(headers, payload):
-            return strategy
-    return WEBHOOK_STRATEGIES[-1]  # GenericWebhookStrategy
+STRATEGIES: Dict[str, WebhookStrategy] = {
+    s.source: s for s in (
+        EmailWebhookStrategy(), CRMWebhookStrategy(), LinkedInWebhookStrategy(),
+        GitHubWebhookStrategy(), TwilioWebhookStrategy(), FacebookWebhookStrategy(),
+        InstagramWebhookStrategy(), TwitterWebhookStrategy(), TikTokWebhookStrategy(),
+        YouTubeWebhookStrategy(), PinterestWebhookStrategy(), GenericWebhookStrategy(),
+    )
+}
 
 
 # ===========================================================================
-# Endpoint
+# Endpoint lookup
 # ===========================================================================
 
-@router.post("/webhook/inbound", status_code=202)
+@dataclass(frozen=True)
+class BoundEndpoint:
+    """An active endpoint of an active company, with its secret decrypted."""
+
+    id: UUID
+    company_id: UUID
+    source: str
+    secret: str
+    entity_id: Optional[UUID]
+
+
+async def load_endpoint(db: AsyncSession, endpoint_id: str) -> Optional[BoundEndpoint]:
+    """The endpoint behind ``endpoint_id``, or None if it cannot take events.
+
+    None for an unknown or revoked endpoint, a suspended company, or a secret
+    that does not decrypt — the request is then refused, never let through.
+    """
+    from src.auth.models import Company
+    from src.common.security import decrypt_api_key
+    from src.gateway.models import WebhookEndpoint
+
+    try:
+        eid = UUID(endpoint_id)
+    except ValueError:
+        return None
+    row = (await db.execute(
+        select(WebhookEndpoint, Company.status)
+        .join(Company, Company.id == WebhookEndpoint.company_id)
+        .where(WebhookEndpoint.id == eid, WebhookEndpoint.is_active.is_(True))
+    )).first()
+    if row is None or row[1] != "active":
+        return None
+    endpoint = row[0]
+    try:
+        secret = decrypt_api_key(endpoint.secret_encrypted) or ""
+    except Exception:
+        logger.error("[WebhookRouter] Endpoint %s: secret does not decrypt", eid)
+        return None
+    if not secret:
+        return None
+    return BoundEndpoint(id=endpoint.id, company_id=endpoint.company_id, source=endpoint.source,
+                         secret=secret, entity_id=endpoint.entity_id)
+
+
+async def _mark_received(db: AsyncSession, endpoint_id: UUID) -> None:
+    from sqlalchemy import update
+
+    from src.gateway.models import WebhookEndpoint
+    try:
+        await db.execute(update(WebhookEndpoint).where(WebhookEndpoint.id == endpoint_id)
+                         .values(last_received_at=datetime.utcnow()))
+        await db.commit()
+    except Exception:
+        logger.warning("[WebhookRouter] Could not record delivery time for %s", endpoint_id,
+                       exc_info=True)
+
+
+def _rejected(status_code: int, correlation_id: str, detail: str) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={
+        "status": "rejected", "correlation_id": correlation_id, "detail": detail,
+    })
+
+
+# ===========================================================================
+# Endpoints
+# ===========================================================================
+
+@router.post("/webhook/inbound", status_code=401)
 @limiter.exempt
 async def unified_webhook_inbound(request: Request):
-    """
-    Unified Webhook Receiver — Interface 2.
+    """Retired: a webhook must arrive at its endpoint and be signed (GW-01)."""
+    return _rejected(401, str(uuid.uuid4()),
+                     "Webhooks are accepted only at /webhook/inbound/{endpoint_id}, signed with "
+                     "the endpoint's secret. Create one with POST /api/v1/webhook-endpoints.")
 
-    Accepts HTTP POST from any external system (email providers, CRMs,
-    LinkedIn, GitHub, Twilio, etc.).
 
-    Returns 202 once the event is queued for the worker, 503 if it cannot be
-    queued (the provider should retry), 400 without a ``client_id``.
+@router.post("/webhook/inbound/{endpoint_id}", status_code=202)
+@limiter.exempt
+async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """
+    Receive one webhook for one endpoint.
+
+    404 for an endpoint that cannot take events; 401 when the signature is
+    missing or wrong (nothing is queued); 202 once the event is queued for the
+    worker; 503 if it cannot be queued (the provider should retry).
+    """
+    correlation_id = str(uuid.uuid4())
     raw_body = await request.body()
 
+    endpoint = await load_endpoint(db, endpoint_id)
+    if endpoint is None:
+        return _rejected(404, correlation_id, "Unknown webhook endpoint")
+
     # Parse payload (JSON preferred; fall back to form data)
+    form: dict = {}
     try:
         payload = await request.json()
     except Exception:
-        form = await request.form()
+        form = {k: str(v) for k, v in (await request.form()).items()}
         payload = dict(form)
+    if not isinstance(payload, dict):
+        payload = {"items": payload}
 
-    headers = dict(request.headers)
+    headers = {k.lower(): v for k, v in request.headers.items()}
     query_params = dict(request.query_params)
 
-    # Detect source and normalize
-    strategy = detect_strategy(headers, payload)
-    source = strategy.get_source()
+    signed = SignedRequest(headers=headers, body=raw_body, url=str(request.url),
+                           form=form, payload=payload, method=request.method)
+    if not verify_signature(endpoint.source, endpoint.secret, signed):
+        logger.warning("[WebhookRouter] Signature check failed: endpoint=%s source=%s "
+                       "correlation=%s", endpoint.id, endpoint.source, correlation_id)
+        from src.ai.core.events import event
+        event("gateway.webhook.signature_failed", endpoint_id=str(endpoint.id),
+              company_id=str(endpoint.company_id), source=endpoint.source)
+        return _rejected(401, correlation_id, "Webhook signature missing or invalid")
 
-    # Signature validation (best-effort; log warning on failure, don't block)
-    if not strategy.validate_signature(headers, raw_body):
-        logger.warning(f"[WebhookRouter] Signature validation failed for source={source}")
-        # We still process — providers may retry; we log for audit
-
-    normalized = strategy.normalize(headers, payload, query_params)
-    client_id = normalized.get("client_id", "") or query_params.get("client_id", "")
+    normalized = STRATEGIES[endpoint.source].normalize(headers, payload, query_params)
     event_type = normalized.get("event_type", "generic_event")
-
-    correlation_id = str(uuid.uuid4())
+    client_id = str(endpoint.company_id)
 
     logger.info(
-        f"[WebhookRouter] Received {event_type} from source={source} "
-        f"client={client_id} correlation={correlation_id}"
+        f"[WebhookRouter] Received {event_type} from source={endpoint.source} "
+        f"endpoint={endpoint.id} client={client_id} correlation={correlation_id}"
     )
 
-    if not client_id:
-        # The worker drops an event with no tenant; say so instead of a 202.
-        return JSONResponse(status_code=400, content={
-            "status": "rejected",
-            "correlation_id": correlation_id,
-            "detail": "client_id query parameter is required",
-        })
-
-    # Build normalized envelope
     envelope = EventEnvelope(
         channel="webhook",
-        source=source,
+        source=endpoint.source,
         client_id=client_id,
         event_type=event_type,
         raw_data=normalized.get("normalized_data", {}),
         metadata={
             "correlation_id": correlation_id,
+            "endpoint_id": str(endpoint.id),
+            "entity_id": str(endpoint.entity_id) if endpoint.entity_id else None,
             "x_forwarded_for": headers.get("x-forwarded-for", ""),
             "user_agent": headers.get("user-agent", ""),
-            "strategy": strategy.__class__.__name__,
+            "strategy": STRATEGIES[endpoint.source].__class__.__name__,
         },
         id=correlation_id,
     )
@@ -600,9 +424,10 @@ async def unified_webhook_inbound(request: Request):
             "detail": "The event could not be queued. Retry later.",
         })
 
+    await _mark_received(db, endpoint.id)
     return {
         "status": "accepted",
         "correlation_id": correlation_id,
-        "source": source,
+        "source": endpoint.source,
         "event_type": event_type,
     }

@@ -9,6 +9,9 @@ Run:
     cd backend
     python -m pytest tests/e2e/test_12_unified_gateway.py -v
 """
+import base64
+import hashlib
+import hmac
 import json
 import os
 import sys
@@ -24,6 +27,7 @@ from src.gateway import envelope as envelope_module
 from src.gateway.envelope import EventEnvelope
 from src.common.config import settings
 from src.common import router_mounts
+from tests.unit.webhook_endpoint_double import SECRET, bind_endpoint, signed_json
 
 TEST_INTERNAL_TOKEN = "e2e-internal-token"
 
@@ -81,14 +85,16 @@ async def test_gateway_metrics(gateway_client):
 # Interface 2: Unified Webhook Endpoint
 # ===========================================================================
 
+# A webhook arrives at a registered endpoint and is signed (GW-01);
+# ``bind_endpoint`` stands an endpoint in without a database.
+
+
 @pytest.mark.asyncio
-async def test_webhook_inbound_returns_202(gateway_client):
-    """POST /webhook/inbound with JSON payload returns 202 Accepted."""
-    resp = await gateway_client.post(
-        "/webhook/inbound?client_id=test-company-123",
-        json={"from": "test@example.com", "subject": "Hello", "body": "Test email"},
-        headers={"X-Source": "email"},
-    )
+async def test_webhook_inbound_returns_202(gateway_client, monkeypatch):
+    """A signed POST to an endpoint returns 202 Accepted."""
+    endpoint = bind_endpoint(monkeypatch, source="email")
+    body, headers = signed_json({"from": "test@example.com", "subject": "Hello", "body": "Test email"})
+    resp = await gateway_client.post(f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
     assert resp.status_code == 202
     data = resp.json()
     assert data["status"] == "accepted"
@@ -96,13 +102,12 @@ async def test_webhook_inbound_returns_202(gateway_client):
 
 
 @pytest.mark.asyncio
-async def test_webhook_detects_email_source(gateway_client):
-    """Mailgun X-Mailgun-* header triggers EmailWebhookStrategy."""
-    resp = await gateway_client.post(
-        "/webhook/inbound?client_id=company-abc",
-        json={"from": "sender@mailgun.com", "subject": "Test", "body-plain": "Hello"},
-        headers={"X-Mailgun-Signature": "sig123"},
-    )
+async def test_the_endpoints_source_picks_the_normaliser(gateway_client, monkeypatch):
+    """An email endpoint normalises as email whatever headers the request carries."""
+    endpoint = bind_endpoint(monkeypatch, source="email")
+    body, headers = signed_json({"from": "sender@mailgun.com", "subject": "Test", "body-plain": "Hello"})
+    headers["X-Li-Signature"] = "would-have-picked-linkedin"
+    resp = await gateway_client.post(f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
     assert resp.status_code == 202
     data = resp.json()
     assert data["source"] == "email"
@@ -110,44 +115,56 @@ async def test_webhook_detects_email_source(gateway_client):
 
 
 @pytest.mark.asyncio
-async def test_webhook_detects_linkedin_source(gateway_client):
-    """X-Li-Signature header triggers LinkedInWebhookStrategy."""
-    resp = await gateway_client.post(
-        "/webhook/inbound?client_id=company-abc",
-        json={"type": "linkedin.connection_request", "actor": "urn:li:person:abc"},
-        headers={"X-Li-Signature": "li_sig"},
-    )
+async def test_webhook_linkedin_native_signature(gateway_client, monkeypatch):
+    """LinkedIn's own X-LI-Signature is accepted for a LinkedIn endpoint."""
+    endpoint = bind_endpoint(monkeypatch, source="linkedin")
+    body = json.dumps({"type": "linkedin.connection_request", "actor": "urn:li:person:abc"}).encode()
+    sig = hmac.new(SECRET.encode(), body, hashlib.sha256).hexdigest()
+    resp = await gateway_client.post(f"/webhook/inbound/{endpoint.id}", content=body,
+                                     headers={"X-LI-Signature": sig, "Content-Type": "application/json"})
     assert resp.status_code == 202
-    data = resp.json()
-    assert data["source"] == "linkedin"
+    assert resp.json()["source"] == "linkedin"
 
 
 @pytest.mark.asyncio
-async def test_webhook_generic_fallback(gateway_client):
-    """Unknown source falls through to GenericWebhookStrategy."""
+async def test_webhook_generic_source(gateway_client, monkeypatch):
+    """A generic endpoint takes its event type from the query string."""
+    endpoint = bind_endpoint(monkeypatch, source="generic")
+    body, headers = signed_json({"record_id": "123", "type": "record_created"})
     resp = await gateway_client.post(
-        "/webhook/inbound?client_id=company-xyz&source=custom_app&event_type=record_created",
-        json={"record_id": "123", "type": "record_created"},
-    )
+        f"/webhook/inbound/{endpoint.id}?source=custom_app&event_type=record_created",
+        content=body, headers=headers)
     assert resp.status_code == 202
     data = resp.json()
     assert data["source"] == "generic"
+    assert data["event_type"] == "record_created"
 
 
 @pytest.mark.asyncio
-async def test_webhook_with_form_data(gateway_client):
-    """POST /webhook/inbound with form-encoded body (Twilio-style) works."""
+async def test_webhook_twilio_form_post(gateway_client, monkeypatch):
+    """A form-encoded Twilio callback with Twilio's own signature is accepted."""
+    endpoint = bind_endpoint(monkeypatch, source="twilio")
+    form = {"EventType": "status_update", "CallSid": "CA123"}
+    url = f"http://test/webhook/inbound/{endpoint.id}"
+    data = (url + "".join(k + form[k] for k in sorted(form))).encode()
+    sig = base64.b64encode(hmac.new(SECRET.encode(), data, hashlib.sha1).digest()).decode()
     resp = await gateway_client.post(
-        "/webhook/inbound?client_id=twilio-client",
-        data={"EventType": "status_update", "CallSid": "CA123"},
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Twilio-Signature": "twilio_sig",
-        },
+        f"/webhook/inbound/{endpoint.id}", data=form,
+        headers={"Content-Type": "application/x-www-form-urlencoded", "X-Twilio-Signature": sig},
     )
     assert resp.status_code == 202
-    data = resp.json()
-    assert data["status"] == "accepted"
+    assert resp.json()["status"] == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_an_unsigned_webhook_is_refused(gateway_client, monkeypatch):
+    """The header a provider would send, without a valid value, is a 401."""
+    endpoint = bind_endpoint(monkeypatch, source="twilio")
+    resp = await gateway_client.post(
+        f"/webhook/inbound/{endpoint.id}", data={"EventType": "status_update"},
+        headers={"X-Twilio-Signature": "twilio_sig"},
+    )
+    assert resp.status_code == 401
 
 
 # ===========================================================================
@@ -269,39 +286,19 @@ async def test_event_envelope_serialization():
 
 
 @pytest.mark.asyncio
-async def test_webhook_without_client_id_is_rejected(gateway_client):
-    """No tenant, nothing to run: 400 rather than a 202 the worker would drop."""
-    resp = await gateway_client.post("/webhook/inbound", json={"type": "x"})
-    assert resp.status_code == 400
+async def test_the_unbound_webhook_route_is_refused(gateway_client):
+    """No endpoint, no signature: 401, whatever ``client_id`` says (GW-01)."""
+    resp = await gateway_client.post("/webhook/inbound?client_id=company-abc", json={"type": "x"})
+    assert resp.status_code == 401
 
 
 # ===========================================================================
 # Webhook Strategy Unit Tests
 # ===========================================================================
 
-def test_webhook_strategy_detection():
-    """Strategy detection selects correct handler for known providers."""
-    from src.gateway.webhook_inbound import (
-        detect_strategy, EmailWebhookStrategy, LinkedInWebhookStrategy,
-        GitHubWebhookStrategy, CRMWebhookStrategy, GenericWebhookStrategy,
-    )
+def test_every_source_has_a_normaliser():
+    """The endpoint's source picks the normaliser; no header is consulted (GW-01)."""
+    from src.gateway.models import WEBHOOK_SOURCES
+    from src.gateway.webhook_inbound import STRATEGIES
 
-    # Email
-    s = detect_strategy({"X-Mailgun-Signature": "sig"}, {})
-    assert isinstance(s, EmailWebhookStrategy)
-
-    # LinkedIn
-    s = detect_strategy({"X-Li-Signature": "sig"}, {})
-    assert isinstance(s, LinkedInWebhookStrategy)
-
-    # GitHub
-    s = detect_strategy({"X-GitHub-Event": "push"}, {})
-    assert isinstance(s, GitHubWebhookStrategy)
-
-    # CRM (HubSpot)
-    s = detect_strategy({"X-HubSpot-Signature": "sig"}, {})
-    assert isinstance(s, CRMWebhookStrategy)
-
-    # Generic fallback
-    s = detect_strategy({}, {"some": "unknown payload"})
-    assert isinstance(s, GenericWebhookStrategy)
+    assert set(STRATEGIES) == set(WEBHOOK_SOURCES)

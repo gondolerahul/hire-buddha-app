@@ -30,6 +30,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "src.ai.email_models",
     "src.ai.lead_queue_model",
     "src.ai.social_models",
+    "src.gateway.models",
     "src.mobile.models",
     "src.voice.models",
     "src.voice.phone_pool_models",

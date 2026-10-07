@@ -43,16 +43,16 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 0 | 1 | 3 | 1 |
+| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 1 | 1 | 2 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
 | [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 3 | 0 | 4 | 0 |
 
-**Total: 21 defects (9 fixed, 3 partly fixed, 8 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (10 fixed, 3 partly fixed, 7 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
-| GW-01 | No webhook signature is ever verified, and a failure would not block | open — Critical | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-01 | No webhook signature is ever verified, and a failure would not block | ✅ fixed (2026-10-07) | — |
 | GW-02 | Rate limiting covers one route | partly fixed — REST limited; WebSockets not | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-03 | No webhook idempotency | open | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
 | GW-04 | The auth middleware never sees a WebSocket | open | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
@@ -91,7 +91,7 @@ The three to read first:
 
 ### GW-01 — No webhook signature is ever verified, and a failure would not block
 
-**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: every strategy's `validate_signature` in `gateway/webhook_inbound.py` returns `True` (GitHub, LinkedIn and Facebook still carry the TODO), and `:554` still logs a failure and processes the event. Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
+**✅ Verified · Critical** · **Status: fixed (2026-10-07)** — a webhook is accepted only at `POST /webhook/inbound/{endpoint_id}`, an endpoint a company admin registers (`/api/v1/webhook-endpoints`; table `webhook_endpoints`, migration `h2_webhook_endpoints`). The endpoint names the company, the source and the secret (encrypted); the request is checked with that source's native scheme or the relay `X-HB-Signature` (`gateway/webhook_signatures.py`, constant-time), and a missing or wrong signature is a **401 with nothing queued**, plus a `gateway.webhook.signature_failed` event. The scheme is never chosen from the request's headers: the header-sniffing `detect_strategy` and the always-`True` `validate_signature` methods are deleted. The tenant is the endpoint's company — `?client_id=` names nothing. The bare `POST /webhook/inbound` answers 401; a revoked endpoint or a suspended company 404. Tests: `test_webhook_signatures.py` (every source signed, tampered, unsigned, wrong secret, other scheme, stale), `test_webhook_ingress_auth.py`, `tests/integration/test_webhook_endpoints.py` (Postgres). Not exercised with real provider deliveries. No UI yet: endpoints are managed through the API. The secrets column joins AU-24's re-encryption
 
 Two separate problems, either of which alone would be enough.
 

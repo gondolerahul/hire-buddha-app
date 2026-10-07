@@ -38,18 +38,18 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 3 | 0 | 1 | 0 |
+| [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
 | [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 0 | 1 | 5 | 1 |
 
-**Total: 20 defects (12 fixed, 1 partly fixed, 6 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (13 fixed, 1 partly fixed, 5 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | API-01 | Four endpoints are open or wrongly gated | ✅ fixed (each row by its owning register) | — |
 | API-02 | The cron endpoints move money over HTTP | ✅ fixed `fe8f1a6`, `e46bff3` | — |
-| API-03 | No webhook signature verification on the gateway's inbound route | open — Critical (same as GW-01) | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| API-03 | No webhook signature verification on the gateway's inbound route | ✅ fixed (2026-10-07) | — |
 | API-04 | `POST /internal/event` is protected by a default secret | ✅ fixed | — |
 | API-05 | The frontend calls a delete route that does not exist | ✅ fixed | — |
 | API-06 | Password reset: two documented routes, neither implemented | ✅ fixed `8842901` (AU-06) | — |
@@ -132,7 +132,7 @@ audit trail beyond a log line.
 
 ### API-03 — No webhook signature verification on the gateway's inbound route
 
-**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: unchanged; see [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block). Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
+**✅ Verified · Critical** · **Status: fixed (2026-10-07)** — with [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block): webhooks arrive at a registered endpoint and must be signed; the bare route answers 401
 
 `POST /webhook/inbound` creates executions. Every `validate_signature` returns `True`, and
 the result is logged and ignored regardless.

@@ -132,7 +132,8 @@ seconds with `wait_for_service`. The Arq workers have no port, so each is detect
   app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, ...)
   app.include_router(auth_router, prefix="/api/v1")
   ...
-  mount_optional(app, "src.gateway.webhook_inbound")     # POST /webhook/inbound
+  mount_optional(app, "src.gateway.webhook_inbound")     # POST /webhook/inbound/{endpoint_id}
+  mount_optional(app, "src.gateway.webhook_endpoints_router")  # /api/v1/webhook-endpoints
   mount_optional(app, "src.gateway.internal_event")      # POST /internal/event
   mount_optional(app, "src.gateway.telephony_streams")   # WS /stream/twilio|tata/{id}, ...
   mount_optional(app, "src.gateway.audio_gateway")       # WS /stream/audio
@@ -154,7 +155,7 @@ seconds with `wait_for_service`. The Arq workers have no port, so each is detect
   | Interface | Path | Handled by |
   |-----------|------|-----------|
   | Domain REST API | `/api/v1/*` | the API's own routers (no proxy any more) |
-  | Unified webhook receiver | `POST /webhook/inbound` | [`gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) |
+  | Unified webhook receiver | `POST /webhook/inbound/{endpoint_id}` (signed, GW-01) | [`gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) |
   | Internal event endpoint | `POST /internal/event` | [`gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) |
   | Telephony media streams | `WS /stream/twilio/{id}`, `WS /stream/tata/{id}`, `WS /webhooks/voice/tata/incoming` | [`gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py) |
   | Bidirectional audio | `WS /stream/audio` | [`gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) |
@@ -858,8 +859,8 @@ Both interfaces normalise into the same `EventEnvelope` dataclass and enqueue a
 
 ```mermaid
 flowchart TD
-    W["POST /webhook/inbound"] --> DET["detect_strategy - first matching adapter"]
-    DET --> NORM["strategy.normalize -> client_id, event_type, normalized_data"]
+    W["POST /webhook/inbound/endpoint_id"] --> SIG["endpoint's source signature, else 401"]
+    SIG --> NORM["source normaliser -> event_type, normalized_data; client_id = endpoint's company"]
     I["POST /internal/event + X-Internal-Token"] --> ENV
     NORM --> ENV["EventEnvelope channel, source, client_id, event_type, raw_data, metadata"]
     ENV --> Q["queue_event - enqueue process_gateway_event"]

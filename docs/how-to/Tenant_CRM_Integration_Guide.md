@@ -40,28 +40,29 @@ Configure your CRM to fire a webhook whenever a **new lead is created**.
 ### Endpoint
 
 ```
-POST https://app.hirebuddha.com/webhook/inbound
+POST https://app.hirebuddha.com/webhook/inbound/<ENDPOINT_ID>
 ```
+
+We register a webhook endpoint for your company and send you its **URL** and its
+**signing secret** (shown once). The endpoint already knows your company, that the
+source is your CRM, and — if you want one — which AI agent handles the leads.
+There is no company id to send.
 
 ### Query Parameters
 
-| Parameter | Required | Description |
-|---|---|---|
-| `client_id` | **Yes** | Your HireBuddha Company ID (we will provide this) |
-| `source` | **Yes** | Set to `crm` |
-| `event_type` | **Yes** | Set to `lead.created` |
-| `entity_id` | Optional | Specific AI agent ID to handle this lead (we will provide if needed) |
-
-**Full URL example:**
-```
-https://app.hirebuddha.com/webhook/inbound?client_id=YOUR_COMPANY_UUID&source=crm&event_type=lead.created
-```
+None are required. `entity_id` may be given to send a lead to a specific AI agent
+(it must be one of yours); otherwise the endpoint's agent is used.
 
 ### Headers
 
 ```
 Content-Type: application/json
+X-HB-Signature: sha256=<hex HMAC-SHA256 of the raw request body, keyed with the signing secret>
 ```
+
+Every request must be signed; an unsigned or wrongly signed request is refused
+with **401** and nothing runs. A HubSpot app may instead send its own
+`X-HubSpot-Signature-v3` (register the endpoint with the app's client secret).
 
 ### Request Body
 
@@ -300,20 +301,10 @@ Use this checklist to track your setup progress:
 Once you have completed the setup, send a test webhook to verify everything works:
 
 ```bash
-curl -X POST "https://app.hirebuddha.com/webhook/inbound?client_id=YOUR_COMPANY_UUID&source=crm&event_type=lead.created" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "crm_event": "lead.created",
-    "id": "TEST-LEAD-001",
-    "properties": {
-      "first_name": "Test",
-      "last_name": "Lead",
-      "phone": "+91XXXXXXXXXX",
-      "project_interested": "Your Project Name",
-      "project_id": "PROJ-001",
-      "ad_source": "manual_test"
-    }
-  }'
+BODY='{"crm_event": "lead.created", "id": "TEST-LEAD-001", "properties": {"first_name": "Test", "last_name": "Lead", "phone": "+91XXXXXXXXXX", "project_interested": "Your Project Name", "project_id": "PROJ-001", "ad_source": "manual_test"}}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SIGNING_SECRET" | sed 's/^.* //')"
+curl -X POST "https://app.hirebuddha.com/webhook/inbound/$ENDPOINT_ID" \
+  -H "Content-Type: application/json" -H "X-HB-Signature: $SIG" -d "$BODY"
 ```
 
 **Expected:** You should receive a call on the test phone number within 30 seconds.

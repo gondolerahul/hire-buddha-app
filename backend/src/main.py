@@ -154,7 +154,8 @@ mount_optional(app, "src.voice.sessions_router")
 mount_optional(app, "src.voice.messaging_router")
 
 # Inbound events and real-time media (formerly the gateway on :8001)
-mount_optional(app, "src.gateway.webhook_inbound")      # POST /webhook/inbound
+mount_optional(app, "src.gateway.webhook_inbound")      # POST /webhook/inbound/{endpoint_id}
+mount_optional(app, "src.gateway.webhook_endpoints_router")  # /api/v1/webhook-endpoints
 mount_optional(app, "src.gateway.internal_event")       # POST /internal/event
 mount_optional(app, "src.gateway.telephony_streams")    # WS /stream/twilio|tata/{id}, /webhooks/voice/tata/incoming
 mount_optional(app, "src.gateway.audio_gateway")        # WS /stream/audio

@@ -174,6 +174,15 @@ async def test_rest_is_rate_limited_and_webhooks_are_not(monkeypatch):
     assert limited.status_code == 429
     assert limited.headers["access-control-allow-origin"] == origin   # CORS is outermost
 
+    from src.gateway import envelope as envelope_module
+    from tests.unit.webhook_endpoint_double import bind_endpoint, signed_json
+
+    async def queued(function, *args, **kwargs):
+        return object()
+
+    monkeypatch.setattr(envelope_module, "enqueue_job", queued)
+    endpoint = bind_endpoint(monkeypatch, source="generic")
+    body, headers = signed_json({"type": "x"})
     for _ in range(3):
-        resp = await _request("POST", "/webhook/inbound?client_id=c1", json={"type": "x"})
+        resp = await _request("POST", f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
         assert resp.status_code == 202

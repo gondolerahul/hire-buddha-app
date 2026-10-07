@@ -932,7 +932,9 @@ Served by the API on 8000 (the `src/gateway/` routers). Full semantics in
 |---|---|---|---|---|
 | GET | `/health`, `/api/v1/health` | none | yes | Liveness + routers that failed to mount |
 | GET | `/metrics/gateway` | none | yes | Event bus and video-session counters |
-| POST | `/webhook/inbound` | `?client_id=` | **no** | Unified inbound webhook |
+| POST | `/webhook/inbound/{endpoint_id}` | the endpoint's signature | **no** | Inbound webhook, per registered endpoint (GW-01) |
+| POST | `/webhook/inbound` | — | **no** | Retired: always 401 |
+| POST, GET, DELETE | `/api/v1/webhook-endpoints[/{id}]` | Bearer + company admin | yes | Register, list, revoke webhook endpoints |
 | POST | `/internal/event` | `X-Internal-Token` | **no** | Internal event ingress |
 | WS | `/stream/audio` | handshake `client_id` | — | Browser + telephony audio |
 | WS | `/stream/video` | handshake `client_id` | — | WebRTC video |
@@ -949,7 +951,7 @@ There is no catch-all route any more; until 2026-09-30 the gateway's
 | Path | Rule |
 |---|---|
 | `/internal/event` | `require_internal`: `X-Internal-Token` compared with `INTERNAL_TOKEN` in constant time; **401** otherwise, before the body is validated. **503** while `INTERNAL_TOKEN` is empty or a placeholder (the endpoint is disabled) |
-| `/webhook/inbound` | Tenant taken from `?client_id=`; signature validation is best-effort and never blocks |
+| `/webhook/inbound/{endpoint_id}` | The source's signature (or `X-HB-Signature`) under the endpoint's secret, else **401**; the tenant is the endpoint's company. Unknown or revoked endpoint, or a suspended company: **404** (GW-01, [13 §8](13-gateway-and-realtime.md#8-inbound-webhooks)) |
 | `/stream/audio`, `/stream/video` | Tenant taken from the handshake's `client_id`; the handshake `token` is never checked |
 | `/api/v1/*` | The route's own dependencies — see [§4](#4-authentication) |
 
@@ -990,7 +992,7 @@ Plus the generic gateway webhook:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/webhook/inbound` | Unified inbound, tenant from `?client_id=` |
+| POST | `/webhook/inbound/{endpoint_id}` | Inbound webhook; signed; tenant from the endpoint |
 
 ```mermaid
 sequenceDiagram

@@ -215,7 +215,8 @@ the webhook and internal-event endpoints then answer 503 until it is back.
 |--------|------|---------|---------|
 | `GET` | `/health`, `/api/v1/health` | [`health`](../../backend/src/common/router_mounts.py) | Liveness + routers that failed to mount. |
 | `GET` | `/metrics/gateway` | [`gateway_metrics`](../../backend/src/gateway/status.py) | Active video sessions. |
-| `POST` | `/webhook/inbound` | [`unified_webhook_inbound`](../../backend/src/gateway/webhook_inbound.py) | Interface 2. |
+| `POST` | `/webhook/inbound/{endpoint_id}` | [`webhook_inbound`](../../backend/src/gateway/webhook_inbound.py) | Interface 2 — signed, per registered endpoint (GW-01). |
+| `POST` | `/webhook/inbound` | [`unified_webhook_inbound`](../../backend/src/gateway/webhook_inbound.py) | Retired: always 401. |
 | `POST` | `/internal/event` | [`unified_internal_event`](../../backend/src/gateway/internal_event.py) | Interface 3. |
 | `WS` | `/stream/audio` | [`unified_audio_streaming`](../../backend/src/gateway/audio_gateway.py) | Interface 4. |
 | `WS` | `/stream/video` | [`unified_video_streaming`](../../backend/src/gateway/video_gateway.py) | Interface 5. |
@@ -274,7 +275,7 @@ The edge reaches the *voice* subsystem by importing it directly
 | Path | Credential checked | Blocked on failure? |
 |------|--------------------|---------------------|
 | `/internal/event` | `X-Internal-Token` header compared with `settings.INTERNAL_TOKEN` in constant time (`require_internal`) | **Yes — 401**; **503** while `INTERNAL_TOKEN` is empty or a placeholder |
-| `/webhook/inbound` | None. `?client_id=` query param is read as-is | No |
+| `/webhook/inbound/{endpoint_id}` | The source's signature (or the relay signature) under the endpoint's secret; the tenant is the endpoint's company (GW-01) | **Yes — 401**; 404 for an unknown or revoked endpoint or a suspended company |
 | `/stream/audio`, `/stream/video` | None beyond the handshake's `client_id` — **see 4.3** | No |
 | `/api/v1/*` and everything else | The route's own dependencies (`get_current_user`, `RoleChecker`) — see [04](04-auth-rbac-tenancy.md) | Per route |
 
@@ -522,81 +523,70 @@ API or the worker. **Nothing calls it** yet.
 
 ## 8. Inbound webhooks
 
-Interface 2 is a single route, `POST /webhook/inbound`, with a Strategy pattern
-behind it: identify the provider from headers/payload, normalise, publish.
+Interface 2 is `POST /webhook/inbound/{endpoint_id}`. Since 2026-10-07 (GW-01) a
+webhook is accepted only at an endpoint a company's admin registered, and only
+when it is signed with that endpoint's secret. Before, the single route
+`POST /webhook/inbound` took the tenant from `?client_id=`, picked the provider
+from the request's own headers, ran signature checks that all returned `True`,
+and processed the event even if one had returned `False`: anyone who could reach
+it could run any tenant's agents. That route now answers **401**.
 
-### 8.1 The strategy registry
+### 8.1 Endpoints
 
-Order matters — the first `can_handle` that returns `True` wins, and
-`GenericWebhookStrategy` must stay last.
+An endpoint is a `webhook_endpoints` row
+([`gateway/models.py`](../../backend/src/gateway/models.py)): the company, the
+source, the secret (encrypted with `common.security.encrypt_api_key`) and,
+optionally, the agent its events run. Company admins manage them:
 
-| # | Strategy | Detected by | `source` | `event_type` produced |
-|---|----------|-------------|----------|----------------------|
-| 1 | `EmailWebhookStrategy` | header starts with `x-mailgun`, `x-sg-`, `x-postmark` | `email` | `new_email` |
-| 2 | `CRMWebhookStrategy` | header starts with `x-hubspot`, `x-salesforce`, `x-zoho`, or `crm_event` in payload | `crm` | `subscriptionType` / `crm_event` / `crm_update` |
-| 3 | `LinkedInWebhookStrategy` | `x-li-signature`, or `type` starts `linkedin.`, or `linkedin` in `source` | `linkedin` | payload `type` or `linkedin.event` |
-| 4 | `GitHubWebhookStrategy` | `x-github-event` header | `github` | `github.<event name>` |
-| 5 | `TwilioWebhookStrategy` | `x-twilio-signature` header | `twilio` | `twilio.<EventType>` |
-| 6 | `InstagramWebhookStrategy` | payload `object == "instagram"` | `instagram` | `instagram.webhook` |
-| 7 | `FacebookWebhookStrategy` | `x-hub-signature-256`, or payload `object` in page/instagram/permissions | `facebook` | `facebook.<object>` |
-| 8 | `TwitterWebhookStrategy` | `x-twitter-webhooks-signature`, or `for_user_id` in payload | `twitter` | `twitter.<*_events key>` |
-| 9 | `TikTokWebhookStrategy` | `x-tiktok-signature` header | `tiktok` | `tiktok.<event>` |
-| 10 | `YouTubeWebhookStrategy` | `atom+xml` content-type, `youtube.com` in `link`, `pubsubhubbub` in `x-hub-signature`, or `hub.topic` starting with the YouTube URL | `youtube` | `youtube.video.published` |
-| 11 | `PinterestWebhookStrategy` | `x-pinterest-signature`, payload `source == "pinterest"`, or `pinterest` in user-agent | `pinterest` | `pinterest.<event>` |
-| 12 | `GenericWebhookStrategy` | always `True` | `generic` | `?event_type=` or payload `type` or `generic_event` |
+| Method | Path | Who | Purpose |
+|--------|------|-----|---------|
+| `POST` | `/api/v1/webhook-endpoints` | `tenant_admin`, `partner_admin`, `app_admin` | Register `{source, name, entity_id?, secret?}`. The response carries the `url` and the `secret` — **the only time the secret is shown**. A provider that issues its own signing secret (Meta app secret, Twilio auth token, LinkedIn/TikTok client secret, a GitHub webhook secret you chose) is registered with it; otherwise one is generated |
+| `GET` | `/api/v1/webhook-endpoints` | same | The company's endpoints, without secrets |
+| `DELETE` | `/api/v1/webhook-endpoints/{id}` | same | Revoke; the URL then answers 404 |
 
-Instagram is deliberately placed before Facebook because both send
-`X-Hub-Signature-256`; Instagram is distinguished only by `object == "instagram"`.
+The endpoint's `entity_id` must be the company's own agent (404 otherwise). The
+inbound route records `last_received_at` on each accepted event.
+
+### 8.2 Signatures — one scheme per source
+
+The endpoint names the source, so the scheme is never chosen from the request.
+[`gateway/webhook_signatures.py`](../../backend/src/gateway/webhook_signatures.py)
+checks, in constant time:
+
+| `source` | Native scheme | Normaliser → `event_type` |
+|----------|---------------|---------------------------|
+| `github` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256(body)>` | `github.<X-GitHub-Event>` |
+| `facebook`, `instagram` | `X-Hub-Signature-256` with the Meta app secret | `facebook.<object>`, `instagram.webhook` |
+| `linkedin` | `X-LI-Signature: <hex HMAC-SHA256(body)>` (an `hmacsha256=` prefix is allowed) | payload `type` or `linkedin.event` |
+| `twitter` | `X-Twitter-Webhooks-Signature: sha256=<base64 HMAC-SHA256(body)>` | `twitter.<*_events key>` |
+| `tiktok` | `TikTok-Signature: t=<unix>,s=<hex HMAC-SHA256("t.body")>`, at most 5 minutes old | `tiktok.<event>` |
+| `youtube` | WebSub `X-Hub-Signature: sha1=<hex HMAC-SHA1(body)>` | `youtube.video.published` |
+| `twilio` | `X-Twilio-Signature: <base64 HMAC-SHA1(URL + sorted form fields)>` (form posts) | `twilio.<EventType>` |
+| `email` | Mailgun's body signature: hex HMAC-SHA256 of `timestamp + token`, at most 5 minutes old | `new_email` |
+| `crm` | HubSpot v3: `X-HubSpot-Signature-v3` over method + URL + body + timestamp, at most 5 minutes old | `subscriptionType` / `crm_event` / `crm_update` |
+| `pinterest`, `generic` | relay signature only | `pinterest.<event>`; `?event_type=` or payload `type` |
+
+Every source also accepts the **relay signature**
+`X-HB-Signature: sha256=<hex HMAC-SHA256 of the raw body>` with the endpoint's
+secret — for providers that cannot sign natively (SendGrid, Postmark, Salesforce,
+a Google Sheet's Apps Script) or that post through a relay (n8n, Zapier).
 
 ```mermaid
 flowchart TD
-    IN["POST /webhook/inbound"] --> BODY["read raw body"]
-    BODY --> PARSE{"request.json succeeds"}
-    PARSE -->|yes| PJ["payload = JSON"]
-    PARSE -->|no| PF["payload = dict of form fields"]
-    PJ --> DET["detect_strategy headers, payload"]
-    PF --> DET
-    DET --> LOOP["iterate WEBHOOK_STRATEGIES in order"]
-    LOOP --> HIT{"can_handle true"}
-    HIT -->|yes| S["use that strategy"]
-    HIT -->|no, list exhausted| G["GenericWebhookStrategy"]
-    S --> SIG["validate_signature - result logged, never blocks"]
-    G --> SIG
-    SIG --> NORM["normalize -> client_id, event_type, normalized_data"]
-    NORM --> CID{"client_id present"}
-    CID -->|no| R400["400"]
-    CID -->|yes| ENV["EventEnvelope channel=webhook"]
+    IN["POST /webhook/inbound/endpoint_id"] --> LOAD{"active endpoint of an active company"}
+    LOAD -->|no| R404["404 - nothing queued"]
+    LOAD -->|yes| BODY["read raw body; payload = JSON, else form fields"]
+    BODY --> SIG{"source's scheme or relay signature valid"}
+    SIG -->|no| R401["401 + gateway.webhook.signature_failed - nothing queued"]
+    SIG -->|yes| NORM["source's normaliser -> event_type, normalized_data"]
+    NORM --> ENV["EventEnvelope: client_id = endpoint's company, metadata.entity_id = endpoint's agent"]
     ENV --> QE["queue_event - enqueue process_gateway_event"]
     QE -->|queued| R202["202 accepted with correlation_id, source, event_type"]
     QE -->|Redis down| R503["503 - provider retries"]
 ```
 
-### 8.2 Signature verification — what is actually implemented
-
-| Strategy | `validate_signature` override | Real HMAC check? |
-|----------|------------------------------|------------------|
-| Email, CRM, Twilio, Generic | none — inherits base `return True` | No |
-| LinkedIn | reads `X-Li-Signature`, logs `signature validation not yet configured` | **No — TODO in code** |
-| GitHub | reads `X-Hub-Signature-256`, logs the same | **No — TODO in code** |
-| Facebook | reads `X-Hub-Signature-256`, logs the same | **No — TODO in code** |
-| Instagram | reads `X-Hub-Signature-256`, logs the same | **No** |
-| Twitter | reads `X-Twitter-Webhooks-Signature`, logs the same | **No** |
-| TikTok | reads `X-TikTok-Signature`, logs the same | **No** |
-
-And even if one returned `False`, the endpoint would not reject the request:
-
-```python
-# backend/src/gateway/webhook_inbound.py:548-551
-if not strategy.validate_signature(headers, raw_body):
-    logger.warning(f"[WebhookRouter] Signature validation failed for source={source}")
-    # We still process — providers may retry; we log for audit
-```
-
-`hmac` and `hashlib` are imported at the top of the file and never used. **There
-is no working webhook signature verification anywhere in this endpoint.**
-`/webhook/inbound` is an unauthenticated, unsigned, world-writable trigger for
-agent executions on any company whose UUID the caller knows. Treat that as the
-top security item for this subsystem.
+A company that is suspended, a revoked endpoint, or a secret that does not decrypt
+all answer 404 — the request is refused, never let through.
 
 ### 8.3 Idempotency — there is none
 
@@ -620,11 +610,11 @@ sequenceDiagram
     participant RQ as Redis arq
     participant W as Arq worker
 
-    HS->>AP: POST /webhook/inbound?client_id=UUID with X-HubSpot-Signature
+    HS->>AP: POST /webhook/inbound/ENDPOINT with X-HubSpot-Signature-v3
     AP->>GW: forwarded
-    GW->>ST: detect_strategy matches on x-hubspot header
-    ST->>ST: validate_signature -> True, base class no-op
-    ST->>ST: normalize -> event_type, phone, entity_id, properties
+    GW->>GW: load the endpoint - company, source crm, secret
+    GW->>GW: verify HubSpot v3 signature, else 401
+    GW->>ST: normalize -> event_type, phone, entity_id, properties
     GW->>RQ: enqueue_job process_gateway_event EventEnvelope
     RQ-->>GW: job stored
     GW-->>HS: 202 accepted with correlation_id
@@ -639,14 +629,18 @@ run succeeded — or that a retried delivery will not run twice (section 8.3).
 
 ### 8.5 Adding a provider
 
-1. Subclass `WebhookStrategy` in
-   [`webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py).
-2. Implement `can_handle`, `get_source`, `normalize`; override
-   `validate_signature` if you want to be the first one that actually verifies.
-3. Insert into `WEBHOOK_STRATEGIES` **before** `GenericWebhookStrategy`, and
-   before any strategy whose detection your headers would also satisfy.
-4. Add a detection test to
-   [`tests/e2e/test_12_unified_gateway.py`](../../backend/tests/e2e/test_12_unified_gateway.py:351).
+1. Add the source to `WEBHOOK_SOURCES` in
+   [`gateway/models.py`](../../backend/src/gateway/models.py), the endpoint
+   API's `Source` literal and the `ck_webhook_endpoints_source` check (a
+   migration).
+2. Add its signature check to `SIGNERS` in
+   [`webhook_signatures.py`](../../backend/src/gateway/webhook_signatures.py) —
+   or none, if it signs only through a relay.
+3. Add a `WebhookStrategy` with that `source` and a `normalize` to
+   [`webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) and to
+   `STRATEGIES`.
+4. `tests/unit/test_webhook_signatures.py` fails until the source has a check
+   and a signed sample.
 
 ---
 
@@ -1378,11 +1372,16 @@ curl -i -H "Authorization: Bearer $TOKEN" localhost:8000/api/v1/ai/entities
 **Webhook** — expect `202` and a `correlation_id`:
 
 ```bash
-curl -i -X POST "localhost:8000/webhook/inbound?client_id=$COMPANY_UUID" \
-  -H 'Content-Type: application/json' \
-  -H 'X-GitHub-Event: push' \
-  -d '{"repository":{"full_name":"acme/widgets"},"sender":{"login":"dev"}}'
+# Register a GitHub endpoint once (as a company admin); note its id and secret.
+curl -s -X POST localhost:8000/api/v1/webhook-endpoints -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"source":"github","name":"widgets repo"}'
+BODY='{"repository":{"full_name":"acme/widgets"},"sender":{"login":"dev"}}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')"
+curl -i -X POST "localhost:8000/webhook/inbound/$ENDPOINT_ID" \
+  -H 'Content-Type: application/json' -H 'X-GitHub-Event: push' \
+  -H "X-Hub-Signature-256: $SIG" -d "$BODY"
 # -> {"status":"accepted","source":"github","event_type":"github.push",...}
+# A wrong or missing signature -> 401; the bare /webhook/inbound -> 401
 ```
 
 **Internal event** — check both the 401 and the 202:
@@ -1492,7 +1491,10 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 110 | `CentralDispatcher`: agent resolution (Redis-cached) for the audio/video handshakes. |
 | [`backend/src/gateway/envelope.py`](../../backend/src/gateway/envelope.py) | 95 | `EventEnvelope` and `queue_event` — the enqueue that precedes every ingress 202. |
 | [`backend/src/gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, `InternalEvent` schema, `WellKnownEvents`, unused `emit_internal_event` helper. |
-| [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 598 | 12 webhook strategies, `detect_strategy`, `POST /webhook/inbound`. No working signature verification. |
+| [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 433 | `POST /webhook/inbound/{endpoint_id}` (signed) and the retired `POST /webhook/inbound` (401); 12 normalisers keyed by source; `load_endpoint` |
+| [`backend/src/gateway/webhook_signatures.py`](../../backend/src/gateway/webhook_signatures.py) | 147 | One signature check per source, plus the relay signature (GW-01) |
+| [`backend/src/gateway/webhook_endpoints_router.py`](../../backend/src/gateway/webhook_endpoints_router.py) | 123 | `/api/v1/webhook-endpoints` — register, list, revoke |
+| [`backend/src/gateway/models.py`](../../backend/src/gateway/models.py) | 54 | `WebhookEndpoint`, `WEBHOOK_SOURCES` |
 | [`backend/src/gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) | 244 | `WS /stream/audio` handshake and provider routing. |
 | [`backend/src/gateway/web_audio_adapter.py`](../../backend/src/gateway/web_audio_adapter.py) | 255 | Browser PCM16 ↔ live LLM bridge, four concurrent tasks, transcript logging. |
 | [`backend/src/gateway/video_gateway.py`](../../backend/src/gateway/video_gateway.py) | 540 | `WS /stream/video` signalling, `VideoSession`, vision frame sampling, active-session registry. |
@@ -1518,8 +1520,8 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 - **Nothing authenticates `/stream/audio` or `/stream/video`.** HTTP middleware
   passes WebSockets straight through, and the handshake `token` is read into a
   variable and never validated.
-- **No webhook signature is verified.** Every `validate_signature` returns `True`,
-  several with an explicit TODO, and a `False` would not block the request anyway.
+- ~~**No webhook signature is verified.**~~ Since 2026-10-07 (GW-01) a webhook is
+  accepted only at a registered endpoint and only signed with its secret; §8.
 - **No webhook idempotency.** Provider retries create duplicate executions.
 - **`@app.on_event` handlers never fire** on the API: it passes a custom
   `lifespan`. Put startup and shutdown work in `lifespan` in `main.py`.

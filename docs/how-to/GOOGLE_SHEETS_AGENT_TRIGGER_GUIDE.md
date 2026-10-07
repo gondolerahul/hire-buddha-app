@@ -12,41 +12,46 @@ Google Sheets (Row Inserted)
        ▼
 Apps Script (onChange trigger)
        │
-       ▼  POST /webhook/inbound?client_id=<COMPANY_UUID>
-Unified Gateway (:8001)
-       │  GenericWebhookStrategy normalizes payload
+       ▼  POST /webhook/inbound/<ENDPOINT_ID>, signed with X-HB-Signature
+API (:8000) — checks the signature against the endpoint's secret (401 if wrong)
+       │  GenericWebhookStrategy normalizes payload; the company is the endpoint's
        ▼
-Event Bus (asyncio.Queue fan-out)
+Redis (arq job process_gateway_event; 202 once it is queued)
        │
        ▼
-Dispatcher → creates ExecutionRun with entity_id from payload
+Worker → creates an ExecutionRun for the agent (entity_id from the payload)
        │
        ▼
-ExecutionEngine.execute_run()
-       │
-       ▼
-Agent executes plan → initiates voice call to customer
+AgentLoop → the agent calls the customer
 ```
 
 ### Key Files
 
 | File | Role |
 |------|------|
-| `backend/src/gateway/webhook_inbound.py` | Receives POST, normalizes via GenericWebhookStrategy |
-| `backend/src/gateway/event_bus.py` | In-memory fan-out queue |
-| `backend/src/gateway/dispatcher.py` | Routes events → creates ExecutionRun → invokes engine |
-| `backend/src/ai/worker.py` | ExecutionEngine runs the agent's plan |
-| `backend/src/gateway/auth_middleware.py` | Extracts `client_id` from query params |
+| `backend/src/gateway/webhook_inbound.py` | Receives the POST, checks the signature, normalizes via `GenericWebhookStrategy` |
+| `backend/src/gateway/webhook_endpoints_router.py` | `/api/v1/webhook-endpoints` — register the endpoint and get its secret |
+| `backend/src/gateway/envelope.py` | Queues the event for the worker |
+| `backend/src/ai/core/arq_jobs.py` | `process_gateway_event` — creates the run and starts the agent |
 
 ---
 
 ## Configuration Steps (Zero Code Changes)
 
-### Step 1: Find Your Company UUID
+### Step 1: Register a webhook endpoint
 
-```sql
-SELECT id, name FROM companies;
+Webhooks are accepted only at a registered endpoint, signed with its secret (GW-01,
+2026-10-07). As a company admin:
+
+```bash
+curl -s -X POST https://app.hirebuddha.com/api/v1/webhook-endpoints \
+  -H "Authorization: Bearer <ADMIN_ACCESS_TOKEN>" -H "Content-Type: application/json" \
+  -d '{"source": "generic", "name": "Leads sheet", "entity_id": "<YOUR_AGENT_ENTITY_UUID>"}'
 ```
+
+The response carries the endpoint's `url` and its `secret`. **The secret is shown
+only once** — keep it for Step 3. The company is the admin's own; there is no
+company id to send.
 
 ### Step 2: Find the Agent Entity ID
 
@@ -90,15 +95,13 @@ function sendWebhookOnChange(e) {
   // ════════════════════════════════════════════
   // CONFIGURE THESE VALUES
   // ════════════════════════════════════════════
-  var COMPANY_UUID = '<YOUR_COMPANY_UUID>';
+  var ENDPOINT_URL = '<THE url FROM STEP 1>';     // .../webhook/inbound/<endpoint id>
+  var SECRET       = '<THE secret FROM STEP 1>';
   var ENTITY_ID    = '<YOUR_AGENT_ENTITY_UUID>';
-  var GATEWAY_URL  = 'https://gateway.hirebuddha.com';
   // ════════════════════════════════════════════
 
-  var webhookUrl = GATEWAY_URL 
-    + '/webhook/inbound'
-    + '?client_id=' + COMPANY_UUID
-    + '&source=google_sheets'
+  var webhookUrl = ENDPOINT_URL
+    + '?source=google_sheets'
     + '&event_type=sheet.row_inserted';
 
   var payload = {
@@ -111,10 +114,16 @@ function sendWebhookOnChange(e) {
     timestamp: new Date().toISOString()
   };
 
+  // Sign the exact body that is sent: sha256=<hex HMAC-SHA256(body, SECRET)>
+  var body = JSON.stringify(payload);
+  var mac = Utilities.computeHmacSha256Signature(body, SECRET, Utilities.Charset.UTF_8);
+  var hex = mac.map(function (b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
+
   var options = {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify(payload),
+    payload: body,
+    headers: { 'X-HB-Signature': 'sha256=' + hex },
     muteHttpExceptions: true
   };
 
@@ -128,9 +137,8 @@ function sendWebhookOnChange(e) {
 ```
 
 **Replace**:
-- `<YOUR_COMPANY_UUID>` — your company's UUID from Step 1
+- `ENDPOINT_URL` and `SECRET` — the `url` and `secret` from Step 1
 - `<YOUR_AGENT_ENTITY_UUID>` — the agent entity's UUID from Step 2
-- `GATEWAY_URL` — your production gateway URL (default: `https://gateway.hirebuddha.com`)
 
 ### Step 4: Install the Trigger
 
@@ -143,13 +151,14 @@ function sendWebhookOnChange(e) {
 4. Click **Save**
 5. Authorize the script when prompted
 
-### Step 5: Verify Gateway Health
+### Step 5: Verify the API and worker
 
 ```bash
-curl https://gateway.hirebuddha.com/health
+curl https://app.hirebuddha.com/api/v1/health
 ```
 
-Confirm `consumer_count ≥ 1` in the response. If it's 0, the Dispatcher didn't start and events will be silently dropped.
+Confirm `"status": "ok"`. `degraded` names what is wrong — for example no live worker
+on the queue, in which case events wait in Redis until one starts.
 
 ---
 
@@ -171,11 +180,11 @@ The agent's prompt can reference `{{input}}` to access the customer's name, phon
 
 ---
 
-## Required Code Change: Entity-Specific Routing
+## Entity-Specific Routing
 
-> **Important**: The current dispatcher (`_execute_in_process`) picks the **first active entity** for the company. Since you want to pass a specific `entity_id`, a small code change is needed in `backend/src/gateway/dispatcher.py` line ~205.
-
-The change: extract `entity_id` from `envelope.raw_data` if present, instead of always querying for the first active entity. This is a ~5-line change in `_execute_in_process()`.
+No code change is needed: the worker runs the agent named by the payload's
+`entity_id` when it is the company's own. Registering the endpoint with
+`entity_id` (Step 1) records which agent it is for.
 
 ---
 
@@ -184,16 +193,13 @@ The change: extract `entity_id` from `envelope.raw_data` if present, instead of 
 ### Quick Test with curl
 
 ```bash
-curl -X POST "https://gateway.hirebuddha.com/webhook/inbound?client_id=<COMPANY_UUID>&source=google_sheets&event_type=sheet.row_inserted" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "sheet.row_inserted",
-    "entity_id": "<AGENT_ENTITY_UUID>",
-    "sheet_name": "Leads",
-    "row_index": 2,
-    "data": {"Name": "Test Customer", "Phone": "+919876543210", "Interest": "Product Demo"}
-  }'
+BODY='{"type": "sheet.row_inserted", "entity_id": "<AGENT_ENTITY_UUID>", "sheet_name": "Leads", "row_index": 2, "data": {"Name": "Test Customer", "Phone": "+919876543210", "Interest": "Product Demo"}}'
+SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')"
+curl -X POST "$ENDPOINT_URL?source=google_sheets&event_type=sheet.row_inserted" \
+  -H "Content-Type: application/json" -H "X-HB-Signature: $SIG" -d "$BODY"
 ```
+
+A missing or wrong signature answers **401** and nothing runs.
 
 **Expected response** (HTTP 202):
 ```json

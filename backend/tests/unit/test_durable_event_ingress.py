@@ -9,6 +9,8 @@ inside the API process instead.
 
 Now the endpoint enqueues ``process_gateway_event`` itself and answers 202 only
 after Redis has the job; if it cannot, it answers 503 so the provider retries.
+Webhooks arrive at a registered, signed endpoint since GW-01
+(``webhook_endpoint_double`` stands one in).
 """
 import importlib.util
 
@@ -18,6 +20,7 @@ import pytest
 from src.common.config import settings
 from src.gateway import envelope as envelope_module
 from src.main import app
+from tests.unit.webhook_endpoint_double import bind_endpoint, signed_json
 
 TOKEN = "sa-09-test-token-not-a-placeholder"
 
@@ -54,26 +57,26 @@ async def _post(path: str, **kwargs) -> httpx.Response:
         return await client.post(path, **kwargs)
 
 
-async def test_webhook_is_queued_before_the_202(queued):
-    resp = await _post(
-        "/webhook/inbound?client_id=company-1",
-        json={"crm_event": "lead.created", "properties": {"phone": "+911234567890"}},
-        headers={"X-HubSpot-Signature": "sig"},
-    )
+async def test_webhook_is_queued_before_the_202(queued, monkeypatch):
+    endpoint = bind_endpoint(monkeypatch, source="crm")
+    body, headers = signed_json({"crm_event": "lead.created", "properties": {"phone": "+911234567890"}})
+    resp = await _post(f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
     assert resp.status_code == 202
-    body = resp.json()
+    data = resp.json()
     assert len(queued) == 1
     function, args, _ = queued[0]
     assert function == "process_gateway_event"
     envelope = args[0]
-    assert envelope["id"] == body["correlation_id"]
+    assert envelope["id"] == data["correlation_id"]
     assert envelope["channel"] == "webhook"
-    assert envelope["client_id"] == "company-1"
+    assert envelope["client_id"] == str(endpoint.company_id)
     assert envelope["event_type"] == "lead.created"
 
 
-async def test_webhook_is_refused_when_it_cannot_be_queued(redis_down):
-    resp = await _post("/webhook/inbound?client_id=company-1", json={"type": "x"})
+async def test_webhook_is_refused_when_it_cannot_be_queued(redis_down, monkeypatch):
+    endpoint = bind_endpoint(monkeypatch, source="generic")
+    body, headers = signed_json({"type": "x"})
+    resp = await _post(f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
     assert resp.status_code == 503
     assert resp.json()["status"] == "unavailable"
     assert "correlation_id" in resp.json()
