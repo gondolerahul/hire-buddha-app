@@ -40,10 +40,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 3 | 0 | 1 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
-| [T2](#4-t2--delete) | Delete | 4 | 2 | 0 | 2 | 0 |
+| [T2](#4-t2--delete) | Delete | 4 | 3 | 0 | 1 | 0 |
 | [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 0 | 1 | 5 | 1 |
 
-**Total: 20 defects (10 fixed, 1 partly fixed, 8 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (11 fixed, 1 partly fixed, 7 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -57,7 +57,7 @@
 | API-08 | `/api/v1/phone-pool/*` does not exist at runtime | ✅ fixed | — |
 | API-09 | A failed import silently removes a whole route group | ✅ fixed | — |
 | API-10 | `GET\ | ✅ fixed | — |
-| API-11 | `GET /api/v1/assets` and `/api/v1/assets/{path}` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| API-11 | `GET /api/v1/assets` and `/api/v1/assets/{path}` | ✅ fixed (2026-10-07) | — |
 | API-12 | `voice/phone_pool_router.py` | ✅ fixed | — |
 | API-13 | `GET /api/v1/auth/admin-only` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
 | API-14 | Nine admin routes have a doubled `admin/admin` segment | accepted — leave it | — |
@@ -261,7 +261,7 @@ router failed to load.
 | ID | Delete | Notes | Status |
 |---|---|---|---|
 | **API-10** | `GET\|POST /api/v1/ai/phase11/{subpath}` | 307 shim carrying an explicit *"Remove after 2026-09-01"* comment. **That date is today.** Remove the five matching legacy routes from the frontend router in the same change | ✅ fixed (2026-09-29, `6d90428`) — as PO-16, with the five SPA routes |
-| **API-11** | `GET /api/v1/assets` and `/api/v1/assets/{path}` | Redirect shims to `/api/v1/artifacts*`. The legacy `assets` table they existed for was never dropped either — see [DM-10](03-DATA-MODEL-DEFECTS.md#4-t2--wrong-types-and-dead-tables) | ✅ Verified · **open** (re-verified 2026-10-07) — both shims are still mounted (`main.py:134`, `:137`), although the `assets` table they existed for is dropped (DM-10, `ae0226f`) · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| **API-11** | `GET /api/v1/assets` and `/api/v1/assets/{path}` | Redirect shims to `/api/v1/artifacts*`. The legacy `assets` table they existed for was never dropped either — see [DM-10](03-DATA-MODEL-DEFECTS.md#4-t2--wrong-types-and-dead-tables) | ✅ Verified · **fixed (2026-10-07)** — both shims are deleted from `main.py`; `/api/v1/assets*` answers 404 (`test_single_port_app.py::test_retired_routes_are_gone`), and the e2e asset tests in `test_10_assets_email.py` now exercise `/api/v1/artifacts` |
 | **API-12** | `voice/phone_pool_router.py` | 701 lines, never mounted. **Keep** `phone_pool_models.py` — the live router still imports `PhoneNumber` from it. Also **D-22** | ✅ fixed (2026-09-29, `964c9ab`) — as PO-12 |
 | **API-13** | `GET /api/v1/auth/admin-only` | Exists purely to probe the admin role guard. A debug route on the public surface | ✅ Verified · **open** (re-verified 2026-10-07) — still at `auth/router.py:95` · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
 

@@ -125,18 +125,9 @@ app.include_router(mobile_push_router)
 from src.ai.memory.cortex_router import router as cortex_router
 app.include_router(cortex_router)
 
-# Artifact management (replaces legacy /assets routes)
+# Artifact management (the legacy /assets routes and their redirects are gone, API-11)
 from src.ai.artifact_router import router as artifact_router
 app.include_router(artifact_router)
-
-# Legacy /assets → /artifacts redirect support (kept for backwards compatibility)
-from fastapi.responses import RedirectResponse
-@app.get("/api/v1/assets", include_in_schema=False)
-async def legacy_assets_list():
-    return RedirectResponse(url="/api/v1/artifacts")
-@app.get("/api/v1/assets/{path:path}", include_in_schema=False)
-async def legacy_assets_path(path: str):
-    return RedirectResponse(url=f"/api/v1/artifacts/{path}")
 
 # Billing, reports, credits, and cron jobs
 mount_optional(app, "src.billing.billing_router")

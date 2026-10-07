@@ -1480,8 +1480,8 @@ recordings, a zoomable image viewer, a video player — and shows size and
 duration.
 
 > The predecessor page, `assets/AssetLibrary.tsx`, and its `asset.service.ts` were
-> deleted on 2026-09-29 (PO-13). `/assets` redirects to `/artifacts`, and the backend
-> keeps `/api/v1/assets*` → `/api/v1/artifacts*` redirects for old clients.
+> deleted on 2026-09-29 (PO-13). The page route `/assets` redirects to `/artifacts`. The
+> backend's `/api/v1/assets*` redirects were deleted on 2026-10-07 (API-11).
 
 ### 6.15 Admin surfaces
 

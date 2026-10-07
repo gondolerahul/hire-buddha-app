@@ -1164,10 +1164,9 @@ curl -s -H "Authorization: Bearer $TOKEN" $BASE/api/v1/ai/admin/executions/$RUN/
 
 ### 22.1 Redirect shims in `main.py`
 
-| Path | Redirects to | Notes |
-|---|---|---|
-| `GET /api/v1/assets` | `/api/v1/artifacts` | Legacy assets listing |
-| `GET /api/v1/assets/{path:path}` | `/api/v1/artifacts/{path}` | Legacy assets path |
+None remain. `GET /api/v1/assets` and `GET /api/v1/assets/{path:path}`, which redirected
+to `/api/v1/artifacts*`, were deleted on 2026-10-07 (API-11); the `assets` table they
+existed for was dropped by DM-10. `/api/v1/assets*` now answers 404.
 
 The `/api/v1/ai/phase11/*` → `/api/v1/ai/admin/*` 307 shim reached its 2026-09-01
 removal date and was deleted on 2026-09-29 (PO-16). Nothing in the frontend called it.

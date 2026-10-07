@@ -94,6 +94,14 @@ def test_there_is_no_catch_all_proxy():
     assert "/{path:path}" not in {getattr(r, "path", "") for r in app.routes}
 
 
+@pytest.mark.parametrize("prefix", [
+    "/api/v1/assets",              # redirect shims for a table dropped by DM-10 (API-11)
+])
+def test_retired_routes_are_gone(prefix):
+    paths = {getattr(r, "path", "") for r in app.routes}
+    assert not [p for p in paths if p == prefix or p.startswith(prefix + "/")]
+
+
 @pytest.mark.parametrize("module", [
     "src.gateway.app",             # the :8001 app and its reverse proxy
     "src.gateway.main",            # the superseded pure-proxy gateway (SA-11)

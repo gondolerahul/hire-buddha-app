@@ -1,10 +1,9 @@
 """
-E2E Tests — Assets & Email Connections
-Covers: file upload/download, asset listing, email connection CRUD
+E2E Tests — Artifacts & Email Connections
+Covers: file upload/download, artifact listing, email connection CRUD
 """
 import pytest
 import httpx
-import uuid
 
 from tests.e2e.conftest import auth_headers, TEST_ID
 
@@ -12,83 +11,81 @@ from tests.e2e.conftest import auth_headers, TEST_ID
 _ASSET_ID = None
 _EMAIL_CONN_ID = None
 
-# ── Assets ───────────────────────────────────────────────────────────────────
+# ── Artifacts (the legacy /api/v1/assets routes are gone, API-11) ───────────
 
 @pytest.mark.asyncio
-async def test_upload_asset(client: httpx.AsyncClient, app_admin_token, app_admin_company_id):
+async def test_upload_artifact(client: httpx.AsyncClient, app_admin_token, app_admin_company_id):
     global _ASSET_ID
-    
-    file_content = b"fake audio content"
-    files = {"file": ("test_audio.wav", file_content, "audio/wav")}
-    
+
+    files = {"file": ("test_audio.wav", b"fake audio content", "audio/wav")}
     resp = await client.post(
-        "/api/v1/assets/upload",
+        "/api/v1/artifacts/upload",
         headers=auth_headers(app_admin_token),
-        data={
-            "asset_type": "recordings",
-            "session_id": str(uuid.uuid4())
-        },
+        data={"file_category": "recordings"},
         files=files,
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert "id" in data
-    assert data["file_type"] == "recordings"
+    assert data["file_category"] == "recordings"
     assert data["company_id"] == app_admin_company_id
     _ASSET_ID = data["id"]
 
 
 @pytest.mark.asyncio
-async def test_upload_invalid_asset_type(client: httpx.AsyncClient, app_admin_token):
-    file_content = b"fake content"
-    files = {"file": ("test.txt", file_content, "text/plain")}
-    
+async def test_upload_invalid_file_category(client: httpx.AsyncClient, app_admin_token):
+    files = {"file": ("test.txt", b"fake content", "text/plain")}
     resp = await client.post(
-        "/api/v1/assets/upload",
+        "/api/v1/artifacts/upload",
         headers=auth_headers(app_admin_token),
-        data={"asset_type": "not_an_audio_or_image"},
+        data={"file_category": "not_a_category"},
         files=files,
     )
-    # The application probably allows it, maps it as 'prompt_audio' or similar if not specified
-    # Or 422 if enum strictly enforced
-    assert resp.status_code in (200, 422, 400)
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_list_assets(client: httpx.AsyncClient, app_admin_token):
-    resp = await client.get("/api/v1/assets", headers=auth_headers(app_admin_token))
+async def test_list_artifacts(client: httpx.AsyncClient, app_admin_token):
+    resp = await client.get("/api/v1/artifacts", headers=auth_headers(app_admin_token))
+    assert resp.status_code == 200
     data = resp.json()
-    assert "assets" in data
-    assert isinstance(data["assets"], list)
+    assert isinstance(data["artifacts"], list)
 
 
 @pytest.mark.asyncio
-async def test_get_asset_metadata(client: httpx.AsyncClient, app_admin_token):
+async def test_legacy_assets_route_is_gone(client: httpx.AsyncClient, app_admin_token):
+    resp = await client.get("/api/v1/assets", headers=auth_headers(app_admin_token),
+                            follow_redirects=False)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_metadata(client: httpx.AsyncClient, app_admin_token):
     if not _ASSET_ID:
-        pytest.skip("Asset not created")
-        
-    resp = await client.get(f"/api/v1/assets/{_ASSET_ID}", headers=auth_headers(app_admin_token))
+        pytest.skip("Artifact not created")
+
+    resp = await client.get(f"/api/v1/artifacts/{_ASSET_ID}", headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
     assert resp.json()["id"] == _ASSET_ID
 
 
 @pytest.mark.asyncio
-async def test_download_asset(client: httpx.AsyncClient, app_admin_token):
+async def test_download_artifact(client: httpx.AsyncClient, app_admin_token):
     if not _ASSET_ID:
-        pytest.skip("Asset not created")
-        
-    resp = await client.get(f"/api/v1/assets/{_ASSET_ID}/download", headers=auth_headers(app_admin_token))
+        pytest.skip("Artifact not created")
+
+    resp = await client.get(f"/api/v1/artifacts/{_ASSET_ID}/download",
+                            headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
-    # The content should be the fake audio we sent
     assert resp.content == b"fake audio content"
 
 
 @pytest.mark.asyncio
-async def test_delete_asset(client: httpx.AsyncClient, app_admin_token):
+async def test_delete_artifact(client: httpx.AsyncClient, app_admin_token):
     if not _ASSET_ID:
-        pytest.skip("Asset not created")
-        
-    resp = await client.delete(f"/api/v1/assets/{_ASSET_ID}", headers=auth_headers(app_admin_token))
+        pytest.skip("Artifact not created")
+
+    resp = await client.delete(f"/api/v1/artifacts/{_ASSET_ID}", headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
 
 
