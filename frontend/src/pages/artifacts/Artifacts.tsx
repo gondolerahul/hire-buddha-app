@@ -8,7 +8,7 @@ import {
 import { artifactService, Artifact, ArtifactListFilters } from '@/services/artifact.service';
 import { apiClient } from '@/services/api.client';
 import './Artifacts.css';
-import { authedApiUrl } from '@/config/api';
+import { useUrlToken, withUrlToken } from '@/services/urlToken';
 
 const FILE_CATEGORY_OPTIONS = [
     { value: '', label: 'All Types' },
@@ -190,7 +190,9 @@ export const Artifacts: React.FC = () => {
         }
     };
 
-    const getPreviewUrl = (artifact: Artifact) => authedApiUrl(`/api/v1/artifacts/${artifact.id}/download`);
+    const urlToken = useUrlToken('/api/v1/artifacts/');
+    const getPreviewUrl = (artifact: Artifact) =>
+        urlToken ? withUrlToken(`/api/v1/artifacts/${artifact.id}/download`, urlToken) : undefined;
 
     return (
         <div className="artifact-page">
@@ -373,7 +375,7 @@ export const Artifacts: React.FC = () => {
 
                                 {/* Preview */}
                                 <div className="artifact-preview">
-                                    {artifact.file_category === 'images' && (
+                                    {artifact.file_category === 'images' && previewUrl && (
                                         <div
                                             className="image-preview"
                                             onClick={() => setLightboxSrc(previewUrl)}
@@ -383,10 +385,10 @@ export const Artifacts: React.FC = () => {
                                             <div className="image-overlay"><ZoomIn size={20} /></div>
                                         </div>
                                     )}
-                                    {artifact.file_category === 'videos' && (
+                                    {artifact.file_category === 'videos' && previewUrl && (
                                         <video controls className="video-preview" src={previewUrl} />
                                     )}
-                                    {artifact.file_category === 'recordings' && (
+                                    {artifact.file_category === 'recordings' && previewUrl && (
                                         <AudioPlayer src={previewUrl} />
                                     )}
                                     {(artifact.file_category === 'documents' || artifact.file_category === 'text') && (

@@ -11,6 +11,7 @@
  * rather than this module directly.
  */
 import { useEffect, useRef } from 'react';
+import { getUrlToken, withUrlToken } from '@/services/urlToken';
 
 import type { AgentEvent } from '@/types/agentKernel';
 
@@ -39,9 +40,10 @@ interface UseAgentEventsOptions {
  * Low-level hook: opens a single EventSource, parses every message
  * into `AgentEvent | null`, and routes to the callback.
  *
- * Auth: an EventSource cannot send headers, so the token goes in the
- * `?token=` query param; the backend's SSE auth middleware accepts both
- * `Authorization` headers and query tokens.
+ * Auth: an EventSource cannot send headers, so a URL token for
+ * `/api/v1/ai/executions/` goes in `?token=` — never the login token, which
+ * the API refuses there (FE-28). If the stream is closed for good (an expired
+ * or refused token), it is reopened with a fresh token, up to three times.
  */
 export function useAgentEvents({
     url,
@@ -54,28 +56,55 @@ export function useAgentEvents({
 
     useEffect(() => {
         if (!url) return;
-        const token = localStorage.getItem('access_token');
-        const sep = url.includes('?') ? '&' : '?';
-        const source = new EventSource(`${url}${sep}token=${token ?? ''}`);
+        let source: EventSource | null = null;
+        let closed = false;
+        let reopened = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
 
-        source.onmessage = (msg) => {
+        const open = async (fresh: boolean) => {
+            let token: string;
             try {
-                const raw = JSON.parse(msg.data);
-                // An iteration's frames arrive as one message (AK-I9).
-                const items: unknown[] = raw && raw.type === 'batch' && Array.isArray(raw.events) ? raw.events : [raw];
-                for (const item of items) {
-                    const parsed = parseAgentEvent(item);
-                    if (parsed) eventRef.current(parsed);
-                    else if (onUnknown) onUnknown(item);
-                }
+                token = await getUrlToken('/api/v1/ai/executions/', fresh);
             } catch {
-                // Non-JSON payload — ignore.
+                if (!closed) timer = setTimeout(() => void open(true), 5_000);
+                return;
             }
-        };
-        source.onerror = (e) => onError?.(e);
+            if (closed) return;
+            const current = new EventSource(withUrlToken(url, token));
+            source = current;
 
+            current.onopen = () => {
+                reopened = 0;
+            };
+            current.onmessage = (msg) => {
+                try {
+                    const raw = JSON.parse(msg.data);
+                    // An iteration's frames arrive as one message (AK-I9).
+                    const items: unknown[] = raw && raw.type === 'batch' && Array.isArray(raw.events) ? raw.events : [raw];
+                    for (const item of items) {
+                        const parsed = parseAgentEvent(item);
+                        if (parsed) eventRef.current(parsed);
+                        else if (onUnknown) onUnknown(item);
+                    }
+                } catch {
+                    // Non-JSON payload — ignore.
+                }
+            };
+            current.onerror = (e) => {
+                onError?.(e);
+                if (current.readyState === EventSource.CLOSED && !closed && reopened < 3) {
+                    reopened += 1;
+                    current.close();
+                    timer = setTimeout(() => void open(true), 1_000 * reopened);
+                }
+            };
+        };
+
+        void open(false);
         return () => {
-            source.close();
+            closed = true;
+            if (timer) clearTimeout(timer);
+            source?.close();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [url]);

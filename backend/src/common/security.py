@@ -14,6 +14,16 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 ACCESS_TOKEN_TYPE = "access"
 EMAIL_VERIFICATION_TOKEN_TYPE = "email_verification"
 
+# A URL token is what goes in a URL the browser loads by itself (an <audio>,
+# <img> or download link, an EventSource), which cannot send a header. It is
+# short-lived and good only under one path prefix, so a URL that ends up in a
+# log, the history or a Referer does not carry a login (FE-28). Ten minutes,
+# because a media element keeps fetching ranges while it plays.
+URL_TOKEN_TYPE = "url"
+URL_TOKEN_TTL_SECONDS = 600
+# The prefixes a URL token may be minted for — the routes that read ``?token=``.
+URL_TOKEN_SCOPES = ("/api/v1/artifacts/", "/api/v1/ai/executions/")
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 

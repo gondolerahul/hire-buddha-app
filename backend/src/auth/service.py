@@ -226,6 +226,22 @@ def issue_access_token(user: User) -> str:
     )
 
 
+def issue_url_token(user: User, scope: str) -> str:
+    """A URL token for ``user``, good for ``URL_TOKEN_TTL_SECONDS`` under ``scope`` (FE-28).
+
+    It carries ``tv`` like an access token, so ending the user's sessions ends it too.
+    """
+    from datetime import timedelta
+
+    from src.common.security import URL_TOKEN_TTL_SECONDS, URL_TOKEN_TYPE
+
+    return create_access_token(
+        data={"sub": user.email, "type": URL_TOKEN_TYPE, "tv": user.token_version or 0,
+              "scope": scope},
+        expires_delta=timedelta(seconds=URL_TOKEN_TTL_SECONDS),
+    )
+
+
 async def revoke_all_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
     """End every session of a user: all refresh tokens, and all access tokens.
 

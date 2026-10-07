@@ -35,17 +35,17 @@
 
 | Tier | Theme | Count | Fixed | Open |
 |---|---|---|---|---|
-| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | 5 | 2 |
+| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | 6 | 1 |
 | [T1](#3-t1--broken-behaviour) | Broken behaviour | 12 | 11 | 1 |
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 6 | 0 |
 | [T3](#5-t3--performance) | Performance | 7 | 6 | 1 |
 
-**Total: 32 defects (29 fixed, 3 open), 10 improvements (5 done, 1 partly done, 4 open).**
+**Total: 32 defects (30 fixed, 2 open), 10 improvements (5 done, 1 partly done, 4 open).**
 Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
 way and added (FE-26 to FE-31). The user ran two of the package changes this session's
 permission check refused, committed in `dc21c2f`: the unused packages are gone (FE-12) and
 `vitest` is installed (FE-03 still needs it wired in). FE-21's package, `@tanstack/react-query`,
-was installed in `895ddc8` and nothing uses it yet; FE-28 needs a short-lived token from the API.
+was installed in `895ddc8` and nothing uses it yet; FE-28 is fixed (2026-10-07, URL tokens).
 Re-verified against the code 2026-10-07; the three open defects are scheduled in
 [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (FE-03 [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights), FE-28 [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), FE-21 [H9](REMAINING-DEFECTS-PLAN.md#h9--frontend-data-layer)).
 
@@ -78,7 +78,7 @@ Re-verified against the code 2026-10-07; the three open defects are scheduled in
 | FE-25 | Saving from the entity builder rewrites config it does not show | ✅ fixed `0dbd5ef` |
 | FE-26 | The production build fails *(new)* | ✅ fixed `141a4df` |
 | FE-27 | A compiled `vite.config.js` shadows `vite.config.ts` *(new)* | ✅ fixed `50dac40` |
-| FE-28 | Artifact previews put the access token in the URL *(new)* | open — needs a short-lived token from the API; plan [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| FE-28 | Artifact previews put the access token in the URL *(new)* | ✅ fixed (2026-10-07) — a ten-minute, path-scoped URL token |
 | FE-29 | The session list's recording link always answers 401 *(new)* | ✅ fixed `cb3026f` |
 | FE-30 | Three more unreferenced files *(new)* | ✅ fixed `a7db850` |
 | FE-31 | Reloading the Artifacts page shows the API's 404 *(new)* | ✅ fixed `c222808` |
@@ -267,9 +267,22 @@ on the next dev-server start.
 
 ### FE-28 — Artifact previews put the access token in the URL
 
-**✅ Verified · Medium** · **Status: open** — found 2026-10-01 while fixing FE-04.
+**✅ Verified · Medium** · **Status: fixed (2026-10-07)** — found 2026-10-01 while fixing FE-04.
+URLs the browser loads itself carry a **URL token**: `POST /api/v1/auth/url-token`
+mints a JWT of type `url` that lives ten minutes and is good only under one of two path
+prefixes (`/api/v1/artifacts/`, `/api/v1/ai/executions/`), carries `tv` (ending sessions
+ends it), and is not a login. Both routes that read `?token=` — the artifact download and
+the run stream — accept only that; the login token in a URL is a 401. The frontend's
+`services/urlToken.ts` mints and caches one per scope and per login, renews it a minute
+before it expires; `authedApiUrl` is gone; the artifact previews, both recording links
+and the run page's `EventSource` (which reopens with a fresh token if it is closed for
+good) use it. Ten minutes rather than the plan's ≤ 60 s (HD3) because a media element keeps
+fetching byte ranges while it plays. Tests: `tests/unit/test_url_tokens.py`,
+`tests/integration/test_url_tokens.py` (real app, Postgres), `src/services/urlToken.test.ts`.
+Checked in the browser: an image preview loads with a `url` token scoped to
+`/api/v1/artifacts/`; the login token in the URL answers 401.
 
-`Artifacts.tsx`'s `getPreviewUrl` builds
+`Artifacts.tsx`'s `getPreviewUrl` built
 `/api/v1/artifacts/{id}/download?token=<access token>` for previews that cannot send headers
 (`<img>`, `<iframe>`). A token in a query string is written to proxy and server access logs
 and to browser history, and is sent in the `Referer` header of any request the preview makes.

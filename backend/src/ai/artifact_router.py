@@ -177,16 +177,21 @@ async def get_artifact(
 async def download_artifact(
     artifact_id: UUID,
     request: Request,
-    token: Optional[str] = Query(None, description="JWT token for media preview (alternative to Authorization header)"),
+    token: Optional[str] = Query(None, description="A URL token from POST /api/v1/auth/url-token, for media the browser loads itself (FE-28)"),
     db: AsyncSession = Depends(get_db),
     header_token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)),
 ):
-    # Authenticate via header token first, fall back to query token
+    # A login token in the Authorization header; else a URL token for this
+    # path in ?token= — never a login token in the URL (FE-28).
     from src.auth.dependencies import _authenticate_user
-    effective_token = header_token or token
-    if not effective_token:
+    from src.common.security import URL_TOKEN_TYPE
+    if header_token:
+        current_user = await _authenticate_user(header_token, db)
+    elif token:
+        current_user = await _authenticate_user(token, db, token_type=URL_TOKEN_TYPE,
+                                                path=request.url.path)
+    else:
         raise HTTPException(status_code=401, detail="Could not validate credentials")
-    current_user = await _authenticate_user(effective_token, db)
 
     svc = ArtifactService(db)
     artifact = await svc.get_artifact(artifact_id, current_user.company_id)

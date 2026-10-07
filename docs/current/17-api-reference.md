@@ -198,6 +198,7 @@ not part of OpenAPI.
 | POST | `/api/v1/auth/login` | none | Login → JWT |
 | POST | `/api/v1/auth/token` | none | OAuth2 password-form login |
 | GET | `/api/v1/auth/me` | Bearer | Current user |
+| POST | `/api/v1/auth/url-token` | Bearer | A ten-minute URL token for `{scope}` — `/api/v1/artifacts/` or `/api/v1/ai/executions/` — the only token `?token=` accepts (FE-28) |
 | POST | `/api/v1/auth/refresh` | none (refresh token in body) | Rotate tokens |
 | POST | `/api/v1/auth/oauth/{provider}` | none | OAuth login |
 | GET | `/api/v1/auth/verify-email` | none | Email verification |

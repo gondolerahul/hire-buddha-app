@@ -85,12 +85,34 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = service.issue_access_token(user)
     return {"access_token": access_token, "token_type": "bearer"}
 
+from pydantic import BaseModel, Field
+
 from src.auth.dependencies import get_current_user
 from src.auth.schemas import UserResponse
 
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(current_user: UserResponse = Depends(get_current_user)):
     return current_user
+
+class UrlTokenRequest(BaseModel):
+    scope: str = Field(description="One of URL_TOKEN_SCOPES: the path prefix the token is for")
+
+
+@router.post("/url-token")
+async def url_token(body: UrlTokenRequest, current_user: UserResponse = Depends(get_current_user)):
+    """A short-lived token for URLs the browser loads itself (FE-28).
+
+    ``<audio>``, ``<img>``, download links and ``EventSource`` cannot send an
+    ``Authorization`` header; they carry this in ``?token=`` instead of the login
+    access token, which is refused there.
+    """
+    from src.common.security import URL_TOKEN_SCOPES, URL_TOKEN_TTL_SECONDS
+
+    if body.scope not in URL_TOKEN_SCOPES:
+        raise HTTPException(status_code=422, detail=f"scope must be one of {', '.join(URL_TOKEN_SCOPES)}")
+    return {"token": service.issue_url_token(current_user, body.scope),
+            "scope": body.scope, "expires_in": URL_TOKEN_TTL_SECONDS}
+
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(

@@ -520,7 +520,7 @@ Active-state detection is `location.pathname.startsWith(path)`, which means
 
 | Key | Written by | Read by |
 |-----|-----------|---------|
-| `access_token` | `auth.service.ts` login/register/refresh, `api.client.ts` refresh interceptor, `oauth.service.ts` callback | `api.client.ts` request interceptor, `services/events.ts`, `authedApiUrl` in `config/api.ts`, `authService.isAuthenticated()` |
+| `access_token` | `auth.service.ts` login/register/refresh, `api.client.ts` refresh interceptor, `oauth.service.ts` callback | `api.client.ts` request interceptor, `services/urlToken.ts` (cache key — a URL token is minted per login), `authService.isAuthenticated()` |
 | `refresh_token` | same three | `api.client.ts` refresh interceptor |
 
 Using `localStorage` rather than an httpOnly cookie means any XSS on the page
@@ -630,9 +630,11 @@ Three real limitations of this implementation:
    `fetch()` with the token from `useAuth()`, which is read at mount and not
    updated by a refresh, so they kept sending an expired token. Do not take the
    token from `useAuth()` for a request. A URL the browser loads itself
-   (`<audio src>`, `<a href>`, `<img>`) cannot carry the header: build it with
-   `authedApiUrl(path)` from `config/api.ts`, which adds `?token=` from storage
-   (see FE-28 for why that is still not ideal).
+   (`<audio src>`, `<a href>`, `<img>`, an `EventSource`) cannot carry the
+   header: it carries a **URL token** — `useUrlToken(scope)` and
+   `withUrlToken(path, token)` from `services/urlToken.ts`. A URL token lives ten
+   minutes and is good under one path prefix; the API refuses the login token in a
+   URL (FE-28).
 
 ### 5.4 Logout
 
@@ -715,8 +717,8 @@ One file, [`config/api.ts`](../../frontend/src/config/api.ts), exports
 `API_BASE_URL` (from `VITE_API_BASE_URL`, falling back to
 `http://localhost:8000/api/v1` with a console warning — it used to fall back to
 the production gateway, FE-04), `API_ORIGIN` (the same without `/api/v1`) and
-`authedApiUrl(path)` (an API URL with `?token=`, for things the browser loads
-itself). `apiClient` uses `API_BASE_URL`; nothing else reads the variable.
+that is all. URLs the browser loads itself are built by `services/urlToken.ts`
+(FE-28). `apiClient` uses `API_BASE_URL`; nothing else reads the variable.
 
 ### 6.3 Error handling — there isn't a normaliser
 
@@ -2379,7 +2381,8 @@ Concretely:
   reloads, so any post-login `navigate()` you write is dead code.
 - **Do not take the token from `useAuth()` for a request.** It is read at mount
   and a refresh does not update it; call the API through `apiClient`, and build
-  `<audio>`/`<a>`/`<img>` URLs with `authedApiUrl` (FE-07).
+  `<audio>`/`<a>`/`<img>`/`EventSource` URLs with `useUrlToken` + `withUrlToken`
+  (FE-07, FE-28) — never with the login token, which the API refuses in a URL.
 - **Timestamps must go through `parseServerDate`.** The backend emits naive UTC
   ISO strings; `new Date(s)` parses them as browser-local and is wrong by your
   UTC offset. Import from `@/utils/datetime`. `npm run lint` refuses

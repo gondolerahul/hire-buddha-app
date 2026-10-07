@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GlassCard } from '@/components/ui';
 import './StreamingSessionsPage.css';
-import { authedApiUrl } from '@/config/api';
+import { useUrlToken, withUrlToken } from '@/services/urlToken';
 import { apiClient } from '@/services/api.client';
 
 interface VoiceSession {
@@ -66,6 +66,7 @@ export const StreamingSessionsPage: React.FC = () => {
     const [stats, setStats] = useState<Stats | null>(null);
     const [loading, setLoading] = useState(true);
     const [selectedSession, setSelectedSession] = useState<any>(null);
+    const recordingToken = useUrlToken('/api/v1/artifacts/', Boolean(selectedSession?.recording_url));
 
     useEffect(() => {
         if (activeTab === 'voice') {
@@ -390,7 +391,7 @@ export const StreamingSessionsPage: React.FC = () => {
                                 <div className="detail-row">
                                     <span>File:</span>
                                     <a
-                                        href={authedApiUrl(selectedSession.recording_url)}
+                                        href={recordingToken ? withUrlToken(selectedSession.recording_url, recordingToken) : undefined}
                                         target="_blank"
                                         rel="noreferrer"
                                         download={selectedSession.recording_file_name || 'recording'}

@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from src.auth.schemas import TokenData
 from typing import Iterable, Optional
 import logging
 
-from src.common.security import ACCESS_TOKEN_TYPE
+from src.common.security import ACCESS_TOKEN_TYPE, URL_TOKEN_SCOPES, URL_TOKEN_TYPE
 
 EMAIL_NOT_VERIFIED = "Please verify your email address before signing in"
 
@@ -21,11 +21,15 @@ logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
-async def _authenticate_user(token: Optional[str], db: AsyncSession):
+async def _authenticate_user(token: Optional[str], db: AsyncSession, *,
+                             token_type: str = ACCESS_TOKEN_TYPE, path: Optional[str] = None):
     """The user a login access token belongs to, or 401/403.
 
     The token must be a login token (``type == "access"``, AU-14) — not, say, an
-    email-verification token signed with the same key — its user must exist and
+    email-verification token signed with the same key. With ``token_type`` set to
+    ``URL_TOKEN_TYPE`` it must instead be a URL token whose scope is one of
+    ``URL_TOKEN_SCOPES`` and a prefix of ``path``, the request's path (FE-28). Its
+    user must exist and
     be active (AU-04) and verified (AU-08), and its ``tv`` must equal the user's ``token_version``, so
     ending a user's sessions ends their access tokens too (AU-05). A suspended
     company is a 403.
@@ -43,9 +47,15 @@ async def _authenticate_user(token: Optional[str], db: AsyncSession):
         logger.debug("auth: JWT rejected: %s", e)
         raise credentials_exception
     email = payload.get("sub")
-    if email is None or payload.get("type") != ACCESS_TOKEN_TYPE:
-        logger.debug("auth: token has no subject or is not a login token (type=%r)", payload.get("type"))
+    if email is None or payload.get("type") != token_type:
+        logger.debug("auth: token has no subject or is not a %s token (type=%r)", token_type,
+                     payload.get("type"))
         raise credentials_exception
+    if token_type == URL_TOKEN_TYPE:
+        scope = payload.get("scope")
+        if scope not in URL_TOKEN_SCOPES or not path or not path.startswith(scope):
+            logger.debug("auth: URL token scope %r does not cover %r", scope, path)
+            raise credentials_exception
     token_data = TokenData(email=email)
 
     result = await db.execute(select(User).options(selectinload(User.company)).filter(User.email == token_data.email))
@@ -95,8 +105,13 @@ async def get_current_user_and_company(
         )
     return user, user.company
 
-async def get_current_user_from_query(token: str, db: AsyncSession = Depends(get_db)):
-    return await _authenticate_user(token, db)
+async def get_current_user_from_query(request: Request, token: str, db: AsyncSession = Depends(get_db)):
+    """The user behind ``?token=``, which must be a URL token for this path (FE-28).
+
+    A login access token is refused here: it would sit in logs, the history and
+    Referer headers for as long as it lives. Mint one with ``POST /auth/url-token``.
+    """
+    return await _authenticate_user(token, db, token_type=URL_TOKEN_TYPE, path=request.url.path)
 
 class RoleChecker:
     """Dependency: the signed-in user, if their role is allowed; 403 otherwise.

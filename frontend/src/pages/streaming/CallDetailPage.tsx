@@ -8,7 +8,7 @@ import {
   AlertCircle, Loader2, User, Bot, Calendar, Hash, Save
 } from 'lucide-react';
 import './CallDetailPage.css';
-import { authedApiUrl } from '@/config/api';
+import { useUrlToken, withUrlToken } from '@/services/urlToken';
 import { apiClient } from '@/services/api.client';
 import { apiErrorMessage } from '@/utils/apiError';
 
@@ -96,9 +96,10 @@ export const CallDetailPage: React.FC = () => {
     });
   };
 
+  const urlToken = useUrlToken('/api/v1/artifacts/', Boolean(session?.recording_url));
   const getRecordingUrl = () => {
-    if (!session?.recording_url) return null;
-    return authedApiUrl(session.recording_url);
+    if (!session?.recording_url || !urlToken) return null;
+    return withUrlToken(session.recording_url, urlToken);
   };
 
   const togglePlayback = () => {
