@@ -4,7 +4,7 @@
 > routes that should not be reachable, inconsistent paths and missing pagination — plus the
 > improvements that would make the API predictable.
 > **Source document:** [`17-api-reference.md`](../17-api-reference.md)
-> **Compiled:** 2026-09-01, against branch `fresh-main`.
+> **Compiled:** 2026-09-01, against branch `fresh-main`. **Last reviewed:** 2026-10-07, on branch `roadmap-development-defect-fixes`.
 > **Context:** the API is assembled from about twenty routers mounted with chained
 > prefixes, half of them inside `try/except ImportError`. There is no route census, so
 > nothing checks that the documented surface and the real one agree.
@@ -36,14 +36,37 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | **Now** |
-| [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | Before anyone integrates |
-| [T2](#4-t2--delete) | Delete | 4 | Free — two are past their own removal date |
-| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | Opportunistically |
+| Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
+|---|---|---|---|---|---|---|
+| [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 3 | 0 | 1 | 0 |
+| [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
+| [T2](#4-t2--delete) | Delete | 4 | 2 | 0 | 2 | 0 |
+| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 0 | 1 | 5 | 1 |
 
-**Total: 20 defects, 10 improvements.**
+**Total: 20 defects (10 fixed, 1 partly fixed, 8 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+
+| ID | Defect | Status | Plan |
+|---|---|---|---|
+| API-01 | Four endpoints are open or wrongly gated | ✅ fixed (each row by its owning register) | — |
+| API-02 | The cron endpoints move money over HTTP | ✅ fixed `fe8f1a6`, `e46bff3` | — |
+| API-03 | No webhook signature verification on the gateway's inbound route | open — Critical (same as GW-01) | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| API-04 | `POST /internal/event` is protected by a default secret | ✅ fixed | — |
+| API-05 | The frontend calls a delete route that does not exist | ✅ fixed | — |
+| API-06 | Password reset: two documented routes, neither implemented | ✅ fixed `8842901` (AU-06) | — |
+| API-07 | Transcript endpoints exist only on a service nobody starts | ✅ fixed | — |
+| API-08 | `/api/v1/phone-pool/*` does not exist at runtime | ✅ fixed | — |
+| API-09 | A failed import silently removes a whole route group | ✅ fixed | — |
+| API-10 | `GET\ | ✅ fixed | — |
+| API-11 | `GET /api/v1/assets` and `/api/v1/assets/{path}` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| API-12 | `voice/phone_pool_router.py` | ✅ fixed | — |
+| API-13 | `GET /api/v1/auth/admin-only` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| API-14 | Nine admin routes have a doubled `admin/admin` segment | accepted — leave it | — |
+| API-15 | `/api/social-connections` breaks the versioning convention | open — decision HD16 | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-16 | There is no universal pagination | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-17 | Full paths chain two prefixes, so the decorator misleads | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | partly — hidden by default; verb unchanged | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-19 | Two similarly named tool endpoints return different things | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-20 | The credentials guide documents the wrong path prefix | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 
 The three to read first:
 
@@ -54,13 +77,15 @@ The three to read first:
 - **[API-05](#api-05--the-frontend-calls-a-delete-route-that-does-not-exist)** — the UI
   calls an endpoint nobody wrote.
 
+> **Update 2026-10-07:** API-01, API-02 and API-05 are fixed. The open one that matters is [API-03](#api-03--no-webhook-signature-verification-on-the-gateways-inbound-route), the same defect as GW-01.
+
 ---
 
 ## 2. T0 — Reachable and should not be
 
 ### API-01 — Four endpoints are open or wrongly gated
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-29 … 2026-09-30)** — each row was closed by the register that owns it: email connections by AU-02 (`ccbfc6e`), subscription tiers by BC-20 (`7e706b3`), the costing report by PO-04 (`682da36`), company PATCH by AU-03 (`072b0bb`), user PATCH by AU-01 (`d70675e`). Re-verified 2026-10-07.
 
 | Route | Guard | Consequence |
 |---|---|---|
@@ -87,7 +112,7 @@ Also **D-04**, **D-08**, **D-09** in the platform register.
 
 ### API-02 — The cron endpoints move money over HTTP
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30, `fe8f1a6`, `e46bff3`)** — the billing crons run on the worker (BC-04), the daily job is safe to re-run (BC-15), and only a payment grants subscription credits (BC-03, BC-16). The two endpoints remain as `app_admin`-only manual triggers. Recorded here 2026-10-07.
 
 `POST /api/v1/cron/daily-credits` and `POST /api/v1/cron/monthly-billing` grant credits.
 They are `app_admin`-only, which is right, but:
@@ -107,7 +132,7 @@ audit trail beyond a log line.
 
 ### API-03 — No webhook signature verification on the gateway's inbound route
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: unchanged; see [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block). Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
 
 `POST /webhook/inbound` creates executions. Every `validate_signature` returns `True`, and
 the result is logged and ignored regardless.
@@ -155,7 +180,7 @@ Same as [PO-01](01-PRODUCT-OVERVIEW-DEFECTS.md#po-01--deleting-a-knowledge-base-
 
 ### API-06 — Password reset: two documented routes, neither implemented
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30, `8842901`, with AU-06)** — `POST /api/v1/auth/forgot-password` and the reset route exist and email a link. Recorded here 2026-10-07.
 
 The frontend posts to `/auth/forgot-password` and `/auth/reset-password`. Grepping the
 whole backend for `forgot`, `reset-password` or `new_password` returns **nothing**.
@@ -236,9 +261,9 @@ router failed to load.
 | ID | Delete | Notes | Status |
 |---|---|---|---|
 | **API-10** | `GET\|POST /api/v1/ai/phase11/{subpath}` | 307 shim carrying an explicit *"Remove after 2026-09-01"* comment. **That date is today.** Remove the five matching legacy routes from the frontend router in the same change | ✅ fixed (2026-09-29, `6d90428`) — as PO-16, with the five SPA routes |
-| **API-11** | `GET /api/v1/assets` and `/api/v1/assets/{path}` | Redirect shims to `/api/v1/artifacts*`. The legacy `assets` table they existed for was never dropped either — see [DM-10](03-DATA-MODEL-DEFECTS.md#4-t2--wrong-types-and-dead-tables) | ✅ Verified |
+| **API-11** | `GET /api/v1/assets` and `/api/v1/assets/{path}` | Redirect shims to `/api/v1/artifacts*`. The legacy `assets` table they existed for was never dropped either — see [DM-10](03-DATA-MODEL-DEFECTS.md#4-t2--wrong-types-and-dead-tables) | ✅ Verified · **open** (re-verified 2026-10-07) — both shims are still mounted (`main.py:134`, `:137`), although the `assets` table they existed for is dropped (DM-10, `ae0226f`) · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
 | **API-12** | `voice/phone_pool_router.py` | 701 lines, never mounted. **Keep** `phone_pool_models.py` — the live router still imports `PhoneNumber` from it. Also **D-22** | ✅ fixed (2026-09-29, `964c9ab`) — as PO-12 |
-| **API-13** | `GET /api/v1/auth/admin-only` | Exists purely to probe the admin role guard. A debug route on the public surface | ✅ Verified |
+| **API-13** | `GET /api/v1/auth/admin-only` | Exists purely to probe the admin role guard. A debug route on the public surface | ✅ Verified · **open** (re-verified 2026-10-07) — still at `auth/router.py:95` · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
 
 ---
 
@@ -246,7 +271,7 @@ router failed to load.
 
 ### API-14 — Nine admin routes have a doubled `admin/admin` segment
 
-**✅ Verified · Low · accept**
+**✅ Verified · Low · accept** · **Status: accepted** — accepted, as the entry decides: cosmetic, and changing it breaks the admin UI.
 
 The router is declared `APIRouter(prefix="/ai/admin")` and mounted with `prefix="/api/v1"`.
 Nine of its routes then declare their own path starting `/admin/...`, producing
@@ -262,7 +287,7 @@ gain. Also **D-41**. Recorded so it is not "fixed" in passing.
 
 ### API-15 — `/api/social-connections` breaks the versioning convention
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: `ai/social_router.py:26` still declares `prefix="/api/social-connections"`. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
 
 Declared as `APIRouter(prefix="/api/social-connections")` — the only business route in the
 platform with no `/v1` segment.
@@ -276,7 +301,7 @@ there are no external consumers.
 
 ### API-16 — There is no universal pagination
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
 
 Every list endpoint decides for itself. `GET /config/integrations` as `app_admin` returns
 **every company's rows** with no pagination at all
@@ -289,7 +314,7 @@ A client cannot write one paging helper, and no endpoint degrades gracefully as 
 
 ### API-17 — Full paths chain two prefixes, so the decorator misleads
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
 
 `include_router(..., prefix="/api/v1")` + `APIRouter(prefix="/ai")` +
 `@router.post("/entities")` = `/api/v1/ai/entities`.
@@ -302,7 +327,7 @@ be three concatenations away from what the code shows.
 
 ### API-18 — `DELETE /api/v1/ai/entities/{id}` is a soft delete
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: partly fixed** — re-verified 2026-10-07: soft-deleted entities are hidden by default since DM-16 (`d00fbd6`), so a delete-then-list no longer shows them. The API still does not say that `DELETE` is a soft delete. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
 
 The row stays; `status` becomes `DELETED` and `deleted_at` is set, recursively across
 descendants.
@@ -316,7 +341,7 @@ then lists will still see the entity in any query that forgets
 
 ### API-19 — Two similarly named tool endpoints return different things
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: `GET /api/v1/ai/tools` (`ai/router.py:474`) and `/api/v1/ai/tool-registry` (`tool_management_router.py`) both remain. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
 
 `GET /api/v1/ai/tools` returns tenant-visible tools. `GET /api/v1/ai/tool-registry` returns
 the full registry. The names do not signal the difference, and only one is admin-gated.
@@ -325,7 +350,7 @@ the full registry. The names do not signal the difference, and only one is admin
 
 ### API-20 — The credentials guide documents the wrong path prefix
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: `docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md` still documents `/api/config/integrations`. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 `AI_MODEL_CREDENTIALS_GUIDE.md` documents `/api/config/...`. The real prefix is
 `/api/v1/config/...`. Anyone following the guide gets a 404 on their first call.

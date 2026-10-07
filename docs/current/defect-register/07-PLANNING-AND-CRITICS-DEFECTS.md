@@ -49,7 +49,7 @@
 | [T2](#4-t2--built-and-never-wired) | Built and never wired | 6 | Each is a decision: wire it or delete it |
 | [T3](#5-t3--planning-correctness) | Planning correctness | 10 | When the area is next touched |
 
-**Total: 27 defects, 10 improvements.** (PC-26 was found on 2026-10-01; PC-27 on 2026-10-02.)
+**Total: 27 defects (27 fixed), 10 improvements.** (PC-26 was found on 2026-10-01; PC-27 on 2026-10-02.)
 
 The three to read first:
 
@@ -109,7 +109,7 @@ So the pre-critic is effectively a binary gate with three declared outcomes.
 
 ### PC-03 — Alignment drift is measured and discarded
 
-**✅ Verified · High** · **Status: cost half fixed (2026-10-02, P4.1–P4.2)** — the check's usage rows carry the run id (they had none, so the run was never billed for it), and its cost is on `AlignmentVerdict.cost_usd`, the health record and the alignment event (`tests/unit/test_alignment_cost.py`). The `correction_hint` half is fixed too (2026-10-02, P7.5): a misaligned verdict's hint is the next move's correction, once, kept across a snapshot (`tests/unit/test_alignment_correction.py`).
+**✅ Verified · High** · **Status: fixed (2026-10-02, P4.1–P4.2 and P7.5)** — cost half: the check's usage rows carry the run id (they had none, so the run was never billed for it), and its cost is on `AlignmentVerdict.cost_usd`, the health record and the alignment event (`tests/unit/test_alignment_cost.py`). The `correction_hint` half is fixed too (2026-10-02, P7.5): a misaligned verdict's hint is the next move's correction, once, kept across a snapshot (`tests/unit/test_alignment_correction.py`).
 
 `AlignmentVerdict.correction_hint` is populated by the alignment critic and dropped on the
 AgentLoop path. Only the legacy step engine acts on drift, through

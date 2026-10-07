@@ -50,7 +50,7 @@
 | [T2](#4-t2--delete) | Delete | 4 | **Now** — free |
 | [T3](#5-t3--correctness-in-the-adapters) | Correctness in the adapters | 8 | When the provider is next touched |
 
-**Total: 26 defects, 10 improvements.**
+**Total: 26 defects (26 fixed), 10 improvements.**
 
 The three to read first:
 

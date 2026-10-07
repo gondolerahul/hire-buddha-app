@@ -47,7 +47,7 @@
 
 **Total: 26 defects (22 fixed, 2 won't fix, 2 open), 10 improvements (5 done, 1 partly, 4
 open).** Worked 2026-09-30 to 2026-10-01 on branch `roadmap-development-defect-fixes`.
-AU-23 to AU-26 were found while fixing the rest.
+AU-23 to AU-26 were found while fixing the rest. Re-verified against the code 2026-10-07: AU-23's frontend half is done (FE-11); AU-24 and AU-25 are open and scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) ([H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors)).
 
 | ID | Defect | Status |
 |---|---|---|
@@ -73,9 +73,9 @@ AU-23 to AU-26 were found while fixing the rest.
 | AU-20 | Five copies of "own company plus children" | ✅ fixed `f10300d` |
 | AU-21 | The role strings exist as a comment, not an enum | ✅ fixed `a608183` |
 | AU-22 | Suspension is checked twice | ✅ fixed `15191e5` (SA-18) |
-| AU-23 | An OAuth login can sign in as any existing account | ✅ fixed `a65d18d` (backend; the SPA's `state`/PKCE is FE-11) |
-| AU-24 | The credential-encryption key has a public default | open — needs a key-rotation decision |
-| AU-25 | Social-connection client secrets are stored in plaintext | open |
+| AU-23 | An OAuth login can sign in as any existing account | ✅ fixed `a65d18d` (backend); the SPA's `state` and PKCE `1fffde8`, `c61a44c` (FE-11) |
+| AU-24 | The credential-encryption key has a public default | open — needs a key-rotation decision (HD4); plan [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| AU-25 | Social-connection client secrets are stored in plaintext | open — plan [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
 | AU-26 | One person could hold two accounts, one per letter case | ✅ fixed `aa7045d` |
 | AU-I1 | Make tenant scoping structural | open — the largest change in this register |
 | AU-I2 | One role enum, one guard | ✅ done `a608183` |
@@ -343,8 +343,9 @@ made session D's access token and refresh token 401, and a new login worked.
 
 ### AU-23 — An OAuth login can sign in as any existing account
 
-**✅ Verified · Critical** · **Status: backend fixed (2026-10-01); the frontend half is open**
-— found 2026-10-01 while recording new defects. The design doc listed the ingredients
+**✅ Verified · Critical** · **Status: fixed (2026-10-01, `a65d18d`; frontend `1fffde8`, `c61a44c`)**
+— the backend half here; the SPA's `state` check and PKCE `code_verifier` with FE-11
+(`frontend/src/services/oauth.service.ts`, re-verified 2026-10-07). Found 2026-10-01 while recording new defects. The design doc listed the ingredients
 (§12.1, items 2 and 3), but no register entry did.
 
 `POST /auth/oauth/{provider}` exchanges the code, reads the provider's profile, and signs

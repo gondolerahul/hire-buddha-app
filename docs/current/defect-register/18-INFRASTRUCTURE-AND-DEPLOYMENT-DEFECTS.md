@@ -4,7 +4,7 @@
 > operated — the boot scripts, Apache, Docker, backups, CI and the runbooks — plus the
 > improvements that would make it survivable at 3am.
 > **Source document:** [`18-infrastructure-and-deployment.md`](../18-infrastructure-and-deployment.md)
-> **Compiled:** 2026-09-01, against branch `fresh-main`.
+> **Compiled:** 2026-09-01, against branch `fresh-main`. **Last reviewed:** 2026-10-07, on branch `roadmap-development-defect-fixes`.
 > **Context:** everything runs on **one VM** with **monthly backups stored on the same
 > disk**. Those two facts together are the most serious thing in this register.
 
@@ -34,14 +34,40 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--data-loss-and-recovery) | Data loss and recovery | 4 | **Now** |
-| [T1](#3-t1--not-production-ready-as-configured) | Not production-ready as configured | 6 | Before the next deployment |
-| [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 8 | Now — all cheap |
-| [T3](#5-t3--operability) | Operability | 5 | Before the first on-call rotation |
+| Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
+|---|---|---|---|---|---|---|
+| [T0](#2-t0--data-loss-and-recovery) | Data loss and recovery | 4 | 0 | 0 | 4 | 0 |
+| [T1](#3-t1--not-production-ready-as-configured) | Not production-ready as configured | 6 | 1 | 0 | 5 | 0 |
+| [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 8 | 3 | 2 | 3 | 0 |
+| [T3](#5-t3--operability) | Operability | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 23 defects, 10 improvements.**
+**Total: 23 defects (4 fixed, 3 partly fixed, 16 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+
+| ID | Defect | Status | Plan |
+|---|---|---|---|
+| IN-01 | Backups are monthly and on the same disk as the database | open — Critical | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-02 | The backup script writes to a path that does not exist here | open — Critical | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-03 | There is no restore test | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-04 | `docker compose down -v` deletes the database | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-05 | The repository has no functioning CI | open — Critical | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| IN-06 | The Dockerfile runs as root with `--reload` | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-07 | The security config blocks a live static mount | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-08 | No firewall configuration exists in the repository | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-09 | No log rotation | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-10 | Three different Python versions | ✅ fixed `c0863a6` (SA-21) | — |
+| IN-11 | `stop_services.sh` runs a blanket `pkill -f "uvicorn"` | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-12 | `.env.example` ships with port 5432 | ✅ fixed | — |
+| IN-13 | `backend/.env` exists in the working tree | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-14 | `npm install` requires `--legacy-peer-deps` | partly — cause removed, flag still passed | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-15 | `streaming.hirebuddha.com` reuses the gateway certificate | partly fixed | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-16 | Two competing `*:80` vhosts for `app.hirebuddha.com` | ✅ fixed `f4e3abd` (SA-14) | — |
+| IN-17 | `core/` is 20 lines from its lint cap | open — worse: 4 lines of headroom | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| IN-18 | Quality gates exist and run only when someone remembers | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| IN-19 | The observability stack does not work out of the box | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-20 | The gateway and the worker have no tracing | partly fixed — tracing done; no worker metrics | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-21 | There is no rollback procedure beyond `git checkout` | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-22 | The backend image has no `.dockerignore` | ✅ fixed `84dae64` | — |
+| IN-23 | Tracing exports to `localhost:4317` whether or not anything listens | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 
 The three to read first:
 
@@ -52,13 +78,15 @@ The three to read first:
 - **[IN-05](#in-05--the-repository-has-no-functioning-ci)** — the one workflow filters on a
   directory that no longer exists. It has never fired.
 
+> **Update 2026-10-07:** all three are still open.
+
 ---
 
 ## 2. T0 — Data loss and recovery
 
 ### IN-01 — Backups are monthly and on the same disk as the database
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: `deploy/backup/setup_cron.sh:18` still registers `0 2 1 * *`; the dumps stay on the database's disk. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 `setup_cron.sh` registers `db_backup.sh` at `0 2 1 * *` — 02:00 on the **1st of each
 month**. Retention is 90 days.
@@ -79,7 +107,7 @@ same disk as the database they protect. One disk failure loses both.
 
 ### IN-02 — The backup script writes to a path that does not exist here
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: `db_backup.sh:28–29` still default to `/home/rahul/workspace/hb-proto-3/...`, and the cron entry `setup_cron.sh` writes passes no override. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 ```bash
 BACKUP_ROOT="${BACKUP_ROOT:-/home/rahul/workspace/hb-proto-3/deploy/backup/dumps}"
@@ -106,7 +134,7 @@ trusting anything else in this section.
 
 ### IN-03 — There is no restore test
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: nothing restores a dump. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 The document gives a restore command. Nothing runs it. A `pg_dump` that has never been
 restored is a file, not a backup — and this one uses `--no-owner --no-privileges`, so the
@@ -119,7 +147,7 @@ sanity query. Anything less is unverified.
 
 ### IN-04 — `docker compose down -v` deletes the database
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: the volumes are still ordinary named volumes. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 Both Postgres and Redis use named volumes. `stop_services.sh` correctly runs
 `docker compose down` **without** `-v`, so data survives a normal stop/start.
@@ -135,7 +163,7 @@ to a month old.
 
 ### IN-05 — The repository has no functioning CI
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: `.github/workflows/` holds only `cortex-memory.yml`. The branch is also unpushed (114 commits ahead of `origin`), so not even that workflow has run on this work. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 There is exactly one GitHub Actions workflow, and it triggers on:
 
@@ -166,7 +194,7 @@ The workflow appears green in the repository listing because it has no runs.
 
 ### IN-06 — The Dockerfile runs as root with `--reload`
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: unchanged (`backend/Dockerfile:57`); `start_services.sh:93`, which the VM uses, also starts the API with `--reload`. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 ```dockerfile
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
@@ -190,7 +218,7 @@ on the host — but it is the one anyone containerising will reach for.
 
 ### IN-07 — The security config blocks a live static mount
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: `hirebuddha-security.conf:168` still denies `/uploads`, and `main.py:101` still mounts it. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 `hirebuddha-security.conf` denies:
 
@@ -213,7 +241,7 @@ which is where new files already go.
 
 ### IN-08 — No firewall configuration exists in the repository
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: no firewall rules in the repository; Redis has no password. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 Nothing restricts direct access to ports 3000, 8000, 5433 or 6379 if the VM is
 internet-facing. (Port 8001 no longer exists — the gateway was merged into the API on
@@ -229,7 +257,7 @@ assumption, not a configuration.
 
 ### IN-09 — No log rotation
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: no `logrotate` configuration anywhere in the repository. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 `start_services.sh` writes four log files into `logs/` with `nohup` and never rotates them.
 The document names this as the most likely cause of a full disk.
@@ -262,14 +290,14 @@ things.
 
 | ID | Trap | Notes | Status |
 |---|---|---|---|
-| **IN-11** | `stop_services.sh` runs a blanket `pkill -f "uvicorn"` | Line 78. It kills **any** uvicorn process on the machine, not just this platform's. Dangerous on a shared or multi-app host | ✅ Verified |
+| **IN-11** | `stop_services.sh` runs a blanket `pkill -f "uvicorn"` | Line 78. It kills **any** uvicorn process on the machine, not just this platform's. Dangerous on a shared or multi-app host | ✅ Verified · **open** (re-verified 2026-10-07) — `stop_services.sh:83` still runs `pkill -f "uvicorn"`, and `:58`–`:59` kill any `npm run dev` and any `vite` · plan [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | **IN-12** | `.env.example` ships with port 5432 | Postgres is on host port **5433**. Nothing connects until it is fixed, and the error is a generic connection refusal. Also **D-45** | ✅ fixed (2026-09-30) — `.env.example` says 5433 (rewritten with the single-port merge) |
-| **IN-13** | `backend/.env` exists in the working tree | It is `.gitignore`d (confirmed) and currently matches `.env.example` byte-for-byte. Safe today; the risk is someone adding real secrets to a file that already exists locally and assuming it is tracked | ✅ Verified |
-| **IN-14** | `npm install` requires `--legacy-peer-deps` | Without it, installation fails on React Three Fiber peer conflicts — for a dependency that powers a decorative background ([FE-17](16-FRONTEND-DEFECTS.md#fe-17--the-webgl-background-never-sleeps)) | 📄 Doc-reported |
+| **IN-13** | `backend/.env` exists in the working tree | It is `.gitignore`d (confirmed) and currently matches `.env.example` byte-for-byte. Safe today; the risk is someone adding real secrets to a file that already exists locally and assuming it is tracked | ✅ Verified · **open** (re-verified 2026-10-07) — unchanged; the fix is a secret scan in CI · plan [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| **IN-14** | `npm install` requires `--legacy-peer-deps` | Without it, installation fails on React Three Fiber peer conflicts — for a dependency that powers a decorative background ([FE-17](16-FRONTEND-DEFECTS.md#fe-17--the-webgl-background-never-sleeps)) | 📄 Doc-reported · **partly fixed** (re-verified 2026-10-07) — the cause is gone — the `@react-three/*` packages were removed (FE-12, `dc21c2f`) — but `setup_production_vm.sh:147` still runs `npm install --legacy-peer-deps` · plan [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | **IN-15** | `streaming.hirebuddha.com` reuses the gateway certificate | So does `api.hirebuddha.com`. Renewing one certificate affects three hostnames, and a missing SAN entry produces a hostname mismatch. Also **D-43** context | 📄 Doc-reported · partly fixed (2026-09-30) — the streaming vhosts are deleted; `api.` still reuses the gateway certificate |
 | **IN-16** | Two competing `*:80` vhosts for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares one; `app.hirebuddha.com-le-ssl.conf` declares a **second** at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins | ✅ fixed (2026-09-30, SA-14) — the second block is deleted; the redirecting `app.hirebuddha.com.conf` is the only port-80 vhost |
-| **IN-22** | The backend image has no `.dockerignore` | `backend/Dockerfile` ends with `COPY . .`, so the whole build context goes into the runtime image: `backend/.env` with its secrets, and any host `.venv` — which lands on `/app/.venv` over the Linux virtualenv the builder stage just copied in (a Windows one breaks the image). Found 2026-09-30 while verifying SA-21; the check built only the builder stage from a clean context for this reason. Pairs with IN-06 / IN-I4 | ✅ fixed (2026-09-30) — `backend/.dockerignore` leaves out `.env*` (bar `.env.example`), host virtualenvs, `uploads/`, `artifact/`, caches, logs and PID files. A full build's context went to 9.4 MB; the image has no `.env`, its `/app/.venv` is the builder's (Python 3.12.14), and it booted against the local Postgres/Redis with health `ok`. `tests/unit/test_dockerignore.py` |
-| **IN-23** | Tracing exports to `localhost:4317` whether or not anything listens | `common/telemetry.py` defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `http://localhost:4317`. With no collector (every local setup), the exporter retries each batch with backoff (1, 2, 4 … 32 s) and logs `Transient error StatusCode.UNAVAILABLE` each time. A process's shutdown flushes the same way, so an API `--reload` takes about a minute to come back, and stopping a worker waits too. Tests set `OTEL_SDK_DISABLED=true` to avoid it | ✅ Verified · **open** — found 2026-09-30. Fix: export only when an endpoint is configured, and cap the exporter's timeout |
+| **IN-22** | The backend image has no `.dockerignore` | `backend/Dockerfile` ends with `COPY . .`, so the whole build context goes into the runtime image: `backend/.env` with its secrets, and any host `.venv` — which lands on `/app/.venv` over the Linux virtualenv the builder stage just copied in (a Windows one breaks the image). Found 2026-09-30 while verifying SA-21; the check built only the builder stage from a clean context for this reason. Pairs with IN-06 / IN-I4 | ✅ fixed (2026-09-30, `84dae64`) — `backend/.dockerignore` leaves out `.env*` (bar `.env.example`), host virtualenvs, `uploads/`, `artifact/`, caches, logs and PID files. A full build's context went to 9.4 MB; the image has no `.env`, its `/app/.venv` is the builder's (Python 3.12.14), and it booted against the local Postgres/Redis with health `ok`. `tests/unit/test_dockerignore.py` |
+| **IN-23** | Tracing exports to `localhost:4317` whether or not anything listens | `common/telemetry.py` defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `http://localhost:4317`. With no collector (every local setup), the exporter retries each batch with backoff (1, 2, 4 … 32 s) and logs `Transient error StatusCode.UNAVAILABLE` each time. A process's shutdown flushes the same way, so an API `--reload` takes about a minute to come back, and stopping a worker waits too. Tests set `OTEL_SDK_DISABLED=true` to avoid it | ✅ Verified · **open** — found 2026-09-30. Fix: export only when an endpoint is configured, and cap the exporter's timeout · re-verified 2026-10-07: `OTEL_SDK_DISABLED=true` does not silence it either — `common/telemetry.py` `setup_tracing` always attaches the exporter, and a unit run with the variable set still retried for minutes · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 
 ---
 
@@ -277,7 +305,7 @@ things.
 
 ### IN-17 — `core/` is 20 lines from its lint cap
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: worse than recorded: `agent_loop.py` is 1,496 lines against the 1,500-line `core/` cap. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 `lint_ai_layout.py` caps `core/` at 1,500 lines and `agent_loop.py` is ~1,480. The next
 substantive change to the control loop fails the lint.
@@ -291,7 +319,7 @@ next kernel change must also be a refactor, whether or not that is the right tim
 
 ### IN-18 — Quality gates exist and run only when someone remembers
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: unchanged; blocked on IN-05. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 Three real, working gates with no trigger:
 
@@ -308,7 +336,7 @@ All must be invoked by hand. Blocked on
 
 ### IN-19 — The observability stack does not work out of the box
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `prometheus.yml:7` still scrapes `host.docker.internal:8000` and `docker-compose.observability.yml:23` still publishes `3000:3000`. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 Two problems in `docker-compose.observability.yml` and its config:
 
@@ -340,7 +368,7 @@ the one with no distributed tracing and no metrics endpoint.
 
 ### IN-21 — There is no rollback procedure beyond `git checkout`
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: no tags, no build artefacts, no rollback runbook beyond `git checkout`. Plan: [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host).
 
 The rollback runbook is: check out the previous commit and restart. There are no tagged
 releases, no build artefacts, and — because the frontend is served by a dev server

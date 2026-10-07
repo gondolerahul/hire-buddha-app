@@ -51,7 +51,7 @@ cross-referenced here.
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 23 defects (1 open, 15 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The open defect is PO-23 (templates, found 2026-10-02); PO-07 was fixed in P6.2; PO-06 delivered its audit.
+**Total: 23 defects (1 open, 15 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The open defect is PO-23 (templates, found 2026-10-02; re-verified 2026-10-07 and scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), as are the deferred PO-19 and PO-20 through their duplicates GW-19 and GH-07); PO-07 was fixed in P6.2; PO-06 delivered its audit.
 
 | ID | Defect | Status |
 |---|---|---|
@@ -73,7 +73,7 @@ cross-referenced here.
 | PO-16 | The phase11 redirect shims | ✅ fixed `6d90428` |
 | PO-17 | The deprecated `video_generation` tool | ✅ fixed `a8fb38e` |
 | PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `ba5e6ec` (by PO-15) |
-| PO-19 – PO-22 | Rough edges | ⏸ deferred |
+| PO-19 – PO-22 | Rough edges | ⏸ deferred — PO-19 is GW-19 ([H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport)) and PO-20 is GH-07 ([H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold)), both scheduled; PO-21, PO-22 [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | PO-I1 – PO-I12 | Improvements | ⏸ deferred, except PO-I9 — done by PO-10 — and PO-I6, done by AU-20 |
 
 The three worth reading first:
@@ -639,7 +639,7 @@ gate one and forget the other, which is exactly what happened in
 ### PO-23 — A template can never be created, and the entity routes would let any tenant edit one
 
 **✅ Verified · Medium** · **Status: open** — found 2026-10-02 while building the versions API
-(P5.6 of the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md)); not fixed there.
+(P5.6 of the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md)); not fixed there. Re-verified 2026-10-07: `hierarchical_entities.company_id` is still `NOT NULL` (`ai/orm/entity.py:34`) while `create_entity` passes `None` for a template (`ai/service.py:40`). Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), decision HD5.
 
 [PO-11](#po-11--templates-sit-outside-tenant-scoping-by-design) rests on templates having
 `company_id = NULL`, and `create_entity` sets exactly that

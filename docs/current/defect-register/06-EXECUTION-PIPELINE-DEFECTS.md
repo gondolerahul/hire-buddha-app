@@ -49,7 +49,7 @@
 | [T2](#4-t2--dead-columns-and-dead-docs) | Dead columns and dead docs | 6 | **Now** — free |
 | [T3](#5-t3--traps-in-the-step-engine) | Traps in the step engine | 10 | When the area is next touched |
 
-**Total: 29 defects, 10 improvements.** (EP-26…EP-29 were found on 2026-10-01 while consolidating registers 05–11; see [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).)
+**Total: 29 defects (29 fixed), 10 improvements.** (EP-26…EP-29 were found on 2026-10-01 while consolidating registers 05–11; see [`CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](CONSOLIDATED-KERNEL-TOOLS-PLAN.md).)
 
 The three to read first:
 
@@ -377,7 +377,7 @@ explanation.
 | ID | Delete or fix | Notes | Status |
 |---|---|---|---|
 | **EP-13** | `ExecutionRun.idempotency_key` and `span_id` | Dead columns. Both have partial indexes maintained for them | ✅ Verified · **fixed (2026-10-01)** — dropped with the index (migration `ep13_run_row_hygiene`) |
-| **EP-14** | `ToolInteractionLog.idempotency_key` | Same — dead column, indexed | 📄 Doc-reported |
+| **EP-14** | `ToolInteractionLog.idempotency_key` | Same — dead column, indexed | 📄 Doc-reported · **fixed (2026-10-02, P6.5, `909cdf4`)** — with [TL-39](TOOL-LAYER-DEFECTS.md#tl-39--no-idempotency-on-any-write-tool), its canonical entry: write calls carry a key and `governance/idempotency.py` reads the column to replay a repeated write. Recorded here 2026-10-07 |
 | **EP-15** | `ExecutionRun.execution_time_ms` | Never written by the loop path. Derive from `completed_at - started_at`. Any dashboard reading it shows nulls | ✅ Verified · **fixed (2026-10-01)** — written at finalisation; finished runs backfilled by `ep13_run_row_hygiene` |
 | **EP-16** | `__completed_steps__` in `INTERNAL_KEYS.md` | Documented and never written. The live mechanism is `AgentState.completed_step_ids`. The doc is stale and misleads anyone debugging step completion | ✅ Verified · **fixed (2026-10-01)** — `INTERNAL_KEYS.md` rewritten from the code; it now marks every key with no writer (eleven of them) |
 | **EP-17** | The stale `core/README.md` | Documents `execution_engine.py` and `recursive_engine.py`, neither of which exists. Same entry as [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified · **fixed (2026-10-01)** with AK-14 |

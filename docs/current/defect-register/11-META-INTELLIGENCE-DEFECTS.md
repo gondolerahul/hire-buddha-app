@@ -51,7 +51,7 @@
 | [T2](#4-t2--wiring-and-documentation-errors) | Wiring and documentation errors | 5 | Now — mostly one-line |
 | [T3](#5-t3--silent-data-loss-and-tuning-traps) | Silent data loss and tuning traps | 5 | When the area is next touched |
 
-**Total: 20 defects, 10 improvements.** (MI-20 was found on 2026-10-01 while consolidating registers 05–11.)
+**Total: 20 defects (14 fixed, 5 invalid, 1 moot), 10 improvements.** (MI-20 was found on 2026-10-01 while consolidating registers 05–11.)
 
 The three to read first:
 

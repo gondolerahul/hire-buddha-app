@@ -4,7 +4,7 @@
 > gates, HITL checkpoints, rate limiting, tool cost resolution and the feature-flag service
 > — plus the improvements that would make a gate mean something.
 > **Source document:** [`15-governance-and-hitl.md`](../15-governance-and-hitl.md)
-> **Compiled:** 2026-09-01, against branch `fresh-main`.
+> **Compiled:** 2026-09-01, against branch `fresh-main`. **Last reviewed:** 2026-10-07, on branch `roadmap-development-defect-fixes`.
 > **Context:** this subsystem exists entirely to say **no**. Its defining defect is that
 > **almost every gate fails open** — a broken gate is indistinguishable from a passing one.
 
@@ -34,14 +34,42 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | **Now** — a gate that fails open is not a gate |
-| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | Before HITL is sold as a safety feature |
-| [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | Before an operator trusts the flags page |
-| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | When the area is next touched |
+| Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
+|---|---|---|---|---|---|---|
+| [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 4 | 1 | 1 | 0 |
+| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 4 | 0 | 5 | 0 |
+| [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
+| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 2 | 1 | 2 | 0 |
 
-**Total: 25 defects, 10 improvements.**
+**Total: 25 defects (11 fixed, 4 partly fixed, 10 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+
+| ID | Defect | Status | Plan |
+|---|---|---|---|
+| GH-01 | If Redis is down, every HITL checkpoint is skipped | ✅ fixed `98af2c0` | — |
+| GH-02 | Two of the four credit gates are never called | ✅ fixed `c1eecb9` (BC-05) | — |
+| GH-03 | The rate limiter fails open, and has no callers anyway | partly — one caller, no per-tenant quota | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-04 | The suspension middleware fails open and only covers one process | ✅ fixed `15191e5` (SA-18) | — |
+| GH-05 | An unmapped tool costs $0 and warns once per process | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-06 | Reject and timeout are detected by matching exception text | ✅ fixed `98af2c0` | — |
+| GH-07 | A HITL wait blocks a worker slot | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-09 | Malformed HITL checkpoints are skipped silently | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-10 | `CUSTOM` expressions support two variables and two operators | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-11 | The approvals page does not show what is being approved | ✅ fixed | — |
+| GH-12 | `meta_agent.board_routing` is declared twice | ✅ fixed `b7644b7` | — |
+| GH-13 | `get_float` has no env-var tier | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| GH-14 | Direct SQL flag writes do not invalidate the cache | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| GH-15 | Legacy alias flags that control nothing | partly — `memory_v2.canonical` remains | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
+| GH-16 | Flags declared and never read | partly — four `memory.*` flags remain | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
+| GH-17 | `ToolCostResolver` is cached per process, and has no callers | ✅ fixed `d71918d`, `902af7c` | — |
+| GH-18 | Budget lives on the entity, not the company | open — decision HD8 | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-19 | The tool-call counting is off by design | ✅ fixed `73afd55` (TL-21) | — |
+| GH-20 | There is no way to see why a flag has its value | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| GH-21 | Almost every gate in the platform fails open | partly — four gates still fail open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-22 | Every HITL checkpoint fails to subscribe, so none of them waits | ✅ fixed `98af2c0` | — |
+| GH-23 | Authorize and Block Cycle always fail with 422 | ✅ fixed `1a55054` | — |
+| GH-24 | Any user can answer any company's approval | ✅ fixed `1a55054` | — |
+| GH-25 | A rejected step is retried, and the reviewer is asked again | open — decision HD7 | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 
 The three to read first:
 
@@ -51,6 +79,8 @@ The three to read first:
   pre-execution credit gate and no in-run circuit breaker.
 - **[GH-06](#gh-06--reject-and-timeout-are-detected-by-matching-exception-text)** — the gate
   re-raises based on a substring of an error message.
+
+> **Update 2026-10-07:** all three are fixed — GH-01 and GH-06 (`98af2c0`), and GH-02 with BC-05 (`c1eecb9`). The open ones to read first now are [GH-25](#gh-25--a-rejected-step-is-retried-and-the-reviewer-is-asked-again), [GH-07](#gh-07--a-hitl-wait-blocks-a-worker-slot) and [GH-05](#gh-05--an-unmapped-tool-costs-0-and-warns-once-per-process).
 
 ---
 
@@ -94,7 +124,7 @@ it. If that is too strict, at minimum mark the approval row `ERROR` so it is vis
 
 ### GH-02 — Two of the four credit gates are never called
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: fixed (2026-09-30, `c1eecb9`, with [BC-05](14-BILLING-AND-CREDITS-DEFECTS.md#bc-05--three-of-the-four-credit-gates-have-no-callers))** — `CreditGuard` (`ai/core/credit_guard.py`) admits every run through `check_credit_gate`, holds the estimate in `credit_holds`, and calls `check_credit_circuit_breaker` as cost accrues. The hold settles at the end, so `consume_step_cost` is no longer the design. Recorded here 2026-10-07.
 
 Grepping `backend/src` for call sites:
 
@@ -120,7 +150,7 @@ Recorded in full as
 
 ### GH-03 — The rate limiter fails open, and has no callers anyway
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: partly fixed** — re-verified 2026-10-07: the limiter has a caller since P10.3 (`39b3514`): the agent-creation burst limit, which passes `fail_open=False`. Its default is still fail-open, and there is still no per-tenant quota on runs or tool calls (decision HD17). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 `RedisRateLimiter` is a correct sliding-window implementation. Two problems:
 
@@ -162,7 +192,7 @@ actually enforces suspension. See
 
 ### GH-05 — An unmapped tool costs $0 and warns once per process
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: `ai/governance/tool_cost_resolver.py:231` still returns `$0` with one warning per process (`_MISSING_COST_WARNED`). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 A tool with no SKU mapping resolves to zero cost, consumes no budget, appears in no cost
 report — and logs a warning **once per process**, so on a long-lived worker the second and
@@ -252,7 +282,7 @@ a message.
 
 ### GH-07 — A HITL wait blocks a worker slot
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: `_await_hitl_decision` still subscribes and polls on the worker until `timeout_ms`. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 The service subscribes and then polls in a loop until `timeout_ms`. Default 5 minutes, and
 the field is free — a tenant can set an hour.
@@ -269,7 +299,7 @@ approvals starves every other run in the company.
 
 ### GH-08 — `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `COST_THRESHOLD` is still evaluated only when `phase == "BEFORE"` (`governance_service.py:269`). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 Only `AFTER_STEP` fires in the `AFTER` phase. `COST_THRESHOLD` is `BEFORE`-only.
 
@@ -283,7 +313,7 @@ expensive thing is the wrong half of the step boundary.
 
 ### GH-09 — Malformed HITL checkpoints are skipped silently
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: a checkpoint that fails to parse is still skipped with a bare `continue` (`governance_service.py:252`). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 A checkpoint that does not parse is skipped with a bare `continue` — no log line, no event,
 nothing on the run trace.
@@ -295,7 +325,7 @@ user sees a configured checkpoint that never fires.
 
 ### GH-10 — `CUSTOM` expressions support two variables and two operators
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `_safe_eval_expression` still supports only `step_count` and `cost` with `>` and `>=`, and nothing validates an expression when it is saved. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 The docstring says "Python-like boolean expression". The evaluator supports only
 `step_count` and `current_cost`, with `>` and `>=`.
@@ -409,11 +439,11 @@ a retry. Decide with the product owner whether a rejection ends the whole run.
 
 | ID | Problem | Notes | Status |
 |---|---|---|---|
-| **GH-12** | `meta_agent.board_routing` is declared twice | Both `True`, at [`feature_flags.py:53`](../../../backend/src/ai/core/feature_flags.py:53) and [`:71`](../../../backend/src/ai/core/feature_flags.py:71). Harmless — the second wins — and it makes the file look unreviewed. Also **D-29** | ✅ Verified |
-| **GH-13** | `get_float` has no env-var tier | Boolean flags resolve entity → company → global → `AI_FLAG_*` → default. Numeric flags skip the env tier entirely, so a numeric knob **cannot** be set without a database row. The documented five-tier resolution is only four tiers for half the flags | ✅ Verified |
-| **GH-14** | Direct SQL flag writes do not invalidate the cache | Up to 60 seconds of staleness **per worker**, and the invalidation is process-local. The runbook says to use `FeatureFlags.set()`; the admin UI and any manual SQL do not | 📄 Doc-reported |
-| **GH-15** | Legacy alias flags that control nothing | `critic_pipeline.enabled` and `memory_v2.canonical` are aliases that do **not** control the modern paths — those are `critic_pipeline.v2_enabled` and `memory.v2_canonical`. Toggling the alias changes nothing and reads as though it should | 📄 Doc-reported |
-| **GH-16** | Flags declared and never read | At least eight: `agent_loop.perception_bounded_viewport`, `agent_loop.snapshot_every_iteration`, the three `agent_loop.executor_*_enabled`, `tools.cost_resolver_v2_enabled` (deleted 2026-09-30, BC-17), `sandbox.container_runtime_enabled` (never threaded into context), and `tools.experimental.*` (gates a function nothing calls). All appear on the admin Feature Flags page | ✅ Verified |
+| **GH-12** | `meta_agent.board_routing` is declared twice | Both `True`, at [`feature_flags.py:53`](../../../backend/src/ai/core/feature_flags.py:53) and [`:71`](../../../backend/src/ai/core/feature_flags.py:71). Harmless — the second wins — and it makes the file look unreviewed. Also **D-29** | ✅ Verified · **fixed (2026-10-03, `b7644b7`)** — the flag went with the unused Board roles (MI-20); no declaration remains. |
+| **GH-13** | `get_float` has no env-var tier | Boolean flags resolve entity → company → global → `AI_FLAG_*` → default. Numeric flags skip the env tier entirely, so a numeric knob **cannot** be set without a database row. The documented five-tier resolution is only four tiers for half the flags | ✅ Verified · **open** (re-verified 2026-10-07) — `FeatureFlags.get_float` still resolves entity → company → global → `NUMERIC_DEFAULTS`, with no env tier · plan [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| **GH-14** | Direct SQL flag writes do not invalidate the cache | Up to 60 seconds of staleness **per worker**, and the invalidation is process-local. The runbook says to use `FeatureFlags.set()`; the admin UI and any manual SQL do not | 📄 Doc-reported · **open** (re-verified 2026-10-07) — the admin flag endpoint (`ai/api/admin.py:516`) still upserts with raw SQL and invalidates nothing · plan [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| **GH-15** | Legacy alias flags that control nothing | `critic_pipeline.enabled` and `memory_v2.canonical` are aliases that do **not** control the modern paths — those are `critic_pipeline.v2_enabled` and `memory.v2_canonical`. Toggling the alias changes nothing and reads as though it should | 📄 Doc-reported · **partly fixed** (re-verified 2026-10-07) — `critic_pipeline.enabled` is deleted (`eecad67`, AK-10); `memory_v2.canonical` remains, known-unread in `test_feature_flag_census.py` (register 08, deferred) · plan [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
+| **GH-16** | Flags declared and never read | At least eight: `agent_loop.perception_bounded_viewport`, `agent_loop.snapshot_every_iteration`, the three `agent_loop.executor_*_enabled`, `tools.cost_resolver_v2_enabled` (deleted 2026-09-30, BC-17), `sandbox.container_runtime_enabled` (never threaded into context), and `tools.experimental.*` (gates a function nothing calls). All appear on the admin Feature Flags page | ✅ Verified · **partly fixed** (re-verified 2026-10-07) — the dead kernel flags are deleted and `test_feature_flag_census.py` fails on any new unread flag (`eecad67`); four `memory.*` flags remain known-unread, deferred with register 08 · plan [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 
 > The cross-cutting lesson, worth stating once: **adding a flag is not the same as wiring a
 > control.** Eight flags on the admin page do nothing at all, and an operator has no way to
@@ -425,7 +455,7 @@ a retry. Decide with the product owner whether a rejection ends the whole run.
 
 ### GH-17 — `ToolCostResolver` is cached per process, and has no callers
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: fixed (2026-09-30, `d71918d`, with BC-07; 2026-10-02, `902af7c`)** — every tool call, on the step executor and on voice, is priced by `ToolCostResolver`, and prices are cached per run, not per process. Recorded here 2026-10-07.
 
 Two facts that compound:
 
@@ -446,7 +476,7 @@ is never read.
 
 ### GH-18 — Budget lives on the entity, not the company
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: there is still no company-level cost cap. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 "Raise a tenant's budget" means editing the `governance` block of **every** entity that
 tenant owns. There is no company-level cost cap anywhere.
@@ -458,7 +488,7 @@ tenant with 40 entities, a budget change is 40 edits.
 
 ### GH-19 — The tool-call counting is off by design
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-01, `73afd55`, with [TL-21](TOOL-LAYER-DEFECTS.md#tl-21--max_tool_calls-is-a-prompt-string-not-a-limit))** — `max_tool_calls` is a limit counted per run from the run's log rows (`ToolAccess.load(..., run_id=)`), and the prompt shows `calls_left()`, which stops at zero. Recorded here 2026-10-07.
 
 `max_tool_calls` renders "Tool calls remaining: N of M" into the prompt, and the counter is
 reset at the start of every **step** rather than per run. So the number shown to the model
@@ -473,7 +503,7 @@ debugging.
 
 ### GH-20 — There is no way to see why a flag has its value
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: the flags page still shows only the effective value. Plan: [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust).
 
 Resolution is entity → company → global → env → default. The admin page shows the
 **effective** value. It does not show which tier produced it.
@@ -489,7 +519,7 @@ resolution.
 
 ### GH-21 — Almost every gate in the platform fails open
 
-**✅ Verified · High · the pattern**
+**✅ Verified · High · the pattern** · **Status: partly fixed** — re-verified 2026-10-07: HITL (GH-01/GH-22), the suspension check (SA-18), the API limiter's Redis fallback and the semantic duplicate check (MI-01, `37c44b7`) now fail closed. Still failing open: webhook signatures (GW-01), the inbound voice credit check (VT-01) and `RedisRateLimiter`'s default. No gate emits a failure metric yet ([GH-I2](#gh-i2--emit-a-metric-whenever-a-gate-fails-to-evaluate)). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 Collected in one place, because individually each looks defensible:
 

@@ -44,14 +44,16 @@
 Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
 way and added (FE-26 to FE-31). The user ran two of the package changes this session's
 permission check refused, committed in `dc21c2f`: the unused packages are gone (FE-12) and
-`vitest` is installed (FE-03 still needs it wired in). FE-21 waits on
-`@tanstack/react-query`; FE-28 needs a short-lived token from the API.
+`vitest` is installed (FE-03 still needs it wired in). FE-21's package, `@tanstack/react-query`,
+was installed in `895ddc8` and nothing uses it yet; FE-28 needs a short-lived token from the API.
+Re-verified against the code 2026-10-07; the three open defects are scheduled in
+[`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (FE-03 [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights), FE-28 [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), FE-21 [H9](REMAINING-DEFECTS-PLAN.md#h9--frontend-data-layer)).
 
 | ID | Defect | Status |
 |---|---|---|
 | FE-01 | There is no error boundary | ✅ fixed `547cca5` |
 | FE-02 | `npm run lint` cannot run | ✅ fixed `eac9f2f` |
-| FE-03 | There is no test runner | open — `vitest` installed `dc21c2f`; needs a `test` script and the `tsconfig` exclude dropped |
+| FE-03 | There is no test runner | open — `vitest` installed `dc21c2f`; needs a `test` script and the `tsconfig` exclude dropped; plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | FE-04 | If you forget `.env`, development talks to production | ✅ fixed `50dac40` |
 | FE-05 | Three legacy redirects emit a literal `:id` | ✅ fixed `547cca5` |
 | FE-06 | Bad JSON in the IO-contract fields silently kills the save | ✅ fixed `0dbd5ef` |
@@ -69,14 +71,14 @@ permission check refused, committed in `dc21c2f`: the unused packages are gone (
 | FE-18 | `ExecutionDetail` walks the whole run tree on every render | ✅ fixed `3d1dcec` |
 | FE-19 | The execution poll never stops | ✅ fixed `3d1dcec` |
 | FE-20 | `EntityConfigurationTabs` re-renders everything on every keystroke | ✅ fixed `d32d412` |
-| FE-21 | No caching layer, and fan-out on mount | open — needs `@tanstack/react-query` |
+| FE-21 | No caching layer, and fan-out on mount | open — `@tanstack/react-query` installed `895ddc8`, not used yet; plan [H9](REMAINING-DEFECTS-PLAN.md#h9--frontend-data-layer) |
 | FE-22 | `recharts` may be duplicated across 13 chunks | ✅ fixed `abcebdb` |
 | FE-23 | `useState(entity?.x)` only reads the prop once | ✅ fixed `0dbd5ef` |
 | FE-24 | Reloading any `/reports/*` page proxies the browser to the gateway | ✅ fixed `50dac40` |
 | FE-25 | Saving from the entity builder rewrites config it does not show | ✅ fixed `0dbd5ef` |
 | FE-26 | The production build fails *(new)* | ✅ fixed `141a4df` |
 | FE-27 | A compiled `vite.config.js` shadows `vite.config.ts` *(new)* | ✅ fixed `50dac40` |
-| FE-28 | Artifact previews put the access token in the URL *(new)* | open — needs a short-lived token from the API |
+| FE-28 | Artifact previews put the access token in the URL *(new)* | open — needs a short-lived token from the API; plan [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
 | FE-29 | The session list's recording link always answers 401 *(new)* | ✅ fixed `cb3026f` |
 | FE-30 | Three more unreferenced files *(new)* | ✅ fixed `a7db850` |
 | FE-31 | Reloading the Artifacts page shows the API's 404 *(new)* | ✅ fixed `c222808` |
@@ -849,6 +851,8 @@ for a few milliseconds per keystroke in a dev build.
 requests on mount, and `EntityFlow` fetches every entity and every tool each time the
 Hierarchy tab mounts. The product owner chose `@tanstack/react-query` (FE-I3); installing it
 was refused by this session's permission check, so it waits for the user.
+**Update 2026-10-07:** the user installed it (`895ddc8`, `^5.104.0`). Nothing uses it yet — no
+`QueryClientProvider`, no `useQuery` — so the defect stands, unblocked. Plan: [H9](REMAINING-DEFECTS-PLAN.md#h9--frontend-data-layer).
 
 | Pattern | Where |
 |---|---|

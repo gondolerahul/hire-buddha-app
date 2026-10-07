@@ -4,7 +4,7 @@
 > what silently does not, and what a green result actually proves — plus the improvements
 > that would make the suite trustworthy.
 > **Source document:** [`19-testing.md`](../19-testing.md)
-> **Compiled:** 2026-09-01, against branch `fresh-main`.
+> **Compiled:** 2026-09-01, against branch `fresh-main`. **Last reviewed:** 2026-10-07, on branch `roadmap-development-defect-fixes`.
 > **Context:** there are **1,063 backend tests and no CI that runs them**. The suite is
 > good. Nothing enforces it.
 
@@ -35,14 +35,36 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | **Now** — everything else depends on this |
-| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | Before trusting a test result |
-| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | Free |
-| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | When the suite is next touched |
+| Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
+|---|---|---|---|---|---|---|
+| [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 0 | 1 | 2 | 1 |
+| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 1 | 1 | 2 | 0 |
+| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 0 | 0 | 5 | 0 |
+| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 0 | 0 | 5 | 1 |
 
-**Total: 19 defects, 10 improvements.**
+**Total: 19 defects (1 fixed, 2 partly fixed, 14 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+
+| ID | Defect | Status | Plan |
+|---|---|---|---|
+| TS-01 | The only CI workflow has never fired | invalid (the gap is IN-05) | — |
+| TS-02 | 1,063 backend tests run only when someone remembers | open — Critical | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-03 | Three working quality gates have no trigger either | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-04 | `npm run lint` cannot run, and there is no frontend test runner | half fixed — lint runs; no test runner | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-05 | Three test tiers skip instead of failing | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-06 | An unmocked LLM call returns a `STUB:` string, not an error | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-07 | `e2e/` does not roll back | ✅ fixed `3352625` | — |
+| TS-08 | The frontend tests cannot run at all | partly — `vitest` installed; not wired | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-09 | The root `tests/` directory | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| TS-10 | The `kpi` marker and its CI step | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-11 | The `needs_redis` marker | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-12 | `backend/tests/phase9/` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| TS-13 | One of the two `MockLLMRouter` classes | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| TS-14 | `@pytest.mark.integration` is used and not registered | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-15 | Marker usage is far below marker registration | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-16 | The parity suite leaves tenants behind | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-17 | Fixture loading is coupled to the entity schema | open — decision HD18 | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-18 | Documentation and reality have drifted in three places | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| TS-19 | The engine fixture is function-scoped, deliberately | accepted — keep function scope | — |
 
 The three to read first:
 
@@ -52,6 +74,8 @@ The three to read first:
   `parity` all call `pytest.skip()` when Postgres is unreachable.
 - **[TS-08](#ts-08--the-frontend-tests-cannot-run-at-all)** — two test files importing a
   package that is not installed.
+
+> **Update 2026-10-07:** TS-01 is invalid, because the cortex workflow's filter matches again. The gap it pointed at — no CI for `backend/tests/` — is TS-02 and IN-05, and it is open. TS-05 is open. TS-08 is partly fixed: `vitest` is installed but not wired in.
 
 ---
 
@@ -85,7 +109,7 @@ runs.
 
 ### TS-02 — 1,063 backend tests run only when someone remembers
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: nothing runs the suite on push; it is now ~1,840 unit tests plus ~375 integration and parity tests. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 | Tier | Files | Test functions |
 |---|---|---|
@@ -109,7 +133,7 @@ regression functions each iterate internally over many cases.
 
 ### TS-03 — Three working quality gates have no trigger either
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: unchanged; blocked on IN-05. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 | Gate | What it enforces |
 |---|---|
@@ -149,7 +173,7 @@ that production does not run.
 
 ### TS-05 — Three test tiers skip instead of failing
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: the `pytest.skip()` calls are unchanged (`integration/conftest.py:56`, `:65`; `parity/conftest.py:88`, `:96`, `:108`), and there is no `REQUIRE_DB` switch. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 `integration/`, `e2e/` and `parity/` all call `pytest.skip()` from their fixtures when the
 database is unreachable:
@@ -179,7 +203,7 @@ silently does not run.
 
 ### TS-06 — An unmocked LLM call returns a `STUB:` string, not an error
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: `tests/harness/mock_llm.py:172` still answers `STUB::…`. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 When a test path reaches the LLM without a mock configured, the harness returns a response
 beginning `STUB:` rather than raising.
@@ -196,7 +220,7 @@ means the failure mode is a **passing test that proves nothing**.
 
 ### TS-07 — `e2e/` does not roll back
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-01, `3352625`)** — `tests/e2e/conftest.py` records the companies its session creates and `_e2e_cleanup` deletes them and every row that references them at teardown. Recorded here 2026-10-07.
 
 `integration/` wraps each test in a SAVEPOINT and rolls back. `e2e/` does not — it leaves
 users, companies and runs in the database on every run.
@@ -209,7 +233,7 @@ this is the one most likely to be run repeatedly against one database.
 
 ### TS-08 — The frontend tests cannot run at all
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: partly fixed** — re-verified 2026-10-07: `vitest` is installed (`dc21c2f`) and a second test file exists (`RunFiles.test.tsx`, FE-32), but `package.json` has no `test` script and `tsconfig.json` still excludes `src/**/*.test.ts(x)`. Same work as FE-03. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 Two `.test.ts` files exist and both import from `vitest`, which is not installed.
 
@@ -228,11 +252,11 @@ So the frontend has two test files that cannot execute and would not compile.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **TS-09** | The root `tests/` directory | Four directories containing nothing but `__init__.py` — `fixtures/`, `harness/`, `parity/`, `regression/`. Mirrors four `backend/tests/` names and holds nothing. A leftover from a package-layout experiment | ✅ Verified |
-| **TS-10** | The `kpi` marker and its CI step | Registered in `pytest.ini`, used **0 times**, and `backend/tests/kpi/` does not exist. Both the marker and the CI lane are placeholders | ✅ Verified |
-| **TS-11** | The `needs_redis` marker | Registered, used **0 times** | ✅ Verified |
-| **TS-12** | `backend/tests/phase9/` | Two legacy scripts, **no pytest tests**. Also violates the canary-label ban that `lint_ai_layout.py` enforces on `src/ai/` | 📄 Doc-reported |
-| **TS-13** | One of the two `MockLLMRouter` classes | Defined in both [`tests/harness/mock_llm.py`](../../../backend/tests/harness/mock_llm.py) and [`tests/fixtures/llm_fixture.py`](../../../backend/tests/fixtures/llm_fixture.py). Which one a test gets depends on its conftest | ✅ Verified |
+| **TS-09** | The root `tests/` directory | Four directories containing nothing but `__init__.py` — `fixtures/`, `harness/`, `parity/`, `regression/`. Mirrors four `backend/tests/` names and holds nothing. A leftover from a package-layout experiment | ✅ Verified · **open** (re-verified 2026-10-07) — the root `tests/` directory is still there · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| **TS-10** | The `kpi` marker and its CI step | Registered in `pytest.ini`, used **0 times**, and `backend/tests/kpi/` does not exist. Both the marker and the CI lane are placeholders | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| **TS-11** | The `needs_redis` marker | Registered, used **0 times** | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| **TS-12** | `backend/tests/phase9/` | Two legacy scripts, **no pytest tests**. Also violates the canary-label ban that `lint_ai_layout.py` enforces on `src/ai/` | 📄 Doc-reported · **open** (re-verified 2026-10-07) — `check_run.py` and `run_all_tests.py` are still there · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| **TS-13** | One of the two `MockLLMRouter` classes | Defined in both [`tests/harness/mock_llm.py`](../../../backend/tests/harness/mock_llm.py) and [`tests/fixtures/llm_fixture.py`](../../../backend/tests/fixtures/llm_fixture.py). Which one a test gets depends on its conftest | ✅ Verified · **open** (re-verified 2026-10-07) — both classes still exist · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
 
 ---
 
@@ -240,7 +264,7 @@ So the frontend has two test files that cannot execute and would not compile.
 
 ### TS-14 — `@pytest.mark.integration` is used and not registered
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07: still unregistered; its three uses are now in `integration/test_egress_proxy_docker.py`. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 `pytest.ini` registers `parity`, `regression`, `chaos`, `kpi`, `slow`, `needs_db`,
 `needs_redis` and `needs_llm`. It does **not** register `integration` — which is used three
@@ -256,7 +280,7 @@ ignored — a test filtered by it simply never runs.
 
 ### TS-15 — Marker usage is far below marker registration
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 | Marker | Registered | Used |
 |---|---|---|
@@ -278,7 +302,7 @@ actually separate the fast tier from the slow one — the real separation is by 
 
 ### TS-16 — The parity suite leaves tenants behind
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: the parity conftest still expects a throwaway database. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 Parity runs create `parity-*` tenants and do not clean them up. The advice is to use a
 disposable Postgres.
@@ -290,7 +314,7 @@ database they run against, and the suite has no teardown story.
 
 ### TS-17 — Fixture loading is coupled to the entity schema
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
 
 Loading an entity fixture validates it against `HierarchicalEntityCreate`. Any schema change
 breaks fixture loading across every tier that uses fixtures.
@@ -303,7 +327,7 @@ change can turn a large part of the suite red at once, which is a strong incenti
 
 ### TS-18 — Documentation and reality have drifted in three places
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 | Claim | Reality |
 |---|---|
@@ -318,7 +342,7 @@ looks right.
 
 ### TS-19 — The engine fixture is function-scoped, deliberately
 
-**📄 Doc-reported · Low · accept**
+**📄 Doc-reported · Low · accept** · **Status: accepted** — accepted, as the entry decides.
 
 A performance cost accepted for isolation. Recorded so it is not "optimised" into a
 session-scoped fixture — that change reintroduces the

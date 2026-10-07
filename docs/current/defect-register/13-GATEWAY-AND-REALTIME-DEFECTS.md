@@ -4,7 +4,7 @@
 > webhook receiver, the internal-event endpoint, audio and video WebSockets and the SSE
 > relay — plus the improvements that would make the edge safe to expose and cheap to scale.
 > **Source document:** [`13-gateway-and-realtime.md`](../13-gateway-and-realtime.md)
-> **Compiled:** 2026-09-01, against branch `fresh-main`.
+> **Compiled:** 2026-09-01, against branch `fresh-main`. **Last reviewed:** 2026-10-07, on branch `roadmap-development-defect-fixes`.
 > **Context:** everything external reaches the platform through this process. It is the
 > only thing between the internet and the API, and **several of its controls are not
 > wired**.
@@ -41,14 +41,38 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | **Now** — this is the internet-facing surface |
-| [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | Before relying on the control |
-| [T2](#4-t2--delete) | Delete | 4 | Free |
-| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | Before a second instance exists |
+| Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
+|---|---|---|---|---|---|---|
+| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 0 | 1 | 3 | 1 |
+| [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 2 | 1 | 2 | 0 |
+| [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
+| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 3 | 0 | 4 | 0 |
 
-**Total: 21 defects, 10 improvements.**
+**Total: 21 defects (8 fixed, 3 partly fixed, 9 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+
+| ID | Defect | Status | Plan |
+|---|---|---|---|
+| GW-01 | No webhook signature is ever verified, and a failure would not block | open — Critical | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-02 | Rate limiting covers one route | partly fixed — REST limited; WebSockets not | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-03 | No webhook idempotency | open | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-04 | The auth middleware never sees a WebSocket | open | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-05 | Rate limits are keyed on `127.0.0.1` in production | invalid | — |
+| GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | partly fixed — TURN settings still unread | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-07 | The event bus is in-process with one subscriber | ✅ fixed (single port) | — |
+| GW-08 | The arq fallback runs a full AgentLoop inside the gateway | ✅ fixed (single port) | — |
+| GW-09 | `X-Accel-Buffering: no` does nothing here | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| GW-10 | `aiortc` is not installed, and the video path has a second bug behind it | open — decision HD11 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-11 | `gateway/main.py` and `gateway/config.py` | ✅ fixed (single port) | — |
+| GW-12 | `@app.on_event("shutdown")` / `close_proxy_client` | ✅ fixed (single port) | — |
+| GW-13 | `EVENT_BUS_TYPE`, `TURN_USERNAME`, `TURN_CREDENTIAL`, event `priority` | partly fixed — see GW-06 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-14 | Both `streaming.hirebuddha.com` vhosts | ✅ fixed | — |
+| GW-15 | The proxy copies response headers verbatim after decompressing | ✅ fixed | — |
+| GW-16 | Auth middleware runs before CORS, so its 401s have no CORS headers | ✅ fixed | — |
+| GW-17 | Agent selection is `LIMIT 1` with no `ORDER BY`, in three places | open — one call site left | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-18 | SSE has no replay and no `Last-Event-ID` | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-19 | SSE terminates on a substring match | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-20 | The catch-all proxy must stay last, and nothing enforces it | ✅ fixed | — |
+| GW-21 | WebSocket sessions require affinity that nothing provides | open — decision HD12 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 
 The three to read first:
 
@@ -59,13 +83,15 @@ The three to read first:
 - **[GW-04](#gw-04--the-auth-middleware-never-sees-a-websocket)** — the `/stream/*` branch
   of the auth middleware is dead code for real WebSocket connections.
 
+> **Update 2026-10-07:** GW-01 is unchanged and is the most serious open defect on the platform. GW-02 is partly fixed: every REST route is limited, but webhooks and WebSockets are not. GW-04's middleware is deleted, and the WebSocket token is still never checked.
+
 ---
 
 ## 2. T0 — The edge is not defended
 
 ### GW-01 — No webhook signature is ever verified, and a failure would not block
 
-**✅ Verified · Critical**
+**✅ Verified · Critical** · **Status: open** — re-verified 2026-10-07: every strategy's `validate_signature` in `gateway/webhook_inbound.py` returns `True` (GitHub, LinkedIn and Facebook still carry the TODO), and `:554` still logs a failure and processes the event. Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
 
 Two separate problems, either of which alone would be enough.
 
@@ -141,7 +167,7 @@ limit mean what everyone assumes it means.
 
 ### GW-03 — No webhook idempotency
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: no delivery id is recorded anywhere in `webhook_inbound.py`. Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
 
 Providers retry. Nothing deduplicates. A retried delivery creates a **second execution**
 and a second charge.
@@ -184,7 +210,7 @@ available. Middleware is the wrong layer for this.
 
 ### GW-05 — Rate limits are keyed on `127.0.0.1` in production
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: invalid (2026-10-07)** — uvicorn (0.27.1) runs with `proxy_headers` on and, by default (`FORWARDED_ALLOW_IPS`), trusts `X-Forwarded-For` from `127.0.0.1`. It takes the right-most untrusted address — the one Apache's `mod_proxy` appends — and every vhost proxies to `localhost:8000`. So `request.client.host`, and the limiter's key, is the real client. `RemoteIPHeader` ([GW-I2](#gw-i2--set-remoteipheader-in-the-vhosts)) would only change Apache's own logs.
 
 `key_func=get_remote_address`. Every request arrives from Apache on the loopback
 interface, and **no vhost sets `RemoteIPHeader`**, so `X-Forwarded-For` is never trusted
@@ -272,7 +298,7 @@ provider retries.
 
 ### GW-09 — `X-Accel-Buffering: no` does nothing here
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: the header is still set at `ai/router.py:362`. Plan: [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground).
 
 The SSE relay sets `X-Accel-Buffering: no` to stop intermediate proxies buffering. That is
 an **nginx** header. The deployment uses Apache, which ignores it.
@@ -285,7 +311,7 @@ streaming and this header will not save them.
 
 ### GW-10 — `aiortc` is not installed, and the video path has a second bug behind it
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07: `aiortc` is still undeclared, and `video_gateway.py:207` still iterates over `track.recv.__self__.__class__.__mro__[0]`. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
 
 `aiortc` appears in neither `pyproject.toml` nor the virtualenv, and `video_gateway.py`
 imports it conditionally. So `/stream/video` answers the signalling handshake, tells the
@@ -355,7 +381,7 @@ sends the developer looking in entirely the wrong place.
 
 ### GW-17 — Agent selection is `LIMIT 1` with no `ORDER BY`, in three places
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: two of the three call sites went with the gateway merge. `dispatcher.py:91` (`resolve_agent_for_client`, which picks the agent for the audio and video handshakes) still selects `LIMIT 1` with no order. Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
 
 When a webhook or internal event does not name an entity, the gateway picks one with
 `LIMIT 1` and no ordering. A tenant with several agents gets a non-deterministic choice —
@@ -368,7 +394,7 @@ possibly a different one on each delivery of the same event type.
 
 ### GW-18 — SSE has no replay and no `Last-Event-ID`
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: SSE frames carry no `id:`; nothing reads `Last-Event-ID`. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
 
 A reconnecting `EventSource` loses everything that happened while it was disconnected.
 There is no event id, no buffer, no replay.
@@ -381,7 +407,7 @@ because neither is sufficient.
 
 ### GW-19 — SSE terminates on a substring match
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `ai/router.py:347` still breaks on `"status": "<terminal>"` appearing anywhere in the raw payload. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
 
 The generator breaks when the raw JSON payload contains `"status": "COMPLETED"`,
 `"FAILED"` or `"CANCELLED"`. `agent_loop_sse.py` copies `outcome` into a `status` key
@@ -411,7 +437,7 @@ Same as [SA-16](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-16--route-order-in-the-gate
 
 ### GW-21 — WebSocket sessions require affinity that nothing provides
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: unchanged; latent while there is one instance. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
 
 `VoiceSession` objects, live LLM sockets, audio buffers and `RTCPeerConnection` objects all
 live in the gateway process. A reconnect landing on a second instance finds none of them.

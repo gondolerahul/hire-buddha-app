@@ -71,6 +71,16 @@
 > a cp1252 decode. Unit baseline: **4** known failures (the Windows sandbox tests);
 > integration: the 2 known `test_cost_attribution` failures. New entries: **TL-68** (P3),
 > **PC-27** (P4, fixed), **PO-23** (P5, open), **FE-32** (P6, fixed), **LP-26** (P9, fixed).
+>
+> **Re-verification (2026-10-07):** every register entry not marked fixed was checked against
+> the code, and the registers and the README now agree with it: 376 fixed, **87 open, 17 partly
+> fixed**, 17 deferred (518 entries). Sixteen fixes had never been recorded; AK-08 was found
+> still open (the consolidated plan merged it into AK-05, whose fix did not cover it); API-11 is
+> open; GW-05 is invalid. Everything left is planned in
+> [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) — phases H0–H11, decisions HD1–HD18.
+> Start with H0, then H1 (CI), which needs the branch pushed (HD1). Unit baseline here: 1,833
+> passed; the 4 Windows sandbox tests and the chaos test fail as before, and
+> `test_single_port_app` fails when Redis is not running.
 
 ---
 

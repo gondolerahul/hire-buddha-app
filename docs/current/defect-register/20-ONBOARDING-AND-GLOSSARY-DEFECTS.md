@@ -4,7 +4,7 @@
 > setup, the first-change exercise, the mental model a newcomer is given, and the glossary
 > — plus the improvements that would shorten time-to-first-commit.
 > **Source document:** [`20-onboarding-and-glossary.md`](../20-onboarding-and-glossary.md)
-> **Compiled:** 2026-09-01, against branch `fresh-main`.
+> **Compiled:** 2026-09-01, against branch `fresh-main`. **Last reviewed:** 2026-10-07, on branch `roadmap-development-defect-fixes`.
 > **Context:** this is the only document in the set whose defects are measured in **a new
 > developer's wasted hours**. Several of them teach an incorrect mental model, which is
 > more expensive than a broken command.
@@ -36,14 +36,35 @@
 
 ## 1. Summary
 
-| Tier | Theme | Count | When to do it |
-|---|---|---|---|
-| [T0](#2-t0--the-documented-setup-does-not-work) | The documented setup does not work | 4 | **Now** — every new hire hits these |
-| [T1](#3-t1--the-onboarding-teaches-the-wrong-model) | The onboarding teaches the wrong model | 5 | Now — cheapest to fix, most expensive to leave |
-| [T2](#4-t2--stale-references) | Stale references | 5 | Free |
-| [T3](#5-t3--glossary-and-navigation) | Glossary and navigation | 4 | Opportunistically |
+| Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
+|---|---|---|---|---|---|---|
+| [T0](#2-t0--the-documented-setup-does-not-work) | The documented setup does not work | 4 | 2 | 0 | 2 | 0 |
+| [T1](#3-t1--the-onboarding-teaches-the-wrong-model) | The onboarding teaches the wrong model | 5 | 0 | 0 | 4 | 1 |
+| [T2](#4-t2--stale-references) | Stale references | 5 | 1 | 0 | 3 | 1 |
+| [T3](#5-t3--glossary-and-navigation) | Glossary and navigation | 4 | 0 | 0 | 4 | 0 |
 
-**Total: 18 defects, 10 improvements.**
+**Total: 18 defects (3 fixed, 13 open, 2 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+
+| ID | Defect | Status | Plan |
+|---|---|---|---|
+| ON-01 | The setup sequence omits two required steps | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-02 | Step 4 is "edit a file to fix a shipped default" | ✅ fixed | — |
+| ON-03 | The verification step passes on a system that cannot run an agent | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-04 | The five-process table lists a process nothing starts | ✅ fixed | — |
+| ON-05 | Section 3.3 describes a memory block that is never injected | invalid (MC-01) | — |
+| ON-06 | The first-change exercise targets a deprecated tool through an unwired gate | open — now names a deleted function | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-07 | "Most gates fail open" is stated and then not acted on | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-08 | The quality gates a newcomer is told to run are not enforced anywhere | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-09 | `core/` has 20 lines of headroom and the doc says so twice | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| ON-10 | `src/ai/models.py` is a deprecated shim still in the tree | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| ON-11 | The root `tests/` directory | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| ON-12 | `backend/cortex_memory_moved_to_pypi_repo/` | invalid | — |
+| ON-13 | `core/README.md` documents two files that do not exist | ✅ fixed `ddd4912` (AK-14) | — |
+| ON-14 | `docs/phase9/` through `docs/phase12/` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| ON-15 | The glossary lists two deprecated reasoning modes without saying so | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-16 | "42 boolean + 5 numeric flags" is right and unhelpful | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-17 | The glossary defines terms for features that do not run | open — partly stale | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| ON-18 | The "20-minute tour" points at documents whose 60-second sections describe unwired features | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 
 The three to read first:
 
@@ -55,13 +76,15 @@ The three to read first:
   the guided first task exercises a function nothing calls, on a tool that should be
   deleted.
 
+> **Update 2026-10-07:** ON-01 is half fixed: the `phone_numbers` step is gone, but the seeds are still missing. ON-05 is invalid (MC-01). ON-06 is worse: the function its exercise asserts on was deleted.
+
 ---
 
 ## 2. T0 — The documented setup does not work
 
 ### ON-01 — The setup sequence omits two required steps
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: the `phone_numbers` half is gone (DM-02). `seed_sandbox_sku` — and the registry seed that gives a fresh install a model, `seed_integration_registry.py` — are still missing from the setup sequence. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 The day-one flow is: install → `.env` → docker → `alembic upgrade head` →
 `seed_admin_user.py` → npm → `start_services.sh`.
@@ -110,7 +133,7 @@ The same wrong default also sits in `UnifiedGatewaySettings.DATABASE_URL`
 
 ### ON-03 — The verification step passes on a system that cannot run an agent
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07: unchanged. `GET /api/v1/health` now has a `models` block (LP-10), which the verification step can check. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 The documented verification is: curl the two health endpoints, import `WorkerSettings`, run
 the unit tests, open the browser.
@@ -177,7 +200,7 @@ memory is currently written and not read.
 
 ### ON-06 — The first-change exercise targets a deprecated tool through an unwired gate
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: worse than recorded: `get_visible_tools_for_company` was deleted with TL-13 (`21386dc`), so the exercise now asserts on a function that does not exist. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 The guided exercise is: enable the `EXPERIMENTAL` `video_generation` tool for your dev
 tenant by inserting a `tools.experimental.video_generation` feature-flag row, then assert
@@ -207,7 +230,7 @@ anything — and they are taught it as though it works.
 
 ### ON-07 — "Most gates fail open" is stated and then not acted on
 
-**✅ Verified · Medium · partially good**
+**✅ Verified · Medium · partially good** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 §9 item 2 is admirably honest: *"Most gates fail open… A broken gate looks exactly like a
 passing gate. Read logs, not just outcomes."*
@@ -225,7 +248,7 @@ for the fix.
 
 ### ON-08 — The quality gates a newcomer is told to run are not enforced anywhere
 
-**✅ Verified · High**
+**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: unchanged; fixed by H1 and a doc edit. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 §8.1 presents the layout lint's rules as things that "will fail your build". §5's exercise
 diagram shows a `CI` participant returning green.
@@ -241,7 +264,7 @@ runs them. The first framing is the one in the diagram.
 
 ### ON-09 — `core/` has 20 lines of headroom and the doc says so twice
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07: unchanged; `agent_loop.py` is now 1,496 lines (IN-17). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
 
 `agent_loop.py` is ~1,480 lines against a 1,500-line cap, flagged in both §8.1 and the
 gotchas.
@@ -259,11 +282,11 @@ contributor arrives, not to document the wall.
 
 | ID | Problem | Notes | Status |
 |---|---|---|---|
-| **ON-10** | `src/ai/models.py` is a deprecated shim still in the tree | Re-exports every ORM class from `src.ai.orm.*` so old imports keep working. §7.3 lists it as a trap. It has been a trap for long enough — delete it and fix the importers | ✅ Verified |
-| **ON-11** | The root `tests/` directory | Four `__init__.py` files and nothing else. §7.3 lists it as a trap. Deleting it removes the trap entirely. Also [TS-09](19-TESTING-DEFECTS.md#4-t2--dead-scaffolding) | ✅ Verified |
+| **ON-10** | `src/ai/models.py` is a deprecated shim still in the tree | Re-exports every ORM class from `src.ai.orm.*` so old imports keep working. §7.3 lists it as a trap. It has been a trap for long enough — delete it and fix the importers | ✅ Verified · **open** (re-verified 2026-10-07) — `src/ai/models.py` is still in the tree · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| **ON-11** | The root `tests/` directory | Four `__init__.py` files and nothing else. §7.3 lists it as a trap. Deleting it removes the trap entirely. Also [TS-09](19-TESTING-DEFECTS.md#4-t2--dead-scaffolding) | ✅ Verified · **open** (re-verified 2026-10-07) — same as TS-09 · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
 | **ON-12** | `backend/cortex_memory_moved_to_pypi_repo/` | The directory name is itself the documentation. §7.3 and §9 item 5 both explain it. Either publish the package or move it back — see [MC-I10](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-i10--decide-where-cortex_memory-lives) | ✅ Verified · **invalid (2026-09-28, `e8d9f62`)** — renamed back to `backend/cortex_memory/` |
-| **ON-13** | `core/README.md` documents two files that do not exist | `execution_engine.py` and `recursive_engine.py`. §7.4 recommends it as worth reading. Also [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified |
-| **ON-14** | `docs/phase9/` through `docs/phase12/` | Historical plans kept alongside current documentation. §7.4 warns "the code is truth", which is the right instruction and does not stop a newcomer opening them first. Move them under `docs/history/` | 📄 Doc-reported |
+| **ON-13** | `core/README.md` documents two files that do not exist | `execution_engine.py` and `recursive_engine.py`. §7.4 recommends it as worth reading. Also [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified · **fixed (2026-10-01, `ddd4912`, with AK-14)** — `core/README.md` describes the code and names the two files only as deleted |
+| **ON-14** | `docs/phase9/` through `docs/phase12/` | Historical plans kept alongside current documentation. §7.4 warns "the code is truth", which is the right instruction and does not stop a newcomer opening them first. Move them under `docs/history/` | 📄 Doc-reported · **open** (re-verified 2026-10-07) — `docs/phase1` … `docs/phase12` are still beside `docs/current` · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
 
 ---
 
@@ -271,7 +294,7 @@ contributor arrives, not to document the wall.
 
 ### ON-15 — The glossary lists two deprecated reasoning modes without saying so
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: the glossary row is unchanged. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 > **Reasoning strategy** — REACT, CHAIN_OF_THOUGHT, REFLECTION, TREE_OF_THOUGHTS
 
@@ -287,7 +310,7 @@ The glossary presents four equal options where there are two.
 
 ### ON-16 — "42 boolean + 5 numeric flags" is right and unhelpful
 
-**✅ Verified · Low**
+**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: the sentence is unchanged. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 The count is exactly correct — `DEFAULTS` has 42 keys and `NUMERIC_DEFAULTS` has 5.
 
@@ -302,7 +325,7 @@ one of those actively contradicts the runtime
 
 ### ON-17 — The glossary defines terms for features that do not run
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: partly stale: the memory read path runs since MC-01, so `Memory domain` and `ScopePolicy` are live; `Viewport` is still not (AK-05 deleted the Perceiver that would have filled it). Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 `Viewport`, `ScopePolicy` and `Memory domain` are all defined as live concepts. All three
 belong to the memory read path, which has no callers
@@ -315,7 +338,7 @@ the way the document already marks other things honestly.
 
 ### ON-18 — The "20-minute tour" points at documents whose 60-second sections describe unwired features
 
-**📄 Doc-reported · Low**
+**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
 
 The recommended fast path is to read only §1 of documents 01–19. That is good advice, and
 those sections are where the aspirational descriptions are densest — memory injection,

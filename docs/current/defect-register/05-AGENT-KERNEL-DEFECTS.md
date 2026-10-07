@@ -50,7 +50,7 @@
 | [T2](#4-t2--delete-or-fix-the-name) | Delete or fix the name | 5 | **Now** — free |
 | [T3](#5-t3--correctness-and-cost) | Correctness and cost | 6 | Needs design |
 
-**Total: 21 defects, 10 improvements.**
+**Total: 21 defects (20 fixed, 1 open), 10 improvements.** Re-verified 2026-10-07: the open one is AK-08, which the consolidated plan merged into AK-05 and AK-05's fix did not cover; it is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 The three to read first:
 
@@ -181,7 +181,7 @@ Each of these reads as a working control. None of them is one. Every item is a d
 
 ### AK-04 — The pre-critic almost never runs
 
-**📄 Doc-reported · High**
+**📄 Doc-reported · High** · **Status: fixed (2026-10-02, P7.4, `dfe42d6`)** — with [PC-01](07-PLANNING-AND-CRITICS-DEFECTS.md#pc-01--the-pre-critic-is-skipped-on-almost-every-iteration), its canonical entry: the bypass is deleted and the pre-critic runs on every move. Recorded here 2026-10-07.
 
 The pre-critic is the gate that inspects a proposed action *before* it is executed. Any
 move carrying a `plan_fragment` is given a synthetic `PASS` instead.
@@ -219,7 +219,7 @@ away.
 
 ### AK-06 — The Perceiver's richest fields are always empty
 
-**📄 Doc-reported · Medium**
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-03, P8.10, `24b7fed`)** — with [AK-05](#ak-05--perception-is-written-every-iteration-and-read-by-nothing): the Perceiver and its fields are deleted (D23). Recorded here 2026-10-07.
 
 The loop passes `memory_assembler=None`, and nothing ever sets `state.cortex_cursor`. So
 on every real run:
@@ -283,7 +283,7 @@ So both halves of the fan-out control are inactive.
 
 ### AK-08 — `state.blockers` is written by a branch that cannot be reached
 
-**✅ Verified · Medium**
+**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07. The consolidated plan merged this into AK-05, but AK-05's fix deleted the Perceiver and left `blockers` alone: `Observer._outcome` (`ai/core/observer.py`) still returns only `success`, `partial` or `fail`, so `apply_observation` (`agent_state.py:382`) never appends, and the supervisor critic (`planning/supervisor_critic.py:204`) still renders an always-empty list. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold), where a HITL rejection or timeout becomes the first `blocked` observation.
 
 `blockers` is appended only by `apply_observation`, and only when
 `observation.outcome == "blocked"`. `Observer._outcome` can only return `success`,
