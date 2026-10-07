@@ -409,4 +409,7 @@ Columns: phase · ids · commit · evidence. Updated as each fix lands.
 | H2.3 | FE-28 | `eeac959` | Ten-minute path-scoped URL tokens; login token refused in URLs; checked in the browser |
 | H2.4 | GW-04 | `4357a92` | Stream token required in the socket handshake (4401/4403); `test_stream_auth.py`; checked live |
 | H2.5 | GW-17 | `3ca2d38` | `gateway/agent_choice.py`; integration `test_agent_choice.py`. Unit 1,943 + 5 known; integration 377 + 2 known |
-| **H2 paused** | AU-24, AU-25, PO-23 left | — | Usage limit reached before AU-24 (investigation only: encrypted columns are `email_connections.encrypted_app_password`, `social_connections.encrypted_access_token/refresh_token`, `integration_registry.encrypted_api_key` + `service_metadata.secrets_encrypted`, `webhook_endpoints.secret_encrypted`) |
+| H2.6 | AU-24 | `9309477` | Required key, HKDF `v2:` ciphertexts, `scripts/rotate_encryption_key.py`; `test_credential_encryption.py`, `test_encrypted_fields.py` (census), integration `test_key_rotation.py`; local dry run clean |
+| H2.7 | AU-25 | `14aad76` | `oauth_metadata` secrets encrypted; migration `h2_seal_social_secrets` round-tripped on a real row; `test_social_secrets.py`, integration `test_social_secrets_stored.py` |
+| H2.8 | PO-23 | `e249daa` | Templates owned by the APP company; app_admin-only writes on every route; `is_template` not flippable; integration `test_templates.py` |
+| **H2 done** | 9 entries | — | Unit 1,958 + the 5 known; integration and parity 385 + the 2 known. Local DB at `h2_seal_social_secrets`. Not exercised with real providers: webhook deliveries; no UI for webhook endpoints. Each deployed environment needs a real `ENCRYPTION_MASTER_KEY` before this ships |

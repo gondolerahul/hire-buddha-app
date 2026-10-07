@@ -74,8 +74,8 @@ AU-23 to AU-26 were found while fixing the rest. Re-verified against the code 20
 | AU-21 | The role strings exist as a comment, not an enum | ✅ fixed `a608183` |
 | AU-22 | Suspension is checked twice | ✅ fixed `15191e5` (SA-18) |
 | AU-23 | An OAuth login can sign in as any existing account | ✅ fixed `a65d18d` (backend); the SPA's `state` and PKCE `1fffde8`, `c61a44c` (FE-11) |
-| AU-24 | The credential-encryption key has a public default | ✅ fixed (2026-10-07) — required key, HKDF, rotation script |
-| AU-25 | Social-connection client secrets are stored in plaintext | ✅ fixed (2026-10-07) — encrypted in `oauth_metadata` |
+| AU-24 | The credential-encryption key has a public default | ✅ fixed `9309477` — required key, HKDF, rotation script |
+| AU-25 | Social-connection client secrets are stored in plaintext | ✅ fixed `14aad76` — encrypted in `oauth_metadata` |
 | AU-26 | One person could hold two accounts, one per letter case | ✅ fixed `aa7045d` |
 | AU-I1 | Make tenant scoping structural | open — the largest change in this register |
 | AU-I2 | One role enum, one guard | ✅ done `a608183` |
@@ -615,7 +615,7 @@ permanently empty. Nothing errors; the data is just blank.
 
 ### AU-24 — The credential-encryption key has a public default
 
-**✅ Verified · High** · **Status: fixed (2026-10-07)** — found 2026-10-01. Decided with
+**✅ Verified · High** · **Status: fixed (2026-10-07, `9309477`)** — found 2026-10-01. Decided with
 the product owner as HD4. `ENCRYPTION_MASTER_KEY` has no default: settings refuse to load
 when it is missing, a placeholder (the old default included) or shorter than 32
 characters, with the command that generates one; `.env.example` documents it. New
@@ -648,7 +648,7 @@ first.
 
 ### AU-25 — Social-connection client secrets are stored in plaintext
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-07)** — found 2026-10-01. Every
+**✅ Verified · Medium** · **Status: fixed (2026-10-07, `14aad76`)** — found 2026-10-01. Every
 secret-named key of `oauth_metadata` (`client_secret`, Google Ads' `developer_token`, any
 key ending in `secret`, `token`, `password` or `api_key`) is stored encrypted under
 `oauth_metadata.secrets_encrypted`; the rest stays plain JSON. `POST

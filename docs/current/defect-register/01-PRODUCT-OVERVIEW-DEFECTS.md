@@ -638,7 +638,7 @@ gate one and forget the other, which is exactly what happened in
 
 ### PO-23 — A template can never be created, and the entity routes would let any tenant edit one
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-07)** — decided with the product owner as HD5: a
+**✅ Verified · Medium** · **Status: fixed (2026-10-07, `e249daa`)** — decided with the product owner as HD5: a
 template belongs to the platform (APP) company — `create_entity` and `convert_to_template` set
 it — so `POST /ai/templates` works; every tenant still reads and clones templates. Creating,
 updating or deleting a template needs `app_admin` on every route (`_require_template_writer`

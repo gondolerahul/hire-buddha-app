@@ -37,10 +37,10 @@ something that works but costs more than it should.
 
 | # | Register | Source document | Defects | Improvements |
 |---|---|---|---:|---:|
-| 01 | [Product & functional overview](01-PRODUCT-OVERVIEW-DEFECTS.md) | [01](../01-product-overview.md) | 23 (15 resolved, **1 open**, 6 deferred, 1 won't fix) | 12 (11 deferred, 1 done) |
+| 01 | [Product & functional overview](01-PRODUCT-OVERVIEW-DEFECTS.md) | [01](../01-product-overview.md) | 23 (16 resolved, 6 deferred, 1 won't fix) | 12 (11 deferred, 1 done) |
 | 02 | [System architecture & topology](02-SYSTEM-ARCHITECTURE-DEFECTS.md) | [02](../02-system-architecture.md) | 21 (21 fixed) | 10 (3 done, 1 moot, 1 partly, 5 open) |
 | 03 | [Database & data model](03-DATA-MODEL-DEFECTS.md) | [03](../03-data-model.md) | 21 (20 fixed, 1 invalid) | 10 (6 done, 4 open) |
-| 04 | [Auth, RBAC & multi-tenancy](04-AUTH-RBAC-TENANCY-DEFECTS.md) | [04](../04-auth-rbac-tenancy.md) | 26 (22 fixed, 2 won't fix, **2 open**) | 10 (5 done, 1 partly, 4 open) |
+| 04 | [Auth, RBAC & multi-tenancy](04-AUTH-RBAC-TENANCY-DEFECTS.md) | [04](../04-auth-rbac-tenancy.md) | 26 (24 fixed, 2 won't fix) | 10 (5 done, 1 partly, 4 open) |
 | 05 | [The agent kernel](05-AGENT-KERNEL-DEFECTS.md) | [05](../05-agent-kernel.md) | 21 (20 fixed, **1 open**) | 10 |
 | 06 | [Entities & the execution pipeline](06-EXECUTION-PIPELINE-DEFECTS.md) | [06](../06-execution-pipeline.md) | 29 (29 fixed) | 10 |
 | 07 | [Planning, critics & self-correction](07-PLANNING-AND-CRITICS-DEFECTS.md) | [07](../07-planning-and-critics.md) | 27 (27 fixed) | 10 |
@@ -49,20 +49,20 @@ something that works but costs more than it should.
 | 10 | [LLM providers & routing](10-LLM-PROVIDERS-DEFECTS.md) | [10](../10-llm-providers.md) | 26 (26 fixed) | 10 |
 | 11 | [Meta-intelligence & the Board](11-META-INTELLIGENCE-DEFECTS.md) | [11](../11-meta-intelligence.md) | 20 (14 fixed, 5 invalid, 1 moot) | 10 |
 | 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 (4 fixed, 4 partly, **10 open**, 3 not a defect) | 10 |
-| 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 (9 fixed, 3 partly, **8 open**, 1 invalid) | 10 |
+| 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 (13 fixed, 3 partly, **4 open**, 1 invalid) | 10 |
 | 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 31 (30 fixed, 1 won't fix) | 10 (8 done, 1 done for tools, 1 partly) |
 | 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 (11 fixed, 4 partly, **10 open**) | 10 |
-| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 32 (29 fixed, **3 open**) | 10 (5 done, 1 partly, 4 open) |
-| 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 (12 fixed, 1 partly, **6 open**, 1 accepted) | 10 |
+| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 32 (30 fixed, **2 open**) | 10 (5 done, 1 partly, 4 open) |
+| 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 (13 fixed, 1 partly, **5 open**, 1 accepted) | 10 |
 | 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 23 (4 fixed, 3 partly, **16 open**) | 10 |
 | 19 | [Testing & quality gates](19-TESTING-DEFECTS.md) | [19](../19-testing.md) | 19 (4 fixed, 2 partly, **11 open**, 1 accepted, 1 invalid) | 10 |
 | 20 | [Developer onboarding & glossary](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md) | [20](../20-onboarding-and-glossary.md) | 18 (6 fixed, **10 open**, 2 invalid) | 10 |
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 (48 fixed, 1 accepted) | — |
 | — | [**Tool stack audit (PO-06)**](PO-06-TOOL-STACK-AUDIT.md) | [09](../09-tools.md) | 19 (TL-50…TL-68, 19 fixed) | — |
 | — | [**Consolidated plan — 05/06/07/09/10/11 + tools**](CONSOLIDATED-KERNEL-TOOLS-PLAN.md) | 05, 06, 07, 09, 10, 11 | 171 distinct — **complete** (P0–P11, 2026-10-06); AK-08, merged into AK-05, was found still open on 2026-10-07 | 60 (merged) |
-| — | [**Remaining-defects plan**](REMAINING-DEFECTS-PLAN.md) | all | **104 to fix** (87 open, 17 partly; 96 distinct) + 17 deferred, in phases H0–H11. **H0 done** (9) — 95 left | — |
+| — | [**Remaining-defects plan**](REMAINING-DEFECTS-PLAN.md) | all | **104 to fix** (87 open, 17 partly; 96 distinct) + 17 deferred, in phases H0–H11. **H0 and H2 done** (18) — 86 left | — |
 
-**518 defect entries, 203 improvements.** Of the defects: **385 fixed, 78 open, 17 partly fixed**, 17 deferred, 10 won't fix / accepted / not a defect, 11 invalid or moot (2026-10-07, after H0). Registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 were worked together through the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), which is complete; everything still open is in the [remaining-defects plan](REMAINING-DEFECTS-PLAN.md).
+**518 defect entries, 203 improvements.** Of the defects: **394 fixed, 69 open, 17 partly fixed**, 17 deferred, 10 won't fix / accepted / not a defect, 11 invalid or moot (2026-10-07, after H0 and H2). Registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 were worked together through the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), which is complete; everything still open is in the [remaining-defects plan](REMAINING-DEFECTS-PLAN.md).
 
 Related: [`../DEFECT-REGISTER.md`](../DEFECT-REGISTER.md) is the earlier platform-wide list
 (45 items, `D-nn`). Every one of its entries reappears in the module register that owns it,
