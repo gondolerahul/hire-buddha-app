@@ -105,6 +105,17 @@ async def get_current_user_and_company(
         )
     return user, user.company
 
+async def authenticate_stream_token(token: Optional[str], path: str):
+    """The user behind a WebSocket handshake's URL token for ``path`` (GW-04).
+
+    A WebSocket handler has no dependency-injected session, so it opens its own.
+    """
+    from src.common.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        return await _authenticate_user(token, db, token_type=URL_TOKEN_TYPE, path=path)
+
+
 async def get_current_user_from_query(request: Request, token: str, db: AsyncSession = Depends(get_db)):
     """The user behind ``?token=``, which must be a URL token for this path (FE-28).
 

@@ -14,7 +14,7 @@ import { API_ORIGIN } from '@/config/api';
 import { apiClient } from './api.client';
 
 /** The prefixes the API mints URL tokens for — the routes that read `?token=`. */
-export type UrlTokenScope = '/api/v1/artifacts/' | '/api/v1/ai/executions/';
+export type UrlTokenScope = '/api/v1/artifacts/' | '/api/v1/ai/executions/' | '/stream/';
 
 const RENEW_BEFORE_MS = 60_000;
 

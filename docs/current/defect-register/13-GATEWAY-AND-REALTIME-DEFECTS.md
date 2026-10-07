@@ -43,19 +43,19 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 2 | 1 | 1 | 1 |
+| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 3 | 1 | 0 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
 | [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 3 | 0 | 4 | 0 |
 
-**Total: 21 defects (11 fixed, 3 partly fixed, 6 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (12 fixed, 3 partly fixed, 5 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | GW-01 | No webhook signature is ever verified, and a failure would not block | ✅ fixed (2026-10-07) | — |
 | GW-02 | Rate limiting covers one route | partly fixed — REST limited; WebSockets not | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-03 | No webhook idempotency | ✅ fixed (2026-10-07) | — |
-| GW-04 | The auth middleware never sees a WebSocket | open | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-04 | The auth middleware never sees a WebSocket | ✅ fixed (2026-10-07) | — |
 | GW-05 | Rate limits are keyed on `127.0.0.1` in production | invalid | — |
 | GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | partly fixed — TURN settings still unread | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-07 | The event bus is in-process with one subscriber | ✅ fixed (single port) | — |
@@ -185,10 +185,18 @@ single captured webhook body can be replayed indefinitely.
 
 ### GW-04 — The auth middleware never sees a WebSocket
 
-**✅ Verified · High** · **Status: open, changed (2026-09-30)** — the auth middleware is
-deleted (the internal-token check is now a `require_internal` dependency). The gap it
-describes remains: nothing validates the `/stream/audio` or `/stream/video` handshake
-token. The fix is GW-I6.
+**✅ Verified · High** · **Status: fixed (2026-10-07)** — the auth middleware was
+deleted on 2026-09-30 (the internal-token check is a `require_internal` dependency), and
+the gap it described is closed in the handlers themselves (GW-I6): `/stream/audio` and
+`/stream/video` call `gateway/stream_auth.py`'s `stream_company` first. The handshake's
+`token` must be a URL token minted for `/stream/` (`POST /api/v1/auth/url-token`; ten
+minutes, path-scoped, ended with the user's sessions) — else an `unauthorized` error and
+close **4401**; the company is the token's, and a `client_id` naming another company is
+close **4403**. `tests/unit/test_stream_auth.py` (both sockets; fails on the old code,
+which resolved an agent for a bare `client_id`). Checked live on the running API: a bare
+`client_id`, a login token or an artifacts-scoped token → 4401; a stream token with a
+foreign `client_id` → 4403; a stream token → reaches agent resolution. Nothing in the
+repository opens these sockets yet, so no client changed.
 
 `GatewayAuthMiddleware` extends `BaseHTTPMiddleware`, which passes non-HTTP ASGI scopes
 straight through. WebSocket connections never enter it.

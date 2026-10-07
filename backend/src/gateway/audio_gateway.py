@@ -28,6 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.gateway.dispatcher import get_dispatcher
+from src.gateway.stream_auth import stream_company
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,8 @@ async def unified_audio_streaming(websocket: WebSocket):
       {
         "event":    "connect",
         "provider": "twilio" | "tata_tele" | "exotel" | "web",
-        "client_id": "<company_uuid>",
-        "token":    "<short-lived JWT or API key>",
+        "client_id": "<optional; must be the token's company>",
+        "token":    "<a URL token for /stream/, from POST /api/v1/auth/url-token>",
         "metadata": {
           "session_id": "<optional: resume an existing VoiceSession>",
           "direction":  "inbound" | "outbound",
@@ -94,16 +95,14 @@ async def unified_audio_streaming(websocket: WebSocket):
         return
 
     provider = handshake.get("provider", "twilio").lower()
-    client_id = handshake.get("client_id", "")
-    token = handshake.get("token", "")
     metadata = handshake.get("metadata", {})
     session_id_override = metadata.get("session_id")
 
-    if not client_id:
-        await websocket.close(code=1003, reason="client_id required in handshake")
+    # ── Step 2: Validate the token (GW-04) & resolve agent ──────────────────
+    client_id = await stream_company(websocket, handshake)
+    if client_id is None:
         return
 
-    # ── Step 2: Validate token & resolve agent ───────────────────────────────
     dispatcher = get_dispatcher()
     agent_info = await dispatcher.resolve_agent_for_client(client_id, "audio")
 

@@ -198,7 +198,7 @@ not part of OpenAPI.
 | POST | `/api/v1/auth/login` | none | Login → JWT |
 | POST | `/api/v1/auth/token` | none | OAuth2 password-form login |
 | GET | `/api/v1/auth/me` | Bearer | Current user |
-| POST | `/api/v1/auth/url-token` | Bearer | A ten-minute URL token for `{scope}` — `/api/v1/artifacts/` or `/api/v1/ai/executions/` — the only token `?token=` accepts (FE-28) |
+| POST | `/api/v1/auth/url-token` | Bearer | A ten-minute URL token for `{scope}` — `/api/v1/artifacts/`, `/api/v1/ai/executions/` or `/stream/` — the only token `?token=` and the stream handshakes accept (FE-28, GW-04) |
 | POST | `/api/v1/auth/refresh` | none (refresh token in body) | Rotate tokens |
 | POST | `/api/v1/auth/oauth/{provider}` | none | OAuth login |
 | GET | `/api/v1/auth/verify-email` | none | Email verification |
@@ -937,8 +937,8 @@ Served by the API on 8000 (the `src/gateway/` routers). Full semantics in
 | POST | `/webhook/inbound` | — | **no** | Retired: always 401 |
 | POST, GET, DELETE | `/api/v1/webhook-endpoints[/{id}]` | Bearer + company admin | yes | Register, list, revoke webhook endpoints |
 | POST | `/internal/event` | `X-Internal-Token` | **no** | Internal event ingress |
-| WS | `/stream/audio` | handshake `client_id` | — | Browser + telephony audio |
-| WS | `/stream/video` | handshake `client_id` | — | WebRTC video |
+| WS | `/stream/audio` | handshake `token` (URL token, scope `/stream/`) | — | Browser + telephony audio |
+| WS | `/stream/video` | handshake `token` (URL token, scope `/stream/`) | — | WebRTC video |
 | WS | `/webhooks/voice/tata/incoming` | — | — | Tata Tele media |
 | WS | `/stream/twilio/{session_id}` | — | — | Twilio Media Streams |
 | WS | `/stream/tata/{session_id}` | — | — | Tata Tele stream |
@@ -953,7 +953,7 @@ There is no catch-all route any more; until 2026-09-30 the gateway's
 |---|---|
 | `/internal/event` | `require_internal`: `X-Internal-Token` compared with `INTERNAL_TOKEN` in constant time; **401** otherwise, before the body is validated. **503** while `INTERNAL_TOKEN` is empty or a placeholder (the endpoint is disabled) |
 | `/webhook/inbound/{endpoint_id}` | The source's signature (or `X-HB-Signature`) under the endpoint's secret, else **401**; the tenant is the endpoint's company. Unknown or revoked endpoint, or a suspended company: **404** (GW-01, [13 §8](13-gateway-and-realtime.md#8-inbound-webhooks)) |
-| `/stream/audio`, `/stream/video` | Tenant taken from the handshake's `client_id`; the handshake `token` is never checked |
+| `/stream/audio`, `/stream/video` | The handshake's `token` must be a URL token for `/stream/`, else close **4401**; the tenant is the token's company, and a `client_id` naming another is **4403** (GW-04) |
 | `/api/v1/*` | The route's own dependencies — see [§4](#4-authentication) |
 
 Every HTTP route except the two ingress endpoints is rate limited at

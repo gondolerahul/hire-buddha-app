@@ -39,6 +39,7 @@ from typing import Any, Dict, Optional, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.gateway.dispatcher import get_dispatcher
+from src.gateway.stream_auth import stream_company
 
 logger = logging.getLogger(__name__)
 
@@ -412,10 +413,9 @@ async def unified_video_streaming(websocket: WebSocket):
             return
 
         provider = handshake.get("provider", "web")
-        client_id = handshake.get("client_id", "")
-
-        if not client_id:
-            await websocket.close(code=1003, reason="client_id required")
+        # The company is the stream token's, never the handshake's word (GW-04).
+        client_id = await stream_company(websocket, handshake)
+        if client_id is None:
             return
 
         # ── Step 2: Validate & resolve agent ──────────────────────────────────

@@ -1106,7 +1106,7 @@ graph TB
     subgraph EDGE["Zone 1 - API edge :8000 - no user auth here"]
         RESTP["/api/v1/* - enforced by route dependencies"]
         WH["/webhook/inbound/endpoint_id - endpoint signature ENFORCED"]
-        STREAM["/stream/audio and /stream/video - client_id query param"]
+        STREAM["/stream/audio and /stream/video - handshake URL token ENFORCED"]
         INTEP["/internal/event - X-Internal-Token ENFORCED"]
     end
 
@@ -1144,7 +1144,7 @@ graph TB
 Boundary notes:
 
 - **Zone 1 does not authorise REST.** Zones 1 and 2 are one process since the gateway merge; nothing in front of the routes checks a user. That was true of the gateway too (its middleware *"NOT blocked here for REST / Webhook paths"*) — the edge was never a security control.
-- **`/stream/*` takes `client_id` straight from the request** (the WebSocket handshake) with no verification at all. Webhooks no longer do: since GW-01 (2026-10-07) they arrive at `/webhook/inbound/{endpoint_id}`, signed with the endpoint's secret, and run for the endpoint's company ([webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py), [audio_gateway.py](../../backend/src/gateway/audio_gateway.py)). Webhook signature validation is best-effort and never blocks.
+- **Neither webhooks nor `/stream/*` take the tenant from the request any more.** The audio and video sockets require a URL token for `/stream/` in the handshake and use its company (GW-04, 2026-10-07). Webhooks: since GW-01 (2026-10-07) they arrive at `/webhook/inbound/{endpoint_id}`, signed with the endpoint's secret, and run for the endpoint's company ([webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py), [audio_gateway.py](../../backend/src/gateway/audio_gateway.py)). Webhook signature validation is best-effort and never blocks.
 - **There is no mTLS, no service mesh, no network policy in this code.** The only thing separating zone 3 from zone 0 is the shared secret and whatever the deployment's firewall does.
 
 ---
@@ -1511,7 +1511,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | 20 | ~~Gateway `JWT_SECRET` ≠ backend `SECRET_KEY`, so gateway JWT decode always fails silently.~~ Gone 2026-09-30 with the gateway and its `JWT_SECRET`. | — |
 | 21 | Tokens in `localStorage` — XSS-exposed. The `HttpOnly` refresh cookie already exists but is unused. | [api.client.ts:19](../../frontend/src/services/api.client.ts:19) |
 | 22 | Concurrent 401s each trigger their own refresh; rotation makes all but the first fail and force a logout. | [api.client.ts:35](../../frontend/src/services/api.client.ts:35) |
-| 23 | `/stream/*` takes `client_id` from an unverified handshake field (GW-04). *(Webhooks: fixed by GW-01 — signed, per-endpoint.)* | [webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py) |
+| 23 | ~~`/stream/*` takes `client_id` from an unverified handshake field~~ — fixed by GW-04 (handshake URL token); webhooks by GW-01. | [webhook_inbound.py](../../backend/src/gateway/webhook_inbound.py) |
 
 ### Low / hygiene
 

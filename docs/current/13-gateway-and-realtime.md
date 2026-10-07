@@ -163,8 +163,8 @@ auth dependency, not middleware — SA-18.) (On
 the gateway the auth middleware ran before CORS and its 401s carried no CORS
 headers.)
 
-Both are HTTP-only: WebSocket connections pass straight through — see
-[section 4.3](#43-the-websocket-blind-spot).
+Both are HTTP-only: WebSocket connections pass straight through, so the stream
+handlers check their own callers — see [section 4.3](#43-the-websocket-blind-spot).
 
 ### 2.3 Startup and shutdown lifecycle
 
@@ -276,7 +276,7 @@ The edge reaches the *voice* subsystem by importing it directly
 |------|--------------------|---------------------|
 | `/internal/event` | `X-Internal-Token` header compared with `settings.INTERNAL_TOKEN` in constant time (`require_internal`) | **Yes — 401**; **503** while `INTERNAL_TOKEN` is empty or a placeholder |
 | `/webhook/inbound/{endpoint_id}` | The source's signature (or the relay signature) under the endpoint's secret; the tenant is the endpoint's company (GW-01) | **Yes — 401**; 404 for an unknown or revoked endpoint or a suspended company |
-| `/stream/audio`, `/stream/video` | None beyond the handshake's `client_id` — **see 4.3** | No |
+| `/stream/audio`, `/stream/video` | The handshake's `token`: a URL token minted for `/stream/`; the company is the token's (GW-04, **see 4.3**) | **Yes — close 4401**; 4403 for a `client_id` naming another company |
 | `/api/v1/*` and everything else | The route's own dependencies (`get_current_user`, `RoleChecker`) — see [04](04-auth-rbac-tenancy.md) | Per route |
 
 ```python
@@ -297,389 +297,44 @@ and JWT-decoded every other bearer token with a separate `JWT_SECRET` to fill a
 `TenantContext` that no route read. It is deleted; the token check is the
 `require_internal` dependency above.
 
-### 4.3 The WebSocket blind spot
+### 4.3 The WebSocket blind spot — and how the stream handlers close it
 
 The HTTP middleware (`BaseHTTPMiddleware` subclasses and CORS) passes any scope
 whose type is not `"http"` straight through; WebSocket handshakes have
 `scope["type"] == "websocket"`. So nothing in front of the stream handlers checks
-anything, and the handlers do not compensate.
-[`audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) reads
-`token = handshake.get("token", "")` from the handshake JSON and then **never
-uses the variable**. [`video_gateway.py`](../../backend/src/gateway/video_gateway.py)
-does not even read it. The only gate on opening an audio or video session is that
-`client_id` resolves to some non-archived entity for that company:
+anything. Until 2026-10-07 the handlers did not compensate: `audio_gateway.py`
+read the handshake's `token` into a variable and never used it, and
+`video_gateway.py` did not read it, so a company's UUID in `client_id` was enough
+to open a live AI session billed to that company (GW-04).
+
+Now both handlers call [`stream_company`](../../backend/src/gateway/stream_auth.py)
+before anything else: the handshake's `token` must be a **URL token** minted for
+`/stream/` by `POST /api/v1/auth/url-token` (ten minutes, path-scoped, not a login —
+the same tokens FE-28 introduced for browser-loaded URLs). The company is the
+token's; a `client_id` naming another company is refused.
 
 ```mermaid
 flowchart LR
-    C["Client opens WS with client_id and token"] --> H["Handshake parsed"]
-    H --> T["token read into a variable"]
-    T -.never validated.-> X["ignored"]
-    H --> RA["dispatcher.resolve_agent_for_client client_id"]
+    C["Client opens WS, sends connect with token"] --> H["Handshake parsed"]
+    H --> T{"URL token for /stream/ - user active, tv current"}
+    T -->|no| R401["error unauthorized, close 4401"]
+    T -->|yes| CID{"client_id absent or the token's company"}
+    CID -->|no| R403["error forbidden, close 4403"]
+    CID -->|yes| RA["dispatcher.resolve_agent_for_client token's company"]
     RA -->|agent found| OK["Session created"]
     RA -->|none| CLOSE["close 1008 no agent"]
 ```
 
-Anyone who knows a company UUID can open a streaming session. Treat this as a
-known gap, not a design; do not build on the assumption that the token is checked.
-CORS also does not apply to WebSockets, so browser origin is not restricted either.
-(`/mobile/ws` is different: it authenticates the access token in its first
-message and closes with 4001 otherwise.)
-
----
-
-## 5. The former REST proxy
-
-Interface 1 used to be a catch-all reverse proxy in the gateway,
-`@app.api_route("/{path:path}")`, forwarding everything the gateway did not serve
-itself to `BACKEND_URL` (port 8000) over httpx. It is gone; the SPA's REST calls
-reach the API's routers directly. What it did, and what its removal changed:
-
-| Proxy behaviour | Now |
-|-----------------|-----|
-| Declared last because FastAPI matches in order — any route added below it was silently proxied and 404'd (SA-16) | No catch-all; route order does not matter |
-| SSE relayed unbuffered only when the path ended in `/stream` or the client sent `Accept: text/event-stream`; otherwise buffered until a 60 s read timeout and answered 503 (SA-17) | The API streams the response itself. It sends the `Cache-Control: no-cache` and `X-Accel-Buffering: no` headers the relay used to add |
-| 60 s read timeout on every other request | No application timeout; Apache's applies |
-| Followed backend redirects server-side (`follow_redirects=True`), so the browser never saw one | The browser receives the redirect. Apache sets `X-Forwarded-Proto: https` on the SSL vhosts so it keeps the `https` scheme |
-| Read the whole body into memory and re-sent it; copied upstream headers verbatim | Nothing in between |
-| `503 {"error": "Backend unavailable"}` when port 8000 was down | Apache's 503 when the API is down |
-| slowapi limit on the proxy route only | The same limit on every REST route via `SlowAPIMiddleware` |
-
----
-
-## 6. Agent resolution (the former dispatcher)
-
-[`dispatcher.py`](../../backend/src/gateway/dispatcher.py) keeps the name
-`CentralDispatcher`, but since SA-09 its only job is picking the agent a
-streaming session talks to. It used to drain the in-process event bus, enqueue
-`process_gateway_event`, and — when arq was unreachable — run a whole AgentLoop
-inside the web process. The ingress endpoints now queue their own events
-([section 7](#7-queuing-inbound-events-and-internal-events)).
-
-### 6.1 Agent resolution and its cache
-
-Audio and video handshakes call `resolve_agent_for_client`. It is Redis-cached
-for 5 minutes under `gateway:agent:{client_id}:{channel}`:
-
-```mermaid
-sequenceDiagram
-    participant WS as Audio or video handler
-    participant D as CentralDispatcher
-    participant R as Redis
-    participant PG as PostgreSQL
-
-    WS->>D: resolve_agent_for_client client_id, channel
-    D->>R: GET gateway:agent:client:channel
-    alt cache hit
-        R-->>D: JSON agent_info
-        D-->>WS: agent_info
-    else miss
-        D->>PG: SELECT HierarchicalEntity WHERE company_id AND status != ARCHIVED LIMIT 1
-        PG-->>D: entity or none
-        alt none
-            D-->>WS: None -> handler closes WS 1008
-        else found
-            D->>R: SETEX gateway:agent:... 300 json
-            D-->>WS: agent_id, company_id, name, channel
-        end
-    end
-```
-
-The `LIMIT 1` with no `ORDER BY` is important: **which** agent answers a call for
-a multi-agent tenant is whatever Postgres returns first. The same pattern
-appears in `process_gateway_event`. Route deliberately by passing `entity_id` in
-the webhook payload or query string.
-
-### 6.2 Lifecycle
-
-The API's `lifespan` calls `start()` (connect the Redis cache — optional; without
-it every lookup hits Postgres) and `stop()` (close it). There is no background
-task any more.
-
----
-
-## 7. Queuing inbound events and internal events
-
-### 7.1 Queued before the 202
-
-`POST /webhook/inbound` and `POST /internal/event` build an `EventEnvelope`
-and call [`queue_event`](../../backend/src/gateway/envelope.py), which enqueues
-a `process_gateway_event` arq job — **before** the endpoint answers:
-
-| Outcome | Response |
-|---------|----------|
-| Redis took the job | `202` with the `correlation_id` |
-| Redis unreachable | `503 {"status": "unavailable", ...}` — the provider retries |
-| No `client_id` (webhook) | `400` — the worker would drop a tenant-less event |
-
-```mermaid
-flowchart TB
-    subgraph API["API process"]
-        WH["POST /webhook/inbound handler"] --> ENV["EventEnvelope"]
-        IE["POST /internal/event handler"] --> ENV
-        HLP["emit_internal_event helper - API or worker"] --> ENV
-        ENV --> Q["queue_event - enqueue_job process_gateway_event"]
-    end
-    Q -->|"job in Redis, then 202"| RQ[("Redis - arq queue")]
-    Q -.->|"Redis down: 503"| X["caller retries"]
-    RQ --> WORK["Arq worker - process_gateway_event"]
-    WORK --> DB[("PostgreSQL")]
-```
-
-Until SA-09 (2026-09-30) the endpoints answered 202 first and published the
-envelope to an `InMemoryEventBus` — an `asyncio.Queue` inside the process — from
-a Starlette background task; the dispatcher drained it and enqueued the job. A
-restart in between lost the event without a trace, an event published while the
-dispatcher was not subscribed was counted as "dropped", a full queue (1000)
-dropped events too, and when arq failed the dispatcher ran the AgentLoop
-in-process, on the same event loop as live audio. The bus, its
-`EVENT_BUS_MAXSIZE` setting and its counters on `/metrics/gateway` are gone.
-
-The arq job is the durable hand-off: once it is in Redis it survives an API
-restart and is retried by the worker.
-
-### 7.2 The envelope
-
-Everything queued is one shape,
-[`EventEnvelope`](../../backend/src/gateway/envelope.py):
-
-```mermaid
-classDiagram
-    class EventEnvelope {
-        +str channel
-        +str source
-        +str client_id
-        +str event_type
-        +dict raw_data
-        +dict metadata
-        +str id
-        +str timestamp
-        +to_dict() dict
-        +from_dict(data) EventEnvelope
-    }
-```
-
-| Field | Meaning | Example |
-|-------|---------|---------|
-| `channel` | Which interface produced it | `"webhook"`, `"internal"` |
-| `source` | Originating system | `"email"`, `"crm"`, `"github"`, `"vector_db"`, `"cron"`, `"agent:abc123"` |
-| `client_id` | Tenant / company UUID string | `"3f7c…"` |
-| `event_type` | Dot-namespaced type | `"new_email"`, `"github.push"`, `"timer.daily_summary"` |
-| `raw_data` | Normalised payload from the strategy | provider-specific dict |
-| `metadata` | Correlation, priority, request headers | `{"correlation_id": "...", "priority": 5}` |
-| `id` | Correlation id — reused as the envelope id | UUID4 string |
-| `timestamp` | ISO-8601 UTC at construction | `"2026-08-13T09:12:44.101+00:00"` |
-
-`to_dict()` is what goes into the arq job; `process_gateway_event` reads it back.
-
-### 7.3 `/internal/event` — Interface 3
-
-A typed, authenticated endpoint for other parts of the platform to push events in.
-
-| Field | Type | Required | Constraint |
-|-------|------|----------|-----------|
-| `event_type` | str | yes | dot-namespaced |
-| `client_id` | str | yes | company/tenant UUID, non-empty |
-| `source` | str | yes | e.g. `vector_db`, `cron`, `agent:<uuid>` |
-| `payload` | dict | no | arbitrary JSON, default `{}` |
-| `priority` | int | no | 1–10, default 5. Carried in `metadata` only — **nothing reads it** |
-| `correlation_id` | str | no | echoed back; auto-UUID4 if omitted |
-
-Well-known types are collected in
-[`WellKnownEvents`](../../backend/src/gateway/internal_event.py):
-`doc_indexed`, `timer.daily_summary`, `timer.weekly_report`, `agent.signal`,
-`campaign.done`, `build.done`. These are constants only — no handler switches on
-them; `process_gateway_event` treats everything except `sheet.row_inserted` the
-same way.
-
-```mermaid
-sequenceDiagram
-    participant SVC as Internal service
-    participant EP as POST /internal/event
-    participant RQ as Redis arq queue
-    participant W as Arq worker
-
-    SVC->>EP: POST /internal/event with X-Internal-Token
-    EP->>EP: require_internal - constant-time compare
-    alt token mismatch
-        EP-->>SVC: 401
-    else token ok
-        EP->>EP: validate body, correlation_id = provided or uuid4
-        EP->>RQ: enqueue_job process_gateway_event
-        alt queued
-            EP-->>SVC: 202 queued=true
-        else Redis down
-            EP-->>SVC: 503 queued=false
-        end
-        RQ->>W: process_gateway_event
-    end
-```
-
-There is also a direct helper,
-[`emit_internal_event`](../../backend/src/gateway/internal_event.py), that
-skips HTTP and the token and calls the same `queue_event`, so it works from the
-API or the worker. **Nothing calls it** yet.
-
----
-
-## 8. Inbound webhooks
-
-Interface 2 is `POST /webhook/inbound/{endpoint_id}`. Since 2026-10-07 (GW-01) a
-webhook is accepted only at an endpoint a company's admin registered, and only
-when it is signed with that endpoint's secret. Before, the single route
-`POST /webhook/inbound` took the tenant from `?client_id=`, picked the provider
-from the request's own headers, ran signature checks that all returned `True`,
-and processed the event even if one had returned `False`: anyone who could reach
-it could run any tenant's agents. That route now answers **401**.
-
-### 8.1 Endpoints
-
-An endpoint is a `webhook_endpoints` row
-([`gateway/models.py`](../../backend/src/gateway/models.py)): the company, the
-source, the secret (encrypted with `common.security.encrypt_api_key`) and,
-optionally, the agent its events run. Company admins manage them:
-
-| Method | Path | Who | Purpose |
-|--------|------|-----|---------|
-| `POST` | `/api/v1/webhook-endpoints` | `tenant_admin`, `partner_admin`, `app_admin` | Register `{source, name, entity_id?, secret?}`. The response carries the `url` and the `secret` — **the only time the secret is shown**. A provider that issues its own signing secret (Meta app secret, Twilio auth token, LinkedIn/TikTok client secret, a GitHub webhook secret you chose) is registered with it; otherwise one is generated |
-| `GET` | `/api/v1/webhook-endpoints` | same | The company's endpoints, without secrets |
-| `DELETE` | `/api/v1/webhook-endpoints/{id}` | same | Revoke; the URL then answers 404 |
-
-The endpoint's `entity_id` must be the company's own agent (404 otherwise). The
-inbound route records `last_received_at` on each accepted event.
-
-### 8.2 Signatures — one scheme per source
-
-The endpoint names the source, so the scheme is never chosen from the request.
-[`gateway/webhook_signatures.py`](../../backend/src/gateway/webhook_signatures.py)
-checks, in constant time:
-
-| `source` | Native scheme | Normaliser → `event_type` |
-|----------|---------------|---------------------------|
-| `github` | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256(body)>` | `github.<X-GitHub-Event>` |
-| `facebook`, `instagram` | `X-Hub-Signature-256` with the Meta app secret | `facebook.<object>`, `instagram.webhook` |
-| `linkedin` | `X-LI-Signature: <hex HMAC-SHA256(body)>` (an `hmacsha256=` prefix is allowed) | payload `type` or `linkedin.event` |
-| `twitter` | `X-Twitter-Webhooks-Signature: sha256=<base64 HMAC-SHA256(body)>` | `twitter.<*_events key>` |
-| `tiktok` | `TikTok-Signature: t=<unix>,s=<hex HMAC-SHA256("t.body")>`, at most 5 minutes old | `tiktok.<event>` |
-| `youtube` | WebSub `X-Hub-Signature: sha1=<hex HMAC-SHA1(body)>` | `youtube.video.published` |
-| `twilio` | `X-Twilio-Signature: <base64 HMAC-SHA1(URL + sorted form fields)>` (form posts) | `twilio.<EventType>` |
-| `email` | Mailgun's body signature: hex HMAC-SHA256 of `timestamp + token`, at most 5 minutes old | `new_email` |
-| `crm` | HubSpot v3: `X-HubSpot-Signature-v3` over method + URL + body + timestamp, at most 5 minutes old | `subscriptionType` / `crm_event` / `crm_update` |
-| `pinterest`, `generic` | relay signature only | `pinterest.<event>`; `?event_type=` or payload `type` |
-
-Every source also accepts the **relay signature**
-`X-HB-Signature: sha256=<hex HMAC-SHA256 of the raw body>` with the endpoint's
-secret — for providers that cannot sign natively (SendGrid, Postmark, Salesforce,
-a Google Sheet's Apps Script) or that post through a relay (n8n, Zapier).
-
-```mermaid
-flowchart TD
-    IN["POST /webhook/inbound/endpoint_id"] --> LOAD{"active endpoint of an active company"}
-    LOAD -->|no| R404["404 - nothing queued"]
-    LOAD -->|yes| BODY["read raw body; payload = JSON, else form fields"]
-    BODY --> SIG{"source's scheme or relay signature valid"}
-    SIG -->|no| R401["401 + gateway.webhook.signature_failed - nothing queued"]
-    SIG -->|yes| DUP{"delivery already taken in 24 h"}
-    DUP -->|yes| R200["200 duplicate - nothing queued"]
-    DUP -->|no| NORM["source's normaliser -> event_type, normalized_data"]
-    NORM --> ENV["EventEnvelope: client_id = endpoint's company, metadata.entity_id = endpoint's agent"]
-    ENV --> QE["queue_event - enqueue process_gateway_event"]
-    QE -->|queued| R202["202 accepted with correlation_id, source, event_type"]
-    QE -->|Redis down| R503["503 - provider retries"]
-```
-
-A company that is suspended, a revoked endpoint, or a secret that does not decrypt
-all answer 404 — the request is refused, never let through.
-
-### 8.3 Idempotency — one run per delivery
-
-Since 2026-10-07 (GW-03) a delivery is claimed in Redis before it is queued:
-`SET webhook:delivery:<endpoint>:<delivery> NX EX 86400`. The delivery is the
-provider's own id where it sends one — `X-GitHub-Delivery`, Twilio's
-`I-Twilio-Idempotency-Token`, or a relay's `X-HB-Delivery` — and otherwise the
-SHA-256 of the raw body. A delivery the endpoint has already taken in the last 24
-hours answers **200 `duplicate`** and is not queued, so a provider's retry stops and
-nothing runs twice. The claim is made only after the signature passes (a forged
-request cannot use one up) and is released if the enqueue then fails, so the
-provider's retry of a 503 still runs. If Redis cannot be asked, the answer is 503,
-never a second run. Two different events with byte-identical bodies and no
-delivery id within 24 hours count as one — send `X-HB-Delivery` if that can happen.
-
-(The in-process fallback once routed CRM `lead.created` events into a
-deduplicated `lead_queue`; that path was deleted with the undrained lead queue,
-SA-08.)
-
-### 8.4 Sequence — a HubSpot lead webhook end to end
-
-```mermaid
-sequenceDiagram
-    participant HS as HubSpot
-    participant AP as Apache
-    participant GW as API
-    participant ST as CRMWebhookStrategy
-    participant RQ as Redis arq
-    participant W as Arq worker
-
-    HS->>AP: POST /webhook/inbound/ENDPOINT with X-HubSpot-Signature-v3
-    AP->>GW: forwarded
-    GW->>GW: load the endpoint - company, source crm, secret
-    GW->>GW: verify HubSpot v3 signature, else 401
-    GW->>ST: normalize -> event_type, phone, entity_id, properties
-    GW->>RQ: enqueue_job process_gateway_event EventEnvelope
-    RQ-->>GW: job stored
-    GW-->>HS: 202 accepted with correlation_id
-    RQ->>W: worker picks up job
-    W->>W: resolve entity, create ExecutionRun, run AgentLoop
-```
-
-The `202` is returned only **after** the job is in Redis: a provider that sees it
-knows the event survives an API restart. If Redis cannot take it the provider
-gets a 503 and retries (SA-09). What the `202` still does not promise is that the
-run succeeded. A retried delivery is answered 200 `duplicate` and does not run twice (section 8.3).
-
-### 8.5 Adding a provider
-
-1. Add the source to `WEBHOOK_SOURCES` in
-   [`gateway/models.py`](../../backend/src/gateway/models.py), the endpoint
-   API's `Source` literal and the `ck_webhook_endpoints_source` check (a
-   migration).
-2. Add its signature check to `SIGNERS` in
-   [`webhook_signatures.py`](../../backend/src/gateway/webhook_signatures.py) —
-   or none, if it signs only through a relay.
-3. Add a `WebhookStrategy` with that `source` and a `normalize` to
-   [`webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) and to
-   `STRATEGIES`.
-4. `tests/unit/test_webhook_signatures.py` fails until the source has a check
-   and a signed sample.
-
----
-
-## 9. Browser audio over WebSocket
-
-Interface 4 is one endpoint, `WS /stream/audio`, serving four providers. Three of
-them are telephony and are covered in [12 — Voice & telephony](12-voice-and-telephony.md);
-the interesting one here is `web`, the browser microphone path.
-
-| `provider` value | Wire format | Handler |
-|------------------|-------------|---------|
-| `twilio` | base64 mulaw inside JSON events | [`TwilioStreamHandler`](../../backend/src/voice/websocket_handler.py) |
-| `tata_tele` | Twilio-compatible | `TwilioStreamHandler` |
-| `exotel` | Twilio-compatible | `TwilioStreamHandler` |
-| `web` | raw PCM16 binary frames | [`WebAudioAdapter`](../../backend/src/gateway/web_audio_adapter.py) |
-
-### 9.1 Connection and handshake
-
-Connection URL: `wss://gateway.hirebuddha.com/stream/audio` — no path params, no
-query params required (the middleware's `?client_id=` branch does not run for
-WebSockets anyway).
-
-The first frame **must** be a JSON text frame:
+The telephony streams (`/stream/twilio/{session_id}`, `/stream/tata/{session_id}`)
+are opened by the provider, not a user: they serve only an existing voice session,
+whose id is an unguessable UUID the call webhook hands the provider.
 
 ```json
 {
   "event": "connect",
   "provider": "web",
-  "client_id": "<company_uuid>",
-  "token": "<ignored — see section 4.3>",
+  "client_id": "<optional; must be the token's company>",
+  "token": "<a URL token for /stream/ — see section 4.3>",
   "metadata": {
     "session_id": "<optional: resume an existing VoiceSession>",
     "direction": "inbound",
@@ -714,7 +369,8 @@ Close codes used during handshake:
 |------|---------------|---------|
 | `1003` | `Invalid handshake JSON` | first frame not parseable |
 | `1003` | `First message must be {event: 'connect'}` | wrong `event` value |
-| `1003` | `client_id required in handshake` | missing tenant |
+| `4401` | `A stream token is required…` | no `token`, or not a URL token for `/stream/` (GW-04) |
+| `4403` | `client_id is not the token's company` | `client_id` names another company |
 | `1003` | `Unsupported provider: <p>` | not in `AUDIO_PROVIDER_ADAPTERS` |
 | `1008` | `No agent found for client` | `resolve_agent_for_client` returned `None` |
 
