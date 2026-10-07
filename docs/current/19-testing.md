@@ -325,7 +325,7 @@ the single most important thing to understand about async testing here.
 | `_engine` | function | Async engine, skips if DB unreachable |
 | `db` | function | `AsyncSession` in a transaction, rolled back at teardown |
 | `test_company_id` | function | A throwaway `TENANT` company row |
-| `mock_llm` | function | `MockLLMRouter()` |
+| `mock_llm` | function | `MockLLMRouter()` from `tests/harness` |
 
 `test_company_id` inserts via raw SQL and returns the UUID:
 
@@ -815,14 +815,11 @@ change `HierarchicalEntityCreate`, every fixture must still validate.
 | `load_meta_input(name)` | Meta-Agent input dict |
 | `list_entity_fixtures()` | Names of every entity fixture on disk |
 
-`tests/fixtures/llm_fixture.py` (111 lines) additionally exposes
-`MockLLMRouter`, `deterministic_embedding` and `cosine_similarity` — the
-integration conftest imports from there rather than from `harness/`.
-
-> ⚠️ There are **two** `MockLLMRouter` definitions — one in
-> `tests/harness/mock_llm.py` and one re-exported from
-> `tests/fixtures/llm_fixture.py`. Check which one your conftest imports before
-> assuming behaviour.
+`tests/fixtures/llm_fixture.py` additionally exposes `deterministic_embedding`
+and `cosine_similarity`. The one LLM double is `tests/harness/mock_llm.py`'s
+`MockLLMRouter`; the integration conftest's `mock_llm` fixture returns it.
+(A second `MockLLMRouter` with a different interface lived in `llm_fixture.py`
+until 2026-10-07 — TS-13; `tests/unit/test_one_mock_llm_router.py` keeps it to one.)
 
 ---
 
@@ -1156,7 +1153,7 @@ are caught).
 | [tests/harness/mock_llm.py](../../backend/tests/harness/mock_llm.py) | 183 | `MockLLMRouter`, `MockLLMResponse` |
 | [tests/integration/conftest.py](../../backend/tests/integration/conftest.py) | 127 | DB engine, SAVEPOINT session, `test_company_id`, `mock_llm` |
 | [tests/parity/conftest.py](../../backend/tests/parity/conftest.py) | 124 | Engine adapters, autouse hermetic patches |
-| [tests/fixtures/llm_fixture.py](../../backend/tests/fixtures/llm_fixture.py) | 111 | `MockLLMRouter`, `deterministic_embedding`, `cosine_similarity` |
+| [tests/fixtures/llm_fixture.py](../../backend/tests/fixtures/llm_fixture.py) | 46 | `deterministic_embedding`, `cosine_similarity` |
 | [tests/harness/embeddings.py](../../backend/tests/harness/embeddings.py) | 75 | Deterministic embedding doubles |
 | [tests/harness/__init__.py](../../backend/tests/harness/__init__.py) | 62 | Re-exports |
 | [tests/harness/fixtures.py](../../backend/tests/harness/fixtures.py) | 59 | Entity / meta-input loaders |
@@ -1208,8 +1205,8 @@ are caught).
 
 12. **Parity ignores wall-clock time** by design — mock timing is noise.
 
-13. **Two `MockLLMRouter` definitions exist** — `tests/harness/mock_llm.py` and
-    `tests/fixtures/llm_fixture.py`. Check which your conftest imports.
+13. ~~**Two `MockLLMRouter` definitions exist**~~ — one since 2026-10-07 (TS-13),
+    in `tests/harness/mock_llm.py`.
 
 14. **An unmocked LLM call returns a `STUB:` response, not an error.** If output
     looks wrong, grep it for `STUB:`.

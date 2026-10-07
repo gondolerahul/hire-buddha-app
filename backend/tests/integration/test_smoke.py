@@ -2,7 +2,7 @@
 
 Single asserts to prove the conftest fixtures wire up:
   * The DB session works and rolls back at teardown.
-  * MockLLMRouter returns the default response when no fixture matches.
+  * MockLLMRouter answers an unmatched prompt with a marked stub.
   * deterministic_embedding is stable across calls.
 """
 from __future__ import annotations
@@ -25,8 +25,8 @@ async def test_mock_llm_returns_default(mock_llm) -> None:
         system_prompt="x",
         user_prompt="y",
     )
-    assert resp.model_name == "mock-model"
-    assert resp.provider == "mock"
+    assert resp.metadata.get("stub") is True
+    assert resp.model_provider == "mock"
     assert mock_llm.calls and mock_llm.calls[0]["task_type"] == "text_generation"
 
 

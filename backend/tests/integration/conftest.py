@@ -116,8 +116,9 @@ async def test_company_id(db) -> UUID:
 
 
 from tests.fixtures.llm_fixture import (  # noqa: E402 (after pytest imports)
-    MockLLMRouter, deterministic_embedding, cosine_similarity,
+    deterministic_embedding, cosine_similarity,
 )
+from tests.harness import MockLLMRouter  # noqa: E402
 
 
 @pytest.fixture

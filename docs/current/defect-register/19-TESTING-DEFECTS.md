@@ -39,10 +39,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 0 | 1 | 2 | 1 |
 | [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 1 | 1 | 2 | 0 |
-| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 2 | 0 | 3 | 0 |
+| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 3 | 0 | 2 | 0 |
 | [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 0 | 0 | 5 | 1 |
 
-**Total: 19 defects (3 fixed, 2 partly fixed, 12 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (4 fixed, 2 partly fixed, 11 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -58,7 +58,7 @@
 | TS-10 | The `kpi` marker and its CI step | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-11 | The `needs_redis` marker | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-12 | `backend/tests/phase9/` | ✅ fixed (2026-10-07) | — |
-| TS-13 | One of the two `MockLLMRouter` classes | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| TS-13 | One of the two `MockLLMRouter` classes | ✅ fixed (2026-10-07) | — |
 | TS-14 | `@pytest.mark.integration` is used and not registered | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-15 | Marker usage is far below marker registration | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-16 | The parity suite leaves tenants behind | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
@@ -256,7 +256,7 @@ So the frontend has two test files that cannot execute and would not compile.
 | **TS-10** | The `kpi` marker and its CI step | Registered in `pytest.ini`, used **0 times**, and `backend/tests/kpi/` does not exist. Both the marker and the CI lane are placeholders | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | **TS-11** | The `needs_redis` marker | Registered, used **0 times** | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | **TS-12** | `backend/tests/phase9/` | Two legacy scripts, **no pytest tests**. Also violates the canary-label ban that `lint_ai_layout.py` enforces on `src/ai/` | 📄 Doc-reported · **fixed (2026-10-07)** — deleted; neither script was a test or was referenced (`19-testing.md` §12) |
-| **TS-13** | One of the two `MockLLMRouter` classes | Defined in both [`tests/harness/mock_llm.py`](../../../backend/tests/harness/mock_llm.py) and [`tests/fixtures/llm_fixture.py`](../../../backend/tests/fixtures/llm_fixture.py). Which one a test gets depends on its conftest | ✅ Verified · **open** (re-verified 2026-10-07) — both classes still exist · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| **TS-13** | One of the two `MockLLMRouter` classes | Defined in both [`tests/harness/mock_llm.py`](../../../backend/tests/harness/mock_llm.py) and [`tests/fixtures/llm_fixture.py`](../../../backend/tests/fixtures/llm_fixture.py). Which one a test gets depends on its conftest | ✅ Verified · **fixed (2026-10-07)** — one double, `tests/harness/mock_llm.py`; `tests/fixtures/llm_fixture.py` keeps only the embedding helpers, and the integration `mock_llm` fixture returns the harness router. `tests/unit/test_one_mock_llm_router.py` |
 
 ---
 
