@@ -1,7 +1,8 @@
 """A registered webhook endpoint without a database, for the ingress unit tests.
 
-``bind_endpoint`` makes ``load_endpoint`` return one endpoint for one id;
-``relay_headers`` signs a body the way a relay does (``X-HB-Signature``).
+``bind_endpoint`` makes ``load_endpoint`` return one endpoint for one id and
+gives the delivery check an in-memory Redis; ``relay_headers`` signs a body the
+way a relay does (``X-HB-Signature``).
 """
 from __future__ import annotations
 
@@ -31,7 +32,25 @@ def bind_endpoint(monkeypatch, *, source: str = "crm", company_id: uuid.UUID | N
 
     monkeypatch.setattr(webhook_inbound, "load_endpoint", load)
     monkeypatch.setattr(webhook_inbound, "_mark_received", mark)
+    redis = MemoryRedis()
+    monkeypatch.setattr(webhook_inbound, "shared_redis", lambda: redis)
     return endpoint
+
+
+class MemoryRedis:
+    """``SET NX EX`` and ``DELETE`` — what the delivery check uses."""
+
+    def __init__(self) -> None:
+        self.keys: dict[str, str] = {}
+
+    async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None):
+        if nx and key in self.keys:
+            return None
+        self.keys[key] = value
+        return True
+
+    async def delete(self, key: str) -> int:
+        return 1 if self.keys.pop(key, None) is not None else 0
 
 
 def relay_headers(body: bytes, secret: str = SECRET) -> dict[str, str]:

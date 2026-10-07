@@ -578,7 +578,9 @@ flowchart TD
     LOAD -->|yes| BODY["read raw body; payload = JSON, else form fields"]
     BODY --> SIG{"source's scheme or relay signature valid"}
     SIG -->|no| R401["401 + gateway.webhook.signature_failed - nothing queued"]
-    SIG -->|yes| NORM["source's normaliser -> event_type, normalized_data"]
+    SIG -->|yes| DUP{"delivery already taken in 24 h"}
+    DUP -->|yes| R200["200 duplicate - nothing queued"]
+    DUP -->|no| NORM["source's normaliser -> event_type, normalized_data"]
     NORM --> ENV["EventEnvelope: client_id = endpoint's company, metadata.entity_id = endpoint's agent"]
     ENV --> QE["queue_event - enqueue process_gateway_event"]
     QE -->|queued| R202["202 accepted with correlation_id, source, event_type"]
@@ -588,12 +590,19 @@ flowchart TD
 A company that is suspended, a revoked endpoint, or a secret that does not decrypt
 all answer 404 — the request is refused, never let through.
 
-### 8.3 Idempotency — there is none
+### 8.3 Idempotency — one run per delivery
 
-Each delivery generates a fresh `correlation_id = str(uuid.uuid4())`. There is no
-delivery-id header check, no `SETNX` in Redis, no dedup table. A provider that
-retries (all of them do) produces a second envelope, a second arq job and a
-second `ExecutionRun`.
+Since 2026-10-07 (GW-03) a delivery is claimed in Redis before it is queued:
+`SET webhook:delivery:<endpoint>:<delivery> NX EX 86400`. The delivery is the
+provider's own id where it sends one — `X-GitHub-Delivery`, Twilio's
+`I-Twilio-Idempotency-Token`, or a relay's `X-HB-Delivery` — and otherwise the
+SHA-256 of the raw body. A delivery the endpoint has already taken in the last 24
+hours answers **200 `duplicate`** and is not queued, so a provider's retry stops and
+nothing runs twice. The claim is made only after the signature passes (a forged
+request cannot use one up) and is released if the enqueue then fails, so the
+provider's retry of a 503 still runs. If Redis cannot be asked, the answer is 503,
+never a second run. Two different events with byte-identical bodies and no
+delivery id within 24 hours count as one — send `X-HB-Delivery` if that can happen.
 
 (The in-process fallback once routed CRM `lead.created` events into a
 deduplicated `lead_queue`; that path was deleted with the undrained lead queue,
@@ -625,7 +634,7 @@ sequenceDiagram
 The `202` is returned only **after** the job is in Redis: a provider that sees it
 knows the event survives an API restart. If Redis cannot take it the provider
 gets a 503 and retries (SA-09). What the `202` still does not promise is that the
-run succeeded — or that a retried delivery will not run twice (section 8.3).
+run succeeded. A retried delivery is answered 200 `duplicate` and does not run twice (section 8.3).
 
 ### 8.5 Adding a provider
 
@@ -1522,7 +1531,8 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
   variable and never validated.
 - ~~**No webhook signature is verified.**~~ Since 2026-10-07 (GW-01) a webhook is
   accepted only at a registered endpoint and only signed with its secret; §8.
-- **No webhook idempotency.** Provider retries create duplicate executions.
+- ~~**No webhook idempotency.**~~ A retried delivery is acknowledged and not run
+  again since 2026-10-07 (GW-03); §8.3.
 - **`@app.on_event` handlers never fire** on the API: it passes a custom
   `lifespan`. Put startup and shutdown work in `lifespan` in `main.py`.
 - **Rate limiting covers every REST route** through `SlowAPIMiddleware`, except

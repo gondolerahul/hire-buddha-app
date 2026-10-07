@@ -169,3 +169,17 @@ async def test_an_unknown_source_is_422(db, world):
     async with _client(db, "tenant_admin", world.mine) as c:
         r = await c.post("/api/v1/webhook-endpoints", json={"source": "carrier-pigeon", "name": "x"})
         assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_retried_delivery_runs_once(db, world):
+    # Real Redis: the delivery check is SET NX on the local Redis (GW-03).
+    async with _client(db, "tenant_admin", world.mine) as c:
+        created = (await c.post("/api/v1/webhook-endpoints",
+                                json={"source": "generic", "name": "retries"})).json()
+        body, headers = _signed(created["secret"], {"type": "lead.created", "nonce": uuid.uuid4().hex})
+        first = await c.post(f"/webhook/inbound/{created['id']}", content=body, headers=headers)
+        again = await c.post(f"/webhook/inbound/{created['id']}", content=body, headers=headers)
+        assert first.status_code == 202, first.text
+        assert again.status_code == 200 and again.json()["status"] == "duplicate"
+        assert len(world.queued) == 1

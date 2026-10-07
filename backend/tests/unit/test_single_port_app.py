@@ -182,7 +182,7 @@ async def test_rest_is_rate_limited_and_webhooks_are_not(monkeypatch):
 
     monkeypatch.setattr(envelope_module, "enqueue_job", queued)
     endpoint = bind_endpoint(monkeypatch, source="generic")
-    body, headers = signed_json({"type": "x"})
-    for _ in range(3):
+    for n in range(3):
+        body, headers = signed_json({"type": "x", "n": n})   # three deliveries, not one retried
         resp = await _request("POST", f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
         assert resp.status_code == 202

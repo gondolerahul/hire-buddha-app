@@ -7,9 +7,12 @@ the secret, so:
   1. the request is checked with that source's signature scheme
      (``gateway.webhook_signatures``) — a missing or wrong signature is a 401 and
      nothing is queued (GW-01);
-  2. the source's normaliser turns the body into a standard EventEnvelope for the
+  2. a delivery the endpoint has already taken in the last 24 hours (the
+     provider's delivery id, else the body's hash) is acknowledged with 200
+     ``duplicate`` and not run again (GW-03);
+  3. the source's normaliser turns the body into a standard EventEnvelope for the
      endpoint's company — never one named in the request;
-  3. it is queued as a process_gateway_event arq job (src/gateway/envelope.py),
+  4. it is queued as a process_gateway_event arq job (src/gateway/envelope.py),
      and the answer is 202 only once Redis has the job — 503 otherwise, so the
      provider retries (SA-09).
 
@@ -22,6 +25,7 @@ in ``webhook_signatures.SIGNERS``.
 # No ``from __future__ import annotations``: the endpoints are wrapped by
 # ``limiter.exempt``, and FastAPI would resolve string annotations against the
 # wrapper's module (slowapi), turning ``request: Request`` into a query param.
+import hashlib
 import logging
 import uuid
 from dataclasses import dataclass
@@ -36,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.database import get_db
 from src.common.rate_limit import limiter
+from src.common.redis_client import shared_redis
 from src.gateway.envelope import EventEnvelope, queue_event
 from src.gateway.webhook_signatures import SignedRequest, verify_signature
 
@@ -329,6 +334,49 @@ async def _mark_received(db: AsyncSession, endpoint_id: UUID) -> None:
                        exc_info=True)
 
 
+# ===========================================================================
+# Deliveries — each is processed once (GW-03)
+# ===========================================================================
+
+# How long a delivery is remembered. Providers retry within minutes to hours.
+DELIVERY_TTL_SECONDS = 24 * 60 * 60
+
+# The header a source puts its own delivery id in; any source may also send
+# ``X-HB-Delivery`` (a relay's id). Without one, the body's hash is the id.
+_DELIVERY_HEADERS = {
+    "github": "x-github-delivery",
+    "twilio": "i-twilio-idempotency-token",
+}
+
+
+def delivery_id(source: str, headers: dict, body: bytes) -> str:
+    """What identifies one delivery of one event, retries included."""
+    for header in (_DELIVERY_HEADERS.get(source), "x-hb-delivery"):
+        if header and headers.get(header):
+            return "id:" + headers[header]
+    return "body:" + hashlib.sha256(body).hexdigest()
+
+
+def _delivery_key(endpoint_id: UUID, delivery: str) -> str:
+    return f"webhook:delivery:{endpoint_id}:{delivery}"
+
+
+async def claim_delivery(endpoint_id: UUID, delivery: str) -> bool:
+    """True the first time a delivery is seen in ``DELIVERY_TTL_SECONDS``."""
+    claimed = await shared_redis().set(_delivery_key(endpoint_id, delivery), "1",
+                                       nx=True, ex=DELIVERY_TTL_SECONDS)
+    return bool(claimed)
+
+
+async def release_delivery(endpoint_id: UUID, delivery: str) -> None:
+    """Forget a claimed delivery whose event was not queued, so its retry runs."""
+    try:
+        await shared_redis().delete(_delivery_key(endpoint_id, delivery))
+    except Exception:
+        logger.warning("[WebhookRouter] Could not release delivery %s for %s", delivery,
+                       endpoint_id, exc_info=True)
+
+
 def _rejected(status_code: int, correlation_id: str, detail: str) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={
         "status": "rejected", "correlation_id": correlation_id, "detail": detail,
@@ -355,8 +403,9 @@ async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession =
     Receive one webhook for one endpoint.
 
     404 for an endpoint that cannot take events; 401 when the signature is
-    missing or wrong (nothing is queued); 202 once the event is queued for the
-    worker; 503 if it cannot be queued (the provider should retry).
+    missing or wrong (nothing is queued); 200 ``duplicate`` for a delivery
+    already taken; 202 once the event is queued for the worker; 503 if it
+    cannot be checked or queued (the provider should retry).
     """
     correlation_id = str(uuid.uuid4())
     raw_body = await request.body()
@@ -388,6 +437,24 @@ async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession =
               company_id=str(endpoint.company_id), source=endpoint.source)
         return _rejected(401, correlation_id, "Webhook signature missing or invalid")
 
+    # A provider's retry of an event already queued is acknowledged, not run
+    # again (GW-03). Unable to tell — Redis down — is a 503, never a second run.
+    delivery = delivery_id(endpoint.source, headers, raw_body)
+    try:
+        fresh = await claim_delivery(endpoint.id, delivery)
+    except Exception:
+        logger.exception(f"[WebhookRouter] Could not check delivery {correlation_id}")
+        return JSONResponse(status_code=503, content={
+            "status": "unavailable",
+            "correlation_id": correlation_id,
+            "detail": "The event could not be checked for duplicates. Retry later.",
+        })
+    if not fresh:
+        logger.info("[WebhookRouter] Duplicate delivery %s on endpoint %s", delivery, endpoint.id)
+        return JSONResponse(status_code=200, content={
+            "status": "duplicate", "correlation_id": correlation_id, "source": endpoint.source,
+        })
+
     normalized = STRATEGIES[endpoint.source].normalize(headers, payload, query_params)
     event_type = normalized.get("event_type", "generic_event")
     client_id = str(endpoint.company_id)
@@ -405,6 +472,7 @@ async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession =
         raw_data=normalized.get("normalized_data", {}),
         metadata={
             "correlation_id": correlation_id,
+            "delivery_id": delivery,
             "endpoint_id": str(endpoint.id),
             "entity_id": str(endpoint.entity_id) if endpoint.entity_id else None,
             "x_forwarded_for": headers.get("x-forwarded-for", ""),
@@ -418,6 +486,7 @@ async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession =
         await queue_event(envelope)
     except Exception:
         logger.exception(f"[WebhookRouter] Could not queue event {correlation_id}")
+        await release_delivery(endpoint.id, delivery)
         return JSONResponse(status_code=503, content={
             "status": "unavailable",
             "correlation_id": correlation_id,

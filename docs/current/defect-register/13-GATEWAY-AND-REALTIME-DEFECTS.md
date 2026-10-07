@@ -43,18 +43,18 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 1 | 1 | 2 | 1 |
+| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 2 | 1 | 1 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
 | [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 3 | 0 | 4 | 0 |
 
-**Total: 21 defects (10 fixed, 3 partly fixed, 7 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (11 fixed, 3 partly fixed, 6 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | GW-01 | No webhook signature is ever verified, and a failure would not block | ✅ fixed (2026-10-07) | — |
 | GW-02 | Rate limiting covers one route | partly fixed — REST limited; WebSockets not | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
-| GW-03 | No webhook idempotency | open | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-03 | No webhook idempotency | ✅ fixed (2026-10-07) | — |
 | GW-04 | The auth middleware never sees a WebSocket | open | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
 | GW-05 | Rate limits are keyed on `127.0.0.1` in production | invalid | — |
 | GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | partly fixed — TURN settings still unread | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
@@ -167,7 +167,7 @@ limit mean what everyone assumes it means.
 
 ### GW-03 — No webhook idempotency
 
-**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: no delivery id is recorded anywhere in `webhook_inbound.py`. Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
+**📄 Doc-reported · High** · **Status: fixed (2026-10-07)** — after the signature check a delivery is claimed with Redis `SET NX EX 86400`, keyed on the endpoint and the provider's delivery id (`X-GitHub-Delivery`, `I-Twilio-Idempotency-Token`, a relay's `X-HB-Delivery`) or the body's SHA-256. A delivery already taken answers 200 `duplicate` and is not queued; the claim is released if the enqueue fails, so a retried 503 still runs; Redis unavailable is a 503, never a second run. `tests/unit/test_webhook_deliveries.py` (fails on the old route: a retry ran twice), and `test_webhook_endpoints.py::test_a_retried_delivery_runs_once` against the local Redis
 
 Providers retry. Nothing deduplicates. A retried delivery creates a **second execution**
 and a second charge.
