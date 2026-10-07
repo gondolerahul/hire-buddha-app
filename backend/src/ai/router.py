@@ -314,6 +314,13 @@ async def get_execution_trace(
     }
 
 
+# Never cache the stream, and tell every intermediary not to transform it:
+# Apache's mod_deflate (enabled by setup_apache.sh) honours ``no-transform``, so
+# frames are neither compressed nor held back. ``X-Accel-Buffering`` was an
+# nginx-only header and did nothing behind Apache (GW-09).
+SSE_HEADERS = {"Cache-Control": "no-cache, no-transform"}
+
+
 @router.get("/executions/{execution_id}/stream")
 async def stream_execution(
     execution_id: UUID,
@@ -354,12 +361,10 @@ async def stream_execution(
             await pubsub.unsubscribe(channel)
             await r.close()
 
-    # The headers the gateway's SSE relay used to add: never cache the stream,
-    # and ask a buffering proxy (nginx) not to hold frames back.
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers=SSE_HEADERS,
     )
 
 # --- Cancel ---

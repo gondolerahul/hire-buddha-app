@@ -1243,13 +1243,15 @@ flowchart TD
   survive. It is set on `gateway.*` only. The `api.*` vhost has
   **no** `ProxyTimeout` and **no** WS rules — it inherits the default 60 s and will
   cut a quiet SSE stream. Use `gateway.hirebuddha.com` for anything long-lived.
-- **`X-Accel-Buffering: no` does nothing here.** The SSE endpoint sets it
-  ([`ai/router.py`](../../backend/src/ai/router.py)) but that is an nginx
-  directive. Apache's `mod_proxy_http` streams a chunked response without
+- **The SSE endpoint sends `Cache-Control: no-cache, no-transform`**
+  ([`ai/router.py`](../../backend/src/ai/router.py) `SSE_HEADERS`). It used to send
+  `X-Accel-Buffering: no`, an nginx directive that did nothing here (removed
+  2026-10-07, GW-09). Apache's `mod_proxy_http` streams a chunked response without
   content-length reasonably promptly, which is why SSE works; if you ever see
   events arriving in bursts, the Apache-native fix is
   `ProxyPass / http://localhost:8000/ flushpackets=on`.
-- **`mod_deflate` is enabled.** If a future config compresses `text/event-stream`,
+- **`mod_deflate` is enabled.** The stream's `no-transform` asks it not to compress
+  the stream (GW-09). If a future config forces compression of `text/event-stream`,
   frames will be buffered until the compression window fills and SSE will appear
   to hang. Exclude `text/event-stream` from `AddOutputFilterByType` if you touch
   compression.
@@ -1526,9 +1528,10 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
   WebSockets. A module with an exempt route must not use `from __future__ import
   annotations` — FastAPI would resolve its string annotations against slowapi's
   wrapper and turn `request: Request` into a query parameter.
-- **Rate limits are keyed on `127.0.0.1` in production** because no vhost sets
-  `RemoteIPHeader`.
-- **`X-Accel-Buffering: no` is an nginx header** and does nothing under Apache.
+- ~~**Rate limits are keyed on `127.0.0.1` in production**~~ — not so (GW-05, invalid):
+  uvicorn trusts `X-Forwarded-For` from `127.0.0.1` by default and keys on the address
+  Apache appends. `RemoteIPHeader` would only change Apache's own logs.
+- ~~**`X-Accel-Buffering: no` is an nginx header**~~ — removed 2026-10-07 (GW-09).
 - **Agent selection is `LIMIT 1` with no `ORDER BY`** in three separate places.
   For multi-agent tenants, pass an explicit `entity_id`.
 - **SSE has no `Last-Event-ID` and no replay.** Reconnection loses everything that

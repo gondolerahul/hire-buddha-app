@@ -44,11 +44,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 0 | 1 | 3 | 1 |
-| [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 2 | 1 | 2 | 0 |
+| [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
 | [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 3 | 0 | 4 | 0 |
 
-**Total: 21 defects (8 fixed, 3 partly fixed, 9 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (9 fixed, 3 partly fixed, 8 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -60,7 +60,7 @@
 | GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | partly fixed — TURN settings still unread | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-07 | The event bus is in-process with one subscriber | ✅ fixed (single port) | — |
 | GW-08 | The arq fallback runs a full AgentLoop inside the gateway | ✅ fixed (single port) | — |
-| GW-09 | `X-Accel-Buffering: no` does nothing here | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| GW-09 | `X-Accel-Buffering: no` does nothing here | ✅ fixed (2026-10-07) | — |
 | GW-10 | `aiortc` is not installed, and the video path has a second bug behind it | open — decision HD11 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-11 | `gateway/main.py` and `gateway/config.py` | ✅ fixed (single port) | — |
 | GW-12 | `@app.on_event("shutdown")` / `close_proxy_client` | ✅ fixed (single port) | — |
@@ -298,7 +298,7 @@ provider retries.
 
 ### GW-09 — `X-Accel-Buffering: no` does nothing here
 
-**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: the header is still set at `ai/router.py:362`. Plan: [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground).
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-07)** — the header is gone; the stream sends `Cache-Control: no-cache, no-transform` (`ai/router.py` `SSE_HEADERS`), which asks Apache's mod_deflate — enabled by `setup_apache.sh` — not to compress or hold back the frames. `tests/unit/test_sse_headers.py`. Not checked behind a live Apache (no VM in this session)
 
 The SSE relay sets `X-Accel-Buffering: no` to stop intermediate proxies buffering. That is
 an **nginx** header. The deployment uses Apache, which ignores it.
