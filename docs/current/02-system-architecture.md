@@ -1003,7 +1003,7 @@ Loaded by the API and the Arq worker.
 | `SECRET_KEY` | **required** | JWT signing key for the Backend API. |
 | `ALGORITHM` | `HS256` | JWT algorithm. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access-token lifetime. |
-| `ENCRYPTION_MASTER_KEY` | `your-default-dev-key-must-be-32-bytes` | Envelope key for stored credentials. Must be overridden. |
+| `ENCRYPTION_MASTER_KEY` | none — **required**; a placeholder or < 32 characters refuses to load (AU-24) | Master key for stored credentials; the AES key is HKDF-derived from it |
 | `STREAMING_HOST` | `localhost:8000` | Host telephony reaches this API on — the media-stream URLs and Twilio callbacks are built from it ([`voice/public_urls.py`](../../backend/src/voice/public_urls.py)). Production: `gateway.hirebuddha.com`. |
 | `STREAMING_PROTOCOL` | `ws` | `ws` or `wss`; HTTP callbacks use `https` when this is `wss`. Production: `wss`. |
 | `CORS_ORIGINS` | six-host comma string | The one CORS list, exposed as `cors_origins_list`. |
@@ -1408,8 +1408,8 @@ process-wide list**; per-company allow-lists are listed as remaining work.
   the JWT key, is gone with the gateway.)
 * Webhook signature validation is best-effort and never blocks
   ([`webhook_inbound.py:548`](../../backend/src/gateway/webhook_inbound.py:548)).
-* `ENCRYPTION_MASTER_KEY` protects stored third-party credentials and ships with
-  an obviously-fake default.
+* `ENCRYPTION_MASTER_KEY` protects stored third-party credentials. It has no
+  default since AU-24 (2026-10-07): the API refuses to start without a real one.
 
 ---
 

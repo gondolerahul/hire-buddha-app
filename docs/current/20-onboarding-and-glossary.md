@@ -86,6 +86,9 @@ cd backend && python3 -m venv .venv && poetry install --no-interaction
 cp backend/.env.example backend/.env
 ```
 
+Set `ENCRYPTION_MASTER_KEY` in `backend/.env` to a random value — the API refuses
+to start without one (AU-24): `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
 `DATABASE_URL` in the example already says port **5433**, which is where
 docker-compose maps Postgres on the host. (It said 5432 until 2026-09-30, the
 most common day-one failure — ON-02.)

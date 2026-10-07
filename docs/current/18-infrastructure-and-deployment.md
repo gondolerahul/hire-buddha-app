@@ -127,7 +127,10 @@ cp backend/.env.example backend/.env
 ```
 
 `start_services.sh` **exits with an error if `backend/.env` is missing**, so this
-step is mandatory. See [§5](#5-environment-configuration) for what to edit.
+step is mandatory. Set `ENCRYPTION_MASTER_KEY` to a random value of at least 32
+characters (`python -c "import secrets; print(secrets.token_urlsafe(48))"`); the API refuses to start with it empty or a placeholder
+(AU-24). Keep it with the database backups — the credentials in a dump are useless
+without it. See [§5](#5-environment-configuration) for what to edit.
 
 **Step 4 — start the data stores**
 

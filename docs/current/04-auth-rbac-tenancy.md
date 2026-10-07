@@ -1249,8 +1249,8 @@ Storage details:
 | Aspect | Detail |
 |---|---|
 | Encryption | AES-256-GCM via [security.py:36](../../backend/src/common/security.py:36) `encrypt_api_key` |
-| Key | `settings.ENCRYPTION_MASTER_KEY`, truncated or `\0`-padded to 32 bytes |
-| Format | `base64(12-byte nonce ‖ ciphertext ‖ GCM tag)` |
+| Key | HKDF-SHA256 of `settings.ENCRYPTION_MASTER_KEY` (required, ≥ 32 characters) — AU-24 |
+| Format | `v2:` + `base64(12-byte nonce ‖ ciphertext ‖ GCM tag)`; an unprefixed value is pre-AU-24 (padded key) and still decrypts |
 | Refresh threshold | `TOKEN_REFRESH_THRESHOLD_MINUTES = 10` ([social_connection_service.py:68](../../backend/src/ai/social_connection_service.py:68)) |
 | Platforms with refresh config | `linkedin`, `twitter`, `facebook`, `instagram`, `google_ads`, `youtube`, `tiktok`, `reddit` |
 | `VALID_PLATFORMS` (create allow-list) | the same eight ([social_router.py](../../backend/src/ai/social_router.py)); `quora` left with its tools on 2026-10-01 (TL-23) |

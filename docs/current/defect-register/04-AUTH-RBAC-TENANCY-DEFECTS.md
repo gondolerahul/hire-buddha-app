@@ -41,11 +41,11 @@
 | Tier | Theme | Count | Fixed | Won't fix | Open |
 |---|---|---|---|---|---|
 | [T0](#2-t0--privilege-escalation-and-open-doors) | Privilege escalation and open doors | 6 | 6 | 0 | 0 |
-| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 9 | 7 | 0 | 2 |
+| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 9 | 8 | 0 | 1 |
 | [T2](#4-t2--missing-pieces) | Missing pieces | 5 | 4 | 1 | 0 |
 | [T3](#5-t3--inconsistency-and-dead-weight) | Inconsistency and dead weight | 6 | 5 | 1 | 0 |
 
-**Total: 26 defects (22 fixed, 2 won't fix, 2 open), 10 improvements (5 done, 1 partly, 4
+**Total: 26 defects (23 fixed, 2 won't fix, 1 open), 10 improvements (5 done, 1 partly, 4
 open).** Worked 2026-09-30 to 2026-10-01 on branch `roadmap-development-defect-fixes`.
 AU-23 to AU-26 were found while fixing the rest. Re-verified against the code 2026-10-07: AU-23's frontend half is done (FE-11); AU-24 and AU-25 are open and scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) ([H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors)).
 
@@ -74,7 +74,7 @@ AU-23 to AU-26 were found while fixing the rest. Re-verified against the code 20
 | AU-21 | The role strings exist as a comment, not an enum | ✅ fixed `a608183` |
 | AU-22 | Suspension is checked twice | ✅ fixed `15191e5` (SA-18) |
 | AU-23 | An OAuth login can sign in as any existing account | ✅ fixed `a65d18d` (backend); the SPA's `state` and PKCE `1fffde8`, `c61a44c` (FE-11) |
-| AU-24 | The credential-encryption key has a public default | open — needs a key-rotation decision (HD4); plan [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| AU-24 | The credential-encryption key has a public default | ✅ fixed (2026-10-07) — required key, HKDF, rotation script |
 | AU-25 | Social-connection client secrets are stored in plaintext | open — plan [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
 | AU-26 | One person could hold two accounts, one per letter case | ✅ fixed `aa7045d` |
 | AU-I1 | Make tenant scoping structural | open — the largest change in this register |
@@ -615,7 +615,22 @@ permanently empty. Nothing errors; the data is just blank.
 
 ### AU-24 — The credential-encryption key has a public default
 
-**✅ Verified · High** · **Status: open** — found 2026-10-01.
+**✅ Verified · High** · **Status: fixed (2026-10-07)** — found 2026-10-01. Decided with
+the product owner as HD4. `ENCRYPTION_MASTER_KEY` has no default: settings refuse to load
+when it is missing, a placeholder (the old default included) or shorter than 32
+characters, with the command that generates one; `.env.example` documents it. New
+ciphertexts are `v2:` and use an HKDF-SHA256-derived key; an unprefixed (pre-AU-24) value
+still decrypts with the old padded key, so nothing stored breaks.
+`scripts/rotate_encryption_key.py` re-encrypts every field listed in
+`common/encrypted_fields.py` — from `OLD_ENCRYPTION_MASTER_KEY` to the current key, or in
+place to upgrade to v2 — in one transaction, dry run by default, aborting without writing
+if a value decrypts under neither key, and re-runnable. `test_encrypted_fields.py` fails
+when a model gains an encrypted column the rotation does not cover. Tests:
+`test_credential_encryption.py`, `tests/integration/test_key_rotation.py`. The local key
+was already a real 32-character value; the dry run on the local database found nothing
+to upgrade (it was rebuilt today). **Each deployed environment** must have a real key set
+before this ships, and should run the script once with `--apply` to move its stored
+credentials to v2.
 
 `ENCRYPTION_MASTER_KEY` defaults to `"your-default-dev-key-must-be-32-bytes"`
 ([config.py](../../../backend/src/common/config.py)). It encrypts every stored third-party

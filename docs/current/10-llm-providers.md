@@ -195,32 +195,23 @@ service boundary in [config/service.py](../../backend/src/config/service.py) and
 decrypted only inside the resolver functions.
 
 ```python
-# backend/src/common/security.py
-def encrypt_api_key(api_key: str) -> str:
-    """Encrypt API key using AES-256-GCM."""
-    if not api_key:
-        return None
-    key = settings.ENCRYPTION_MASTER_KEY.encode()
-    if len(key) > 32:
-        key = key[:32]
-    elif len(key) < 32:
-        key = key.ljust(32, b'\0')
-
-    aesgcm = AESGCM(key)
+# backend/src/common/security.py (since AU-24, 2026-10-07)
+def encrypt_api_key(api_key: str, *, master: Optional[str] = None) -> str:
+    aesgcm = AESGCM(_v2_key(master or settings.ENCRYPTION_MASTER_KEY))   # HKDF-SHA256
     nonce = os.urandom(12)
     ciphertext = aesgcm.encrypt(nonce, api_key.encode(), None)
-    return base64.b64encode(nonce + ciphertext).decode('utf-8')
+    return "v2:" + base64.b64encode(nonce + ciphertext).decode("utf-8")
 ```
 
 | Property | Value |
 |---|---|
 | Algorithm | AES-256-GCM (`cryptography.hazmat.primitives.ciphers.aead.AESGCM`) |
-| Key source | `settings.ENCRYPTION_MASTER_KEY` — env var, single global key for the whole platform |
-| Key derivation | **None.** The raw UTF-8 bytes are truncated to 32 or right-padded with `\0`. No KDF, no salt. |
+| Key source | `settings.ENCRYPTION_MASTER_KEY` — env var, single global key for the whole platform; **required**, ≥ 32 characters, placeholders refused at load (AU-24) |
+| Key derivation | HKDF-SHA256 (fixed salt and info). Before AU-24 the raw bytes were truncated or `\0`-padded to 32; such unprefixed ciphertexts still decrypt |
 | Nonce | 12 random bytes from `os.urandom`, fresh per encryption |
 | AAD | `None` — the ciphertext is not bound to the row, company or SKU |
-| Storage format | `base64(nonce ‖ ciphertext ‖ tag)` in `integration_registry.encrypted_api_key` |
-| Default value | `"your-default-dev-key-must-be-32-bytes"` in [common/config.py:9](../../backend/src/common/config.py:9) |
+| Storage format | `v2:` + `base64(nonce ‖ ciphertext ‖ tag)` in `integration_registry.encrypted_api_key` |
+| Every encrypted field | listed in [`common/encrypted_fields.py`](../../backend/src/common/encrypted_fields.py); a test fails on an unlisted encrypted column |
 
 ```mermaid
 sequenceDiagram
@@ -233,10 +224,10 @@ sequenceDiagram
     UI->>API: "{provider_name, model_name, service_sku, api_key, ...}"
     API->>SVC: create_registry_entry
     SVC->>SEC: encrypt_api_key
-    SEC->>SEC: "key = MASTER_KEY truncated or padded to 32 bytes"
+    SEC->>SEC: "key = HKDF-SHA256 of MASTER_KEY"
     SEC->>SEC: "nonce = os.urandom 12"
     SEC->>SEC: "AESGCM.encrypt"
-    SEC-->>SVC: "base64 nonce + ciphertext"
+    SEC-->>SVC: "v2: + base64 nonce + ciphertext"
     SVC->>DB: "INSERT encrypted_api_key"
     SVC->>SVC: "_cache_bust company_id"
     SVC-->>API: IntegrationRegistryResponse
@@ -248,14 +239,14 @@ sequenceDiagram
 - `IntegrationRegistryResponse` in [schemas.py:55](../../backend/src/config/schemas.py:55)
   deliberately inherits from `IntegrationRegistryBase`, which has **no**
   `api_key` and no `encrypted_api_key`. Keys are write-only over the API.
-- There is **one master key for the entire platform**. Rotating it invalidates
-  every stored credential simultaneously — there is no key-version column and no
-  re-encryption job. Plan a rotation as a full re-entry of all secrets.
+- There is **one master key for the entire platform**. Rotate it with
+  `scripts/rotate_encryption_key.py`: put the new key in `ENCRYPTION_MASTER_KEY`
+  and the old one in `OLD_ENCRYPTION_MASTER_KEY`, run with `--apply` (one
+  transaction; a dry run by default), restart the API and both workers.
 - Because AAD is `None`, a ciphertext copied from one row into another decrypts
   fine. Row-level integrity is not cryptographically enforced.
-- The padding scheme means `ENCRYPTION_MASTER_KEY="abc"` silently becomes
-  `abc` + 29 NUL bytes. Weak keys do not error; they just work badly. Use a real
-  32-byte secret.
+- A weak key errors: a placeholder or a value shorter than 32 characters refuses
+  to load, and the AES key is derived with HKDF rather than padded (AU-24).
 - **Vertex AI providers store no key** (`ADC_PROVIDERS` in `config/models.py`:
   `google`, `gemini`, `google_vertex`, `anthropic`, `anthropic_vertex`). Google auth uses
   Application Default Credentials, not the registry key. Until LP-12 (2026-10-03) the
@@ -1769,9 +1760,13 @@ Procedure:
 For **Vertex AI providers there is no key to rotate** — rotate the GCP service
 account key on disk and restart the process. The registry value is a placeholder.
 
-If you must rotate `ENCRYPTION_MASTER_KEY` itself: there is no migration path.
-Every `encrypted_api_key` becomes undecryptable. You must re-enter every secret
-across `integration_registry`, `email_connections` and `social_connections`.
+To rotate `ENCRYPTION_MASTER_KEY` itself (AU-24): set the new key as
+`ENCRYPTION_MASTER_KEY` and the old one as `OLD_ENCRYPTION_MASTER_KEY`, run
+`python -m scripts.rotate_encryption_key` (a dry run that prints counts per field),
+then again with `--apply`. It re-encrypts every field in
+`common/encrypted_fields.py` in one transaction, aborts without writing if a value
+decrypts under neither key, and can be re-run. Run it once with the same key to
+upgrade pre-AU-24 ciphertexts to `v2`.
 
 ### 17.3 Adding a brand-new provider
 

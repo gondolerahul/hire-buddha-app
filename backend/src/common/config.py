@@ -1,9 +1,15 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Values shipped in code, .env.example or docker-compose that must never guard anything.
 PLACEHOLDER_SECRETS = frozenset({
     "change-me-in-production", "changeme", "change-me", "secret", "dev_secret_key_change_in_production",
+    "your-default-dev-key-must-be-32-bytes",   # ENCRYPTION_MASTER_KEY's old default (AU-24)
 })
+
+# The stored-credential key's minimum length; generate one with
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+MIN_ENCRYPTION_KEY_LENGTH = 32
 
 class Settings(BaseSettings):
     DATABASE_URL: str
@@ -11,7 +17,20 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    ENCRYPTION_MASTER_KEY: str = "your-default-dev-key-must-be-32-bytes" # Overridden by env
+    # Encrypts every stored third-party credential (common/security.py). No
+    # default: one in the repository encrypted everything a deployment that
+    # forgot it stored (AU-24). A placeholder or a short value refuses to load.
+    ENCRYPTION_MASTER_KEY: str
+
+    @field_validator("ENCRYPTION_MASTER_KEY")
+    @classmethod
+    def _real_encryption_key(cls, value: str) -> str:
+        if value.strip().lower() in PLACEHOLDER_SECRETS or len(value) < MIN_ENCRYPTION_KEY_LENGTH:
+            raise ValueError(
+                f"ENCRYPTION_MASTER_KEY must be a random value of at least "
+                f"{MIN_ENCRYPTION_KEY_LENGTH} characters, not a placeholder. Generate one with "
+                "python -c \"import secrets; print(secrets.token_urlsafe(48))\"")
+        return value
 
     # ── Public address telephony reaches this API on ──────────────────────
     # TwiML <Stream> URLs, Tata's wss_url and campaign callbacks are built from
