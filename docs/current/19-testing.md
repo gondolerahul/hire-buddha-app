@@ -179,7 +179,6 @@ graph TB
 | `chaos/` | 2 | 5 | varies by fault | seconds |
 | `parity/` | 2 | 2 | Postgres + Redis + goldens | minutes |
 | `regression/` | 1 | 1 | Postgres + LLM judge | minutes |
-| `phase9/` | 0 | 1 | — | — |
 | `fixtures/`, `harness/` | 0 | 0 | — | support code |
 
 The shape is healthy at the base — 745 pure unit tests is a lot — but note the
@@ -713,15 +712,10 @@ cd backend && .venv/bin/python -m pytest tests/chaos/ -q -m chaos
 
 ## 12. `tests/phase9/` — legacy scripts
 
-Two files, and they are **not pytest tests**:
-
-| File | What it is |
-|---|---|
-| `check_run.py` | A manual run-inspection script |
-| `run_all_tests.py` | A pre-pytest test runner |
-
-No `test_*.py` files, so `pytest tests/phase9/` collects nothing. Treat this
-directory as historical. It predates the current suite layout.
+Deleted on 2026-10-07 ([TS-12](defect-register/19-TESTING-DEFECTS.md#4-t2--dead-scaffolding)).
+It held two scripts that were not pytest tests — `check_run.py`, a manual
+run-inspection script with hard-coded entity and company ids, and
+`run_all_tests.py`, a pre-pytest runner — and predated the current suite layout.
 
 ---
 
@@ -1205,7 +1199,7 @@ are caught).
 8. **`tests/kpi/` does not exist.** The `kpi` marker and CI step are
    placeholders.
 
-9. **`tests/phase9/` contains no pytest tests** — two legacy scripts only.
+9. ~~**`tests/phase9/` contains no pytest tests**~~ — deleted 2026-10-07 (TS-12).
 
 10. ~~**The root `tests/` directory is empty scaffolding.**~~ Deleted 2026-10-07
     (TS-09). All tests are in `backend/tests/`.
