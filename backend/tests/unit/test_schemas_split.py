@@ -116,9 +116,17 @@ def test_plan_step_serialises_to_enum_value() -> None:
     assert step.model_dump(mode="json")["type"] == "TOOL_CALL"
 
 
-def test_orm_back_compat_models_module() -> None:
-    """The legacy ``src.ai.models`` shim re-exports every ORM class."""
-    from src.ai import models as legacy
+def test_models_shim_is_gone() -> None:
+    """ON-10: the deprecated ``src.ai.models`` shim is deleted; import from
+    ``src.ai.orm``."""
+    import importlib.util
+
+    assert importlib.util.find_spec("src.ai.models") is None
+
+
+def test_orm_package_exports_every_class() -> None:
+    """``src.ai.orm`` exports every ORM class the deleted shim did."""
+    from src.ai import orm
 
     for name in (
         "HierarchicalEntity",
@@ -132,18 +140,18 @@ def test_orm_back_compat_models_module() -> None:
         "EntityType",
         "RunStatus",
     ):
-        assert hasattr(legacy, name), f"models shim missing: {name}"
+        assert hasattr(orm, name), f"src.ai.orm missing: {name}"
 
 
 def test_orm_canonical_paths() -> None:
     """Canonical imports under ``src.ai.orm.*`` resolve and point to the
-    same class objects as the shim."""
-    from src.ai import models as legacy
+    same class objects as the package exports."""
+    from src.ai import orm
     from src.ai.orm.entity import HierarchicalEntity
     from src.ai.orm.execution import ExecutionRun
 
-    assert HierarchicalEntity is legacy.HierarchicalEntity
-    assert ExecutionRun is legacy.ExecutionRun
+    assert HierarchicalEntity is orm.HierarchicalEntity
+    assert ExecutionRun is orm.ExecutionRun
 
 
 # ---------------------------------------------------------------------------

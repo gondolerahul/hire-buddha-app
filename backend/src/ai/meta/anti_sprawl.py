@@ -40,7 +40,7 @@ class AntiSprawlGuard:
         This is a HARD GATE — if this returns allowed=False, the
         MetaEntityCreatorTool must block entity creation.
         """
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
 
         since = datetime.utcnow() - timedelta(hours=24)
         query = select(func.count(HierarchicalEntity.id)).where(
@@ -77,7 +77,7 @@ class AntiSprawlGuard:
         MetaEntityCreatorTool should suggest using an existing version
         rather than creating another adaptation.
         """
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
 
         result = await self.db.execute(
             select(

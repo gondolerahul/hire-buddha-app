@@ -13,7 +13,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.orm.usage import UsageLog
 from src.ai.tools.sandbox.metering import meter_sandbox_usage
 from src.common.config import settings

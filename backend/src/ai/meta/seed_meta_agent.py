@@ -109,7 +109,7 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
 async def seed(force: bool = False, target_company_id: Optional[str] = None) -> None:
     from sqlalchemy import select, text, or_, String
     from src.common.database import AsyncSessionLocal
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
     from src.ai.schemas import HierarchicalEntityCreate
     from src.ai.meta.meta_agent_template import generate_meta_agent_template
 

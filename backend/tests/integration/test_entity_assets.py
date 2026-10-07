@@ -20,7 +20,7 @@ from src.ai.governance.entity_assets import (
     valid_asset_path,
 )
 from src.ai.governance.entity_versions import capture_head, content_hash
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 from src.ai.orm.versions import EntityAsset, EntityVersion
 
 pytestmark = pytest.mark.needs_db

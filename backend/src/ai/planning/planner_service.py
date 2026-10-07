@@ -12,7 +12,7 @@ import re
 from uuid import UUID, uuid4
 from typing import Any, List, Optional, cast
 
-from src.ai.models import ExecutionRun, HierarchicalEntity, LLMInteractionLog
+from src.ai.orm import ExecutionRun, HierarchicalEntity, LLMInteractionLog
 from src.ai.schemas import PlanStep
 from src.ai.llm.router import LLMRouter
 from src.ai.usage_service import UsageService

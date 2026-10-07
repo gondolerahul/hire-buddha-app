@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from src.ai.api.admin import router
 from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 
 pytestmark = pytest.mark.needs_db
 

@@ -15,7 +15,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from src.common.database import AsyncSessionLocal
-from src.ai.models import ExecutionRun, HierarchicalEntity, RunStatus
+from src.ai.orm import ExecutionRun, HierarchicalEntity, RunStatus
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
     """
     import redis.asyncio as redis
     from src.common.config import settings
-    from src.ai.models import HierarchicalEntity, ExecutionRun, RunStatus
+    from src.ai.orm import HierarchicalEntity, ExecutionRun, RunStatus
     from src.ai.governance.subjects import gateway_subjects
 
     client_id = envelope_dict.get("client_id", "")
@@ -463,7 +463,7 @@ async def process_document(ctx: dict[str, Any], document_id_str: str, file_conte
     rest go into the company-wide tree every entity of the company reads.
     ``upload_status`` reflects how many chunks were embedded (searchable).
     """
-    from src.ai.models import Document
+    from src.ai.orm import Document
     from src.ai.memory.knowledge_tree_service import KnowledgeTreeService
     import io
 
@@ -728,7 +728,7 @@ async def cortex_resume_scheduled(ctx: dict[str, Any]) -> dict[str, Any]:
             for tree in trees:
                 try:
                     # Create a new execution run to resume this tree
-                    from src.ai.models import ExecutionRun
+                    from src.ai.orm import ExecutionRun
                     resume_run = ExecutionRun(
                         entity_id=tree.entity_id,
                         company_id=tree.company_id,

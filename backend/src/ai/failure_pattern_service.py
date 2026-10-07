@@ -87,7 +87,7 @@ class FailurePatternService:
             {"type": "TOOL_EMPTY", "description": "...", "suggestion": "...", "frequency": N}
         """
         try:
-            from src.ai.models import ExecutionRun
+            from src.ai.orm import ExecutionRun
 
             cutoff = datetime.utcnow() - timedelta(days=lookback_days)
             result = await self.db.execute(

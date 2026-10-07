@@ -584,7 +584,7 @@ async def test_agent_loop_persists_llm_log_and_nonzero_cost(
     """An agent_loop run with ≥1 LLM call must persist ≥1 llm_interaction_log
     and a non-zero total_cost_usd, and hand that non-zero cost to settle_billing.
     """
-    from src.ai.models import LLMInteractionLog
+    from src.ai.orm import LLMInteractionLog
 
     entity = _dynamic_entity(uuid4(), uuid4())
     run = _FakeRun(entity)

@@ -218,7 +218,7 @@ class RegistrySearchService:
         include_templates: bool,
     ) -> List[MatchCandidate]:
         """Fast, deterministic structural matching."""
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
 
         # Build base query: company-scoped + optionally templates
         query = select(HierarchicalEntity).where(
@@ -356,7 +356,7 @@ class RegistrySearchService:
         # coroutine and must be awaited (already-loaded rows resolve from the
         # identity map without a round-trip).
         try:
-            from src.ai.models import HierarchicalEntity
+            from src.ai.orm import HierarchicalEntity
             entity = await self.db.get(HierarchicalEntity, entity_id)
             if not entity:
                 return 0.5
@@ -604,7 +604,7 @@ class RegistrySearchService:
 
     async def _load_entity(self, entity_id: UUID) -> Any:
         """Load a single entity by ID."""
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         result = await self.db.execute(
             select(HierarchicalEntity).where(HierarchicalEntity.id == entity_id)
         )
@@ -637,7 +637,7 @@ class RegistrySearchService:
         Provides ground-truth behavioral data for the Meta-Agent's
         REUSE decision quality.
         """
-        from src.ai.models import ExecutionRun
+        from src.ai.orm import ExecutionRun
 
         result = await self.db.execute(
             select(ExecutionRun).where(

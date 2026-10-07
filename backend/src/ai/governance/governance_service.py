@@ -16,7 +16,7 @@ from sqlalchemy import select, update
 
 from src.billing.credit_service import CreditService, InsufficientCreditsError, minimum_threshold
 from src.billing.billing_service import BillingService, calculate_tb, compute_billed_amount
-from src.ai.models import HumanApproval, ExecutionRun
+from src.ai.orm import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
 from src.ai.governance.hitl_snapshot import build_hitl_snapshot
 

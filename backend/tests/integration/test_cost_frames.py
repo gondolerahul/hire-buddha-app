@@ -14,7 +14,7 @@ from decimal import Decimal
 import pytest
 
 from src.ai.core import agent_loop_sse
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.services.cost_attribution import CostLedger
 from src.ai.usage_service import UsageService
 from src.config.models import IntegrationRegistry

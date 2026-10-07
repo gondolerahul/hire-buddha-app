@@ -2,7 +2,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.models import ModelTaskDefault, IntegrationRegistry
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 
 @pytest.fixture
 async def gemini_integration(db_session: AsyncSession, app_company):

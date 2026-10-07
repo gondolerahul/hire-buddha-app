@@ -12,7 +12,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from src.ai.models import ExecutionRun, HierarchicalEntity, ToolInteractionLog
+from src.ai.orm import ExecutionRun, HierarchicalEntity, ToolInteractionLog
 from src.ai.schemas import PlanStep, StepType
 from src.ai.step_executor import StepExecutorService
 from src.ai.tools.base import Tool, ToolRegistry

@@ -106,7 +106,7 @@ async def get_tenant_details(
     # Fetch entities
     entities = []
     try:
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         ent_result = await db.execute(
             select(HierarchicalEntity).where(
                 HierarchicalEntity.company_id == tenant_id,
@@ -127,7 +127,7 @@ async def get_tenant_details(
     # Fetch recent executions
     executions = []
     try:
-        from src.ai.models import ExecutionRun
+        from src.ai.orm import ExecutionRun
         exec_result = await db.execute(
             select(ExecutionRun).where(
                 ExecutionRun.company_id == tenant_id,
@@ -197,7 +197,7 @@ async def get_partner_analytics(
 
     # Aggregate entity count
     try:
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         ent_count = await db.execute(
             select(func.count(HierarchicalEntity.id)).where(
                 HierarchicalEntity.company_id.in_(tenant_ids)
@@ -209,7 +209,7 @@ async def get_partner_analytics(
 
     # Aggregate execution count and cost
     try:
-        from src.ai.models import ExecutionRun
+        from src.ai.orm import ExecutionRun
         exec_result = await db.execute(
             select(
                 func.count(ExecutionRun.id),
@@ -308,7 +308,7 @@ async def _build_tenant_summary(db: AsyncSession, tenant: Company) -> dict:
 
     # 3. Active agents (0-25 pts)
     try:
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         agent_count = await db.execute(
             select(func.count(HierarchicalEntity.id)).where(
                 HierarchicalEntity.company_id == tenant.id,
@@ -323,7 +323,7 @@ async def _build_tenant_summary(db: AsyncSession, tenant: Company) -> dict:
 
     # 4. Recent executions — last 7 days (0-25 pts)
     try:
-        from src.ai.models import ExecutionRun
+        from src.ai.orm import ExecutionRun
         from datetime import timedelta
         week_ago = datetime.utcnow() - timedelta(days=7)
         exec_count = await db.execute(

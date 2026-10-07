@@ -24,7 +24,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.database import AsyncSessionLocal
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.schemas import PlanStep
 from src.config.service import ConfigService
 from src.ai.usage_service import UsageService

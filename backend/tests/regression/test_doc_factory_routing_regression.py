@@ -48,7 +48,7 @@ async def test_doc_factory_xlsx_request_produces_tool_log_and_artifact():
     company_id = uuid.UUID(_require_env("DOC_FACTORY_COMPANY_ID"))
 
     from src.common.database import AsyncSessionLocal
-    from src.ai.models import ExecutionRun, HierarchicalEntity, ToolInteractionLog
+    from src.ai.orm import ExecutionRun, HierarchicalEntity, ToolInteractionLog
     from src.ai.artifact_models import Artifact
     from src.ai.core.arq_jobs import run_execution_recursive
 

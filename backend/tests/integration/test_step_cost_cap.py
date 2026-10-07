@@ -15,7 +15,7 @@ import pytest
 
 from src.ai.core.exceptions import BudgetExhaustedError
 from src.ai.core.step_engine import StepEngine
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.orm.usage import UsageLog
 
 pytestmark = pytest.mark.needs_db

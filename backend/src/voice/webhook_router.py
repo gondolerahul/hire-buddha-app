@@ -120,7 +120,7 @@ async def twilio_incoming_call(
     )
     
     # 3. Fetch agent to determine greeting strategy (Issue 6: Option A for incoming)
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
     agent = await session_manager.db.get(HierarchicalEntity, customer_assignment.agent_id)
     
     greeting_xml = '<Say voice="alice">Please wait while we connect you.</Say>'
@@ -450,7 +450,7 @@ async def twilio_outbound_twiml(
         logger.info(f"Outbound call connected, streaming to {ws_url}")
         
         # Determine Greeting XML
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         agent = await session_manager.db.get(HierarchicalEntity, session.agent_id)
         
         greeting_xml = ''

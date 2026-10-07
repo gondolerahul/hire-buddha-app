@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import select
 
 from src.ai.governance.run_cost import refresh_run_cost, run_spend
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.orm.usage import UsageLog
 from src.ai.usage_service import UsageService
 from src.config.models import IntegrationRegistry

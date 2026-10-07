@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import re
 import logging
 from src.common.job_queue import enqueue_job
-from src.ai.models import (
+from src.ai.orm import (
     HierarchicalEntity, ExecutionRun, LLMInteractionLog, 
     ToolInteractionLog, HumanApproval, Document, EntityType
 )
@@ -167,7 +167,7 @@ class AIService:
         entity = await self.get_entity(entity_id, company_id)
         
         from sqlalchemy import update
-        from src.ai.models import UsageLog
+        from src.ai.orm import UsageLog
         
         # ── Collect the full entity tree (this entity + all descendants) ──
         # A PROCESS entity may have child entities (agents, skills) that
@@ -231,7 +231,7 @@ class AIService:
         # Documents — unlink from entity. They become company-wide, so their
         # Knowledge Tree nodes move to the company tree with them; otherwise
         # they would stay in the deleted entity's tree, unreadable by any agent.
-        from src.ai.models import Document
+        from src.ai.orm import Document
         from src.ai.memory.knowledge_tree_service import KnowledgeTreeService
         doc_rows = (await self.db.execute(
             select(Document.id, Document.company_id).where(Document.entity_id.in_(all_entity_ids))

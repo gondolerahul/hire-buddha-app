@@ -16,7 +16,7 @@ import pytest
 
 from src.ai.governance.idempotency import write_key
 from src.ai.governance.tool_access import _calls_so_far
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.orm.execution import ToolInteractionLog
 from src.ai.step_executor import log_tool_call
 from src.ai.tool_executor import ToolExecutor

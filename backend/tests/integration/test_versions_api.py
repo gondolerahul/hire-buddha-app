@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from src.ai.api.versions import router
 from src.ai.governance.entity_versions import capture_head, run_entity
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 
 pytestmark = pytest.mark.needs_db
 

@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.reports_service import ReportsService
 
 pytestmark = pytest.mark.needs_db

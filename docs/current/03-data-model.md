@@ -2148,7 +2148,6 @@ flowchart LR
 | [backend/src/ai/orm/trust.py](../../backend/src/ai/orm/trust.py) | 52 | `source_trust_scores` |
 | [backend/src/ai/orm/usage.py](../../backend/src/ai/orm/usage.py) | 43 | `usage_logs` |
 | [backend/src/ai/orm/__init__.py](../../backend/src/ai/orm/__init__.py) | 47 | Registers every ORM class; re-exports `EntityType` / `RunStatus` |
-| [backend/src/ai/models.py](../../backend/src/ai/models.py) | 41 | Deprecated back-compat shim re-exporting `src.ai.orm.*` |
 | [backend/src/billing/billing_models.py](../../backend/src/billing/billing_models.py) | 193 | Six billing tables |
 | [backend/src/config/models.py](../../backend/src/config/models.py) | 82 | `integration_registry`, `model_task_defaults`, `TASK_TYPES` |
 | [backend/src/voice/models.py](../../backend/src/voice/models.py) | 119 | `voice_sessions`, `whatsapp_sessions`, `conversation_history` |

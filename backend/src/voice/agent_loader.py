@@ -10,7 +10,7 @@ from uuid import UUID
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 from src.voice.models import ConversationHistory
 from src.config.models import IntegrationRegistry
 from src.common.config import settings

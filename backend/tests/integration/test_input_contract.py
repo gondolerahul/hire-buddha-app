@@ -48,7 +48,7 @@ async def _trigger(db, company_id, entity, input_data):
 
 
 async def _runs(db, entity) -> int:
-    from src.ai.models import ExecutionRun
+    from src.ai.orm import ExecutionRun
     return (await db.execute(select(func.count()).select_from(ExecutionRun)
                              .where(ExecutionRun.entity_id == entity.id))).scalar_one()
 

@@ -141,7 +141,7 @@ class World:
 
 @pytest_asyncio.fixture
 async def world(db):
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
     from src.auth.models import Company, User
     from src.voice.phone_pool_models import PhoneNumber
 

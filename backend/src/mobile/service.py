@@ -206,7 +206,7 @@ async def campaign_counts(db: AsyncSession, campaign_ids: List[UUID]) -> Dict[UU
 
 
 async def list_mobile_campaigns(db: AsyncSession, user: User, status: Optional[str] = None) -> List[Dict[str, Any]]:
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
 
     q = (
         select(Campaign, HierarchicalEntity.display_name, HierarchicalEntity.name)
@@ -270,7 +270,7 @@ def campaign_view(c: Campaign, counts: Dict[str, int], agent_name: Optional[str]
 
 async def list_voice_agents(db: AsyncSession, user: User) -> List[Dict[str, Any]]:
     """ACTIVE agents of the company that have an assigned active DID."""
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
     from src.voice.phone_pool_models import PhoneNumber
 
     rows = (await db.execute(
@@ -1188,7 +1188,7 @@ async def preflight(db: AsyncSession, user: User, *, campaign_id: Optional[UUID]
     }
 
     if campaign_id is not None:
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
 
         campaign = await get_accessible_campaign(db, user, campaign_id)
         pending = await _remaining_calls(db, campaign.id)

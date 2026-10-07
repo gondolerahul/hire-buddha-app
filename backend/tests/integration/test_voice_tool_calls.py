@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from src.ai.models import ExecutionRun, HierarchicalEntity, ToolInteractionLog
+from src.ai.orm import ExecutionRun, HierarchicalEntity, ToolInteractionLog
 from src.ai.orm.usage import UsageLog
 from src.ai.tools.base import Tool, ToolRegistry
 from src.config.models import IntegrationRegistry

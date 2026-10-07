@@ -25,7 +25,7 @@ async def create(company_id: UUID) -> list[str]:
     from sqlalchemy import select
 
     import src.main  # noqa: F401  (registers every model)
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
     from src.ai.schemas.entity import HierarchicalEntityCreate
     from src.ai.service import AIService
     from src.common.database import AsyncSessionLocal

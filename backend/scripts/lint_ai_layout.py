@@ -34,9 +34,8 @@ ALLOWED_TOPLEVEL: set[str] = {
 # Transitional: legacy top-level modules still tolerated. Each entry MUST be
 # removed by the Track listed in the trailing comment.
 TRANSITIONAL_TOPLEVEL: set[str] = {
-    # Track 1 — schemas/ + orm/ split
+    # Track 1 — schemas/ + orm/ split (the models.py shim is deleted, ON-10)
     "schemas.py",
-    "models.py",
     # Track 1 — services/ extraction
     "service.py",
     "router.py",

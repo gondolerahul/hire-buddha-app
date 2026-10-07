@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import select
 
-from src.ai.models import ExecutionRun, HierarchicalEntity, LLMInteractionLog
+from src.ai.orm import ExecutionRun, HierarchicalEntity, LLMInteractionLog
 from src.ai.services.attributed_usage import log_llm_response_usage
 from src.config.models import IntegrationRegistry
 

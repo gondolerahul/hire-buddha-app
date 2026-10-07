@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from src.common.database import Base
-from src.ai.models import HierarchicalEntity, ExecutionRun
+from src.ai.orm import HierarchicalEntity, ExecutionRun
 from src.auth.models import Company
 
 

@@ -14,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 
 from src.ai.api.admin import router
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 
 pytestmark = pytest.mark.needs_db
 

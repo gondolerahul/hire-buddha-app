@@ -45,7 +45,7 @@ async def _host_child_run_factory(
     """
     from src.ai.core.exceptions import CompositionError
     from src.ai.governance.composition import child_depth
-    from src.ai.models import ExecutionRun, HierarchicalEntity
+    from src.ai.orm import ExecutionRun, HierarchicalEntity
 
     parent_run = await db.get(ExecutionRun, execution_run_id) if execution_run_id else None
     entity = await db.get(HierarchicalEntity, tree.entity_id)

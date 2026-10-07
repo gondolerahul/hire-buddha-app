@@ -167,7 +167,7 @@ class MetaEntityCreatorTool(Tool):
     async def _version_entity(self, params: Dict, db, company_id: UUID,
                                user_id: Optional[UUID]) -> str:
         """Create a new version of an existing entity (clone + modify)."""
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         from src.ai.schemas import HierarchicalEntityCreate
         from src.ai.service import AIService
         from src.ai.entity_clone_helpers import clone_entity_fields

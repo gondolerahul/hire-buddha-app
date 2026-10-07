@@ -17,7 +17,7 @@ from sqlalchemy import select
 from src.ai.core.prompt_utils import build_sandwich_prompt
 from src.ai.governance.entity_assets import AssetRejected
 from src.ai.governance.entity_versions import capture_head
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.orm.versions import EntityAsset, EntityVersion
 from src.ai.tools.sandbox import skill_files as sf
 from src.ai.tools.sandbox.skill_files import SkillFiles, render_skill_files, run_skill_files

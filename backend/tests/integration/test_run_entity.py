@@ -19,7 +19,7 @@ from src.ai.core.agent_state import AgentState
 from src.ai.core.budget import Budget
 from src.ai.core.strategist import Move
 from src.ai.governance.entity_versions import run_entity
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.schemas.enums import EntityType
 
 pytestmark = pytest.mark.needs_db

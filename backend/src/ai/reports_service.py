@@ -11,7 +11,7 @@ from sqlalchemy import text, func, case, and_, or_, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from src.ai.models import (
+from src.ai.orm import (
     ExecutionRun, LLMInteractionLog, ToolInteractionLog,
     HumanApproval, UsageLog, HierarchicalEntity, Document,
 )

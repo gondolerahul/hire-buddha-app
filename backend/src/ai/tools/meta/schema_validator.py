@@ -212,7 +212,7 @@ class MetaSchemaValidatorTool(Tool):
                 continue
 
             try:
-                from src.ai.models import HierarchicalEntity
+                from src.ai.orm import HierarchicalEntity
                 from sqlalchemy import select
 
                 eid = UUID(str(entity_id))

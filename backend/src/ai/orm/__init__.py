@@ -24,8 +24,8 @@ from src.ai.orm.tools import ToolRegistryEntry
 from src.ai.orm.trace import ExecutionTraceEvent
 from src.ai.orm.versions import EntityAsset, EntityVersion
 
-# Re-export enums from schemas (callers historically imported these from
-# ``src.ai.models``).
+# Re-export enums from schemas, so ``from src.ai.orm import RunStatus`` works
+# (callers of the deleted ``src.ai.models`` shim imported them with the models).
 from src.ai.schemas.enums import EntityType, RunStatus  # noqa: F401
 
 __all__ = [

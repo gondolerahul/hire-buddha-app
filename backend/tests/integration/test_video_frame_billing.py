@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.orm.execution import LLMInteractionLog
 from src.ai.orm.usage import UsageLog
 from src.config.models import IntegrationRegistry

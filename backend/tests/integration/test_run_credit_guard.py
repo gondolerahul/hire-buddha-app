@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from src.ai.core.credit_guard import CreditGuard
 from src.ai.core.exceptions import CreditExhaustedError
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.billing.billing_models import CreditHold, CreditWallet
 from src.billing.billing_service import BillingService, compute_billed_amount
 from src.billing.credit_service import CreditService

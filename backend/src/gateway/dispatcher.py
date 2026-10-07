@@ -80,7 +80,7 @@ class CentralDispatcher:
         # Fall back to DB lookup
         try:
             from src.common.database import AsyncSessionLocal
-            from src.ai.models import HierarchicalEntity
+            from src.ai.orm import HierarchicalEntity
             from sqlalchemy import select
 
             async with AsyncSessionLocal() as db:

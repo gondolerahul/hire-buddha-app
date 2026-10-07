@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import select
 
 import src.ai.tools  # noqa: F401  (registers every tool)
-from src.ai.models import ToolRegistryEntry
+from src.ai.orm import ToolRegistryEntry
 from src.ai.tool_management_service import ToolManagementService
 from src.ai.tools.base import ToolRegistry, tool_category
 

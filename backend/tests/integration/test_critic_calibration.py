@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.common.orm_models import import_all_models
 
 import_all_models()

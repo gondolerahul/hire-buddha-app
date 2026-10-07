@@ -21,7 +21,7 @@ from sqlalchemy import select
 
 from src.ai.artifact_models import Artifact
 from src.ai.artifact_service import ARTIFACT_BASE_DIR, ORIGIN_SYSTEM, ArtifactService, save_tool_output
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.common.orm_models import import_all_models
 
 import_all_models()  # the artifact row references campaigns

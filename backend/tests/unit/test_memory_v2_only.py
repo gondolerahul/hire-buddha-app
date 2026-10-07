@@ -21,9 +21,9 @@ def test_v1_modules_are_gone() -> None:
     for mod in ("src.ai.memory.memory_service", "src.ai.memory.legacy_episodic_reader",
                 "src.ai.orm.memory"):
         assert importlib.util.find_spec(mod) is None, mod
-    from src.ai import models
-    assert not hasattr(models, "EpisodicMemory")
-    assert not hasattr(models, "DocumentChunk")
+    from src.ai import orm
+    assert not hasattr(orm, "EpisodicMemory")
+    assert not hasattr(orm, "DocumentChunk")
 
 
 # ---------------------------------------------------------------------------

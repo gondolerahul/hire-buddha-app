@@ -41,7 +41,7 @@ class CallSpend:
         async with self._lock:
             if self.run_id is not None:
                 return self.run_id
-            from src.ai.models import ExecutionRun, HierarchicalEntity
+            from src.ai.orm import ExecutionRun, HierarchicalEntity
             from src.ai.schemas.enums import RunStatus
 
             entity = (await db.execute(select(HierarchicalEntity.id).where(
@@ -80,7 +80,7 @@ class CallSpend:
             return Decimal("0")
         from src.ai.governance.governance_service import GovernanceService
         from src.ai.governance.run_cost import refresh_run_cost
-        from src.ai.models import ExecutionRun
+        from src.ai.orm import ExecutionRun
         from src.ai.schemas.enums import RunStatus
 
         await refresh_run_cost(db, self.run_id, commit=False)

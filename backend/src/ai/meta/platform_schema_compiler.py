@@ -702,7 +702,7 @@ async def load_entity_children(
     """
     from sqlalchemy import or_
 
-    from src.ai.models import HierarchicalEntity as HE
+    from src.ai.orm import HierarchicalEntity as HE
 
     entity = (await db.execute(
         select(HE).where(HE.id == entity_id, HE.company_id == company_id)

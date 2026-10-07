@@ -16,7 +16,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 
-from src.ai.models import ToolRegistryEntry
+from src.ai.orm import ToolRegistryEntry
 from src.ai.tools.base import tool_category
 from src.ai.schemas import (
     ToolRegistryEntryCreate,

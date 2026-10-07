@@ -20,7 +20,7 @@ from sqlalchemy import select
 from src.ai.schemas import AgentPersona, VoiceConfig, PersonalityMatrix
 
 if TYPE_CHECKING:
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class PersonaService:
         Load and parse the standardized AgentPersona for an entity.
         Returns None if the entity doesn't exist or has no identity configured.
         """
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         result = await self.db.execute(
             select(HierarchicalEntity).where(HierarchicalEntity.id == entity_id)
         )

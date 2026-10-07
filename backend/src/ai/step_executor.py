@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Any
 from uuid import UUID
 
 from src.ai.constants import INTERNAL_CONTEXT_KEYS, MAX_REACT_TURNS
-from src.ai.models import (
+from src.ai.orm import (
     ExecutionRun, HierarchicalEntity, LLMInteractionLog,
     ToolInteractionLog, RunStatus,
 )

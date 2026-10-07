@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.ai.governance.subjects import CONTACT, LEAD, gateway_subjects, record_subjects, subject_scope, voice_subjects
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.common.orm_models import import_all_models
 
 import_all_models()

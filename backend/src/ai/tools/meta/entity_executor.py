@@ -117,7 +117,7 @@ class MetaEntityExecutorTool(Tool):
 
     async def _inject_cost_cap(self, db, entity_id: UUID, max_cost: float):
         """Temporarily set governance.max_cost_usd on the entity for safety."""
-        from src.ai.models import HierarchicalEntity
+        from src.ai.orm import HierarchicalEntity
         from sqlalchemy import select
 
         result = await db.execute(
@@ -137,7 +137,7 @@ class MetaEntityExecutorTool(Tool):
                                timeout_sec: int = 120) -> Dict[str, Any]:
         """Poll for execution completion."""
         import asyncio
-        from src.ai.models import ExecutionRun
+        from src.ai.orm import ExecutionRun
         from sqlalchemy import select
 
         deadline = asyncio.get_event_loop().time() + timeout_sec

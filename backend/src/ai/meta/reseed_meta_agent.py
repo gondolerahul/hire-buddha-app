@@ -83,7 +83,7 @@ def reconcile_template(
 async def reseed(target_company_id: Optional[str] = None) -> dict[str, int]:
     from sqlalchemy import String, or_, select
     from src.ai.meta.meta_agent_template import generate_meta_agent_template
-    from src.ai.models import HierarchicalEntity
+    from src.ai.orm import HierarchicalEntity
     from src.common.database import AsyncSessionLocal
 
     template = generate_meta_agent_template()

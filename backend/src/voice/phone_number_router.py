@@ -36,7 +36,7 @@ from src.auth.visibility import PARTNER_ROLES, in_scope, visible_company_ids
 from src.voice.phone_pool_models import PhoneNumber
 from src.config.models import IntegrationRegistry
 from src.common.security import decrypt_api_key
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 
 logger = logging.getLogger(__name__)
 

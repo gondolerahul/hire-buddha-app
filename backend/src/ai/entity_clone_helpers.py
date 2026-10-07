@@ -8,7 +8,7 @@ logic that existed in both convert_to_template() and clone_template().
 import copy
 from uuid import UUID
 
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 
 
 def clone_entity_fields(src: HierarchicalEntity) -> dict:

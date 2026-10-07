@@ -16,7 +16,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from src.ai.models import ExecutionRun, HierarchicalEntity, LLMInteractionLog
+from src.ai.orm import ExecutionRun, HierarchicalEntity, LLMInteractionLog
 from src.ai.orm.usage import UsageLog
 from src.ai.step_executor import StepExecutorService
 from src.ai.usage_service import UsageService
@@ -158,7 +158,7 @@ async def test_a_fixed_cost_charge_appears_in_the_usage_breakdown(db):
 @pytest.mark.asyncio
 async def test_a_tool_call_records_the_step_that_made_it(db, monkeypatch):
     """FE-10: tool logs had no step_name, so the run page could not attribute them."""
-    from src.ai.models import ToolInteractionLog
+    from src.ai.orm import ToolInteractionLog
     from src.ai.schemas import PlanStep, StepType
     from src.ai.schemas.planning import PlanStepTarget
     from src.ai.tool_executor import ToolExecutor, ToolResult

@@ -41,7 +41,7 @@ async def _user(db, company_id) -> uuid.UUID:
 
 
 async def _pending_approval(db, company_id) -> uuid.UUID:
-    from src.ai.models import ExecutionRun, HumanApproval
+    from src.ai.orm import ExecutionRun, HumanApproval
     from src.ai.orm.entity import HierarchicalEntity
     ent = HierarchicalEntity(company_id=company_id, type="AGENT", status="ACTIVE", name="hitl-agent")
     db.add(ent)

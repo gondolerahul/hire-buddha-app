@@ -6,7 +6,7 @@ from typing import Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from src.ai.models import UsageLog
+from src.ai.orm import UsageLog
 from src.config.models import IntegrationRegistry
 import logging
 

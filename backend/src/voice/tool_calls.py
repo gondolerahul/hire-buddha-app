@@ -49,7 +49,7 @@ class VoiceToolCalls:
         from src.ai.governance.tool_access import ExecutionContext, ToolAccess
         from src.ai.governance.subjects import voice_subjects
         from src.ai.governance.tool_cost_resolver import ToolCostResolver
-        from src.ai.models import ExecutionRun, HierarchicalEntity
+        from src.ai.orm import ExecutionRun, HierarchicalEntity
         from src.ai.schemas.enums import RunStatus
 
         vs = self.voice_session
@@ -118,7 +118,7 @@ class VoiceToolCalls:
         """
         if self.run is None:
             return Decimal("0")
-        from src.ai.models import ExecutionRun
+        from src.ai.orm import ExecutionRun
         from src.ai.schemas.enums import RunStatus
 
         now = datetime.utcnow()

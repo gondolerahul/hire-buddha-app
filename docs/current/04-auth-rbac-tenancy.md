@@ -573,7 +573,7 @@ from sqlalchemy.future import select
 from src.common.database import get_db
 from src.auth.models import User
 from src.auth.dependencies import get_current_user, RoleChecker
-from src.ai.models import Widget
+from src.ai.orm.widget import Widget
 
 router = APIRouter(prefix="/widgets", tags=["Widgets"])
 

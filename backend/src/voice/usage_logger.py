@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from src.config.models import IntegrationRegistry
-from src.ai.models import UsageLog
+from src.ai.orm import UsageLog
 from src.voice.models import VoiceSession
 
 logger = logging.getLogger(__name__)

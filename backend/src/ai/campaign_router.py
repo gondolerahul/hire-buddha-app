@@ -23,7 +23,7 @@ from src.common.database import get_db
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.ai.campaign_service import CampaignService
-from src.ai.models import HierarchicalEntity
+from src.ai.orm import HierarchicalEntity
 
 logger = logging.getLogger(__name__)
 

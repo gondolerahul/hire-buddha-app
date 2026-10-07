@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, selectinload
 
 from src.common.database import Base
-from src.ai.models import ExecutionRun, HierarchicalEntity, RunStatus
+from src.ai.orm import ExecutionRun, HierarchicalEntity, RunStatus
 from src.ai.cortex_models import (
     CortexTree, CortexNode,
     CortexTreeStatus, CortexNodeType, CortexNodeStatus,

@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import select
 
 from src.ai.governance.entity_versions import capture_head, content_hash, snapshot_of
-from src.ai.models import ExecutionRun, HierarchicalEntity
+from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.orm.versions import EntityAsset, EntityVersion
 from src.ai.schemas.entity import HierarchicalEntityUpdate
 from src.ai.service import AIService

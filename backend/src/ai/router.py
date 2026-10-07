@@ -562,7 +562,7 @@ async def upload_context_source(
     # Auto-add to entity's context_sources if entity_id is provided
     if entity_id:
         try:
-            from src.ai.models import HierarchicalEntity
+            from src.ai.orm import HierarchicalEntity
             from sqlalchemy import select
             import copy
             
