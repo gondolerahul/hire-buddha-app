@@ -52,10 +52,10 @@
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
-| GW-01 | No webhook signature is ever verified, and a failure would not block | ✅ fixed (2026-10-07) | — |
+| GW-01 | No webhook signature is ever verified, and a failure would not block | ✅ fixed `f0ec5db` | — |
 | GW-02 | Rate limiting covers one route | partly fixed — REST limited; WebSockets not | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
-| GW-03 | No webhook idempotency | ✅ fixed (2026-10-07) | — |
-| GW-04 | The auth middleware never sees a WebSocket | ✅ fixed (2026-10-07) | — |
+| GW-03 | No webhook idempotency | ✅ fixed `302d276` | — |
+| GW-04 | The auth middleware never sees a WebSocket | ✅ fixed `4357a92` | — |
 | GW-05 | Rate limits are keyed on `127.0.0.1` in production | invalid | — |
 | GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | partly fixed — TURN settings still unread | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-07 | The event bus is in-process with one subscriber | ✅ fixed (single port) | — |
@@ -68,7 +68,7 @@
 | GW-14 | Both `streaming.hirebuddha.com` vhosts | ✅ fixed | — |
 | GW-15 | The proxy copies response headers verbatim after decompressing | ✅ fixed | — |
 | GW-16 | Auth middleware runs before CORS, so its 401s have no CORS headers | ✅ fixed | — |
-| GW-17 | Agent selection is `LIMIT 1` with no `ORDER BY`, in three places | ✅ fixed (2026-10-07) | — |
+| GW-17 | Agent selection is `LIMIT 1` with no `ORDER BY`, in three places | ✅ fixed `3ca2d38` | — |
 | GW-18 | SSE has no replay and no `Last-Event-ID` | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-19 | SSE terminates on a substring match | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-20 | The catch-all proxy must stay last, and nothing enforces it | ✅ fixed | — |
@@ -91,7 +91,7 @@ The three to read first:
 
 ### GW-01 — No webhook signature is ever verified, and a failure would not block
 
-**✅ Verified · Critical** · **Status: fixed (2026-10-07)** — a webhook is accepted only at `POST /webhook/inbound/{endpoint_id}`, an endpoint a company admin registers (`/api/v1/webhook-endpoints`; table `webhook_endpoints`, migration `h2_webhook_endpoints`). The endpoint names the company, the source and the secret (encrypted); the request is checked with that source's native scheme or the relay `X-HB-Signature` (`gateway/webhook_signatures.py`, constant-time), and a missing or wrong signature is a **401 with nothing queued**, plus a `gateway.webhook.signature_failed` event. The scheme is never chosen from the request's headers: the header-sniffing `detect_strategy` and the always-`True` `validate_signature` methods are deleted. The tenant is the endpoint's company — `?client_id=` names nothing. The bare `POST /webhook/inbound` answers 401; a revoked endpoint or a suspended company 404. Tests: `test_webhook_signatures.py` (every source signed, tampered, unsigned, wrong secret, other scheme, stale), `test_webhook_ingress_auth.py`, `tests/integration/test_webhook_endpoints.py` (Postgres). Not exercised with real provider deliveries. No UI yet: endpoints are managed through the API. The secrets column joins AU-24's re-encryption
+**✅ Verified · Critical** · **Status: fixed (2026-10-07, `f0ec5db`)** — a webhook is accepted only at `POST /webhook/inbound/{endpoint_id}`, an endpoint a company admin registers (`/api/v1/webhook-endpoints`; table `webhook_endpoints`, migration `h2_webhook_endpoints`). The endpoint names the company, the source and the secret (encrypted); the request is checked with that source's native scheme or the relay `X-HB-Signature` (`gateway/webhook_signatures.py`, constant-time), and a missing or wrong signature is a **401 with nothing queued**, plus a `gateway.webhook.signature_failed` event. The scheme is never chosen from the request's headers: the header-sniffing `detect_strategy` and the always-`True` `validate_signature` methods are deleted. The tenant is the endpoint's company — `?client_id=` names nothing. The bare `POST /webhook/inbound` answers 401; a revoked endpoint or a suspended company 404. Tests: `test_webhook_signatures.py` (every source signed, tampered, unsigned, wrong secret, other scheme, stale), `test_webhook_ingress_auth.py`, `tests/integration/test_webhook_endpoints.py` (Postgres). Not exercised with real provider deliveries. No UI yet: endpoints are managed through the API. The secrets column joins AU-24's re-encryption
 
 Two separate problems, either of which alone would be enough.
 
@@ -167,7 +167,7 @@ limit mean what everyone assumes it means.
 
 ### GW-03 — No webhook idempotency
 
-**📄 Doc-reported · High** · **Status: fixed (2026-10-07)** — after the signature check a delivery is claimed with Redis `SET NX EX 86400`, keyed on the endpoint and the provider's delivery id (`X-GitHub-Delivery`, `I-Twilio-Idempotency-Token`, a relay's `X-HB-Delivery`) or the body's SHA-256. A delivery already taken answers 200 `duplicate` and is not queued; the claim is released if the enqueue fails, so a retried 503 still runs; Redis unavailable is a 503, never a second run. `tests/unit/test_webhook_deliveries.py` (fails on the old route: a retry ran twice), and `test_webhook_endpoints.py::test_a_retried_delivery_runs_once` against the local Redis
+**📄 Doc-reported · High** · **Status: fixed (2026-10-07, `302d276`)** — after the signature check a delivery is claimed with Redis `SET NX EX 86400`, keyed on the endpoint and the provider's delivery id (`X-GitHub-Delivery`, `I-Twilio-Idempotency-Token`, a relay's `X-HB-Delivery`) or the body's SHA-256. A delivery already taken answers 200 `duplicate` and is not queued; the claim is released if the enqueue fails, so a retried 503 still runs; Redis unavailable is a 503, never a second run. `tests/unit/test_webhook_deliveries.py` (fails on the old route: a retry ran twice), and `test_webhook_endpoints.py::test_a_retried_delivery_runs_once` against the local Redis
 
 Providers retry. Nothing deduplicates. A retried delivery creates a **second execution**
 and a second charge.
@@ -185,7 +185,7 @@ single captured webhook body can be replayed indefinitely.
 
 ### GW-04 — The auth middleware never sees a WebSocket
 
-**✅ Verified · High** · **Status: fixed (2026-10-07)** — the auth middleware was
+**✅ Verified · High** · **Status: fixed (2026-10-07, `4357a92`)** — the auth middleware was
 deleted on 2026-09-30 (the internal-token check is a `require_internal` dependency), and
 the gap it described is closed in the handlers themselves (GW-I6): `/stream/audio` and
 `/stream/video` call `gateway/stream_auth.py`'s `stream_company` first. The handshake's
@@ -389,7 +389,7 @@ sends the developer looking in entirely the wrong place.
 
 ### GW-17 — Agent selection is `LIMIT 1` with no `ORDER BY`, in three places
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-07)** — correction to the 2026-10-07 re-verification: all three call sites were still there — `dispatcher.resolve_agent_for_client` and two in `ai/core/arq_jobs.py` (the webhook worker's agent fallback and the sheet campaign's user fallback). One rule now, `gateway/agent_choice.py` `choose_agent`: an agent named explicitly (a webhook endpoint's binding, then the event's `entity_id`; a socket handshake's `agent_id`) if it is an active, non-template agent of the company, else refused (`unknown_agent`); with none named, the company's only active top-level agent; several is refused (`ambiguous_agent`) instead of guessed. Drafts, archived, soft-deleted, template and child entities are never picked. The sheet campaign's user fallback is the company admin, else the earliest user. `tests/integration/test_agent_choice.py` (Postgres), `tests/unit/test_agent_choice_wiring.py`
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-07, `3ca2d38`)** — correction to the 2026-10-07 re-verification: all three call sites were still there — `dispatcher.resolve_agent_for_client` and two in `ai/core/arq_jobs.py` (the webhook worker's agent fallback and the sheet campaign's user fallback). One rule now, `gateway/agent_choice.py` `choose_agent`: an agent named explicitly (a webhook endpoint's binding, then the event's `entity_id`; a socket handshake's `agent_id`) if it is an active, non-template agent of the company, else refused (`unknown_agent`); with none named, the company's only active top-level agent; several is refused (`ambiguous_agent`) instead of guessed. Drafts, archived, soft-deleted, template and child entities are never picked. The sheet campaign's user fallback is the company admin, else the earliest user. `tests/integration/test_agent_choice.py` (Postgres), `tests/unit/test_agent_choice_wiring.py`
 
 When a webhook or internal event does not name an entity, the gateway picks one with
 `LIMIT 1` and no ordering. A tenant with several agents gets a non-deterministic choice —

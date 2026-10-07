@@ -402,3 +402,11 @@ Columns: phase · ids · commit · evidence. Updated as each fix lands.
 | H0.7 | API-13 | `9f60567` | Same test, fails on the old router; e2e role-guard tests probe `GET /config/task-defaults` |
 | H0.8 | GW-09 | `01fa369` | `SSE_HEADERS` = `no-cache, no-transform`; `test_sse_headers.py`. Not checked behind a live Apache |
 | **H0 done** | 9 entries | — | Local Docker's data was found gone on 2026-10-07 (a new data disk); e2e and integration runs wait on a rebuilt database |
+| H0 fix | ON-14 | `174549f` | `test_phase11_documentation` followed the docs/history move (missed by `b9d3591`) |
+| — | Local DB rebuilt | — | Docker came up on a new data disk; Postgres/Redis recreated, `alembic upgrade head`, admin + registry + sandbox SKU seeds. Integration baseline 361 + the 2 known |
+| H2.1 | GW-01, API-03 | `f0ec5db` | Signed per-endpoint webhooks (`webhook_endpoints`, migration `h2_webhook_endpoints`); `test_webhook_signatures.py`, `test_webhook_ingress_auth.py`, integration `test_webhook_endpoints.py` |
+| H2.2 | GW-03 | `302d276` | Delivery claimed with Redis `SET NX`; `test_webhook_deliveries.py`; integration retry test on the local Redis |
+| H2.3 | FE-28 | `eeac959` | Ten-minute path-scoped URL tokens; login token refused in URLs; checked in the browser |
+| H2.4 | GW-04 | `4357a92` | Stream token required in the socket handshake (4401/4403); `test_stream_auth.py`; checked live |
+| H2.5 | GW-17 | `3ca2d38` | `gateway/agent_choice.py`; integration `test_agent_choice.py`. Unit 1,943 + 5 known; integration 377 + 2 known |
+| **H2 paused** | AU-24, AU-25, PO-23 left | — | Usage limit reached before AU-24 (investigation only: encrypted columns are `email_connections.encrypted_app_password`, `social_connections.encrypted_access_token/refresh_token`, `integration_registry.encrypted_api_key` + `service_metadata.secrets_encrypted`, `webhook_endpoints.secret_encrypted`) |

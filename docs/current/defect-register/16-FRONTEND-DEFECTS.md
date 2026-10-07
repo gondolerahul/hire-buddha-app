@@ -78,7 +78,7 @@ Re-verified against the code 2026-10-07; the three open defects are scheduled in
 | FE-25 | Saving from the entity builder rewrites config it does not show | ✅ fixed `0dbd5ef` |
 | FE-26 | The production build fails *(new)* | ✅ fixed `141a4df` |
 | FE-27 | A compiled `vite.config.js` shadows `vite.config.ts` *(new)* | ✅ fixed `50dac40` |
-| FE-28 | Artifact previews put the access token in the URL *(new)* | ✅ fixed (2026-10-07) — a ten-minute, path-scoped URL token |
+| FE-28 | Artifact previews put the access token in the URL *(new)* | ✅ fixed `eeac959` — a ten-minute, path-scoped URL token |
 | FE-29 | The session list's recording link always answers 401 *(new)* | ✅ fixed `cb3026f` |
 | FE-30 | Three more unreferenced files *(new)* | ✅ fixed `a7db850` |
 | FE-31 | Reloading the Artifacts page shows the API's 404 *(new)* | ✅ fixed `c222808` |
@@ -267,7 +267,7 @@ on the next dev-server start.
 
 ### FE-28 — Artifact previews put the access token in the URL
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-07)** — found 2026-10-01 while fixing FE-04.
+**✅ Verified · Medium** · **Status: fixed (2026-10-07, `eeac959`)** — found 2026-10-01 while fixing FE-04.
 URLs the browser loads itself carry a **URL token**: `POST /api/v1/auth/url-token`
 mints a JWT of type `url` that lives ten minutes and is good only under one of two path
 prefixes (`/api/v1/artifacts/`, `/api/v1/ai/executions/`), carries `tv` (ending sessions

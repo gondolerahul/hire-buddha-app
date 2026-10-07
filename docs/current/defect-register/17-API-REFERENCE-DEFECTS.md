@@ -49,7 +49,7 @@
 |---|---|---|---|
 | API-01 | Four endpoints are open or wrongly gated | ✅ fixed (each row by its owning register) | — |
 | API-02 | The cron endpoints move money over HTTP | ✅ fixed `fe8f1a6`, `e46bff3` | — |
-| API-03 | No webhook signature verification on the gateway's inbound route | ✅ fixed (2026-10-07) | — |
+| API-03 | No webhook signature verification on the gateway's inbound route | ✅ fixed `f0ec5db` | — |
 | API-04 | `POST /internal/event` is protected by a default secret | ✅ fixed | — |
 | API-05 | The frontend calls a delete route that does not exist | ✅ fixed | — |
 | API-06 | Password reset: two documented routes, neither implemented | ✅ fixed `8842901` (AU-06) | — |
@@ -132,7 +132,7 @@ audit trail beyond a log line.
 
 ### API-03 — No webhook signature verification on the gateway's inbound route
 
-**✅ Verified · Critical** · **Status: fixed (2026-10-07)** — with [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block): webhooks arrive at a registered endpoint and must be signed; the bare route answers 401
+**✅ Verified · Critical** · **Status: fixed (2026-10-07, `f0ec5db`)** — with [GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block): webhooks arrive at a registered endpoint and must be signed; the bare route answers 401
 
 `POST /webhook/inbound` creates executions. Every `validate_signature` returns `True`, and
 the result is logged and ignored regardless.
