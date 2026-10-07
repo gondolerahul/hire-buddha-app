@@ -39,10 +39,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 0 | 1 | 2 | 1 |
 | [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 1 | 1 | 2 | 0 |
-| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 0 | 0 | 5 | 0 |
+| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 1 | 0 | 4 | 0 |
 | [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 0 | 0 | 5 | 1 |
 
-**Total: 19 defects (1 fixed, 2 partly fixed, 14 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (2 fixed, 2 partly fixed, 13 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -54,7 +54,7 @@
 | TS-06 | An unmocked LLM call returns a `STUB:` string, not an error | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-07 | `e2e/` does not roll back | ✅ fixed `3352625` | — |
 | TS-08 | The frontend tests cannot run at all | partly — `vitest` installed; not wired | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| TS-09 | The root `tests/` directory | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| TS-09 | The root `tests/` directory | ✅ fixed (2026-10-07) | — |
 | TS-10 | The `kpi` marker and its CI step | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-11 | The `needs_redis` marker | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-12 | `backend/tests/phase9/` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
@@ -252,7 +252,7 @@ So the frontend has two test files that cannot execute and would not compile.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **TS-09** | The root `tests/` directory | Four directories containing nothing but `__init__.py` — `fixtures/`, `harness/`, `parity/`, `regression/`. Mirrors four `backend/tests/` names and holds nothing. A leftover from a package-layout experiment | ✅ Verified · **open** (re-verified 2026-10-07) — the root `tests/` directory is still there · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| **TS-09** | The root `tests/` directory | Four directories containing nothing but `__init__.py` — `fixtures/`, `harness/`, `parity/`, `regression/`. Mirrors four `backend/tests/` names and holds nothing. A leftover from a package-layout experiment | ✅ Verified · **fixed (2026-10-07)** — deleted; all tests live in `backend/tests/` (`19-testing.md` §3.1) |
 | **TS-10** | The `kpi` marker and its CI step | Registered in `pytest.ini`, used **0 times**, and `backend/tests/kpi/` does not exist. Both the marker and the CI lane are placeholders | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | **TS-11** | The `needs_redis` marker | Registered, used **0 times** | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | **TS-12** | `backend/tests/phase9/` | Two legacy scripts, **no pytest tests**. Also violates the canary-label ban that `lint_ai_layout.py` enforces on `src/ai/` | 📄 Doc-reported · **open** (re-verified 2026-10-07) — `check_run.py` and `run_all_tests.py` are still there · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |

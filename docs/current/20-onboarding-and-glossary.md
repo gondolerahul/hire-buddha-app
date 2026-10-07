@@ -359,13 +359,12 @@ grep -rn "await flags.is_on\|FeatureFlags(" backend/src --include="*.py"
 
 ### 7.3 Where the code is *not*
 
-Three traps:
+Two traps:
 
 | You would expect | It is actually |
 |---|---|
 | CORTEX logic in `src/ai/memory/` | Mostly re-export shims — real code in `backend/cortex_memory/` |
 | ORM models in `src/ai/models.py` | A deprecated shim — real models in `src/ai/orm/` |
-| Tests at repo root `tests/` | Empty scaffolding — real tests in `backend/tests/` |
 
 ### 7.4 In-repo docs worth reading
 

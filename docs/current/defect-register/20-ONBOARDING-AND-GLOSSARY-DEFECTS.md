@@ -40,10 +40,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--the-documented-setup-does-not-work) | The documented setup does not work | 4 | 2 | 0 | 2 | 0 |
 | [T1](#3-t1--the-onboarding-teaches-the-wrong-model) | The onboarding teaches the wrong model | 5 | 0 | 0 | 4 | 1 |
-| [T2](#4-t2--stale-references) | Stale references | 5 | 1 | 0 | 3 | 1 |
+| [T2](#4-t2--stale-references) | Stale references | 5 | 2 | 0 | 2 | 1 |
 | [T3](#5-t3--glossary-and-navigation) | Glossary and navigation | 4 | 0 | 0 | 4 | 0 |
 
-**Total: 18 defects (3 fixed, 13 open, 2 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 18 defects (4 fixed, 12 open, 2 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -57,7 +57,7 @@
 | ON-08 | The quality gates a newcomer is told to run are not enforced anywhere | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-09 | `core/` has 20 lines of headroom and the doc says so twice | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | ON-10 | `src/ai/models.py` is a deprecated shim still in the tree | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
-| ON-11 | The root `tests/` directory | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| ON-11 | The root `tests/` directory | ✅ fixed (2026-10-07) | — |
 | ON-12 | `backend/cortex_memory_moved_to_pypi_repo/` | invalid | — |
 | ON-13 | `core/README.md` documents two files that do not exist | ✅ fixed `ddd4912` (AK-14) | — |
 | ON-14 | `docs/phase9/` through `docs/phase12/` | open | [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
@@ -283,7 +283,7 @@ contributor arrives, not to document the wall.
 | ID | Problem | Notes | Status |
 |---|---|---|---|
 | **ON-10** | `src/ai/models.py` is a deprecated shim still in the tree | Re-exports every ORM class from `src.ai.orm.*` so old imports keep working. §7.3 lists it as a trap. It has been a trap for long enough — delete it and fix the importers | ✅ Verified · **open** (re-verified 2026-10-07) — `src/ai/models.py` is still in the tree · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
-| **ON-11** | The root `tests/` directory | Four `__init__.py` files and nothing else. §7.3 lists it as a trap. Deleting it removes the trap entirely. Also [TS-09](19-TESTING-DEFECTS.md#4-t2--dead-scaffolding) | ✅ Verified · **open** (re-verified 2026-10-07) — same as TS-09 · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |
+| **ON-11** | The root `tests/` directory | Four `__init__.py` files and nothing else. §7.3 lists it as a trap. Deleting it removes the trap entirely. Also [TS-09](19-TESTING-DEFECTS.md#4-t2--dead-scaffolding) | ✅ Verified · **fixed (2026-10-07)** — deleted with TS-09; §7.3 no longer lists it |
 | **ON-12** | `backend/cortex_memory_moved_to_pypi_repo/` | The directory name is itself the documentation. §7.3 and §9 item 5 both explain it. Either publish the package or move it back — see [MC-I10](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-i10--decide-where-cortex_memory-lives) | ✅ Verified · **invalid (2026-09-28, `e8d9f62`)** — renamed back to `backend/cortex_memory/` |
 | **ON-13** | `core/README.md` documents two files that do not exist | `execution_engine.py` and `recursive_engine.py`. §7.4 recommends it as worth reading. Also [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified · **fixed (2026-10-01, `ddd4912`, with AK-14)** — `core/README.md` describes the code and names the two files only as deleted |
 | **ON-14** | `docs/phase9/` through `docs/phase12/` | Historical plans kept alongside current documentation. §7.4 warns "the code is truth", which is the right instruction and does not stop a newcomer opening them first. Move them under `docs/history/` | 📄 Doc-reported · **open** (re-verified 2026-10-07) — `docs/phase1` … `docs/phase12` are still beside `docs/current` · plan [H0](REMAINING-DEFECTS-PLAN.md#h0--clear-the-ground) |

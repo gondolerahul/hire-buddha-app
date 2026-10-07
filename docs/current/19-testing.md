@@ -192,22 +192,11 @@ function count understates their coverage.
 
 ### 3.1 The duplicate `tests/` at the repo root
 
-There is a second, near-empty `tests/` tree at the repository root:
-
-```
-tests/
-├── fixtures/__init__.py
-├── harness/__init__.py
-├── parity/__init__.py
-└── regression/__init__.py
-```
-
-Four directories containing nothing but `__init__.py` files. It mirrors four of
-the `backend/tests/` subdirectory names but holds no tests, no fixtures and no
-harness code.
-
-> ⚠️ This appears to be a leftover from a package-layout experiment. **All real
-> tests live in `backend/tests/`.** Do not add anything to the root `tests/`.
+There used to be a second `tests/` tree at the repository root — four directories
+(`fixtures/`, `harness/`, `parity/`, `regression/`) holding nothing but
+`__init__.py` files. It was deleted on 2026-10-07
+([TS-09](defect-register/19-TESTING-DEFECTS.md#4-t2--dead-scaffolding)). **All
+tests live in `backend/tests/`.**
 
 ---
 
@@ -1218,8 +1207,8 @@ are caught).
 
 9. **`tests/phase9/` contains no pytest tests** — two legacy scripts only.
 
-10. **The root `tests/` directory is empty scaffolding.** All real tests are in
-    `backend/tests/`.
+10. ~~**The root `tests/` directory is empty scaffolding.**~~ Deleted 2026-10-07
+    (TS-09). All tests are in `backend/tests/`.
 
 11. **Parity leaves `parity-*` tenants behind.** Use a disposable Postgres.
 
