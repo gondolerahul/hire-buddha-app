@@ -41,11 +41,11 @@
 | Tier | Theme | Count | Fixed | Won't fix | Open |
 |---|---|---|---|---|---|
 | [T0](#2-t0--privilege-escalation-and-open-doors) | Privilege escalation and open doors | 6 | 6 | 0 | 0 |
-| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 9 | 8 | 0 | 1 |
+| [T1](#3-t1--controls-that-are-not-enforced) | Controls that are not enforced | 9 | 9 | 0 | 0 |
 | [T2](#4-t2--missing-pieces) | Missing pieces | 5 | 4 | 1 | 0 |
 | [T3](#5-t3--inconsistency-and-dead-weight) | Inconsistency and dead weight | 6 | 5 | 1 | 0 |
 
-**Total: 26 defects (23 fixed, 2 won't fix, 1 open), 10 improvements (5 done, 1 partly, 4
+**Total: 26 defects (24 fixed, 2 won't fix, 0 open), 10 improvements (5 done, 1 partly, 4
 open).** Worked 2026-09-30 to 2026-10-01 on branch `roadmap-development-defect-fixes`.
 AU-23 to AU-26 were found while fixing the rest. Re-verified against the code 2026-10-07: AU-23's frontend half is done (FE-11); AU-24 and AU-25 are open and scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) ([H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors)).
 
@@ -75,7 +75,7 @@ AU-23 to AU-26 were found while fixing the rest. Re-verified against the code 20
 | AU-22 | Suspension is checked twice | ✅ fixed `15191e5` (SA-18) |
 | AU-23 | An OAuth login can sign in as any existing account | ✅ fixed `a65d18d` (backend); the SPA's `state` and PKCE `1fffde8`, `c61a44c` (FE-11) |
 | AU-24 | The credential-encryption key has a public default | ✅ fixed (2026-10-07) — required key, HKDF, rotation script |
-| AU-25 | Social-connection client secrets are stored in plaintext | open — plan [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| AU-25 | Social-connection client secrets are stored in plaintext | ✅ fixed (2026-10-07) — encrypted in `oauth_metadata` |
 | AU-26 | One person could hold two accounts, one per letter case | ✅ fixed `aa7045d` |
 | AU-I1 | Make tenant scoping structural | open — the largest change in this register |
 | AU-I2 | One role enum, one guard | ✅ done `a608183` |
@@ -648,7 +648,17 @@ first.
 
 ### AU-25 — Social-connection client secrets are stored in plaintext
 
-**✅ Verified · Medium** · **Status: open** — found 2026-10-01.
+**✅ Verified · Medium** · **Status: fixed (2026-10-07)** — found 2026-10-01. Every
+secret-named key of `oauth_metadata` (`client_secret`, Google Ads' `developer_token`, any
+key ending in `secret`, `token`, `password` or `api_key`) is stored encrypted under
+`oauth_metadata.secrets_encrypted`; the rest stays plain JSON. `POST
+/api/social-connections` seals it (`seal_oauth_metadata`); only the credential resolver
+opens it (`open_oauth_metadata`), for token refresh and the platform tools. Migration
+`h2_seal_social_secrets` seals existing rows and its downgrade opens them — round-tripped
+on a real row. The field is in `common/encrypted_fields.py`, so the AU-24 key rotation
+covers it. Tests: `test_social_secrets.py`, `tests/integration/test_social_secrets_stored.py`
+(route → stored row has no secret in the clear → resolver returns it). The registry-held
+platform credentials the entry suggests as "better" stay a later design choice.
 
 `POST /api/social-connections` encrypts the access and refresh tokens, but its
 `oauth_metadata` field is documented as "client_id, client_secret, etc." and stored

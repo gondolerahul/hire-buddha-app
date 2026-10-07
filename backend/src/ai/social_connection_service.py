@@ -67,6 +67,49 @@ PLATFORM_REFRESH_CONFIG: Dict[str, Dict[str, Any]] = {
 # Refresh tokens when less than this many minutes remain
 TOKEN_REFRESH_THRESHOLD_MINUTES = 10
 
+# ── Secrets inside oauth_metadata (AU-25) ─────────────────────────────────────
+# A connection's oauth_metadata carries the app's client credentials and other
+# platform settings. Its secrets — client_secret, Google Ads' developer_token and
+# anything else named like one — are kept encrypted under one key, as the
+# integration registry keeps Tata's; the rest stays plain JSON. Only the
+# credential resolver opens them.
+OAUTH_SECRETS_KEY = "secrets_encrypted"
+_SECRET_SUFFIXES = ("secret", "token", "password", "api_key")
+
+
+def is_oauth_secret(key: str) -> bool:
+    return key.lower().endswith(_SECRET_SUFFIXES)
+
+
+def seal_oauth_metadata(metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """``metadata`` with every secret value moved, encrypted, under ``OAUTH_SECRETS_KEY``."""
+    if not metadata:
+        return metadata
+    from src.common.security import encrypt_api_key
+
+    sealed: Dict[str, Any] = {}
+    secrets: Dict[str, str] = dict(metadata.get(OAUTH_SECRETS_KEY) or {})
+    for key, value in metadata.items():
+        if key == OAUTH_SECRETS_KEY:
+            continue
+        if is_oauth_secret(key) and isinstance(value, str) and value:
+            secrets[key] = encrypt_api_key(value)
+        else:
+            sealed[key] = value
+    if secrets:
+        sealed[OAUTH_SECRETS_KEY] = secrets
+    return sealed
+
+
+def open_oauth_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The plain metadata with its secrets decrypted — for the resolver's caller only."""
+    from src.common.security import decrypt_api_key
+
+    opened = {k: v for k, v in (metadata or {}).items() if k != OAUTH_SECRETS_KEY}
+    for key, value in ((metadata or {}).get(OAUTH_SECRETS_KEY) or {}).items():
+        opened[key] = decrypt_api_key(value) if value else value
+    return opened
+
 
 async def resolve_connection(
     company_id: Optional[str],
@@ -123,7 +166,7 @@ async def resolve_connection(
                 "platform_user_id": conn.platform_user_id,
                 "platform_page_id": conn.platform_page_id,
                 "scopes": conn.scopes or [],
-                "oauth_metadata": conn.oauth_metadata or {},
+                "oauth_metadata": open_oauth_metadata(conn.oauth_metadata),
                 "account_name": conn.account_name,
             }
 
@@ -168,8 +211,8 @@ async def _refresh_token(conn, credentials: Dict[str, Any]) -> Optional[Dict[str
         return None
 
     try:
-        # Get client credentials from oauth_metadata
-        metadata = conn.oauth_metadata or {}
+        # Client credentials from oauth_metadata; the secret is stored encrypted (AU-25)
+        metadata = open_oauth_metadata(conn.oauth_metadata)
         client_id = metadata.get("client_id", "")
         client_secret = metadata.get("client_secret", "")
 

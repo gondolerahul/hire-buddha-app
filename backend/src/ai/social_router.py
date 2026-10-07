@@ -16,7 +16,7 @@ from src.auth.dependencies import get_current_user_and_company
 from src.common.database import AsyncSessionLocal
 from src.common.security import encrypt_api_key, decrypt_api_key
 from src.ai.social_models import SocialConnection
-from src.ai.social_connection_service import PLATFORM_REFRESH_CONFIG
+from src.ai.social_connection_service import PLATFORM_REFRESH_CONFIG, seal_oauth_metadata
 from src.ai import social_connection_service
 
 from sqlalchemy import select, delete
@@ -112,7 +112,7 @@ async def create_social_connection(
             platform_user_id=body.platform_user_id,
             platform_page_id=body.platform_page_id,
             scopes=body.scopes or [],
-            oauth_metadata=body.oauth_metadata,
+            oauth_metadata=seal_oauth_metadata(body.oauth_metadata),   # secrets encrypted (AU-25)
         )
         db.add(conn)
         await db.commit()

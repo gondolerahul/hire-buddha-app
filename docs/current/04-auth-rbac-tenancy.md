@@ -1255,7 +1255,7 @@ Storage details:
 | Platforms with refresh config | `linkedin`, `twitter`, `facebook`, `instagram`, `google_ads`, `youtube`, `tiktok`, `reddit` |
 | `VALID_PLATFORMS` (create allow-list) | the same eight ([social_router.py](../../backend/src/ai/social_router.py)); `quora` left with its tools on 2026-10-01 (TL-23) |
 
-Note that `client_secret` for each platform is stored **inside `oauth_metadata`**, a plain JSONB column — unlike the tokens, it is **not encrypted**.
+Each platform's `client_secret` (and any other secret-named key, such as Google Ads' `developer_token`) is stored **encrypted** under `oauth_metadata.secrets_encrypted`; the rest of `oauth_metadata` is plain JSON. `seal_oauth_metadata` / `open_oauth_metadata` in `social_connection_service.py` do it; only the credential resolver opens them (AU-25, 2026-10-07, migration `h2_seal_social_secrets`). Before that the secret sat in the clear beside encrypted tokens.
 
 ### 12.3 Flow C — email connections (app passwords, not OAuth)
 
@@ -1503,7 +1503,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | # | Gap | Evidence |
 |---|---|---|
 | 14 | ~~`INTERNAL_TOKEN` compared with `!=`, not a constant-time compare.~~ Fixed 2026-09-30: `hmac.compare_digest` in `require_internal`. | [internal_event.py](../../backend/src/gateway/internal_event.py) |
-| 15 | `social_connections.oauth_metadata` holds each platform's `client_secret` **unencrypted** in JSONB, while the tokens beside it are AES-GCM encrypted. | [social_connection_service.py:174](../../backend/src/ai/social_connection_service.py:174) |
+| 15 | ~~`social_connections.oauth_metadata` holds each platform's `client_secret` **unencrypted** in JSONB~~ — encrypted since AU-25 (2026-10-07). | [social_connection_service.py:174](../../backend/src/ai/social_connection_service.py:174) |
 | 16 | `ENCRYPTION_MASTER_KEY` has a hard-coded 37-char default that is silently truncated to 32 bytes. | [config.py:9](../../backend/src/common/config.py:9), [security.py:40-44](../../backend/src/common/security.py:40) |
 | 17 | ~~`CompanySuspensionMiddleware` swallows all exceptions — fails open on a DB error.~~ Gone 2026-09-30: the middleware is deleted (SA-18); the dependency's check fails closed. | [dependencies.py](../../backend/src/auth/dependencies.py) |
 | 18 | SSE stream takes the JWT as a **query parameter**, so it lands in access logs and browser history. | [ai/router.py:328](../../backend/src/ai/router.py:328), [dependencies.py:72](../../backend/src/auth/dependencies.py:72) |

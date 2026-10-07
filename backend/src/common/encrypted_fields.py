@@ -27,6 +27,7 @@ ENCRYPTED_COLUMNS: tuple[tuple[str, str, str], ...] = (
 # kept under one key of a JSON column.
 ENCRYPTED_JSON: tuple[tuple[str, str, str, str], ...] = (
     ("src.config.models", "IntegrationRegistry", "service_metadata", "secrets_encrypted"),  # Tata
+    ("src.ai.social_models", "SocialConnection", "oauth_metadata", "secrets_encrypted"),   # AU-25
 )
 
 
