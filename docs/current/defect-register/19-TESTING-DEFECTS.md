@@ -54,11 +54,11 @@
 | TS-06 | An unmocked LLM call returns a `STUB:` string, not an error | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-07 | `e2e/` does not roll back | ✅ fixed `3352625` | — |
 | TS-08 | The frontend tests cannot run at all | partly — `vitest` installed; not wired | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| TS-09 | The root `tests/` directory | ✅ fixed (2026-10-07) | — |
+| TS-09 | The root `tests/` directory | ✅ fixed `c9edbfd` | — |
 | TS-10 | The `kpi` marker and its CI step | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-11 | The `needs_redis` marker | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| TS-12 | `backend/tests/phase9/` | ✅ fixed (2026-10-07) | — |
-| TS-13 | One of the two `MockLLMRouter` classes | ✅ fixed (2026-10-07) | — |
+| TS-12 | `backend/tests/phase9/` | ✅ fixed `ebdb54b` | — |
+| TS-13 | One of the two `MockLLMRouter` classes | ✅ fixed `d3497d6` | — |
 | TS-14 | `@pytest.mark.integration` is used and not registered | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-15 | Marker usage is far below marker registration | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-16 | The parity suite leaves tenants behind | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
@@ -252,11 +252,11 @@ So the frontend has two test files that cannot execute and would not compile.
 
 | ID | Delete | Notes | Status |
 |---|---|---|---|
-| **TS-09** | The root `tests/` directory | Four directories containing nothing but `__init__.py` — `fixtures/`, `harness/`, `parity/`, `regression/`. Mirrors four `backend/tests/` names and holds nothing. A leftover from a package-layout experiment | ✅ Verified · **fixed (2026-10-07)** — deleted; all tests live in `backend/tests/` (`19-testing.md` §3.1) |
+| **TS-09** | The root `tests/` directory | Four directories containing nothing but `__init__.py` — `fixtures/`, `harness/`, `parity/`, `regression/`. Mirrors four `backend/tests/` names and holds nothing. A leftover from a package-layout experiment | ✅ Verified · **fixed (2026-10-07, `c9edbfd`)** — deleted; all tests live in `backend/tests/` (`19-testing.md` §3.1) |
 | **TS-10** | The `kpi` marker and its CI step | Registered in `pytest.ini`, used **0 times**, and `backend/tests/kpi/` does not exist. Both the marker and the CI lane are placeholders | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | **TS-11** | The `needs_redis` marker | Registered, used **0 times** | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| **TS-12** | `backend/tests/phase9/` | Two legacy scripts, **no pytest tests**. Also violates the canary-label ban that `lint_ai_layout.py` enforces on `src/ai/` | 📄 Doc-reported · **fixed (2026-10-07)** — deleted; neither script was a test or was referenced (`19-testing.md` §12) |
-| **TS-13** | One of the two `MockLLMRouter` classes | Defined in both [`tests/harness/mock_llm.py`](../../../backend/tests/harness/mock_llm.py) and [`tests/fixtures/llm_fixture.py`](../../../backend/tests/fixtures/llm_fixture.py). Which one a test gets depends on its conftest | ✅ Verified · **fixed (2026-10-07)** — one double, `tests/harness/mock_llm.py`; `tests/fixtures/llm_fixture.py` keeps only the embedding helpers, and the integration `mock_llm` fixture returns the harness router. `tests/unit/test_one_mock_llm_router.py` |
+| **TS-12** | `backend/tests/phase9/` | Two legacy scripts, **no pytest tests**. Also violates the canary-label ban that `lint_ai_layout.py` enforces on `src/ai/` | 📄 Doc-reported · **fixed (2026-10-07, `ebdb54b`)** — deleted; neither script was a test or was referenced (`19-testing.md` §12) |
+| **TS-13** | One of the two `MockLLMRouter` classes | Defined in both [`tests/harness/mock_llm.py`](../../../backend/tests/harness/mock_llm.py) and [`tests/fixtures/llm_fixture.py`](../../../backend/tests/fixtures/llm_fixture.py). Which one a test gets depends on its conftest | ✅ Verified · **fixed (2026-10-07, `d3497d6`)** — one double, `tests/harness/mock_llm.py`; `tests/fixtures/llm_fixture.py` keeps only the embedding helpers, and the integration `mock_llm` fixture returns the harness router. `tests/unit/test_one_mock_llm_router.py` |
 
 ---
 

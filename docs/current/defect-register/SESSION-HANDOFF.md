@@ -544,7 +544,8 @@ The e2e suite was brought up to the verified-email contract in `3352625`. It run
 0.23.8 ignores `pytest.ini`'s loop scope), captures emails, and deletes only the rows its run
 created. `test_01`–`test_03` pass (36). Known failures elsewhere in the suite, none from auth:
 `test_14` (no `/bin/bash` on Windows), `test_15` (Playwright not installed), `test_10`/`test_11`
-(still call the removed `/api/v1/assets`), `test_08` monthly billing (BC-04 dropped the
+(the asset half of `test_10` was ported to `/api/v1/artifacts` with API-11 on 2026-10-07 and has
+not been run since — no database), `test_08` monthly billing (BC-04 dropped the
 `processed` key), `test_04` tenant LLM integration (tenants may not add one), `test_06` search
 (needs fresh ADC), and `test_04b`/`test_05b` (fixtures never defined). `test_08`'s crons touch
 every company, so do not run the whole suite against a database you share casually.

@@ -56,11 +56,11 @@
 | ON-07 | "Most gates fail open" is stated and then not acted on | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-08 | The quality gates a newcomer is told to run are not enforced anywhere | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-09 | `core/` has 20 lines of headroom and the doc says so twice | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
-| ON-10 | `src/ai/models.py` is a deprecated shim still in the tree | ✅ fixed (2026-10-07) | — |
-| ON-11 | The root `tests/` directory | ✅ fixed (2026-10-07) | — |
+| ON-10 | `src/ai/models.py` is a deprecated shim still in the tree | ✅ fixed `753589f` | — |
+| ON-11 | The root `tests/` directory | ✅ fixed `c9edbfd` | — |
 | ON-12 | `backend/cortex_memory_moved_to_pypi_repo/` | invalid | — |
 | ON-13 | `core/README.md` documents two files that do not exist | ✅ fixed `ddd4912` (AK-14) | — |
-| ON-14 | `docs/phase9/` through `docs/phase12/` | ✅ fixed (2026-10-07) | — |
+| ON-14 | `docs/phase9/` through `docs/phase12/` | ✅ fixed `b9d3591` | — |
 | ON-15 | The glossary lists two deprecated reasoning modes without saying so | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-16 | "42 boolean + 5 numeric flags" is right and unhelpful | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-17 | The glossary defines terms for features that do not run | open — partly stale | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
@@ -282,11 +282,11 @@ contributor arrives, not to document the wall.
 
 | ID | Problem | Notes | Status |
 |---|---|---|---|
-| **ON-10** | `src/ai/models.py` is a deprecated shim still in the tree | Re-exports every ORM class from `src.ai.orm.*` so old imports keep working. §7.3 lists it as a trap. It has been a trap for long enough — delete it and fix the importers | ✅ Verified · **fixed (2026-10-07)** — deleted; 67 files import from `src.ai.orm` instead, the layout lint no longer tolerates `models.py`, and `test_schemas_split.py::test_models_shim_is_gone` keeps it gone. §7.3 lists one trap |
-| **ON-11** | The root `tests/` directory | Four `__init__.py` files and nothing else. §7.3 lists it as a trap. Deleting it removes the trap entirely. Also [TS-09](19-TESTING-DEFECTS.md#4-t2--dead-scaffolding) | ✅ Verified · **fixed (2026-10-07)** — deleted with TS-09; §7.3 no longer lists it |
+| **ON-10** | `src/ai/models.py` is a deprecated shim still in the tree | Re-exports every ORM class from `src.ai.orm.*` so old imports keep working. §7.3 lists it as a trap. It has been a trap for long enough — delete it and fix the importers | ✅ Verified · **fixed (2026-10-07, `753589f`)** — deleted; 67 files import from `src.ai.orm` instead, the layout lint no longer tolerates `models.py`, and `test_schemas_split.py::test_models_shim_is_gone` keeps it gone. §7.3 lists one trap |
+| **ON-11** | The root `tests/` directory | Four `__init__.py` files and nothing else. §7.3 lists it as a trap. Deleting it removes the trap entirely. Also [TS-09](19-TESTING-DEFECTS.md#4-t2--dead-scaffolding) | ✅ Verified · **fixed (2026-10-07, `c9edbfd`)** — deleted with TS-09; §7.3 no longer lists it |
 | **ON-12** | `backend/cortex_memory_moved_to_pypi_repo/` | The directory name is itself the documentation. §7.3 and §9 item 5 both explain it. Either publish the package or move it back — see [MC-I10](08-MEMORY-AND-CORTEX-DEFECTS.md#mc-i10--decide-where-cortex_memory-lives) | ✅ Verified · **invalid (2026-09-28, `e8d9f62`)** — renamed back to `backend/cortex_memory/` |
 | **ON-13** | `core/README.md` documents two files that do not exist | `execution_engine.py` and `recursive_engine.py`. §7.4 recommends it as worth reading. Also [AK-14](05-AGENT-KERNEL-DEFECTS.md#4-t2--delete-or-fix-the-name) | ✅ Verified · **fixed (2026-10-01, `ddd4912`, with AK-14)** — `core/README.md` describes the code and names the two files only as deleted |
-| **ON-14** | `docs/phase9/` through `docs/phase12/` | Historical plans kept alongside current documentation. §7.4 warns "the code is truth", which is the right instruction and does not stop a newcomer opening them first. Move them under `docs/history/` | 📄 Doc-reported · **fixed (2026-10-07)** — `docs/phase1` … `docs/phase12` moved to `docs/history/` (ON-I8); the 35 references in code docstrings, the `src/ai` READMEs, `09-tools.md` and the CORTEX research doc follow them |
+| **ON-14** | `docs/phase9/` through `docs/phase12/` | Historical plans kept alongside current documentation. §7.4 warns "the code is truth", which is the right instruction and does not stop a newcomer opening them first. Move them under `docs/history/` | 📄 Doc-reported · **fixed (2026-10-07, `b9d3591`)** — `docs/phase1` … `docs/phase12` moved to `docs/history/` (ON-I8); the 35 references in code docstrings, the `src/ai` READMEs, `09-tools.md` and the CORTEX research doc follow them |
 
 ---
 

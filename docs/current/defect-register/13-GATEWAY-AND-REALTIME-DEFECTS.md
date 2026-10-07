@@ -60,7 +60,7 @@
 | GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | partly fixed — TURN settings still unread | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-07 | The event bus is in-process with one subscriber | ✅ fixed (single port) | — |
 | GW-08 | The arq fallback runs a full AgentLoop inside the gateway | ✅ fixed (single port) | — |
-| GW-09 | `X-Accel-Buffering: no` does nothing here | ✅ fixed (2026-10-07) | — |
+| GW-09 | `X-Accel-Buffering: no` does nothing here | ✅ fixed `01fa369` | — |
 | GW-10 | `aiortc` is not installed, and the video path has a second bug behind it | open — decision HD11 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-11 | `gateway/main.py` and `gateway/config.py` | ✅ fixed (single port) | — |
 | GW-12 | `@app.on_event("shutdown")` / `close_proxy_client` | ✅ fixed (single port) | — |
@@ -298,7 +298,7 @@ provider retries.
 
 ### GW-09 — `X-Accel-Buffering: no` does nothing here
 
-**📄 Doc-reported · Low** · **Status: fixed (2026-10-07)** — the header is gone; the stream sends `Cache-Control: no-cache, no-transform` (`ai/router.py` `SSE_HEADERS`), which asks Apache's mod_deflate — enabled by `setup_apache.sh` — not to compress or hold back the frames. `tests/unit/test_sse_headers.py`. Not checked behind a live Apache (no VM in this session)
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-07, `01fa369`)** — the header is gone; the stream sends `Cache-Control: no-cache, no-transform` (`ai/router.py` `SSE_HEADERS`), which asks Apache's mod_deflate — enabled by `setup_apache.sh` — not to compress or hold back the frames. `tests/unit/test_sse_headers.py`. Not checked behind a live Apache (no VM in this session)
 
 The SSE relay sets `X-Accel-Buffering: no` to stop intermediate proxies buffering. That is
 an **nginx** header. The deployment uses Apache, which ignores it.

@@ -181,6 +181,7 @@ pass.
 
 | # | Ids | Work | Size | Proof |
 |---|---|---|---|---|
+| — | Re-verification and this plan | — | Every non-fixed entry checked against the code; registers 12, 13, 15, 17, 18, 19, 20 given status lines and status tables; stale entries in 01, 04, 05, 06, 07, 16 corrected. Unit suite on this machine: 1,833 passed, 6 failed — the 4 known Windows sandbox tests, the known chaos test, and `test_single_port_app` with Redis not running |
 | H0.1 | TS-09, ON-11 | Delete the root `tests/` directory (four `__init__.py` files) | S | `git ls-files tests/` empty |
 | H0.2 | TS-12 | Delete `backend/tests/phase9/` (two scripts, no tests) | S | Suite collects the same count |
 | H0.3 | TS-13 | Keep one `MockLLMRouter` (`tests/harness/mock_llm.py`); point `tests/fixtures/llm_fixture.py` at it | S | Suite passes |
@@ -392,4 +393,12 @@ Columns: phase · ids · commit · evidence. Updated as each fix lands.
 
 | Phase | Ids | Commit | Evidence |
 |---|---|---|---|
-| — | Re-verification and this plan | — | Every non-fixed entry checked against the code; registers 12, 13, 15, 17, 18, 19, 20 given status lines and status tables; stale entries in 01, 04, 05, 06, 07, 16 corrected. Unit suite on this machine: 1,833 passed, 6 failed — the 4 known Windows sandbox tests, the known chaos test, and `test_single_port_app` with Redis not running |
+| H0.1 | TS-09, ON-11 | `c9edbfd` | The empty root `tests/` tree deleted |
+| H0.2 | TS-12 | `ebdb54b` | `backend/tests/phase9/` deleted; the collected suite unchanged (1,844) |
+| H0.3 | TS-13 | `d3497d6` | `test_one_mock_llm_router.py` (two definitions on the old code) |
+| H0.4 | ON-10 | `753589f` | 67 importers moved to `src.ai.orm`; `test_models_shim_is_gone`; layout lint no longer tolerates `models.py`. Unit 1,835 + the 6 known failures |
+| H0.5 | ON-14 | `b9d3591` | `docs/phase*` → `docs/history/` as pure renames; 35 references rewritten, all resolve |
+| H0.6 | API-11 | `8508656` | `test_retired_routes_are_gone` fails on the old `main.py`; e2e asset tests moved to `/api/v1/artifacts` |
+| H0.7 | API-13 | `9f60567` | Same test, fails on the old router; e2e role-guard tests probe `GET /config/task-defaults` |
+| H0.8 | GW-09 | `01fa369` | `SSE_HEADERS` = `no-cache, no-transform`; `test_sse_headers.py`. Not checked behind a live Apache |
+| **H0 done** | 9 entries | — | Local Docker's data was found gone on 2026-10-07 (a new data disk); e2e and integration runs wait on a rebuilt database |
