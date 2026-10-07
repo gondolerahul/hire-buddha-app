@@ -93,7 +93,7 @@ def test_no_orphan_documented_internal_keys() -> None:
 
 
 def test_phase11_retrospective_exists() -> None:
-    p = REPO_ROOT / "docs" / "phase11" / "RETROSPECTIVE.md"
+    p = REPO_ROOT / "docs" / "history" / "phase11" / "RETROSPECTIVE.md"  # moved by ON-14
     assert p.exists()
     text = p.read_text()
     for required in ("What landed", "What slipped", "KPI deltas",
