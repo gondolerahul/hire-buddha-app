@@ -229,22 +229,30 @@ async def test_logout_ends_refresh_token(client: httpx.AsyncClient):
     assert resp.status_code == 401, resp.text
 
 
-# ── Admin-Only Endpoint ───────────────────────────────────────────────────────
+# ── The app_admin role guard ──────────────────────────────────────────────────
+# Probed through a real app_admin-only route; the /auth/admin-only probe route
+# is deleted (API-13).
 
 @pytest.mark.asyncio
 async def test_admin_only_as_admin(client: httpx.AsyncClient, app_admin_token):
     resp = await client.get(
-        "/api/v1/auth/admin-only",
+        "/api/v1/config/task-defaults",
         headers=auth_headers(app_admin_token),
     )
     assert resp.status_code == 200
-    assert resp.json()["message"] == "Admin access granted"
+    assert isinstance(resp.json(), list)
 
 
 @pytest.mark.asyncio
 async def test_admin_only_as_user(client: httpx.AsyncClient, user_token):
     resp = await client.get(
-        "/api/v1/auth/admin-only",
+        "/api/v1/config/task-defaults",
         headers=auth_headers(user_token),
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_only_probe_route_is_gone(client: httpx.AsyncClient, app_admin_token):
+    resp = await client.get("/api/v1/auth/admin-only", headers=auth_headers(app_admin_token))
+    assert resp.status_code == 404

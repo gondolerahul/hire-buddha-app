@@ -689,7 +689,6 @@ flowchart TD
 
 | File | Endpoint | Allowed roles |
 |---|---|---|
-| [router.py:76](../../backend/src/auth/router.py:76) | `GET /auth/admin-only` | `app_admin` |
 | [company_router.py:41](../../backend/src/auth/company_router.py:41) | `GET /companies/partners` | `app_admin` |
 | [company_router.py:49](../../backend/src/auth/company_router.py:49) | `GET /companies/tenants` | `app_admin`, `partner_admin` |
 | [company_router.py:65](../../backend/src/auth/company_router.py:65) | `POST /companies` | `app_admin`, `partner_admin` |
@@ -1518,7 +1517,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 
 - No CSRF token anywhere, mitigated by the fact that auth is a header, not a cookie.
 - `users.role` has no database constraint (the API validates it against `Role`).
-- `GET /auth/admin-only` ([router.py:76](../../backend/src/auth/router.py:76)) is a leftover smoke-test endpoint that ships in production.
+- ~~`GET /auth/admin-only` is a leftover smoke-test endpoint that ships in production.~~ Deleted 2026-10-07 (API-13); the e2e suite probes the `app_admin` guard through `GET /config/task-defaults`.
 - `test_register_new_user` in [test_01_auth.py:15](../../backend/tests/e2e/test_01_auth.py:15) asserts `data["email"]` — true again since AU-08, when `/auth/register` stopped returning a `Token` and returns `{email, message}`.
 
 ---
@@ -1531,7 +1530,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 | [backend/src/auth/schemas.py](../../backend/src/auth/schemas.py) | 85 | Pydantic request/response shapes for auth, companies, users, onboarding |
 | [backend/src/auth/dependencies.py](../../backend/src/auth/dependencies.py) | 85 | `_authenticate_user`, `get_current_user`, `get_current_user_and_company`, `get_current_user_from_query`, `RoleChecker` |
 | [backend/src/auth/service.py](../../backend/src/auth/service.py) | 307 | User creation, password check, refresh-token create/verify/rotate, OAuth upsert, email verification |
-| [backend/src/auth/router.py](../../backend/src/auth/router.py) | 182 | `/auth/register`, `/login`, `/token`, `/me`, `/refresh`, `/oauth/{provider}`, `/verify-email`, `/admin-only` |
+| [backend/src/auth/router.py](../../backend/src/auth/router.py) | 182 | `/auth/register`, `/login`, `/token`, `/me`, `/refresh`, `/oauth/{provider}`, `/verify-email` |
 | [backend/src/auth/company_router.py](../../backend/src/auth/company_router.py) | 134 | Company CRUD, partner/tenant listing, suspension via PATCH |
 | [backend/src/auth/user_router.py](../../backend/src/auth/user_router.py) | 76 | User listing, admin creation, update |
 | [backend/src/auth/profile_router.py](../../backend/src/auth/profile_router.py) | 99 | Avatar and company-logo upload into the artifact store |

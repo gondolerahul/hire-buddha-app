@@ -85,16 +85,12 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = service.issue_access_token(user)
     return {"access_token": access_token, "token_type": "bearer"}
 
-from src.auth.dependencies import get_current_user, RoleChecker
+from src.auth.dependencies import get_current_user
 from src.auth.schemas import UserResponse
 
 @router.get("/me", response_model=UserResponse)
 async def read_users_me(current_user: UserResponse = Depends(get_current_user)):
     return current_user
-
-@router.get("/admin-only", dependencies=[Depends(RoleChecker(["app_admin"]))])
-async def admin_only():
-    return {"message": "Admin access granted"}
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(

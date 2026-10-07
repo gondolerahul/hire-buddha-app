@@ -198,7 +198,6 @@ not part of OpenAPI.
 | POST | `/api/v1/auth/login` | none | Login → JWT |
 | POST | `/api/v1/auth/token` | none | OAuth2 password-form login |
 | GET | `/api/v1/auth/me` | Bearer | Current user |
-| GET | `/api/v1/auth/admin-only` | Bearer + admin | Role-guard probe |
 | POST | `/api/v1/auth/refresh` | none (refresh token in body) | Rotate tokens |
 | POST | `/api/v1/auth/oauth/{provider}` | none | OAuth login |
 | GET | `/api/v1/auth/verify-email` | none | Email verification |
@@ -1178,7 +1177,8 @@ the `/api/v1/phone-numbers/*` routes. The file was deleted on 2026-09-29 (PO-12)
 
 ### 22.3 Debug route
 
-`GET /api/v1/auth/admin-only` exists purely to probe the admin role guard.
+None remain. `GET /api/v1/auth/admin-only`, which existed only to probe the admin role
+guard, was deleted on 2026-10-07 (API-13).
 
 ---
 
