@@ -62,54 +62,43 @@ class CentralDispatcher:
         self,
         client_id: str,
         channel: str,
-        event_type: str = "",
+        agent_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
-        Look up the default AI agent for a given client (tenant).
+        The agent a live socket for ``client_id`` runs (GW-17).
 
-        Returns a dict with agent metadata, or None if not found.
-        Used by audio/video WebSocket handlers during their handshake phase.
+        ``agent_id`` (from the handshake) names one; otherwise it is the
+        company's only active agent — see ``gateway.agent_choice``. Returns the
+        agent's metadata; ``{"error": code, "message": ...}`` when the choice is
+        refused (an unknown agent, or several to choose from); None when the
+        company has no agent or the lookup failed.
         """
-        # Try Redis cache first
+        cache_key = f"gateway:agent:{client_id}:{channel}:{agent_id or '-'}"
         if self._redis:
-            cache_key = f"gateway:agent:{client_id}:{channel}"
             cached = await self._redis.get(cache_key)
             if cached:
                 return json.loads(cached)
 
-        # Fall back to DB lookup
         try:
             from src.common.database import AsyncSessionLocal
-            from src.ai.orm import HierarchicalEntity
-            from sqlalchemy import select
+            from src.gateway.agent_choice import choose_agent
 
             async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(HierarchicalEntity).where(
-                        HierarchicalEntity.company_id == UUID(client_id),
-                        HierarchicalEntity.status != 'ARCHIVED',
-                    ).limit(1)
-                )
-                agent = result.scalar_one_or_none()
-                if not agent:
-                    return None
-
-                agent_info = {
-                    "agent_id": str(agent.id),
-                    "company_id": str(agent.company_id),
-                    "name": agent.name,
-                    "channel": channel,
-                }
-
-                # Cache for 5 minutes
-                if self._redis:
-                    await self._redis.setex(
-                        f"gateway:agent:{client_id}:{channel}",
-                        300,
-                        json.dumps(agent_info),
-                    )
-
-                return agent_info
+                choice = await choose_agent(db, UUID(client_id), [agent_id])
+            if choice.error == "no_agent":
+                return None
+            if choice.error:
+                return {"error": choice.error, "message": choice.detail}
+            agent = choice.entity
+            agent_info = {
+                "agent_id": str(agent.id),
+                "company_id": str(agent.company_id),
+                "name": agent.name,
+                "channel": channel,
+            }
+            if self._redis:
+                await self._redis.setex(cache_key, 300, json.dumps(agent_info))
+            return agent_info
         except Exception as exc:
             logger.error(f"[Dispatcher] Agent resolution failed: {exc}")
             return None

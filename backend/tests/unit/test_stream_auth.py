@@ -25,7 +25,7 @@ def resolved(monkeypatch):
     """Record which company the gateways go on to resolve an agent for."""
     asked: list[str] = []
 
-    async def resolve(client_id, channel):
+    async def resolve(client_id, channel, agent_id=None):
         asked.append(client_id)
         return None                       # no agent: the socket answers "no_agent"
 

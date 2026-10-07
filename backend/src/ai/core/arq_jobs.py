@@ -189,7 +189,7 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
     """
     import redis.asyncio as redis
     from src.common.config import settings
-    from src.ai.orm import HierarchicalEntity, ExecutionRun, RunStatus
+    from src.ai.orm import ExecutionRun, RunStatus
     from src.ai.governance.subjects import gateway_subjects
 
     client_id = envelope_dict.get("client_id", "")
@@ -206,38 +206,25 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
 
     try:
         async with AsyncSessionLocal() as db:
-            # ── Entity resolution: prefer explicit entity_id from payload ────
-            entity = None
-            payload_entity_id = raw_data.get("raw", {}).get("entity_id") if isinstance(raw_data, dict) else None
+            # ── Which agent runs it (GW-17): the webhook endpoint's binding,
+            # then the event's own entity_id, else the company's only agent.
+            from src.gateway.agent_choice import choose_agent
 
-            if payload_entity_id:
-                try:
-                    result = await db.execute(
-                        select(HierarchicalEntity).where(
-                            HierarchicalEntity.id == UUID(payload_entity_id),
-                            HierarchicalEntity.company_id == UUID(client_id),
-                            HierarchicalEntity.status != 'ARCHIVED',
-                        )
-                    )
-                    entity = result.scalar_one_or_none()
-                except Exception as e:
-                    logger.warning(f"[process_gateway_event] entity_id lookup failed: {e}")
-
-            # Fallback: first active entity for the company
-            if not entity:
-                result = await db.execute(
-                    select(HierarchicalEntity).where(
-                        HierarchicalEntity.company_id == UUID(client_id),
-                        HierarchicalEntity.status != 'ARCHIVED',
-                    ).limit(1)
-                )
-                entity = result.scalar_one_or_none()
-
-            if not entity:
-                logger.warning(
-                    f"[process_gateway_event] No active entity for company {client_id}"
+            metadata = envelope_dict.get("metadata") or {}
+            raw_payload = raw_data.get("raw", {}) if isinstance(raw_data, dict) else {}
+            named = [
+                metadata.get("entity_id"),
+                (raw_data.get("entity_id") if isinstance(raw_data, dict) else None)
+                or (raw_payload.get("entity_id") if isinstance(raw_payload, dict) else None),
+            ]
+            choice = await choose_agent(db, UUID(client_id), named)
+            if choice.entity is None:
+                logger.error(
+                    f"[process_gateway_event] Not run: {choice.error} — {choice.detail} "
+                    f"(company={client_id}, event={event_type}, correlation={correlation_id})"
                 )
                 return
+            entity = choice.entity
 
             logger.info(
                 f"[process_gateway_event] Resolved entity '{entity.name}' "
@@ -364,10 +351,16 @@ async def _handle_sheet_row_campaign(
     # ── 2. Resolve created_by (Campaign.created_by is NOT NULL) ─────────
     created_by_id = entity.created_by
     if not created_by_id:
-        # Fallback: find any user in the company
+        # Fallback: the company's admin, else its earliest user — always the
+        # same one (GW-17: this was LIMIT 1 with no order).
+        from sqlalchemy import case
         user_result = await db.execute(
             select(User.id).where(
                 User.company_id == UUID(client_id),
+                User.is_active.is_(True),
+            ).order_by(
+                case((User.role.in_(("tenant_admin", "partner_admin")), 0), else_=1),
+                User.created_at, User.id,
             ).limit(1)
         )
         user_row = user_result.scalar_one_or_none()

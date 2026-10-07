@@ -65,6 +65,7 @@ async def unified_audio_streaming(websocket: WebSocket):
         "event":    "connect",
         "provider": "twilio" | "tata_tele" | "exotel" | "web",
         "client_id": "<optional; must be the token's company>",
+        "agent_id": "<optional; required when the company has several agents>",
         "token":    "<a URL token for /stream/, from POST /api/v1/auth/url-token>",
         "metadata": {
           "session_id": "<optional: resume an existing VoiceSession>",
@@ -104,8 +105,13 @@ async def unified_audio_streaming(websocket: WebSocket):
         return
 
     dispatcher = get_dispatcher()
-    agent_info = await dispatcher.resolve_agent_for_client(client_id, "audio")
+    agent_info = await dispatcher.resolve_agent_for_client(client_id, "audio", handshake.get("agent_id"))
 
+    if agent_info and agent_info.get("error"):
+        # An unknown agent, or several to choose from (GW-17).
+        await _send_error(websocket, agent_info["error"], agent_info["message"])
+        await websocket.close(code=1008, reason=agent_info["error"])
+        return
     if not agent_info:
         logger.warning(f"[AudioGateway] No agent found for client {client_id}")
         await _send_error(websocket, "no_agent", f"No AI agent configured for client {client_id}")

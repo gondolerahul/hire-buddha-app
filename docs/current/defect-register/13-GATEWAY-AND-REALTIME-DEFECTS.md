@@ -46,9 +46,9 @@
 | [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 3 | 1 | 0 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
-| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 3 | 0 | 4 | 0 |
+| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 4 | 0 | 3 | 0 |
 
-**Total: 21 defects (12 fixed, 3 partly fixed, 5 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (13 fixed, 3 partly fixed, 4 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -68,7 +68,7 @@
 | GW-14 | Both `streaming.hirebuddha.com` vhosts | ✅ fixed | — |
 | GW-15 | The proxy copies response headers verbatim after decompressing | ✅ fixed | — |
 | GW-16 | Auth middleware runs before CORS, so its 401s have no CORS headers | ✅ fixed | — |
-| GW-17 | Agent selection is `LIMIT 1` with no `ORDER BY`, in three places | open — one call site left | [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors) |
+| GW-17 | Agent selection is `LIMIT 1` with no `ORDER BY`, in three places | ✅ fixed (2026-10-07) | — |
 | GW-18 | SSE has no replay and no `Last-Event-ID` | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-19 | SSE terminates on a substring match | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-20 | The catch-all proxy must stay last, and nothing enforces it | ✅ fixed | — |
@@ -389,7 +389,7 @@ sends the developer looking in entirely the wrong place.
 
 ### GW-17 — Agent selection is `LIMIT 1` with no `ORDER BY`, in three places
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: two of the three call sites went with the gateway merge. `dispatcher.py:91` (`resolve_agent_for_client`, which picks the agent for the audio and video handshakes) still selects `LIMIT 1` with no order. Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-07)** — correction to the 2026-10-07 re-verification: all three call sites were still there — `dispatcher.resolve_agent_for_client` and two in `ai/core/arq_jobs.py` (the webhook worker's agent fallback and the sheet campaign's user fallback). One rule now, `gateway/agent_choice.py` `choose_agent`: an agent named explicitly (a webhook endpoint's binding, then the event's `entity_id`; a socket handshake's `agent_id`) if it is an active, non-template agent of the company, else refused (`unknown_agent`); with none named, the company's only active top-level agent; several is refused (`ambiguous_agent`) instead of guessed. Drafts, archived, soft-deleted, template and child entities are never picked. The sheet campaign's user fallback is the company admin, else the earliest user. `tests/integration/test_agent_choice.py` (Postgres), `tests/unit/test_agent_choice_wiring.py`
 
 When a webhook or internal event does not name an entity, the gateway picks one with
 `LIMIT 1` and no ordering. A tenant with several agents gets a non-deterministic choice —

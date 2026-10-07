@@ -420,8 +420,15 @@ async def unified_video_streaming(websocket: WebSocket):
 
         # ── Step 2: Validate & resolve agent ──────────────────────────────────
         dispatcher = get_dispatcher()
-        agent_info = await dispatcher.resolve_agent_for_client(client_id, "video")
+        agent_info = await dispatcher.resolve_agent_for_client(client_id, "video", handshake.get("agent_id"))
 
+        if agent_info and agent_info.get("error"):
+            # An unknown agent, or several to choose from (GW-17).
+            await websocket.send_text(json.dumps({
+                "event": "error", "code": agent_info["error"], "message": agent_info["message"],
+            }))
+            await websocket.close(code=1008)
+            return
         if not agent_info:
             await websocket.send_text(json.dumps({
                 "event": "error",

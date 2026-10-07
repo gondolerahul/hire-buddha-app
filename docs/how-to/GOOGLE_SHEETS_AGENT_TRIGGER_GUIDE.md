@@ -182,9 +182,10 @@ The agent's prompt can reference `{{input}}` to access the customer's name, phon
 
 ## Entity-Specific Routing
 
-No code change is needed: the worker runs the agent named by the payload's
-`entity_id` when it is the company's own. Registering the endpoint with
-`entity_id` (Step 1) records which agent it is for.
+No code change is needed. The event runs the agent the endpoint is bound to
+(Step 1); an endpoint without one runs the payload's `entity_id`, and that must be
+an active agent of your company. With neither, it runs your company's only agent —
+if you have several, the event is not run, so bind the endpoint.
 
 ---
 

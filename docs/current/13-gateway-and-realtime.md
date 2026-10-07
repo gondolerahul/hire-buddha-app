@@ -373,6 +373,7 @@ Close codes used during handshake:
 | `4403` | `client_id is not the token's company` | `client_id` names another company |
 | `1003` | `Unsupported provider: <p>` | not in `AUDIO_PROVIDER_ADAPTERS` |
 | `1008` | `No agent found for client` | `resolve_agent_for_client` returned `None` |
+| `1008` | `unknown_agent` / `ambiguous_agent` | the handshake's `agent_id` is not the company's active agent, or none was named and the company has several (GW-17) |
 
 Note the sample-rate wrinkle: the docstring says the browser receives 24 kHz,
 but `_send_to_browser` sends the output of
@@ -1153,7 +1154,9 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | [`backend/src/common/rate_limit.py`](../../backend/src/common/rate_limit.py) | 22 | The slowapi `limiter` (`RATE_LIMIT` per client IP). |
 | [`backend/src/gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py) | 100 | The Twilio/Tata media-stream WebSockets. |
 | [`backend/src/gateway/status.py`](../../backend/src/gateway/status.py) | 18 | `GET /metrics/gateway`. |
-| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 110 | `CentralDispatcher`: agent resolution (Redis-cached) for the audio/video handshakes. |
+| [`backend/src/gateway/dispatcher.py`](../../backend/src/gateway/dispatcher.py) | 119 | `CentralDispatcher`: agent resolution (Redis-cached) for the audio/video handshakes, through `agent_choice`. |
+| [`backend/src/gateway/agent_choice.py`](../../backend/src/gateway/agent_choice.py) | 75 | `choose_agent` — the one rule for which agent an event or a socket runs (GW-17) |
+| [`backend/src/gateway/stream_auth.py`](../../backend/src/gateway/stream_auth.py) | 50 | `stream_company` — the socket handshake's URL token (GW-04) |
 | [`backend/src/gateway/envelope.py`](../../backend/src/gateway/envelope.py) | 95 | `EventEnvelope` and `queue_event` — the enqueue that precedes every ingress 202. |
 | [`backend/src/gateway/internal_event.py`](../../backend/src/gateway/internal_event.py) | 200 | `POST /internal/event`, `require_internal`, `InternalEvent` schema, `WellKnownEvents`, unused `emit_internal_event` helper. |
 | [`backend/src/gateway/webhook_inbound.py`](../../backend/src/gateway/webhook_inbound.py) | 433 | `POST /webhook/inbound/{endpoint_id}` (signed) and the retired `POST /webhook/inbound` (401); 12 normalisers keyed by source; `load_endpoint` |
@@ -1200,8 +1203,14 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
   uvicorn trusts `X-Forwarded-For` from `127.0.0.1` by default and keys on the address
   Apache appends. `RemoteIPHeader` would only change Apache's own logs.
 - ~~**`X-Accel-Buffering: no` is an nginx header**~~ — removed 2026-10-07 (GW-09).
-- **Agent selection is `LIMIT 1` with no `ORDER BY`** in three separate places.
-  For multi-agent tenants, pass an explicit `entity_id`.
+- **An event or a socket runs the agent it names, else the company's only one**
+  ([`gateway/agent_choice.py`](../../backend/src/gateway/agent_choice.py), GW-17). It
+  used to be `LIMIT 1` with no order, in three places. Now: a webhook endpoint's bound
+  agent, then the event's `entity_id`, or a socket handshake's `agent_id` — an active,
+  non-template agent of the company, else refused (`unknown_agent`); with none named,
+  the company's only active top-level agent; several is refused (`ambiguous_agent`,
+  close 1008 on a socket, a logged refusal for a webhook event) rather than guessed.
+  Multi-agent tenants must name one.
 - **SSE has no `Last-Event-ID` and no replay.** Reconnection loses everything that
   happened while disconnected; the UI's 3-second polling is what actually keeps
   the page correct.
