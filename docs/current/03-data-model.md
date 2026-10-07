@@ -306,7 +306,7 @@ in [governance/entity_versions.py](../../backend/src/ai/governance/entity_versio
 
 | `entity_versions` column | Meaning |
 |---|---|
-| `entity_id`, `company_id` | The entity, and its company (NULL for a template's versions) |
+| `entity_id`, `company_id` | The entity, and its company (the APP company for a template, PO-23) |
 | `version_number` | 1, 2, … per entity (`uq_entity_versions_number`) |
 | `label` | The entity's `version` string at the time |
 | `snapshot` | JSON (not JSONB — `io_contract` key order is meaning, DM-13): `name`, `display_name`, `description`, `goal`, `type`, `version` and the nine blocks (`SNAPSHOT_FIELDS`) |

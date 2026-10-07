@@ -32,7 +32,7 @@ class EntityVersion(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
-    # The entity's company; NULL for a template's versions, like the template.
+    # The entity's company — the APP company for a template's versions (PO-23).
     company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str | None] = mapped_column(String, nullable=True)  # the entity's ``version`` string then

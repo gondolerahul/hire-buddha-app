@@ -858,18 +858,18 @@ step is currently retried and the reviewer asked again (GH-25).
 
 **Route:** `/ai/templates`.
 
-A template is an ordinary `hierarchical_entities` row with `is_template = true`
-and — importantly — **`company_id = NULL`**, which is how templates become
-visible to everyone ([service.py:32](../../backend/src/ai/service.py:32)):
-
-```python
-# backend/src/ai/service.py
-effective_company_id = None if entity_data.get("is_template") else company_id
-```
+A template is an ordinary `hierarchical_entities` row with `is_template = true`,
+**owned by the platform (APP) company**, and visible to everyone because
+`get_entity` and the template list include every `is_template` row
+([service.py](../../backend/src/ai/service.py)). Only `app_admin` creates, edits or
+deletes one, through any route; an ordinary update cannot change `is_template` or
+`template_source_id` (PO-23, 2026-10-07). Until then `create_entity` gave a template
+`company_id = NULL` against a NOT NULL column, so no template could be created, and
+`PUT`/`DELETE /ai/entities/{id}` let any user change one.
 
 ```mermaid
 flowchart TD
-    AA["app_admin"] -->|"POST /ai/templates or convert-to-template"| T["template row - is_template true, company_id NULL"]
+    AA["app_admin"] -->|"POST /ai/templates or convert-to-template"| T["template row - is_template true, the APP company's"]
     T -->|"visible to every company"| ANY["any authenticated user"]
     ANY -->|"POST /ai/templates/id/clone"| CL["deep clone"]
     CL --> C1["clone of the template itself"]
@@ -1851,8 +1851,8 @@ Honest boundaries, all verifiable by grep.
   show — set through the API or a seed — fall back to their defaults when an entity is
   saved from the builder, and a static plan's tool steps lose their prompt templates
   (FE-25).
-- **Templates have `company_id = NULL`.** That is what makes them global — which
-  also means a template is outside the normal tenant scoping.
+- **Templates belong to the APP company** and are readable by every tenant; only
+  `app_admin` changes them (PO-23).
 - **`/onboarding` is not enforced.** Nothing redirects an un-onboarded user into
   the wizard, despite the router docstring claiming otherwise.
 - **Payments are Razorpay-only**, priced in USD cents, and top-up returns
@@ -1901,8 +1901,8 @@ Honest boundaries, all verifiable by grep.
 - **Child entity references are UUIDs, so hierarchies build bottom-up.** Every
   seed script creates ACTIONs first and patches `__PLACEHOLDER_*__` strings
   afterwards.
-- **A "template" is just `is_template = true` and `company_id = NULL`.** That is
-  the entire mechanism, and it is why templates are globally visible.
+- **A "template" is `is_template = true` on a row the APP company owns.** Reads
+  include every template; writes need `app_admin` (PO-23).
 - **Deeper hierarchies cost more, not less.** Each level adds a full
   perceive-strategize-act-critique cycle. `SeedDocFactoryLite` exists purely to
   undo a 50-entity hierarchy that was multiplying LLM calls.

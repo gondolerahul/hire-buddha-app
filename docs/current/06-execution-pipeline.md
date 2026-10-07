@@ -2271,8 +2271,9 @@ sequenceDiagram
   enforced.
 - **`version` is decorative.** Nothing resolves, compares, pins, or increments it.
   Editing an entity changes behaviour for runs already in flight.
-- **Templates have `company_id = NULL`** — they are global. Only `app_admin` can
-  create or edit them, but any user can clone them.
+- **Templates belong to the APP company** and are global. Only `app_admin` can
+  create, edit or delete them — on every route since PO-23 — and any user can clone
+  them.
 - **The Execution Detail page finds files by regex, not by `run_id`.** A tool
   that does not print its artifact URL into its output produces an invisible
   file. `pdf_generator` also leaves `run_id = NULL` and writes the file twice.

@@ -24,11 +24,30 @@ class AIService:
         self.db = db
 
     # Entity CRUD
+    # ── Templates (PO-23) ────────────────────────────────────────────────
+    # A template belongs to the platform (APP) company and every tenant can
+    # read and clone it; only app_admin creates, changes or deletes one.
+
+    @staticmethod
+    def _require_template_writer(user_role: Optional[str]) -> None:
+        if str(user_role or "") != "app_admin":
+            raise HTTPException(status_code=403, detail="Only app_admin can create or change templates")
+
+    async def _template_owner(self) -> UUID:
+        from src.auth.platform import platform_company_id
+
+        owner = await platform_company_id(self.db)
+        if owner is None:
+            raise HTTPException(status_code=409, detail="There is no platform (APP) company to own templates")
+        return owner
+
     async def create_entity(self, entity_in: HierarchicalEntityCreate, company_id: UUID, user_id: UUID = None,
-                            *, origin: str = "user", source_entity_id: Optional[UUID] = None) -> HierarchicalEntity:
+                            *, origin: str = "user", source_entity_id: Optional[UUID] = None,
+                            user_role: Optional[str] = None) -> HierarchicalEntity:
         """Create an entity. ``origin="agent"`` — an agent creating at runtime —
         passes the anti-sprawl gate first (MI-02, D28); ``source_entity_id``
-        marks a new version of an existing entity."""
+        marks a new version of an existing entity. A template (``is_template``)
+        needs ``user_role == "app_admin"`` and belongs to the APP company (PO-23)."""
         # Prepare data, handling nested Pydantic models and ensuring JSON serializability (e.g. UUID -> str)
         entity_data = entity_in.model_dump(mode='json')
         if origin == "agent":
@@ -36,8 +55,11 @@ class AIService:
             await require_agent_creation(self.db, company_id, entity_data, user_id=user_id,
                                          source_entity_id=source_entity_id)
         
-        # Templates are public — no company association
-        effective_company_id = None if entity_data.get("is_template") else company_id
+        if entity_data.get("is_template"):
+            self._require_template_writer(user_role)
+            effective_company_id = await self._template_owner()
+        else:
+            effective_company_id = company_id
 
         from src.ai.governance.composition import EntityShape
         await self._require_composition(EntityShape(
@@ -125,8 +147,16 @@ class AIService:
 
     async def update_entity(self, entity_id: UUID, entity_in: HierarchicalEntityUpdate, company_id: UUID, user_role: str = None, user_id: UUID = None) -> HierarchicalEntity:
         entity = await self.get_entity(entity_id, company_id, user_role=user_role)
-        
+        if entity.is_template:
+            self._require_template_writer(user_role)
+
         update_data = entity_in.model_dump(mode='json', exclude_unset=True)
+        # Whether an entity is a template is not an edit: convert-to-template
+        # copies one into the platform's library (PO-23).
+        for field in ("is_template", "template_source_id"):
+            if field in update_data and update_data[field] != getattr(entity, field):
+                raise HTTPException(status_code=422,
+                                    detail=f"{field} cannot be changed by an update; use convert-to-template")
 
         # The edit is checked before it touches the row, so a refused one
         # leaves nothing to undo.
@@ -163,8 +193,10 @@ class AIService:
                        "< LOOP < GRAPH), in the same company, with no cycle.",
             )
 
-    async def delete_entity(self, entity_id: UUID, company_id: UUID):
-        entity = await self.get_entity(entity_id, company_id)
+    async def delete_entity(self, entity_id: UUID, company_id: UUID, user_role: Optional[str] = None):
+        entity = await self.get_entity(entity_id, company_id, user_role=user_role)
+        if entity.is_template:
+            self._require_template_writer(user_role)
         
         from sqlalchemy import update
         from src.ai.orm import UsageLog
@@ -988,10 +1020,11 @@ class AIService:
         from src.ai.entity_clone_helpers import clone_entity_fields, remap_entity_refs
         _clone_fields = clone_entity_fields
 
-        # 4. Clone root as template
+        # 4. Clone root as template — the platform's library owns it (PO-23)
+        owner = await self._template_owner()
         root_template = HierarchicalEntity(
             **_clone_fields(source),
-            company_id=source.company_id,
+            company_id=owner,
             created_by=user_id,
             is_template=True,
             template_source_id=source.id,
@@ -1006,7 +1039,7 @@ class AIService:
             new_parent_id = old_to_new_id.get(child.parent_id)
             clone = HierarchicalEntity(
                 **_clone_fields(child),
-                company_id=source.company_id,
+                company_id=owner,
                 created_by=user_id,
                 is_template=True,
                 template_source_id=child.id,

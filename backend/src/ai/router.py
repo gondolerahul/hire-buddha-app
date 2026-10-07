@@ -54,7 +54,8 @@ async def create_entity(
         effective_company_id = target_company_id
 
     service = AIService(db)
-    return await service.create_entity(entity_in, effective_company_id, current_user.id)
+    return await service.create_entity(entity_in, effective_company_id, current_user.id,
+                                       user_role=current_user.role)
 
 @router.get("/entities", response_model=List[HierarchicalEntityResponse])
 async def list_entities(
@@ -127,7 +128,7 @@ async def delete_entity(
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    await service.delete_entity(entity_id, current_user.company_id)
+    await service.delete_entity(entity_id, current_user.company_id, user_role=current_user.role)
     return {"status": "success"}
 
 @router.post("/entities/{entity_id}/convert-to-template", response_model=HierarchicalEntityResponse)
@@ -758,8 +759,9 @@ async def create_template(
 ):
     entity_in.is_template = True
     service = AIService(db)
-    # Templates are public: company_id is set to None by create_entity when is_template=True
-    return await service.create_entity(entity_in, current_user.company_id, current_user.id)
+    # A template belongs to the platform (APP) company; create_entity sets it (PO-23)
+    return await service.create_entity(entity_in, current_user.company_id, current_user.id,
+                                       user_role=current_user.role)
 
 @router.put("/templates/{template_id}", response_model=HierarchicalEntityResponse)
 async def update_template(
@@ -778,7 +780,7 @@ async def delete_template(
     current_user: User = Depends(app_admin_only)
 ):
     service = AIService(db)
-    await service.delete_entity(template_id, current_user.company_id)
+    await service.delete_entity(template_id, current_user.company_id, user_role=current_user.role)
     return {"status": "success"}
 
 @router.post("/templates/{template_id}/clone", response_model=HierarchicalEntityResponse)

@@ -51,7 +51,7 @@ cross-referenced here.
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
 | [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
 
-**Total: 23 defects (1 open, 15 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** The open defect is PO-23 (templates, found 2026-10-02; re-verified 2026-10-07 and scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), as are the deferred PO-19 and PO-20 through their duplicates GW-19 and GH-07); PO-07 was fixed in P6.2; PO-06 delivered its audit.
+**Total: 23 defects (0 open, 16 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** PO-23 (templates, found 2026-10-02) was fixed on 2026-10-07; PO-07 was fixed in P6.2; PO-06 delivered its audit. The deferred PO-19 and PO-20 are scheduled through their duplicates GW-19 and GH-07 in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (H6, H4).
 
 | ID | Defect | Status |
 |---|---|---|
@@ -638,7 +638,15 @@ gate one and forget the other, which is exactly what happened in
 
 ### PO-23 — A template can never be created, and the entity routes would let any tenant edit one
 
-**✅ Verified · Medium** · **Status: open** — found 2026-10-02 while building the versions API
+**✅ Verified · Medium** · **Status: fixed (2026-10-07)** — decided with the product owner as HD5: a
+template belongs to the platform (APP) company — `create_entity` and `convert_to_template` set
+it — so `POST /ai/templates` works; every tenant still reads and clones templates. Creating,
+updating or deleting a template needs `app_admin` on every route (`_require_template_writer`
+in `AIService`, so `PUT`/`DELETE /ai/entities/{id}` refuse a tenant with 403), and an
+ordinary update cannot change `is_template` or `template_source_id` (422; it had let a tenant
+turn their own entity into a template every tenant sees — found while fixing).
+`tests/integration/test_templates.py` (create → owned by APP; tenant edit/delete 403, clone
+works; tenant cannot create or flip a template). Found 2026-10-02 while building the versions API
 (P5.6 of the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md)); not fixed there. Re-verified 2026-10-07: `hierarchical_entities.company_id` is still `NOT NULL` (`ai/orm/entity.py:34`) while `create_entity` passes `None` for a template (`ai/service.py:40`). Plan: [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), decision HD5.
 
 [PO-11](#po-11--templates-sit-outside-tenant-scoping-by-design) rests on templates having

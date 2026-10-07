@@ -995,7 +995,7 @@ select(SocialConnection).where(
 | Risk | Location | Detail |
 |---|---|---|
 | ~~**Email connections have no auth at all**~~ **Fixed 2026-09-30 (AU-02)** | [ai/email_router.py](../../backend/src/ai/email_router.py) | Every route now depends on `get_current_user_and_company`; list and create use the caller's company (a `company_id` in the query string is ignored), and delete/validate look a connection up by id **and** company, 404 otherwise. Before, all five routes were anonymous and delete/validate looked up by id alone — `validate` decrypted another tenant's app password and logged into the mailbox. |
-| Templates are global | [ai/service.py:57](../../backend/src/ai/service.py:57) | `is_template == True` rows have `company_id = NULL` and are visible to everyone by design. Anything put in a template is public to all tenants. |
+| Templates are global | [ai/service.py](../../backend/src/ai/service.py) | `is_template == True` rows belong to the APP company and are visible to everyone by design; only `app_admin` creates, changes or deletes one (PO-23). Anything put in a template is public to all tenants. |
 | `app_admin` short-circuits | throughout | `if user_role != "app_admin"` skips the filter entirely. Correct, but it means a role-escalation bug (7.6 item 4) becomes a full-database read. |
 | ~~Copy-pasted cascade logic~~ **Fixed (AU-20)** | [auth/visibility.py](../../backend/src/auth/visibility.py) | The five copies of "own + children" are one helper, `visible_company_ids(user)`. |
 | Webhooks derive tenancy from provider data | [voice/webhook_router.py](../../backend/src/voice/webhook_router.py) | `company_id` comes from the phone-number assignment row, not from a token. Correct approach, but the trust boundary is the telephony provider's signature, not a HireBuddha credential. |
@@ -1560,7 +1560,7 @@ Ordered roughly by severity. Everything here is observable in the code, not spec
 - **`RoleChecker` has no hierarchy.** `app_admin` is locked out of any endpoint whose list forgets to name it. Always include it explicitly.
 - **`app_admin` bypasses the tenant filter by *skipping* the `WHERE`, not by widening it.** Read `if user_role != "app_admin"` as "this is the isolation boundary".
 - **Nothing scopes queries for you.** No RLS, no ORM mixin, no middleware. A missing `WHERE company_id` is a cross-tenant leak that no test will catch.
-- **Templates have `company_id = NULL` and are visible to every tenant.** Do not put customer data in a template.
+- **Templates belong to the APP company and are visible to every tenant.** Only `app_admin` writes them (PO-23). Do not put customer data in a template.
 - **Self-registration makes you `tenant_admin`, but the DB column default is `tenant_user`.** The two disagree; the service wins.
 - **The refresh cookie is set but never read.** Refresh always comes from the JSON body and `localStorage`.
 - **There is no logout endpoint.** Signing out only clears `localStorage`.
