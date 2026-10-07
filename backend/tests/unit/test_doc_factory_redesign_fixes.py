@@ -1,7 +1,7 @@
 """Regression tests for the DOC_FACTORY_REDESIGN platform fixes.
 
 Covers the two real platform bugs surfaced by the doc-factory-process analysis
-(docs/phase11/DOC_FACTORY_REDESIGN.md) plus the sandbox scratch-dir skip:
+(docs/history/phase11/DOC_FACTORY_REDESIGN.md) plus the sandbox scratch-dir skip:
 
   §5.1 — StepEngine._enforce_cost_cap raises BudgetExhaustedError once a
          run reaches its entity's governance.max_cost_usd (the cap that the

@@ -22,7 +22,7 @@ subpackage:
 | `core/` | `calculator`, `search`, `batch_search`, `scraper`, `file_writer` |
 | `documents/` | `pdf_generator`, `docx_tool`, `pptx_tool`, `excel`, `xlsx_engine`, `document_save` |
 | `media/` | `image_generation`, `video_generate`, `video_edit`, `video_add_sound` |
-| `sandbox/` | `sandbox_executor`, `skill_files`, `terminal_tool`, `browser_tool` (per-tenant container runtime is `docs/phase12/plans/02_*`) |
+| `sandbox/` | `sandbox_executor`, `skill_files`, `terminal_tool`, `browser_tool` (per-tenant container runtime is `docs/history/phase12/plans/02_*`) |
 | `email/` | `email_tool` |
 | `crm/` | `crm_tools` |
 | `social/` | 15 social + ads platform integrations |
@@ -47,7 +47,7 @@ were deleted — "DEAD" classification needs real usage telemetry first.
 ### Deferred (follow-up)
 
 Nesting `social/` under `tools/integrations/social/` and splitting the six
-Ads platforms into `tools/integrations/ads/` (per `docs/phase12/plans/01` §5)
+Ads platforms into `tools/integrations/ads/` (per `docs/history/phase12/plans/01` §5)
 is deferred: the social modules use absolute intra-package imports (33 sites),
 so the relocation is pure churn with no behaviour/clarity gain beyond the
 nesting. It can land later as a self-contained rename.
@@ -67,5 +67,5 @@ nesting. It can land later as a self-contained rename.
 
 ## See also
 
-- `docs/phase11/plan/10_track_8_tool_and_cost.md`
-- `docs/phase11/plan/07_track_5_meta_agent_board.md` — `meta_spec_critic`.
+- `docs/history/phase11/plan/10_track_8_tool_and_cost.md`
+- `docs/history/phase11/plan/07_track_5_meta_agent_board.md` — `meta_spec_critic`.

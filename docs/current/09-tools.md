@@ -2077,7 +2077,7 @@ reading the backend's `.env` file off the host filesystem.
   `sandbox.container_runtime_enabled`.
 - [18 — Infrastructure & deployment](18-infrastructure-and-deployment.md) —
   building and pinning the `hb-sandbox` and `hb-egress-proxy` images.
-- Design intent: [`docs/phase11/plan/10_track_8_tool_and_cost.md`](../phase11/plan/10_track_8_tool_and_cost.md)
-  for the cost/resilience consolidation, and `docs/phase12/plans/02_sandbox_browser_terminal.md`
+- Design intent: [`docs/history/phase11/plan/10_track_8_tool_and_cost.md`](../history/phase11/plan/10_track_8_tool_and_cost.md)
+  for the cost/resilience consolidation, and `docs/history/phase12/plans/02_sandbox_browser_terminal.md`
   for the sandbox hardening plan. Where they disagree with this document, the
   code is the truth and the difference is noted above.

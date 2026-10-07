@@ -377,7 +377,8 @@ One trap:
 | [backend/src/ai/governance/README.md](../../backend/src/ai/governance/README.md) | The gate layer |
 | [backend/tests/parity/README.md](../../backend/tests/parity/README.md) | The best-written doc in the repo |
 
-`docs/phase9/` through `docs/phase12/` are historical **plans**. They describe
+`docs/history/phase1/` through `docs/history/phase12/` are historical **plans** (moved out of
+`docs/` on 2026-10-07, ON-14). They describe
 intent; the code is truth. Where they disagree, trust the code.
 
 ---

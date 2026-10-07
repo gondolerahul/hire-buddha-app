@@ -1,7 +1,7 @@
 """Unit tests for async child dispatch (suspend/resume).
 
 Covers the pure/loosely-coupled pieces of the mechanism designed in
-``docs/phase12/designs/async_child_dispatch.md``:
+``docs/history/phase12/designs/async_child_dispatch.md``:
 
 * the ``WAITING_ON_CHILDREN`` status + transitions,
 * the ``ActionResult.awaiting_children`` marker,

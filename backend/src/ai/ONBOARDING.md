@@ -54,11 +54,11 @@ iteration looks like in code.
 
 ## 4. The plan documents (30 min, skim)
 
-This codebase implements `docs/phase11/`. Skim:
+This codebase implements `docs/history/phase11/`. Skim:
 
-* `docs/phase11/plan/01_overview_and_principles.md` — the seven design principles.
-* `docs/phase11/plan/04_track_2_agent_loop.md` — heart of Phase 11.
-* `docs/phase11/RETROSPECTIVE.md` — what landed, what's deferred to Phase 12.
+* `docs/history/phase11/plan/01_overview_and_principles.md` — the seven design principles.
+* `docs/history/phase11/plan/04_track_2_agent_loop.md` — heart of Phase 11.
+* `docs/history/phase11/RETROSPECTIVE.md` — what landed, what's deferred to Phase 12.
 
 ## 5. First PR (15 min) — guided exercise
 
@@ -78,16 +78,16 @@ Enable the EXPERIMENTAL `video_generate` tool for your dev tenant:
 
 ## Where to ask questions
 
-* Architecture / loop semantics → check `docs/phase11/plan/01_overview_and_principles.md` first, then the agent-kernel team.
+* Architecture / loop semantics → check `docs/history/phase11/plan/01_overview_and_principles.md` first, then the agent-kernel team.
 * Tool registry → `tools/README.md` + the Track 8 plan.
 * Cost attribution → `services/cost_attribution.py` + Track 8 plan.
 * Memory / Cortex → `memory/README.md` + the Track 6 plan.
 
 ## What to read next
 
-* `docs/phase11/plan/12_data_model_and_migrations.md` — every Alembic
+* `docs/history/phase11/plan/12_data_model_and_migrations.md` — every Alembic
   migration the programme touched.
-* `docs/phase11/plan/13_observability_feature_flags_rollout.md` — how
+* `docs/history/phase11/plan/13_observability_feature_flags_rollout.md` — how
   flags / events flow.
-* `docs/phase11/plan/14_test_strategy.md` — what each tier of tests
+* `docs/history/phase11/plan/14_test_strategy.md` — what each tier of tests
   covers.

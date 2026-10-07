@@ -40,6 +40,6 @@ judge it after the fact*.
 
 ## See also
 
-- `docs/phase11/plan/05_track_3_critic_pipeline.md`
-- `docs/phase11/plan/06_track_4_meta_review_goalguard.md`
-- `docs/phase11/plan/09_track_7_planner_priors.md`
+- `docs/history/phase11/plan/05_track_3_critic_pipeline.md`
+- `docs/history/phase11/plan/06_track_4_meta_review_goalguard.md`
+- `docs/history/phase11/plan/09_track_7_planner_priors.md`

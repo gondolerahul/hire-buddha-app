@@ -38,5 +38,5 @@ intelligence, episodic) is a typed view over the CORTEX tree.
 
 ## See also
 
-- `docs/phase11/plan/08_track_6_memory_v2.md`
+- `docs/history/phase11/plan/08_track_6_memory_v2.md`
 - `core/INTERNAL_KEYS.md` — keys inside the legacy `context_state` bridge.

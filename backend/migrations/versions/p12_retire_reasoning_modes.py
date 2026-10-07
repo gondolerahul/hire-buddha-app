@@ -4,7 +4,7 @@ The per-entity reasoning-mode dispatch for ``REFLECTION`` and
 ``TREE_OF_THOUGHTS`` was removed from ``step_executor._execute_thought`` (their
 logic is superseded by the AgentLoop ``Reflector`` and the Strategist-selected
 ``DebateExecutor`` respectively — see
-``docs/phase12/plans/01_phase11_consolidation.md`` §8.3). This data migration
+``docs/history/phase12/plans/01_phase11_consolidation.md`` §8.3). This data migration
 rewrites every entity still configured with one of those modes to ``REACT`` so
 no live entity points at a removed branch. ``REACT`` and ``CHAIN_OF_THOUGHT`` are
 left untouched.

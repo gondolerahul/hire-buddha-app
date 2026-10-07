@@ -23,5 +23,5 @@ loop and the LLM / tool providers.
 
 ## See also
 
-- `docs/phase11/plan/10_track_8_tool_and_cost.md`
+- `docs/history/phase11/plan/10_track_8_tool_and_cost.md`
 - `services/cost_attribution.py` (the ledger + `CostAttribution` enum).

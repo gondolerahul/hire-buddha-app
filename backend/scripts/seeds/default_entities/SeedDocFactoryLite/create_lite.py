@@ -2,7 +2,7 @@
 """
 doc-factory-lite — lean single-agent replacement for doc-factory-process.
 
-See ``docs/phase11/DOC_FACTORY_REDESIGN.md`` for the why. In one sentence:
+See ``docs/history/phase11/DOC_FACTORY_REDESIGN.md`` for the why. In one sentence:
 the 50-entity, 4-level doc-factory hierarchy multiplies LLM calls on top of the
 Phase-11 loop; this collapses it to ONE flat AGENT with a deterministic
 ``outline → generate → validate → finalize`` plan (one lightweight planning

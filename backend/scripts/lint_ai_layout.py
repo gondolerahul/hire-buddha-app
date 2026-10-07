@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 lint_ai_layout.py — Enforces the AI package shape defined in
-docs/phase11/07_folder_restructure.md.
+docs/history/phase11/07_folder_restructure.md.
 
 Exits non-zero on violation; prints a single-line error per violation.
 

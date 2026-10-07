@@ -1682,7 +1682,7 @@ Child run picks up: cortex = CortexRouter(db, company_id,
 
 ## 23. Known Issues, Gaps, and Forward Roadmap
 
-(Mirrors `docs/phase10/05_memory_architecture.md` and adds findings
+(Mirrors `docs/history/phase10/05_memory_architecture.md` and adds findings
 from this audit.)
 
 | # | Issue | Severity |

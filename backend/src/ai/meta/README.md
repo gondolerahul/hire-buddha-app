@@ -42,5 +42,5 @@ RequirementChat, Curator, Architect, BoardCritic, TestDriver and Promoter had no
 
 ## See also
 
-- `docs/phase11/plan/07_track_5_meta_agent_board.md`
-- `docs/phase11/review/04_meta_agent_blueprint.md`
+- `docs/history/phase11/plan/07_track_5_meta_agent_board.md`
+- `docs/history/phase11/review/04_meta_agent_blueprint.md`
