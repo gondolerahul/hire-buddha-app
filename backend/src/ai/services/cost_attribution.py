@@ -43,6 +43,7 @@ class CostAttribution(str, Enum):
     TEST_DRIVER      = "test_driver"
     SANDBOX          = "sandbox"
     VIDEO_FRAME      = "video_frame"   # a live video call's frame descriptions (LP-26)
+    VOICE_CALL       = "voice_call"    # a voice call's telephony and model audio (VT-21)
 
 
 VALID_ATTRIBUTIONS: set[str] = {a.value for a in CostAttribution}

@@ -983,6 +983,8 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                             </div>
                             {isVoiceAgent && (
                                 <div className="voice-settings-panel">
+                                    {/* What governs a call (VT-21, HD14) */}
+                                    <p className="section-description">Each voice call is recorded as a run (run reports, trace viewer), but Quality Review and Human-in-the-Loop checkpoints do not apply to calls: a live call cannot pause for a reviewer or an approval.</p>
                                     {/* Bio — used by persona_service for voice prompt fallback */}
                                     <div className="form-group">
                                         <label>Bio</label>
@@ -1299,6 +1301,9 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                     <span className="toggle-slider"></span>
                                 </label>
                             </div>
+                            {isVoiceAgent && (
+                                <p className="section-description">Applies to this agent's text runs, not to its voice calls.</p>
+                            )}
                             {reviewEnabled && (
                                 <>
                                     <div className="form-group">
@@ -1777,7 +1782,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                         {/* HITL Checkpoints */}
                         <div className="form-section">
                             <h3><AlertTriangle size={16} /> Human-in-the-Loop Checkpoints</h3>
-                            <p className="section-description">Configure points where execution pauses for human approval.</p>
+                            <p className="section-description">Configure points where execution pauses for human approval.{isVoiceAgent && ' Voice calls never pause: these apply to text runs only.'}</p>
 
                             {hitlCheckpoints.map((cp, idx) => (
                                 <div key={idx} className="hitl-checkpoint-card">

@@ -31,6 +31,7 @@ const _ATTRIBUTION_COLORS: Record<string, string> = {
     test_driver:      '#d80',
     sandbox:          '#0aa',
     video_frame:      '#2a8',
+    voice_call:       '#0aa',
 };
 
 export const CostAttributionDashboard: React.FC = () => {

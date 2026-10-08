@@ -88,7 +88,8 @@ export type CostAttribution =
     | 'meta_spec_critic'
     | 'test_driver'
     | 'sandbox'
-    | 'video_frame';
+    | 'video_frame'
+    | 'voice_call';
 
 export type ToolStatus = 'ACTIVE' | 'EXPERIMENTAL' | 'DEPRECATED';
 

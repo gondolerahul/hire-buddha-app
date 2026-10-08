@@ -40,9 +40,9 @@
 | [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 3 | 0 | 1 | 0 |
 | [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 2 | 1 | 2 | 0 |
-| [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 3 | 2 | 0 | 3 |
+| [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 4 | 1 | 0 | 3 |
 
-**Total: 21 defects (12 fixed, 3 partly fixed, 3 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (13 fixed, 2 partly fixed, 3 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -66,7 +66,7 @@
 | VT-18 | A campaign's company comes from the agent, not the user | not a defect — correct as-is | — |
 | VT-19 | Silence is measured against the playback horizon | not a defect — correct as-is | — |
 | VT-20 | Muted audio is sent as zeros rather than dropped | not a defect — correct as-is | — |
-| VT-21 | A voice call has no run record, so nothing about it is auditable the usual way | partly — tool use has a run; the call does not (HD14) | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-21 | A voice call has no run record, so nothing about it is auditable the usual way | ✅ fixed (2026-10-08) | — |
 
 The three to read first:
 
@@ -381,7 +381,7 @@ sending nothing. Same note: it looks like a bug and is not.
 
 ### VT-21 — A voice call has no run record, so nothing about it is auditable the usual way
 
-**📄 Doc-reported · Medium** · **Status: partly fixed** — re-verified 2026-10-07: a call's tool use now opens a run (TL-20, `66fe8bc`); the call itself still has none — no steps, critics, HITL or run-based reporting. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — decision HD14: every call opens its `ExecutionRun` when it connects (`VoiceToolCalls.start`, from `_setup_live_and_run`); the TL-20 tool-call run is that run. The call's telephony and model-audio `usage_logs` rows are written on it (attribution `voice_call`), and at hang-up it closes `COMPLETED` with their total, the billed amount, the reported tokens and the duration and turns; the trace has a `voice call` step span with each tool call under it. Critics and HITL stay off for calls, and the builder says so on a voice agent. Still not on a call: the planner and CORTEX write-back. The browser audio widget (`gateway/web_audio_adapter.py`) is not a telephony call and opens no run. `tests/integration/test_voice_call_run.py` (3)
 
 A voice call produces a `VoiceSession`, not an `ExecutionRun`. It has no
 `ExecutionStep` rows, no planner, no critics, no CORTEX write-back beyond a

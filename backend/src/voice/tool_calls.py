@@ -1,14 +1,21 @@
-"""voice/tool_calls.py — a voice call's tool calls, run like a step's (TL-20).
+"""voice/tool_calls.py — a voice call is a run; its tool calls are run like a step's (TL-20, VT-21).
 
-A voice agent's tool calls used to run with only a company and a user in their
-context: no run, no ``tool_interaction_logs`` row, no charge. Now the first
-tool call of a call opens an ``ExecutionRun`` for it (the voice agent, channel
-``voice``), and every call is resolved through the agent's ``ToolAccess``,
-told who it is for by an ``ExecutionContext``, logged against the run and
-priced through ``ToolCostResolver`` — the same path as a step's tool call.
+A voice call used to leave no run at all, and its tool calls ran with only a
+company and a user in their context: no ``tool_interaction_logs`` row, no
+charge. Now the call opens an ``ExecutionRun`` when it connects (the voice
+agent, channel ``voice``, HD14) — the handler calls :meth:`VoiceToolCalls.start`
+— so every call is in the run reports and the trace viewer. Each tool call is
+resolved through the agent's ``ToolAccess``, told who it is for by an
+``ExecutionContext``, logged against the run, priced through
+``ToolCostResolver`` and traced under the call's span — the same path as a
+step's tool call.
 
-The run is not settled on its own: its cost joins the call's total, which the
-call-end path charges once with the telephony and audio cost.
+Critics and HITL checkpoints do not run on a call (a call cannot pause for an
+approval); the builder says so.
+
+The run is not settled on its own: the call-end path charges the call once
+(telephony, audio and tools) and writes the call's usage rows on this run, then
+:meth:`VoiceToolCalls.finish` closes it with what they add up to.
 """
 from __future__ import annotations
 
@@ -26,7 +33,7 @@ __all__ = ["VoiceToolCalls"]
 
 
 class VoiceToolCalls:
-    """The tool calls of one voice call."""
+    """The run of one voice call, and its tool calls."""
 
     STEP_NAME = "voice call"
 
@@ -38,9 +45,20 @@ class VoiceToolCalls:
         self.context: Any = None
         self.cost = Decimal("0")
         self._resolver: Any = None
+        self._recorder: Any = None
+        self._span: Any = None
         # The handler runs each tool-call message as its own task, and they
         # share one AsyncSession: one batch at a time.
         self._lock = asyncio.Lock()
+
+    @property
+    def run_id(self) -> Any:
+        return self.run.id if self.run is not None else None
+
+    async def start(self) -> None:
+        """Open the call's run when the call connects (VT-21)."""
+        async with self._lock:
+            await self._open()
 
     async def _open(self) -> None:
         """Load the agent's access and open the call's run, once."""
@@ -68,6 +86,7 @@ class VoiceToolCalls:
             company_id=vs.company_id, entity_id=entity.id, status=RunStatus.RUNNING,
             started_at=datetime.utcnow(),
             input_data={"input": "voice call", "channel": "voice", "voice_session_id": str(vs.id),
+                        "direction": getattr(vs, "direction", None),
                         # The caller or the campaign's contact: whom this
                         # call's tools may message or update (TL-09).
                         "subjects": voice_subjects(vs)},
@@ -82,6 +101,30 @@ class VoiceToolCalls:
         )
         self._resolver = ToolCostResolver(self.db, vs.company_id)  # one price cache per call
         await self.db.commit()
+        await self._open_span(entity)
+
+    async def _open_span(self, entity: Any) -> None:
+        """The call's span in the trace viewer; its tool calls nest under it."""
+        from src.ai.core.trace import TraceRecorder
+
+        try:
+            from src.common.redis_client import shared_redis
+            redis: Any = shared_redis()
+        except Exception:                                                   # noqa: BLE001
+            redis = None
+        observability = getattr(entity, "observability", None) or {}
+        self._recorder = TraceRecorder(
+            self.run.id, company_id=self.voice_session.company_id, redis=redis,
+            capture_payloads=bool(observability.get("log_thoughts", True)),
+        )
+        self._recorder.iteration = 1
+        vs = self.voice_session
+        self._span = await self._recorder.open(
+            "step", self.STEP_NAME, parent_span_id=None, iteration=1,
+            payload={"channel": "voice", "voice_session_id": str(vs.id),
+                     "direction": getattr(vs, "direction", None),
+                     "provider": getattr(vs, "provider", None)},
+        )
 
     async def run_calls(self, function_calls: list[dict[str, Any]]) -> list[Any]:
         """Run the model's function calls; log and charge each one."""
@@ -89,13 +132,19 @@ class VoiceToolCalls:
             return await self._run_calls(function_calls)
 
     async def _run_calls(self, function_calls: list[dict[str, Any]]) -> list[Any]:
+        from src.ai.core.trace import _CURRENT_SPAN, set_recorder
         from src.ai.step_executor import log_tool_call
         from src.ai.tool_executor import ToolExecutor
 
         await self._open()
-        results = await ToolExecutor.execute_from_function_calls(
-            function_calls, extra_context=self.context.as_tool_context(), access=self.access,
-        )
+        with set_recorder(self._recorder):
+            token = _CURRENT_SPAN.set(self._span.span_id if self._span is not None else None)
+            try:
+                results = await ToolExecutor.execute_from_function_calls(
+                    function_calls, extra_context=self.context.as_tool_context(), access=self.access,
+                )
+            finally:
+                _CURRENT_SPAN.reset(token)
         if self.run is None:
             return results
         for call, tr in zip(function_calls, results):
@@ -111,26 +160,48 @@ class VoiceToolCalls:
         await self.db.commit()
         return results
 
-    async def finish(self, db: Any, *, error: Optional[str] = None) -> Decimal:
-        """Close the call's run with its tool cost; returns that cost.
+    async def finish(self, db: Any, *, error: Optional[str] = None,
+                     billed_amount: Optional[Decimal] = None, tokens: Optional[int] = None,
+                     result: Optional[dict[str, Any]] = None) -> Decimal:
+        """Close the call's run; returns its cost.
 
-        ``db`` is the call-end session (the call's own may already be gone).
+        The cost is what the run's usage rows add up to — its tool calls and,
+        once the call-end path has written them on the run, the call's
+        telephony and audio. ``tokens`` are the model's, as it reported them
+        (a live model's rows are not counted as text tokens). ``db`` is the
+        call-end session (the call's own may already be gone).
         """
         if self.run is None:
             return Decimal("0")
+        from src.ai.governance.run_cost import run_spend
         from src.ai.orm import ExecutionRun
         from src.ai.schemas.enums import RunStatus
 
+        spend = await run_spend(db, self.run.id)
         now = datetime.utcnow()
         started = self.run.started_at or now
-        await db.execute(
-            update(ExecutionRun).where(ExecutionRun.id == self.run.id).values(
-                status=RunStatus.FAILED if error else RunStatus.COMPLETED,
-                error_message=error,
-                total_cost_usd=self.cost,
-                completed_at=now,
-                execution_time_ms=int((now - started).total_seconds() * 1000),
-            )
-        )
+        values: dict[str, Any] = {
+            "status": RunStatus.FAILED if error else RunStatus.COMPLETED,
+            "error_message": error,
+            "total_cost_usd": spend.cost_usd,
+            "total_tokens": spend.tokens + (tokens or 0),
+            "completed_at": now,
+            "execution_time_ms": int((now - started).total_seconds() * 1000),
+        }
+        if billed_amount is not None:
+            values["billed_amount"] = billed_amount
+        if result is not None:
+            values["result_data"] = result
+        await db.execute(update(ExecutionRun).where(ExecutionRun.id == self.run.id).values(**values))
         await db.commit()
-        return self.cost
+        if self._span is not None:
+            self._span.set_cost(spend.cost_usd)
+            self._span.update(**(result or {}))
+            if error:
+                self._span.set_error(error)
+            try:
+                await self._recorder.close(self._span)
+            except Exception as exc:                                        # noqa: BLE001
+                logger.debug("Voice call span not recorded: %s", exc)
+            self._span = None
+        return spend.cost_usd

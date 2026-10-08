@@ -20,10 +20,13 @@ from sqlalchemy import select, update
 
 from src.config.models import IntegrationRegistry
 from src.ai.orm import UsageLog
+from src.ai.services.cost_attribution import CostAttribution
 from src.voice.live_usage import LiveUsage
 from src.voice.models import VoiceSession
 
 logger = logging.getLogger(__name__)
+
+VOICE_CALL = CostAttribution.VOICE_CALL.value
 
 
 def billed_minutes(duration_seconds: int) -> Decimal:
@@ -74,6 +77,7 @@ class VoiceUsageLogger:
         metadata: Optional[Dict[str, Any]] = None,
         tool_cost: Decimal = Decimal("0"),
         live_usage: Optional[LiveUsage] = None,
+        run_id: Optional[UUID] = None,
     ) -> VoiceUsage:
         """
         Log usage for a completed voice session.
@@ -93,6 +97,9 @@ class VoiceUsageLogger:
                 (``voice.live_usage``, VT-05). Its tokens are billed when the
                 provider sent usage; otherwise each direction is billed for
                 the audio it carried, not the whole call
+            run_id: The call's run (``voice.tool_calls``, VT-21). The
+                telephony and audio rows are written on it, attributed
+                ``voice_call``, so the run's cost is the call's
             
         Returns:
             The total cost in USD and its telephony part
@@ -114,6 +121,7 @@ class VoiceUsageLogger:
                 company_id=company_id,
                 provider=provider,
                 duration_seconds=duration_seconds,
+                run_id=run_id,
                 metadata={
                     "session_id": str(session_id),
                     "provider": provider,
@@ -140,6 +148,7 @@ class VoiceUsageLogger:
                 },
                 reported_tokens=live_usage.prompt_tokens if reported and live_usage else None,
                 by_modality=live_usage.prompt_by_modality if reported and live_usage else None,
+                run_id=run_id,
             )
             if input_cost:
                 total_cost += input_cost
@@ -160,6 +169,7 @@ class VoiceUsageLogger:
                 },
                 reported_tokens=live_usage.response_tokens if reported and live_usage else None,
                 by_modality=live_usage.response_by_modality if reported and live_usage else None,
+                run_id=run_id,
             )
             if output_cost:
                 total_cost += output_cost
@@ -185,7 +195,8 @@ class VoiceUsageLogger:
         company_id: UUID,
         provider: str,
         duration_seconds: int,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        run_id: Optional[UUID] = None,
     ) -> Optional[Decimal]:
         """Log telephony usage based on provider and duration."""
         sku_name = self.TELEPHONY_SKU_MAP.get(provider)
@@ -206,6 +217,8 @@ class VoiceUsageLogger:
         # Create usage log
         usage_log = UsageLog(
             company_id=company_id,
+            run_id=run_id,
+            attribution=VOICE_CALL,
             sku_id=registry_entry.id,
             raw_quantity=duration_minutes,
             calculated_cost=calculated_cost,
@@ -232,6 +245,7 @@ class VoiceUsageLogger:
         metadata: Optional[Dict[str, Any]] = None,
         reported_tokens: Optional[int] = None,
         by_modality: Optional[Dict[str, int]] = None,
+        run_id: Optional[UUID] = None,
     ) -> Optional[Decimal]:
         """
         Log LLM audio usage.
@@ -294,6 +308,8 @@ class VoiceUsageLogger:
         # Create usage log
         usage_log = UsageLog(
             company_id=company_id,
+            run_id=run_id,
+            attribution=VOICE_CALL,
             sku_id=registry_entry.id,
             raw_quantity=raw_quantity,
             calculated_cost=calculated_cost,

@@ -122,7 +122,8 @@ async def test_the_tool_cost_is_in_the_calls_charged_total(db):
 
 
 @pytest.mark.asyncio
-async def test_a_call_without_tool_calls_opens_no_run(db):
+async def test_a_call_that_never_connected_has_no_run_to_close(db):
+    """No `start()` (refused at admission, or the live session failed) and no tool call: no run (VT-21)."""
     session = await _voice_call(db)
     calls = VoiceToolCalls(db, session)
     assert await calls.finish(db) == 0 and calls.run is None

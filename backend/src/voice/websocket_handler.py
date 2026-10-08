@@ -315,6 +315,13 @@ class BaseStreamHandler:
 
         self.started_at = self.voice_session.started_at
 
+        # The call is a run from here (VT-21, HD14): it is in the run reports
+        # and the trace viewer. No critic or HITL checkpoint runs on it.
+        try:
+            await self._tool_calls().start()
+        except Exception as _run_err:
+            logger.warning(f"Could not open the run for call {self.session_id}: {_run_err}")
+
         # Issue #7: Read max call duration from agent config
         self.max_call_duration_seconds = getattr(
             agent_context, 'max_call_duration_seconds', 300
@@ -948,8 +955,9 @@ class BaseStreamHandler:
             await asyncio.sleep(0.2)
 
     def _tool_calls(self):
-        """The call's tool calls: resolved, logged and charged against one run
-        per call (P3.1, P3.2, TL-20)."""
+        """The call's run and its tool calls: resolved, logged and charged
+        against one run per call, opened when the call connects (P3.1, P3.2,
+        TL-20, VT-21)."""
         if getattr(self, "_voice_tools", None) is None:
             from src.voice.tool_calls import VoiceToolCalls
             self._voice_tools = VoiceToolCalls(self.db, self.voice_session)
@@ -1520,17 +1528,14 @@ class BaseStreamHandler:
                         logger.warning(f"Post-call summary generation failed: {_sum_err}")
 
                     # Usage + billing. The call's tool calls are charged with it
-                    # (TL-20): their run is closed here and its cost joins the total.
-                    tool_cost = Decimal("0")
-                    if getattr(self, "_voice_tools", None) is not None:
-                        try:
-                            tool_cost = await self._voice_tools.finish(session)
-                        except Exception as _tool_err:
-                            logger.warning(f"Closing the call's tool run failed: {_tool_err}")
+                    # (TL-20), and its usage rows are written on its run (VT-21),
+                    # which is closed below with what they add up to.
+                    call_run = getattr(self, "_voice_tools", None)
                     usage_logger = VoiceUsageLogger(session)
                     usage = await usage_logger.log_voice_session_usage(
                         live_usage=self._live_usage,
-                        tool_cost=tool_cost,
+                        tool_cost=call_run.cost if call_run is not None else Decimal("0"),
+                        run_id=call_run.run_id if call_run is not None else None,
                         session_id=self.session_id,
                         company_id=self.voice_session.company_id,
                         provider=self.voice_session.provider,
@@ -1544,6 +1549,7 @@ class BaseStreamHandler:
                     )
                     total_cost = usage.total_cost
                     logger.info(f"Session {self.session_id} total cost: ${total_cost}")
+                    billed_amount: Optional[Decimal] = None
 
                     if total_cost and total_cost > 0:
                         # One base cost for the charge and the billing event,
@@ -1617,6 +1623,18 @@ class BaseStreamHandler:
                             )
                         except Exception as be:
                             logger.warning(f"Billing event recording failed: {be}")
+
+                    if call_run is not None:
+                        try:
+                            lu = self._live_usage
+                            await call_run.finish(
+                                session, billed_amount=billed_amount,
+                                tokens=(lu.prompt_tokens + lu.response_tokens) if lu.reported else None,
+                                result={"duration_seconds": duration, "turns": self.turn_number,
+                                        "provider": self.voice_session.provider},
+                            )
+                        except Exception as _run_err:
+                            logger.warning(f"Closing the call's run failed: {_run_err}")
 
                 # --- Post-call: update CampaignCall if this was a campaign call ---
                 try:
