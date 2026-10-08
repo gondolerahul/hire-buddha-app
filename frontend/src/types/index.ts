@@ -98,9 +98,8 @@ export interface VoiceConfig {
     /** Prebuilt Gemini voice. 18 options: Puck, Charon, Kore, Fenrir, Aoede, Orbit, Zephyr, Leda,
      *  Orus, Rigel, Schedar, Pulcherrima, Achird, Zubenelgenubi, Vindemiatrix, Sadachbia, Sadaltager, Sulafat */
     voice_name: string;
-    language_code: string;      // BCP-47, e.g. "en-US"
-    speaking_rate: number;      // 0.25 – 4.0
-    pitch: number;              // -20.0 to +20.0 semitones
+    language_code: string;      // BCP-47, e.g. "en-US"; native-audio models choose their own
+    // No speaking rate or pitch: Gemini Live has neither (VT-11).
     custom_voice_id?: string;   // Future: custom voice clone reference
 }
 

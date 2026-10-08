@@ -32,8 +32,9 @@ class GeminiLiveClient:
 
     Supports Gemini 2.0 Flash, Gemini 2.5 Flash Native Audio, and
     Gemini 3.1 Flash Live models.
-    Voice name, speaking rate, and pitch are sourced from VoiceConfig
-    (typically loaded from the agent's AgentPersona by AgentContextLoader).
+    Voice name and language are sourced from VoiceConfig (typically loaded
+    from the agent's AgentPersona by AgentContextLoader). Gemini Live has no
+    speaking-rate or pitch setting, so the persona has none (VT-11, HD13).
     """
 
     # P2.3 — Model capability registry
@@ -83,19 +84,13 @@ class GeminiLiveClient:
         # Resolve VoiceConfig — accept both VoiceConfig objects and plain dicts
         self._voice_name = "Aoede"
         self._language_code = "en-US"
-        self._speaking_rate = 1.0
-        self._pitch = 0.0
         if voice_config:
             if hasattr(voice_config, "voice_name"):
                 self._voice_name = voice_config.voice_name
                 self._language_code = voice_config.language_code
-                self._speaking_rate = voice_config.speaking_rate
-                self._pitch = voice_config.pitch
             elif isinstance(voice_config, dict):
                 self._voice_name = voice_config.get("voice_name", "Aoede")
                 self._language_code = voice_config.get("language_code", "en-US")
-                self._speaking_rate = voice_config.get("speaking_rate", 1.0)
-                self._pitch = voice_config.get("pitch", 0.0)
 
         if not GENAI_AVAILABLE:
             raise RuntimeError("google.genai SDK not available. Install with: pip install google-genai")
@@ -124,31 +119,26 @@ class GeminiLiveClient:
         tools: Optional[List[Dict]] = None,
     ) -> Dict[str, Any]:
         """
-        Create Gemini Live session configuration.
+        The Gemini Live session config — one builder for every model (VT-12).
 
-        For Gemini 2.5 Flash Native Audio models, the config is enhanced with:
-          - VAD (voice activity detection) settings
-          - Proactivity (agent can initiate turn after silence)
-          - audio_speech_config for prosody control
-
-        For Gemini 2.0 Flash Exp, returns the standard 2.0 config.
-
-        IMPORTANT: response_modalities and speech_config MUST live inside
-        generation_config — placing them at top-level causes silent ignoring.
+        Fields are ``LiveConnectConfig``'s top-level ones (SDK v1.71.0+). The
+        only difference between models is the language: a native-audio model
+        chooses it from the conversation and does not accept
+        ``speech_config.language_code``; a model the registry knows as
+        half-cascade (Gemini 2.0 Flash) speaks the agent's ``language_code``.
+        A model the registry does not know is sent no language, as before.
+        There were two builders that returned the same dict, so the agent's
+        language reached no model.
         """
-        if self._is_native_audio(model):
-            return self._create_native_audio_config(tools=tools)
-        return self._create_standard_config(tools=tools)
-
-    def _create_standard_config(self, tools: Optional[List[Dict]] = None) -> Dict[str, Any]:
-        """Gemini 2.0 Flash standard config — SDK v1.71.0 top-level fields."""
+        speech_config: Dict[str, Any] = {
+            "voice_config": {"prebuilt_voice_config": {"voice_name": self._voice_name}},
+        }
+        known = self.MODEL_CAPABILITIES.get(model)
+        if known is not None and not known.get("native_audio", False) and self._language_code:
+            speech_config["language_code"] = self._language_code
         config: Dict[str, Any] = {
             "response_modalities": ["AUDIO"],
-            "speech_config": {
-                "voice_config": {
-                    "prebuilt_voice_config": {"voice_name": self._voice_name}
-                }
-            },
+            "speech_config": speech_config,
             # Phase 1: VAD tuning — HIGH start sensitivity for fast barge-in,
             # LOW end sensitivity to avoid cutting off during natural pauses.
             "realtime_input_config": {
@@ -169,42 +159,6 @@ class GeminiLiveClient:
         if tools:
             config["tools"] = [{"function_declarations": tools}]
             logger.info(f"Registered {len(tools)} tool(s) in Gemini Live session config")
-        return config
-
-    def _create_native_audio_config(self, tools: Optional[List[Dict]] = None) -> Dict[str, Any]:
-        """
-        Gemini 2.5+ / 3.1 Flash Native Audio config.
-
-        SDK v1.71.0 LiveConnectConfig accepts response_modalities,
-        speech_config, system_instruction etc. at the top level.
-        """
-        config: Dict[str, Any] = {
-            "response_modalities": ["AUDIO"],
-            "speech_config": {
-                "voice_config": {
-                    "prebuilt_voice_config": {"voice_name": self._voice_name}
-                }
-            },
-            # Phase 1: VAD tuning — HIGH start sensitivity for fast barge-in,
-            # LOW end sensitivity to avoid cutting off during natural pauses.
-            "realtime_input_config": {
-                "automatic_activity_detection": {
-                    "disabled": False,
-                    "start_of_speech_sensitivity": "START_SENSITIVITY_HIGH",
-                    "end_of_speech_sensitivity": "END_SENSITIVITY_LOW",
-                    "prefix_padding_ms": 100,
-                    "silence_duration_ms": 1000,
-                }
-            },
-            "output_audio_transcription": {},
-            "input_audio_transcription": {},
-        }
-        if self.system_instruction:
-            config["system_instruction"] = self.system_instruction
-        # Phase 3: Tool declarations for function calling
-        if tools:
-            config["tools"] = [{"function_declarations": tools}]
-            logger.info(f"Registered {len(tools)} tool(s) in native audio session config")
         return config
 
     async def connect(self, model: Optional[str] = None, tools: Optional[List[Dict]] = None):

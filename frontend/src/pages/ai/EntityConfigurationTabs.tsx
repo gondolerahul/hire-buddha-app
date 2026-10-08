@@ -287,8 +287,6 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     );
     const [voiceName, setVoiceName] = useState(entity?.identity?.voice?.voice_name || 'Aoede');
     const [languageCode, setLanguageCode] = useState(entity?.identity?.voice?.language_code || 'en-US');
-    const [speakingRate, setSpeakingRate] = useState<number>(entity?.identity?.voice?.speaking_rate ?? 1.0);
-    const [voicePitch, setVoicePitch] = useState<number>(entity?.identity?.voice?.pitch ?? 0.0);
     // Dynamic injection hooks (voice)
     const [greetingTemplate, setGreetingTemplate] = useState(entity?.identity?.greeting_template || '');
     const [escalationMessage, setEscalationMessage] = useState(entity?.identity?.escalation_message || '');
@@ -721,7 +719,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                 profile_image_url: profileImageUrl || undefined,
                 personality: { tone, verbosity, empathy_level: empathyLevel, humor_level: humorLevel, formality, decision_confidence: decisionConfidence },
                 ...(isVoiceAgent ? {
-                    voice: { voice_name: voiceName, language_code: languageCode, speaking_rate: speakingRate, pitch: voicePitch },
+                    voice: { voice_name: voiceName, language_code: languageCode },
                     greeting_template: greetingTemplate || undefined,
                     escalation_message: escalationMessage || undefined,
                     closing_message: closingMessage || undefined,
@@ -1003,16 +1001,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                         <div className="form-group">
                                             <label>Language</label>
                                             <input type="text" value={languageCode} onChange={(e) => setLanguageCode(e.target.value)} />
-                                        </div>
-                                    </div>
-                                    <div className="form-row">
-                                        <div className="form-group">
-                                            <label>Speaking Rate ({speakingRate}x)</label>
-                                            <input type="range" min="0.25" max="4" step="0.05" value={speakingRate} onChange={(e) => setSpeakingRate(parseFloat(e.target.value))} />
-                                        </div>
-                                        <div className="form-group">
-                                            <label>Pitch ({voicePitch} semitones)</label>
-                                            <input type="range" min="-20" max="20" step="0.5" value={voicePitch} onChange={(e) => setVoicePitch(parseFloat(e.target.value))} />
+                                            <small>Used by half-cascade models; native-audio models pick the language from the conversation.</small>
                                         </div>
                                     </div>
 

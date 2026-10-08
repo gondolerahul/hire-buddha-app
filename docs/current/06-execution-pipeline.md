@@ -269,8 +269,8 @@ historical formats are accepted). The canonical shape is `AgentPersona`
 `PersonalityMatrix`: `tone` (`professional`), `verbosity`
 (`concise|moderate|verbose`), `empathy_level` (0.7), `humor_level` (0.2),
 `formality` (`semi-formal`), `decision_confidence` (0.8).
-`VoiceConfig`: `voice_name` (`Aoede`), `language_code` (`en-US`),
-`speaking_rate` (1.0), `pitch` (0.0), `custom_voice_id`.
+`VoiceConfig`: `voice_name` (`Aoede`), `language_code` (`en-US`), `custom_voice_id`.
+(`speaking_rate` and `pitch` were removed — Gemini Live accepts neither, VT-11.)
 
 **Three accepted formats**, normalised by
 [`PersonaService._parse_persona`](../../backend/src/ai/persona_service.py:131):

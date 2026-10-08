@@ -481,12 +481,17 @@ Model capability registry ([`gemini_live.py:40`](../../backend/src/voice/gemini_
 | `gemini-3.1-flash-live-preview` | true | true | AI Studio only |
 | `gemini-2.5-flash-native-audio-preview-12-2025` | true | true | AI Studio only |
 
-`create_session_config()` picks `_create_native_audio_config` or `_create_standard_config` based on that table — but as of today **both functions return identical dictionaries**. Keys sent:
+`create_session_config()` is the one builder for every model (VT-12, fixed 2026-10-08 — there
+were two, `_create_native_audio_config` and `_create_standard_config`, returning the same dict).
+The table decides one thing: a **half-cascade** model (`native_audio: false`) is sent the agent's
+`language_code`; a **native-audio** model chooses the language from the conversation and does not
+accept it; a model missing from the table is sent no language, as before. Keys sent:
 
 | Key | Value |
 |-----|-------|
 | `response_modalities` | `["AUDIO"]` |
 | `speech_config.voice_config.prebuilt_voice_config.voice_name` | from the agent's `VoiceConfig` (default `Aoede`) |
+| `speech_config.language_code` | the agent's `VoiceConfig.language_code` — half-cascade models only |
 | `realtime_input_config.automatic_activity_detection` | see §4 |
 | `output_audio_transcription` | `{}` (enable) |
 | `input_audio_transcription` | `{}` (enable) |
@@ -579,7 +584,7 @@ The socket is opened with `websockets.asyncio.client.connect(url, additional_hea
 legacy top-level `websockets.connect` in websockets 13 takes `extra_headers` and raised
 `TypeError` on the old call. Not yet checked against a live Azure deployment. Two limits: a
 call on Azure is billed at the Gemini Live SKUs' prices (the usage logger names those SKUs),
-and Gemini-only settings (VAD sensitivities, `speaking_rate`/`pitch`) do not apply.
+and Gemini-only settings (VAD sensitivities, `language_code`) do not apply.
 
 | Aspect | Value |
 |--------|-------|
@@ -1706,8 +1711,8 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - ~~**Azure Realtime does not work.**~~ (VT-02, fixed 2026-10-08): the factory's Azure client connects like Gemini's and its session speaks the Gemini Live shape; `pcm24_to_pcm16` exists. Not yet checked against a live Azure deployment, and billed at the Gemini Live SKUs.
 - ~~**WhatsApp AI replies always fail.**~~ (VT-03, fixed 2026-10-08): the service is built on the company's Google integration. Not yet checked against a live WhatsApp sandbox.
 - **`"sucess"` is a real key on the wire** in both Tata voice webhook responses.
-- **`speaking_rate` and `pitch` are read but never sent.** `GeminiLiveClient` parses them off `VoiceConfig` and then builds a `speech_config` containing only `voice_name`.
-- **`_create_native_audio_config` and `_create_standard_config` return the same dict.** The capability registry currently changes nothing.
+- ~~**`speaking_rate` and `pitch` are read but never sent.**~~ (VT-11, HD13, fixed 2026-10-08): Gemini Live's `SpeechConfig` has neither, so they are gone from `VoiceConfig` and the builder. An agent saved with them still loads; the keys are ignored.
+- ~~**`_create_native_audio_config` and `_create_standard_config` return the same dict.**~~ (VT-12, fixed 2026-10-08): one builder; the registry decides whether `language_code` is sent.
 - ~~**`max_calls_per_hour` and `CampaignCall.max_retries` are stored and displayed but never enforced.**~~ (VT-09, VT-10, fixed 2026-10-08): the hourly cap stops and continues the campaign later; failed calls are re-dialed with backoff.
 - **A campaign's company comes from the agent, not the logged-in user.** Otherwise an app admin's campaign would dial from the wrong tenant's caller ID.
 - **Silence is measured against the playback horizon, not send time.** The model emits a 30-second reply in a 2-second burst; naive timing would declare silence while the lead is still listening.

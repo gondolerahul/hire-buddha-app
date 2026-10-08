@@ -315,7 +315,7 @@ HireBuddha voice agents can communicate via telephone with low latency.
     1.  *Google Gemini Live (Vertex AI)*: Features low-latency voice calling across 18 unique voices.
     2.  *Azure OpenAI Realtime*: High-fidelity realtime voice engine using GPT-4o voice presets.
 *   **Telephony Integrations**: Twilio, Smartflo (Tata Tele), and Exotel.
-*   **Voice Personas**: Custom voice profiles allow operators to adjustspeaking rates (0.5x to 2.0x) and pitch shifts.
+*   **Voice Personas**: Each agent picks one of 18 prebuilt Gemini voices and a language. Speaking rate and pitch cannot be set: Gemini Live has no such controls.
 *   **Voice Activity Detection (VAD)**:
     *   *Start of Speech Sensitivity*: Set to `HIGH` for fast barge-in detection when a user interrupts.
     *   *End of Speech Sensitivity*: Set to `LOW` to prevent cutting off the speaker during natural pauses.

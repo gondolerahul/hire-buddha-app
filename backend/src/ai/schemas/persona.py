@@ -48,11 +48,12 @@ class VoiceConfig(BaseModel):
     """Voice identity parameters for Gemini Live API.
 
     Applied when the agent is used in a real-time voice/streaming session.
+    There is no speaking rate or pitch: Gemini Live's ``SpeechConfig`` takes
+    neither, and both were stored and dropped (VT-11, HD13). An agent saved
+    with them still loads; the keys are ignored.
     """
     voice_name: str = "Aoede"
-    language_code: str = "en-US"   # BCP-47 language tag
-    speaking_rate: float = 1.0     # 0.25 – 4.0  (1.0 = normal)
-    pitch: float = 0.0             # -20.0 to +20.0 semitones
+    language_code: str = "en-US"   # BCP-47; a half-cascade model speaks it, a native-audio one chooses
     custom_voice_id: Optional[str] = None
 
 

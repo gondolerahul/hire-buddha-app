@@ -39,10 +39,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
-| [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 2 | 1 | 2 | 0 |
+| [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 4 | 1 | 0 | 0 |
 | [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 4 | 1 | 0 | 3 |
 
-**Total: 21 defects (14 fixed, 2 partly fixed, 2 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (16 fixed, 2 partly fixed, 0 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -56,8 +56,8 @@
 | VT-08 | The outbound and inbound credit gates disagree by design | ✅ fixed (2026-10-08) | — |
 | VT-09 | `max_calls_per_hour` | ✅ fixed (2026-10-08) | — |
 | VT-10 | `CampaignCall.max_retries` | ✅ fixed (2026-10-08) | — |
-| VT-11 | `speaking_rate` and `pitch` | open — decision HD13 | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
-| VT-12 | `_create_native_audio_config` vs `_create_standard_config` | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-11 | `speaking_rate` and `pitch` | ✅ fixed (2026-10-08) | — |
+| VT-12 | `_create_native_audio_config` vs `_create_standard_config` | ✅ fixed (2026-10-08) | — |
 | VT-13 | DTMF | partly — parsed for the mobile dialer only | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-14 | The lead queue is written and never drained | ✅ fixed (SA-08, `24650e7`) | — |
 | VT-15 | `"sucess"` is a real key on the wire | partly — a setting, still `"sucess"` | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
@@ -283,8 +283,8 @@ all**, at either checkpoint.
 |---|---|---|---|
 | **VT-09** | `max_calls_per_hour` | Stored on the campaign, shown in the UI, **never enforced**. The only real throttles are `max_concurrent_calls` and a flat 2-second sleep between calls | 📄 Doc-reported · **fixed (2026-10-08)** — before each call the executor counts the campaign's calls of the last hour; at `max_calls_per_hour` it stops and schedules its own continuation for when the window allows (`ai/services/campaign_pacing.py`), instead of sleeping on a worker. `tests/integration/test_campaign_pacing.py` |
 | **VT-10** | `CampaignCall.max_retries` | Stored and displayed, never enforced | 📄 Doc-reported · **fixed (2026-10-08)** — a call that ended busy, unanswered, rejected or failed, or failed to be placed, is dialed again while `retry_count < max_retries`, after `CAMPAIGN_RETRY_BACKOFF_SECONDS` × 2^tries (VT-I2); the campaign completes only when nothing is pending, in flight or due for a retry, and a continuation never restarts a paused campaign. `tests/integration/test_campaign_pacing.py` (4) |
-| **VT-11** | `speaking_rate` and `pitch` | Parsed off `VoiceConfig` by `GeminiLiveClient` and then dropped — the `speech_config` it builds contains only `voice_name` | 📄 Doc-reported · **open** (re-verified 2026-10-07) — `gemini_live.py` keeps `_speaking_rate` and `_pitch`; neither config builder uses them · plan [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
-| **VT-12** | `_create_native_audio_config` vs `_create_standard_config` | Both return the **same dict**. The capability registry that selects between them changes nothing | 📄 Doc-reported · **open** (re-verified 2026-10-07) — both builders in `gemini_live.py` still return the same dict · plan [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| **VT-11** | `speaking_rate` and `pitch` | Parsed off `VoiceConfig` by `GeminiLiveClient` and then dropped — the `speech_config` it builds contains only `voice_name` | 📄 Doc-reported · **fixed (2026-10-08)** — decision HD13: Gemini Live's `SpeechConfig` takes `voice_config`, `language_code` and `multi_speaker_voice_config` only (checked against google-genai 1.75), so `speaking_rate` and `pitch` are removed from `VoiceConfig`, `GeminiLiveClient` and the builder's sliders; an agent saved with them still loads. `tests/unit/test_gemini_live_config.py` (5, with VT-12) |
+| **VT-12** | `_create_native_audio_config` vs `_create_standard_config` | Both return the **same dict**. The capability registry that selects between them changes nothing | 📄 Doc-reported · **fixed (2026-10-08)** — one builder, `create_session_config`; the capability registry now decides one thing — a half-cascade model is sent the agent's `language_code`, a native-audio model, or one it does not list, is sent none. Every config validates as the SDK's `LiveConnectConfig`. `tests/unit/test_gemini_live_config.py` |
 | **VT-13** | DTMF | Completely unimplemented on both providers. There is no digit collection anywhere in the voice package — so no IVR, no menu, no keypad confirmation | 📄 Doc-reported · **partly fixed** (re-verified 2026-10-07) — the Twilio stream's `dtmf` event is parsed and passed to the mobile dialer (`2092be4c`); on every other call it is logged as *unused*. No IVR · plan [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 
 ---
