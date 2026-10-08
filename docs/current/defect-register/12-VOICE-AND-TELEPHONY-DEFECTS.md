@@ -37,18 +37,18 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 2 | 0 | 2 | 0 |
+| [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 3 | 0 | 1 | 0 |
 | [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 2 | 1 | 2 | 0 |
 | [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 1 | 2 | 2 | 3 |
 
-**Total: 21 defects (9 fixed, 3 partly fixed, 6 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (10 fixed, 3 partly fixed, 5 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | VT-01 | The inbound credit gate has never run | ✅ fixed (2026-10-08) | — |
 | VT-02 | Azure Realtime returns a tuple where a session belongs | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
-| VT-03 | Every WhatsApp AI reply is an apology | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-03 | Every WhatsApp AI reply is an apology | ✅ fixed (2026-10-08) | — |
 | VT-04 | Port 8002 is a ghost that Apache still points at | ✅ fixed (single port, `19f57bb`) | — |
 | VT-05 | Voice tokens are estimated at a flat 167 per second | ✅ fixed (2026-10-08) | — |
 | VT-06 | Voice tool calls are unattributed and unbilled | ✅ fixed `66fe8bc` (TL-20) | — |
@@ -153,7 +153,7 @@ So Azure OpenAI Realtime is configurable in the admin UI and cannot work.
 
 ### VT-03 — Every WhatsApp AI reply is an apology
 
-**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: `whatsapp_handler.py:210` still calls `get_service` without `service_metadata`. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**✅ Verified · High** · **Status: fixed (2026-10-08)** — the handler builds its service with `GeminiTextServiceFactory.from_company(db, company_id, …)`, on the company's Google integration, so `service_metadata` is there; and `get_service` keys its cache on the system instruction too — it kept the first agent's prompt for every agent on a project. Not checked against a live WhatsApp sandbox (none is configured). Still open and separate: the Tata send path calls `WhatsAppMessagingFactory.get_service` without credentials. `tests/unit/test_whatsapp_reply.py` (2)
 
 The handler calls:
 

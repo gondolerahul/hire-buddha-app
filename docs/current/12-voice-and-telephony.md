@@ -1524,7 +1524,14 @@ Templates (HSM) are the only way to open a conversation **outside** the 24-hour 
 
 API surface: `POST /api/v1/messaging/send` and `POST /api/v1/messaging/send-template` ([`messaging_router.py`](../../backend/src/voice/messaging_router.py)), both authenticated.
 
-> **WhatsApp AI replies are broken today.** [`whatsapp_handler.py:210`](../../backend/src/voice/whatsapp_handler.py:210) calls `GeminiTextServiceFactory.get_service(api_key=…, system_instruction=…, model=…)`, but [`get_service`](../../backend/src/voice/gemini_text.py:170) requires `service_metadata` and takes no `api_key`. The `TypeError` is caught and the customer receives *"I'm currently unable to process your request. Please try again later."* Use `GeminiTextServiceFactory.from_company(db, company_id, …)` instead. Also, `WhatsAppMessagingFactory.get_service(provider)` is normally called with **no credentials**, so `account_sid`/`api_key` are `None` and outbound sends fail — credentials are never loaded from `IntegrationRegistry` on this path.
+> **WhatsApp AI replies** come from `GeminiTextServiceFactory.from_company(db, company_id, …)`,
+> on the company's Google integration (VT-03, fixed 2026-10-08). Until then the handler called
+> `get_service` without its required `service_metadata`; the `TypeError` was caught and every
+> customer received *"I'm currently unable to process your request."* `get_service` also keeps
+> one instance per project, model **and system instruction** now — it kept the first caller's
+> prompt for everyone. Still open: `WhatsAppMessagingFactory.get_service(provider)` is called
+> with **no credentials** on the Tata send path, so a Tata reply is sent only if the
+> environment holds them (a Twilio reply goes back as TwiML and needs none).
 
 ---
 
@@ -1652,7 +1659,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - **Every voice endpoint is on port 8000.** The HTTP webhooks and the media-stream WebSockets are the same process; there is no gateway on 8001 or voice service on 8002 any more.
 - ~~**The inbound credit gate never fires.**~~ (VT-01, fixed 2026-10-08): one admission rule for every call, and a balance it cannot read refuses.
 - **Azure Realtime does not work.** The handler stores the *client* where the *session* belongs. Same in `web_audio_adapter.py`, which additionally calls a nonexistent `AudioProcessor.pcm24_to_pcm16`.
-- **WhatsApp AI replies always fail.** `GeminiTextServiceFactory.get_service` is called with the wrong keyword arguments; every customer gets the fallback apology string.
+- ~~**WhatsApp AI replies always fail.**~~ (VT-03, fixed 2026-10-08): the service is built on the company's Google integration. Not yet checked against a live WhatsApp sandbox.
 - **`"sucess"` is a real key on the wire** in both Tata voice webhook responses.
 - **`speaking_rate` and `pitch` are read but never sent.** `GeminiLiveClient` parses them off `VoiceConfig` and then builds a `speech_config` containing only `voice_name`.
 - **`_create_native_audio_config` and `_create_standard_config` return the same dict.** The capability registry currently changes nothing.

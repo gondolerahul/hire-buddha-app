@@ -206,11 +206,13 @@ class WhatsAppHandler:
                 channel="whatsapp"
             )
             
-            # 2. Initialize Gemini Service
-            gemini_service = GeminiTextServiceFactory.get_service(
-                api_key=agent_context.api_key,
+            # 2. Initialize Gemini Service on the company's Google integration
+            # (VT-03): get_service needs its service_metadata, and without it
+            # every reply was the apology below.
+            gemini_service = await GeminiTextServiceFactory.from_company(
+                self.db, session.company_id,
                 system_instruction=agent_context.system_instruction,
-                model="gemini-2.0-flash" # Use fast model for chat
+                model="gemini-2.0-flash",  # a fast model for chat
             )
             
             # 3. Prepare context and history

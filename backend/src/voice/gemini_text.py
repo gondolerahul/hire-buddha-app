@@ -181,7 +181,9 @@ class GeminiTextServiceFactory:
         multiple clients for the same configuration.
         """
         project_id = service_metadata.get("project_id", "default")
-        cache_key = f"{project_id}:{model or 'default'}"
+        # One instance per system instruction too: the instance keeps the one
+        # it was made with, so two agents on one project must not share it.
+        cache_key = f"{project_id}:{model or 'default'}:{hash(system_instruction or '')}"
         
         if cache_key not in cls._instances:
             cls._instances[cache_key] = GeminiTextService(
