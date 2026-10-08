@@ -1,4 +1,4 @@
-from pydantic import AfterValidator, BaseModel, EmailStr
+from pydantic import AfterValidator, BaseModel, EmailStr, Field
 from typing import Annotated, Optional, List, Dict, Any, Literal
 from uuid import UUID
 
@@ -71,12 +71,15 @@ class CompanyCreate(CompanyBase):
 class CompanyUpdate(BaseModel):
     name: Optional[str] = None
     status: Optional[Literal["active", "suspended"]] = None
+    # What the company may be billed in a calendar month; null removes the cap (GH-18).
+    monthly_spend_cap_usd: Optional[float] = Field(default=None, gt=0)
 
 class CompanyResponse(CompanyBase):
     id: UUID
     logo_url: Optional[str] = None
     parent_id: Optional[UUID] = None
     onboarding_status: Optional[str] = "pending"
+    monthly_spend_cap_usd: Optional[float] = None
     
     class Config:
         from_attributes = True

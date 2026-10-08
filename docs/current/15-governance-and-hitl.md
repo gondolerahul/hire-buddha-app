@@ -1177,10 +1177,20 @@ does not cache.
 
 ### 14.7 Raise a tenant's budget
 
-Budget lives on the **entity**, not the company. Edit the entity's `governance`
-block (`max_cost_usd`, `timeout_ms`, `max_recursion_depth`) via the entity API
-or the builder UI — see [06 — Execution pipeline](06-execution-pipeline.md).
-For wallet top-ups see [14 — Billing and credits](14-billing-and-credits.md).
+Two levers. **The company's monthly spend cap** (GH-18, since 2026-10-08):
+`companies.monthly_spend_cap_usd`, what the company may be billed in a calendar month
+(UTC) — the sum of its `billing_events`, every settled run and call. Empty means no cap.
+At the cap nothing new starts — a run's admission (`check_credit_gate`), a call, a
+campaign or a mobile run (`check_sufficient_for_execution`) raises `SpendCapReached` —
+and a running run stops at its circuit breaker, counting its bill so far, ending
+`PARTIAL_COMPLETE`. Set it with `PATCH /api/v1/companies/{id}`
+`{"monthly_spend_cap_usd": 250}` (`null` removes it) or in Platform Management → Edit;
+whoever may rename the company may set it.
+
+**The entity's own budget**: its `governance` block (`max_cost_usd`, `timeout_ms`,
+`max_recursion_depth`) via the entity API or the builder UI — see
+[06 — Execution pipeline](06-execution-pipeline.md). For wallet top-ups see
+[14 — Billing and credits](14-billing-and-credits.md).
 
 ### 14.8 Reset a rate limit
 

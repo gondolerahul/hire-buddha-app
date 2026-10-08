@@ -39,9 +39,9 @@
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 5 | 1 | 0 | 0 |
 | [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 9 | 0 | 0 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
-| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 2 | 1 | 2 | 0 |
+| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 3 | 1 | 1 | 0 |
 
-**Total: 25 defects (17 fixed, 4 partly fixed, 4 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (18 fixed, 4 partly fixed, 3 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -62,7 +62,7 @@
 | GH-15 | Legacy alias flags that control nothing | partly — `memory_v2.canonical` remains | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | GH-16 | Flags declared and never read | partly — four `memory.*` flags remain | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | GH-17 | `ToolCostResolver` is cached per process, and has no callers | ✅ fixed `d71918d`, `902af7c` | — |
-| GH-18 | Budget lives on the entity, not the company | open — decision HD8 | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-18 | Budget lives on the entity, not the company | ✅ fixed (2026-10-08) | — |
 | GH-19 | The tool-call counting is off by design | ✅ fixed `73afd55` (TL-21) | — |
 | GH-20 | There is no way to see why a flag has its value | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
 | GH-21 | Almost every gate in the platform fails open | partly — four gates still fail open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
@@ -476,7 +476,7 @@ is never read.
 
 ### GH-18 — Budget lives on the entity, not the company
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: there is still no company-level cost cap. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — decision HD8: `companies.monthly_spend_cap_usd` (migration `h4_company_spend_cap`; empty means no cap) is what the company may be billed in a calendar month — its `billing_events`, every settled run and call (`CreditService.spend_cap_refusal`). At the cap a run's admission (`check_credit_gate`), a call, a campaign or a mobile run (`check_sufficient_for_execution`) is refused with `SpendCapReached` (an `InsufficientCreditsError`), and a running run stops at its breaker, counting its bill so far. Set it with `PATCH /api/v1/companies/{id}` or in Platform Management → Edit (whoever may rename the company). `tests/integration/test_spend_cap.py` (5)
 
 "Raise a tenant's budget" means editing the `governance` block of **every** entity that
 tenant owns. There is no company-level cost cap anywhere.

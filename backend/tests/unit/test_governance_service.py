@@ -22,7 +22,10 @@ def mock_redis():
 
 @pytest.fixture
 def service(mock_db, mock_redis):
-    return GovernanceService(mock_db, mock_redis)
+    svc = GovernanceService(mock_db, mock_redis)
+    # No monthly spend cap set (GH-18); tests/integration/test_spend_cap.py has the cap.
+    svc.credit_service.spend_cap_refusal = AsyncMock(return_value=None)
+    return svc
 
 
 class TestCreditGate:

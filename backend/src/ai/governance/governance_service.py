@@ -13,7 +13,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from src.billing.credit_service import CreditService, InsufficientCreditsError, minimum_threshold
+from src.billing.credit_service import CreditService, InsufficientCreditsError, SpendCapReached, minimum_threshold
 from src.billing.billing_service import BillingService, calculate_tb, compute_billed_amount
 from src.ai.orm import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
@@ -48,8 +48,10 @@ class GovernanceService:
         minimum is free (the wallet minus other runs' holds). Returns the
         amount held. Errors reading the wallet propagate: a run whose credit
         cannot be checked does not start (before BC-05 this gate swallowed
-        them — and had no callers at all).
+        them — and had no callers at all). A company at its monthly spend cap
+        is refused first (``SpendCapReached``, GH-18).
         """
+        await self.credit_service.check_spend_cap(run.company_id)
         held = await self.credit_service.place_hold(
             run.company_id, run.id, estimate, minimum_threshold(entity_type)
         )
@@ -73,6 +75,15 @@ class GovernanceService:
         try:
             config = await self.billing_service.get_billing_config(run.company_id)
             billed = compute_billed_amount(accumulated_cost, config)
+            # The company's monthly cap, counting this run's bill so far (GH-18).
+            capped = await self.credit_service.spend_cap_refusal(run.company_id, pending=billed)
+        except Exception as e:
+            logger.warning(f"Credit circuit breaker could not price run {run.id}: {e}")
+            return
+        if capped:
+            logger.warning(f"Spend cap reached mid-execution for run {run.id}. Stopping.")
+            raise SpendCapReached(f"Execution stopped: {capped} Partial results saved.")
+        try:
             balance = await self.credit_service.get_balance(run.company_id)
             others = await self.credit_service.held_by_others(run.company_id, run.id)
             spendable = Decimal(str(balance["total_available"])) - others

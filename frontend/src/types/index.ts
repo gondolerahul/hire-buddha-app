@@ -6,6 +6,8 @@ export interface Company {
     logo_url?: string;
     status: 'active' | 'suspended';
     onboarding_status?: 'pending' | 'in_progress' | 'completed';
+    // What the company may be billed in a calendar month; null = no cap (GH-18).
+    monthly_spend_cap_usd?: number | null;
     created_at: string;
     updated_at: string;
 }

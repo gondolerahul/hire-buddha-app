@@ -181,6 +181,7 @@ Defined at [auth/models.py:10](../../backend/src/auth/models.py:10).
 | `onboarding_status` | String | yes | `pending` | `pending` / `in_progress` / `completed` |
 | `onboarding_metadata` | JSONB | yes | — | Which onboarding steps were completed and their config |
 | `default_daily_credits` | Numeric(10,4) | yes | — | Per-tenant override of the daily credit grant. Text until DM-11 (2026-10-01) |
+| `monthly_spend_cap_usd` | Numeric(14,4) | yes | — | What the company may be billed in a calendar month; NULL = no cap. Checked before a run, call or campaign starts and by a run's breaker (GH-18, migration `h4_company_spend_cap`; `ck_companies_spend_cap_positive`: NULL or > 0) |
 | `created_at` / `updated_at` | DateTime | yes | utcnow | |
 
 Relationships: self-referencing `parent`/`children`; one-to-many `users`. Almost every

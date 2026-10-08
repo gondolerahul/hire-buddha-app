@@ -22,6 +22,8 @@ class Company(Base):
     onboarding_status = Column(String, default="pending")  # pending, in_progress, completed
     onboarding_metadata = Column(JSONB, nullable=True)  # tracks completed steps & config
     default_daily_credits = Column(Numeric(10, 4), nullable=True)  # override daily credit amount for this tenant (was text, DM-11)
+    # What the company may be billed in a calendar month; NULL = no cap (GH-18).
+    monthly_spend_cap_usd = Column(Numeric(14, 4), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

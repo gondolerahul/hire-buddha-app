@@ -22,12 +22,15 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
     initialData
 }) => {
     const [name, setName] = useState('');
+    // Blank = no cap (GH-18). Set only when editing an existing company.
+    const [spendCap, setSpendCap] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (isOpen) {
             setName(initialData?.name || '');
+            setSpendCap(initialData?.monthly_spend_cap_usd != null ? String(initialData.monthly_spend_cap_usd) : '');
             setError(null);
         }
     }, [isOpen, initialData]);
@@ -43,12 +46,16 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
             await onSubmit(initialData?.id, {
                 name,
                 type: initialData?.type || type,
-                parent_id: initialData?.parent_id || parentId
+                parent_id: initialData?.parent_id || parentId,
+                ...(initialData ? { monthly_spend_cap_usd: spendCap.trim() ? Number(spendCap) : null } : {}),
             });
             setName('');
             onClose();
         } catch (err: any) {
-            setError(err.response?.data?.detail || `Failed to ${initialData ? 'update' : 'create'} company`);
+            const detail = err.response?.data?.detail;
+            setError(Array.isArray(detail)
+                ? detail.map((d: any) => d.msg).join('; ')
+                : detail || `Failed to ${initialData ? 'update' : 'create'} company`);
         } finally {
             setLoading(false);
         }
@@ -76,6 +83,18 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
                         placeholder={`e.g. ${type === 'PARTNER' ? 'Global Logic' : 'Business Unit A'}`}
                         required
                     />
+
+                    {initialData && (
+                        <GlassInput
+                            label="Monthly spend cap (USD)"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={spendCap}
+                            onChange={(e) => setSpendCap(e.target.value)}
+                            placeholder="No cap"
+                        />
+                    )}
 
                     {error && (
                         <div className="error-toast glass">

@@ -67,6 +67,11 @@ class InsufficientCreditsError(Exception):
     pass
 
 
+class SpendCapReached(InsufficientCreditsError):
+    """The company has been billed its ``monthly_spend_cap_usd`` this month
+    (GH-18): nothing new starts, and a running run stops at the breaker."""
+
+
 def _next_midnight(now: datetime) -> datetime:
     return now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
@@ -374,6 +379,43 @@ class CreditService:
         )
         await self.db.commit()
 
+    # ── The company's monthly spend cap (GH-18, HD8) ────────────────────
+
+    async def month_spend(self, company_id: UUID) -> Decimal:
+        """What the company has been billed this calendar month (UTC): its
+        billing events — every settled run and every call."""
+        from datetime import date
+        from src.billing.billing_models import BillingEvent
+        today = datetime.utcnow().date()
+        return _dec((await self.db.execute(
+            select(func.coalesce(func.sum(BillingEvent.total_billing), 0))
+            .where(BillingEvent.company_id == company_id,
+                   BillingEvent.period_month == date(today.year, today.month, 1))
+        )).scalar())
+
+    async def spend_cap_refusal(self, company_id: UUID, pending: Decimal = Decimal("0")) -> Optional[str]:
+        """Why the company may not spend more this month, or ``None``. No cap
+        set means none. ``pending`` is a running run's bill so far, which is
+        not a billing event yet."""
+        from src.auth.models import Company
+        cap = (await self.db.execute(
+            select(Company.monthly_spend_cap_usd).where(Company.id == company_id)
+        )).scalar_one_or_none()
+        if cap is None:
+            return None
+        cap = _dec(cap)
+        spent = await self.month_spend(company_id) + _dec(pending)
+        if spent < cap:
+            return None
+        return (f"The company's monthly spend cap of ${cap:.2f} is reached: ${spent:.2f} billed this month. "
+                f"Raise the cap in the company's settings to spend more.")
+
+    async def check_spend_cap(self, company_id: UUID, pending: Decimal = Decimal("0")) -> None:
+        """Raise ``SpendCapReached`` when the company is at its monthly cap."""
+        refusal = await self.spend_cap_refusal(company_id, pending)
+        if refusal:
+            raise SpendCapReached(refusal)
+
     # ── New methods for credit overspend prevention ─────────────────────
 
     async def check_sufficient_for_execution(
@@ -387,6 +429,7 @@ class CreditService:
         running executions.  Returns the balance dict on success; raises
         InsufficientCreditsError if below threshold.
         """
+        await self.check_spend_cap(company_id)  # GH-18: before the wallet
         balance = await self.get_balance(company_id)
         threshold = minimum_threshold(entity_type)
         available = Decimal(str(balance["free"]))

@@ -985,6 +985,14 @@ The floor checks (`check_sufficient_for_execution`, `require_credits`) compare t
 with the **free** credit — the wallet minus running executions' holds. Child runs are not
 gated separately: they spend their parent's credit, which the parent's breaker watches.
 
+**The company's monthly spend cap** (GH-18): `check_sufficient_for_execution` and a run's
+admission (`check_credit_gate`) first refuse a company whose `monthly_spend_cap_usd` is
+reached — `CreditService.spend_cap_refusal`: the company's `billing_events` for the
+calendar month (UTC), every settled run and call. `SpendCapReached` is an
+`InsufficientCreditsError`, so every caller above handles it as it handles an empty
+wallet. The breaker checks the cap too, counting the run's bill so far. Empty means no
+cap.
+
 **The circuit breaker** (`check_credit_circuit_breaker`) takes the run's accumulated raw cost
 (`state.budget.usd_used`, synced every iteration to `run.total_cost_usd` plus critic spend —
 the same number settlement bills), puts it through the TB formula, and stops the run when

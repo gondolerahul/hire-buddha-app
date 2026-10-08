@@ -12,6 +12,7 @@ export interface CompanyCreate {
 export interface CompanyUpdate {
     name?: string;
     status?: 'active' | 'suspended';
+    monthly_spend_cap_usd?: number | null;
 }
 
 export const companyService = {

@@ -217,7 +217,7 @@ not part of OpenAPI.
 | GET | `/api/v1/companies/partners` | Partner companies |
 | GET | `/api/v1/companies/tenants` | Tenant companies |
 | POST | `/api/v1/companies` | Create a company |
-| PATCH | `/api/v1/companies/{company_id}` | Update a company |
+| PATCH | `/api/v1/companies/{company_id}` | Update a company: `name`, `status`, `monthly_spend_cap_usd` (> 0, or `null` for no cap — GH-18) |
 | GET | `/api/v1/users` | List users |
 | POST | `/api/v1/users` | Create a user |
 | PATCH | `/api/v1/users/{user_id}` | Update a user |
