@@ -73,7 +73,7 @@ cross-referenced here.
 | PO-16 | The phase11 redirect shims | ✅ fixed `6d90428` |
 | PO-17 | The deprecated `video_generation` tool | ✅ fixed `a8fb38e` |
 | PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `ba5e6ec` (by PO-15) |
-| PO-19 – PO-22 | Rough edges | ⏸ deferred — PO-19 is GW-19 ([H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport)), scheduled; PO-20 ✅ fixed (2026-10-08) with GH-07; PO-21, PO-22 [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
+| PO-19 – PO-22 | Rough edges | ⏸ deferred — PO-19 is GW-19 ([H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport)), scheduled; PO-20 ✅ fixed `0793f30` with GH-07; PO-21, PO-22 [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | PO-I1 – PO-I12 | Improvements | ⏸ deferred, except PO-I9 — done by PO-10 — and PO-I6, done by AU-20 |
 
 The three worth reading first:
@@ -589,7 +589,7 @@ the stream early and the user will think the run stopped.
 
 ### PO-20 — A long HITL timeout ties up a worker
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-08)** — with its duplicate [GH-07](15-GOVERNANCE-AND-HITL-DEFECTS.md#gh-07--a-hitl-wait-blocks-a-worker-slot): a run waiting on a person is parked `PAUSED` and holds no worker, however long its `timeout_ms`
+**✅ Verified · Medium** · **Status: fixed (2026-10-08, `0793f30`)** — with its duplicate [GH-07](15-GOVERNANCE-AND-HITL-DEFECTS.md#gh-07--a-hitl-wait-blocks-a-worker-slot): a run waiting on a person is parked `PAUSED` and holds no worker, however long its `timeout_ms`
 
 The governance service subscribes to `hitl:{approval_id}` and then blocks, polling
 until `timeout_ms`. The default is 5 minutes, but the field is free — a tenant can set

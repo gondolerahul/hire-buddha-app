@@ -283,7 +283,7 @@ So both halves of the fan-out control are inactive.
 
 ### AK-08 — `state.blockers` is written by a branch that cannot be reached
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-08)** — with GH-25: a person's decision at a HITL checkpoint is the first thing that blocks a step. The executors report `HITLRejected` / `HITLTimeout` as `ActionResult.blocked`; `Observer._outcome` returns `blocked` for it and `Observation.blocked_by` names it; `apply_observation` adds a `Blocker(kind="hitl_decision")`. The loop then ends the run (CANCELLED or FAILED) before any critic, so the supervisor still does not see one mid-run. `tests/unit/test_hitl_decision_ends_run.py`
+**✅ Verified · Medium** · **Status: fixed (2026-10-08, `087f1a4`)** — with GH-25: a person's decision at a HITL checkpoint is the first thing that blocks a step. The executors report `HITLRejected` / `HITLTimeout` as `ActionResult.blocked`; `Observer._outcome` returns `blocked` for it and `Observation.blocked_by` names it; `apply_observation` adds a `Blocker(kind="hitl_decision")`. The loop then ends the run (CANCELLED or FAILED) before any critic, so the supervisor still does not see one mid-run. `tests/unit/test_hitl_decision_ends_run.py`
 
 `blockers` is appended only by `apply_observation`, and only when
 `observation.outcome == "blocked"`. `Observer._outcome` can only return `success`,

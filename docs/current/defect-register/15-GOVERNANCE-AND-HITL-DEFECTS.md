@@ -47,14 +47,14 @@
 |---|---|---|---|
 | GH-01 | If Redis is down, every HITL checkpoint is skipped | ✅ fixed `98af2c0` | — |
 | GH-02 | Two of the four credit gates are never called | ✅ fixed `c1eecb9` (BC-05) | — |
-| GH-03 | The rate limiter fails open, and has no callers anyway | ✅ fixed (2026-10-08) | — |
+| GH-03 | The rate limiter fails open, and has no callers anyway | ✅ fixed `796834b` | — |
 | GH-04 | The suspension middleware fails open and only covers one process | ✅ fixed `15191e5` (SA-18) | — |
-| GH-05 | An unmapped tool costs $0 and warns once per process | ✅ fixed (2026-10-08) | — |
+| GH-05 | An unmapped tool costs $0 and warns once per process | ✅ fixed `86db732` | — |
 | GH-06 | Reject and timeout are detected by matching exception text | ✅ fixed `98af2c0` | — |
-| GH-07 | A HITL wait blocks a worker slot | ✅ fixed (2026-10-08) | — |
-| GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | ✅ fixed (2026-10-08) | — |
-| GH-09 | Malformed HITL checkpoints are skipped silently | ✅ fixed (2026-10-08) | — |
-| GH-10 | `CUSTOM` expressions support two variables and two operators | ✅ fixed (2026-10-08) | — |
+| GH-07 | A HITL wait blocks a worker slot | ✅ fixed `0793f30` | — |
+| GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | ✅ fixed `3dae24d` | — |
+| GH-09 | Malformed HITL checkpoints are skipped silently | ✅ fixed `e220fc2` | — |
+| GH-10 | `CUSTOM` expressions support two variables and two operators | ✅ fixed `e220fc2` | — |
 | GH-11 | The approvals page does not show what is being approved | ✅ fixed | — |
 | GH-12 | `meta_agent.board_routing` is declared twice | ✅ fixed `b7644b7` | — |
 | GH-13 | `get_float` has no env-var tier | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
@@ -62,14 +62,14 @@
 | GH-15 | Legacy alias flags that control nothing | partly — `memory_v2.canonical` remains | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | GH-16 | Flags declared and never read | partly — four `memory.*` flags remain | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | GH-17 | `ToolCostResolver` is cached per process, and has no callers | ✅ fixed `d71918d`, `902af7c` | — |
-| GH-18 | Budget lives on the entity, not the company | ✅ fixed (2026-10-08) | — |
+| GH-18 | Budget lives on the entity, not the company | ✅ fixed `1d5ff72` | — |
 | GH-19 | The tool-call counting is off by design | ✅ fixed `73afd55` (TL-21) | — |
 | GH-20 | There is no way to see why a flag has its value | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
-| GH-21 | Almost every gate in the platform fails open | ✅ fixed (2026-10-08) | — |
+| GH-21 | Almost every gate in the platform fails open | ✅ fixed `e34192e` | — |
 | GH-22 | Every HITL checkpoint fails to subscribe, so none of them waits | ✅ fixed `98af2c0` | — |
 | GH-23 | Authorize and Block Cycle always fail with 422 | ✅ fixed `1a55054` | — |
 | GH-24 | Any user can answer any company's approval | ✅ fixed `1a55054` | — |
-| GH-25 | A rejected step is retried, and the reviewer is asked again | ✅ fixed (2026-10-08) | — |
+| GH-25 | A rejected step is retried, and the reviewer is asked again | ✅ fixed `087f1a4` | — |
 
 The three to read first:
 
@@ -150,7 +150,7 @@ Recorded in full as
 
 ### GH-03 — The rate limiter fails open, and has no callers anyway
 
-**📄 Doc-reported · High** · **Status: fixed (2026-10-08)** — decision HD17: `RedisRateLimiter` refuses by default when Redis is unreachable (with GH-21), and a company may start `RUNS_STARTED_PER_MINUTE` (default 60) top-level runs a minute (`governance/run_quota.py`, key `runs_started:{company}`). Past it, the API (execute, retry, refine) answers 429 with `Retry-After: 60`; a gateway event's job defers itself a minute (arq `Retry`) and is refused on its fifth try. Tool-call quotas are later work. `tests/unit/test_run_quota.py` (5), `tests/integration/test_run_quota.py`
+**📄 Doc-reported · High** · **Status: fixed (2026-10-08, `796834b`)** — decision HD17: `RedisRateLimiter` refuses by default when Redis is unreachable (with GH-21), and a company may start `RUNS_STARTED_PER_MINUTE` (default 60) top-level runs a minute (`governance/run_quota.py`, key `runs_started:{company}`). Past it, the API (execute, retry, refine) answers 429 with `Retry-After: 60`; a gateway event's job defers itself a minute (arq `Retry`) and is refused on its fifth try. Tool-call quotas are later work. `tests/unit/test_run_quota.py` (5), `tests/integration/test_run_quota.py`
 
 `RedisRateLimiter` is a correct sliding-window implementation. Two problems:
 
@@ -192,7 +192,7 @@ actually enforces suspension. See
 
 ### GH-05 — An unmapped tool costs $0 and warns once per process
 
-**📄 Doc-reported · High** · **Status: fixed (2026-10-08)** — a tool with no price is visible on every call: `ToolCostResolver.charge` writes a $0 `usage_logs` row marked `cost_source: missing` and a `tool.cost.missing` event each time (the warn-once set is gone). Tools that cost nothing here on purpose are in `FREE_TOOLS` with a reason — local work, the company's own account, model calls billed as LLM usage, sandbox time; a synthesized tenant tool says `free_reason`. `tests/unit/test_tool_prices.py` fails on a registered tool that is neither priced (`TOOL_SKU_MAP`, `TOOL_FIXED_COST`) nor declared free. `tests/integration/test_tool_metering.py` (2)
+**📄 Doc-reported · High** · **Status: fixed (2026-10-08, `86db732`)** — a tool with no price is visible on every call: `ToolCostResolver.charge` writes a $0 `usage_logs` row marked `cost_source: missing` and a `tool.cost.missing` event each time (the warn-once set is gone). Tools that cost nothing here on purpose are in `FREE_TOOLS` with a reason — local work, the company's own account, model calls billed as LLM usage, sandbox time; a synthesized tenant tool says `free_reason`. `tests/unit/test_tool_prices.py` fails on a registered tool that is neither priced (`TOOL_SKU_MAP`, `TOOL_FIXED_COST`) nor declared free. `tests/integration/test_tool_metering.py` (2)
 
 A tool with no SKU mapping resolves to zero cost, consumes no budget, appears in no cost
 report — and logs a warning **once per process**, so on a long-lived worker the second and
@@ -282,7 +282,7 @@ a message.
 
 ### GH-07 — A HITL wait blocks a worker slot
 
-**✅ Verified · High** · **Status: fixed (2026-10-08)** — a checkpoint parks the run instead of waiting (GH-I3): `evaluate_hitl` and `ask_user` open the approval and raise `HITLPending`; the executors report it as `ActionResult.awaiting_approval` and the loop snapshots the run, sets it `PAUSED`, re-queues the unrun steps and returns the worker, keeping the credit hold (`core/approval_pause.py`). The respond endpoint, a job deferred to the deadline and the stuck-run sweep enqueue `resume_paused_run` → `AgentLoop.resume_after_approval`, which claims the run once and continues at the same step (APPROVED), or ends it CANCELLED (REJECTED) or FAILED (TIMEOUT, or auto-approves). On re-dispatch the checkpoint finds its approval (`governance/hitl_gate.py`) and uses it once (`human_approvals.consumed_at`, migration `h4_approval_consumed_at`). The blocking wait and the `hitl:{id}` channel are gone. `tests/unit/test_approval_pause.py`, `tests/integration/test_hitl_parking.py`. Live 2026-10-08 on a two-slot worker: ten runs parked `PAUSED` with an approval each while another run ran to its end; an approved run resumed after a worker restart and completed its step; a rejected one ended `CANCELLED` with the note; one past its deadline ended `FAILED` (`TIMEOUT`)
+**✅ Verified · High** · **Status: fixed (2026-10-08, `0793f30`)** — a checkpoint parks the run instead of waiting (GH-I3): `evaluate_hitl` and `ask_user` open the approval and raise `HITLPending`; the executors report it as `ActionResult.awaiting_approval` and the loop snapshots the run, sets it `PAUSED`, re-queues the unrun steps and returns the worker, keeping the credit hold (`core/approval_pause.py`). The respond endpoint, a job deferred to the deadline and the stuck-run sweep enqueue `resume_paused_run` → `AgentLoop.resume_after_approval`, which claims the run once and continues at the same step (APPROVED), or ends it CANCELLED (REJECTED) or FAILED (TIMEOUT, or auto-approves). On re-dispatch the checkpoint finds its approval (`governance/hitl_gate.py`) and uses it once (`human_approvals.consumed_at`, migration `h4_approval_consumed_at`). The blocking wait and the `hitl:{id}` channel are gone. `tests/unit/test_approval_pause.py`, `tests/integration/test_hitl_parking.py`. Live 2026-10-08 on a two-slot worker: ten runs parked `PAUSED` with an approval each while another run ran to its end; an approved run resumed after a worker restart and completed its step; a rejected one ended `CANCELLED` with the note; one past its deadline ended `FAILED` (`TIMEOUT`)
 
 The service subscribes and then polls in a loop until `timeout_ms`. Default 5 minutes, and
 the field is free — a tenant can set an hour.
@@ -299,7 +299,7 @@ approvals starves every other run in the company.
 
 ### GH-08 — `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `COST_THRESHOLD` fires before a step when the run's spend so far (its usage rows and children, `run_spend` — not the run column, which moves only between iterations) plus the step's estimate (`planning/cost_estimator.estimate_step_cost`) reaches the threshold, so the person is asked before the line is crossed; once over, every later step asks, which is the backstop for a low estimate. The trigger names the threshold and the step, not the spend, so a parked run's step finds its approval again after a critic call spent a little (it was `$X >= $Y` and would have asked again). The approval's snapshot carries `run_cost_usd` and `step_cost_estimate_usd`. `tests/integration/test_hitl_parking.py` (2)
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `3dae24d`)** — `COST_THRESHOLD` fires before a step when the run's spend so far (its usage rows and children, `run_spend` — not the run column, which moves only between iterations) plus the step's estimate (`planning/cost_estimator.estimate_step_cost`) reaches the threshold, so the person is asked before the line is crossed; once over, every later step asks, which is the backstop for a low estimate. The trigger names the threshold and the step, not the spend, so a parked run's step finds its approval again after a critic call spent a little (it was `$X >= $Y` and would have asked again). The approval's snapshot carries `run_cost_usd` and `step_cost_estimate_usd`. `tests/integration/test_hitl_parking.py` (2)
 
 Only `AFTER_STEP` fires in the `AFTER` phase. `COST_THRESHOLD` is `BEFORE`-only.
 
@@ -313,7 +313,7 @@ expensive thing is the wrong half of the step boundary.
 
 ### GH-09 — Malformed HITL checkpoints are skipped silently
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `schemas/governance.checkpoint_problem` says why a checkpoint could never fire — it does not parse, lacks the field its trigger needs, has a `CUSTOM` expression outside the grammar, a non-positive timeout, or a `step_ref` that is not a step of a static plan. The entity create and update requests (and version drafts) refuse it with a 422 naming it (`checkpoint 2 (CUSTOM): …`). One stored before that asks a person before each step (trigger `UNUSABLE CHECKPOINT n before <step>`) and writes a `hitl` span on the run's trace and the event `agent.hitl.checkpoint_unusable`. `tests/unit/test_hitl_checkpoint_validation.py`
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `e220fc2`)** — `schemas/governance.checkpoint_problem` says why a checkpoint could never fire — it does not parse, lacks the field its trigger needs, has a `CUSTOM` expression outside the grammar, a non-positive timeout, or a `step_ref` that is not a step of a static plan. The entity create and update requests (and version drafts) refuse it with a 422 naming it (`checkpoint 2 (CUSTOM): …`). One stored before that asks a person before each step (trigger `UNUSABLE CHECKPOINT n before <step>`) and writes a `hitl` span on the run's trace and the event `agent.hitl.checkpoint_unusable`. `tests/unit/test_hitl_checkpoint_validation.py`
 
 A checkpoint that does not parse is skipped with a bare `continue` — no log line, no event,
 nothing on the run trace.
@@ -325,7 +325,7 @@ user sees a configured checkpoint that never fires.
 
 ### GH-10 — `CUSTOM` expressions support two variables and two operators
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — a closed grammar, `schemas/hitl_expression.py`: `step_count` and `cost` with `> >= < <= ==` and a number, or `has_key('name')`, joined by `and` / `or`; `cost` is the run's spend from its usage rows. The builder's own example, `cost > 0.50 or step_count > 5`, never worked under the old evaluator and works now. Anything else is refused on save (GH-09); the builder's help text gives the grammar. `tests/unit/test_hitl_checkpoint_validation.py`
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `e220fc2`)** — a closed grammar, `schemas/hitl_expression.py`: `step_count` and `cost` with `> >= < <= ==` and a number, or `has_key('name')`, joined by `and` / `or`; `cost` is the run's spend from its usage rows. The builder's own example, `cost > 0.50 or step_count > 5`, never worked under the old evaluator and works now. Anything else is refused on save (GH-09); the builder's help text gives the grammar. `tests/unit/test_hitl_checkpoint_validation.py`
 
 The docstring says "Python-like boolean expression". The evaluator supports only
 `step_count` and `current_cost`, with `>` and `>=`.
@@ -415,7 +415,7 @@ approval stays `PENDING`; a second answer is 409 and the first stands; an answer
 
 ### GH-25 — A rejected step is retried, and the reviewer is asked again
 
-**✅ Verified · High** · **Status: fixed (2026-10-08)** — decision HD7: `evaluate_hitl` and `ask_user` raise `HITLRejected` / `HITLTimeout` (`ai/core/exceptions.py`); the SingleStep and DAG executors report them as `ActionResult.blocked`, and the loop ends the run there — CANCELLED with the reviewer's notes on a rejection, FAILED on a timeout — before any critic or retry (`AgentLoop._end_on_human_decision`, event `agent.loop.human_decision`). A decision outranks other failures in a parallel DAG level. `tests/unit/test_hitl_decision_ends_run.py`
+**✅ Verified · High** · **Status: fixed (2026-10-08, `087f1a4`)** — decision HD7: `evaluate_hitl` and `ask_user` raise `HITLRejected` / `HITLTimeout` (`ai/core/exceptions.py`); the SingleStep and DAG executors report them as `ActionResult.blocked`, and the loop ends the run there — CANCELLED with the reviewer's notes on a rejection, FAILED on a timeout — before any critic or retry (`AgentLoop._end_on_human_decision`, event `agent.loop.human_decision`). A decision outranks other failures in a parallel DAG level. `tests/unit/test_hitl_decision_ends_run.py`
 
 **Block Cycle** fails the step with *Execution blocked by human reviewer*. The loop cannot
 tell that failure from any other: the post critic judges it (an LLM call — it answered
@@ -476,7 +476,7 @@ is never read.
 
 ### GH-18 — Budget lives on the entity, not the company
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — decision HD8: `companies.monthly_spend_cap_usd` (migration `h4_company_spend_cap`; empty means no cap) is what the company may be billed in a calendar month — its `billing_events`, every settled run and call (`CreditService.spend_cap_refusal`). At the cap a run's admission (`check_credit_gate`), a call, a campaign or a mobile run (`check_sufficient_for_execution`) is refused with `SpendCapReached` (an `InsufficientCreditsError`), and a running run stops at its breaker, counting its bill so far. Set it with `PATCH /api/v1/companies/{id}` or in Platform Management → Edit (whoever may rename the company). `tests/integration/test_spend_cap.py` (5)
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `1d5ff72`)** — decision HD8: `companies.monthly_spend_cap_usd` (migration `h4_company_spend_cap`; empty means no cap) is what the company may be billed in a calendar month — its `billing_events`, every settled run and call (`CreditService.spend_cap_refusal`). At the cap a run's admission (`check_credit_gate`), a call, a campaign or a mobile run (`check_sufficient_for_execution`) is refused with `SpendCapReached` (an `InsufficientCreditsError`), and a running run stops at its breaker, counting its bill so far. Set it with `PATCH /api/v1/companies/{id}` or in Platform Management → Edit (whoever may rename the company). `tests/integration/test_spend_cap.py` (5)
 
 "Raise a tenant's budget" means editing the `governance` block of **every** entity that
 tenant owns. There is no company-level cost cap anywhere.
@@ -519,7 +519,7 @@ resolution.
 
 ### GH-21 — Almost every gate in the platform fails open
 
-**✅ Verified · High · the pattern** · **Status: fixed (2026-10-08)** — with GH-I2: `src/common/gates.py` lists every control that can refuse and what it does when it cannot decide; each failure path calls `gate_failed`, which logs and emits `gate.failed {gate, decision, error}` (the event replaces `meta.gate.failed`). Wired: `rate_limiter` (now refusing by default, GH-03), `semantic_duplicate`, `hitl_checkpoint`, `credit_admission`, `credit_breaker`, `webhook_signature`, `webhook_duplicate`, `voice_call_credit`. All fail closed except two that name their reason: the credit breaker (settlement still bills) and the voice call credit check (VT-01, until H5). `tests/unit/test_gate_inventory.py` fails on an unlisted gate, a listed gate nothing reports, or an open gate without a reason
+**✅ Verified · High · the pattern** · **Status: fixed (2026-10-08, `e34192e`)** — with GH-I2: `src/common/gates.py` lists every control that can refuse and what it does when it cannot decide; each failure path calls `gate_failed`, which logs and emits `gate.failed {gate, decision, error}` (the event replaces `meta.gate.failed`). Wired: `rate_limiter` (now refusing by default, GH-03), `semantic_duplicate`, `hitl_checkpoint`, `credit_admission`, `credit_breaker`, `webhook_signature`, `webhook_duplicate`, `voice_call_credit`. All fail closed except two that name their reason: the credit breaker (settlement still bills) and the voice call credit check (VT-01, until H5). `tests/unit/test_gate_inventory.py` fails on an unlisted gate, a listed gate nothing reports, or an open gate without a reason
 
 Collected in one place, because individually each looks defensible:
 

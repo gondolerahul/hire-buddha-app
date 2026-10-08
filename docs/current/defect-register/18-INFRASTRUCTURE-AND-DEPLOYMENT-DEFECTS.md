@@ -61,7 +61,7 @@
 | IN-14 | `npm install` requires `--legacy-peer-deps` | partly — cause removed, flag still passed | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-15 | `streaming.hirebuddha.com` reuses the gateway certificate | partly fixed | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-16 | Two competing `*:80` vhosts for `app.hirebuddha.com` | ✅ fixed `f4e3abd` (SA-14) | — |
-| IN-17 | `core/` is 20 lines from its lint cap | ✅ fixed (2026-10-08) | — |
+| IN-17 | `core/` is 20 lines from its lint cap | ✅ fixed `3501ddc` | — |
 | IN-18 | Quality gates exist and run only when someone remembers | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | IN-19 | The observability stack does not work out of the box | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-20 | The gateway and the worker have no tracing | partly fixed — tracing done; no worker metrics | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
@@ -305,7 +305,7 @@ things.
 
 ### IN-17 — `core/` is 20 lines from its lint cap
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `AgentLoop`'s run persistence (snapshot, final and suspended writes, spend, parent resume, locked reload) moved to the mixin `core/run_persistence.py` and its learning hooks (task class, bandit, Dreaming trigger, flag lookup) to `core/loop_learning.py`, verbatim. `agent_loop.py` is 1,162 lines of 1,500; the lint comment and docs 02, 18, 19, 20 say so
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `3501ddc`)** — `AgentLoop`'s run persistence (snapshot, final and suspended writes, spend, parent resume, locked reload) moved to the mixin `core/run_persistence.py` and its learning hooks (task class, bandit, Dreaming trigger, flag lookup) to `core/loop_learning.py`, verbatim. `agent_loop.py` is 1,162 lines of 1,500; the lint comment and docs 02, 18, 19, 20 say so
 
 `lint_ai_layout.py` caps `core/` at 1,500 lines and `agent_loop.py` is ~1,480. The next
 substantive change to the control loop fails the lint.

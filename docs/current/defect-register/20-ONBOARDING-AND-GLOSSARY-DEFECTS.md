@@ -55,7 +55,7 @@
 | ON-06 | The first-change exercise targets a deprecated tool through an unwired gate | open — now names a deleted function | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-07 | "Most gates fail open" is stated and then not acted on | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-08 | The quality gates a newcomer is told to run are not enforced anywhere | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
-| ON-09 | `core/` has 20 lines of headroom and the doc says so twice | ✅ fixed (2026-10-08) | — |
+| ON-09 | `core/` has 20 lines of headroom and the doc says so twice | ✅ fixed `3501ddc` | — |
 | ON-10 | `src/ai/models.py` is a deprecated shim still in the tree | ✅ fixed `753589f` | — |
 | ON-11 | The root `tests/` directory | ✅ fixed `c9edbfd` | — |
 | ON-12 | `backend/cortex_memory_moved_to_pypi_repo/` | invalid | — |
@@ -264,7 +264,7 @@ runs them. The first framing is the one in the diagram.
 
 ### ON-09 — `core/` has 20 lines of headroom and the doc says so twice
 
-**✅ Verified · Medium** · **Status: fixed (2026-10-08)** — `agent_loop.py` is 1,162 lines after IN-17's extraction; §8.1 and the gotchas now say there is room and where persistence and learning live
+**✅ Verified · Medium** · **Status: fixed (2026-10-08, `3501ddc`)** — `agent_loop.py` is 1,162 lines after IN-17's extraction; §8.1 and the gotchas now say there is room and where persistence and learning live
 
 `agent_loop.py` is ~1,480 lines against a 1,500-line cap, flagged in both §8.1 and the
 gotchas.
