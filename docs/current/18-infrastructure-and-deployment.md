@@ -400,6 +400,7 @@ From [backend/.env.example](../../backend/.env.example):
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access-token lifetime |
 | `RATE_LIMIT` | `200/minute` | Per-client-IP limit on REST routes |
 | `RUNS_STARTED_PER_MINUTE` | `60` *(default, not in the example)* | Top-level runs a company may start a minute; 0 turns it off; refuses when Redis is down (GH-03) |
+| `CAMPAIGN_RETRY_BACKOFF_SECONDS` | `600` *(default, not in the example)* | Wait before a busy or unanswered campaign call is dialed again, doubled for each try (VT-10) |
 | `INTERNAL_TOKEN` | *(empty)* | Shared secret for `POST /internal/event`. Empty or a placeholder disables the endpoint (503); generate one with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `STREAMING_HOST` | `localhost:8000` | Host telephony reaches the API on; stream and callback URLs are built from it. `gateway.hirebuddha.com` in production |
 | `STREAMING_PROTOCOL` | `ws` | `ws` locally, `wss` in production |

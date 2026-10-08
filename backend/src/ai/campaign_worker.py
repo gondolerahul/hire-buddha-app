@@ -20,7 +20,7 @@ from src.common.database import AsyncSessionLocal
 logger = logging.getLogger(__name__)
 
 
-async def execute_campaign_task(ctx: dict, campaign_id: str):
+async def execute_campaign_task(ctx: dict, campaign_id: str, continuation: bool = False):
     """
     ARQ background task to execute a campaign.
 
@@ -35,7 +35,7 @@ async def execute_campaign_task(ctx: dict, campaign_id: str):
     logger.info(f"Starting campaign execution task for {campaign_id}")
 
     try:
-        await CampaignExecutor.start_campaign_standalone(UUID(campaign_id))
+        await CampaignExecutor.start_campaign_standalone(UUID(campaign_id), continuation=continuation)
     except Exception as e:
         logger.error(f"Error in campaign execution task: {e}", exc_info=True)
         raise

@@ -18,7 +18,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, update
+from sqlalchemy import func, select, and_, update
 
 from src.ai.campaign_models import Campaign, CampaignCall
 from src.voice.models import VoiceSession
@@ -29,6 +29,7 @@ from src.common.security import decrypt_api_key
 from src.common.config import settings
 from src.common.database import AsyncSessionLocal
 from src.voice.call_admission import call_refusal
+from src.ai.services import campaign_pacing
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class CampaignExecutor:
 
     # ── Standalone entry point for ARQ worker ──────────────────────────
     @classmethod
-    async def start_campaign_standalone(cls, campaign_id: UUID):
+    async def start_campaign_standalone(cls, campaign_id: UUID, continuation: bool = False):
         """
         Entry point for the ARQ background worker.
 
@@ -77,6 +78,10 @@ class CampaignExecutor:
                 if not campaign:
                     raise ValueError(f"Campaign {campaign_id} not found")
 
+                if continuation and campaign.status != "running":
+                    # Paused or stopped since the continuation was scheduled.
+                    logger.info(f"Campaign {campaign_id} is '{campaign.status}' — not continuing")
+                    return
                 if campaign.status not in ["draft", "scheduled", "paused", "running"]:
                     raise ValueError(f"Campaign cannot be started from status: {campaign.status}")
 
@@ -86,13 +91,17 @@ class CampaignExecutor:
                     logger.warning(f"Refusing to server-dial mobile campaign {campaign_id}")
                     return
 
-                # Update to running
+                # Update to running (a continuation keeps the first start)
                 await db.execute(
                     update(Campaign)
                     .where(Campaign.id == campaign_id)
-                    .values(status="running", started_at=datetime.utcnow(), updated_at=datetime.utcnow())
+                    .values(status="running", started_at=func.coalesce(Campaign.started_at, datetime.utcnow()),
+                            updated_at=datetime.utcnow())
                 )
                 await db.commit()
+
+                # Busy / unanswered calls whose backoff has passed go again (VT-10).
+                await campaign_pacing.requeue_due_retries(db, campaign_id, datetime.utcnow())
 
                 # Load pending calls
                 calls_result = await db.execute(
@@ -116,6 +125,7 @@ class CampaignExecutor:
                     "provider": campaign.provider,
                     "name": campaign.name,
                     "max_concurrent_calls": campaign.max_concurrent_calls or 5,
+                    "max_calls_per_hour": campaign.max_calls_per_hour,
                 }
 
                 calls_data = [
@@ -195,6 +205,16 @@ class CampaignExecutor:
                     )
                     break
 
+                # The hourly cap (VT-09): at it, stop and continue when the
+                # oldest call of the last hour is an hour old.
+                async with AsyncSessionLocal() as db:
+                    wait = await campaign_pacing.hourly_wait(
+                        db, campaign_id, campaign_data["max_calls_per_hour"], datetime.utcnow())
+                if wait > 0:
+                    await campaign_pacing.schedule_continuation(campaign_id, wait)
+                    logger.info(f"Campaign {campaign_id} at its hourly cap; continuing in {wait:.0f}s")
+                    return
+
                 # Enforce max_concurrent_calls: the Kanakia run showed 6-8
                 # simultaneous call setups starving the audio pipeline (5-27s
                 # of dead air per call). Wait until a slot frees up.
@@ -229,6 +249,14 @@ class CampaignExecutor:
                         )
                         await db.commit()
                 logger.info(f"Campaign {campaign_id} halted as '{halted_status}'")
+                return
+
+            # Calls still in flight, or retries still to come (VT-10): run
+            # again then, instead of completing now.
+            async with AsyncSessionLocal() as db:
+                more_in = await campaign_pacing.next_pass_in(db, campaign_id, datetime.utcnow())
+            if more_in is not None:
+                await campaign_pacing.schedule_continuation(campaign_id, more_in)
                 return
 
             # Mark campaign as completed

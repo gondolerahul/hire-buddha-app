@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     # Top-level runs a company may start in any 60 seconds (GH-03, HD17);
     # 0 turns the quota off. Refuses when Redis is unreachable.
     RUNS_STARTED_PER_MINUTE: int = 60
+    # A busy or unanswered campaign call is dialed again after this many
+    # seconds, doubled for each try (VT-10).
+    CAMPAIGN_RETRY_BACKOFF_SECONDS: int = 600
     # Every LLM provider call (one per generate, one per ReAct turn) gets this
     # timeout and up to this many attempts on 408/429/5xx/timeouts, with
     # exponential backoff and jitter (LP-03, ai/llm/retry.py).

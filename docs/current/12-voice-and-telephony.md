@@ -1279,7 +1279,7 @@ erDiagram
         string provider
         timestamp scheduled_start
         int max_concurrent_calls "default 5"
-        int max_calls_per_hour "stored, never enforced"
+        int max_calls_per_hour "the hourly cap (VT-09)"
         string status
         int calls_initiated
         int calls_completed
@@ -1299,7 +1299,7 @@ erDiagram
         timestamp completed_at
         int duration_seconds
         int retry_count
-        int max_retries "default 2 - never read"
+        int max_retries "default 2 - re-dials (VT-10)"
     }
     CAMPAIGNS ||--o{ CAMPAIGN_CALLS : contains
     CAMPAIGN_CALLS ||--o| VOICE_SESSIONS : "one call = one session"
@@ -1362,7 +1362,18 @@ Three things make this loop safe:
 - **Concurrency is enforced by counting rows.** [`_wait_for_concurrency_slot`](../../backend/src/ai/campaign_executor.py:294) polls `SELECT count(*) FROM campaign_calls WHERE campaign_id=? AND status='calling'` every 3 s until it drops below `max_concurrent_calls`, with a **180-second cap** so calls stuck in `calling` (a missed webhook) can't deadlock the dialer.
 - **Every DB operation uses a fresh `AsyncSessionLocal`, and only primitives cross session boundaries.** ORM objects reused across sessions produced `IllegalStateChangeError` in the Arq worker.
 
-Pacing is a flat `await asyncio.sleep(2)` between placements. `max_calls_per_hour` is stored on the campaign and surfaced by the API but **never read by the executor** — there is no hourly rate limiter.
+Pacing ([`ai/services/campaign_pacing.py`](../../backend/src/ai/services/campaign_pacing.py),
+VT-09, VT-10, since 2026-10-08): a 2-second pause between placements, `max_concurrent_calls`,
+and **`max_calls_per_hour`** — before each call the executor counts the campaign's calls
+placed in the last hour; at the cap it stops and schedules its own **continuation**
+(`execute_campaign_task(campaign_id, continuation=True)`, deferred until the oldest of those
+calls is an hour old) instead of sleeping on a worker. A call that ended `busy`, `no_answer`,
+`rejected` or `failed`, or failed to be placed, is **dialed again** while `retry_count <
+max_retries`, after `CAMPAIGN_RETRY_BACKOFF_SECONDS` (600) × 2^`retry_count`: each pass first
+puts the due ones back to `pending`. A pass that ends with calls still in flight (up to 15
+minutes) or retries to come schedules the next continuation; the campaign is `completed` only
+when nothing is left. A continuation runs only while the campaign is still `running`, so
+pausing or stopping it holds.
 
 Phone normalisation before dialing ([`normalize_phone`](../../backend/src/ai/campaign_executor.py:262)) strips non-digits, drops a leading trunk `0` from 11-digit numbers, and prepends `DEFAULT_PHONE_COUNTRY_CODE` to 10-digit numbers. A campaign once failed every placement with Tata HTTP 422 because contacts looked like `+8149603309` — a `+` with no country code.
 
@@ -1398,7 +1409,7 @@ stateDiagram-v2
     calling --> completed : "status webhook answered, or cleanup with duration > 0"
     calling --> "completed-voicemail" : "in-call voicemail detection or Twilio AMD"
     calling --> failed : "busy / no_answer / rejected / unreachable / invalid_number / placement_error"
-    failed --> pending : "POST /campaigns/retry-failed - retry_count + 1"
+    failed --> pending : "a retry after its backoff (VT-10), or POST /campaigns/retry-failed"
     completed --> [*]
     "completed-voicemail" --> [*]
     skipped --> [*]
@@ -1645,7 +1656,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - **`"sucess"` is a real key on the wire** in both Tata voice webhook responses.
 - **`speaking_rate` and `pitch` are read but never sent.** `GeminiLiveClient` parses them off `VoiceConfig` and then builds a `speech_config` containing only `voice_name`.
 - **`_create_native_audio_config` and `_create_standard_config` return the same dict.** The capability registry currently changes nothing.
-- **`max_calls_per_hour` and `CampaignCall.max_retries` are stored and displayed but never enforced.** The only real throttles are `max_concurrent_calls` and the flat 2-second inter-call sleep.
+- ~~**`max_calls_per_hour` and `CampaignCall.max_retries` are stored and displayed but never enforced.**~~ (VT-09, VT-10, fixed 2026-10-08): the hourly cap stops and continues the campaign later; failed calls are re-dialed with backoff.
 - **A campaign's company comes from the agent, not the logged-in user.** Otherwise an app admin's campaign would dial from the wrong tenant's caller ID.
 - **Silence is measured against the playback horizon, not send time.** The model emits a 30-second reply in a 2-second burst; naive timing would declare silence while the lead is still listening.
 - **Muted audio is sent as zeros, never dropped.** Gaps break Gemini's end-of-turn detection.
