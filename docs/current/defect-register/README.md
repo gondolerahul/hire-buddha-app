@@ -48,7 +48,7 @@ something that works but costs more than it should.
 | 09 | [Tools & the tool registry](09-TOOLS-DEFECTS.md) | [09](../09-tools.md) | 6 (6 fixed) + **[49 deep](TOOL-LAYER-DEFECTS.md)** | 10 |
 | 10 | [LLM providers & routing](10-LLM-PROVIDERS-DEFECTS.md) | [10](../10-llm-providers.md) | 26 (26 fixed) | 10 |
 | 11 | [Meta-intelligence & the Board](11-META-INTELLIGENCE-DEFECTS.md) | [11](../11-meta-intelligence.md) | 20 (14 fixed, 5 invalid, 1 moot) | 10 |
-| 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 (4 fixed, 4 partly, **10 open**, 3 not a defect) | 10 |
+| 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 (17 fixed, 1 partly, 3 not a defect) | 10 |
 | 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 (13 fixed, 3 partly, **4 open**, 1 invalid) | 10 |
 | 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 31 (30 fixed, 1 won't fix) | 10 (8 done, 1 done for tools, 1 partly) |
 | 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 (20 fixed, 2 partly, **3 open**) | 10 (GH-I2 done) |
@@ -60,9 +60,9 @@ something that works but costs more than it should.
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 (48 fixed, 1 accepted) | — |
 | — | [**Tool stack audit (PO-06)**](PO-06-TOOL-STACK-AUDIT.md) | [09](../09-tools.md) | 19 (TL-50…TL-68, 19 fixed) | — |
 | — | [**Consolidated plan — 05/06/07/09/10/11 + tools**](CONSOLIDATED-KERNEL-TOOLS-PLAN.md) | 05, 06, 07, 09, 10, 11 | 171 distinct — **complete** (P0–P11, 2026-10-06); AK-08, merged into AK-05 and found still open on 2026-10-07, was fixed on 2026-10-08 (H4.1) | 60 (merged) |
-| — | [**Remaining-defects plan**](REMAINING-DEFECTS-PLAN.md) | all | **104 to fix** (87 open, 17 partly; 96 distinct) + 17 deferred, in phases H0–H11. **H0, H2 and H4 done** (30, and PO-20 of the deferred with GH-07) — 74 left | — |
+| — | [**Remaining-defects plan**](REMAINING-DEFECTS-PLAN.md) | all | **104 to fix** (87 open, 17 partly; 96 distinct) + 17 deferred, in phases H0–H11. **H0, H2, H4 and H5 done** (43, and PO-20 of the deferred with GH-07; VT-15 of H5 waits on a live Smartflo check) — 61 left | — |
 
-**518 defect entries, 203 improvements.** Of the defects: **394 fixed, 69 open, 17 partly fixed**, 17 deferred, 10 won't fix / accepted / not a defect, 11 invalid or moot (2026-10-07, after H0 and H2). Registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 were worked together through the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), which is complete; everything still open is in the [remaining-defects plan](REMAINING-DEFECTS-PLAN.md).
+**518 defect entries, 203 improvements.** Of the defects: **420 fixed, 49 open, 12 partly fixed**, 16 deferred, 10 won't fix / accepted / not a defect, 11 invalid or moot (2026-10-08, after H0, H2, H4 and H5). Registers 05, 06, 07, 09, 10, 11, TOOL-LAYER and PO-06 were worked together through the [consolidated plan](CONSOLIDATED-KERNEL-TOOLS-PLAN.md), which is complete; everything still open is in the [remaining-defects plan](REMAINING-DEFECTS-PLAN.md).
 
 Related: [`../DEFECT-REGISTER.md`](../DEFECT-REGISTER.md) is the earlier platform-wide list
 (45 items, `D-nn`). Every one of its entries reappears in the module register that owns it,

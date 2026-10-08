@@ -46,27 +46,27 @@
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
-| VT-01 | The inbound credit gate has never run | ✅ fixed (2026-10-08) | — |
-| VT-02 | Azure Realtime returns a tuple where a session belongs | ✅ fixed (2026-10-08) | — |
-| VT-03 | Every WhatsApp AI reply is an apology | ✅ fixed (2026-10-08) | — |
+| VT-01 | The inbound credit gate has never run | ✅ fixed `0d9bbad` | — |
+| VT-02 | Azure Realtime returns a tuple where a session belongs | ✅ fixed `875a6c6` | — |
+| VT-03 | Every WhatsApp AI reply is an apology | ✅ fixed `fffcd5f` | — |
 | VT-04 | Port 8002 is a ghost that Apache still points at | ✅ fixed (single port, `19f57bb`) | — |
-| VT-05 | Voice tokens are estimated at a flat 167 per second | ✅ fixed (2026-10-08) | — |
+| VT-05 | Voice tokens are estimated at a flat 167 per second | ✅ fixed `12bb3cb` | — |
 | VT-06 | Voice tool calls are unattributed and unbilled | ✅ fixed `66fe8bc` (TL-20) | — |
 | VT-07 | Recording-artifact lookup can attach the wrong file | ✅ fixed `86a95a0` | — |
-| VT-08 | The outbound and inbound credit gates disagree by design | ✅ fixed (2026-10-08) | — |
-| VT-09 | `max_calls_per_hour` | ✅ fixed (2026-10-08) | — |
-| VT-10 | `CampaignCall.max_retries` | ✅ fixed (2026-10-08) | — |
-| VT-11 | `speaking_rate` and `pitch` | ✅ fixed (2026-10-08) | — |
-| VT-12 | `_create_native_audio_config` vs `_create_standard_config` | ✅ fixed (2026-10-08) | — |
-| VT-13 | DTMF | ✅ fixed (2026-10-08) — declared unsupported | — |
+| VT-08 | The outbound and inbound credit gates disagree by design | ✅ fixed `0d9bbad` | — |
+| VT-09 | `max_calls_per_hour` | ✅ fixed `8b64447` | — |
+| VT-10 | `CampaignCall.max_retries` | ✅ fixed `8b64447` | — |
+| VT-11 | `speaking_rate` and `pitch` | ✅ fixed `0864e13` | — |
+| VT-12 | `_create_native_audio_config` vs `_create_standard_config` | ✅ fixed `0864e13` | — |
+| VT-13 | DTMF | ✅ fixed `59c6503` — declared unsupported | — |
 | VT-14 | The lead queue is written and never drained | ✅ fixed (SA-08, `24650e7`) | — |
-| VT-15 | `"sucess"` is a real key on the wire | partly — one setting for every reply; the default flip awaits a live Smartflo call | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
-| VT-16 | Agent edits take up to five minutes to reach new calls | ✅ fixed (2026-10-08) | — |
-| VT-17 | `ensure_chunk_size` pads with the wrong byte | ✅ fixed (2026-10-08) | — |
+| VT-15 | `"sucess"` is a real key on the wire | partly — one setting for every reply (`9f549d8`); the default flip awaits a live Smartflo call | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-16 | Agent edits take up to five minutes to reach new calls | ✅ fixed `c270631` | — |
+| VT-17 | `ensure_chunk_size` pads with the wrong byte | ✅ fixed `cbc0aa0` | — |
 | VT-18 | A campaign's company comes from the agent, not the user | not a defect — correct as-is | — |
 | VT-19 | Silence is measured against the playback horizon | not a defect — correct as-is | — |
 | VT-20 | Muted audio is sent as zeros rather than dropped | not a defect — correct as-is | — |
-| VT-21 | A voice call has no run record, so nothing about it is auditable the usual way | ✅ fixed (2026-10-08) | — |
+| VT-21 | A voice call has no run record, so nothing about it is auditable the usual way | ✅ fixed `b45991d` | — |
 
 The three to read first:
 
@@ -78,6 +78,9 @@ The three to read first:
   every customer gets the fallback string.
 
 > **Update 2026-10-07:** VT-01 is partly fixed — the check runs now, but it still fails open. VT-02 and VT-03 are unchanged.
+>
+> **Update 2026-10-08 (H5):** all three are fixed — VT-01 `0d9bbad`, VT-02 `875a6c6`, VT-03 `fffcd5f`. Of the
+> register, only VT-15 is left: its key flips after one live Smartflo call.
 
 ---
 
@@ -85,7 +88,7 @@ The three to read first:
 
 ### VT-01 — The inbound credit gate has never run
 
-**✅ Verified · Critical** · **Status: fixed (2026-10-08)** — decision HD9: one admission rule for every call, `voice/call_admission.call_refusal` — the company's **free** credit (the wallet minus running runs' holds) must reach the AGENT floor and the company must be under its spend cap (GH-18); a balance that cannot be read **refuses** (gate `voice_call_credit`, now closed). Used at both inbound webhooks (Twilio: `<Hangup/>`; Tata: an error), on the media socket and by the campaign executor, with a `voice.call.admitted` / `voice.call.refused` event each time. `tests/integration/test_call_admission.py` (4), `tests/unit/test_inbound_call_admission.py` (2)
+**✅ Verified · Critical** · **Status: fixed (2026-10-08, `0d9bbad`)** — decision HD9: one admission rule for every call, `voice/call_admission.call_refusal` — the company's **free** credit (the wallet minus running runs' holds) must reach the AGENT floor and the company must be under its spend cap (GH-18); a balance that cannot be read **refuses** (gate `voice_call_credit`, now closed). Used at both inbound webhooks (Twilio: `<Hangup/>`; Tata: an error), on the media socket and by the campaign executor, with a `voice.call.admitted` / `voice.call.refused` event each time. `tests/integration/test_call_admission.py` (4), `tests/unit/test_inbound_call_admission.py` (2)
 
 Both inbound handlers do this:
 
@@ -115,7 +118,7 @@ catch is the reason this survived.
 
 ### VT-02 — Azure Realtime returns a tuple where a session belongs
 
-**✅ Verified · High** · **Status: fixed (2026-10-08)** — decision HD10 (fix it): `LiveClientFactory` returns an `AzureLiveClient` that connects like `GeminiLiveClient` — `connect(tools=…)` returns a context manager whose `AzureLiveSession` has the Gemini Live methods (`send_realtime_input`, `receive`, `send_tool_response`), resampling 16 → 24 kHz in and translating Azure events (audio, both transcripts, barge-in, function calls, usage) into Gemini-shaped messages. The stream handler and `web_audio_adapter.py` have one connect path (the browser adapter's Gemini branch never entered its session either); `AudioProcessor.pcm24_to_pcm16` exists; the socket opens with `websockets.asyncio.client.connect` (the old call passed an argument websockets 13 rejects). Not yet checked against a live Azure deployment; Azure calls are billed at the Gemini Live SKUs. `tests/unit/test_azure_live.py` (6)
+**✅ Verified · High** · **Status: fixed (2026-10-08, `875a6c6`)** — decision HD10 (fix it): `LiveClientFactory` returns an `AzureLiveClient` that connects like `GeminiLiveClient` — `connect(tools=…)` returns a context manager whose `AzureLiveSession` has the Gemini Live methods (`send_realtime_input`, `receive`, `send_tool_response`), resampling 16 → 24 kHz in and translating Azure events (audio, both transcripts, barge-in, function calls, usage) into Gemini-shaped messages. The stream handler and `web_audio_adapter.py` have one connect path (the browser adapter's Gemini branch never entered its session either); `AudioProcessor.pcm24_to_pcm16` exists; the socket opens with `websockets.asyncio.client.connect` (the old call passed an argument websockets 13 rejects). Not yet checked against a live Azure deployment; Azure calls are billed at the Gemini Live SKUs. `tests/unit/test_azure_live.py` (6)
 
 `LiveClientFactory.get_live_client` documents its return as:
 
@@ -153,7 +156,7 @@ So Azure OpenAI Realtime is configurable in the admin UI and cannot work.
 
 ### VT-03 — Every WhatsApp AI reply is an apology
 
-**✅ Verified · High** · **Status: fixed (2026-10-08)** — the handler builds its service with `GeminiTextServiceFactory.from_company(db, company_id, …)`, on the company's Google integration, so `service_metadata` is there; and `get_service` keys its cache on the system instruction too — it kept the first agent's prompt for every agent on a project. Not checked against a live WhatsApp sandbox (none is configured). Still open and separate: the Tata send path calls `WhatsAppMessagingFactory.get_service` without credentials. `tests/unit/test_whatsapp_reply.py` (2)
+**✅ Verified · High** · **Status: fixed (2026-10-08, `fffcd5f`)** — the handler builds its service with `GeminiTextServiceFactory.from_company(db, company_id, …)`, on the company's Google integration, so `service_metadata` is there; and `get_service` keys its cache on the system instruction too — it kept the first agent's prompt for every agent on a project. Not checked against a live WhatsApp sandbox (none is configured). Still open and separate: the Tata send path calls `WhatsAppMessagingFactory.get_service` without credentials. `tests/unit/test_whatsapp_reply.py` (2)
 
 The handler calls:
 
@@ -214,7 +217,7 @@ So an unconfigured deployment hands telephony a `wss://` URL pointing at nothing
 
 ### VT-05 — Voice tokens are estimated at a flat 167 per second
 
-**📄 Doc-reported · High** · **Status: fixed (2026-10-08)** — the socket sums every Live server message's `usage_metadata` (`voice/live_usage.LiveUsage`: prompt + tool-use prompt tokens, response + thinking tokens, the split by modality) and a token-priced SKU bills those tokens (`billing_mode: reported_tokens`, `tokens_by_modality` on the row). Summing follows developers' reconciliations with Google's bill (each message is a turn whose context is processed again); it is not yet reconciled against this platform's own provider invoice. When the provider sends none, each direction bills the audio it carried — PCM16 sent and returned, counted on the socket (VT-I1) — not the whole call twice. `tests/unit/test_live_usage.py` (4)
+**📄 Doc-reported · High** · **Status: fixed (2026-10-08, `12bb3cb`)** — the socket sums every Live server message's `usage_metadata` (`voice/live_usage.LiveUsage`: prompt + tool-use prompt tokens, response + thinking tokens, the split by modality) and a token-priced SKU bills those tokens (`billing_mode: reported_tokens`, `tokens_by_modality` on the row). Summing follows developers' reconciliations with Google's bill (each message is a turn whose context is processed again); it is not yet reconciled against this platform's own provider invoice. When the provider sends none, each direction bills the audio it carried — PCM16 sent and returned, counted on the socket (VT-I1) — not the whole call twice. `tests/unit/test_live_usage.py` (4)
 
 There is no real token accounting for voice. When the SKU is not per-minute, cost is:
 
@@ -264,7 +267,7 @@ recording may hear a different customer's call.
 
 ### VT-08 — The outbound and inbound credit gates disagree by design
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — with VT-01 (HD9): the media socket applies the same rule to inbound and outbound calls — an inbound call short of credit is no longer let through, it is closed with `4002` like an outbound one
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `0d9bbad`)** — with VT-01 (HD9): the media socket applies the same rule to inbound and outbound calls — an inbound call short of credit is no longer let through, it is closed with `4002` like an outbound one
 
 At `_setup_live_and_run`, an **outbound** call with insufficient credit is blocked and the
 WebSocket closed with code `4002`. An **inbound** call is allowed through with a warning,
@@ -281,11 +284,11 @@ all**, at either checkpoint.
 
 | ID | Control | Reality | Status |
 |---|---|---|---|
-| **VT-09** | `max_calls_per_hour` | Stored on the campaign, shown in the UI, **never enforced**. The only real throttles are `max_concurrent_calls` and a flat 2-second sleep between calls | 📄 Doc-reported · **fixed (2026-10-08)** — before each call the executor counts the campaign's calls of the last hour; at `max_calls_per_hour` it stops and schedules its own continuation for when the window allows (`ai/services/campaign_pacing.py`), instead of sleeping on a worker. `tests/integration/test_campaign_pacing.py` |
-| **VT-10** | `CampaignCall.max_retries` | Stored and displayed, never enforced | 📄 Doc-reported · **fixed (2026-10-08)** — a call that ended busy, unanswered, rejected or failed, or failed to be placed, is dialed again while `retry_count < max_retries`, after `CAMPAIGN_RETRY_BACKOFF_SECONDS` × 2^tries (VT-I2); the campaign completes only when nothing is pending, in flight or due for a retry, and a continuation never restarts a paused campaign. `tests/integration/test_campaign_pacing.py` (4) |
-| **VT-11** | `speaking_rate` and `pitch` | Parsed off `VoiceConfig` by `GeminiLiveClient` and then dropped — the `speech_config` it builds contains only `voice_name` | 📄 Doc-reported · **fixed (2026-10-08)** — decision HD13: Gemini Live's `SpeechConfig` takes `voice_config`, `language_code` and `multi_speaker_voice_config` only (checked against google-genai 1.75), so `speaking_rate` and `pitch` are removed from `VoiceConfig`, `GeminiLiveClient` and the builder's sliders; an agent saved with them still loads. `tests/unit/test_gemini_live_config.py` (5, with VT-12) |
-| **VT-12** | `_create_native_audio_config` vs `_create_standard_config` | Both return the **same dict**. The capability registry that selects between them changes nothing | 📄 Doc-reported · **fixed (2026-10-08)** — one builder, `create_session_config`; the capability registry now decides one thing — a half-cascade model is sent the agent's `language_code`, a native-audio model, or one it does not list, is sent none. Every config validates as the SDK's `LiveConnectConfig`. `tests/unit/test_gemini_live_config.py` |
-| **VT-13** | DTMF | Completely unimplemented on both providers. There is no digit collection anywhere in the voice package — so no IVR, no menu, no keypad confirmation | 📄 Doc-reported · **fixed (2026-10-08) — declared unsupported** — decision HD13: DTMF is declared unsupported outside the mobile dialer rather than built (VT-I9 stays the route if the product needs an IVR). A digit on any other call is ignored, logged and counted as a `voice.dtmf.unsupported` event; the builder tells the agent's author that callers cannot use the keypad; doc 12 says so for Twilio and Tata. `tests/unit/test_dtmf_unsupported.py` (2) |
+| **VT-09** | `max_calls_per_hour` | Stored on the campaign, shown in the UI, **never enforced**. The only real throttles are `max_concurrent_calls` and a flat 2-second sleep between calls | 📄 Doc-reported · **fixed (2026-10-08, `8b64447`)** — before each call the executor counts the campaign's calls of the last hour; at `max_calls_per_hour` it stops and schedules its own continuation for when the window allows (`ai/services/campaign_pacing.py`), instead of sleeping on a worker. `tests/integration/test_campaign_pacing.py` |
+| **VT-10** | `CampaignCall.max_retries` | Stored and displayed, never enforced | 📄 Doc-reported · **fixed (2026-10-08, `8b64447`)** — a call that ended busy, unanswered, rejected or failed, or failed to be placed, is dialed again while `retry_count < max_retries`, after `CAMPAIGN_RETRY_BACKOFF_SECONDS` × 2^tries (VT-I2); the campaign completes only when nothing is pending, in flight or due for a retry, and a continuation never restarts a paused campaign. `tests/integration/test_campaign_pacing.py` (4) |
+| **VT-11** | `speaking_rate` and `pitch` | Parsed off `VoiceConfig` by `GeminiLiveClient` and then dropped — the `speech_config` it builds contains only `voice_name` | 📄 Doc-reported · **fixed (2026-10-08, `0864e13`)** — decision HD13: Gemini Live's `SpeechConfig` takes `voice_config`, `language_code` and `multi_speaker_voice_config` only (checked against google-genai 1.75), so `speaking_rate` and `pitch` are removed from `VoiceConfig`, `GeminiLiveClient` and the builder's sliders; an agent saved with them still loads. `tests/unit/test_gemini_live_config.py` (5, with VT-12) |
+| **VT-12** | `_create_native_audio_config` vs `_create_standard_config` | Both return the **same dict**. The capability registry that selects between them changes nothing | 📄 Doc-reported · **fixed (2026-10-08, `0864e13`)** — one builder, `create_session_config`; the capability registry now decides one thing — a half-cascade model is sent the agent's `language_code`, a native-audio model, or one it does not list, is sent none. Every config validates as the SDK's `LiveConnectConfig`. `tests/unit/test_gemini_live_config.py` |
+| **VT-13** | DTMF | Completely unimplemented on both providers. There is no digit collection anywhere in the voice package — so no IVR, no menu, no keypad confirmation | 📄 Doc-reported · **fixed `59c6503` — declared unsupported** — decision HD13: DTMF is declared unsupported outside the mobile dialer rather than built (VT-I9 stays the route if the product needs an IVR). A digit on any other call is ignored, logged and counted as a `voice.dtmf.unsupported` event; the builder tells the agent's author that callers cannot use the keypad; doc 12 says so for Twilio and Tata. `tests/unit/test_dtmf_unsupported.py` (2) |
 
 ---
 
@@ -308,7 +311,7 @@ dialled.
 
 ### VT-15 — `"sucess"` is a real key on the wire
 
-**📄 Doc-reported · Low · accept** · **Status: partly — one setting for every reply; the default flip awaits a live Smartflo call** — every Smartflo reply — the answer and both refusals (`_tata_refusal`) — uses `TATA_STREAM_SUCCESS_KEY`, so flipping it changes them together; it still defaults to `"sucess"` until one live Smartflo call confirms `"success"`. `tests/unit/test_tata_success_key.py` (3)
+**📄 Doc-reported · Low · accept** · **Status: partly — one setting for every reply; the default flip awaits a live Smartflo call** (`9f549d8`) — every Smartflo reply — the answer and both refusals (`_tata_refusal`) — uses `TATA_STREAM_SUCCESS_KEY`, so flipping it changes them together; it still defaults to `"sucess"` until one live Smartflo call confirms `"success"`. `tests/unit/test_tata_success_key.py` (3)
 
 Both Tata voice webhook responses return `{"sucess": ...}`. It is misspelled and it is an
 **external contract**. Correcting it is a breaking change that needs coordination with the
@@ -320,7 +323,7 @@ Recorded so nobody "fixes" it in passing. Also **D-42** in the platform register
 
 ### VT-16 — Agent edits take up to five minutes to reach new calls
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — An edit (`AIService.update_entity`), a delete (each soft-deleted entity) and a published version call `voice/agent_cache_bus.announce_agent_changed` after their commit: it drops the agent from this process's cache, deletes the company's dispatcher routes and publishes the id on `voice:agent_changed`; the API lifespan runs `agent_cache_bus.listen` in every process, which drops it there and clears everything after a reconnect. `tests/integration/test_agent_cache_bus.py` (2), `tests/unit/test_agent_cache_bus.py` (3)
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `c270631`)** — An edit (`AIService.update_entity`), a delete (each soft-deleted entity) and a published version call `voice/agent_cache_bus.announce_agent_changed` after their commit: it drops the agent from this process's cache, deletes the company's dispatcher routes and publishes the id on `voice:agent_changed`; the API lifespan runs `agent_cache_bus.listen` in every process, which drops it there and clears everything after a reconnect. `tests/integration/test_agent_cache_bus.py` (2), `tests/unit/test_agent_cache_bus.py` (3)
 
 `AgentContextLoader` TTL-caches persona, tools, context-source extraction and the API key
 for `VOICE_AGENT_CACHE_TTL_SECONDS` (default 300), because a cold load took 4.5–5 seconds
@@ -337,7 +340,7 @@ both ends.
 
 ### VT-17 — `ensure_chunk_size` pads with the wrong byte
 
-**📄 Doc-reported · Low** · **Status: fixed (2026-10-08)** — `ensure_chunk_size` pads a short last chunk with `0xFF`, mu-law silence (a `pad_byte` argument, default `0xFF`), instead of `0x00`, mu-law's loudest negative sample. `tests/unit/test_mulaw_padding.py` (2)
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-08, `cbc0aa0`)** — `ensure_chunk_size` pads a short last chunk with `0xFF`, mu-law silence (a `pad_byte` argument, default `0xFF`), instead of `0x00`, mu-law's loudest negative sample. `tests/unit/test_mulaw_padding.py` (2)
 
 It pads with `0x00`, which in mu-law is **maximum negative amplitude**, not silence
 (`0xFF` is). Padding therefore appends a burst of full-scale noise rather than quiet.
@@ -381,7 +384,7 @@ sending nothing. Same note: it looks like a bug and is not.
 
 ### VT-21 — A voice call has no run record, so nothing about it is auditable the usual way
 
-**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — decision HD14: every call opens its `ExecutionRun` when it connects (`VoiceToolCalls.start`, from `_setup_live_and_run`); the TL-20 tool-call run is that run. The call's telephony and model-audio `usage_logs` rows are written on it (attribution `voice_call`), and at hang-up it closes `COMPLETED` with their total, the billed amount, the reported tokens and the duration and turns; the trace has a `voice call` step span with each tool call under it. Critics and HITL stay off for calls, and the builder says so on a voice agent. Still not on a call: the planner and CORTEX write-back. The browser audio widget (`gateway/web_audio_adapter.py`) is not a telephony call and opens no run. `tests/integration/test_voice_call_run.py` (3)
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08, `b45991d`)** — decision HD14: every call opens its `ExecutionRun` when it connects (`VoiceToolCalls.start`, from `_setup_live_and_run`); the TL-20 tool-call run is that run. The call's telephony and model-audio `usage_logs` rows are written on it (attribution `voice_call`), and at hang-up it closes `COMPLETED` with their total, the billed amount, the reported tokens and the duration and turns; the trace has a `voice call` step span with each tool call under it. Critics and HITL stay off for calls, and the builder says so on a voice agent. Still not on a call: the planner and CORTEX write-back. The browser audio widget (`gateway/web_audio_adapter.py`) is not a telephony call and opens no run. `tests/integration/test_voice_call_run.py` (3)
 
 A voice call produces a `VoiceSession`, not an `ExecutionRun`. It has no
 `ExecutionStep` rows, no planner, no critics, no CORTEX write-back beyond a
