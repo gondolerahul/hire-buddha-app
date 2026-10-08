@@ -177,6 +177,10 @@ async def _resolve_run_flag_scope(db: Any, run_id: UUID) -> Any:
         return None, None
 
 
+# arq's default max_tries: the last try refuses instead of deferring again.
+_GATEWAY_RUN_TRIES = 5
+
+
 async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, Any]) -> Any:
     """Process a gateway event (webhook/internal) by routing to the correct handler.
 
@@ -248,6 +252,22 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # Default: ExecutionRun path (text-based agents)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # The company's runs a minute (GH-03): past it, the job tries
+            # again a minute later — the event's run is postponed, not lost.
+            from src.ai.governance.run_quota import WINDOW_SECONDS, RunQuotaExceeded, require_run_slot
+            try:
+                await require_run_slot(client_id)
+            except RunQuotaExceeded as exc:
+                from arq.worker import Retry
+                from src.ai.core.events import event
+                tries = int(ctx.get("job_try") or 1)
+                event("gateway.run_deferred", company_id=client_id, correlation_id=correlation_id,
+                      job_try=tries, reason=str(exc))
+                if tries < _GATEWAY_RUN_TRIES:
+                    raise Retry(defer=WINDOW_SECONDS) from exc
+                logger.error("[process_gateway_event] %s: refused after %d tries: %s",
+                             correlation_id, tries, exc)
+                return
             run = ExecutionRun(
                 company_id=UUID(client_id),
                 entity_id=entity.id,
@@ -280,6 +300,9 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
                 f"(status={run.status})"
             )
     except Exception as exc:
+        from arq.worker import Retry
+        if isinstance(exc, Retry):
+            raise  # the run quota defers the job (GH-03)
         logger.error(
             f"[process_gateway_event] Failed for correlation={correlation_id}: {exc}",
             exc_info=True,

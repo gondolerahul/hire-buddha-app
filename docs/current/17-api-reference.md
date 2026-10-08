@@ -506,7 +506,10 @@ Tools visible to this tenant after feature-flag and status gating — see
 
 ### `POST /api/v1/ai/execute`
 
-The single most important endpoint. Creates an `ExecutionRun` and enqueues it.
+The single most important endpoint. Creates an `ExecutionRun` and enqueues it. A company may
+start `RUNS_STARTED_PER_MINUTE` runs a minute (default 60): past it — or when the count
+cannot be read — it is a **429** with `Retry-After: 60`, as are `…/retry` and `…/refine`
+(GH-03, [15 §10.3](15-governance-and-hitl.md#103-runs-a-company-may-start-a-minute)).
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ai/execute -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"entity_id":"<entity-uuid>","input_data":{"input":"Summarise the Q3 revenue report"}}'

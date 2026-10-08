@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # its resume never arrived, the sweeper re-enqueues the resume after the
     # grace; a parent still waiting after the timeout is failed and settled.
     WAITING_RESUME_GRACE_SECONDS: int = 120
+    # Top-level runs a company may start in any 60 seconds (GH-03, HD17);
+    # 0 turns the quota off. Refuses when Redis is unreachable.
+    RUNS_STARTED_PER_MINUTE: int = 60
     # Every LLM provider call (one per generate, one per ReAct turn) gets this
     # timeout and up to this many attempts on 408/429/5xx/timeouts, with
     # exponential backoff and jitter (LP-03, ai/llm/retry.py).

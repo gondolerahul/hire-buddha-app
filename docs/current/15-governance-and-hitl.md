@@ -763,6 +763,21 @@ its own. Callers pass `key`, `limit` and `window_seconds`. Per-run tool budgets
 are tracked separately via `tool_call_counts` in `context_state`
 ([09 — Tools](09-tools.md)).
 
+### 10.3 Runs a company may start a minute
+
+[`governance/run_quota.py`](../../backend/src/ai/governance/run_quota.py) (GH-03, HD17,
+since 2026-10-08): a company may start `RUNS_STARTED_PER_MINUTE` (default 60; 0 turns it off)
+top-level runs in any 60 seconds, counted in a `RedisRateLimiter` window keyed
+`runs_started:{company_id}` — which refuses when Redis cannot be reached. Past it:
+
+| Where the run starts | What happens |
+|---|---|
+| `POST /ai/execute`, `…/retry`, `…/refine` | **429** with `Retry-After: 60`; no run is created |
+| a webhook or internal event (`process_gateway_event`) | the job defers itself a minute (arq `Retry`), so the event's run is postponed, not lost; on its fifth try it is refused and logged (`gateway.run_deferred` records each deferral) |
+
+A run's children and the CORTEX wake-ups the platform schedules are not counted. Tool-call
+quotas are later work (HD17).
+
 ---
 
 ## 11. Tool cost resolution

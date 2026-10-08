@@ -19,6 +19,16 @@ import json
 
 logger = logging.getLogger(__name__)
 
+async def _take_run_slot(company_id: UUID) -> None:
+    """One of the company's run starts this minute, or a 429 (GH-03, HD17)."""
+    from src.ai.governance.run_quota import WINDOW_SECONDS, RunQuotaExceeded, require_run_slot
+    try:
+        await require_run_slot(company_id)
+    except RunQuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc),
+                            headers={"Retry-After": str(WINDOW_SECONDS)}) from exc
+
+
 class AIService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -374,6 +384,7 @@ class AIService:
         # credit gate (AgentLoop, BC-05) still decides, with its hold.
         from src.billing.credit_service import CreditService, minimum_threshold
         await CreditService(self.db).require_credits(company_id, minimum_threshold(entity_type_str))
+        await _take_run_slot(company_id)  # GH-03: 429 past the company's runs a minute
 
         # Create Execution Record
         execution = ExecutionRun(
@@ -616,6 +627,7 @@ class AIService:
             retry_input[REUSE_OUTPUTS_KEY] = finished
 
         # 3. Create the retry run
+        await _take_run_slot(company_id)  # GH-03
         retry_run = ExecutionRun(
             company_id=company_id,
             user_id=user_id,
@@ -752,6 +764,7 @@ class AIService:
             refine_input["cortex_tree_id"] = ctx["__cortex_tree_id__"]
 
         # 6. Create the refinement run
+        await _take_run_slot(company_id)  # GH-03
         refine_run = ExecutionRun(
             company_id=company_id,
             user_id=user_id,

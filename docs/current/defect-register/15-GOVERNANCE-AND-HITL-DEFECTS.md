@@ -36,18 +36,18 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 5 | 1 | 0 | 0 |
+| [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 6 | 0 | 0 | 0 |
 | [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 9 | 0 | 0 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 4 | 0 | 1 | 0 |
 
-**Total: 25 defects (19 fixed, 3 partly fixed, 3 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (20 fixed, 2 partly fixed, 3 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | GH-01 | If Redis is down, every HITL checkpoint is skipped | ✅ fixed `98af2c0` | — |
 | GH-02 | Two of the four credit gates are never called | ✅ fixed `c1eecb9` (BC-05) | — |
-| GH-03 | The rate limiter fails open, and has no callers anyway | partly — one caller, no per-tenant quota | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-03 | The rate limiter fails open, and has no callers anyway | ✅ fixed (2026-10-08) | — |
 | GH-04 | The suspension middleware fails open and only covers one process | ✅ fixed `15191e5` (SA-18) | — |
 | GH-05 | An unmapped tool costs $0 and warns once per process | ✅ fixed (2026-10-08) | — |
 | GH-06 | Reject and timeout are detected by matching exception text | ✅ fixed `98af2c0` | — |
@@ -150,7 +150,7 @@ Recorded in full as
 
 ### GH-03 — The rate limiter fails open, and has no callers anyway
 
-**📄 Doc-reported · High** · **Status: partly fixed** — re-verified 2026-10-07: the limiter has a caller since P10.3 (`39b3514`): the agent-creation burst limit, which passes `fail_open=False`. Its default is still fail-open, and there is still no per-tenant quota on runs or tool calls (decision HD17). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**📄 Doc-reported · High** · **Status: fixed (2026-10-08)** — decision HD17: `RedisRateLimiter` refuses by default when Redis is unreachable (with GH-21), and a company may start `RUNS_STARTED_PER_MINUTE` (default 60) top-level runs a minute (`governance/run_quota.py`, key `runs_started:{company}`). Past it, the API (execute, retry, refine) answers 429 with `Retry-After: 60`; a gateway event's job defers itself a minute (arq `Retry`) and is refused on its fifth try. Tool-call quotas are later work. `tests/unit/test_run_quota.py` (5), `tests/integration/test_run_quota.py`
 
 `RedisRateLimiter` is a correct sliding-window implementation. Two problems:
 
