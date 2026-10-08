@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, runtime_checkable
 from uuid import UUID
 
 from src.ai.core.agent_state import AgentState, ExecutorName
@@ -49,6 +49,9 @@ class ActionResult:
     # Steps that ran and failed this call, mapped to their error (AK-01). They
     # are NOT in ``completed_step_ids``; the loop records them as failed.
     failed_steps: dict[str, str] = field(default_factory=dict)
+    # A person's decision stopped a step (GH-25): {"kind": "hitl_rejected" |
+    # "hitl_timeout", "reason": ..., "step_id": ...}. The loop ends the run.
+    blocked: Optional[dict[str, str]] = None
     context_state_delta: dict[str, Any] = field(default_factory=dict)
     # Async child dispatch: when non-empty, the executor dispatched child run(s)
     # as isolated jobs instead of running them inline, and the AgentLoop must

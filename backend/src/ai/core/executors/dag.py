@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
+from src.ai.core.exceptions import HITLDecisionError
 from src.ai.core.executors.base import ActionResult, register_executor
 from src.ai.governance.entity_versions import run_entity
 from src.ai.core.executors.single_step import _resolve_redis
@@ -57,6 +58,14 @@ class DAGExecutor:
         start = time.time()
         try:
             results = await engine._execute_steps_dag(run, entity, steps_payload, ctx)
+        except HITLDecisionError as decision:
+            # A reviewer's rejection or an unanswered checkpoint (GH-25).
+            return ActionResult(
+                success=False,
+                error=str(decision),
+                blocked={"kind": decision.kind, "reason": decision.reason, "step_id": ""},
+                latency_ms=int((time.time() - start) * 1000),
+            )
         except Exception as exc:                                           # noqa: BLE001
             return ActionResult(
                 success=False,

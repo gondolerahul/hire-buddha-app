@@ -50,6 +50,7 @@ class Observer:
             ],
             summary=self._summarise(action_result, outcome),
             output=action_result.output or "",
+            blocked_by=(action_result.blocked or {}).get("kind", ""),
         )
 
     # ------------------------------------------------------------------
@@ -58,6 +59,9 @@ class Observer:
 
     @staticmethod
     def _outcome(ar: "ActionResult") -> str:
+        if ar.blocked:
+            # A reviewer's rejection or an unanswered checkpoint (GH-25, AK-08).
+            return "blocked"
         if ar.error:
             return "fail"
         if not ar.success:

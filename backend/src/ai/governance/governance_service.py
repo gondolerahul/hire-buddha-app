@@ -19,6 +19,7 @@ from src.billing.billing_service import BillingService, calculate_tb, compute_bi
 from src.ai.orm import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
 from src.ai.governance.hitl_snapshot import build_hitl_snapshot
+from src.ai.core.exceptions import HITLRejected, HITLTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +240,8 @@ class GovernanceService:
         1. Create a HumanApproval record with PENDING status
         2. Publish HITL event to Redis for real-time notification
         3. Wait for approval/rejection via Redis pub/sub (with timeout)
-        4. If rejected or timed out (without auto-approve), raise Exception
+        4. If rejected, raise HITLRejected; if timed out (without auto-approve),
+           HITLTimeout — the loop ends the run on either (GH-25)
         """
         # Use pre-fetched governance dict to avoid MissingGreenlet after timeout
         governance = governance_dict if governance_dict is not None else (entity.governance or {})
@@ -347,13 +349,27 @@ class GovernanceService:
             if decision == "APPROVED":
                 logger.info(f"HITL approved: {trigger_desc}")
                 continue
+            # A decision ends the run (GH-25, HD7): typed, so the loop stops
+            # instead of judging it with a critic and retrying the step.
             if decision == "REJECTED":
                 logger.info(f"HITL rejected: {trigger_desc}")
-                raise Exception(f"Execution blocked by human reviewer: {trigger_desc}")
+                notes = await self._reviewer_notes(approval.id)
+                raise HITLRejected(
+                    f"Execution blocked by human reviewer: {trigger_desc}"
+                    + (f" — {notes}" if notes else ""),
+                    approval_id=str(approval.id),
+                )
             logger.info(f"HITL timed out: {trigger_desc}")
-            raise Exception(
-                f"HITL checkpoint timed out after {cp.timeout_ms}ms: {trigger_desc}"
+            raise HITLTimeout(
+                f"HITL checkpoint timed out after {cp.timeout_ms}ms: {trigger_desc}",
+                approval_id=str(approval.id),
             )
+
+    async def _reviewer_notes(self, approval_id: Any) -> str:
+        notes = (await self.db.execute(
+            select(HumanApproval.reviewer_notes).where(HumanApproval.id == approval_id)
+        )).scalar_one_or_none()
+        return str(notes).strip() if notes else ""
 
     async def ask_user(self, run: 'ExecutionRun', step_obj: PlanStep, question: str,
                        *, timeout_ms: int = 300000) -> str:
@@ -392,15 +408,17 @@ class GovernanceService:
                 .values(status="TIMEOUT")
             )
             await self.db.commit()
-            raise Exception(f"Nobody answered the question for step '{step_obj.name}' "
-                            f"within {timeout_ms // 1000}s: {question}")
+            raise HITLTimeout(f"Nobody answered the question for step '{step_obj.name}' "
+                              f"within {timeout_ms // 1000}s: {question}", approval_id=str(approval.id))
         if decision != "APPROVED":
-            raise Exception(f"The reviewer declined to answer for step '{step_obj.name}'")
+            raise HITLRejected(f"The reviewer declined to answer for step '{step_obj.name}'",
+                               approval_id=str(approval.id))
         answer = (await self.db.execute(
             select(HumanApproval.reviewer_notes).where(HumanApproval.id == approval.id)
         )).scalar_one_or_none()
         if not answer or not str(answer).strip():
-            raise Exception(f"The reviewer approved step '{step_obj.name}' without an answer")
+            raise HITLRejected(f"The reviewer approved step '{step_obj.name}' without an answer",
+                               approval_id=str(approval.id))
         return str(answer).strip()
 
     # The decisions a reviewer can record on an approval row.

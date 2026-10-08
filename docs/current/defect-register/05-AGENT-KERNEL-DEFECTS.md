@@ -50,7 +50,7 @@
 | [T2](#4-t2--delete-or-fix-the-name) | Delete or fix the name | 5 | **Now** — free |
 | [T3](#5-t3--correctness-and-cost) | Correctness and cost | 6 | Needs design |
 
-**Total: 21 defects (20 fixed, 1 open), 10 improvements.** Re-verified 2026-10-07: the open one is AK-08, which the consolidated plan merged into AK-05 and AK-05's fix did not cover; it is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (21 fixed), 10 improvements.** Re-verified 2026-10-07; AK-08, which the consolidated plan had merged into AK-05, was fixed on 2026-10-08 with GH-25.
 
 The three to read first:
 
@@ -283,7 +283,7 @@ So both halves of the fan-out control are inactive.
 
 ### AK-08 — `state.blockers` is written by a branch that cannot be reached
 
-**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07. The consolidated plan merged this into AK-05, but AK-05's fix deleted the Perceiver and left `blockers` alone: `Observer._outcome` (`ai/core/observer.py`) still returns only `success`, `partial` or `fail`, so `apply_observation` (`agent_state.py:382`) never appends, and the supervisor critic (`planning/supervisor_critic.py:204`) still renders an always-empty list. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold), where a HITL rejection or timeout becomes the first `blocked` observation.
+**✅ Verified · Medium** · **Status: fixed (2026-10-08)** — with GH-25: a person's decision at a HITL checkpoint is the first thing that blocks a step. The executors report `HITLRejected` / `HITLTimeout` as `ActionResult.blocked`; `Observer._outcome` returns `blocked` for it and `Observation.blocked_by` names it; `apply_observation` adds a `Blocker(kind="hitl_decision")`. The loop then ends the run (CANCELLED or FAILED) before any critic, so the supervisor still does not see one mid-run. `tests/unit/test_hitl_decision_ends_run.py`
 
 `blockers` is appended only by `apply_observation`, and only when
 `observation.outcome == "blocked"`. `Observer._outcome` can only return `success`,

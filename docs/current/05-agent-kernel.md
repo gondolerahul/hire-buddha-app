@@ -305,7 +305,7 @@ classDiagram
 | Type | Meaning | Who creates it |
 |------|---------|----------------|
 | `Subgoal` | A unit of intent. `blocked_on` is a free-text note; `priority` sorts them (higher first by convention, though nothing sorts automatically). | `AgentState.add_subgoal` at bootstrap from `entity.goal`; `SupervisorVerdict.proposed_subgoals` on REPLAN. |
-| `Blocker` | Why the agent is stuck. `kind` is one of `missing_tool`, `missing_data`, `awaiting_hitl`, `budget`, `error`. | Only `AgentState.apply_observation` when `outcome == "blocked"` — see the gotcha in §18. |
+| `Blocker` | Why the agent is stuck. `kind` is one of `missing_tool`, `missing_data`, `awaiting_hitl`, `budget`, `error`, `hitl_decision`. | Only `AgentState.apply_observation` when `outcome == "blocked"`: today a person's decision at a HITL checkpoint (`hitl_decision`, AK-08). |
 | `Action` | What the loop just dispatched. Written every iteration at [agent_loop.py:569](../../backend/src/ai/core/agent_loop.py:569). |
 | `Observation` | The typed reading of an `ActionResult`. `outcome` is `success` / `partial` / `fail` / `blocked`; `novelty_score` 0..1; `goal_delta_estimate` -1..1. | `Observer.parse`. |
 | `Reflection` | A per-iteration lesson. `scope` is `run` / `entity` / `task_class`. | `Reflector.produce`. |
@@ -1310,7 +1310,8 @@ dependencies, ~70 lines. It turns an `ActionResult` into an `Observation`:
 
 | Output field | Rule |
 |---|---|
-| `outcome` | `ar.error` → `"fail"`; `not ar.success` → `"partial"`; else `"success"` |
+| `outcome` | `ar.blocked` → `"blocked"`; `ar.error` → `"fail"`; `not ar.success` → `"partial"`; else `"success"` |
+| `blocked_by` | `ar.blocked["kind"]` — `hitl_rejected` or `hitl_timeout` — else `""` |
 | `novelty_score` | CORTEX nodes written → `1.0`; output longer than 200 chars → `0.6`; else `0.5` |
 | `goal_delta_estimate` | `success` → `+0.1`; `fail` → `-0.1`; else `0.0` |
 | `cortex_node_ids_written` | stringified `ar.cortex_nodes_written` |
@@ -1325,8 +1326,11 @@ characters, the bound executors already apply), with a line saying the system cu
 it if it ever does, so a cut is never mistaken for the step's own. A failed step
 with no output shows the post critic its `summary`, which carries the error.
 
-Note it can never emit `"blocked"`, which is why `state.blockers` stays empty
-in practice (see §18).
+It emits `"blocked"` when a person's decision stopped the step (`ActionResult.blocked`,
+GH-25): `apply_observation` then adds a `hitl_decision` blocker, and the loop ends the run
+before any critic — `CANCELLED` on a rejection, `FAILED` on a timeout
+(`AgentLoop._end_on_human_decision`). Until AK-08 (2026-10-08) nothing produced `"blocked"`
+and `state.blockers` was always empty.
 
 ### Reflector
 
@@ -2019,10 +2023,10 @@ would be refused by the `MAX_CORRECTIVE_RETRIES_PER_RUN = 2` cap.
   passes `memory_assembler=None`, and nothing ever sets `state.cortex_cursor`,
   so `viewport_text`, `intelligence_rules` and `similar_past_runs` are `""` /
   `[]` / `[]` on every real run.
-- **`state.blockers` is effectively dead.** It is only appended by
-  `apply_observation` when `observation.outcome == "blocked"`, and
-  `Observer._outcome` can only return `success`, `partial` or `fail`. The
-  SupervisorCritic renders blockers into its prompt, so it always sees none.
+- ~~**`state.blockers` is effectively dead.**~~ (AK-08, fixed 2026-10-08) A HITL
+  rejection or timeout is a `blocked` observation and a `hitl_decision` blocker. The
+  loop ends the run on it, so the SupervisorCritic still never reads one mid-run; it is
+  in the run's snapshot.
 - **The pre-critic almost never runs.** Any move with a `plan_fragment` gets a
   synthetic `PASS`. In practice that is every plan-driven iteration — so the
   pre-critic only sees `Recursive` moves (planning failed before the first

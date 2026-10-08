@@ -37,11 +37,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 4 | 1 | 1 | 0 |
-| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 4 | 0 | 5 | 0 |
+| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 5 | 0 | 4 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 2 | 1 | 2 | 0 |
 
-**Total: 25 defects (11 fixed, 4 partly fixed, 10 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (12 fixed, 4 partly fixed, 9 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -69,7 +69,7 @@
 | GH-22 | Every HITL checkpoint fails to subscribe, so none of them waits | ✅ fixed `98af2c0` | — |
 | GH-23 | Authorize and Block Cycle always fail with 422 | ✅ fixed `1a55054` | — |
 | GH-24 | Any user can answer any company's approval | ✅ fixed `1a55054` | — |
-| GH-25 | A rejected step is retried, and the reviewer is asked again | open — decision HD7 | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-25 | A rejected step is retried, and the reviewer is asked again | ✅ fixed (2026-10-08) | — |
 
 The three to read first:
 
@@ -415,7 +415,7 @@ approval stays `PENDING`; a second answer is 409 and the first stands; an answer
 
 ### GH-25 — A rejected step is retried, and the reviewer is asked again
 
-**✅ Verified · High** · **Status: open** — found 2026-09-29 while verifying GH-22.
+**✅ Verified · High** · **Status: fixed (2026-10-08)** — decision HD7: `evaluate_hitl` and `ask_user` raise `HITLRejected` / `HITLTimeout` (`ai/core/exceptions.py`); the SingleStep and DAG executors report them as `ActionResult.blocked`, and the loop ends the run there — CANCELLED with the reviewer's notes on a rejection, FAILED on a timeout — before any critic or retry (`AgentLoop._end_on_human_decision`, event `agent.loop.human_decision`). A decision outranks other failures in a parallel DAG level. `tests/unit/test_hitl_decision_ends_run.py`
 
 **Block Cycle** fails the step with *Execution blocked by human reviewer*. The loop cannot
 tell that failure from any other: the post critic judges it (an LLM call — it answered

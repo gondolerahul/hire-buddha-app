@@ -72,6 +72,7 @@ class Blocker:
         "awaiting_hitl",
         "budget",
         "error",
+        "hitl_decision",       # a reviewer rejected a step, or nobody decided (GH-25)
     ]
     detail: str
     related_subgoal_id: Optional[str] = None
@@ -94,6 +95,7 @@ class Observation:
     cortex_node_ids_written: list[str] = field(default_factory=list)
     summary: str = ""                                             # one line, for the timeline
     output: str = ""                                              # what the step produced, whole (PC-27)
+    blocked_by: str = ""                                          # "hitl_rejected" / "hitl_timeout" (AK-08)
 
 
 @dataclass
@@ -380,8 +382,10 @@ class AgentState:
     def apply_observation(self, observation: Observation) -> None:
         self.last_observation = observation
         if observation.outcome == "blocked":
+            # A person's decision is the one thing that blocks a step today
+            # (AK-08: before, nothing produced a "blocked" observation).
             self.blockers.append(Blocker(
-                kind="missing_data",
+                kind="hitl_decision" if observation.blocked_by.startswith("hitl") else "missing_data",
                 detail=observation.summary or "observation reported blocked",
             ))
 

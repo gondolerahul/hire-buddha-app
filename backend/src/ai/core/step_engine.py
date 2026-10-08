@@ -34,7 +34,7 @@ from src.ai.memory.cortex_bridge import CortexBridge
 from src.ai.step_executor import StepExecutorService
 from src.ai.memory.cortex_service import CortexService
 
-from src.ai.core.exceptions import UncertaintySignal, BudgetExhaustedError
+from src.ai.core.exceptions import UncertaintySignal, BudgetExhaustedError, HITLDecisionError
 from src.ai.core.context_utils import store_step_output
 
 logger = logging.getLogger(__name__)
@@ -224,7 +224,10 @@ class StepEngine:
                 await self.db.refresh(run)
 
                 if failures:
-                    raise failures[0][1]  # Raise first failure after saving all results
+                    # A person's decision outranks an ordinary failure: the loop
+                    # ends the run on it (GH-25). Otherwise raise the first.
+                    decision = next((e for _, e in failures if isinstance(e, HITLDecisionError)), None)
+                    raise decision or failures[0][1]
 
         return [results_map.get(s["step_id"], {}) for s in steps]
 

@@ -53,7 +53,8 @@ flowchart TD
 
     LOOP --> STEP["Per step"]
     STEP --> HB{"HITL BEFORE checkpoints"}
-    HB -->|rejected / timeout| BSTOP["Run fails"]
+    HB -->|rejected| BCAN["Run CANCELLED"]
+    HB -->|timeout| BSTOP["Run FAILED"]
     HB -->|approved / none| RL{"Rate limit"}
     RL -->|exceeded| BRL["Blocked"]
     RL -->|ok| EXEC["Execute step"]
@@ -176,7 +177,7 @@ classDiagram
 | `check_credit_circuit_breaker` | After each step | `InsufficientCreditsError` |
 | `check_child_credit_gate` | Before spawning a child entity | `InsufficientCreditsError` |
 | `settle_billing` | On run completion (top-level only) | — |
-| `evaluate_hitl` | Before and after each step | `Exception` on reject/timeout |
+| `evaluate_hitl` | Before and after each step | `HITLRejected` / `HITLTimeout` — the loop ends the run (GH-25) |
 
 ---
 
@@ -496,8 +497,8 @@ stateDiagram-v2
     PENDING --> TIMEOUT: timeout_ms elapsed, auto_approve off
     PENDING --> APPROVED: timeout_ms elapsed, auto_approve ON
     APPROVED --> [*]: run continues
-    REJECTED --> [*]: Exception - Execution blocked by human reviewer
-    TIMEOUT --> [*]: Exception - HITL checkpoint timed out
+    REJECTED --> [*]: HITLRejected - run CANCELLED
+    TIMEOUT --> [*]: HITLTimeout - run FAILED
 ```
 
 ---
@@ -566,7 +567,7 @@ checkpoint ever waited. GH-22, GH-01.)
 | Decision | Result |
 |---|---|
 | `APPROVED` | next checkpoint, then the step runs |
-| `REJECTED` | raises `Execution blocked by human reviewer: …` — the step fails |
+| `REJECTED` | raises `HITLRejected("Execution blocked by human reviewer: … — <reviewer notes>")` — the run ends `CANCELLED` (§8.4) |
 | deadline | see §8.3 |
 
 ### 8.3 Timeout behaviour
@@ -574,7 +575,8 @@ checkpoint ever waited. GH-22, GH-01.)
 At the deadline the row is marked with a **conditional** update — `TIMEOUT`, or `APPROVED`
 with *"Auto-approved on timeout"* when `auto_approve_on_timeout` is set — `WHERE status =
 'PENDING'`. If a reviewer's answer landed at the same moment, the update matches nothing
-and their decision wins. A `TIMEOUT` raises `HITL checkpoint timed out after …ms`.
+and their decision wins. A `TIMEOUT` raises `HITLTimeout("HITL checkpoint timed out after …ms")`
+and the run ends `FAILED`.
 
 Default `timeout_ms` is **300000 (5 minutes)** and `auto_approve_on_timeout`
 defaults to **`False`** — so the safe default is *fail closed on timeout*.
@@ -589,8 +591,16 @@ another company's approval is a 404 — and records the decision with `UPDATE �
 timed out, is a 409. The router then publishes on `hitl:{approval_id}` (best-effort; the
 worker also reads the row). GH-23, GH-24.
 
-⚠️ A rejection fails the step, and the loop treats that like any failed step: it retries,
-and the checkpoint asks the reviewer again (GH-25).
+A decision ends the run (GH-25, HD7). `HITLRejected` and `HITLTimeout`
+(`ai/core/exceptions.py`, both `HITLDecisionError`) reach the executor, which reports them
+as `ActionResult.blocked = {kind, reason, step_id}` instead of an ordinary failure. The
+observer makes that a `blocked` observation and a `hitl_decision` blocker (AK-08), and the
+loop stops there: no critic judges the decision, no retry asks the reviewer again, no other
+step runs. A rejection ends the run **`CANCELLED`** with the reviewer's notes in
+`error_message`; a timeout ends it **`FAILED`**. The event is `agent.loop.human_decision`.
+An `ASK_USER` question (PC-06) behaves the same way: no answer is `HITLTimeout`; a refusal,
+or an approval with no answer, is `HITLRejected`. In a parallel DAG level, a decision
+outranks the other steps' failures.
 
 ### 8.5 Operational implications of a blocking wait
 
@@ -1196,8 +1206,8 @@ redis-cli DEL "tool:search:company_<uuid>"
 2. **A HITL wait survives a Redis outage.** It re-reads the approval row every 2
    seconds, so decisions still land; they are just noticed up to ~2 seconds later.
 
-3. **A rejected step is retried, and the reviewer is asked again** (GH-25). The loop
-   does not yet tell a reviewer's rejection apart from any other step failure.
+3. ~~**A rejected step is retried, and the reviewer is asked again**~~ (GH-25, fixed
+   2026-10-08): a rejection ends the run `CANCELLED`, a timeout `FAILED` (§8.4).
 
 4. **A HITL wait blocks an Arq worker slot** for up to `timeout_ms` (default 5
    minutes). Concurrent approvals can starve the worker pool.

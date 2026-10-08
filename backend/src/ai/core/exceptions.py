@@ -44,6 +44,32 @@ class CreditExhaustedError(AgentError):
     pass
 
 
+class HITLDecisionError(AgentError):
+    """A person's decision at a HITL checkpoint (or an ASK_USER question) that
+    ends the run (GH-25, HD7): no critic judges it and no retry asks again.
+    ``kind`` names the decision for the run's blocker."""
+
+    kind = "hitl_decision"
+
+    def __init__(self, reason: str, *, approval_id: Optional[str] = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.approval_id = approval_id
+
+
+class HITLRejected(HITLDecisionError):
+    """The reviewer blocked the step: the run ends CANCELLED, with their reason."""
+
+    kind = "hitl_rejected"
+
+
+class HITLTimeout(HITLDecisionError):
+    """Nobody decided in time (and the checkpoint does not auto-approve): the
+    run ends FAILED."""
+
+    kind = "hitl_timeout"
+
+
 class BudgetExhaustedError(AgentError):
     """Execution stopped because the run reached the entity's
     ``governance.max_cost_usd`` ceiling.

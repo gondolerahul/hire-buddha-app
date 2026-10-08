@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
+from src.ai.core.exceptions import HITLDecisionError
 from src.ai.core.executors.base import ActionResult, register_executor
 from src.ai.governance.entity_versions import run_entity
 from src.ai.core.strategist import Move
@@ -68,6 +69,7 @@ class SingleStepExecutor:
         failed: dict[str, str] = {}
         errored = False
         error_msg = ""
+        blocked: Optional[dict[str, str]] = None
 
         start = time.time()
         # Run the legacy step engine on its OWN session. ``_execute_step_wrapper``
@@ -103,6 +105,15 @@ class SingleStepExecutor:
                     step_id = str(getattr(step_obj, "step_id", None) or step_obj.name or "")
                     try:
                         result = await engine._execute_step_wrapper(run, entity, step_obj, ctx)
+                    except HITLDecisionError as decision:
+                        # A reviewer's rejection or an unanswered checkpoint:
+                        # the loop ends the run, no critic, no retry (GH-25).
+                        errored, error_msg = True, str(decision)
+                        blocked = {"kind": decision.kind, "reason": decision.reason, "step_id": step_id}
+                        _step_span.set_error(error_msg)
+                        if step_id:
+                            failed[step_id] = error_msg
+                        break
                     except Exception as exc:                               # noqa: BLE001
                         errored = True
                         error_msg = f"{type(exc).__name__}: {exc}"
@@ -147,6 +158,7 @@ class SingleStepExecutor:
             error=error_msg,
             completed_step_ids=completed,
             failed_steps=failed,
+            blocked=blocked,
         )
 
     async def _no_plan_noop(self, state: AgentState) -> ActionResult:

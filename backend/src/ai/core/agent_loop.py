@@ -231,7 +231,7 @@ class AgentLoop(RunPersistence, LoopLearning):
                 outcome_status = self._final_status(state)
                 last_output = self._final_output(state)
                 total_cost = float(state.budget.usd_used)
-                if outcome_status == RunStatus.FAILED.value:
+                if outcome_status in (RunStatus.FAILED.value, RunStatus.CANCELLED.value):
                     last_error = state.abort_reason or failed_steps_summary(state)
                 elif outcome_status == RunStatus.PARTIAL_COMPLETE.value and state.failed_steps:
                     last_error = failed_steps_summary(state)
@@ -655,6 +655,12 @@ class AgentLoop(RunPersistence, LoopLearning):
         # 5. Observe
         observation = self.observer.parse(action_result, state)
         state.apply_observation(observation)
+
+        # A person's decision ends the run here (GH-25, HD7): no critic judges
+        # it and no retry asks the reviewer again.
+        if action_result.blocked:
+            await self._end_on_human_decision(state, action_result.blocked)
+            return
 
         # 6. Critics (Track 3: real pipeline by default; NoOp if flag off)
         post = await self.critic_pipeline.post_action(state, observation)
@@ -1123,6 +1129,21 @@ class AgentLoop(RunPersistence, LoopLearning):
         if ent is None:
             return ""
         return getattr(ent, "goal", "") or ""
+
+    async def _end_on_human_decision(self, state: AgentState, blocked: dict[str, str]) -> None:
+        """A rejection ends the run CANCELLED with the reviewer's reason; an
+        unanswered checkpoint ends it FAILED (HD7)."""
+        reason = blocked.get("reason") or "A reviewer stopped the run"
+        if blocked.get("kind") == "hitl_rejected":
+            state.external_status = RunStatus.CANCELLED.value
+        else:
+            state.next_decision = "ABORT"
+        state.abort_reason = reason
+        state.done = True
+        await self._refresh_spend(state)
+        await self._snapshot(state)
+        await event_async("agent.loop.human_decision", run_id=str(state.run_id), iteration=state.iteration,
+                          kind=blocked.get("kind"), step_id=blocked.get("step_id"), reason=reason[:500])
 
     @staticmethod
     def _fail_blocked_steps(state: AgentState, move: Any, concerns: list[str]) -> list[str]:
