@@ -258,6 +258,8 @@ class GovernanceService:
 
             should_fire = False
             trigger_desc = ""
+            run_cost: Any = run.total_cost_usd
+            step_estimate: Optional[float] = None
 
             if cp.trigger_type is HITLTriggerType.BEFORE_STEP and phase == "BEFORE":
                 if cp.step_ref and (cp.step_ref == step_obj.name or cp.step_ref == step_obj.step_id):
@@ -270,10 +272,18 @@ class GovernanceService:
                     trigger_desc = f"AFTER_STEP: {step_obj.name}"
 
             elif cp.trigger_type is HITLTriggerType.COST_THRESHOLD and phase == "BEFORE":
-                current_cost = float(run.total_cost_usd or 0)
-                if cp.threshold and current_cost >= cp.threshold:
-                    should_fire = True
-                    trigger_desc = f"COST_THRESHOLD: ${current_cost:.4f} >= ${cp.threshold:.2f}"
+                # Ask before the step that would cross the line, not after it
+                # (GH-08): the run's spend so far plus this step's estimate.
+                # Once over, every later step asks. The trigger names the
+                # threshold and the step, not the spend, so a parked run's
+                # step finds its approval again when it is dispatched.
+                if cp.threshold:
+                    from src.ai.planning.cost_estimator import estimate_step_cost
+                    run_cost = await self._run_spend(run)
+                    step_estimate = float(estimate_step_cost(step_obj, entity))
+                    if run_cost + step_estimate >= cp.threshold:
+                        should_fire = True
+                        trigger_desc = f"COST_THRESHOLD: ${cp.threshold:.2f} before {step_obj.name}"
 
             elif cp.trigger_type is HITLTriggerType.TOOL_CALL and phase == "BEFORE":
                 if step_obj.type is StepType.TOOL_CALL and step_obj.target:
@@ -314,7 +324,8 @@ class GovernanceService:
                     context_snapshot=build_hitl_snapshot(
                         checkpoint=cp, trigger_desc=trigger_desc, phase=phase,
                         entity=entity, step=step_obj, context_state=context_state,
-                        run_cost_usd=run.total_cost_usd, step_result=step_result,
+                        run_cost_usd=run_cost, step_result=step_result,
+                        step_cost_estimate_usd=step_estimate,
                     ),
                     timeout_ms=cp.timeout_ms, notification_channels=cp.notification_channels,
                 )
@@ -322,6 +333,16 @@ class GovernanceService:
             raise hitl_gate.pending(existing, trigger=trigger_desc, phase=phase,
                                     step_id=str(step_obj.step_id or step_obj.name),
                                     auto_approve=cp.auto_approve_on_timeout)
+
+    async def _run_spend(self, run: 'ExecutionRun') -> float:
+        """The run's spend now: its usage rows and its children's totals
+        (AK-02). The run's own column moves only between iterations."""
+        try:
+            from src.ai.governance.run_cost import run_spend
+            return float((await run_spend(self.db, run.id)).cost_usd)
+        except Exception:
+            logger.warning("Run spend unreadable for run %s; using the run's recorded cost", run.id)
+            return float(run.total_cost_usd or 0)
 
     async def _open_approval(self, run: 'ExecutionRun', trigger: str, message: str, *,
                              context_snapshot: dict[str, Any], timeout_ms: int,

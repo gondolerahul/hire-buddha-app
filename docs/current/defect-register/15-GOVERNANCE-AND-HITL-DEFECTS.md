@@ -37,11 +37,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 4 | 1 | 1 | 0 |
-| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 6 | 0 | 3 | 0 |
+| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 7 | 0 | 2 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 2 | 1 | 2 | 0 |
 
-**Total: 25 defects (13 fixed, 4 partly fixed, 8 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (14 fixed, 4 partly fixed, 7 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -52,7 +52,7 @@
 | GH-05 | An unmapped tool costs $0 and warns once per process | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | GH-06 | Reject and timeout are detected by matching exception text | ✅ fixed `98af2c0` | — |
 | GH-07 | A HITL wait blocks a worker slot | ✅ fixed (2026-10-08) | — |
-| GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | ✅ fixed (2026-10-08) | — |
 | GH-09 | Malformed HITL checkpoints are skipped silently | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | GH-10 | `CUSTOM` expressions support two variables and two operators | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | GH-11 | The approvals page does not show what is being approved | ✅ fixed | — |
@@ -299,7 +299,7 @@ approvals starves every other run in the company.
 
 ### GH-08 — `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `COST_THRESHOLD` is still evaluated only when `phase == "BEFORE"` (`governance_service.py:269`). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `COST_THRESHOLD` fires before a step when the run's spend so far (its usage rows and children, `run_spend` — not the run column, which moves only between iterations) plus the step's estimate (`planning/cost_estimator.estimate_step_cost`) reaches the threshold, so the person is asked before the line is crossed; once over, every later step asks, which is the backstop for a low estimate. The trigger names the threshold and the step, not the spend, so a parked run's step finds its approval again after a critic call spent a little (it was `$X >= $Y` and would have asked again). The approval's snapshot carries `run_cost_usd` and `step_cost_estimate_usd`. `tests/integration/test_hitl_parking.py` (2)
 
 Only `AFTER_STEP` fires in the `AFTER` phase. `COST_THRESHOLD` is `BEFORE`-only.
 

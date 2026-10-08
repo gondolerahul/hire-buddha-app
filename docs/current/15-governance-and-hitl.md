@@ -410,19 +410,24 @@ class HITLTriggerType(str, Enum):
 |---|---|---|---|
 | `BEFORE_STEP` | `BEFORE` only | `step_ref` == step `name` **or** `step_id` | `BEFORE_STEP: {step.name}` |
 | `AFTER_STEP` | `AFTER` only | `step_ref` == step `name` **or** `step_id` | `AFTER_STEP: {step.name}` |
-| `COST_THRESHOLD` | `BEFORE` only | `run.total_cost_usd >= threshold` | `COST_THRESHOLD: $X >= $Y` |
+| `COST_THRESHOLD` | `BEFORE` only | the run's spend so far (its usage rows and children, `run_spend`) **plus this step's estimate** (`planning/cost_estimator.estimate_step_cost`) `>= threshold` | `COST_THRESHOLD: ${threshold} before {step.name}` |
 | `TOOL_CALL` | `BEFORE` only | step is `TOOL_CALL` and `target.tool_id == tool_ref` | `TOOL_CALL: {tool_ref}` |
 | `CUSTOM` | `BEFORE` only | `_safe_eval_expression` returns truthy | `CUSTOM: {expression}` |
 
 > **Only `AFTER_STEP` fires in the `AFTER` phase.** Every other trigger is
-> `BEFORE`-only. A `COST_THRESHOLD` checkpoint therefore fires before the
-> *next* step, not immediately when the cost is crossed.
+> `BEFORE`-only. A `COST_THRESHOLD` checkpoint asks before the step that would
+> cross the line — spend so far plus the step's estimate (GH-08, since
+> 2026-10-08) — and, once the run is over it, before every later step: if an
+> estimate was low, the next step asks. The trigger names the threshold and the
+> step, not the spend, so a parked run's step finds its approval again even
+> though a critic call spent a little meanwhile. The approval's snapshot carries
+> `run_cost_usd` and `step_cost_estimate_usd`.
 
 ```mermaid
 flowchart TD
     STEP["Step about to run"] --> PH{"phase"}
     PH -->|BEFORE| B1{"BEFORE_STEP matches step_ref?"}
-    B1 --> B2{"COST_THRESHOLD:<br/>total_cost_usd >= threshold?"}
+    B1 --> B2{"COST_THRESHOLD:<br/>spend + step estimate >= threshold?"}
     B2 --> B3{"TOOL_CALL:<br/>target.tool_id == tool_ref?"}
     B3 --> B4{"CUSTOM: expression truthy?"}
     B4 --> FIRE{"any matched?"}
@@ -466,7 +471,8 @@ approval = HumanApproval(
     context_snapshot=build_hitl_snapshot(
         checkpoint=cp, trigger_desc=trigger_desc, phase=phase,
         entity=entity, step=step_obj, context_state=context_state,
-        run_cost_usd=run.total_cost_usd, step_result=step_result,
+        run_cost_usd=run_cost, step_result=step_result,
+        step_cost_estimate_usd=step_estimate,       # COST_THRESHOLD only (GH-08)
     ),
     notification_channels=cp.notification_channels,
     timeout_ms=cp.timeout_ms,
@@ -483,7 +489,8 @@ approval = HumanApproval(
 | `step_prompt` | the step's prompt template **resolved** against the run context |
 | `run_input` | the run's `input` |
 | `step_output` | `AFTER` only — what the step produced (the step engine passes its result in) |
-| `run_cost_usd` | the run's cost so far |
+| `run_cost_usd` | the run's cost so far (for `COST_THRESHOLD`, its usage rows — GH-08) |
+| `step_cost_estimate_usd` | `COST_THRESHOLD` only — what the step about to run is expected to cost |
 
 Text fields are capped at 4000 characters and empty keys are dropped. `step_id` stays out
 so the approval UI cannot leak the entity's internal plan topology. `GET
@@ -1222,9 +1229,9 @@ redis-cli DEL "tool:search:company_<uuid>"
 4. ~~**A HITL wait blocks an Arq worker slot**~~ (GH-07, fixed 2026-10-08): the run
    parks `PAUSED` and holds no worker while a person decides (§8).
 
-5. **Only `AFTER_STEP` fires in the `AFTER` phase.** `COST_THRESHOLD` is
-   `BEFORE`-only, so it fires before the *next* step, not at the moment the
-   threshold is crossed.
+5. ~~**`COST_THRESHOLD` fires before the *next* step**~~ (GH-08, fixed 2026-10-08):
+   it asks before the step whose estimate would cross the line (§7.2). An estimate
+   can still be low — then the next step asks.
 
 6. **Malformed HITL checkpoints are skipped silently** — a `continue` with no
    log line.

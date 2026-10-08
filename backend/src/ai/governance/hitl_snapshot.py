@@ -37,6 +37,7 @@ def build_hitl_snapshot(
     context_state: dict[str, Any],
     run_cost_usd: Any = None,
     step_result: Any = None,
+    step_cost_estimate_usd: Any = None,
 ) -> dict[str, Any]:
     """Return the JSON-safe snapshot for one fired checkpoint. Empty fields are omitted."""
     target = getattr(step, "target", None)
@@ -60,5 +61,8 @@ def build_hitl_snapshot(
         "run_input": _clip(context_state.get("input")),
         "step_output": _clip(output),
         "run_cost_usd": float(run_cost_usd) if run_cost_usd is not None else None,
+        # COST_THRESHOLD: what the step about to run is expected to cost (GH-08).
+        "step_cost_estimate_usd": (float(step_cost_estimate_usd)
+                                   if step_cost_estimate_usd is not None else None),
     }
     return {k: v for k, v in snapshot.items() if v is not None}
