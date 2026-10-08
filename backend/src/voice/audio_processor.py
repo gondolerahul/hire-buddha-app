@@ -133,15 +133,19 @@ class AudioProcessor:
             return b''
     
     @staticmethod
-    def ensure_chunk_size(audio_bytes: bytes, target_size: int = 160) -> list[bytes]:
+    def ensure_chunk_size(audio_bytes: bytes, target_size: int = 160,
+                          pad_byte: bytes = b'\xff') -> list[bytes]:
         """
-        Split audio into chunks of specific size.
+        Split mu-law audio into chunks of specific size.
         
         Tata Tele requires chunks in multiples of 160 bytes.
         
         Args:
-            audio_bytes: Input audio data
+            audio_bytes: Input mu-law audio data
             target_size: Chunk size in bytes (default 160)
+            pad_byte: What fills a short last chunk. ``0xFF`` is mu-law
+                silence; ``0x00``, used before VT-17, is its loudest
+                negative sample, a click.
             
         Returns:
             List of audio chunks
@@ -153,7 +157,7 @@ class AudioProcessor:
             
             # Pad if necessary
             if len(chunk) < target_size:
-                chunk += b'\x00' * (target_size - len(chunk))
+                chunk += pad_byte * (target_size - len(chunk))
             
             chunks.append(chunk)
         

@@ -40,9 +40,9 @@
 | [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 3 | 0 | 1 | 0 |
 | [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 2 | 1 | 2 | 0 |
-| [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 1 | 2 | 2 | 3 |
+| [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 2 | 2 | 1 | 3 |
 
-**Total: 21 defects (10 fixed, 3 partly fixed, 5 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (11 fixed, 3 partly fixed, 4 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -62,7 +62,7 @@
 | VT-14 | The lead queue is written and never drained | ✅ fixed (SA-08, `24650e7`) | — |
 | VT-15 | `"sucess"` is a real key on the wire | partly — a setting, still `"sucess"` | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-16 | Agent edits take up to five minutes to reach new calls | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
-| VT-17 | `ensure_chunk_size` pads with the wrong byte | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-17 | `ensure_chunk_size` pads with the wrong byte | ✅ fixed (2026-10-08) | — |
 | VT-18 | A campaign's company comes from the agent, not the user | not a defect — correct as-is | — |
 | VT-19 | Silence is measured against the playback horizon | not a defect — correct as-is | — |
 | VT-20 | Muted audio is sent as zeros rather than dropped | not a defect — correct as-is | — |
@@ -337,7 +337,7 @@ both ends.
 
 ### VT-17 — `ensure_chunk_size` pads with the wrong byte
 
-**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: still pads with `b'\x00'` (`audio_processor.py:155`). Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-08)** — `ensure_chunk_size` pads a short last chunk with `0xFF`, mu-law silence (a `pad_byte` argument, default `0xFF`), instead of `0x00`, mu-law's loudest negative sample. `tests/unit/test_mulaw_padding.py` (2)
 
 It pads with `0x00`, which in mu-law is **maximum negative amplitude**, not silence
 (`0xFF` is). Padding therefore appends a burst of full-scale noise rather than quiet.

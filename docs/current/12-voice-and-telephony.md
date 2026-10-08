@@ -1669,7 +1669,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - **Muted audio is sent as zeros, never dropped.** Gaps break Gemini's end-of-turn detection.
 - **Recording-artifact lookup has a time-proximity fallback** that can attach the wrong WAV when several calls end together.
 - **Agent edits take up to 5 minutes to reach new calls** because of the agent-context TTL cache.
-- **`ensure_chunk_size` pads with `0x00`**, which is *maximum negative* in mu-law, not silence (`0xFF` is). It happens to be harmless today because the only caller passes exactly 32,000 bytes, a clean multiple of 160.
+- ~~**`ensure_chunk_size` pads with `0x00`**~~ (VT-17, fixed 2026-10-08): it pads with `0xFF`, mu-law silence (`pad_byte`); `0x00` is mu-law's loudest negative sample.
 - **DTMF is completely unimplemented** on both providers. There is no digit collection anywhere in the voice package.
 
 ---
