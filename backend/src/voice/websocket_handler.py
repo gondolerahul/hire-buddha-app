@@ -411,7 +411,14 @@ class BaseStreamHandler:
                     if self.mobile:
                         await self.mobile.on_dtmf(key)
                     else:
-                        logger.info(f"DTMF '{key}' on session {self.session_id} (unused)")
+                        # Keypad input is not supported on AI calls (VT-13,
+                        # HD13): only the mobile dialer reads it. Counted, so
+                        # the demand for an IVR shows (VT-I9).
+                        from src.ai.core.events import event as emit_event
+                        emit_event("voice.dtmf.unsupported", session_id=str(self.session_id),
+                                   company_id=str(getattr(self.voice_session, "company_id", "") or ""))
+                        logger.info(f"DTMF on session {self.session_id} ignored: keypad input "
+                                    f"is not supported on AI calls")
 
                 elif event_type == "stop":
                     logger.info(f"Provider call stopped: {event}")

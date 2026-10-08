@@ -728,7 +728,7 @@ sequenceDiagram
 
 **Hanging up.** Closing the media WebSocket does *not* end the PSTN leg. [`hangup_twilio_call`](../../backend/src/voice/twilio_api.py:47) POSTs `Status=completed` to the Calls resource using credentials from `IntegrationRegistry` (`account_sid` in `service_metadata`, auth token in the encrypted API key column). `TwilioStreamHandler._cleanup` calls it unless the provider already sent `stop`.
 
-**DTMF:** not implemented. There is no `dtmf` event handler, no `<Gather>`, and no digit collection anywhere in `backend/src/voice/`.
+**DTMF: not supported on AI calls** (VT-13, HD13). The stream's `dtmf` event is read only on a mobile-dialer leg ([`mobile/dtmf.py`](../../backend/src/mobile/dtmf.py) — attempt tokens, verification codes, the merge signal); on every other call the digit is ignored, logged, and counted as a `voice.dtmf.unsupported` event, so the demand for an IVR shows. There is no `<Gather>` and no keypad menu. The builder tells the agent's author.
 
 ---
 
@@ -839,7 +839,7 @@ flowchart TD
 
 `TataStreamHandler._cleanup` retries the hangup once with a force-refreshed token when the first attempt returns 401/403 or the body contains "blacklisted".
 
-**DTMF:** not implemented for Tata either.
+**DTMF:** not supported on AI calls either (VT-13) — the same handler loop: a `dtmf` event is ignored and counted unless the call is a mobile-dialer leg.
 
 ---
 
@@ -1720,7 +1720,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - **Recording-artifact lookup has a time-proximity fallback** that can attach the wrong WAV when several calls end together.
 - ~~**Agent edits take up to 5 minutes to reach new calls**~~ (VT-16, fixed 2026-10-08): an edit, delete or publish is announced on `voice:agent_changed` and every API process drops the agent. An edit made directly in the database is not announced.
 - ~~**`ensure_chunk_size` pads with `0x00`**~~ (VT-17, fixed 2026-10-08): it pads with `0xFF`, mu-law silence (`pad_byte`); `0x00` is mu-law's loudest negative sample.
-- **DTMF is completely unimplemented** on both providers. There is no digit collection anywhere in the voice package.
+- **DTMF is not supported on AI calls** (VT-13, HD13 — declared, not built): only the mobile dialer reads digits. Every ignored digit is a `voice.dtmf.unsupported` event.
 
 ---
 

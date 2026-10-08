@@ -982,6 +982,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                             {isVoiceAgent && (
                                 <div className="voice-settings-panel">
                                     {/* What governs a call (VT-21, HD14) */}
+                                    <p className="section-description">Callers cannot use the keypad: touch-tone (DTMF) input is not read on AI calls.</p>
                                     <p className="section-description">Each voice call is recorded as a run (run reports, trace viewer), but Quality Review and Human-in-the-Loop checkpoints do not apply to calls: a live call cannot pause for a reviewer or an approval.</p>
                                     {/* Bio — used by persona_service for voice prompt fallback */}
                                     <div className="form-group">
