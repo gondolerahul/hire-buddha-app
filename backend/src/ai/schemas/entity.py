@@ -113,6 +113,36 @@ def _reject_unknown_keys(model: type[BaseModel], data: Any) -> Any:
     return data
 
 
+def _reject_invalid_checkpoints(data: Any) -> Any:
+    """A HITL checkpoint that could never fire is refused, naming it (GH-09):
+    before, it was skipped at run time without a word. A step reference is
+    checked against the plan when the payload carries a static one and no
+    dynamic planning (whose steps are named at run time)."""
+    from src.ai.schemas.governance import checkpoint_problem
+
+    governance = data.get("governance") if isinstance(data, dict) else None
+    checkpoints = governance.get("hitl_checkpoints") if isinstance(governance, dict) else None
+    if not isinstance(checkpoints, list):
+        return data
+    planning = data.get("planning") if isinstance(data, dict) else None
+    static = planning.get("static_plan") if isinstance(planning, dict) else None
+    steps = static.get("steps") if isinstance(static, dict) else None
+    refs: Optional[set[str]] = None
+    dynamic = planning.get("dynamic_planning") if isinstance(planning, dict) else None
+    planned_live = isinstance(dynamic, dict) and bool(dynamic.get("enabled"))
+    if isinstance(steps, list) and steps and static.get("enabled", True) and not planned_live:
+        refs = {str(s.get(k)) for s in steps if isinstance(s, dict) for k in ("name", "step_id") if s.get(k)}
+    problems = []
+    for i, cp in enumerate(checkpoints, start=1):
+        problem = checkpoint_problem(cp, refs)
+        if problem:
+            trigger = cp.get("trigger_type") if isinstance(cp, dict) else None
+            problems.append(f"checkpoint {i}" + (f" ({trigger})" if trigger else "") + f": {problem}")
+    if problems:
+        raise ValueError("HITL checkpoint(s) that could never fire: " + "; ".join(problems))
+    return data
+
+
 def _reject_duplicate_step_names(data: Any) -> Any:
     """Step names are unique within a plan (EP-I6): a step's output is named by
     it (``{{name}}``), so two steps with one name could not both be read."""
@@ -141,7 +171,8 @@ class HierarchicalEntityCreateRequest(HierarchicalEntityCreate):
     @model_validator(mode="before")
     @classmethod
     def _no_unknown_keys(cls, data: Any) -> Any:
-        return _reject_duplicate_step_names(_reject_unknown_keys(HierarchicalEntityCreate, data))
+        return _reject_invalid_checkpoints(
+            _reject_duplicate_step_names(_reject_unknown_keys(HierarchicalEntityCreate, data)))
 
 
 class HierarchicalEntityUpdateRequest(HierarchicalEntityUpdate):
@@ -150,7 +181,8 @@ class HierarchicalEntityUpdateRequest(HierarchicalEntityUpdate):
     @model_validator(mode="before")
     @classmethod
     def _no_unknown_keys(cls, data: Any) -> Any:
-        return _reject_duplicate_step_names(_reject_unknown_keys(HierarchicalEntityUpdate, data))
+        return _reject_invalid_checkpoints(
+            _reject_duplicate_step_names(_reject_unknown_keys(HierarchicalEntityUpdate, data)))
 
 
 class HierarchicalEntityResponse(HierarchicalEntityBase):

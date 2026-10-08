@@ -61,7 +61,7 @@ Be strict but fair. Minor formatting issues are acceptable if the core task is a
 const HITL_TRIGGER_TYPES: { value: HITLTriggerType; label: string; description: string }[] = [
     { value: 'BEFORE_STEP', label: 'Before Step', description: 'Pause before a specific step executes' },
     { value: 'AFTER_STEP', label: 'After Step', description: 'Pause after a specific step completes' },
-    { value: 'COST_THRESHOLD', label: 'Cost Threshold', description: 'Pause when execution cost exceeds a threshold' },
+    { value: 'COST_THRESHOLD', label: 'Cost Threshold', description: 'Pause before a step that would take the run past this cost (what it has spent plus the step\'s estimate), and before every step after' },
     { value: 'TOOL_CALL', label: 'Tool Call', description: 'Pause before a specific tool is called' },
     { value: 'CUSTOM', label: 'Custom Expression', description: 'Pause when a custom expression evaluates to true' },
 ];
@@ -1814,6 +1814,11 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                             <div className="form-group">
                                                 <label>Expression</label>
                                                 <input type="text" value={cp.expression || ''} onChange={(e) => updateCheckpoint(idx, 'expression', e.target.value)} placeholder="cost > 0.50 or step_count > 5" />
+                                                {/* The whole grammar (GH-10): anything else is refused on save. */}
+                                                <small>
+                                                    <code>step_count</code> or <code>cost</code> compared with <code>&gt; &gt;= &lt; &lt;= ==</code> to a number,
+                                                    or <code>has_key('name')</code>; join clauses with <code>and</code> / <code>or</code>.
+                                                </small>
                                             </div>
                                         )}
                                         <div className="form-group">

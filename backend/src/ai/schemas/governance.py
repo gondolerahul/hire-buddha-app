@@ -1,16 +1,18 @@
 """schemas/governance.py — Governance, HITL checkpoints, execution limits."""
 from __future__ import annotations
 
-from typing import Any, ClassVar, List, Optional
+from typing import Any, ClassVar, Collection, List, Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
 from src.ai.schemas.enums import HITLTriggerType
+from src.ai.schemas.hitl_expression import ExpressionError, parse
 
 __all__ = [
     "ExecutionLimits",
     "HITLCheckpoint",
     "Governance",
+    "checkpoint_problem",
 ]
 
 
@@ -28,11 +30,48 @@ class HITLCheckpoint(BaseModel):
     step_ref: Optional[str] = None           # For BEFORE_STEP/AFTER_STEP: step name or step_id
     tool_ref: Optional[str] = None           # For TOOL_CALL: tool_id to gate
     threshold: Optional[float] = None        # For COST_THRESHOLD: USD amount that triggers pause
-    expression: Optional[str] = None         # For CUSTOM: a Python-like boolean expression
+    expression: Optional[str] = None         # For CUSTOM: see schemas/hitl_expression.py (GH-10)
     timeout_ms: int = 300000                 # How long to wait for approval (default 5 min)
     notification_channels: List[str] = []    # e.g. ["email", "slack", "dashboard"]
     message: Optional[str] = None            # Custom message shown to the reviewer
     auto_approve_on_timeout: bool = False    # If True, auto-approve when timeout expires
+
+
+def checkpoint_problem(raw: Any, step_refs: Optional[Collection[str]] = None) -> Optional[str]:
+    """Why a checkpoint cannot work, or ``None`` (GH-09).
+
+    A checkpoint that does not parse, lacks the field its trigger needs, has a
+    ``CUSTOM`` expression outside the grammar, or names a step the plan does
+    not have (when ``step_refs`` — the plan's step names and ids — is given)
+    would never fire. The entity API refuses it (422); at run time one stored
+    before that asks a person instead (``GovernanceService.evaluate_hitl``).
+    """
+    try:
+        cp = HITLCheckpoint.model_validate(raw)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        where = ".".join(str(p) for p in first.get("loc", ())) or "checkpoint"
+        return f"{where}: {first.get('msg', 'invalid')}"
+    kind = cp.trigger_type
+    if cp.timeout_ms <= 0:
+        return "timeout_ms must be positive"
+    if kind in (HITLTriggerType.BEFORE_STEP, HITLTriggerType.AFTER_STEP):
+        if not (cp.step_ref or "").strip():
+            return f"{kind.value} needs step_ref, the step's name or id"
+        if step_refs is not None and cp.step_ref not in step_refs:
+            return f"step_ref {cp.step_ref!r} is not a step of the plan"
+    elif kind is HITLTriggerType.TOOL_CALL:
+        if not (cp.tool_ref or "").strip():
+            return "TOOL_CALL needs tool_ref, the tool's id"
+    elif kind is HITLTriggerType.COST_THRESHOLD:
+        if cp.threshold is None or cp.threshold <= 0:
+            return "COST_THRESHOLD needs a threshold above 0 (USD)"
+    elif kind is HITLTriggerType.CUSTOM:
+        try:
+            parse(cp.expression or "")
+        except ExpressionError as exc:
+            return f"expression {cp.expression!r}: {exc}"
+    return None
 
 
 class Governance(BaseModel):

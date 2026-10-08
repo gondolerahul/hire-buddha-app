@@ -163,7 +163,7 @@ classDiagram
         +check_child_credit_gate(company_id, parent_cost, child_entity_id) None
         +settle_billing(run, entity_name) Decimal
         +evaluate_hitl(run, entity, step_obj, context_state, phase, governance_dict) None
-        -_safe_eval_expression(expr, run, context_state) bool
+        -_run_spend(run) float
     }
     GovernanceService --> CreditService : delegates money
     GovernanceService --> HumanApproval : creates rows
@@ -412,7 +412,7 @@ class HITLTriggerType(str, Enum):
 | `AFTER_STEP` | `AFTER` only | `step_ref` == step `name` **or** `step_id` | `AFTER_STEP: {step.name}` |
 | `COST_THRESHOLD` | `BEFORE` only | the run's spend so far (its usage rows and children, `run_spend`) **plus this step's estimate** (`planning/cost_estimator.estimate_step_cost`) `>= threshold` | `COST_THRESHOLD: ${threshold} before {step.name}` |
 | `TOOL_CALL` | `BEFORE` only | step is `TOOL_CALL` and `target.tool_id == tool_ref` | `TOOL_CALL: {tool_ref}` |
-| `CUSTOM` | `BEFORE` only | `_safe_eval_expression` returns truthy | `CUSTOM: {expression}` |
+| `CUSTOM` | `BEFORE` only | the expression holds — the grammar in §9 | `CUSTOM: {expression}` |
 
 > **Only `AFTER_STEP` fires in the `AFTER` phase.** Every other trigger is
 > `BEFORE`-only. A `COST_THRESHOLD` checkpoint asks before the step that would
@@ -448,17 +448,10 @@ matching one in order. Two checkpoints matching the same step mean two
 consecutive parks: the first approval resumes the run, the second checkpoint
 parks it again.
 
-Malformed checkpoint definitions are skipped silently:
-
-```python
-# backend/src/ai/governance/governance_service.py
-try:
-    cp = HITLCheckpoint(**cp_data) if isinstance(cp_data, dict) else cp_data
-except Exception:
-    continue
-```
-
-A typo in a checkpoint's JSON means it never fires and nothing warns you.
+A checkpoint that could never fire — a typo, a missing field, an expression outside the
+grammar — is refused when the entity is saved, and one stored before that asks a person
+before each step, with a trace event (§9.1, GH-09). Until 2026-10-08 it was skipped with a
+bare `continue`, and nothing warned anyone.
 
 ### 7.4 The approval row
 
@@ -646,49 +639,46 @@ outranks the other steps' failures, and a waiting checkpoint outranks an ordinar
 
 ## 9. Custom expression triggers
 
-`CUSTOM` checkpoints evaluate a small expression through
-`_safe_eval_expression`. It is **not** Python `eval` — it is a hand-rolled
-parser supporting a tiny grammar:
+`CUSTOM` checkpoints evaluate a small expression in a closed grammar
+([`schemas/hitl_expression.py`](../../backend/src/ai/schemas/hitl_expression.py), GH-10,
+since 2026-10-08). It is **not** Python `eval`:
 
-```python
-# backend/src/ai/governance/governance_service.py
-threshold = float(val)
-if op == ">" and step_count > threshold:
-    ...
-if op == ">=" and step_count >= threshold:
-    ...
-threshold = float(val)
-if op == ">" and current_cost > threshold:
-    ...
-if op == ">=" and current_cost >= threshold:
+```text
+expression := clause (("and" | "or") clause)*
+clause     := ("step_count" | "cost") op number
+            | "has_key(" quoted-name ")"
+op         := ">" | ">=" | "<" | "<=" | "=="
 ```
 
-```mermaid
-flowchart TD
-    EXPR["expression string"] --> P["Parse: variable, operator, value"]
-    P --> V{"variable"}
-    V -->|step_count| SC["Compare to number of completed steps"]
-    V -->|current_cost| CC["Compare to run.total_cost_usd"]
-    V -->|unknown| FALSE["No match - returns falsy"]
-    SC --> OP{"operator > or >="}
-    CC --> OP
-    OP --> RES["bool"]
-```
+`and` binds tighter than `or`; there are no parentheses. `step_count` is how many step
+outputs the run's context holds (keys not starting `__`), `cost` the run's spend in USD
+(its usage rows and children, as for `COST_THRESHOLD`), `has_key('x')` whether the context
+holds `x`. The builder's example, `cost > 0.50 or step_count > 5`, works — before, the
+hand-rolled evaluator (`_safe_eval_expression`) knew `step_count` and `cost` with `>` and
+`>=` only, failed on that very example, and returned false for anything else.
 
-Two recognised variables — `step_count` and `current_cost` — and two operators,
-`>` and `>=`. Anything else does not match, and an evaluation error is logged
-and treated as "do not fire":
+An expression outside the grammar is refused when the entity is saved (§9.1). One stored
+before that asks a person before each step instead of never firing.
 
-```python
-# backend/src/ai/governance/governance_service.py
-except Exception as e:
-    logger.warning(f"HITL custom expression eval failed: {e}")
-```
+### 9.1 Checkpoints are checked when the entity is saved
 
-Refusing to use `eval()` on tenant-supplied strings is the right call — this is
-a deliberately narrow, safe grammar. But it is much less expressive than
-"a Python-like boolean expression" in the schema docstring suggests. Do not
-promise users `<`, `==`, `and`, `or`, or any other variable.
+`schemas/governance.checkpoint_problem` says why a checkpoint could never fire: it does not
+parse (an unknown `trigger_type`), it lacks the field its trigger needs (`step_ref` for
+`BEFORE_STEP` / `AFTER_STEP`, `tool_ref` for `TOOL_CALL`, a `threshold` above 0 for
+`COST_THRESHOLD`), its `CUSTOM` expression is outside the grammar, its `timeout_ms` is not
+positive, or its `step_ref` is not a step of the plan — checked when the payload carries an
+enabled static plan and no dynamic planning, whose steps are named at run time. The entity
+create and update requests (and a version draft's changes) refuse it with a **422** naming
+the checkpoint: `checkpoint 2 (CUSTOM): expression 'cost > 0.5 && …': expected and / or,
+got '&'` (GH-09). The meta-agent's tools and template cloning validate with the lenient
+models and are not refused; the run-time rule below covers them.
+
+At run time `evaluate_hitl` asks the same question of each stored checkpoint. One that
+cannot be evaluated **asks a person before each step** — trigger `UNUSABLE CHECKPOINT {n}
+before {step}`, with a message naming the problem and the checkpoint's own timeout when it
+has a usable one — and records a `hitl` span on the run's trace and the event
+`agent.hitl.checkpoint_unusable` (`checkpoint`, `problem`). Before, it was skipped with a
+bare `continue`.
 
 ---
 
@@ -1233,11 +1223,12 @@ redis-cli DEL "tool:search:company_<uuid>"
    it asks before the step whose estimate would cross the line (§7.2). An estimate
    can still be low — then the next step asks.
 
-6. **Malformed HITL checkpoints are skipped silently** — a `continue` with no
-   log line.
+6. ~~**Malformed HITL checkpoints are skipped silently**~~ (GH-09, fixed 2026-10-08):
+   refused on save (422); one stored before asks a person, with a trace event (§9.1).
 
-7. **`CUSTOM` expressions support only `step_count` and `current_cost` with
-   `>` and `>=`.** Despite the "Python-like boolean expression" docstring.
+7. ~~**`CUSTOM` expressions support only `step_count` and `current_cost` with
+   `>` and `>=`.**~~ (GH-10, fixed 2026-10-08): `step_count` and `cost` with
+   `> >= < <= ==`, `has_key('x')`, joined by `and` / `or` — nothing else (§9).
 
 8. **`get_float` has no env-var tier.** Numeric flags cannot be overridden with
    `AI_FLAG_*`; they need a DB row.

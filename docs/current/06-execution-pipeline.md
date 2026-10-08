@@ -649,14 +649,15 @@ timeout_ms: 300000, notification_channels: [], message, auto_approve_on_timeout:
 |----------------|-------|------------|
 | `BEFORE_STEP` | BEFORE | `step_ref` matches step `name` or `step_id`. |
 | `AFTER_STEP` | AFTER | same match. |
-| `COST_THRESHOLD` | BEFORE | `run.total_cost_usd >= threshold`. |
+| `COST_THRESHOLD` | BEFORE | the run's spend (usage rows) plus this step's estimate `>= threshold` — asks before the step that would cross it (GH-08). |
 | `TOOL_CALL` | BEFORE | step is `TOOL_CALL` and `target.tool_id == tool_ref`. |
-| `CUSTOM` | BEFORE | `_safe_eval_expression(expression, run, context_state)` is truthy. |
+| `CUSTOM` | BEFORE | the expression holds: `step_count` / `cost` with `> >= < <= ==`, `has_key('x')`, joined by `and` / `or` (GH-10). |
 
 Firing writes a `human_approvals` row, publishes `HITL_PENDING` on
-`execution:{run_id}`, and blocks on `hitl:{approval_id}` until
-`POST /ai/approvals/{id}/respond` or `timeout_ms`. Detail in
-[15 — Governance & HITL](15-governance-and-hitl.md).
+`execution:{run_id}`, and parks the run `PAUSED` without holding the worker until
+`POST /ai/approvals/{id}/respond` or `timeout_ms` resumes it (GH-07). A checkpoint
+that could never fire is refused when the entity is saved; one stored before asks a
+person (GH-09). Detail in [15 — Governance & HITL](15-governance-and-hitl.md).
 
 **Undeclared governance keys read at runtime** (settable only by direct JSON
 write): `critic_cost_share_pct` (0.20), `goal_validation_interval` (2),

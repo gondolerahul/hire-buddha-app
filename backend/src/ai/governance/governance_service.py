@@ -17,6 +17,8 @@ from src.billing.credit_service import CreditService, InsufficientCreditsError, 
 from src.billing.billing_service import BillingService, calculate_tb, compute_billed_amount
 from src.ai.orm import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
+from src.ai.schemas.governance import checkpoint_problem
+from src.ai.schemas.hitl_expression import evaluate as evaluate_expression
 from src.ai.governance.hitl_snapshot import build_hitl_snapshot
 from src.ai.core.exceptions import HITLRejected, HITLTimeout
 from src.ai.governance import hitl_gate
@@ -250,18 +252,24 @@ class GovernanceService:
         if not checkpoints_raw:
             return
 
-        for cp_data in checkpoints_raw:
-            try:
-                cp = HITLCheckpoint(**cp_data) if isinstance(cp_data, dict) else cp_data
-            except Exception:
-                continue
+        for index, cp_data in enumerate(checkpoints_raw, start=1):
+            problem = checkpoint_problem(cp_data)
+            cp = HITLCheckpoint.model_validate(cp_data) if not problem else self._stand_in(cp_data, problem)
 
             should_fire = False
             trigger_desc = ""
             run_cost: Any = run.total_cost_usd
             step_estimate: Optional[float] = None
 
-            if cp.trigger_type is HITLTriggerType.BEFORE_STEP and phase == "BEFORE":
+            if problem:
+                # A checkpoint that cannot be evaluated asks a person before
+                # each step instead of letting the steps through (GH-09).
+                # The entity API refuses one now; this is one stored before.
+                if phase == "BEFORE":
+                    should_fire = True
+                    trigger_desc = f"UNUSABLE CHECKPOINT {index} before {step_obj.name}"[:255]
+                    await self._report_unusable(run, index, problem)
+            elif cp.trigger_type is HITLTriggerType.BEFORE_STEP and phase == "BEFORE":
                 if cp.step_ref and (cp.step_ref == step_obj.name or cp.step_ref == step_obj.step_id):
                     should_fire = True
                     trigger_desc = f"BEFORE_STEP: {step_obj.name}"
@@ -292,16 +300,15 @@ class GovernanceService:
                         trigger_desc = f"TOOL_CALL: {cp.tool_ref}"
 
             elif cp.trigger_type is HITLTriggerType.CUSTOM and phase == "BEFORE":
-                if cp.expression:
-                    try:
-                        eval_result = self._safe_eval_expression(
-                            cp.expression, run, context_state
-                        )
-                        if eval_result:
-                            should_fire = True
-                            trigger_desc = f"CUSTOM: {cp.expression}"
-                    except Exception as e:
-                        logger.warning(f"HITL custom expression eval failed: {e}")
+                # The grammar is schemas/hitl_expression.py (GH-10); it parsed
+                # above, so this cannot raise.
+                cost = await self._run_spend(run) if "cost" in (cp.expression or "") else 0.0
+                if evaluate_expression(
+                    cp.expression or "", cost=cost, keys=context_state.keys(),
+                    step_count=len([k for k in context_state if not k.startswith("__")]),
+                ):
+                    should_fire = True
+                    trigger_desc = f"CUSTOM: {cp.expression}"[:255]
 
             if not should_fire:
                 continue
@@ -333,6 +340,30 @@ class GovernanceService:
             raise hitl_gate.pending(existing, trigger=trigger_desc, phase=phase,
                                     step_id=str(step_obj.step_id or step_obj.name),
                                     auto_approve=cp.auto_approve_on_timeout)
+
+    @staticmethod
+    def _stand_in(raw: Any, problem: str) -> HITLCheckpoint:
+        """The checkpoint a person is asked through when the configured one
+        cannot be evaluated: its own timeout when it has a usable one."""
+        timeout = raw.get("timeout_ms") if isinstance(raw, dict) else None
+        return HITLCheckpoint(
+            trigger_type=HITLTriggerType.CUSTOM,
+            timeout_ms=timeout if isinstance(timeout, int) and timeout > 0 else 300000,
+            message=(f"A HITL checkpoint of this entity cannot be evaluated ({problem}). "
+                     "Approve to let the step run; fix the checkpoint in the entity's Safeguards."),
+        )
+
+    @staticmethod
+    async def _report_unusable(run: 'ExecutionRun', index: int, problem: str) -> None:
+        """On the run's trace and its event stream: which checkpoint, and why."""
+        from src.ai.core.agent_loop_sse import event_async
+        from src.ai.core.trace import span
+
+        logger.warning("HITL checkpoint %d of run %s cannot be evaluated: %s", index, run.id, problem)
+        async with span("hitl", f"unusable checkpoint {index}", problem=problem) as handle:
+            handle.set_error(problem)
+        await event_async("agent.hitl.checkpoint_unusable", run_id=str(run.id),
+                          checkpoint=index, problem=problem)
 
     async def _run_spend(self, run: 'ExecutionRun') -> float:
         """The run's spend now: its usage rows and its children's totals
@@ -403,43 +434,3 @@ class GovernanceService:
             )
         raise hitl_gate.pending(existing, trigger=trigger, phase="BEFORE",
                                 step_id=str(step_obj.step_id or step_obj.name), auto_approve=False)
-
-    # ------------------------------------------------------------------
-    # HITL Expression Evaluator
-    # ------------------------------------------------------------------
-
-    def _safe_eval_expression(
-        self, expression: str, run: 'ExecutionRun', context_state: dict[str, Any]
-    ) -> bool:
-        """Safely evaluate a simple HITL custom expression.
-
-        Supports: step_count > N, cost > N, has_key('X')
-        Does NOT use eval() — parses manually for safety.
-        """
-        expression = expression.strip()
-        try:
-            if expression.startswith("step_count"):
-                op, val = expression.split("step_count")[1].strip().split(None, 1)
-                threshold = float(val)
-                step_count = len([k for k in context_state if not k.startswith("__")])
-                if op == ">" and step_count > threshold:
-                    return True
-                if op == ">=" and step_count >= threshold:
-                    return True
-
-            elif expression.startswith("cost"):
-                op, val = expression.split("cost")[1].strip().split(None, 1)
-                threshold = float(val)
-                current_cost = float(run.total_cost_usd or 0)
-                if op == ">" and current_cost > threshold:
-                    return True
-                if op == ">=" and current_cost >= threshold:
-                    return True
-
-            elif expression.startswith("has_key"):
-                key = expression.split("(")[1].split(")")[0].strip("'\"")
-                return key in context_state
-
-        except Exception:
-            pass
-        return False

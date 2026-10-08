@@ -37,11 +37,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 4 | 1 | 1 | 0 |
-| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 7 | 0 | 2 | 0 |
+| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 9 | 0 | 0 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 2 | 1 | 2 | 0 |
 
-**Total: 25 defects (14 fixed, 4 partly fixed, 7 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (16 fixed, 4 partly fixed, 5 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -53,8 +53,8 @@
 | GH-06 | Reject and timeout are detected by matching exception text | ✅ fixed `98af2c0` | — |
 | GH-07 | A HITL wait blocks a worker slot | ✅ fixed (2026-10-08) | — |
 | GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | ✅ fixed (2026-10-08) | — |
-| GH-09 | Malformed HITL checkpoints are skipped silently | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
-| GH-10 | `CUSTOM` expressions support two variables and two operators | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-09 | Malformed HITL checkpoints are skipped silently | ✅ fixed (2026-10-08) | — |
+| GH-10 | `CUSTOM` expressions support two variables and two operators | ✅ fixed (2026-10-08) | — |
 | GH-11 | The approvals page does not show what is being approved | ✅ fixed | — |
 | GH-12 | `meta_agent.board_routing` is declared twice | ✅ fixed `b7644b7` | — |
 | GH-13 | `get_float` has no env-var tier | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
@@ -313,7 +313,7 @@ expensive thing is the wrong half of the step boundary.
 
 ### GH-09 — Malformed HITL checkpoints are skipped silently
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: a checkpoint that fails to parse is still skipped with a bare `continue` (`governance_service.py:252`). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `schemas/governance.checkpoint_problem` says why a checkpoint could never fire — it does not parse, lacks the field its trigger needs, has a `CUSTOM` expression outside the grammar, a non-positive timeout, or a `step_ref` that is not a step of a static plan. The entity create and update requests (and version drafts) refuse it with a 422 naming it (`checkpoint 2 (CUSTOM): …`). One stored before that asks a person before each step (trigger `UNUSABLE CHECKPOINT n before <step>`) and writes a `hitl` span on the run's trace and the event `agent.hitl.checkpoint_unusable`. `tests/unit/test_hitl_checkpoint_validation.py`
 
 A checkpoint that does not parse is skipped with a bare `continue` — no log line, no event,
 nothing on the run trace.
@@ -325,7 +325,7 @@ user sees a configured checkpoint that never fires.
 
 ### GH-10 — `CUSTOM` expressions support two variables and two operators
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `_safe_eval_expression` still supports only `step_count` and `cost` with `>` and `>=`, and nothing validates an expression when it is saved. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — a closed grammar, `schemas/hitl_expression.py`: `step_count` and `cost` with `> >= < <= ==` and a number, or `has_key('name')`, joined by `and` / `or`; `cost` is the run's spend from its usage rows. The builder's own example, `cost > 0.50 or step_count > 5`, never worked under the old evaluator and works now. Anything else is refused on save (GH-09); the builder's help text gives the grammar. `tests/unit/test_hitl_checkpoint_validation.py`
 
 The docstring says "Python-like boolean expression". The evaluator supports only
 `step_count` and `current_cost`, with `>` and `>=`.
