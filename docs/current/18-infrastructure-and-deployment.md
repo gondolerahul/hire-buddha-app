@@ -1056,7 +1056,7 @@ enforces the shape of `backend/src/ai/` mechanically.
 ```python
 # backend/scripts/lint_ai_layout.py
 MAX_LINES: dict[str, int] = {
-    "core": 1500,         # agent_loop.py is 1480 (loop + suspend/resume).
+    "core": 1500,         # agent_loop.py is 1162 since IN-17 moved persistence and learning out.
     "planning": 700,
     "memory": 1200,       # cortex_service.py is 1117 (CORTEX engine).
     "meta": 900,          # platform_schema_compiler.py is 839.
@@ -1067,9 +1067,10 @@ MAX_LINES: dict[str, int] = {
 }
 ```
 
-The comments record how close the largest file in each package sits to its cap —
-`core` at 1480/1500 is 20 lines from failing. **Adding to `agent_loop.py` will
-break the build.** That is the point: the cap forces extraction rather than
+The comments record how close the largest file in each package sits to its cap.
+`core` was 1480/1500 until IN-17 (2026-10-08) moved `AgentLoop`'s persistence
+(`core/run_persistence.py`) and learning hooks (`core/loop_learning.py`) into
+mixins; `agent_loop.py` is now 1162. The cap still forces extraction rather than
 accretion.
 
 **Forbidden imports:**
@@ -1420,8 +1421,8 @@ a Redis-backed event bus, then moving artifacts to object storage.
 10. **Only the extracted `cortex_memory` package has CI** (`backend/cortex_memory/**`).
     The host backend has none. Run `scripts/run_ci_matrix.sh fast` manually.
 
-11. **`core` is 20 lines from its 1500-line cap.** Adding to `agent_loop.py`
-    breaks the layout lint.
+11. ~~**`core` is 20 lines from its 1500-line cap.**~~ `agent_loop.py` is 1162
+    since IN-17; the cap still applies.
 
 12. **`backend/.env` exists in the working tree** and matches `.env.example`
     byte-for-byte. Verify `.gitignore` before adding real secrets.

@@ -12,6 +12,8 @@ The full design is [`docs/current/05-agent-kernel.md`](../../../../docs/current/
 | File | Purpose |
 |------|---------|
 | `agent_loop.py` | The control loop — perceive → strategize → pre-critic → act → observe → post-critic → alignment → supervisor → reflect → decide. Entry points: `AgentLoop.run(run_id)` and `AgentLoop.resume(run_id)` (a parent suspended on its children). |
+| `run_persistence.py` | `RunPersistence`, mixed into `AgentLoop`: the per-iteration snapshot, the final and suspended writes, the run's spend, the parent resume and the locked reload (IN-17). |
+| `loop_learning.py` | `LoopLearning`, mixed into `AgentLoop`: task classification, the plan-style bandit and its rewards, the outcome-triggered Dreaming pass, and the flag lookup they share with the loop (IN-17). |
 | `agent_loop_sse.py` | `event_async`: telemetry plus the per-run SSE frames (`_SSE_EVENT_TYPES`, checked by `tests/unit/test_sse_event_contract.py`). |
 | `agent_state.py` | The `AgentState` envelope + `Subgoal` / `Blocker` / `Action` / `Observation` / `Reflection` and the four critic verdicts. |
 | `budget.py` | First-class `Budget` (tokens / USD / wall-clock / iterations) with `pressure`, `consume`, `exhausted`. |

@@ -395,7 +395,7 @@ build for:
 
 | Rule | Limit |
 |---|---|
-| `core/` file length | 1500 lines (**`agent_loop.py` is at 1480**) |
+| `core/` file length | 1500 lines (`agent_loop.py` is 1162 since IN-17) |
 | `planning/` file length | 700 |
 | `memory/` file length | 1200 |
 | `meta/` file length | 900 |
@@ -408,8 +408,9 @@ build for:
 | `... as CortexService` alias | Forbidden |
 | A tool file directly in `tools/` | Only `__init__.py`, `base.py`, `resilience.py`, `README.md` |
 
-**`core/` has 20 lines of headroom.** If your change grows `agent_loop.py`,
-extract instead.
+`agent_loop.py` has room again (1162 of 1500 lines, IN-17): its run persistence
+and learning hooks are mixins in `core/run_persistence.py` and
+`core/loop_learning.py`. If a change would push it near the cap, extract instead.
 
 ### 8.2 Code style
 

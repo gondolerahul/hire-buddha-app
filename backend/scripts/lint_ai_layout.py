@@ -74,7 +74,7 @@ TRANSITIONAL_TOPLEVEL: set[str] = {
 # (core/600, planning/600, memory/800, meta/800, governance/600, tools/1000,
 # llm/800) are the post-programme targets.
 MAX_LINES: dict[str, int] = {
-    "core": 1500,         # agent_loop.py is 1480 (loop + suspend/resume).
+    "core": 1500,         # agent_loop.py is 1162 since IN-17 moved persistence and learning out.
     "planning": 700,
     "memory": 1200,       # cortex_service.py is 1117 (CORTEX engine).
     "meta": 900,          # platform_schema_compiler.py is 839.

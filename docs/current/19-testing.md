@@ -1098,9 +1098,9 @@ flowchart TD
 | frontend build | `npm run build` | `tsc` then `vite build` | Type errors fail the build |
 
 The layout lint is the one that surprises people. It enforces **per-package
-maximum file lengths**, and `core` currently sits at 1480/1500 — see
+maximum file lengths** — see
 [18 §14.1](18-infrastructure-and-deployment.md#141-lint_ai_layoutpy--architectural-rules).
-Adding twenty lines to `agent_loop.py` breaks the build by design.
+`core` is capped at 1500 lines a file; `agent_loop.py` is 1162 since IN-17.
 
 ### 17.1 Documentation tests
 

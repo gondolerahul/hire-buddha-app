@@ -39,11 +39,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--the-documented-setup-does-not-work) | The documented setup does not work | 4 | 2 | 0 | 2 | 0 |
-| [T1](#3-t1--the-onboarding-teaches-the-wrong-model) | The onboarding teaches the wrong model | 5 | 0 | 0 | 4 | 1 |
+| [T1](#3-t1--the-onboarding-teaches-the-wrong-model) | The onboarding teaches the wrong model | 5 | 1 | 0 | 3 | 1 |
 | [T2](#4-t2--stale-references) | Stale references | 5 | 4 | 0 | 0 | 1 |
 | [T3](#5-t3--glossary-and-navigation) | Glossary and navigation | 4 | 0 | 0 | 4 | 0 |
 
-**Total: 18 defects (6 fixed, 10 open, 2 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 18 defects (7 fixed, 9 open, 2 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -55,7 +55,7 @@
 | ON-06 | The first-change exercise targets a deprecated tool through an unwired gate | open — now names a deleted function | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-07 | "Most gates fail open" is stated and then not acted on | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | ON-08 | The quality gates a newcomer is told to run are not enforced anywhere | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
-| ON-09 | `core/` has 20 lines of headroom and the doc says so twice | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| ON-09 | `core/` has 20 lines of headroom and the doc says so twice | ✅ fixed (2026-10-08) | — |
 | ON-10 | `src/ai/models.py` is a deprecated shim still in the tree | ✅ fixed `753589f` | — |
 | ON-11 | The root `tests/` directory | ✅ fixed `c9edbfd` | — |
 | ON-12 | `backend/cortex_memory_moved_to_pypi_repo/` | invalid | — |
@@ -264,7 +264,7 @@ runs them. The first framing is the one in the diagram.
 
 ### ON-09 — `core/` has 20 lines of headroom and the doc says so twice
 
-**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07: unchanged; `agent_loop.py` is now 1,496 lines (IN-17). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**✅ Verified · Medium** · **Status: fixed (2026-10-08)** — `agent_loop.py` is 1,162 lines after IN-17's extraction; §8.1 and the gotchas now say there is room and where persistence and learning live
 
 `agent_loop.py` is ~1,480 lines against a 1,500-line cap, flagged in both §8.1 and the
 gotchas.

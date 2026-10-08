@@ -571,7 +571,7 @@ put it in a subpackage.
 
 | Package | Cap | Why that number |
 |---------|-----|-----------------|
-| `core/` | 1500 | `agent_loop.py` is 1480 (loop plus suspend/resume) |
+| `core/` | 1500 | `agent_loop.py` is 1162 (IN-17: persistence and learning hooks are mixins in `run_persistence.py` and `loop_learning.py`) |
 | `planning/` | 700 | |
 | `memory/` | 1200 | `cortex_service.py` is 1117 |
 | `meta/` | 900 | `platform_schema_compiler.py` is 839 |

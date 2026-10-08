@@ -101,7 +101,7 @@ async def test_outcome_dreaming_only_for_memory_entities(memory, enqueued) -> No
     loop._flag_or_default = AsyncMock(return_value=True)
     loop.memory = memory
     state = SimpleNamespace(entity_id=uuid4(), company_id=uuid4(), run_id=uuid4())
-    with patch("src.ai.core.agent_loop.event_async", new=AsyncMock()):
+    with patch("src.ai.core.loop_learning.event_async", new=AsyncMock()):
         await loop._enqueue_dreaming_trigger(state, "COMPLETED")
     assert redis.enqueue_job.await_count == (1 if enqueued else 0)
 

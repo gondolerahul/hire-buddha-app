@@ -39,9 +39,9 @@
 | [T0](#2-t0--data-loss-and-recovery) | Data loss and recovery | 4 | 0 | 0 | 4 | 0 |
 | [T1](#3-t1--not-production-ready-as-configured) | Not production-ready as configured | 6 | 1 | 0 | 5 | 0 |
 | [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 8 | 3 | 2 | 3 | 0 |
-| [T3](#5-t3--operability) | Operability | 5 | 0 | 1 | 4 | 0 |
+| [T3](#5-t3--operability) | Operability | 5 | 1 | 1 | 3 | 0 |
 
-**Total: 23 defects (4 fixed, 3 partly fixed, 16 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 23 defects (5 fixed, 3 partly fixed, 15 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -61,7 +61,7 @@
 | IN-14 | `npm install` requires `--legacy-peer-deps` | partly — cause removed, flag still passed | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-15 | `streaming.hirebuddha.com` reuses the gateway certificate | partly fixed | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-16 | Two competing `*:80` vhosts for `app.hirebuddha.com` | ✅ fixed `f4e3abd` (SA-14) | — |
-| IN-17 | `core/` is 20 lines from its lint cap | open — worse: 4 lines of headroom | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| IN-17 | `core/` is 20 lines from its lint cap | ✅ fixed (2026-10-08) | — |
 | IN-18 | Quality gates exist and run only when someone remembers | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | IN-19 | The observability stack does not work out of the box | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-20 | The gateway and the worker have no tracing | partly fixed — tracing done; no worker metrics | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
@@ -305,7 +305,7 @@ things.
 
 ### IN-17 — `core/` is 20 lines from its lint cap
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: worse than recorded: `agent_loop.py` is 1,496 lines against the 1,500-line `core/` cap. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `AgentLoop`'s run persistence (snapshot, final and suspended writes, spend, parent resume, locked reload) moved to the mixin `core/run_persistence.py` and its learning hooks (task class, bandit, Dreaming trigger, flag lookup) to `core/loop_learning.py`, verbatim. `agent_loop.py` is 1,162 lines of 1,500; the lint comment and docs 02, 18, 19, 20 say so
 
 `lint_ai_layout.py` caps `core/` at 1,500 lines and `agent_loop.py` is ~1,480. The next
 substantive change to the control loop fails the lint.

@@ -25,7 +25,6 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import (
     Action,
@@ -41,6 +40,8 @@ from src.ai.core.exceptions import CreditExhaustedError
 from src.ai.core.executors import get_executor  # noqa: F401 — triggers registry side-effects
 from src.ai.core.executors.base import ActionResult
 from src.ai.core.feature_flags import FeatureFlags
+from src.ai.core.loop_learning import LoopLearning
+from src.ai.core.run_persistence import RunPersistence
 from src.ai.core.observer import Observer
 from src.ai.core.reflector import Reflector
 from src.ai.core.strategist import Strategist
@@ -50,7 +51,7 @@ from src.ai.core.step_results import (
 from src.ai.core.run_outcome import failed_steps_summary, final_status
 from src.ai.governance.output_contract import apply_output_contract
 
-from src.ai.core.stuck_runs import SUSPENDED_AT_KEY, cancel_open_children, utc_now_iso
+from src.ai.core.stuck_runs import cancel_open_children
 from src.ai.core.trace import current_recorder, span
 from src.ai.governance.entity_versions import run_entity
 from src.ai.orm.execution import ExecutionRun
@@ -110,7 +111,7 @@ class AgentLoopOutcome:
         }
 
 
-class AgentLoop:
+class AgentLoop(RunPersistence, LoopLearning):
     """The Phase 11 autonomous control loop.
 
     Construction is cheap; the heavy lifting (CORTEX, memory, critic)
@@ -885,34 +886,6 @@ class AgentLoop:
             logger.warning("Failed to build RealCriticPipeline; using NoOp: %s", exc)
             self.critic_pipeline = NoOpCriticPipeline()
 
-    async def _refresh_spend(self, state: AgentState) -> Any:
-        """Write the run's spend — its usage rows plus its children's totals —
-        onto the run row and set the budget from it (P4.1, AK-02). The loop is
-        the only writer of ``total_cost_usd``; spenders only write rows."""
-        from src.ai.governance.run_cost import RunSpend, refresh_run_cost
-        if not self._run_id:
-            return RunSpend(state.budget.usd_used, int(state.budget.tokens_used or 0))
-        try:
-            spend = await refresh_run_cost(self.db, self._run_id)
-        except Exception:                                                   # pragma: no cover
-            logger.exception("Run cost refresh failed for run %s", self._run_id)
-            await self.db.rollback()
-            return RunSpend(state.budget.usd_used, int(state.budget.tokens_used or 0))
-        state.budget.usd_used = spend.cost_usd
-        state.budget.tokens_used = spend.tokens
-        return spend
-
-    async def _spend_for_persist(self, state: AgentState, run_id: Any) -> Any:
-        """The run's spend for its final or suspended write. A failing sum must
-        not stop the run being finalised: it falls back to the last refreshed
-        value (the budget), loudly."""
-        from src.ai.governance.run_cost import RunSpend, run_spend
-        try:
-            return await run_spend(self.db, run_id)
-        except Exception:
-            logger.exception("Run cost sum failed for run %s; using the last refreshed spend", run_id)
-            return RunSpend(state.budget.usd_used, int(state.budget.tokens_used or 0))
-
     async def _build_real_critic_pipeline(self, state: AgentState) -> CriticPipeline:
         from src.ai.llm.router import LLMRouter
         llm = LLMRouter(db=self.db, company_id=state.company_id) if state.company_id else None
@@ -959,23 +932,6 @@ class AgentLoop:
         except Exception as exc:                                            # noqa: BLE001
             logger.debug("calibration note unavailable: %s", exc)
             return ""
-
-    def _entity_extras(self) -> Optional[dict[str, Any]]:
-        if self._entity is None:
-            return None
-        if isinstance(self._entity, dict):
-            return self._entity.get("metadata_extensions")
-        return getattr(self._entity, "metadata_extensions", None)
-
-    async def _flag_or_default(self, key: str, default: bool, state: AgentState) -> bool:
-        try:
-            return await self.flags.is_on(
-                key,
-                company_id=state.company_id,
-                entity_extras=self._entity_extras(),
-            )
-        except Exception:                                                   # pragma: no cover
-            return default
 
     async def _ensure_plan(self, state: AgentState) -> None:
         """Reconcile a plan once when the loop has none — every level (R1).
@@ -1047,185 +1003,9 @@ class AgentLoop:
     # Snapshot + persistence
     # ------------------------------------------------------------------
 
-    async def _snapshot(self, state: AgentState) -> None:
-        """Persist an AgentState snapshot node each iteration.
-
-        Commits so the ``/agent_state`` rail and any StepHealthRecords written
-        earlier in the same iteration become visible live (CortexService.write
-        only flushes).
-        """
-        if (
-            not self._snapshot_each_iteration
-            or self.cortex is None
-            or state.cortex_working_root_id is None
-        ):
-            return
-        try:
-            await self.cortex.write(
-                parent_id=state.cortex_working_root_id,
-                node_type="snapshot",
-                title=f"🧠 snapshot iter={state.iteration}",
-                summary=f"pressure={state.budget.pressure:.2f} "
-                        f"subgoals={len(state.open_subgoals)}",
-                content=state.snapshot_json(),
-                status="complete",
-                source_ref={"type": "agent_state_snapshot",
-                            "iteration": state.iteration},
-            )
-            await self.db.commit()
-        except Exception:                                                  # pragma: no cover
-            await self.db.rollback()
-            logger.exception("Snapshot write failed; continuing")
-
-    async def _persist_final(
-        self,
-        run: ExecutionRun,
-        state: AgentState,
-        status: str,
-        error: Optional[str],
-        output: str,
-    ) -> None:
-        from datetime import datetime
-        run_id = self._run_id or getattr(run, "id", None)
-        try:
-            # Commit the final iteration's pending work (planner cost, its
-            # LLM log, critic usage) before reloading — a blind rollback here
-            # once lost it all and billed $0 — and fall back to rollback only
-            # if the session is broken. Then reload: the passed-in ``run`` has
-            # expired attributes, and lazy-loading them raises MissingGreenlet.
-            try:
-                await self.db.commit()
-            except Exception:                                              # pragma: no cover
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
-            # Locked and re-read: a cancel that landed since the loop's last
-            # status check is seen here and keeps the run CANCELLED (DM-17).
-            fresh = await self._reload_run(run_id, for_update=True) if run_id else None
-            if fresh is None:
-                logger.error("Final persist: run %s not found; skipping", run_id)
-                return
-            fresh.status = status
-            fresh.completed_at = datetime.utcnow()
-            if fresh.started_at is not None:
-                # Wall-clock run time (EP-15): reports, registry search and the
-                # run's episode read it; nothing wrote it before.
-                fresh.execution_time_ms = max(0, int(
-                    (fresh.completed_at - fresh.started_at).total_seconds() * 1000
-                ))
-            # The run's spend: its usage rows plus its children's totals — the
-            # amount settlement bills (AK-02).
-            spend = await self._spend_for_persist(state, run_id)
-            fresh.total_cost_usd = spend.cost_usd
-            fresh.total_tokens = spend.tokens
-            state.budget.usd_used = spend.cost_usd
-            if state.cortex_tree_id:  # read by retry and refine (EP-29)
-                fresh.context_state = {**(fresh.context_state or {}), "__cortex_tree_id__": str(state.cortex_tree_id)}
-            if error:
-                fresh.error_message = error[:1000]
-            # Mirror the legacy engine's result_data shape
-            # ({"output", "steps":[...]}) so downstream consumers (the refine
-            # flow in service.py reads result_data["steps"]) don't regress when
-            # the loop becomes the sole engine. Don't clobber a nested engine's
-            # result_data (e.g. a recursive child run set its own).
-            if not fresh.result_data and (output or state.step_results):
-                result_data: dict[str, Any] = {"output": (output or "")[:8000]}
-                if state.step_results:
-                    result_data["steps"] = list(state.step_results)
-                fresh.result_data = result_data
-            await self.db.commit()
-        except Exception:
-            await self.db.rollback()
-            logger.exception("Final persist failed for run %s", run_id)
-            return
-
-        # Final billing settlement. The legacy ``execute_run`` used to settle
-        # billing for us via the SingleStep full-run fallback; now that the loop
-        # drives steps directly and never calls ``execute_run``, the loop owns
-        # settlement. Without this, plan-driven agent_loop runs accumulate
-        # per-tool/LLM cost on ``run.total_cost_usd`` but never deduct credits.
-        # Settling also releases the run's credit hold (BC-06).
-        if self.credits is not None:
-            await self.credits.settle(fresh)
-
-    async def _persist_suspended(self, run: ExecutionRun, state: AgentState) -> None:
-        """Persist a resumable snapshot + WAITING_ON_CHILDREN status.
-
-        Stores ``state.snapshot()`` under ``run.context_state`` so ``resume``
-        can rehydrate. Does NOT settle billing — the run hasn't finished.
-        """
-        run_id = self._run_id or getattr(run, "id", None)
-        try:
-            try:
-                await self.db.commit()
-            except Exception:                                              # pragma: no cover
-                await self.db.rollback()
-            fresh = await self._reload_run(run_id, for_update=True) if run_id else None
-            if fresh is None:
-                logger.error("Persist-suspended: run %s not found", run_id)
-                return
-            cs = dict(fresh.context_state or {})
-            cs["__agent_state_snapshot__"] = state.snapshot()
-            cs[SUSPENDED_AT_KEY] = utc_now_iso()
-            fresh.context_state = cs
-            fresh.status = RunStatus.WAITING_ON_CHILDREN.value
-            spend = await self._spend_for_persist(state, run_id)
-            fresh.total_cost_usd = spend.cost_usd
-            fresh.total_tokens = spend.tokens
-            await self.db.commit()
-            await event_async(
-                "agent.loop.suspended",
-                run_id=str(run_id),
-                awaiting=len(state.awaiting_children),
-            )
-        except Exception:
-            await self.db.rollback()
-            logger.exception("Persist-suspended failed for run %s", run_id)
-
-    async def _maybe_resume_parent(self, run: ExecutionRun) -> None:
-        """If this run is a child, enqueue a resume for its parent.
-
-        No-op when there is no parent or no Redis. ``resume_parent_run`` guards
-        against parents that aren't actually WAITING (e.g. legacy inline
-        children), so an unconditional enqueue here is safe and idempotent.
-        """
-        parent_id = getattr(run, "parent_run_id", None)
-        if not parent_id or self.redis is None:
-            return
-        try:
-            from arq.connections import ArqRedis
-            arq_redis = ArqRedis(self.redis.connection_pool)
-            await arq_redis.enqueue_job("resume_parent_run", str(parent_id))
-            logger.info("Enqueued resume_parent_run for parent %s", parent_id)
-        except Exception as exc:                                            # noqa: BLE001
-            logger.warning(
-                "Failed to enqueue parent resume for %s: %s", parent_id, exc
-            )
-
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    async def _reload_run(self, run_id: UUID, *, for_update: bool = False) -> Optional[ExecutionRun]:
-        """Load the run with the database's current values.
-
-        ``populate_existing`` overwrites an instance already in the session
-        (which ``expire_on_commit=False`` leaves stale), so the status the run
-        model's transition guard checks against is the stored one. With
-        ``for_update`` the row stays locked until the caller commits, so a
-        concurrent cancel cannot slip in between the read and the write.
-        """
-        stmt = (
-            select(ExecutionRun)
-            .options(selectinload(ExecutionRun.entity))
-            .where(ExecutionRun.id == run_id)
-            .execution_options(populate_existing=True)
-        )
-        if for_update:
-            stmt = stmt.with_for_update(of=ExecutionRun)
-        result = await self.db.execute(stmt)
-        return cast(Optional[ExecutionRun], result.scalar_one_or_none())
 
     async def _check_cancelled(self, state: AgentState) -> bool:
         """Re-read the run's status; if it is no longer RUNNING (an operator
@@ -1268,97 +1048,6 @@ class AgentLoop:
     # ------------------------------------------------------------------
     # Track 4 — task classification + bandit composition + finalize
     # ------------------------------------------------------------------
-
-    async def _classify_task(self, state: AgentState) -> None:
-        try:
-            from src.ai.memory.task_classifier import TaskClassifier
-            v2_enabled = await self._flag_or_default(
-                "task_classifier.v2_enabled", False, state,
-            )
-            classifier = TaskClassifier(
-                db=self.db, company_id=state.company_id,
-                v2_enabled=v2_enabled,
-            )
-            task_desc = ""
-            entity = self._entity
-            if entity is not None:
-                task_desc = (
-                    getattr(entity, "name", "")
-                    or getattr(entity, "goal", "")
-                    or ""
-                )
-            state.task_class = await classifier.classify(
-                task_description=task_desc, entity=entity,
-            )
-            await event_async(
-                "agent.task_class.classified",
-                run_id=str(state.run_id),
-                entity_id=str(state.entity_id) if state.entity_id else None,
-                task_class=state.task_class,
-                classifier_version="v2" if v2_enabled else "v1",
-            )
-        except Exception as exc:                                            # noqa: BLE001
-            logger.debug("task_class classification fell back to default: %s", exc)
-            state.task_class = "general"
-
-    async def _build_bandit(self, state: AgentState) -> Optional[Any]:
-        try:
-            enabled = await self._flag_or_default("bandit.enabled", True, state)
-        except Exception:                                                   # pragma: no cover
-            enabled = False
-        if not enabled or state.company_id is None:
-            return None
-        try:
-            from src.ai.planning.plan_style_bandit import PlanStyleBandit
-            # Through the resolver, so a company or global row overrides it.
-            epsilon = await self.flags.get_float(
-                "bandit.epsilon", company_id=state.company_id, default=0.10,
-            )
-            return PlanStyleBandit(
-                db=self.db, company_id=state.company_id, epsilon=epsilon,
-            )
-        except Exception as exc:                                            # noqa: BLE001
-            logger.debug("bandit construction failed; running without bandit: %s", exc)
-            return None
-
-    async def _enqueue_dreaming_trigger(self, state: AgentState, status: str) -> None:
-        """Phase 11 Track 6 — enqueue an outcome-triggered Dreaming pass.
-
-        Best-effort: silently no-op when the feature flag is off or the
-        Arq queue isn't reachable (tests, local runs without Redis).
-        """
-        try:
-            enabled = await self._flag_or_default(
-                "memory.dreaming_outcome_trigger", True, state,
-            )
-        except Exception:                                                   # pragma: no cover
-            enabled = False
-        # Dreaming learns from episodes, which only memory-enabled entities record.
-        if not enabled or state.entity_id is None or self.memory is None:
-            return
-        reason = "success" if status == RunStatus.COMPLETED.value else "failure"
-        try:
-            from arq.connections import ArqRedis
-            redis = self.redis
-            if redis is None:
-                return
-            arq = redis if isinstance(redis, ArqRedis) else ArqRedis(
-                getattr(redis, "connection_pool", redis),
-            )
-            await arq.enqueue_job(
-                "dreaming_outcome_trigger",
-                str(state.entity_id),
-                reason,
-                str(state.company_id) if state.company_id else None,
-                _queue_name="arq:queue",
-            )
-            await event_async(
-                "agent.dreaming.triggered",
-                entity_id=str(state.entity_id),
-                reason=reason,
-            )
-        except Exception as exc:                                            # noqa: BLE001
-            logger.debug(f"dreaming_outcome_trigger enqueue skipped: {exc}")
 
     async def _handle_replan(
         self, state: AgentState, supervise: Any,
@@ -1434,29 +1123,6 @@ class AgentLoop:
         if ent is None:
             return ""
         return getattr(ent, "goal", "") or ""
-
-    async def _finalize_bandit(self, state: AgentState, status: str) -> None:  # noqa: ARG002
-        """Reward each bandit pull with its own iteration's outcome and cost
-        (PC-21). Before, every arm used in the run got the run's success and
-        an even share of its whole cost, so one unlucky run pushed a good
-        arm out for good."""
-        if not getattr(self, "bandit", None) or not state.bandit_pulls:
-            return
-        assert self.bandit is not None
-        for pull in state.bandit_pulls:
-            try:
-                st = await self.bandit.update_arm(
-                    entity_id=state.entity_id, task_class=state.task_class, arm=pull["arm"],
-                    success=bool(pull.get("success")), cost_usd=float(pull.get("cost_usd") or 0),
-                )
-                await event_async(
-                    "agent.bandit.arm_updated", run_id=str(state.run_id), entity_id=str(state.entity_id),
-                    task_class=state.task_class, arm=pull["arm"], success=bool(pull.get("success")),
-                    cost_usd=float(pull.get("cost_usd") or 0), iteration=pull.get("iteration"),
-                    new_score=self.bandit.score(st),
-                )
-            except Exception as exc:                                        # noqa: BLE001
-                logger.debug("bandit arm update failed for %s: %s", pull.get("arm"), exc)
 
     @staticmethod
     def _fail_blocked_steps(state: AgentState, move: Any, concerns: list[str]) -> list[str]:
