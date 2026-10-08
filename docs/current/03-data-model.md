@@ -452,6 +452,7 @@ Defined at [orm/execution.py:187](../../backend/src/ai/orm/execution.py:187).
 | `timeout_ms` | Integer | yes | — | |
 | `requested_at` | DateTime | yes | utcnow | |
 | `responded_at` | DateTime | yes | — | |
+| `consumed_at` | DateTime | yes | — | When the step it decided acted on the decision. A parked run's checkpoint finds its approval again on re-dispatch and uses it once (GH-07, migration `h4_approval_consumed_at`) |
 
 Indexes: `ix_human_approvals_run_id` (DM-06) and `ix_human_approvals_company_status
 (company_id, status)` — the approvals inbox is a company's `PENDING` rows (DM-09).

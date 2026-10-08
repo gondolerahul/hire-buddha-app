@@ -679,17 +679,50 @@ async def resume_parent_run(ctx: dict[str, Any], parent_run_id_str: str) -> dict
         await redis_pool.close()
 
 
+async def resume_paused_run(ctx: dict[str, Any], run_id_str: str) -> dict[str, Any]:
+    """Resume a run parked on a HITL approval (GH-07, ``core/approval_pause``).
+
+    Enqueued when the reviewer answers, at the approval's deadline, and by the
+    stuck-run sweep. Idempotent: ``AgentLoop.resume_after_approval`` does
+    nothing while the approval is pending, and only one resume claims the run.
+    """
+    run_id = UUID(run_id_str)
+    import redis.asyncio as redis
+    from src.common.config import settings
+
+    redis_pool = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")  # type: ignore[no-untyped-call]
+    try:
+        async with AsyncSessionLocal() as db:
+            from src.ai.core.agent_loop import AgentLoop
+            from src.ai.core.feature_flags import FeatureFlags
+            from src.ai.core.trace import TraceRecorder, set_recorder
+
+            company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
+            recorder = TraceRecorder(run_id, company_id=company_id, redis=redis_pool)
+            with set_recorder(recorder):
+                loop = AgentLoop(db, redis_pool, company_id=company_id,
+                                 feature_flags=FeatureFlags(db, redis=redis_pool))
+                return await loop.resume_after_approval(run_id)
+    finally:
+        await redis_pool.close()
+
+
 async def sweep_stuck_runs(ctx: dict[str, Any]) -> dict[str, Any]:
-    """Cron: runs stuck in WAITING_ON_CHILDREN (AK-03, see ``core/stuck_runs``)."""
+    """Cron: runs stuck in WAITING_ON_CHILDREN (AK-03, see ``core/stuck_runs``),
+    and runs parked on an approval whose resume was lost (GH-07)."""
+    from src.ai.core.approval_pause import sweep_paused_runs
     from src.ai.core.stuck_runs import sweep_waiting_runs
     from src.common.config import settings
 
     async with AsyncSessionLocal() as db:
-        return await sweep_waiting_runs(
+        swept = await sweep_waiting_runs(
             db, ctx.get("redis"),
             grace_s=settings.WAITING_RESUME_GRACE_SECONDS,
             timeout_s=settings.WAITING_ON_CHILDREN_TIMEOUT_SECONDS,
         )
+        swept["paused_resumed"] = await sweep_paused_runs(
+            db, grace_s=settings.WAITING_RESUME_GRACE_SECONDS)
+        return swept
 
 
 # ---------------------------------------------------------------------------

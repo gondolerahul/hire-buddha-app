@@ -81,7 +81,7 @@ async def test_an_executor_hands_the_step_engine_the_pinned_entity(db, monkeypat
     from src.ai.core.step_engine import StepEngine
     seen = {}
 
-    async def _capture(self, run, entity, steps, ctx):
+    async def _capture(self, run, entity, steps, ctx, results_map=None):
         seen["entity"] = entity
         return []
 

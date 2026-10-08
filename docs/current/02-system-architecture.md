@@ -922,6 +922,7 @@ All from [`WorkerSettings.functions`](../../backend/src/ai/worker.py:78), each r
 | `stop_campaign_task` | [`campaign_worker.py:64`](../../backend/src/ai/campaign_worker.py:64) | `campaign_id` | Stops a campaign. |
 | `resume_execution` | [`arq_jobs.py:685`](../../backend/src/ai/core/arq_jobs.py:685) | `run_id_str` | Resumes a checkpointed run from `run.context_state`. |
 | `resume_parent_run` | [`arq_jobs.py:701`](../../backend/src/ai/core/arq_jobs.py:701) | `parent_run_id_str` | Enqueued by `AgentLoop._maybe_resume_parent` when a child run finalises. Idempotent no-op unless the parent is `WAITING_ON_CHILDREN`. |
+| `resume_paused_run` | [`arq_jobs.py`](../../backend/src/ai/core/arq_jobs.py) | `run_id_str` | Resumes a run parked `PAUSED` on a HITL approval (GH-07): enqueued by the respond endpoint, deferred to the approval's deadline, and by the stuck-run sweep. `AgentLoop.resume_after_approval` is a no-op while the approval is pending, and only one resume claims the run. |
 | `dreaming_outcome_trigger` | [`arq_jobs.py:831`](../../backend/src/ai/core/arq_jobs.py:831) | `entity_id_str, reason="success", company_id_str=None` | Outcome-triggered memory consolidation, enqueued from `AgentLoop._finalize`. Runs a cheap `should_dream` guard first. |
 
 ### Registered cron jobs

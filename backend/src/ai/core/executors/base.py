@@ -52,6 +52,9 @@ class ActionResult:
     # A person's decision stopped a step (GH-25): {"kind": "hitl_rejected" |
     # "hitl_timeout", "reason": ..., "step_id": ...}. The loop ends the run.
     blocked: Optional[dict[str, str]] = None
+    # A HITL checkpoint is waiting for a person (GH-07): ``HITLPending.marker()``.
+    # The loop parks the run PAUSED instead of holding the worker.
+    awaiting_approval: Optional[dict[str, Any]] = None
     context_state_delta: dict[str, Any] = field(default_factory=dict)
     # Async child dispatch: when non-empty, the executor dispatched child run(s)
     # as isolated jobs instead of running them inline, and the AgentLoop must

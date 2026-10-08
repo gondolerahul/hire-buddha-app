@@ -36,7 +36,8 @@ from src.ai.core.agent_loop_sse import event_async, flush_batch, iteration_batch
 from src.ai.core.step_signals import signals_from_state, step_signals
 from src.ai.core.budget import Budget
 from src.ai.core.credit_guard import CreditGuard
-from src.ai.core.exceptions import CreditExhaustedError
+from src.ai.core import approval_pause
+from src.ai.core.exceptions import CreditExhaustedError, HITLDecisionError, HITLPending
 from src.ai.core.executors import get_executor  # noqa: F401 — triggers registry side-effects
 from src.ai.core.executors.base import ActionResult
 from src.ai.core.feature_flags import FeatureFlags
@@ -225,7 +226,8 @@ class AgentLoop(RunPersistence, LoopLearning):
         try:
             await self._loop(state)
             if state.suspend_requested:
-                outcome_status = RunStatus.WAITING_ON_CHILDREN.value
+                outcome_status = (RunStatus.PAUSED if state.awaiting_approval
+                                  else RunStatus.WAITING_ON_CHILDREN).value
                 total_cost = float(state.budget.usd_used)
             else:
                 outcome_status = self._final_status(state)
@@ -253,15 +255,17 @@ class AgentLoop(RunPersistence, LoopLearning):
                 total_cost_usd=total_cost,
             )
 
-        # Async child dispatch: suspended waiting on children. Persist the
-        # resumable snapshot + WAITING_ON_CHILDREN and return WITHOUT finalizing
-        # or settling billing. ``resume_parent_run`` re-enters via ``resume``
-        # once the children are terminal.
+        # Suspended — on children (WAITING_ON_CHILDREN) or on a person's
+        # decision (PAUSED, GH-07). Persist the resumable snapshot and return
+        # WITHOUT finalizing or settling billing; the hold stays. Children
+        # re-enter via ``resume``, a decision via ``resume_after_approval``.
         if state.suspend_requested and not last_error:
             await self._persist_suspended(run, state)
+            if state.awaiting_approval:
+                await approval_pause.schedule_deadline(run_id, state.awaiting_approval)
             return AgentLoopOutcome(
                 run_id=str(run_id),
-                status=RunStatus.WAITING_ON_CHILDREN.value,
+                status=outcome_status,
                 iterations=state.iteration,
                 total_cost_usd=total_cost,
                 output="",
@@ -353,6 +357,45 @@ class AgentLoop(RunPersistence, LoopLearning):
         await event_async("agent.loop.resumed", run_id=str(run_id),
                           iteration=state.iteration, from_iteration=state.iteration,
                           any_failed=any_failed)
+        return await self._drive(run, state, run_id)
+
+    async def resume_after_approval(self, run_id: UUID) -> dict[str, Any]:
+        """Resume a run parked on a HITL approval (GH-07, ``approval_pause``).
+
+        A no-op while the approval is PENDING and its deadline has not passed,
+        and for a run that is not parked. Otherwise the run is claimed
+        (PAUSED → RUNNING, once) and the decision folded in: APPROVED dispatches
+        the checkpoint's step again, REJECTED ends the run CANCELLED and
+        TIMEOUT FAILED (GH-25). Past the deadline a PENDING approval is settled
+        first — TIMEOUT, or APPROVED when the checkpoint auto-approves.
+        """
+        self._run_id = run_id
+        set_sse_redis(self.redis)
+        run = await self._reload_run(run_id)
+        if not run:
+            raise LookupError(f"Run {run_id} not found")
+        snapshot = (run.context_state or {}).get(approval_pause.SNAPSHOT_KEY) or {}
+        marker = snapshot.get("awaiting_approval")
+        if str(run.status) != RunStatus.PAUSED.value or not marker:
+            return {"run_id": str(run_id), "status": str(run.status), "resumed": False}
+        decision, notes = await approval_pause.decision_for(self.db, marker)
+        if decision == "PENDING" or not await approval_pause.claim(self.db, run_id):
+            return {"run_id": str(run_id), "status": RunStatus.PAUSED.value, "resumed": False}
+
+        run = await self._reload_run(run_id)
+        assert run is not None
+        state = AgentState.restore(snapshot)
+        state.redis_client = self.redis
+        entity = await run_entity(self.db, run)
+        self._entity = entity
+        self.credits = CreditGuard(self.db, self.redis, run, entity)  # the hold persists
+        await self._compose(state, resumed=True)
+        blocked = await approval_pause.take_decision(self.db, state, marker, decision, notes)
+        await event_async("agent.loop.resumed_after_approval", run_id=str(run_id),
+                          iteration=state.iteration, decision=decision,
+                          step_id=marker.get("step_id"))
+        if blocked:
+            await self._end_on_human_decision(state, blocked)
         return await self._drive(run, state, run_id)
 
     async def _fold_children(self, state: AgentState) -> tuple[bool, bool]:
@@ -595,6 +638,14 @@ class AgentLoop(RunPersistence, LoopLearning):
                 async with AsyncSessionLocal() as exec_db:
                     with step_signals(signals_from_state(state)):   # typed, not dict keys (AK-21)
                         action_result: ActionResult = await executor.execute(move, state, exec_db)
+            except HITLPending as pending:
+                # An executor that let a waiting checkpoint through: park all the same.
+                action_result = ActionResult(success=True, awaiting_approval=pending.marker(),
+                                             latency_ms=int((time.time() - start) * 1000))
+            except HITLDecisionError as human:
+                action_result = ActionResult(
+                    success=False, error=str(human), latency_ms=int((time.time() - start) * 1000),
+                    blocked={"kind": human.kind, "reason": human.reason, "step_id": ""})
             except Exception as exc:                                       # noqa: BLE001
                 action_result = ActionResult(
                     success=False,
@@ -651,6 +702,17 @@ class AgentLoop(RunPersistence, LoopLearning):
         for sid, err in action_result.failed_steps.items():
             state.mark_step_failed(sid, err)
             record_step_result(state, move, sid, action_result, error=err)
+
+        # A checkpoint waits for a person (GH-07): park the run PAUSED and give
+        # the worker back. The decision resumes it (``resume_after_approval``).
+        if action_result.awaiting_approval:
+            marker = action_result.awaiting_approval
+            approval_pause.park(state, move, action_result.completed_step_ids,
+                                action_result.failed_steps, marker)
+            await event_async("agent.loop.paused_on_approval", run_id=str(state.run_id),
+                              iteration=state.iteration, approval_id=marker.get("approval_id"),
+                              trigger=marker.get("trigger"), step_id=marker.get("step_id"))
+            return
 
         # 5. Observe
         observation = self.observer.parse(action_result, state)

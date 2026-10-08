@@ -10,14 +10,14 @@ from __future__ import annotations
 import logging
 import time
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
-from src.ai.core.exceptions import HITLDecisionError
+from src.ai.core.exceptions import HITLDecisionError, HITLPending
 from src.ai.core.executors.base import ActionResult, register_executor
 from src.ai.governance.entity_versions import run_entity
 from src.ai.core.executors.single_step import _resolve_redis
@@ -56,8 +56,17 @@ class DAGExecutor:
         steps_payload = self._normalise_steps(move.plan_fragment)
 
         start = time.time()
+        finished: dict[str, Any] = {}
+        awaiting: Optional[dict[str, Any]] = None
         try:
-            results = await engine._execute_steps_dag(run, entity, steps_payload, ctx)
+            results = await engine._execute_steps_dag(run, entity, steps_payload, ctx, finished)
+        except HITLPending as pending:
+            # A checkpoint waits for a person: the loop parks the run (GH-07).
+            # The steps that finished first keep their results.
+            awaiting = pending.marker()
+            if pending.step_result is not None and pending.step_id:
+                finished[pending.step_id] = pending.step_result
+            results = [{"step_id": sid, **r} if isinstance(r, dict) else r for sid, r in finished.items()]
         except HITLDecisionError as decision:
             # A reviewer's rejection or an unanswered checkpoint (GH-25).
             return ActionResult(
@@ -104,6 +113,7 @@ class DAGExecutor:
             error="; ".join(str(r.get("error")) for r in (results or []) if isinstance(r, dict) and r.get("error"))[:500],
             completed_step_ids=completed,
             failed_steps=failed,
+            awaiting_approval=awaiting,
         )
 
     # ------------------------------------------------------------------

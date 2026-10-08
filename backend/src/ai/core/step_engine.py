@@ -34,7 +34,7 @@ from src.ai.memory.cortex_bridge import CortexBridge
 from src.ai.step_executor import StepExecutorService
 from src.ai.memory.cortex_service import CortexService
 
-from src.ai.core.exceptions import UncertaintySignal, BudgetExhaustedError, HITLDecisionError
+from src.ai.core.exceptions import UncertaintySignal, BudgetExhaustedError, HITLDecisionError, HITLPending
 from src.ai.core.context_utils import store_step_output
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,13 @@ class StepEngine:
                 governance=self._governance,
             )
 
-    async def _execute_steps_dag(self, run: Any, entity: Any, steps: List[dict[str, Any]], context_state: dict[str, Any]) -> List[dict[str, Any]]:
+    async def _execute_steps_dag(self, run: Any, entity: Any, steps: List[dict[str, Any]], context_state: dict[str, Any],
+                                 results_map: Optional[dict[str, Any]] = None) -> List[dict[str, Any]]:
         """Execute steps respecting dependencies, parallelizing independent ones.
+
+        ``results_map``, when given, is filled step by step, so a caller still
+        has the finished steps' results when a HITL checkpoint parks the run
+        (``HITLPending``, GH-07).
 
         P1-A: Parallel steps each open their own AsyncSession to avoid
         sharing self.db across concurrent coroutines (which would cause
@@ -111,7 +116,7 @@ class StepEngine:
             if s["step_id"] in context_state and s["step_id"] != "input":
                 completed.add(s["step_id"])
 
-        results_map: dict[str, Any] = {}
+        results_map = {} if results_map is None else results_map
         logger.info(f"DAG Execution Plan for {len(steps)} steps. Dependencies: {step_deps}")
 
         while len(completed) < len(steps):
@@ -208,7 +213,12 @@ class StepEngine:
                 failures: list[Any] = []
                 for i, batch_result in enumerate(batch_results):
                     step_id = ready[i]["step_id"]
-                    if isinstance(batch_result, Exception):
+                    if isinstance(batch_result, HITLPending) and batch_result.step_result is not None:
+                        # It ran; an AFTER checkpoint parks the run on its result.
+                        results_map[step_id] = batch_result.step_result
+                        completed.add(step_id)
+                        failures.append((step_id, batch_result))
+                    elif isinstance(batch_result, Exception):
                         logger.error(f"Step {step_id} failed: {batch_result}")
                         results_map[step_id] = {"error": str(batch_result), "step": ready[i]["name"]}
                         _store_step_output(context_state, ready[i]["name"], step_id, f"[FAILED] {batch_result}")
@@ -224,10 +234,12 @@ class StepEngine:
                 await self.db.refresh(run)
 
                 if failures:
-                    # A person's decision outranks an ordinary failure: the loop
-                    # ends the run on it (GH-25). Otherwise raise the first.
+                    # A person's decision outranks everything: the loop ends the
+                    # run on it (GH-25). Then a checkpoint waiting for one: the
+                    # loop parks the run (GH-07). Otherwise the first failure.
                     decision = next((e for _, e in failures if isinstance(e, HITLDecisionError)), None)
-                    raise decision or failures[0][1]
+                    waiting = next((e for _, e in failures if isinstance(e, HITLPending)), None)
+                    raise decision or waiting or failures[0][1]
 
         return [results_map.get(s["step_id"], {}) for s in steps]
 
@@ -343,10 +355,15 @@ class StepEngine:
             }
 
         # ── HITL: Evaluate AFTER_STEP checkpoints ───────────────────────────
-        await self._evaluate_hitl_checkpoints(
-            run, entity, step_obj, context_state, phase="AFTER",
-            governance_dict=governance, step_result=step_result,
-        )
+        try:
+            await self._evaluate_hitl_checkpoints(
+                run, entity, step_obj, context_state, phase="AFTER",
+                governance_dict=governance, step_result=step_result,
+            )
+        except HITLPending as pending:
+            # The step ran: the run keeps its result while a person looks (GH-07).
+            pending.step_result = step_result if isinstance(step_result, dict) else {"output": step_result}
+            raise
 
         # (C1: the legacy v1 self-critique `_review_step_output` is deleted.
         # The AgentLoop is the default path and runs RealCriticPipeline; this

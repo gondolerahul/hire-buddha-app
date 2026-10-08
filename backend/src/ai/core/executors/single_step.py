@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.ai.core.agent_state import AgentState, ExecutorName
-from src.ai.core.exceptions import HITLDecisionError
+from src.ai.core.exceptions import HITLDecisionError, HITLPending
 from src.ai.core.executors.base import ActionResult, register_executor
 from src.ai.governance.entity_versions import run_entity
 from src.ai.core.strategist import Move
@@ -70,6 +70,7 @@ class SingleStepExecutor:
         errored = False
         error_msg = ""
         blocked: Optional[dict[str, str]] = None
+        awaiting: Optional[dict[str, Any]] = None
 
         start = time.time()
         # Run the legacy step engine on its OWN session. ``_execute_step_wrapper``
@@ -105,6 +106,14 @@ class SingleStepExecutor:
                     step_id = str(getattr(step_obj, "step_id", None) or step_obj.name or "")
                     try:
                         result = await engine._execute_step_wrapper(run, entity, step_obj, ctx)
+                    except HITLPending as pending:
+                        # A checkpoint waits for a person: the loop parks the run
+                        # (GH-07). Before the step, nothing ran; after it, keep
+                        # its result like any other.
+                        awaiting = pending.marker()
+                        if pending.step_result is None:
+                            break
+                        result = pending.step_result
                     except HITLDecisionError as decision:
                         # A reviewer's rejection or an unanswered checkpoint:
                         # the loop ends the run, no critic, no retry (GH-25).
@@ -139,6 +148,8 @@ class SingleStepExecutor:
                     _step_span.set_cost(result.get("cost_usd", 0) or 0)
                     if result.get("error"):
                         _step_span.set_error(str(result.get("error")))
+                if awaiting:
+                    break
 
             # The rows the fragment wrote: tool + LLM cost the step dicts don't
             # surface. Take the larger so the per-iteration ActionResult (the
@@ -159,6 +170,7 @@ class SingleStepExecutor:
             completed_step_ids=completed,
             failed_steps=failed,
             blocked=blocked,
+            awaiting_approval=awaiting,
         )
 
     async def _no_plan_noop(self, state: AgentState) -> ActionResult:

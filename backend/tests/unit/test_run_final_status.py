@@ -136,7 +136,7 @@ async def test_dag_reports_errored_steps_as_failed(monkeypatch):
         def _ensure_services(self, _cid):
             pass
 
-        async def _execute_steps_dag(self, run, entity, steps, ctx):  # noqa: ARG002
+        async def _execute_steps_dag(self, run, entity, steps, ctx, results_map=None):  # noqa: ARG002
             return [{"step_id": "a", "output": "ok"},
                     {"step_id": "b", "output": "", "error": "boom"}]
 

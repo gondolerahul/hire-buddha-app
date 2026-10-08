@@ -227,6 +227,9 @@ class HumanApproval(Base):
     timeout_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When the step it decided acted on the decision (GH-07): a parked run's
+    # checkpoint finds its approval again on re-dispatch and uses it once.
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="human_approvals")
     reviewer: Mapped["User | None"] = relationship("User")

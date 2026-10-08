@@ -453,26 +453,16 @@ async def respond_to_approval(
 ):
     """Answer one of your company's pending approvals: ``{"status": "APPROVED" | "REJECTED", "notes"?}``."""
     service = AIService(db)
-    await service.respond_to_approval(
+    approval = await service.respond_to_approval(
         approval_id, decision.status, current_user.id, decision.notes,
         company_id=current_user.company_id,
     )
 
-    # Wake the waiting worker at once. Best-effort: the worker also re-reads
-    # the approval row, so a failed publish only delays it by a few seconds.
-    try:
-        import redis.asyncio as redis_lib
-        import json
-        from src.common.config import settings
-        r = redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379")
-        await r.publish(f"hitl:{approval_id}", json.dumps({
-            "status": decision.status,
-            "responded_by": str(current_user.id),
-            "notes": decision.notes,
-        }))
-        await r.close()
-    except Exception:
-        pass
+    # The run is parked PAUSED on this approval, holding no worker (GH-07):
+    # resume it now. Best-effort — the stuck-run sweep resumes a run whose
+    # approval was decided and nobody picked it up.
+    from src.ai.core.approval_pause import enqueue_resume
+    await enqueue_resume(approval.run_id, job_id=f"hitl-decided:{approval_id}")
 
     return {"status": "success", "decision": decision.status}
 

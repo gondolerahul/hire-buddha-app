@@ -15,7 +15,7 @@
 5. [Credit gates and the circuit breaker](#5-credit-gates-and-the-circuit-breaker)
 6. [The entity governance block](#6-the-entity-governance-block)
 7. [Human-in-the-loop checkpoints](#7-human-in-the-loop-checkpoints)
-8. [The HITL wait mechanism](#8-the-hitl-wait-mechanism)
+8. [Parking on a decision](#8-parking-on-a-decision)
 9. [Custom expression triggers](#9-custom-expression-triggers)
 10. [Rate limiting](#10-rate-limiting)
 11. [Tool cost resolution](#11-tool-cost-resolution)
@@ -149,7 +149,7 @@ class GovernanceService:
     def __init__(self, db: Any, redis: Any) -> None:
 ```
 
-It needs **both** a DB session and Redis — Redis because HITL waits on pub/sub.
+It needs **both** a DB session and Redis — Redis for the HITL notice on the run's live view.
 
 ```mermaid
 classDiagram
@@ -167,7 +167,7 @@ classDiagram
     }
     GovernanceService --> CreditService : delegates money
     GovernanceService --> HumanApproval : creates rows
-    GovernanceService --> Redis : pub/sub for HITL
+    GovernanceService --> Redis : HITL_PENDING notice
 ```
 
 | Method | When | Raises |
@@ -429,15 +429,19 @@ flowchart TD
     PH -->|AFTER| A1{"AFTER_STEP matches step_ref?"}
     A1 --> FIRE
     FIRE -->|no| CONT["Continue"]
-    FIRE -->|yes| CREATE["Create HumanApproval PENDING"]
-    CREATE --> WAIT["Publish + wait on Redis"]
+    FIRE -->|yes| FIND{"An unused approval<br/>for this trigger?"}
+    FIND -->|none| CREATE["Create HumanApproval PENDING"]
+    CREATE --> PARK["HITLPending - the run parks PAUSED (§8)"]
+    FIND -->|PENDING| PARK
+    FIND -->|APPROVED| CONT
 ```
 
-### 7.3 Checkpoints are evaluated in order, and each blocks
+### 7.3 Checkpoints are evaluated in order
 
 `evaluate_hitl` loops over `governance.hitl_checkpoints` and processes each
-matching one **sequentially and synchronously**. Two checkpoints matching the
-same step mean two consecutive waits.
+matching one in order. Two checkpoints matching the same step mean two
+consecutive parks: the first approval resumes the run, the second checkpoint
+parks it again.
 
 Malformed checkpoint definitions are skipped silently:
 
@@ -503,83 +507,102 @@ stateDiagram-v2
 
 ---
 
-## 8. The HITL wait mechanism
+## 8. Parking on a decision
 
-This is the part that surprises people: **the worker blocks on Redis pub/sub**
-while a human decides.
+A run that meets a HITL checkpoint **does not hold a worker** while a person decides
+(GH-07, PO-20, since 2026-10-08). Until then the step waited inside the worker — on Redis
+pub/sub plus a re-read of the approval row — for up to `timeout_ms`, holding an Arq slot,
+and a few pending approvals starved the pool. Now the run parks the way it suspends on its
+children: a snapshot, status **`PAUSED`**, the worker given back, the credit hold kept.
 
 ```mermaid
 sequenceDiagram
-    participant W as Arq worker (run)
+    participant W as Arq worker
+    participant L as AgentLoop
     participant G as GovernanceService
     participant DB as PostgreSQL
-    participant R as Redis
-    participant UI as HITLPanel (browser)
-    participant H as Human
+    participant UI as HITLPanel
+    participant Q as Arq queue
 
+    L->>G: step s1 — evaluate_hitl(BEFORE)
     G->>DB: INSERT HumanApproval (PENDING)
-    G->>R: PUBLISH execution:{run_id}<br/>{status: HITL_PENDING, approval_id, trigger, message}
-    R-->>UI: SSE / live update
-    UI-->>H: "Approval required: ..."
+    G-->>UI: PUBLISH execution:{run_id} {status: HITL_PENDING, approval_id, …}
+    G-->>L: raise HITLPending(approval_id, deadline)
+    L->>DB: snapshot (awaiting_approval, s1 re-queued), status PAUSED
+    L->>Q: resume_paused_run, deferred to the deadline
+    L-->>W: return — the slot is free
 
-    G->>R: SUBSCRIBE hitl:{approval_id}
-    loop until deadline (timeout_ms)
-        G->>R: get_message(timeout=1.0)
-        G->>DB: every 2 s, re-read the approval row's status
-        G->>G: asyncio.sleep(0.5)
-    end
-
-    H->>UI: click Authorize
-    UI->>DB: POST /ai/approvals/{id}/respond - UPDATE ... WHERE status = PENDING
-    UI->>R: PUBLISH hitl:{approval_id} {status: APPROVED}
-    R-->>G: message
-    G->>W: return - step proceeds
+    UI->>DB: POST /ai/approvals/{id}/respond — UPDATE … WHERE status = PENDING
+    UI->>Q: resume_paused_run (job id hitl-decided:{id})
+    Q->>L: resume_after_approval(run_id)
+    L->>DB: claim PAUSED → RUNNING (once)
+    L->>G: step s1 again — evaluate_hitl finds APPROVED, uses it
+    G-->>L: return — the step runs
 ```
 
-### 8.1 Two Redis channels
+### 8.1 The approval a checkpoint waits on
 
-| Channel | Direction | Payload |
-|---|---|---|
-| `execution:{run_id}` | Worker → UI | `{status: "HITL_PENDING", approval_id, trigger, message}` |
-| `hitl:{approval_id}` | UI → Worker | `{status: "APPROVED" \| "REJECTED"}` |
+[`governance/hitl_gate.py`](../../backend/src/ai/governance/hitl_gate.py). When a checkpoint
+fires, `evaluate_hitl` first looks for the run's latest approval with the same trigger that
+no step has used (`human_approvals.consumed_at IS NULL`):
 
-The first drives the live execution trace ([13 — Gateway and realtime](13-gateway-and-realtime.md));
-the second is the reply path.
+| Found | Result |
+|---|---|
+| nothing | open a PENDING approval, publish `HITL_PENDING` on `execution:{run_id}`, raise `HITLPending` — the run parks |
+| `PENDING` | raise `HITLPending` on that approval — park again, no second request |
+| `APPROVED` | mark it used, then the next checkpoint, then the step runs |
+| `REJECTED` | mark it used, raise `HITLRejected("Execution blocked by human reviewer: … — <reviewer notes>")` — the run ends `CANCELLED` (§8.4) |
+| `TIMEOUT` | mark it used, raise `HITLTimeout("HITL checkpoint timed out after …ms")` — the run ends `FAILED` |
 
-### 8.2 The wait loop
+A decision is used once, so when the checkpoint fires again — the step retried, the next
+step past a `COST_THRESHOLD` — a person is asked again, as the blocking wait did.
+**Nothing lets a step proceed without an APPROVED decision**; Redis carries only the
+best-effort notice and the resume job (GH-22, GH-01).
 
-`GovernanceService._await_hitl_decision` returns `"APPROVED"`, `"REJECTED"` or `None`
-(the deadline passed). It listens on two sources:
+An `AFTER_STEP` checkpoint fires after the step ran: `HITLPending` carries the step's result
+(`step_result`), the executor records the step as done, and the run parks on its output.
+`ask_user` (an `ASK_USER` retry, PC-06) parks the same way with trigger `ASK_USER: <step>`;
+the reviewer answers by approving it with notes, and the answer is returned when the step
+is dispatched again.
 
-- **pub/sub** — `self.redis.pubsub()` subscribed to `hitl:{approval_id}`; a message wakes
-  it at once (`get_message(timeout=1.0)` plus a 0.5-second sleep);
-- **the approval row** — its `status` is re-read every 2 seconds, so a decision is seen
-  even when the publish was lost or Redis is down.
+### 8.2 Parking
 
-If subscribing fails, or the connection drops mid-wait, it logs a warning and keeps
-waiting on the row alone. **Nothing in the wait lets a step proceed without a decision.**
-(Until 2026-09-29 the wait called `self.redis.client.pubsub()`, which raises on the
-worker's `redis.asyncio.Redis`, and a catch-all let the step proceed unapproved — so no
-checkpoint ever waited. GH-22, GH-01.)
+[`core/approval_pause.py`](../../backend/src/ai/core/approval_pause.py). The SingleStep and
+DAG executors report `HITLPending` as `ActionResult.awaiting_approval` (the loop catches it
+from any other executor too). The loop records what finished, puts the move's steps that
+did not run back at the front of `retry_queue` — as they were, the checkpoint's step first —
+sets `AgentState.awaiting_approval` (approval id, trigger, phase, step, deadline,
+auto-approve) and suspends: `_persist_suspended` writes the snapshot and `PAUSED`, and a
+`resume_paused_run` job is deferred to the deadline. The run is not finalised or billed;
+events `agent.loop.paused_on_approval` and `agent.loop.suspended`.
 
-`evaluate_hitl` then acts on the decision directly — no exception text is matched:
+### 8.3 Resuming, and the deadline
+
+`resume_paused_run` drives `AgentLoop.resume_after_approval`. Three things enqueue it,
+whichever comes first:
+
+| Who | When |
+|---|---|
+| the respond endpoint | the reviewer answered (job id `hitl-decided:{approval_id}`) |
+| the deadline job | `timeout_ms` after the request (job id `hitl-deadline:{approval_id}`) |
+| `sweep_paused_runs` (the `sweep_stuck_runs` cron, every 5 minutes) | the approval was decided, or its deadline passed, more than `WAITING_RESUME_GRACE_SECONDS` ago — the resume was lost |
+
+`resume_after_approval` does nothing for a run that is not parked, or whose approval is
+still `PENDING` before its deadline. Past the deadline a `PENDING` approval is settled with a
+**conditional** update — `TIMEOUT`, or `APPROVED` with *"Auto-approved on timeout"* when
+`auto_approve_on_timeout` is set — `WHERE status = 'PENDING'`, so a reviewer's answer that
+landed first wins. Then the run is **claimed** (`PAUSED → RUNNING` in one conditional
+update, so two resumes cannot both drive it) and the decision folded in:
 
 | Decision | Result |
 |---|---|
-| `APPROVED` | next checkpoint, then the step runs |
-| `REJECTED` | raises `HITLRejected("Execution blocked by human reviewer: … — <reviewer notes>")` — the run ends `CANCELLED` (§8.4) |
-| deadline | see §8.3 |
+| `APPROVED` | the loop continues; the re-queued step meets its checkpoint, which uses the approval and runs it (an `AFTER` approval is used at once — the step already ran) |
+| `REJECTED` | the step is failed and the run ends **`CANCELLED`** with the reviewer's notes |
+| `TIMEOUT` | the step is failed and the run ends **`FAILED`** |
 
-### 8.3 Timeout behaviour
-
-At the deadline the row is marked with a **conditional** update — `TIMEOUT`, or `APPROVED`
-with *"Auto-approved on timeout"* when `auto_approve_on_timeout` is set — `WHERE status =
-'PENDING'`. If a reviewer's answer landed at the same moment, the update matches nothing
-and their decision wins. A `TIMEOUT` raises `HITLTimeout("HITL checkpoint timed out after …ms")`
-and the run ends `FAILED`.
-
-Default `timeout_ms` is **300000 (5 minutes)** and `auto_approve_on_timeout`
-defaults to **`False`** — so the safe default is *fail closed on timeout*.
+Default `timeout_ms` is **300000 (5 minutes)** and `auto_approve_on_timeout` defaults to
+**`False`** — so the safe default is *fail closed on timeout*. A paused run holds no worker,
+so a long `timeout_ms` costs nothing but the reviewer's patience.
 
 ### 8.4 Answering an approval
 
@@ -587,9 +610,9 @@ defaults to **`False`** — so the safe default is *fail closed on timeout*.
 `{"status": "APPROVED" | "REJECTED", "notes"?}` (`ApprovalDecision`; anything else is a
 422). `AIService.respond_to_approval` finds the approval **through its run's company** —
 another company's approval is a 404 — and records the decision with `UPDATE … WHERE status
-= 'PENDING'`, so an approval is answered once: a second answer, or one after the worker
-timed out, is a 409. The router then publishes on `hitl:{approval_id}` (best-effort; the
-worker also reads the row). GH-23, GH-24.
+= 'PENDING'`, so an approval is answered once: a second answer, or one after the deadline
+settled it, is a 409. The router then enqueues the run's resume (best-effort; the sweep
+catches a lost one). GH-23, GH-24.
 
 A decision ends the run (GH-25, HD7). `HITLRejected` and `HITLTimeout`
 (`ai/core/exceptions.py`, both `HITLDecisionError`) reach the executor, which reports them
@@ -600,26 +623,17 @@ step runs. A rejection ends the run **`CANCELLED`** with the reviewer's notes in
 `error_message`; a timeout ends it **`FAILED`**. The event is `agent.loop.human_decision`.
 An `ASK_USER` question (PC-06) behaves the same way: no answer is `HITLTimeout`; a refusal,
 or an approval with no answer, is `HITLRejected`. In a parallel DAG level, a decision
-outranks the other steps' failures.
+outranks the other steps' failures, and a waiting checkpoint outranks an ordinary error.
 
-### 8.5 Operational implications of a blocking wait
+### 8.5 Operational notes
 
-```mermaid
-flowchart LR
-    subgraph Worker["Arq worker process"]
-        S1["Slot 1: run A - BLOCKED 5 min on HITL"]
-        S2["Slot 2: run B"]
-        S3["Slot 3: run C"]
-    end
-    Q["Queue backing up"] -.-> Worker
-    NOTE["Concurrency slots are held<br/>for the entire wait"]
-```
-
-A run waiting on a human **occupies a worker concurrency slot** for up to
-`timeout_ms`. Several long-timeout checkpoints firing at once can starve the
-worker pool. Keep `timeout_ms` short, or scale worker concurrency to match
-expected concurrent approvals. See
-[02 — System architecture](02-system-architecture.md) for the worker topology.
+- A paused run is `PAUSED` in the run list and on its page, which keeps polling it; the
+  pending request is in the approvals inbox (`GET /ai/approvals/pending`).
+- Cancelling a paused run (`POST /executions/{id}/cancel`) makes it `CANCELLED`; a later
+  resume does nothing. As for a run cancelled while it waits on children, the work done
+  before it parked is not settled.
+- A run paused by the supervisor (`PAUSE_HITL`) has no approval in its snapshot; the
+  resume and the sweep leave it alone.
 
 ---
 
@@ -1127,20 +1141,15 @@ print(res.value, res.source)   # e.g. True 'company'
 
 ### 14.4 Unstick a run waiting on HITL
 
-Publish the approval directly:
+Answer it through the API (`POST /ai/approvals/{id}/respond`) — that also enqueues the
+resume. Or decide the row by hand:
 
 ```bash
-redis-cli PUBLISH "hitl:<approval-uuid>" '{"status":"APPROVED"}'
+psql -h localhost -p 5433 -U postgres -d hirebuddha -c "UPDATE human_approvals SET status='APPROVED', responded_at=now(), reviewer_notes='manually unblocked' WHERE id='<approval-uuid>' AND status='PENDING';"
 ```
 
-Then reconcile the row:
-
-```bash
-psql -h localhost -p 5433 -U postgres -d hirebuddha -c "UPDATE human_approvals SET status='APPROVED', responded_at=now(), reviewer_notes='manually unblocked' WHERE id='<approval-uuid>';"
-```
-
-Order matters — the worker is listening on the channel, not polling the table.
-If the worker already timed out, publishing does nothing and the run has failed.
+The `sweep_stuck_runs` cron resumes the run within about `WAITING_RESUME_GRACE_SECONDS`
+plus five minutes; nothing waits on a channel.
 
 ### 14.5 List stuck approvals
 
@@ -1148,8 +1157,9 @@ If the worker already timed out, publishing does nothing and the run has failed.
 psql -h localhost -p 5433 -U postgres -d hirebuddha -c "SELECT id, run_id, checkpoint_trigger, requested_at, timeout_ms FROM human_approvals WHERE status='PENDING' ORDER BY requested_at;"
 ```
 
-Rows older than their `timeout_ms` that are still `PENDING` indicate the
-pub/sub fail-open path fired ([§8.4](#84-pubsub-failure-fails-open)).
+A row older than its `timeout_ms` that is still `PENDING` means its run's deadline job
+and the sweep have not resumed it yet — or the run ended (cancelled) while it waited
+(§8.5).
 
 ### 14.6 Suspend or restore a company
 
@@ -1200,17 +1210,17 @@ redis-cli DEL "tool:search:company_<uuid>"
 
 1. **Almost every gate fails open.** Credit checks, rate limiting, suspension
    middleware, semantic duplicate checks — all swallow non-fatal errors and let
-   the request through. A broken gate looks exactly like a passing gate. (The HITL
-   wait no longer does — since 2026-09-29 it fails closed, §8.2.)
+   the request through. A broken gate looks exactly like a passing gate. (A HITL
+   checkpoint does not: nothing lets a step proceed without an APPROVED decision, §8.1.)
 
-2. **A HITL wait survives a Redis outage.** It re-reads the approval row every 2
-   seconds, so decisions still land; they are just noticed up to ~2 seconds later.
+2. **A HITL checkpoint survives a Redis outage.** The approval row is the record; Redis
+   carries only the notice and the resume job, and the sweep re-enqueues a lost resume.
 
 3. ~~**A rejected step is retried, and the reviewer is asked again**~~ (GH-25, fixed
    2026-10-08): a rejection ends the run `CANCELLED`, a timeout `FAILED` (§8.4).
 
-4. **A HITL wait blocks an Arq worker slot** for up to `timeout_ms` (default 5
-   minutes). Concurrent approvals can starve the worker pool.
+4. ~~**A HITL wait blocks an Arq worker slot**~~ (GH-07, fixed 2026-10-08): the run
+   parks `PAUSED` and holds no worker while a person decides (§8).
 
 5. **Only `AFTER_STEP` fires in the `AFTER` phase.** `COST_THRESHOLD` is
    `BEFORE`-only, so it fires before the *next* step, not at the moment the

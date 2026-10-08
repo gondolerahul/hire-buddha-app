@@ -49,9 +49,9 @@ cross-referenced here.
 | [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 0 | 4 | 1 | 0 |
 | [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 1 | 3 | 1 | 1 |
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
-| [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 1 | 4 | 0 |
+| [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 2 | 3 | 0 |
 
-**Total: 23 defects (0 open, 16 resolved, 6 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** PO-23 (templates, found 2026-10-02) was fixed on 2026-10-07; PO-07 was fixed in P6.2; PO-06 delivered its audit. The deferred PO-19 and PO-20 are scheduled through their duplicates GW-19 and GH-07 in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (H6, H4).
+**Total: 23 defects (0 open, 17 resolved, 5 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** PO-23 (templates, found 2026-10-02) was fixed on 2026-10-07; PO-07 was fixed in P6.2; PO-06 delivered its audit; PO-20 was fixed with its duplicate GH-07 on 2026-10-08. The deferred PO-19 is scheduled through its duplicate GW-19 in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (H6).
 
 | ID | Defect | Status |
 |---|---|---|
@@ -73,7 +73,7 @@ cross-referenced here.
 | PO-16 | The phase11 redirect shims | ✅ fixed `6d90428` |
 | PO-17 | The deprecated `video_generation` tool | ✅ fixed `a8fb38e` |
 | PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `ba5e6ec` (by PO-15) |
-| PO-19 – PO-22 | Rough edges | ⏸ deferred — PO-19 is GW-19 ([H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport)) and PO-20 is GH-07 ([H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold)), both scheduled; PO-21, PO-22 [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
+| PO-19 – PO-22 | Rough edges | ⏸ deferred — PO-19 is GW-19 ([H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport)), scheduled; PO-20 ✅ fixed (2026-10-08) with GH-07; PO-21, PO-22 [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | PO-I1 – PO-I12 | Improvements | ⏸ deferred, except PO-I9 — done by PO-10 — and PO-I6, done by AU-20 |
 
 The three worth reading first:
@@ -589,7 +589,7 @@ the stream early and the user will think the run stopped.
 
 ### PO-20 — A long HITL timeout ties up a worker
 
-**✅ Verified · Medium** · **Status: deferred (2026-09-29)**
+**✅ Verified · Medium** · **Status: fixed (2026-10-08)** — with its duplicate [GH-07](15-GOVERNANCE-AND-HITL-DEFECTS.md#gh-07--a-hitl-wait-blocks-a-worker-slot): a run waiting on a person is parked `PAUSED` and holds no worker, however long its `timeout_ms`
 
 The governance service subscribes to `hitl:{approval_id}` and then blocks, polling
 until `timeout_ms`. The default is 5 minutes, but the field is free — a tenant can set

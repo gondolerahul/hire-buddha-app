@@ -37,11 +37,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 4 | 1 | 1 | 0 |
-| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 5 | 0 | 4 | 0 |
+| [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 6 | 0 | 3 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 2 | 1 | 2 | 0 |
 
-**Total: 25 defects (12 fixed, 4 partly fixed, 9 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (13 fixed, 4 partly fixed, 8 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -51,7 +51,7 @@
 | GH-04 | The suspension middleware fails open and only covers one process | ✅ fixed `15191e5` (SA-18) | — |
 | GH-05 | An unmapped tool costs $0 and warns once per process | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | GH-06 | Reject and timeout are detected by matching exception text | ✅ fixed `98af2c0` | — |
-| GH-07 | A HITL wait blocks a worker slot | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-07 | A HITL wait blocks a worker slot | ✅ fixed (2026-10-08) | — |
 | GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | GH-09 | Malformed HITL checkpoints are skipped silently | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | GH-10 | `CUSTOM` expressions support two variables and two operators | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
@@ -282,7 +282,7 @@ a message.
 
 ### GH-07 — A HITL wait blocks a worker slot
 
-**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: `_await_hitl_decision` still subscribes and polls on the worker until `timeout_ms`. Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**✅ Verified · High** · **Status: fixed (2026-10-08)** — a checkpoint parks the run instead of waiting (GH-I3): `evaluate_hitl` and `ask_user` open the approval and raise `HITLPending`; the executors report it as `ActionResult.awaiting_approval` and the loop snapshots the run, sets it `PAUSED`, re-queues the unrun steps and returns the worker, keeping the credit hold (`core/approval_pause.py`). The respond endpoint, a job deferred to the deadline and the stuck-run sweep enqueue `resume_paused_run` → `AgentLoop.resume_after_approval`, which claims the run once and continues at the same step (APPROVED), or ends it CANCELLED (REJECTED) or FAILED (TIMEOUT, or auto-approves). On re-dispatch the checkpoint finds its approval (`governance/hitl_gate.py`) and uses it once (`human_approvals.consumed_at`, migration `h4_approval_consumed_at`). The blocking wait and the `hitl:{id}` channel are gone. `tests/unit/test_approval_pause.py`, `tests/integration/test_hitl_parking.py`. Live 2026-10-08 on a two-slot worker: ten runs parked `PAUSED` with an approval each while another run ran to its end; an approved run resumed after a worker restart and completed its step; a rejected one ended `CANCELLED` with the note; one past its deadline ended `FAILED` (`TIMEOUT`)
 
 The service subscribes and then polls in a loop until `timeout_ms`. Default 5 minutes, and
 the field is free — a tenant can set an hour.

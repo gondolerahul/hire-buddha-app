@@ -70,6 +70,34 @@ class HITLTimeout(HITLDecisionError):
     kind = "hitl_timeout"
 
 
+class HITLPending(AgentError):
+    """A HITL checkpoint or an ASK_USER question is waiting for a person
+    (GH-07). Not a decision: the loop parks the run ``PAUSED`` and gives its
+    worker back; the answer, or the deadline, resumes it
+    (``core/approval_pause.py``). ``step_result`` is set when the step had
+    already run (an AFTER checkpoint); ``completed`` holds the results of the
+    DAG steps that finished before it."""
+
+    def __init__(self, approval_id: str, *, trigger: str, phase: str, step_id: str,
+                 deadline: str, timeout_ms: int, auto_approve: bool = False) -> None:
+        super().__init__(f"Waiting for a person: {trigger}")
+        self.approval_id = approval_id
+        self.trigger = trigger
+        self.phase = phase
+        self.step_id = step_id
+        self.deadline = deadline
+        self.timeout_ms = timeout_ms
+        self.auto_approve = auto_approve
+        self.step_result: Optional[dict[str, Any]] = None
+        self.completed: dict[str, Any] = {}
+
+    def marker(self) -> dict[str, Any]:
+        """What the parked run keeps in its snapshot (``awaiting_approval``)."""
+        return {"approval_id": self.approval_id, "trigger": self.trigger, "phase": self.phase,
+                "step_id": self.step_id, "deadline": self.deadline,
+                "timeout_ms": self.timeout_ms, "auto_approve": self.auto_approve}
+
+
 class BudgetExhaustedError(AgentError):
     """Execution stopped because the run reached the entity's
     ``governance.max_cost_usd`` ceiling.

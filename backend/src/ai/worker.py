@@ -34,6 +34,7 @@ from src.ai.core.arq_jobs import (
     graph_maintenance_worker,
     resume_execution,
     resume_parent_run,
+    resume_paused_run,
     cortex_resume_scheduled,
     sweep_stuck_runs,
     critic_calibration_job,
@@ -89,6 +90,8 @@ class WorkerSettings:
         stop_campaign_task,
         resume_execution,
         resume_parent_run,
+        # A run parked on a HITL approval (GH-07).
+        resume_paused_run,
         # Outcome-triggered Dreaming.
         dreaming_outcome_trigger,
         # Enqueued by dreaming_cron_trigger (must be registered to run).
@@ -115,7 +118,8 @@ try:
     WorkerSettings.cron_jobs = [
         cron(traced_job(cortex_resume_scheduled), minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
         # Parents stuck WAITING_ON_CHILDREN: re-enqueue a lost resume, or fail
-        # and settle a parent that waited past the timeout (AK-03).
+        # and settle a parent that waited past the timeout (AK-03). Runs parked
+        # on an approval: re-enqueue a lost resume or deadline (GH-07).
         cron(traced_job(sweep_stuck_runs), minute={2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57}),
         # C: Auto-schedule dreaming every 6 hours
         cron(traced_job(dreaming_cron_trigger), hour={0, 6, 12, 18}, minute={15}),

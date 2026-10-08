@@ -6,13 +6,12 @@ Extracted from ExecutionEngine during Phase 6 monolith decomposition
 checkpoints so the engine can delegate without knowing billing internals.
 """
 import json
-import asyncio
 import logging
 from decimal import Decimal
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from src.billing.credit_service import CreditService, InsufficientCreditsError, minimum_threshold
 from src.billing.billing_service import BillingService, calculate_tb, compute_billed_amount
@@ -20,6 +19,7 @@ from src.ai.orm import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
 from src.ai.governance.hitl_snapshot import build_hitl_snapshot
 from src.ai.core.exceptions import HITLRejected, HITLTimeout
+from src.ai.governance import hitl_gate
 
 logger = logging.getLogger(__name__)
 
@@ -236,12 +236,13 @@ class GovernanceService:
         """
         Evaluate HITL checkpoints defined in entity.governance.hitl_checkpoints.
 
-        For each matching checkpoint:
-        1. Create a HumanApproval record with PENDING status
-        2. Publish HITL event to Redis for real-time notification
-        3. Wait for approval/rejection via Redis pub/sub (with timeout)
-        4. If rejected, raise HITLRejected; if timed out (without auto-approve),
-           HITLTimeout — the loop ends the run on either (GH-25)
+        A matching checkpoint never holds the worker (GH-07): it opens a
+        PENDING ``HumanApproval``, publishes a notice, and raises
+        ``HITLPending`` — the loop parks the run PAUSED. When the step is
+        dispatched again the checkpoint finds that approval
+        (``hitl_gate.open_approval``): APPROVED lets the step run, REJECTED
+        raises ``HITLRejected`` and TIMEOUT ``HITLTimeout`` — the loop ends the
+        run on either (GH-25) — and still PENDING parks the run again.
         """
         # Use pre-fetched governance dict to avoid MissingGreenlet after timeout
         governance = governance_dict if governance_dict is not None else (entity.governance or {})
@@ -295,189 +296,92 @@ class GovernanceService:
             if not should_fire:
                 continue
 
-            # ── Fire the checkpoint ───────────────────────────────────────
-            logger.info(f"HITL checkpoint fired: {trigger_desc} (run={run.id})")
-
-            approval = HumanApproval(
-                run_id=run.id,
-                checkpoint_trigger=trigger_desc,
-                status="PENDING",
-                context_snapshot=build_hitl_snapshot(
-                    checkpoint=cp, trigger_desc=trigger_desc, phase=phase,
-                    entity=entity, step=step_obj, context_state=context_state,
-                    run_cost_usd=run.total_cost_usd, step_result=step_result,
-                ),
-                notification_channels=cp.notification_channels,
-                timeout_ms=cp.timeout_ms,
-            )
-            self.db.add(approval)
-            await self.db.commit()
-            await self.db.refresh(approval)
-
-            # Real-time notice for the run's live view. Best-effort: the approval
-            # row is the record, and the approvals page reads it.
-            try:
-                await self.redis.publish(f"execution:{run.id}", json.dumps({
-                    "status": "HITL_PENDING",
-                    "approval_id": str(approval.id),
-                    "trigger": trigger_desc,
-                    "message": cp.message or f"Human approval required: {trigger_desc}",
-                }))
-            except Exception as pub_err:
-                logger.warning(f"HITL pending notice not published: {pub_err}")
-
-            # ── Wait for the decision. Fails closed: nothing here lets the
-            # step proceed without an APPROVED decision or auto-approve. ───
-            decision = await self._await_hitl_decision(approval.id, cp.timeout_ms / 1000.0)
-
-            if decision is None:
-                # Time is up. Record TIMEOUT only if nobody answered in the
-                # meantime; a decision that landed at the deadline wins.
-                final = "APPROVED" if cp.auto_approve_on_timeout else "TIMEOUT"
-                notes = "Auto-approved on timeout" if cp.auto_approve_on_timeout else None
-                updated = await self.db.execute(
-                    update(HumanApproval)
-                    .where(HumanApproval.id == approval.id, HumanApproval.status == "PENDING")
-                    .values(status=final, reviewer_notes=notes)
+            # ── The checkpoint's approval: a decision is used once ────────
+            existing = await hitl_gate.open_approval(self.db, run.id, trigger_desc)
+            if existing is not None and existing.status != "PENDING":
+                await hitl_gate.consume(self.db, existing.id)
+                if existing.status == "APPROVED":
+                    logger.info(f"HITL approved: {trigger_desc}")
+                    continue
+                # A decision ends the run (GH-25, HD7).
+                logger.info(f"HITL {existing.status.lower()}: {trigger_desc}")
+                raise hitl_gate.decision_error(existing.status, trigger_desc, notes=existing.notes,
+                                               timeout_ms=existing.timeout_ms or cp.timeout_ms,
+                                               approval_id=existing.id)
+            if existing is None:
+                existing = await self._open_approval(
+                    run, trigger_desc, cp.message or f"Human approval required: {trigger_desc}",
+                    context_snapshot=build_hitl_snapshot(
+                        checkpoint=cp, trigger_desc=trigger_desc, phase=phase,
+                        entity=entity, step=step_obj, context_state=context_state,
+                        run_cost_usd=run.total_cost_usd, step_result=step_result,
+                    ),
+                    timeout_ms=cp.timeout_ms, notification_channels=cp.notification_channels,
                 )
-                await self.db.commit()
-                if updated.rowcount:
-                    decision = final
-                else:
-                    decision = await self._read_hitl_status(approval.id)
+            # Park: the run waits PAUSED, holding no worker (GH-07).
+            raise hitl_gate.pending(existing, trigger=trigger_desc, phase=phase,
+                                    step_id=str(step_obj.step_id or step_obj.name),
+                                    auto_approve=cp.auto_approve_on_timeout)
 
-            if decision == "APPROVED":
-                logger.info(f"HITL approved: {trigger_desc}")
-                continue
-            # A decision ends the run (GH-25, HD7): typed, so the loop stops
-            # instead of judging it with a critic and retrying the step.
-            if decision == "REJECTED":
-                logger.info(f"HITL rejected: {trigger_desc}")
-                notes = await self._reviewer_notes(approval.id)
-                raise HITLRejected(
-                    f"Execution blocked by human reviewer: {trigger_desc}"
-                    + (f" — {notes}" if notes else ""),
-                    approval_id=str(approval.id),
-                )
-            logger.info(f"HITL timed out: {trigger_desc}")
-            raise HITLTimeout(
-                f"HITL checkpoint timed out after {cp.timeout_ms}ms: {trigger_desc}",
-                approval_id=str(approval.id),
-            )
-
-    async def _reviewer_notes(self, approval_id: Any) -> str:
-        notes = (await self.db.execute(
-            select(HumanApproval.reviewer_notes).where(HumanApproval.id == approval_id)
-        )).scalar_one_or_none()
-        return str(notes).strip() if notes else ""
-
-    async def ask_user(self, run: 'ExecutionRun', step_obj: PlanStep, question: str,
-                       *, timeout_ms: int = 300000) -> str:
-        """Ask a person before a step runs again, and wait for the answer (PC-06).
-
-        The critic chose ``ASK_USER``: the step needs something only a person
-        can give. The question is a HITL request on the run (trigger
-        ``ASK_USER``); the reviewer answers by approving it with notes, which
-        are returned. A rejection, an approval with no answer, or the timeout
-        raises: the step fails rather than run again on a guess.
-        """
-        trigger = f"ASK_USER: {step_obj.name}"[:255]
+    async def _open_approval(self, run: 'ExecutionRun', trigger: str, message: str, *,
+                             context_snapshot: dict[str, Any], timeout_ms: int,
+                             notification_channels: Any = None) -> 'hitl_gate.OpenApproval':
+        """A PENDING approval for the inbox, and a notice on the run's live view."""
+        logger.info(f"HITL checkpoint fired: {trigger} (run={run.id})")
         approval = HumanApproval(
             run_id=run.id, checkpoint_trigger=trigger, status="PENDING",
-            context_snapshot={"trigger": trigger, "phase": "BEFORE", "question": question,
-                              "step": {"name": step_obj.name, "step_id": step_obj.step_id,
-                                       "description": step_obj.description}},
+            context_snapshot=context_snapshot, notification_channels=notification_channels,
             timeout_ms=timeout_ms,
         )
         self.db.add(approval)
         await self.db.commit()
         await self.db.refresh(approval)
+        # Best-effort: the approval row is the record, and the approvals page reads it.
         try:
             await self.redis.publish(f"execution:{run.id}", json.dumps({
                 "status": "HITL_PENDING", "approval_id": str(approval.id),
-                "trigger": trigger, "message": question,
+                "trigger": trigger, "message": message,
             }))
         except Exception as pub_err:
-            logger.warning(f"ASK_USER notice not published: {pub_err}")
+            logger.warning(f"HITL pending notice not published: {pub_err}")
+        return hitl_gate.OpenApproval(approval.id, "PENDING", "", timeout_ms, approval.requested_at)
 
-        decision = await self._await_hitl_decision(approval.id, timeout_ms / 1000.0)
-        if decision is None:
-            await self.db.execute(
-                update(HumanApproval)
-                .where(HumanApproval.id == approval.id, HumanApproval.status == "PENDING")
-                .values(status="TIMEOUT")
-            )
-            await self.db.commit()
-            raise HITLTimeout(f"Nobody answered the question for step '{step_obj.name}' "
-                              f"within {timeout_ms // 1000}s: {question}", approval_id=str(approval.id))
-        if decision != "APPROVED":
-            raise HITLRejected(f"The reviewer declined to answer for step '{step_obj.name}'",
-                               approval_id=str(approval.id))
-        answer = (await self.db.execute(
-            select(HumanApproval.reviewer_notes).where(HumanApproval.id == approval.id)
-        )).scalar_one_or_none()
-        if not answer or not str(answer).strip():
-            raise HITLRejected(f"The reviewer approved step '{step_obj.name}' without an answer",
-                               approval_id=str(approval.id))
-        return str(answer).strip()
+    async def ask_user(self, run: 'ExecutionRun', step_obj: PlanStep, question: str,
+                       *, timeout_ms: int = 300000) -> str:
+        """Ask a person before a step runs again, and return the answer (PC-06).
 
-    # The decisions a reviewer can record on an approval row.
-    _HITL_DECISIONS = ("APPROVED", "REJECTED")
-
-    async def _read_hitl_status(self, approval_id: UUID) -> Optional[str]:
-        """The approval row's current status — a fresh read, not the identity map."""
-        status: Optional[str] = (await self.db.execute(
-            select(HumanApproval.status).where(HumanApproval.id == approval_id)
-        )).scalar_one_or_none()
-        return status
-
-    async def _await_hitl_decision(self, approval_id: UUID, timeout_sec: float) -> Optional[str]:
-        """Block until the approval is APPROVED or REJECTED; ``None`` at the deadline.
-
-        The reviewer's answer is written to the approval row, then published on
-        ``hitl:{approval_id}``. Pub/sub makes the wake-up immediate; the row is
-        re-read every couple of seconds as well, so a Redis failure slows the
-        wait down but never skips it.
+        The critic chose ``ASK_USER``: the step needs something only a person
+        can give. The question is a HITL request on the run (trigger
+        ``ASK_USER``) and parks the run like a checkpoint (GH-07); the reviewer
+        answers by approving it with notes. When the step is dispatched again
+        the answer is returned. A refusal or an approval with no answer raises
+        ``HITLRejected``, no answer in time ``HITLTimeout``: the step does not
+        run again on a guess, and the run ends (GH-25).
         """
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout_sec
-        pubsub: Any = None
-        try:
-            pubsub = self.redis.pubsub()
-            await pubsub.subscribe(f"hitl:{approval_id}")
-        except Exception as sub_err:
-            logger.warning(f"HITL pub/sub unavailable ({sub_err}); waiting on the approval row")
-            pubsub = None
-
-        next_row_check = loop.time()
-        try:
-            while loop.time() < deadline:
-                if pubsub is not None:
-                    try:
-                        message = await pubsub.get_message(
-                            ignore_subscribe_messages=True, timeout=1.0
-                        )
-                    except Exception as msg_err:
-                        logger.warning(f"HITL pub/sub dropped ({msg_err}); waiting on the approval row")
-                        pubsub, message = None, None
-                    if message and message.get("type") == "message":
-                        published = str(json.loads(message["data"]).get("status", "")).upper()
-                        if published in self._HITL_DECISIONS:
-                            return published
-                if loop.time() >= next_row_check:
-                    stored = await self._read_hitl_status(approval_id)
-                    if stored in self._HITL_DECISIONS:
-                        return stored
-                    next_row_check = loop.time() + 2.0
-                await asyncio.sleep(0.5)
-            return None
-        finally:
-            if pubsub is not None:
-                try:
-                    await pubsub.unsubscribe(f"hitl:{approval_id}")
-                    await pubsub.aclose()
-                except Exception:
-                    pass
+        trigger = f"ASK_USER: {step_obj.name}"[:255]
+        existing = await hitl_gate.open_approval(self.db, run.id, trigger)
+        if existing is not None and existing.status != "PENDING":
+            await hitl_gate.consume(self.db, existing.id)
+            if existing.status == "TIMEOUT":
+                raise HITLTimeout(f"Nobody answered the question for step '{step_obj.name}' "
+                                  f"within {timeout_ms // 1000}s: {question}", approval_id=str(existing.id))
+            if existing.status != "APPROVED":
+                raise HITLRejected(f"The reviewer declined to answer for step '{step_obj.name}'",
+                                   approval_id=str(existing.id))
+            if not existing.notes:
+                raise HITLRejected(f"The reviewer approved step '{step_obj.name}' without an answer",
+                                   approval_id=str(existing.id))
+            return existing.notes
+        if existing is None:
+            existing = await self._open_approval(
+                run, trigger, question,
+                context_snapshot={"trigger": trigger, "phase": "BEFORE", "question": question,
+                                  "step": {"name": step_obj.name, "step_id": step_obj.step_id,
+                                           "description": step_obj.description}},
+                timeout_ms=timeout_ms,
+            )
+        raise hitl_gate.pending(existing, trigger=trigger, phase="BEFORE",
+                                step_id=str(step_obj.step_id or step_obj.name), auto_approve=False)
 
     # ------------------------------------------------------------------
     # HITL Expression Evaluator

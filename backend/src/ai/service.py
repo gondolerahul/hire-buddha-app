@@ -892,8 +892,7 @@ class AIService:
             raise HTTPException(status_code=409, detail=f"This approval is already {current}")
         await self.db.commit()
         await self.db.refresh(approval)
-        # The router publishes the decision on "hitl:{approval_id}", the channel
-        # GovernanceService waits on (it also re-reads this row).
+        # The router enqueues the resume of the run parked on it (GH-07).
         return approval
 
     async def get_dashboard_stats(self, company_id: UUID, user_role: str = None) -> dict:

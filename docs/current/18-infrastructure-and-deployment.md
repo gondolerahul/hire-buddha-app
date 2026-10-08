@@ -1283,8 +1283,8 @@ A common cause of slow AI runs is a **missing pgvector index** — every semanti
 search degrades to a sequential scan. See
 [08 — Memory and CORTEX §18](08-memory-and-cortex.md#18-cost-performance-and-tuning).
 
-Another is **HITL checkpoints holding worker slots** — see
-[15 — Governance §8.5](15-governance-and-hitl.md#85-operational-implications-of-a-blocking-wait).
+(HITL checkpoints no longer hold worker slots: a run waiting on a person is parked
+`PAUSED` — [15 — Governance §8](15-governance-and-hitl.md#8-parking-on-a-decision).)
 
 ### 16.8 Recover from a full disk
 

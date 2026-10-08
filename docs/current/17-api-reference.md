@@ -594,8 +594,9 @@ sequenceDiagram
 curl -X POST http://localhost:8000/api/v1/ai/approvals/$APPROVAL_ID/respond -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"status":"APPROVED","reviewer_notes":"looks correct"}'
 ```
 
-The worker is **blocking on Redis pub/sub** while this sits pending, so respond
-promptly — see [15 §8](15-governance-and-hitl.md#8-the-hitl-wait-mechanism).
+The run waits `PAUSED`, holding no worker, until you answer or the checkpoint's
+`timeout_ms` passes; answering enqueues its resume — see
+[15 §8](15-governance-and-hitl.md#8-parking-on-a-decision).
 
 ---
 
@@ -1080,7 +1081,7 @@ sequenceDiagram
 
 The Redis channel is `execution:{run_id}` — the same channel HITL publishes
 `HITL_PENDING` on, so an approval request appears inline in the trace stream.
-See [15 §8.1](15-governance-and-hitl.md#81-two-redis-channels).
+See [15 §8](15-governance-and-hitl.md#8-parking-on-a-decision).
 
 The frontend consumer is
 [useExecutionEvents.ts](../../frontend/src/hooks/useExecutionEvents.ts) — see

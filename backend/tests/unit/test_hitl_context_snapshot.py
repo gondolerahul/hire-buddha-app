@@ -15,29 +15,13 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from src.ai.core.exceptions import HITLPending
 from src.ai.governance.governance_service import GovernanceService
 from src.ai.governance.hitl_snapshot import MAX_FIELD_CHARS
 from src.ai.schemas import PlanStep
 
 
-class _FakePubSub:
-    async def subscribe(self, *_):
-        pass
-
-    async def unsubscribe(self, *_):
-        pass
-
-    async def get_message(self, **_):
-        return None
-
-    async def aclose(self):
-        pass
-
-
 class _FakeRedis:
-    def pubsub(self):
-        return _FakePubSub()
-
     async def publish(self, *_):
         pass
 
@@ -56,13 +40,11 @@ class _FakeDB:
         obj.id = obj.id or uuid.uuid4()
 
     async def execute(self, stmt):
-        # The wait re-reads the row (still PENDING) and, at the deadline,
-        # conditionally marks it — one row updated.
-        return SimpleNamespace(scalar_one_or_none=lambda: "PENDING", rowcount=1)
+        # The checkpoint looks for an approval it already opened: none.
+        return SimpleNamespace(first=lambda: None)
 
 
 def _checkpoint(trigger_type: str, **extra) -> dict:
-    # A 1 ms window with auto-approve: the wait loop ends at once and the run goes on.
     return {"trigger_type": trigger_type, "step_ref": "Draft email", "timeout_ms": 1,
             "auto_approve_on_timeout": True, **extra}
 
@@ -81,9 +63,10 @@ async def _fire(checkpoint: dict, phase: str, step_result=None) -> dict:
     run = SimpleNamespace(id=uuid.uuid4(), total_cost_usd=0.42)
     entity = SimpleNamespace(name="outreach-agent", display_name="Outreach Agent", governance={})
     context = {"input": "Reach out to Acme", "lead": "jane@acme.test", "topic": "renewal"}
-    await svc.evaluate_hitl(run, entity, _step(), context, phase,
-                            governance_dict={"hitl_checkpoints": [checkpoint]},
-                            step_result=step_result)
+    with pytest.raises(HITLPending):  # the run parks on the approval (GH-07)
+        await svc.evaluate_hitl(run, entity, _step(), context, phase,
+                                governance_dict={"hitl_checkpoints": [checkpoint]},
+                                step_result=step_result)
     assert len(db.added) == 1, "the checkpoint should have fired"
     return db.added[0].context_snapshot
 

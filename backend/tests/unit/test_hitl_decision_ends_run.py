@@ -5,7 +5,8 @@ into an ordinary step failure, so the critics judged the reviewer's "no", a
 retry could ask them again, and the run went on with its other steps. Nothing
 ever produced a ``blocked`` observation either (AK-08). Now the decision is
 typed: a rejection ends the run CANCELLED with the reviewer's reason, an
-unanswered checkpoint ends it FAILED, and neither reaches a critic.
+unanswered checkpoint ends it FAILED, and neither reaches a critic. How
+governance raises the decision is in tests/integration/test_hitl_parking.py.
 """
 from __future__ import annotations
 
@@ -15,7 +16,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.sql.dml import Update
 
 from src.ai.core.agent_loop import AgentLoop
 from src.ai.core.agent_state import AgentState
@@ -27,9 +27,7 @@ from src.ai.core.executors.single_step import SingleStepExecutor
 from src.ai.core.feature_flags import FeatureFlags
 from src.ai.core.observer import Observer
 from src.ai.core.strategist import Move
-from src.ai.governance.governance_service import GovernanceService
 from src.ai.planning.critic_pipeline import NoOpCriticPipeline
-from src.ai.schemas import PlanStep
 from src.ai.schemas.enums import EntityType, RunStatus
 
 from tests.unit.test_agent_loop_billing_and_fallback import _FakeDB, _FakeRun, _no_credit_gate  # noqa: F401
@@ -164,7 +162,7 @@ class _Engine:
     async def _execute_step_wrapper(self, run, entity, step, ctx):  # noqa: ARG002
         raise self.raises
 
-    async def _execute_steps_dag(self, run, entity, steps, ctx):  # noqa: ARG002
+    async def _execute_steps_dag(self, run, entity, steps, ctx, results_map=None):  # noqa: ARG002
         raise self.raises
 
 
@@ -206,80 +204,3 @@ async def test_dag_reports_the_decision(monkeypatch):
     assert res.blocked is not None and res.blocked["kind"] == "hitl_timeout"
     assert "timed out" in res.blocked["reason"]
 
-
-# ── governance raises the typed decision ────────────────────────────────────
-
-
-class _ApprovalDB:
-    """One approval row: successive status reads, then the reviewer's notes."""
-
-    def __init__(self, statuses, notes=None):
-        self.added = []
-        self.updates = []
-        self._reads = list(statuses)
-        self._notes = notes
-
-    def add(self, obj):
-        self.added.append(obj)
-
-    async def commit(self):
-        pass
-
-    async def refresh(self, obj):
-        obj.id = obj.id or uuid.uuid4()
-
-    async def execute(self, stmt):
-        if isinstance(stmt, Update):
-            self.updates.append(stmt.compile().params)
-            return SimpleNamespace(rowcount=1)
-        if "reviewer_notes" in str(stmt):
-            return SimpleNamespace(scalar_one_or_none=lambda: self._notes)
-        value = self._reads.pop(0) if len(self._reads) > 1 else self._reads[0]
-        return SimpleNamespace(scalar_one_or_none=lambda: value)
-
-
-class _DeadRedis:
-    def pubsub(self):
-        raise ConnectionError("redis unreachable")
-
-    async def publish(self, *_):
-        raise ConnectionError("redis unreachable")
-
-
-def _step():
-    return PlanStep(step_id="s1", name="Send email", type="ACTION", target={"prompt_template": "Send it"})
-
-
-async def _checkpoint(db, timeout_ms=15000):
-    svc = GovernanceService(db, _DeadRedis())
-    run = SimpleNamespace(id=uuid.uuid4(), total_cost_usd=0)
-    entity = SimpleNamespace(name="e", display_name="E", governance={})
-    await svc.evaluate_hitl(run, entity, _step(), {"input": "x"}, "BEFORE", governance_dict={
-        "hitl_checkpoints": [{"trigger_type": "BEFORE_STEP", "step_ref": "Send email",
-                              "timeout_ms": timeout_ms, "auto_approve_on_timeout": False}]})
-
-
-@pytest.mark.asyncio
-async def test_a_rejection_carries_the_reviewers_notes():
-    db = _ApprovalDB(statuses=("PENDING", "REJECTED"), notes="  wrong customer ")
-    with pytest.raises(HITLRejected, match="Execution blocked by human reviewer") as caught:
-        await _checkpoint(db)
-    assert caught.value.reason.endswith("— wrong customer")
-    assert caught.value.approval_id == str(db.added[0].id)
-
-
-@pytest.mark.asyncio
-async def test_no_decision_in_time_is_a_timeout():
-    with pytest.raises(HITLTimeout, match="timed out"):
-        await _checkpoint(_ApprovalDB(statuses=("PENDING",)), timeout_ms=200)
-
-
-@pytest.mark.asyncio
-async def test_ask_user_unanswered_or_declined_is_a_decision():
-    run = SimpleNamespace(id=uuid.uuid4())
-    svc = GovernanceService(_ApprovalDB(statuses=("PENDING",)), _DeadRedis())
-    with pytest.raises(HITLTimeout):
-        await svc.ask_user(run, _step(), "which year?", timeout_ms=200)
-    svc = GovernanceService(_ApprovalDB(statuses=("PENDING", "REJECTED")), _DeadRedis())
-    with pytest.raises(HITLRejected, match="declined"):
-        await svc.ask_user(run, _step(), "which year?", timeout_ms=15000)

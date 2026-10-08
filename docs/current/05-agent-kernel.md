@@ -230,9 +230,10 @@ run-level orchestration is the loop's job.
 |-----|------|---------|
 | `run_execution_recursive` | [arq_jobs.py:24](../../backend/src/ai/core/arq_jobs.py:24) | Fresh run. Also used for **child** runs — a child is just another top-level dispatch. |
 | `resume_parent_run` | [arq_jobs.py:701](../../backend/src/ai/core/arq_jobs.py:701) | Calls `AgentLoop.resume(parent_run_id)` after a child finishes. |
+| `resume_paused_run` | [arq_jobs.py](../../backend/src/ai/core/arq_jobs.py) | Calls `AgentLoop.resume_after_approval(run_id)` for a run parked on a HITL approval (GH-07, [`core/approval_pause.py`](../../backend/src/ai/core/approval_pause.py)). |
 | `resume_execution` | [arq_jobs.py:685](../../backend/src/ai/core/arq_jobs.py:685) | Legacy checkpoint resume; calls `AgentLoop.run` again. |
 | `cortex_resume_scheduled` | [arq_jobs.py:735](../../backend/src/ai/core/arq_jobs.py:735) | Cron; wakes suspended CORTEX trees by creating new runs. |
-| `sweep_stuck_runs` | [arq_jobs.py](../../backend/src/ai/core/arq_jobs.py), [stuck_runs.py](../../backend/src/ai/core/stuck_runs.py) | Cron, every 5 minutes; parents stuck in `WAITING_ON_CHILDREN` (AK-03, §9). |
+| `sweep_stuck_runs` | [arq_jobs.py](../../backend/src/ai/core/arq_jobs.py), [stuck_runs.py](../../backend/src/ai/core/stuck_runs.py) | Cron, every 5 minutes; parents stuck in `WAITING_ON_CHILDREN` (AK-03, §9), and runs parked on an approval whose resume was lost (`sweep_paused_runs`, GH-07). |
 | Gateway / campaigns | [service.py:927](../../backend/src/ai/service.py:927), [cortex_bridge.py:357](../../backend/src/ai/memory/cortex_bridge.py:357) | Also enqueue `run_execution_recursive`. |
 
 ---
@@ -1414,11 +1415,13 @@ stateDiagram-v2
     RUNNING --> PARTIAL_COMPLETE: some steps succeeded, not every required one
     RUNNING --> FAILED: ABORT, no plan step succeeded, or an unhandled exception
     RUNNING --> PAUSED: supervisor recommended PAUSE
-    RUNNING --> CANCELLED: operator cancelled, preserved via external_status
+    RUNNING --> PAUSED: a HITL checkpoint waits for a person (parked, GH-07)
+    PAUSED --> RUNNING: resume_after_approval, the approval decided or past its deadline
+    RUNNING --> CANCELLED: operator cancelled, a reviewer rejected (GH-25), via external_status
     COMPLETED --> [*]
     PARTIAL_COMPLETE --> [*]
     FAILED --> [*]
-    PAUSED --> [*]
+    PAUSED --> [*]: supervisor pause only
     CANCELLED --> [*]
 ```
 

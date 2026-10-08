@@ -209,6 +209,11 @@ class AgentState:
     # is updated to the child's terminal status on resume.
     awaiting_children: list[dict[str, Any]] = field(default_factory=list)
 
+    # A HITL approval the run is parked on (GH-07): ``HITLPending.marker()`` —
+    # approval_id, trigger, phase, step_id, deadline, timeout_ms, auto_approve.
+    # Snapshotted; ``resume_after_approval`` reads the decision and clears it.
+    awaiting_approval: Optional[dict[str, Any]] = None
+
     # Transient: set during an iteration when the executor dispatched children
     # asynchronously, signalling the loop to SUSPEND (snapshot + WAITING) rather
     # than finalize. NOT snapshotted — recomputed each run from awaiting_children.
@@ -446,6 +451,7 @@ class AgentState:
             "failed_steps": dict(self.failed_steps),
             "step_results": list(self.step_results),
             "awaiting_children": list(self.awaiting_children),
+            "awaiting_approval": dict(self.awaiting_approval) if self.awaiting_approval else None,
             "context_state": dict(self.context_state),
             "done": self.done,
             "next_decision": self.next_decision,
@@ -483,6 +489,7 @@ class AgentState:
             failed_steps=dict(snapshot.get("failed_steps", {})),
             step_results=list(snapshot.get("step_results", [])),
             awaiting_children=list(snapshot.get("awaiting_children", [])),
+            awaiting_approval=dict(snapshot["awaiting_approval"]) if snapshot.get("awaiting_approval") else None,
             context_state=dict(snapshot.get("context_state", {})),
             done=bool(snapshot.get("done", False)),
             next_decision=snapshot.get("next_decision", "CONTINUE"),

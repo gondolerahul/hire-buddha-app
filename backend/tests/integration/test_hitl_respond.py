@@ -22,6 +22,16 @@ from sqlalchemy import text
 pytestmark = pytest.mark.needs_db
 
 
+@pytest.fixture(autouse=True)
+def _no_job_queue(monkeypatch):
+    """Answering enqueues the parked run's resume (GH-07): keep it off the real
+    queue. tests/integration/test_hitl_parking.py checks what is enqueued."""
+    async def _enqueue(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("src.common.job_queue.enqueue_job", _enqueue)
+
+
 async def _company(db) -> uuid.UUID:
     cid = uuid.uuid4()
     await db.execute(text(
