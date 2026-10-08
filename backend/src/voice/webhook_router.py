@@ -496,6 +496,11 @@ def _tata_stream_response(ws_url: str) -> dict:
     return {settings.TATA_STREAM_SUCCESS_KEY: True, "wss_url": ws_url}
 
 
+def _tata_refusal(error: str) -> dict:
+    """Smartflo reply declining the call, under the same key as an answer (VT-15)."""
+    return {settings.TATA_STREAM_SUCCESS_KEY: False, "error": error}
+
+
 @router.get("/tata/incoming")
 async def tata_incoming_verification(request: Request):
     """
@@ -621,18 +626,12 @@ async def tata_incoming_call(
 
     if not customer_assignment:
         logger.warning(f"No configured number found for call {from_number} -> {to_number}")
-        return {
-            "sucess": False,
-            "error": "Number not configured"
-        }
+        return _tata_refusal("Number not configured")
     # 3. Admission (VT-01, HD9): the same rule as every other call.
     from src.voice.call_admission import call_refusal
     if await call_refusal(session_manager.db, customer_assignment.company_id,
                           direction="inbound", checkpoint="tata_webhook"):
-        return {
-            "sucess": False,
-            "error": "This service is temporarily unavailable"
-        }
+        return _tata_refusal("This service is temporarily unavailable")
     
     # 4. Create NEW session (Inbound Flow)
     session = await session_manager.create_voice_session(

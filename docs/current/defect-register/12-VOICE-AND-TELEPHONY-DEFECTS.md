@@ -60,7 +60,7 @@
 | VT-12 | `_create_native_audio_config` vs `_create_standard_config` | ✅ fixed (2026-10-08) | — |
 | VT-13 | DTMF | ✅ fixed (2026-10-08) — declared unsupported | — |
 | VT-14 | The lead queue is written and never drained | ✅ fixed (SA-08, `24650e7`) | — |
-| VT-15 | `"sucess"` is a real key on the wire | partly — a setting, still `"sucess"` | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-15 | `"sucess"` is a real key on the wire | partly — one setting for every reply; the default flip awaits a live Smartflo call | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-16 | Agent edits take up to five minutes to reach new calls | ✅ fixed (2026-10-08) | — |
 | VT-17 | `ensure_chunk_size` pads with the wrong byte | ✅ fixed (2026-10-08) | — |
 | VT-18 | A campaign's company comes from the agent, not the user | not a defect — correct as-is | — |
@@ -308,7 +308,7 @@ dialled.
 
 ### VT-15 — `"sucess"` is a real key on the wire
 
-**📄 Doc-reported · Low · accept** · **Status: partly fixed** — re-verified 2026-10-07: the key is a setting, `TATA_STREAM_SUCCESS_KEY` (`2092be4c`), but it still defaults to `"sucess"` and the two error replies in `webhook_router.py` (`:632`, `:646`) hard-code it. Needs one live Smartflo check before the default flips. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**📄 Doc-reported · Low · accept** · **Status: partly — one setting for every reply; the default flip awaits a live Smartflo call** — every Smartflo reply — the answer and both refusals (`_tata_refusal`) — uses `TATA_STREAM_SUCCESS_KEY`, so flipping it changes them together; it still defaults to `"sucess"` until one live Smartflo call confirms `"success"`. `tests/unit/test_tata_success_key.py` (3)
 
 Both Tata voice webhook responses return `{"sucess": ...}`. It is misspelled and it is an
 **external contract**. Correcting it is a breaking change that needs coordination with the

@@ -853,7 +853,7 @@ All HTTP webhooks live on the backend (:8000) under [`webhook_router.py`](../../
 | POST | `/webhooks/voice/twilio/status` | Twilio voice | form: `CallSid`, `CallStatus`, `CallDuration`, `RecordingUrl`, `AnsweredBy` | JSON `{"status":"ok","session_id":…,"outcome":…}` |
 | POST | `/webhooks/voice/twilio/outbound-twiml?session_id=<uuid>` | Twilio voice | query `session_id` + form `CallSid`, `From`, `To` | TwiML `<Connect><Stream/>` |
 | GET | `/webhooks/voice/tata/incoming` | Tata | — (URL verification probe) | `{"status":"ok","message":"Tata Tele webhook endpoint active"}` |
-| POST | `/webhooks/voice/tata/incoming` | Tata | JSON **or** form **or** urlencoded body; keys tried: `callId`/`call_id`/`callSid`/`id`, `fromNumber`/`from`/`caller_id_number`/`source`, `toNumber`/`to`/`destination`/`did_number`, `custom_identifier` | `{"sucess": true, "wss_url": "..."}` or `{"sucess": false, "error": "..."}` |
+| POST | `/webhooks/voice/tata/incoming` | Tata | JSON **or** form **or** urlencoded body; keys tried: `callId`/`call_id`/`callSid`/`id`, `fromNumber`/`from`/`caller_id_number`/`source`, `toNumber`/`to`/`destination`/`did_number`, `custom_identifier` | `{KEY: true, "wss_url": "..."}` or `{KEY: false, "error": "..."}`, `KEY` = `TATA_STREAM_SUCCESS_KEY` (default `"sucess"`) |
 | WS | `/webhooks/voice/tata/incoming` | Tata | Media Streams events | bidirectional audio ([`gateway/telephony_streams.py`](../../backend/src/gateway/telephony_streams.py)) |
 | GET | `/webhooks/voice/tata/status` | Tata | query params | JSON |
 | POST | `/webhooks/voice/tata/status` | Tata | JSON/form; keys tried: `custom_identifier`/`ref_id`/`$ref_id`, `call_id`/`$call_id`, `uuid`, `call_status`, `hangup_cause_key`/`hangup_cause`, `duration`, `billsec`, `call_connected`, `recording_url` | JSON `{"status":"ok","session_id":…,"outcome":…}` |
@@ -862,7 +862,7 @@ All HTTP webhooks live on the backend (:8000) under [`webhook_router.py`](../../
 
 Two things a newcomer will hit:
 
-- **`"sucess"` is misspelled** in both Tata voice responses. It is on the wire contract now; do not "fix" it without checking what Smartflo parses.
+- **`"sucess"` is misspelled** in the Tata voice responses. It is on the wire contract now. Every reply — the answer and both refusals — uses the setting `TATA_STREAM_SUCCESS_KEY` (VT-15), default `"sucess"`; flip it to `"success"` (what Smartflo's docs say) only after one live Smartflo call confirms it.
 - **Tata field names are unstable.** The handlers try five or six aliases per field, including `$`-prefixed variants that appear in GET query strings. That defensiveness is intentional.
 
 ### 9.1 Status callback → outcome mapping
@@ -1710,7 +1710,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - ~~**The inbound credit gate never fires.**~~ (VT-01, fixed 2026-10-08): one admission rule for every call, and a balance it cannot read refuses.
 - ~~**Azure Realtime does not work.**~~ (VT-02, fixed 2026-10-08): the factory's Azure client connects like Gemini's and its session speaks the Gemini Live shape; `pcm24_to_pcm16` exists. Not yet checked against a live Azure deployment, and billed at the Gemini Live SKUs.
 - ~~**WhatsApp AI replies always fail.**~~ (VT-03, fixed 2026-10-08): the service is built on the company's Google integration. Not yet checked against a live WhatsApp sandbox.
-- **`"sucess"` is a real key on the wire** in both Tata voice webhook responses.
+- **`"sucess"` is a real key on the wire** in the Tata voice webhook responses — one setting, `TATA_STREAM_SUCCESS_KEY`, for all three since VT-15; the default flips after a live Smartflo check.
 - ~~**`speaking_rate` and `pitch` are read but never sent.**~~ (VT-11, HD13, fixed 2026-10-08): Gemini Live's `SpeechConfig` has neither, so they are gone from `VoiceConfig` and the builder. An agent saved with them still loads; the keys are ignored.
 - ~~**`_create_native_audio_config` and `_create_standard_config` return the same dict.**~~ (VT-12, fixed 2026-10-08): one builder; the registry decides whether `language_code` is sent.
 - ~~**`max_calls_per_hour` and `CampaignCall.max_retries` are stored and displayed but never enforced.**~~ (VT-09, VT-10, fixed 2026-10-08): the hourly cap stops and continues the campaign later; failed calls are re-dialed with backoff.
