@@ -553,7 +553,9 @@ For every tool invocation, cost is resolved in this order (first match wins):
 1. IntegrationRegistry.service_sku == tool_id           → registry internal_cost
 2. IntegrationRegistry.service_sku ∈ TOOL_SKU_MAP[tool] → registry internal_cost
 3. TOOL_FIXED_COST[tool_id]                             → hardcoded fallback
-4. $0.00 (with one-time warning per process)
+4. FREE_TOOLS[tool_id]                                  → $0.00, on purpose (a reason)
+5. $0.00, unpriced: a $0 usage_logs row (cost_source missing) and a
+   tool.cost.missing event on every call (GH-05)
 ```
 
 ### SKU Lookup Fallback Chain

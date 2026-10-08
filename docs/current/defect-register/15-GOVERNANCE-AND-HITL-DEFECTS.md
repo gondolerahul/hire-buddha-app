@@ -36,12 +36,12 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 4 | 1 | 1 | 0 |
+| [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 5 | 1 | 0 | 0 |
 | [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 9 | 0 | 0 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 2 | 1 | 2 | 0 |
 
-**Total: 25 defects (16 fixed, 4 partly fixed, 5 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (17 fixed, 4 partly fixed, 4 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -49,7 +49,7 @@
 | GH-02 | Two of the four credit gates are never called | ✅ fixed `c1eecb9` (BC-05) | — |
 | GH-03 | The rate limiter fails open, and has no callers anyway | partly — one caller, no per-tenant quota | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
 | GH-04 | The suspension middleware fails open and only covers one process | ✅ fixed `15191e5` (SA-18) | — |
-| GH-05 | An unmapped tool costs $0 and warns once per process | open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-05 | An unmapped tool costs $0 and warns once per process | ✅ fixed (2026-10-08) | — |
 | GH-06 | Reject and timeout are detected by matching exception text | ✅ fixed `98af2c0` | — |
 | GH-07 | A HITL wait blocks a worker slot | ✅ fixed (2026-10-08) | — |
 | GH-08 | `COST_THRESHOLD` fires before the *next* step, not when the threshold is crossed | ✅ fixed (2026-10-08) | — |
@@ -192,7 +192,7 @@ actually enforces suspension. See
 
 ### GH-05 — An unmapped tool costs $0 and warns once per process
 
-**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: `ai/governance/tool_cost_resolver.py:231` still returns `$0` with one warning per process (`_MISSING_COST_WARNED`). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**📄 Doc-reported · High** · **Status: fixed (2026-10-08)** — a tool with no price is visible on every call: `ToolCostResolver.charge` writes a $0 `usage_logs` row marked `cost_source: missing` and a `tool.cost.missing` event each time (the warn-once set is gone). Tools that cost nothing here on purpose are in `FREE_TOOLS` with a reason — local work, the company's own account, model calls billed as LLM usage, sandbox time; a synthesized tenant tool says `free_reason`. `tests/unit/test_tool_prices.py` fails on a registered tool that is neither priced (`TOOL_SKU_MAP`, `TOOL_FIXED_COST`) nor declared free. `tests/integration/test_tool_metering.py` (2)
 
 A tool with no SKU mapping resolves to zero cost, consumes no budget, appears in no cost
 report — and logs a warning **once per process**, so on a long-lived worker the second and

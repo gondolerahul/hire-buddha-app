@@ -1744,7 +1744,10 @@ flowchart TD
     Q1 -->|row found| R1["amount equals row.internal_cost - source registry"]
     Q1 -->|no row| F{"tool_id in TOOL_FIXED_COST ?"}
     F -->|yes| R2["amount equals fixed - source fixed"]
-    F -->|no| R3["amount 0 - source missing - warn once per process"]
+    F -->|no| FR{"tool_id in FREE_TOOLS ?"}
+    FR -->|yes| R4["amount 0 - source free"]
+    FR -->|no| R3["amount 0 - source missing - a 0 row and tool.cost.missing, every call (GH-05)"]
+    R4 --> AMT
     R1 --> AMT
     R2 --> AMT
     R3 --> AMT
@@ -1756,8 +1759,11 @@ flowchart TD
 ```
 
 Lookup priority, in order: `IntegrationRegistry.service_sku == tool_id` →
-`service_sku` in `TOOL_SKU_MAP[tool_id]` → `TOOL_FIXED_COST[tool_id]` →
-`Decimal('0')` with a one-time warning.
+`service_sku` in `TOOL_SKU_MAP[tool_id]` → `TOOL_FIXED_COST[tool_id]` → `FREE_TOOLS`
+(costs nothing here, with a reason) → **unpriced**: $0, and every call writes a $0
+`usage_logs` row marked `cost_source: missing` and a `tool.cost.missing` event (GH-05;
+it warned once per process). `tests/unit/test_tool_prices.py` fails on a registered tool
+that is priced nowhere and not declared free.
 
 ```python
 # backend/src/ai/governance/tool_cost_resolver.py

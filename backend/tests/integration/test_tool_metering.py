@@ -176,3 +176,33 @@ async def test_a_tool_call_records_the_step_that_made_it(db, monkeypatch):
     logs = (await db.execute(select(ToolInteractionLog).where(
         ToolInteractionLog.run_id == run.id))).scalars().all()
     assert [(l.tool_id, l.step_name) for l in logs] == [("calculator", "Add the numbers")]
+
+
+# ── a tool with no price is visible on every call (GH-05) ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_an_unpriced_tool_writes_a_zero_row_and_an_event_every_call(db):
+    from src.ai.core.events import capture_test_events
+
+    company, run = await _tenant_run(db)
+    tool = f"unpriced_{uuid.uuid4().hex[:6]}"
+    with capture_test_events() as events:
+        for _ in range(2):
+            assert await _executor(db, company)._charge_tool(run, tool, 10) == Decimal("0")
+    rows = await _rows(db, run.id)
+    assert [(Decimal(str(r.calculated_cost)), r.log_metadata["tool"], r.log_metadata["cost_source"])
+            for r in rows] == [(Decimal("0"), tool, "missing")] * 2
+    missing = [e for e in events if e.name == "tool.cost.missing"]
+    assert len(missing) == 2 and missing[0].payload["tool"] == tool
+
+
+@pytest.mark.asyncio
+async def test_a_free_tool_writes_nothing(db):
+    from src.ai.core.events import capture_test_events
+
+    company, run = await _tenant_run(db)
+    with capture_test_events() as events:
+        assert await _executor(db, company)._charge_tool(run, "calculator", 10) == Decimal("0")
+    assert await _rows(db, run.id) == []
+    assert "tool.cost.missing" not in [e.name for e in events]

@@ -106,6 +106,7 @@ class CostLedger:
         latency_ms: int = 0,
         log_metadata: Optional[dict] = None,
         commit: bool = False,
+        unpriced: bool = False,
     ) -> Any:
         """Insert a ``UsageLog`` row tagged with ``attribution``.
 
@@ -118,6 +119,9 @@ class CostLedger:
             the run.total_cost_usd update is the caller's responsibility.
           * ``commit=False`` by default — the caller's transaction
             handles persistence; tests pass ``commit=True`` for clarity.
+          * A $0 charge writes nothing — except an ``unpriced`` one: a call
+            to a tool with no price is recorded at $0 so it shows in the
+            run's costs (GH-05).
         """
         if attribution not in VALID_ATTRIBUTIONS:
             logger.warning(
@@ -127,7 +131,7 @@ class CostLedger:
             attribution = CostAttribution.TOOL.value
 
         amount = Decimal(str(amount or 0))
-        if amount <= 0:
+        if amount <= 0 and not unpriced:
             return None
 
         from src.ai.orm.usage import UsageLog

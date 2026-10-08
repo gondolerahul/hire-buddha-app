@@ -768,7 +768,9 @@ Lookup priority (first hit wins):
   1. ``IntegrationRegistry.service_sku == tool_id``
   2. ``IntegrationRegistry.service_sku`` in :data:`TOOL_SKU_MAP[tool_id]`
   3. :data:`TOOL_FIXED_COST[tool_id]` (e.g. image_generation = $0.04)
-  4. ``Decimal('0')`` (with a one-time warning per process)
+  4. :data:`FREE_TOOLS` (or a tenant tool's ``free_reason``): $0, on purpose
+  5. otherwise the tool is **unpriced**: $0, a $0 ``usage_logs`` row marked
+     ``cost_source: missing`` and a ``tool.cost.missing`` event, every call
 """
 ```
 
@@ -780,7 +782,9 @@ flowchart TD
     L2 -->|hit| USE
     L2 -->|miss| L3{"TOOL_FIXED_COST[tool_id]?"}
     L3 -->|hit| USE
-    L3 -->|miss| Z["Decimal('0')<br/>one-time warning per process"]
+    L3 -->|miss| L4{"FREE_TOOLS[tool_id]?"}
+    L4 -->|hit| USE
+    L4 -->|miss| Z["Decimal('0') - unpriced<br/>$0 row + tool.cost.missing, every call"]
     Z --> USE
     USE --> LED["CostLedger.record<br/>attribution='tool'"]
     USE --> BUD["Budget.consume(amount)"]
@@ -795,10 +799,14 @@ Two things make this important:
    loop's `Budget.consume(...)`. Same number, so billing and budget can never
    diverge.
 
-> ⚠️ An unmapped tool resolves to **$0** and only warns once per process. A new
-> tool without a SKU is silently free — it will not consume budget, will not
-> deduct credits, and will not appear in cost reports. Always add a SKU entry
-> when adding a tool.
+> A tool with no price is **unpriced** (GH-05, since 2026-10-08): it is charged $0, and
+> every call writes a $0 `usage_logs` row marked `cost_source: missing` (so it shows in
+> the run's costs) and a `tool.cost.missing` event. Until then it warned once per process
+> and was silently free. A tool that costs nothing here on purpose — local work, the
+> company's own account, model calls billed as LLM usage, sandbox time — is in
+> `FREE_TOOLS` with that reason; a synthesized tenant tool says so with `free_reason`.
+> `tests/unit/test_tool_prices.py` fails on a registered tool that is neither priced nor
+> declared free, so add a SKU, a fixed cost or a reason when adding a tool.
 
 Every charge is recorded through `CostLedger` in
 [services/cost_attribution.py](../../backend/src/ai/services/cost_attribution.py)
@@ -1245,8 +1253,9 @@ redis-cli DEL "tool:search:company_<uuid>"
     that do not control the modern paths. Use `critic_pipeline.v2_enabled` and
     `memory.v2_canonical`.
 
-13. **An unmapped tool costs $0** and warns only once per process — it consumes
-    no budget and appears in no cost report.
+13. ~~**An unmapped tool costs $0** and warns only once per process~~ (GH-05, fixed
+    2026-10-08): every call writes a $0 row and a `tool.cost.missing` event, and the price
+    contract test fails on a tool that is neither priced nor declared free (§11).
 
 14. **`ToolCostResolver` is cached per process.** Rate changes need a restart.
 

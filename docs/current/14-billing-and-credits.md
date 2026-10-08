@@ -622,7 +622,7 @@ flowchart TD
     B -->|hit| C["c equals internal_cost - source registry - usage_logs row written"]
     B -->|miss| D{"tool_id in TOOL_FIXED_COST?"}
     D -->|yes| E["c equals fixed - source fixed - NO usage_logs row - sku_id is null"]
-    D -->|no| F["c equals 0 - source missing - one-time warning"]
+    D -->|no| F["c equals 0 - source missing - a 0 usage_logs row and tool.cost.missing, every call (GH-05)"]
     C --> G["TB equals c times 1.625"]
     E --> G
     F --> G

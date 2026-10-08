@@ -116,6 +116,8 @@ class SandboxedSynthesizedTool(Tool):
 
     status = ToolStatus.DRAFT
     timeout_seconds = 60
+    # Its calls cost nothing as tool calls: the sandbox meters them (GH-05).
+    free_reason = "metered as sandbox time"
 
     def __init__(self, spec: ToolSpec, source: str) -> None:
         self.name = spec.name

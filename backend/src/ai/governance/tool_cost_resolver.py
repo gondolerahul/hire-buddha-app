@@ -17,7 +17,13 @@ Lookup, first hit wins:
      registered once, at platform level, as the LLM path already assumed
      (BC-10: tenants without their own row were charged nothing)
   3. :data:`TOOL_FIXED_COST[tool_id]` (e.g. image_generation = $0.04)
-  4. ``Decimal('0')``, with a one-time warning per process.
+  4. :data:`FREE_TOOLS` (or a tenant tool's ``free_reason``): $0, on purpose
+  5. otherwise the tool is **unpriced**: $0, and every call writes a $0
+     ``usage_logs`` row marked ``cost_source: missing`` plus a
+     ``tool.cost.missing`` event (GH-05). It used to warn once per process,
+     so a tool shipped without a price was free, permanently and quietly.
+     ``tests/unit/test_tool_prices.py`` fails on a registered tool that is
+     none of 1–4.
 
 A registry price is per ``cost_unit``: one call is one unit of a per-call SKU
 and a thousandth of a "per 1000 …" SKU (``unit_divisor``, shared with
@@ -63,7 +69,43 @@ TOOL_FIXED_COST: dict[str, Decimal] = {
 }
 
 
-_MISSING_COST_WARNED: set[str] = set()
+# Tools that cost nothing *here*, each with why (GH-05). A tool missing from
+# this table, from TOOL_FIXED_COST and from TOOL_SKU_MAP is unpriced.
+_LOCAL = "runs in-process; no paid service"
+_TENANT = "uses the company's own connected account"
+_MODEL = "its model calls are billed as LLM usage"
+_SANDBOX = "metered as sandbox time"
+_RUN = "starts a run, which is billed itself"
+FREE_TOOLS: dict[str, str] = {
+    "agent_introspect": _LOCAL,
+    "agent_reflect": _LOCAL,
+    "calculator": _LOCAL,
+    "crm_update_lead": _TENANT,
+    "document_save": _LOCAL,
+    "docx_tool": _LOCAL,
+    "email_classify": _LOCAL,
+    "email_draft": _LOCAL,
+    "email_ingest": _TENANT,
+    "email_send": _TENANT,
+    "excel_tool": _LOCAL,
+    "file_writer": _LOCAL,
+    "get_current_datetime": _LOCAL,
+    "google_calendar_create_event": _TENANT,
+    "meta_entity_creator": _LOCAL,
+    "meta_entity_executor": _RUN,
+    "meta_platform_introspect": _LOCAL,
+    "meta_registry_search": _LOCAL,
+    "meta_schema_validator": _LOCAL,
+    "meta_spec_critic": _MODEL,
+    "pptx_tool": _LOCAL,
+    "sandbox_code": _SANDBOX,
+    "social_api": _TENANT,
+    "terminal": _SANDBOX,
+    "tool_synthesis": _MODEL,
+    "video_add_sound": _SANDBOX,
+    "video_edit": _SANDBOX,
+    "whatsapp_send_tenant": _TENANT,
+}
 
 # One price cache per run (TX-I1, TL-33). A step's service — and with it its
 # resolver — is rebuilt every iteration, so a per-instance cache looked every
@@ -154,19 +196,30 @@ class ToolCostResolver:
         """
         unit_price, source, sku_id = await self.resolve(tool_id)
         amount = unit_price * Decimal(str(units))
-        if amount <= 0:
+        missing = source == "missing"
+        if amount <= 0 and not missing:
             return ToolChargeResult(amount=Decimal("0"), source=source, sku_id=sku_id)
         from src.ai.services.cost_attribution import CostLedger
+        run_id = getattr(run, "id", None)
+        company_id = getattr(run, "company_id", None) or self.company_id
         await CostLedger(self.db).add(
-            run_id=getattr(run, "id", None),
-            company_id=getattr(run, "company_id", None) or self.company_id,
+            run_id=run_id,
+            company_id=company_id,
             amount=amount,
             attribution=attribution,
             sku_id=sku_id,
             raw_quantity=float(units),
             latency_ms=latency_ms,
             log_metadata={"tool": tool_id, "cost_source": source, "units": float(units)},
+            unpriced=missing,
         )
+        if missing:
+            # Every call, not once per process (GH-05): the row and the
+            # event make an unpriced tool visible in the run's costs.
+            logger.warning("ToolCostResolver: tool %r has no price; charged $0", tool_id)
+            from src.ai.core.agent_loop_sse import event_async
+            await event_async("tool.cost.missing", tool=tool_id, run_id=str(run_id) if run_id else None,
+                              company_id=str(company_id) if company_id else None)
         return ToolChargeResult(amount=amount, source=source, sku_id=sku_id)
 
     def invalidate(self, tool_id: Optional[str] = None) -> None:
@@ -228,10 +281,12 @@ class ToolCostResolver:
         if fixed is not None:
             return (Decimal(str(fixed)), "fixed", None)
 
-        if tool_id not in _MISSING_COST_WARNED:
-            logger.warning(
-                "ToolCostResolver: no cost entry for tool %r — defaulting to $0",
-                tool_id,
-            )
-            _MISSING_COST_WARNED.add(tool_id)
+        if tool_id in FREE_TOOLS or self._tenant_tool_is_free(tool_id):
+            return (Decimal("0"), "free", None)
         return (Decimal("0"), "missing", None)
+
+    def _tenant_tool_is_free(self, tool_id: str) -> bool:
+        """A company's own tool (a synthesized one) that says why it is free."""
+        from src.ai.tools.base import ToolRegistry
+        tool = ToolRegistry._tenant_tools.get(str(self.company_id), {}).get(tool_id)
+        return bool(getattr(tool, "free_reason", None))
