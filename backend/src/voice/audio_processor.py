@@ -100,6 +100,33 @@ class AudioProcessor:
             return b''
     
     @staticmethod
+    def pcm24_to_pcm16(pcm24_bytes: bytes) -> bytes:
+        """
+        Resample PCM16 audio from 24kHz to 16kHz (both 16-bit mono).
+
+        The live models return 24kHz; the browser client plays 16kHz (VT-02).
+
+        Args:
+            pcm24_bytes: PCM16 audio at 24kHz
+
+        Returns:
+            PCM16 audio at 16kHz
+        """
+        try:
+            pcm_16khz, _ = audioop.ratecv(
+                pcm24_bytes,
+                AudioProcessor.SAMPLE_WIDTH,
+                AudioProcessor.CHANNELS,
+                AudioProcessor.PCM24_SAMPLE_RATE,
+                AudioProcessor.PCM16_SAMPLE_RATE,
+                None
+            )
+            return pcm_16khz
+        except Exception as e:
+            logger.error(f"Error converting PCM24 to PCM16: {e}")
+            return b''
+
+    @staticmethod
     def pcm16_to_mulaw(pcm16_bytes: bytes) -> bytes:
         """
         Convert PCM16 (16kHz, 16-bit) to mulaw (8kHz, 8-bit).

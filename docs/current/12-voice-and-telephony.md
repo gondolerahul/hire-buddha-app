@@ -409,7 +409,7 @@ classDiagram
     class LiveClientFactory {
         +AsyncSession db
         +UUID company_id
-        +create_client(...) tuple
+        +create_client(...) (client, provider)
         -_create_gemini_client(...)
         -_create_azure_client(...)
     }
@@ -417,6 +417,11 @@ classDiagram
         +dict MODEL_CAPABILITIES
         +bool use_ai_studio
         +create_session_config(model, tools)
+        +connect(model, tools) AsyncContextManager
+    }
+    class AzureLiveClient {
+        +AzureRealtimeClient client
+        +AzureRealtimeConfig config
         +connect(model, tools) AsyncContextManager
     }
     class AzureRealtimeClient {
@@ -430,10 +435,11 @@ classDiagram
     BaseLiveClient <|.. GeminiLiveClient : "interface only - not subclassed"
     BaseLiveClient <|.. AzureRealtimeClient : "interface only - not subclassed"
     LiveClientFactory --> GeminiLiveClient : creates
-    LiveClientFactory --> AzureRealtimeClient : creates
+    LiveClientFactory --> AzureLiveClient : creates
+    AzureLiveClient --> AzureRealtimeClient : wraps
 ```
 
-> **The abstraction is aspirational.** [`live_client_base.py`](../../backend/src/voice/live_client_base.py) defines `BaseLiveClient` as an ABC with a callback-oriented API (`on_audio_out`, `on_tool_call`, …), but **neither** `GeminiLiveClient` nor `AzureRealtimeClient` inherits from it, and nothing in the repo imports it except itself. The real polymorphism boundary is [`LiveClientFactory.create_client()`](../../backend/src/voice/live_client_factory.py:35), which returns a `(client_or_tuple, provider_name)` pair and lets the caller branch on the string.
+> **The abstraction is aspirational.** [`live_client_base.py`](../../backend/src/voice/live_client_base.py) defines `BaseLiveClient` as an ABC with a callback-oriented API (`on_audio_out`, `on_tool_call`, …), but **neither** `GeminiLiveClient` nor `AzureRealtimeClient` inherits from it, and nothing in the repo imports it except itself. The real polymorphism boundary is [`LiveClientFactory.create_client()`](../../backend/src/voice/live_client_factory.py:35), which returns `(client, provider_name)`. Both clients connect the same way — `await client.connect(tools=…)` returns an async context manager whose session has the google-genai Live methods (`send_realtime_input`, `receive`, `send_tool_response`) — so the stream handler and the browser adapter have **one** code path and use `provider_name` only for logs (VT-02, fixed 2026-10-08). Until then the Azure branch returned a `(client, config)` tuple and its callers kept the client, which has none of those methods.
 
 The factory resolves the model from **task defaults** rather than hard-coding it:
 
@@ -553,7 +559,27 @@ one batch at a time.
 
 ### 6.2 Azure OpenAI Realtime
 
-[`azure_realtime.py`](../../backend/src/voice/azure_realtime.py) is a hand-rolled `websockets` client for the Azure GPT-4o Realtime API.
+[`azure_realtime.py`](../../backend/src/voice/azure_realtime.py) is a hand-rolled `websockets` client for the Azure GPT-4o Realtime API, and — since VT-02 (2026-10-08) — the adapter that lets the handler drive it: `AzureLiveClient.connect(tools=…)` enters like `client.aio.live.connect` and yields an `AzureLiveSession`, which translates both ways:
+
+| Gemini Live call / message the handler uses | Azure Realtime |
+|---|---|
+| `send_realtime_input(audio=Blob(rate=16000))` | `input_audio_buffer.append`, resampled 16 → 24 kHz |
+| `send_realtime_input(text=…)` | `conversation.item.create` (`input_text`) + `response.create` |
+| `send_tool_response([FunctionResponse(id, …)])` | one `function_call_output` item per result, then one `response.create` |
+| `response.data` (PCM 24 kHz) | `response.audio.delta` / `response.output_audio.delta` |
+| `server_content.output_transcription` | `response.audio_transcript.done` (the whole sentence, not deltas) |
+| `server_content.input_transcription` | `conversation.item.input_audio_transcription.completed` (the session asks for `whisper-1` transcription) |
+| `server_content.interrupted` | `input_audio_buffer.speech_started` **while a response is in progress** |
+| `voice_activity` start / end | `input_audio_buffer.speech_started` / `speech_stopped` |
+| `tool_call.function_calls[{id, name, args}]` | `response.function_call_arguments.done` |
+| `usage_metadata` (billed, VT-05) | `response.done` → `response.usage` (tokens by modality) |
+| `receive()` raises when the connection is gone | the socket closed — so the handler's loop ends the call instead of spinning |
+
+The socket is opened with `websockets.asyncio.client.connect(url, additional_headers=…)`; the
+legacy top-level `websockets.connect` in websockets 13 takes `extra_headers` and raised
+`TypeError` on the old call. Not yet checked against a live Azure deployment. Two limits: a
+call on Azure is billed at the Gemini Live SKUs' prices (the usage logger names those SKUs),
+and Gemini-only settings (VAD sensitivities, `speaking_rate`/`pitch`) do not apply.
 
 | Aspect | Value |
 |--------|-------|
@@ -584,30 +610,30 @@ sequenceDiagram
     participant WS as Azure Realtime WS
     participant S as AzureRealtimeSession
 
-    H->>C: connect(AzureRealtimeConfig)
-    C->>WS: websockets.connect(url, api-key header)
+    H->>C: AzureLiveClient.connect(tools) then __aenter__
+    C->>WS: websockets.asyncio.client.connect(url, api-key header)
     C->>S: new AzureRealtimeSession(ws, config)
-    S->>WS: {"type":"session.update","session":{modalities, instructions, voice, pcm16, turn_detection, temperature}}
-    C-->>H: session
+    S->>WS: {"type":"session.update","session":{modalities, instructions, voice, pcm16, turn_detection, input_audio_transcription, tools}}
+    C-->>H: AzureLiveSession
     loop
-        H->>S: send_audio(pcm) - input_audio_buffer.append
-        WS-->>S: response.audio.delta - base64 pcm
-        WS-->>S: response.audio_transcript.delta
+        H->>S: send_realtime_input(audio 16k) - resampled, input_audio_buffer.append
+        WS-->>S: response.audio.delta - base64 pcm 24k
+        S-->>H: message.data
+        WS-->>S: response.audio_transcript.done
+        S-->>H: server_content.output_transcription
     end
     WS-->>S: response.function_call_arguments.done
-    H->>S: send_function_result(call_id, result) then response.create
-    WS-->>S: response.done
+    S-->>H: tool_call.function_calls
+    H->>S: send_tool_response - function_call_output items then response.create
+    WS-->>S: response.done (usage)
+    S-->>H: usage_metadata
 ```
 
-> **The Azure path is broken in the stream handler.** [`websocket_handler.py:304`](../../backend/src/voice/websocket_handler.py:304) does:
->
-> ```python
-> azure_client, azure_config = live_client_or_tuple
-> await azure_client.connect(azure_config)
-> self.gemini_session = azure_client        # <-- the CLIENT, not the returned session
-> ```
->
-> `connect()`'s return value — the `AzureRealtimeSession` that actually has `send_audio`/`receive` — is discarded. `AzureRealtimeClient` has no `send_realtime_input`, no `receive`, no `send_tool_response`, so the greeting fails ("non-fatal" warning) and `_receive_from_live_client` raises `AttributeError` and kills the call. The same bug exists in [`web_audio_adapter.py:101`](../../backend/src/gateway/web_audio_adapter.py:101). Treat Gemini Live as the only working speech-to-speech provider today.
+> **Fixed 2026-10-08 (VT-02, HD10).** The handler kept the Azure *client* where the *session*
+> belongs, so the greeting failed and `_receive_from_live_client` raised `AttributeError` on the
+> first call; `web_audio_adapter.py` did the same — and on Gemini it never entered the
+> context manager either — and called a nonexistent `AudioProcessor.pcm24_to_pcm16`. Both now
+> take the one path above, and `pcm24_to_pcm16` resamples 24 → 16 kHz for the browser.
 
 ### 6.3 The mock client
 
@@ -1614,8 +1640,8 @@ cd backend && .venv/bin/pytest tests/unit/test_call_guards.py -v
 | Symptom | Log line | Cause / fix |
 |---------|----------|-------------|
 | Provider's WebSocket handshake fails (404 on the stream path) | none in the app — the request arrives as a plain GET | Reverse proxy is not forwarding `Upgrade`. Enable `mod_proxy_wstunnel` and check the `RewriteRule`s on the vhost. (Twilio reports this as error 31920.) |
-| Lead hears ringback then silence, call dies at ~10 s | `[GUARD] Activity watchdog action: pipeline_stall` | Model never produced audio — bad speech_to_speech task default, missing API key, or the Azure bug in §6.2 |
-| Call connects but the agent never speaks | `Greeting trigger failed (non-fatal)` then `Error receiving from Live client` | Live session object is wrong type. Almost always the Azure path. |
+| Lead hears ringback then silence, call dies at ~10 s | `[GUARD] Activity watchdog action: pipeline_stall` | Model never produced audio — bad speech_to_speech task default, missing API key, or an Azure deployment that refused the session (`Azure Realtime API error` in the log) |
+| Call connects but the agent never speaks | `Greeting trigger failed (non-fatal)` then `Error receiving from Live client` | The live session failed. On Azure, `Azure Realtime connection closed`: check `azure_endpoint`, `deployment_name` and the key. |
 | Agent talks over itself / restarts mid-sentence | `[INTERRUPT] Gemini signaled interruption` firing repeatedly | Echo tripping barge-in. Raise `VOICE_BARGE_IN_RMS_THRESHOLD` or `VOICE_ECHO_SUPPRESS_RMS`. |
 | Real caller is ignored during the greeting | `[INTERRUPT] Ignoring uncorroborated interruption` | Their voice is below RMS 1000. Lower `VOICE_BARGE_IN_RMS_THRESHOLD`. |
 | Live call cut off as voicemail | `[GUARD] Terminating call ...: voicemail_no_speech` or `voicemail_phrase:<phrase>` | Raise `VOICEMAIL_NO_SPEECH_SECONDS`, or set `VOICEMAIL_DETECTION_ENABLED=false` |
@@ -1644,7 +1670,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 | [`voice/whatsapp_messaging.py`](../../backend/src/voice/whatsapp_messaging.py) | 608 | Outbound WhatsApp for Twilio + Tata, text/media/template. |
 | [`voice/agent_loader.py`](../../backend/src/voice/agent_loader.py) | 574 | Persona → system prompt, tools, context-source extraction, contact injection, TTL cache. |
 | [`voice/session_manager.py`](../../backend/src/voice/session_manager.py) | 415 | CRUD for `voice_sessions` and `whatsapp_sessions`; optional (unused) Redis cache. |
-| [`voice/azure_realtime.py`](../../backend/src/voice/azure_realtime.py) | 360 | Azure GPT-4o Realtime WebSocket client. Not correctly used by the handler. |
+| [`voice/azure_realtime.py`](../../backend/src/voice/azure_realtime.py) | 550 | Azure GPT-4o Realtime WebSocket client, and `AzureLiveClient`/`AzureLiveSession`, which give it the Gemini Live session's shape (VT-02). |
 | [`voice/gemini_live.py`](../../backend/src/voice/gemini_live.py) | 348 | Gemini Live client, model capability registry, session config. |
 | [`voice/usage_logger.py`](../../backend/src/voice/usage_logger.py) | 385 | Three `UsageLog` rows per call: per-minute, the reported tokens, or 167 tok/s of each direction's audio. |
 | [`voice/gemini_mock.py`](../../backend/src/voice/gemini_mock.py) | 314 | Mock Live session. Not wired in. |
@@ -1677,7 +1703,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 
 - **Every voice endpoint is on port 8000.** The HTTP webhooks and the media-stream WebSockets are the same process; there is no gateway on 8001 or voice service on 8002 any more.
 - ~~**The inbound credit gate never fires.**~~ (VT-01, fixed 2026-10-08): one admission rule for every call, and a balance it cannot read refuses.
-- **Azure Realtime does not work.** The handler stores the *client* where the *session* belongs. Same in `web_audio_adapter.py`, which additionally calls a nonexistent `AudioProcessor.pcm24_to_pcm16`.
+- ~~**Azure Realtime does not work.**~~ (VT-02, fixed 2026-10-08): the factory's Azure client connects like Gemini's and its session speaks the Gemini Live shape; `pcm24_to_pcm16` exists. Not yet checked against a live Azure deployment, and billed at the Gemini Live SKUs.
 - ~~**WhatsApp AI replies always fail.**~~ (VT-03, fixed 2026-10-08): the service is built on the company's Google integration. Not yet checked against a live WhatsApp sandbox.
 - **`"sucess"` is a real key on the wire** in both Tata voice webhook responses.
 - **`speaking_rate` and `pitch` are read but never sent.** `GeminiLiveClient` parses them off `VoiceConfig` and then builds a `speech_config` containing only `voice_name`.

@@ -13,10 +13,14 @@ Reference: https://learn.microsoft.com/en-us/azure/ai-services/openai/realtime-a
 from __future__ import annotations
 
 import asyncio
+import audioop
 import base64
+import copy
 import json
 import logging
+import re
 import time
+from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -43,8 +47,11 @@ class AzureRealtimeConfig:
         max_response_tokens: Optional[int] = None,
         turn_detection: Optional[Dict] = None,
         tools: Optional[List[Dict]] = None,
+        input_transcription_model: Optional[str] = "whisper-1",
     ):
         self.system_prompt = system_prompt
+        # The caller's words as text, for the transcript and the guards.
+        self.input_transcription_model = input_transcription_model
         self.voice = voice
         self.input_audio_format = input_audio_format
         self.output_audio_format = output_audio_format
@@ -71,6 +78,8 @@ class AzureRealtimeConfig:
             "turn_detection": self.turn_detection,
             "temperature": self.temperature,
         }
+        if self.input_transcription_model:
+            session["input_audio_transcription"] = {"model": self.input_transcription_model}
         if self.max_response_tokens:
             session["max_response_output_tokens"] = self.max_response_tokens
         if self.tools:
@@ -192,15 +201,17 @@ class AzureRealtimeClient:
         The session is used to send audio and receive events.
         """
         try:
-            import websockets
+            # The asyncio client takes ``additional_headers``; the legacy
+            # top-level ``websockets.connect`` of 13.x does not (VT-02).
+            from websockets.asyncio.client import connect as ws_connect
         except ImportError:
-            raise RuntimeError("websockets package not installed. Run: pip install websockets>=12.0")
+            raise RuntimeError("websockets>=13 is required for Azure Realtime")
 
         url = self._build_ws_url()
         headers = self._get_headers()
         logger.info(f"Connecting to Azure Realtime API: {url}")
 
-        ws = await websockets.connect(url, additional_headers=headers)
+        ws = await ws_connect(url, additional_headers=headers)
         session = AzureRealtimeSession(ws=ws, config=config, model=self.model)
         await session.initialize()
         return session
@@ -263,14 +274,19 @@ class AzureRealtimeSession:
 
     async def send_function_result(self, call_id: str, result: str):
         """Send a function call result back to the model."""
-        await self._ws.send(json.dumps({
-            "type": "conversation.item.create",
-            "item": {
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": result,
-            }
-        }))
+        await self.send_function_results([(call_id, result)])
+
+    async def send_function_results(self, results: List[Tuple[str, str]]):
+        """Send several results, then ask for one response to all of them."""
+        for call_id, result in results:
+            await self._ws.send(json.dumps({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": result,
+                }
+            }))
         await self._create_response()
 
     async def _create_response(self):
@@ -358,3 +374,177 @@ async def create_azure_realtime_client(
         service_metadata=meta,
     )
     return realtime_client, config or AzureRealtimeConfig(system_prompt="")
+
+
+# ---------------------------------------------------------------------------
+# The Gemini Live session shape (VT-02)
+# ---------------------------------------------------------------------------
+# The stream handler and the browser adapter drive a live model through the
+# google-genai Live session: ``send_realtime_input(audio=Blob | text=...)``,
+# ``receive()`` yielding server messages (``data``, ``server_content``,
+# ``tool_call``, ``usage_metadata``) and ``send_tool_response()``. The factory
+# hands them an :class:`AzureLiveClient`, whose ``connect(tools=...)`` enters
+# like ``client.aio.live.connect`` and yields an :class:`AzureLiveSession`
+# speaking that shape, so a call runs the same code on either provider.
+# Azure Realtime takes and returns PCM16 at 24 kHz; the 16 kHz audio the
+# callers send is resampled on the way in, and its 24 kHz output is what they
+# already expect from Gemini.
+
+_RATE = re.compile(r"rate=(\d+)")
+_AUDIO_DELTA = ("response.audio.delta", "response.output_audio.delta")
+_AGENT_TRANSCRIPT = ("response.audio_transcript.done", "response.output_audio_transcript.done")
+
+
+def _message(**fields: Any) -> SimpleNamespace:
+    """One server message, shaped like google-genai's ``LiveServerMessage``."""
+    base: Dict[str, Any] = {"data": None, "text": None, "server_content": None,
+                            "tool_call": None, "usage_metadata": None, "voice_activity": None}
+    base.update(fields)
+    return SimpleNamespace(**base)
+
+
+def _content(**fields: Any) -> SimpleNamespace:
+    base: Dict[str, Any] = {"interrupted": False, "turn_complete": False,
+                            "input_transcription": None, "output_transcription": None}
+    base.update(fields)
+    return SimpleNamespace(**base)
+
+
+def _usage(usage: Optional[Dict[str, Any]]) -> Optional[SimpleNamespace]:
+    """A ``response.done`` usage block as Gemini's ``usage_metadata`` (VT-05 bills it)."""
+    if not usage:
+        return None
+
+    def details(block: Optional[Dict[str, Any]]) -> List[SimpleNamespace]:
+        return [SimpleNamespace(modality=modality.upper(), token_count=int((block or {}).get(f"{modality}_tokens") or 0))
+                for modality in ("text", "audio") if (block or {}).get(f"{modality}_tokens")]
+
+    return SimpleNamespace(
+        prompt_token_count=int(usage.get("input_tokens") or 0),
+        response_token_count=int(usage.get("output_tokens") or 0),
+        prompt_tokens_details=details(usage.get("input_token_details")),
+        response_tokens_details=details(usage.get("output_token_details")),
+    )
+
+
+def _blob(audio: Any) -> Tuple[bytes, str]:
+    if isinstance(audio, dict):
+        return audio.get("data") or b"", str(audio.get("mime_type") or "")
+    return getattr(audio, "data", None) or b"", str(getattr(audio, "mime_type", "") or "")
+
+
+def to_azure_tools(declarations: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Gemini function declarations (``name``, ``description``, JSON-schema
+    ``parameters``) as Azure Realtime function tools."""
+    return [
+        {"type": "function", "name": d["name"], "description": d.get("description", ""),
+         "parameters": d.get("parameters") or {"type": "object", "properties": {}}}
+        for d in declarations or [] if isinstance(d, dict) and d.get("name")
+    ]
+
+
+class AzureLiveSession:
+    """An :class:`AzureRealtimeSession` with the Gemini Live session's methods."""
+
+    def __init__(self, session: "AzureRealtimeSession"):
+        self._session = session
+        self._resample_state: Any = None
+        self._responding = False
+
+    async def send_realtime_input(self, *, audio: Any = None, text: Optional[str] = None) -> None:
+        if audio is not None:
+            data, mime = _blob(audio)
+            match = _RATE.search(mime)
+            rate = int(match.group(1)) if match else 16000
+            if data and rate != DEFAULT_SAMPLE_RATE:
+                data, self._resample_state = audioop.ratecv(
+                    data, 2, 1, rate, DEFAULT_SAMPLE_RATE, self._resample_state)
+            if data:
+                await self._session.send_audio(data)
+        if text:
+            await self._session.send_text(text)
+
+    async def send_tool_response(self, *, function_responses: List[Any]) -> None:
+        outputs = []
+        for response in function_responses:
+            get = response.get if isinstance(response, dict) else (lambda k, r=response: getattr(r, k, None))
+            outputs.append((str(get("id") or ""), json.dumps(get("response") or {}, default=str)))
+        await self._session.send_function_results(outputs)
+
+    def translate(self, event: AzureRealtimeEvent) -> Optional[SimpleNamespace]:
+        """One Azure event as a Gemini-shaped message, or None for one the callers ignore."""
+        kind, raw = event.event_type, event.raw
+        if kind == "response.created":
+            self._responding = True
+        elif kind in _AUDIO_DELTA:
+            data = base64.b64decode(raw.get("delta") or "")
+            return _message(data=data) if data else None
+        elif kind in _AGENT_TRANSCRIPT:
+            text = raw.get("transcript") or ""
+            return _message(server_content=_content(output_transcription=SimpleNamespace(text=text))) if text else None
+        elif kind == "conversation.item.input_audio_transcription.completed":
+            text = raw.get("transcript") or ""
+            return _message(server_content=_content(input_transcription=SimpleNamespace(text=text))) if text else None
+        elif kind == "input_audio_buffer.speech_started":
+            # Server VAD cuts the model off when the caller talks over it: that
+            # is Gemini's ``interrupted``. Speech into silence interrupts nothing.
+            interrupted, self._responding = self._responding, False
+            return _message(server_content=_content(interrupted=interrupted) if interrupted else None,
+                            voice_activity=SimpleNamespace(voice_activity_type="ACTIVITY_START"))
+        elif kind == "input_audio_buffer.speech_stopped":
+            return _message(voice_activity=SimpleNamespace(voice_activity_type="ACTIVITY_END"))
+        elif kind == "response.function_call_arguments.done":
+            info = event.function_call_info
+            if info:
+                call_id, name, args = info
+                return _message(tool_call=SimpleNamespace(
+                    function_calls=[SimpleNamespace(id=call_id, name=name, args=args)]))
+        elif kind == "response.done":
+            self._responding = False
+            body = raw.get("response") or {}
+            return _message(server_content=_content(turn_complete=True),
+                            usage_metadata=_usage(body.get("usage")))
+        return None
+
+    async def receive(self) -> AsyncGenerator[SimpleNamespace, None]:
+        async for event in self._session.receive():
+            message = self.translate(event)
+            if message is not None:
+                yield message
+        # The socket closed. Gemini's receive() raises here; ending quietly
+        # would have the callers' ``while running: async for ...`` spin.
+        raise ConnectionError("Azure Realtime connection closed")
+
+    async def close(self) -> None:
+        await self._session.close()
+
+
+class _AzureLiveConnection:
+    """What :meth:`AzureLiveClient.connect` returns: entered, it is the session."""
+
+    def __init__(self, client: AzureRealtimeClient, config: AzureRealtimeConfig):
+        self._client = client
+        self._config = config
+        self._session: Optional[AzureRealtimeSession] = None
+
+    async def __aenter__(self) -> AzureLiveSession:
+        self._session = await self._client.connect(self._config)
+        return AzureLiveSession(self._session)
+
+    async def __aexit__(self, *exc: Any) -> None:
+        if self._session is not None:
+            await self._session.close()
+
+
+class AzureLiveClient:
+    """The Azure branch of ``LiveClientFactory``: connects like ``GeminiLiveClient``."""
+
+    def __init__(self, client: AzureRealtimeClient, config: AzureRealtimeConfig):
+        self.client = client
+        self.config = config
+
+    async def connect(self, model: Optional[str] = None,
+                      tools: Optional[List[Dict[str, Any]]] = None) -> _AzureLiveConnection:
+        config = copy.copy(self.config)
+        config.tools = to_azure_tools(tools)
+        return _AzureLiveConnection(self.client, config)

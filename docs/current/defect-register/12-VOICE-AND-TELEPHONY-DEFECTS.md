@@ -37,17 +37,17 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 3 | 0 | 1 | 0 |
+| [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 2 | 1 | 2 | 0 |
 | [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 4 | 1 | 0 | 3 |
 
-**Total: 21 defects (13 fixed, 2 partly fixed, 3 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (14 fixed, 2 partly fixed, 2 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | VT-01 | The inbound credit gate has never run | ✅ fixed (2026-10-08) | — |
-| VT-02 | Azure Realtime returns a tuple where a session belongs | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-02 | Azure Realtime returns a tuple where a session belongs | ✅ fixed (2026-10-08) | — |
 | VT-03 | Every WhatsApp AI reply is an apology | ✅ fixed (2026-10-08) | — |
 | VT-04 | Port 8002 is a ghost that Apache still points at | ✅ fixed (single port, `19f57bb`) | — |
 | VT-05 | Voice tokens are estimated at a flat 167 per second | ✅ fixed (2026-10-08) | — |
@@ -115,7 +115,7 @@ catch is the reason this survived.
 
 ### VT-02 — Azure Realtime returns a tuple where a session belongs
 
-**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: `live_client_factory.py:177` still returns `client, config`, and `pcm24_to_pcm16` (called at `web_audio_adapter.py:172`) still does not exist. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**✅ Verified · High** · **Status: fixed (2026-10-08)** — decision HD10 (fix it): `LiveClientFactory` returns an `AzureLiveClient` that connects like `GeminiLiveClient` — `connect(tools=…)` returns a context manager whose `AzureLiveSession` has the Gemini Live methods (`send_realtime_input`, `receive`, `send_tool_response`), resampling 16 → 24 kHz in and translating Azure events (audio, both transcripts, barge-in, function calls, usage) into Gemini-shaped messages. The stream handler and `web_audio_adapter.py` have one connect path (the browser adapter's Gemini branch never entered its session either); `AudioProcessor.pcm24_to_pcm16` exists; the socket opens with `websockets.asyncio.client.connect` (the old call passed an argument websockets 13 rejects). Not yet checked against a live Azure deployment; Azure calls are billed at the Gemini Live SKUs. `tests/unit/test_azure_live.py` (6)
 
 `LiveClientFactory.get_live_client` documents its return as:
 

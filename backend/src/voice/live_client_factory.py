@@ -2,12 +2,14 @@
 Live Client Factory — resolves the correct live streaming client based on task defaults.
 
 For speech_to_speech task type:
-  - google/gemini provider → GeminiLiveClient (existing)
-  - azure_openai provider   → AzureRealtimeClient (new)
+  - google/gemini provider → GeminiLiveClient
+  - azure_openai provider   → AzureLiveClient (Azure OpenAI Realtime, VT-02)
 
-Usage in websocket_handler:
+Both connect the same way, so a caller has one code path:
     factory = LiveClientFactory(db=db, company_id=company_id)
     live_client, provider = await factory.create_client(system_instruction, voice_config, ...)
+    session_cm = await live_client.connect(tools=tools)
+    session = await session_cm.__aenter__()   # send_realtime_input / receive / send_tool_response
 """
 from __future__ import annotations
 
@@ -45,8 +47,10 @@ class LiveClientFactory:
 
         Returns:
             (live_client, provider_name)
-            live_client: GeminiLiveClient or AzureRealtimeClient (already connected session)
-            provider_name: 'gemini' | 'azure_openai' (for caller to branch on)
+            live_client: GeminiLiveClient or AzureLiveClient — not yet connected;
+                ``await live_client.connect(tools=...)`` returns an async context
+                manager whose session has the Gemini Live methods either way
+            provider_name: 'gemini' | 'azure_openai' (for logs and billing)
 
         Raises:
             RuntimeError: If no speech_to_speech model is configured.
@@ -145,8 +149,8 @@ class LiveClientFactory:
         system_instruction: str,
         voice_config: Optional[Any],
     ):
-        """Instantiate the Azure OpenAI Realtime client."""
-        from src.voice.azure_realtime import AzureRealtimeClient, AzureRealtimeConfig
+        """Instantiate the Azure OpenAI Realtime client, in the Gemini Live shape (VT-02)."""
+        from src.voice.azure_realtime import AzureLiveClient, AzureRealtimeClient, AzureRealtimeConfig
 
         azure_endpoint = meta.get("azure_endpoint", "")
         if not azure_endpoint:
@@ -168,13 +172,14 @@ class LiveClientFactory:
         )
 
         client = AzureRealtimeClient(
-            api_key=api_key,
+            api_key=api_key or "",
             azure_endpoint=azure_endpoint,
             model=model_name,
             api_version=meta.get("api_version", "2025-04-01-preview"),
             service_metadata=meta,
         )
-        return client, config  # Return both so caller can call client.connect(config)
+        # Not a (client, config) tuple: the callers connect it like Gemini's.
+        return AzureLiveClient(client, config)
 
 
 def _map_voice_to_azure(gemini_voice: str) -> str:

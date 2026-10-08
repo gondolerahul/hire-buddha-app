@@ -405,10 +405,10 @@ sequenceDiagram
     AG->>BR: text connected with session_id
     AG->>WA: WebAudioAdapter.handle
 
-    WA->>AI: LiveClientFactory.create_client then connect
+    WA->>AI: LiveClientFactory.create_client, connect() then enter the session
     par four concurrent tasks
         BR-->>WA: binary PCM16 frames
-        WA-->>AI: send_audio or send_realtime_input
+        WA-->>AI: send_realtime_input (Gemini or Azure, one shape - VT-02)
     and
         AI-->>WA: response.data PCM24 + transcriptions
         WA->>WA: pcm24_to_pcm16 then queue

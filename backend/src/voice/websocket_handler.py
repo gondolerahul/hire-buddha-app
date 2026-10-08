@@ -287,7 +287,7 @@ class BaseStreamHandler:
         system_instruction = agent_context.system_instruction
         if settings.VOICEMAIL_DETECTION_ENABLED:
             system_instruction = system_instruction + END_CALL_SYSTEM_SUFFIX
-        live_client_or_tuple, provider = await factory.create_client(
+        live_client, provider = await factory.create_client(
             system_instruction=system_instruction,
             voice_config=agent_context.voice_config,
             generation_config=agent_context.llm_config.get("parameters", {}),
@@ -296,22 +296,17 @@ class BaseStreamHandler:
 
         logger.info(f"[{provider}] Connecting live session for session {self.session_id}")
 
-        if provider == "azure_openai":
-            # Azure Realtime returns (client, config) tuple
-            azure_client, azure_config = live_client_or_tuple
-            await azure_client.connect(azure_config)
-            self.gemini_session = azure_client
-        else:
-            gemini_client = live_client_or_tuple
-            # connect() returns an async context manager; we must enter it
-            # to get the actual live session with .receive()/.send_realtime_input()
-            # Phase 3: Pass loaded tools into the Gemini session config
-            voice_tools = list(agent_context.tools or [])
-            if settings.VOICEMAIL_DETECTION_ENABLED:
-                voice_tools.append(END_CALL_TOOL)
-            session_cm = await gemini_client.connect(tools=voice_tools)
-            self._live_session_cm = session_cm
-            self.gemini_session = await session_cm.__aenter__()
+        # One path for Gemini Live and Azure Realtime (VT-02): connect()
+        # returns an async context manager; entering it gives the live session
+        # (.receive() / .send_realtime_input() / .send_tool_response()). The
+        # Azure branch used to keep the client, which has none of them.
+        # Phase 3: the agent's tools go into the session config.
+        voice_tools = list(agent_context.tools or [])
+        if settings.VOICEMAIL_DETECTION_ENABLED:
+            voice_tools.append(END_CALL_TOOL)
+        session_cm = await live_client.connect(tools=voice_tools)
+        self._live_session_cm = session_cm
+        self.gemini_session = await session_cm.__aenter__()
 
         self.started_at = self.voice_session.started_at
 

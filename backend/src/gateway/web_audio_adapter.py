@@ -89,20 +89,19 @@ class WebAudioAdapter:
         )
 
         factory = LiveClientFactory(db=self.db, company_id=self.voice_session.company_id)
-        live_client_or_tuple, provider = await factory.create_client(
+        live_client, provider = await factory.create_client(
             system_instruction=agent_context.system_instruction,
             voice_config=agent_context.voice_config,
             generation_config=agent_context.llm_config.get("parameters", {}),
             conversation_history=agent_context.conversation_history,
         )
 
-        if provider == "azure_openai":
-            azure_client, azure_config = live_client_or_tuple
-            await azure_client.connect(azure_config)
-            self.gemini_session = azure_client
-        else:
-            await live_client_or_tuple.connect()
-            self.gemini_session = live_client_or_tuple
+        # One path for both providers (VT-02): connect() returns a context
+        # manager; the session is what entering it yields. Both branches used
+        # to keep the client, which has no receive().
+        # No tools: this adapter does not answer tool calls.
+        session_cm = await live_client.connect()
+        self.gemini_session = await session_cm.__aenter__()
 
         logger.info(f"[WebAudioAdapter] Connected to {provider} for session {self.session_id}")
 
@@ -113,10 +112,16 @@ class WebAudioAdapter:
             asyncio.create_task(self._flush_transcripts()),
         ]
 
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for t in pending:
-            t.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        try:
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for t in pending:
+                t.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        finally:
+            try:
+                await session_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
 
     async def _receive_from_browser(self) -> None:
         """Receive PCM16 binary frames (and JSON control messages) from browser."""
@@ -129,12 +134,9 @@ class WebAudioAdapter:
                     pcm16 = message["bytes"]
                     if self.gemini_session:
                         try:
-                            if hasattr(self.gemini_session, "send_audio"):
-                                await self.gemini_session.send_audio(pcm16)
-                            elif hasattr(self.gemini_session, "send_realtime_input"):
-                                await self.gemini_session.send_realtime_input(
-                                    audio={"data": pcm16, "mime_type": "audio/pcm;rate=16000"}
-                                )
+                            await self.gemini_session.send_realtime_input(
+                                audio={"data": pcm16, "mime_type": "audio/pcm;rate=16000"}
+                            )
                         except Exception as exc:
                             logger.error(f"[WebAudioAdapter] Error sending audio to AI: {exc}")
                             break
