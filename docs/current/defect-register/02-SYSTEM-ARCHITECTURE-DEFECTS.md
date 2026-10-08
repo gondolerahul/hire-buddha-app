@@ -78,7 +78,7 @@
 | SA-I5 | Cache the suspension check | moot — no separate check left (`15191e5`) |
 | SA-I6 | Split the worker pool by job type | ◐ partly — child runs have their own pool (`5fe35fd`) |
 | SA-I7 | Make the layout lint part of the merge gate | open |
-| SA-I8 | Make the SSE terminal signal a field, not a substring | open |
+| SA-I8 | Make the SSE terminal signal a field, not a substring | ✅ done (2026-10-08, GW-19) |
 | SA-I9 | Fix the observability compose file before anyone needs it | open |
 | SA-I10 | Record why a router failed to mount | ✅ done `0fd3b29` |
 
@@ -592,6 +592,8 @@ The repository has no functioning CI at all (see
 blocked on that — but it is the cheapest useful check to add first.
 
 ### SA-I8 — Make the SSE terminal signal a field, not a substring
+
+**Status: done (2026-10-08)** — with [GW-19](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-19--sse-terminates-on-a-substring-match): `ai/core/run_stream.py` publishes every frame and marks the last `"terminal": true`.
 
 **Effect: small, prevents a nasty bug.** The API's SSE generator breaks out of the loop
 when the raw JSON contains `"status": "COMPLETED"`, `"FAILED"` or `"CANCELLED"`. It is

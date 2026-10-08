@@ -334,27 +334,27 @@ async def stream_execution(
     
     from fastapi.responses import StreamingResponse
     import redis.asyncio as redis
+    from src.ai.core.run_stream import channel as run_channel, is_terminal
     from src.common.config import settings
     import asyncio
 
     async def event_generator():
         r = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")
         pubsub = r.pubsub()
-        channel = f"execution:{execution_id}"
+        channel = run_channel(execution_id)
         await pubsub.subscribe(channel)
-        
+
         try:
             # Send initial connection message
             yield "data: {\"status\": \"connected\"}\n\n"
-            
+
             async for message in pubsub.listen():
                 if message["type"] == "message":
                     data = message["data"].decode("utf-8")
                     yield f"data: {data}\n\n"
-                    if any(
-                        f"\"status\": \"{terminal}\"" in data
-                        for terminal in ("COMPLETED", "FAILED", "CANCELLED")
-                    ):
+                    # The frame says it is the last (GW-19); a payload that
+                    # merely contains a status word does not end the stream.
+                    if is_terminal(data):
                         break
         except asyncio.CancelledError:
             pass

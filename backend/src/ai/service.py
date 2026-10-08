@@ -557,17 +557,14 @@ class AIService:
         )).rowcount
         await self.db.commit()
         if cancelled:
-            # Notify any live SSE subscriber so the stream closes promptly. The
-            # ``status`` key drives the stream generator's break condition.
+            # The run's last frame, so a live stream closes at once (GW-19).
             try:
-                import json
                 import redis.asyncio as redis_lib
+                from src.ai.core.run_stream import publish_run_event
                 from src.common.config import settings
                 r = redis_lib.from_url(settings.REDIS_URL or "redis://localhost:6379")
-                await r.publish(
-                    f"execution:{execution_id}",
-                    json.dumps({"type": "cancelled", "status": "CANCELLED"}),
-                )
+                await publish_run_event(r, execution_id, {"type": "cancelled", "status": "CANCELLED"},
+                                        terminal=True)
                 await r.close()
             except Exception:
                 pass  # Non-fatal: the loop's own status re-read still aborts it.

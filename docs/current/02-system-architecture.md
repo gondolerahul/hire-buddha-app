@@ -821,31 +821,22 @@ sequenceDiagram
         API-->>B: "data: ...span_open..."
     end
 
-    W->>R: "PUBLISH execution:id  run_end with status COMPLETED"
+    W->>R: "PUBLISH execution:id  run_end with terminal true"
     R-->>API: message
-    API->>API: "terminal status seen -> break"
+    API->>API: "terminal field seen -> break"
     API-->>B: close
 ```
 
 The API streams the response itself. The gateway used to relay it, and only
 without a read timeout when the path ended in `/stream` or the client sent
 `Accept: text/event-stream`; anything else was buffered until its 60-second read
-timeout and answered 503 (SA-17). On the API side the generator terminates on a
-terminal status ([`ai/router.py:353`](../../backend/src/ai/router.py:353)):
-
-```python
-# backend/src/ai/router.py
-if any(
-    f"\"status\": \"{terminal}\"" in data
-    for terminal in ("COMPLETED", "FAILED", "CANCELLED")
-):
-    break
-```
-
-That is a **substring match on the raw JSON**, which is why
-[`agent_loop_sse.py:73`](../../backend/src/ai/core/agent_loop_sse.py:73)
-deliberately copies `outcome` into a `status` key on the terminal `run_end`
-event. Change either side and streams stop closing.
+timeout and answered 503 (SA-17). On the API side the generator stops after the
+frame whose `terminal` field is true (GW-19, SA-I8). Every publisher builds its
+frame with [`ai/core/run_stream.py`](../../backend/src/ai/core/run_stream.py),
+which sets the field on the run's last frame: `run_end` with a finished outcome,
+and `cancelled`. Until 2026-10-08 the generator broke on the substring
+`"status": "COMPLETED"` anywhere in a frame, so a child's status inside a span's
+payload closed the parent's stream, and a `PARTIAL_COMPLETE` run's never closed.
 
 Note the auth quirk: this endpoint uses `get_current_user_from_query` rather than
 the usual bearer dependency, because the browser `EventSource` API cannot set
@@ -1465,8 +1456,9 @@ process-wide list**; per-company allow-lists are listed as remaining work.
 * **A webhook 202 means the job is in Redis.** The endpoint enqueues before it
   answers, and answers 503 if it cannot — so a provider's retry, not an
   in-memory queue, covers a Redis outage.
-* **Terminal SSE detection is a substring match** on `"status": "COMPLETED"` in
-  the raw JSON. That is why `agent_loop_sse` copies `outcome` into `status`.
+* **The SSE stream ends on a field.** The run's last frame carries
+  `"terminal": true` (`ai/core/run_stream.py`); publish through it, or the stream
+  will not close.
 * **Suspension is checked in `_authenticate_user`, not in middleware.** A route
   that does not depend on `get_current_user` (or a sibling) is not protected
   against suspended companies — or against anyone.

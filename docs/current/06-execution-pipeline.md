@@ -1941,8 +1941,9 @@ the SPA assembles the tree from `span_id` / `parent_span_id`.
 
 `GET /ai/executions/{id}/stream` subscribes to the Redis channel
 `execution:{run_id}` and relays every message verbatim as an SSE `data:` frame.
-It closes when a frame contains `"status": "COMPLETED"`, `"FAILED"`, or
-`"CANCELLED"` ([router.py:353](../../backend/src/ai/router.py:353)).
+It closes after the frame that carries `"terminal": true` — `run_end` with a
+finished outcome, or `cancelled` — and on nothing else (GW-19): every frame is
+published through one helper, [`run_stream.py`](../../backend/src/ai/core/run_stream.py).
 **Auth is via `?token=` query param** (`get_current_user_from_query`) because
 `EventSource` cannot set headers.
 
@@ -1969,8 +1970,8 @@ Three producers publish to that one channel:
 | `resume` | `agent.loop.resumed` | `iteration`, `from_iteration`, `any_failed` |
 | `bandit_arm_updated` | `agent.bandit.arm_updated` | `entity_id`, `task_class`, `arm`, `success`, `cost_usd`, `new_score` |
 | `task_class_classified` | `agent.task_class.classified` | `entity_id`, `task_class`, `classifier_version` |
-| `cancelled` | `agent.loop.cancelled` | `iteration`, `status` |
-| `run_end` | `agent.loop.run_end` | `outcome`, `iters`, `total_cost_usd`, plus `status` mirrored from `outcome` so the stream closes |
+| `cancelled` | `agent.loop.cancelled` | `iteration`, `status`; `terminal: true` when the status is a finished one |
+| `run_end` | `agent.loop.run_end` | `outcome`, `iters`, `total_cost_usd`; `terminal: true` when the outcome is finished (`COMPLETED`, `FAILED`, `PARTIAL_COMPLETE`, `CANCELLED`) — not on a suspension (`PAUSED`, `WAITING_ON_CHILDREN`) |
 | `span_open` | trace | `span_id`, `parent_span_id`, `kind`, `name`, `iteration`, `seq`, `status`, `payload` |
 | `span_close` | trace | same plus `duration_ms`, `cost_usd`, `tokens_in`, `tokens_out`, `child_run_id`, `error` |
 | *(none)* | HITL | `{"status": "HITL_PENDING", "approval_id", "trigger"}` |
@@ -2194,7 +2195,7 @@ sequenceDiagram
     AL->>AL: Strategist.decide_next - no ready steps, DONE
     AL->>PG: _persist_final status=COMPLETED, result_data output plus 4 steps, total_cost_usd
     AL->>PG: settle_billing - parent_run_id is NULL so credits deducted, billed_amount set
-    AL->>W: SSE run_end with outcome COMPLETED closes the stream
+    AL->>W: SSE run_end with outcome COMPLETED and terminal true closes the stream
 ```
 
 ### What you can inspect afterwards

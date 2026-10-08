@@ -49,9 +49,9 @@ cross-referenced here.
 | [T0](#2-t0--user-visible-things-that-do-not-work) | User-visible things that do not work | 5 | 0 | 4 | 1 | 0 |
 | [T1](#3-t1--promises-the-product-does-not-keep) | Promises the product does not keep | 6 | 1 | 3 | 1 | 1 |
 | [T2](#4-t2--dead-code-and-dead-surfaces) | Dead code and dead surfaces | 6 | 0 | 6 | 0 | 0 |
-| [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 2 | 3 | 0 |
+| [T3](#5-t3--rough-edges) | Rough edges | 5 | 0 | 3 | 2 | 0 |
 
-**Total: 23 defects (0 open, 17 resolved, 5 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** PO-23 (templates, found 2026-10-02) was fixed on 2026-10-07; PO-07 was fixed in P6.2; PO-06 delivered its audit; PO-20 was fixed with its duplicate GH-07 on 2026-10-08. The deferred PO-19 is scheduled through its duplicate GW-19 in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (H6).
+**Total: 23 defects (0 open, 18 resolved, 4 deferred, 1 won't fix), 12 improvements (11 deferred; PO-I9 done by PO-10).** PO-23 (templates, found 2026-10-02) was fixed on 2026-10-07; PO-07 was fixed in P6.2; PO-06 delivered its audit; PO-20 was fixed with its duplicate GH-07 on 2026-10-08, and PO-19 with its duplicate GW-19 the same day (H6).
 
 | ID | Defect | Status |
 |---|---|---|
@@ -73,7 +73,7 @@ cross-referenced here.
 | PO-16 | The phase11 redirect shims | ✅ fixed `6d90428` |
 | PO-17 | The deprecated `video_generation` tool | ✅ fixed `a8fb38e` |
 | PO-18 | Two Redis channels look like the HITL channel | ✅ fixed `ba5e6ec` (by PO-15) |
-| PO-19 – PO-22 | Rough edges | ⏸ deferred — PO-19 is GW-19 ([H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport)), scheduled; PO-20 ✅ fixed `0793f30` with GH-07; PO-21, PO-22 [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
+| PO-19 – PO-22 | Rough edges | ⏸ deferred — PO-19 ✅ fixed with GW-19 (2026-10-08); PO-20 ✅ fixed `0793f30` with GH-07; PO-21, PO-22 [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | PO-I1 – PO-I12 | Improvements | ⏸ deferred, except PO-I9 — done by PO-10 — and PO-I6, done by AU-20 |
 
 The three worth reading first:
@@ -574,7 +574,7 @@ because the misleading comment is the actual cost.
 
 ### PO-19 — The SSE stream closes on a substring match
 
-**📄 Doc-reported · Low** · **Status: deferred (2026-09-29)**
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-08)** — with its duplicate [GW-19](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-19--sse-terminates-on-a-substring-match): the run's last frame carries `"terminal": true`, and the stream stops on that field only.
 
 The browser stops listening when it sees `COMPLETED`, `FAILED` or `CANCELLED` in the
 raw JSON payload — a substring match, not a field read. Any event that happens to

@@ -603,10 +603,9 @@ async def stream_execution(
                 if message["type"] == "message":
                     data = message["data"].decode("utf-8")
                     yield f"data: {data}\n\n"
-                    if any(
-                        f"\"status\": \"{terminal}\"" in data
-                        for terminal in ("COMPLETED", "FAILED", "CANCELLED")
-                    ):
+                    # The frame says it is the last (GW-19); a payload that
+                    # merely contains a status word does not end the stream.
+                    if is_terminal(data):
                         break
         except asyncio.CancelledError:
             pass
@@ -640,22 +639,30 @@ data: {"type": "critic_pre", "iteration": 1, "verdict": "PROCEED", "concerns_cou
 
 data: {"type": "iteration_end", "iteration": 1, "outcome": "success", "decision": "CONTINUE", "cost_iter_usd": 0.0121}
 
-data: {"type": "run_end", "outcome": "COMPLETED", "iters": 4, "total_cost_usd": 0.0488, "status": "COMPLETED"}
+data: {"type": "run_end", "outcome": "COMPLETED", "iters": 4, "total_cost_usd": 0.0488, "terminal": true}
 
 ```
 
 ### 11.2 Who publishes to `execution:{run_id}`
 
-Every producer writes JSON to the same Redis channel. This is genuine Redis
+Every producer writes its JSON through one helper,
+[`run_stream.publish_run_event`](../../backend/src/ai/core/run_stream.py), which
+marks the run's last frame `"terminal": true` (GW-19). This is genuine Redis
 pub/sub — unlike the edge's in-process event bus — which is why a run
 executing in the arq worker can stream to a browser attached to the API.
 
 | Publisher | File | Payload `type` values |
 |-----------|------|----------------------|
 | AgentLoop telemetry | [`agent_loop_sse.py`](../../backend/src/ai/core/agent_loop_sse.py) | inside an iteration, `batch` (`events`: a list of the frames below — AK-I9, two messages per iteration); otherwise one frame each: `iteration_start`, `iteration_end`, `resume`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `retry_picked`, `retry_dequeued`, `replan_triggered`, `bandit_arm_updated`, `task_class_classified`, `cancelled`, `run_end` |
-| Trace spans | [`trace.py:251`](../../backend/src/ai/core/trace.py:251) | `span_open`, `span_close` |
-| HITL checkpoints | [`governance_service.py:336`](../../backend/src/ai/governance/governance_service.py:336) | no `type`; `{"status": "HITL_PENDING", "approval_id", "trigger", "message"}` |
-| Cancellation | [`service.py:528`](../../backend/src/ai/service.py:528) | `{"type": "cancelled", "status": "CANCELLED"}` |
+| Step text | [`agent_loop_sse.StepTextStream`](../../backend/src/ai/core/agent_loop_sse.py) | `step_delta` |
+| Trace spans | [`trace.py`](../../backend/src/ai/core/trace.py) | `span_open`, `span_close` |
+| HITL checkpoints | [`governance_service.py`](../../backend/src/ai/governance/governance_service.py) | no `type`; `{"status": "HITL_PENDING", "approval_id", "trigger", "message"}` |
+| Cancellation | [`service.py`](../../backend/src/ai/service.py) | `{"type": "cancelled", "status": "CANCELLED", "terminal": true}` |
+
+Terminal frames: `run_end` when its `outcome` is `COMPLETED`, `FAILED`,
+`PARTIAL_COMPLETE` or `CANCELLED` (a suspension — `PAUSED`, `WAITING_ON_CHILDREN` —
+is not the end), `cancelled` with a finished status, and the cancel endpoint's
+frame.
 
 The internal-name → wire-`type` translation is a single dict:
 
@@ -722,7 +729,7 @@ stateDiagram-v2
     Connecting --> Open: first frame status connected
     Connecting --> Errored: non-200 or network failure
     Open --> Open: data frames relayed from Redis
-    Open --> Closed: payload contains status COMPLETED, FAILED or CANCELLED
+    Open --> Closed: a frame with terminal true
     Open --> Errored: proxy timeout or backend restart
     Errored --> Connecting: browser EventSource auto-retry
     Closed --> [*]: generator breaks, pubsub unsubscribed

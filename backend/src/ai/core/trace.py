@@ -41,6 +41,8 @@ from decimal import Decimal
 from typing import Any, AsyncIterator, Optional
 from uuid import UUID
 
+from src.ai.core.run_stream import publish_run_event
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -247,8 +249,7 @@ class TraceRecorder:
         if self.redis is None or self.run_id is None:
             return
         try:
-            body = json.dumps(self._envelope(type_, handle), default=str)
-            await self.redis.publish(f"execution:{self.run_id}", body)
+            await publish_run_event(self.redis, self.run_id, self._envelope(type_, handle))
         except Exception as exc:                                            # pragma: no cover
             logger.debug("trace SSE publish failed (%s): %s", type_, exc)
 

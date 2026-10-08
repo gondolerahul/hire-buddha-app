@@ -5,7 +5,6 @@ Extracted from ExecutionEngine during Phase 6 monolith decomposition
 (Step 3.1). Encapsulates all financial guardrails and human-in-the-loop
 checkpoints so the engine can delegate without knowing billing internals.
 """
-import json
 import logging
 from decimal import Decimal
 from typing import Any, Optional, cast
@@ -21,6 +20,7 @@ from src.ai.schemas.governance import checkpoint_problem
 from src.ai.schemas.hitl_expression import evaluate as evaluate_expression
 from src.ai.governance.hitl_snapshot import build_hitl_snapshot
 from src.ai.core.exceptions import HITLRejected, HITLTimeout
+from src.ai.core.run_stream import publish_run_event
 from src.ai.governance import hitl_gate
 
 logger = logging.getLogger(__name__)
@@ -405,10 +405,10 @@ class GovernanceService:
         await self.db.refresh(approval)
         # Best-effort: the approval row is the record, and the approvals page reads it.
         try:
-            await self.redis.publish(f"execution:{run.id}", json.dumps({
+            await publish_run_event(self.redis, run.id, {
                 "status": "HITL_PENDING", "approval_id": str(approval.id),
                 "trigger": trigger, "message": message,
-            }))
+            })
         except Exception as pub_err:
             logger.warning(f"HITL pending notice not published: {pub_err}")
         return hitl_gate.OpenApproval(approval.id, "PENDING", "", timeout_ms, approval.requested_at)

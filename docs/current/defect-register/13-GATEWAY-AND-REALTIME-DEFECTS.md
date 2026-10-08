@@ -46,9 +46,9 @@
 | [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 3 | 1 | 0 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
-| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 4 | 0 | 3 | 0 |
+| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 5 | 0 | 2 | 0 |
 
-**Total: 21 defects (13 fixed, 3 partly fixed, 4 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (14 fixed, 3 partly fixed, 3 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -70,7 +70,7 @@
 | GW-16 | Auth middleware runs before CORS, so its 401s have no CORS headers | ✅ fixed | — |
 | GW-17 | Agent selection is `LIMIT 1` with no `ORDER BY`, in three places | ✅ fixed `3ca2d38` | — |
 | GW-18 | SSE has no replay and no `Last-Event-ID` | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
-| GW-19 | SSE terminates on a substring match | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-19 | SSE terminates on a substring match | ✅ fixed (2026-10-08) | — |
 | GW-20 | The catch-all proxy must stay last, and nothing enforces it | ✅ fixed | — |
 | GW-21 | WebSocket sessions require affinity that nothing provides | open — decision HD12 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 
@@ -415,7 +415,7 @@ because neither is sufficient.
 
 ### GW-19 — SSE terminates on a substring match
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `ai/router.py:347` still breaks on `"status": "<terminal>"` appearing anywhere in the raw payload. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — every frame on a run's channel is published by `ai/core/run_stream.publish_run_event`, which marks the run's last frame `"terminal": true`: `run_end` with a finished outcome (`COMPLETED`, `FAILED`, `PARTIAL_COMPLETE`, `CANCELLED` — not `PAUSED` or `WAITING_ON_CHILDREN`), `cancelled` with a finished status, and the cancel endpoint's frame. The generator parses each frame and stops on that field only; the `status` copied into `run_end` for the substring match is gone. On the old code a child's `"status": "COMPLETED"` inside a span's payload closed the parent's stream, and a `PARTIAL_COMPLETE` run's stream never closed. `tests/unit/test_run_stream_terminal.py` (10; 9 fail on the old code)
 
 The generator breaks when the raw JSON payload contains `"status": "COMPLETED"`,
 `"FAILED"` or `"CANCELLED"`. `agent_loop_sse.py` copies `outcome` into a `status` key

@@ -1914,8 +1914,9 @@ Honest boundaries, all verifiable by grep.
   results, deduplicating by id.
 - **The SSE stream authenticates from a query parameter**, not a header —
   `get_current_user_from_query` — because `EventSource` cannot set headers.
-- **The stream closes itself** when it sees `COMPLETED`, `FAILED` or `CANCELLED`
-  in the payload string. It does a substring match on the raw JSON.
+- **The stream closes itself** after the frame marked `"terminal": true` — the
+  run's `run_end` or `cancelled` (GW-19; it used to match status words anywhere in
+  the payload).
 - **HITL blocks a worker.** The governance service subscribes to
   `hitl:{approval_id}` and polls with a timeout while holding the run. Long
   `timeout_ms` values tie up worker capacity.

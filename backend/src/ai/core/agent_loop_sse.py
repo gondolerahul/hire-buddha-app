@@ -13,7 +13,6 @@ Extracted from ``agent_loop.py`` (transport ≠ control loop); the loop imports
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -21,6 +20,7 @@ from contextvars import ContextVar
 from typing import Any, AsyncIterator, Optional
 
 from src.ai.core.events import event
+from src.ai.core.run_stream import is_terminal_status, publish_run_event
 
 logger = logging.getLogger(__name__)
 
@@ -83,17 +83,15 @@ async def event_async(name: str, **payload: Any) -> None:
     try:
         body = {k: v for k, v in payload.items() if k != "run_id"}
         body["type"] = sse_type
-        # Terminal event: also stamp ``status`` so the SSE generator closes
-        # the stream (it breaks on a COMPLETED/FAILED status payload).
-        if sse_type == "run_end" and "outcome" in body:
-            body["status"] = body["outcome"]
+        # The run's last frame says so (GW-19): ``run_end`` with a finished
+        # outcome (not a suspension), or ``cancelled`` with a finished status.
+        terminal = (sse_type == "run_end" and is_terminal_status(body.get("outcome"))
+                    or sse_type == "cancelled" and is_terminal_status(body.get("status")))
         batch = _BATCH.get()
-        if batch is not None and batch[0] == str(run_id) and sse_type != "run_end":
+        if batch is not None and batch[0] == str(run_id) and sse_type != "run_end" and not terminal:
             batch[1].append(body)
             return
-        await _SSE_REDIS.publish(
-            f"execution:{run_id}", json.dumps(body, default=str),
-        )
+        await publish_run_event(_SSE_REDIS, run_id, body, terminal=terminal)
     except Exception as exc:                                               # pragma: no cover
         logger.warning("AgentLoop SSE publish failed for %s: %s", name, exc)
 
@@ -126,8 +124,7 @@ class StepTextStream:
         if _SSE_REDIS is None:
             return
         try:
-            await _SSE_REDIS.publish(f"execution:{self.run_id}",
-                                     json.dumps({"type": "step_delta", "step": self.step, **body}))
+            await publish_run_event(_SSE_REDIS, self.run_id, {"type": "step_delta", "step": self.step, **body})
         except Exception as exc:                                           # pragma: no cover
             logger.debug("step_delta publish failed for %s: %s", self.run_id, exc)
 
@@ -161,8 +158,7 @@ async def flush_batch() -> None:
     events = list(bodies)
     bodies.clear()
     try:
-        await _SSE_REDIS.publish(f"execution:{run_id}",
-                                 json.dumps({"type": "batch", "events": events}, default=str))
+        await publish_run_event(_SSE_REDIS, run_id, {"type": "batch", "events": events})
     except Exception as exc:                                               # pragma: no cover
         logger.warning("AgentLoop SSE batch publish failed for %s: %s", run_id, exc)
 
