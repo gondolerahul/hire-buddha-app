@@ -84,24 +84,17 @@ async def twilio_incoming_call(
     <Hangup/>
 </Response>"""
         return Response(content=twiml, media_type="application/xml")
-    # 2. Pre-call credit check — reject if balance below minimum threshold
-    try:
-        from src.billing.credit_service import CreditService
-        credit_svc = CreditService(session_manager.db)
-        balance = await credit_svc.get_balance(customer_assignment.company_id)
-        if balance["total_available"] < 0.10:
-            logger.warning(
-                f"Insufficient credits for inbound call on {to_number} "
-                f"(company {customer_assignment.company_id}, available: ${balance['total_available']:.4f})"
-            )
-            twiml = """<?xml version="1.0" encoding="UTF-8"?>
+    # 2. Admission (VT-01, HD9): free credit at the floor, under the spend
+    # cap; a balance that cannot be read refuses the call too.
+    from src.voice.call_admission import call_refusal
+    if await call_refusal(session_manager.db, customer_assignment.company_id,
+                          direction="inbound", checkpoint="twilio_webhook"):
+        twiml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="alice">Sorry, this service is temporarily unavailable due to insufficient credits. Please contact your administrator.</Say>
+    <Say voice="alice">Sorry, this service is temporarily unavailable. Please contact your administrator.</Say>
     <Hangup/>
 </Response>"""
-            return Response(content=twiml, media_type="application/xml")
-    except Exception as credit_err:
-        logger.warning(f"Pre-call credit check failed (allowing call): {credit_err}")
+        return Response(content=twiml, media_type="application/xml")
     
     # 3. Create session in database
     session = await session_manager.create_voice_session(
@@ -632,22 +625,14 @@ async def tata_incoming_call(
             "sucess": False,
             "error": "Number not configured"
         }
-    # 3. Pre-call credit check — reject if balance below minimum threshold
-    try:
-        from src.billing.credit_service import CreditService
-        credit_svc = CreditService(session_manager.db)
-        balance = await credit_svc.get_balance(customer_assignment.company_id)
-        if balance["total_available"] < 0.10:
-            logger.warning(
-                f"Insufficient credits for inbound Tata call on {to_number} "
-                f"(company {customer_assignment.company_id}, available: ${balance['total_available']:.4f})"
-            )
-            return {
-                "sucess": False,
-                "error": "Insufficient credits for this service"
-            }
-    except Exception as credit_err:
-        logger.warning(f"Pre-call credit check failed (allowing call): {credit_err}")
+    # 3. Admission (VT-01, HD9): the same rule as every other call.
+    from src.voice.call_admission import call_refusal
+    if await call_refusal(session_manager.db, customer_assignment.company_id,
+                          direction="inbound", checkpoint="tata_webhook"):
+        return {
+            "sucess": False,
+            "error": "This service is temporarily unavailable"
+        }
     
     # 4. Create NEW session (Inbound Flow)
     session = await session_manager.create_voice_session(

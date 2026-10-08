@@ -41,9 +41,7 @@ GATES: dict[str, Gate] = {
         why_open="a run is not stopped on a wallet it cannot read; settlement still bills what it spent"),
     "webhook_signature": Gate("closed", "an inbound webhook whose endpoint secret does not decrypt is refused (GW-01)"),
     "webhook_duplicate": Gate("closed", "an inbound webhook whose delivery cannot be checked for a repeat is a 503 (GW-03)"),
-    "voice_call_credit": Gate(
-        "open", "a voice call's credit check",
-        why_open="VT-01: a call whose credit cannot be checked goes ahead; H5 makes it refuse (HD9)"),
+    "voice_call_credit": Gate("closed", "a call's credit admission: a balance it cannot read refuses the call (VT-01, HD9)"),
 }
 
 

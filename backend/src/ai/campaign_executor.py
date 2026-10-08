@@ -28,7 +28,7 @@ from src.config.models import IntegrationRegistry
 from src.common.security import decrypt_api_key
 from src.common.config import settings
 from src.common.database import AsyncSessionLocal
-from src.billing.credit_service import CreditService, InsufficientCreditsError
+from src.voice.call_admission import call_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -134,18 +134,13 @@ class CampaignExecutor:
             )
 
             # ── Pre-campaign credit gate ───────────────────────────────
-            # Block the entire campaign if the company has zero credits.
-            try:
-                async with AsyncSessionLocal() as db:
-                    credit_svc = CreditService(db)
-                    await credit_svc.check_sufficient_for_execution(
-                        company_id=campaign_data["company_id"],
-                        entity_type="AGENT",
-                    )
-            except InsufficientCreditsError as e:
-                logger.warning(
-                    f"Campaign {campaign_id} blocked — insufficient credits: {e}"
-                )
+            # The one call admission rule (VT-01, HD9): short of free credit,
+            # over the spend cap, or not checkable → the campaign does not run.
+            async with AsyncSessionLocal() as db:
+                refusal = await call_refusal(db, campaign_data["company_id"],
+                                             direction="outbound", checkpoint="campaign_start")
+            if refusal:
+                logger.warning(f"Campaign {campaign_id} blocked: {refusal}")
                 async with AsyncSessionLocal() as db:
                     await db.execute(
                         update(Campaign)
@@ -163,7 +158,7 @@ class CampaignExecutor:
                             .values(
                                 status="failed",
                                 outcome="insufficient_credits",
-                                outcome_notes=str(e),
+                                outcome_notes=refusal,
                             )
                         )
                     await db.commit()
@@ -373,25 +368,19 @@ class CampaignExecutor:
         async with AsyncSessionLocal() as db:
             try:
                 # ── Per-call credit gate ───────────────────────────────
-                # Re-check balance before each call — credits may have been
-                # exhausted by earlier calls in this campaign.
-                try:
-                    credit_svc = CreditService(db)
-                    await credit_svc.check_sufficient_for_execution(
-                        company_id=company_id,
-                        entity_type="AGENT",
-                    )
-                except InsufficientCreditsError as e:
-                    logger.warning(
-                        f"Skipping call {call_id} — insufficient credits: {e}"
-                    )
+                # Re-check before each call — earlier calls may have used the
+                # credit. The one call admission rule (VT-01, HD9).
+                refusal = await call_refusal(db, company_id, direction="outbound",
+                                             checkpoint="campaign_call")
+                if refusal:
+                    logger.warning(f"Skipping call {call_id}: {refusal}")
                     await db.execute(
                         update(CampaignCall)
                         .where(CampaignCall.id == call_id)
                         .values(
                             status="failed",
                             outcome="insufficient_credits",
-                            outcome_notes=str(e),
+                            outcome_notes=refusal,
                         )
                     )
                     await db.commit()

@@ -37,23 +37,23 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 1 | 1 | 2 | 0 |
-| [T1](#3-t1--money-and-metering) | Money and metering | 4 | 2 | 0 | 2 | 0 |
+| [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 2 | 0 | 2 | 0 |
+| [T1](#3-t1--money-and-metering) | Money and metering | 4 | 3 | 0 | 1 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 0 | 1 | 4 | 0 |
 | [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 1 | 2 | 2 | 3 |
 
-**Total: 21 defects (4 fixed, 4 partly fixed, 10 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (6 fixed, 3 partly fixed, 9 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
-| VT-01 | The inbound credit gate has never run | partly fixed — the check runs; it still fails open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-01 | The inbound credit gate has never run | ✅ fixed (2026-10-08) | — |
 | VT-02 | Azure Realtime returns a tuple where a session belongs | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-03 | Every WhatsApp AI reply is an apology | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-04 | Port 8002 is a ghost that Apache still points at | ✅ fixed (single port, `19f57bb`) | — |
 | VT-05 | Voice tokens are estimated at a flat 167 per second | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-06 | Voice tool calls are unattributed and unbilled | ✅ fixed `66fe8bc` (TL-20) | — |
 | VT-07 | Recording-artifact lookup can attach the wrong file | ✅ fixed `86a95a0` | — |
-| VT-08 | The outbound and inbound credit gates disagree by design | open — a product decision (HD9) | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-08 | The outbound and inbound credit gates disagree by design | ✅ fixed (2026-10-08) | — |
 | VT-09 | `max_calls_per_hour` | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-10 | `CampaignCall.max_retries` | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-11 | `speaking_rate` and `pitch` | open — decision HD13 | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
@@ -85,7 +85,7 @@ The three to read first:
 
 ### VT-01 — The inbound credit gate has never run
 
-**✅ Verified · Critical** · **Status: partly fixed** — re-verified 2026-10-07: the `NameError` is gone: both handlers build `CreditService(session_manager.db)` (`webhook_router.py:90`, `:638`; since `2092be4c`), so the balance check now runs. It still fails open — any exception is logged as *allowing call* — and it compares `total_available`, not `free`, so other runs' credit holds are ignored. With [VT-08](#vt-08--the-outbound-and-inbound-credit-gates-disagree-by-design) there is still no inbound control that fails closed. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**✅ Verified · Critical** · **Status: fixed (2026-10-08)** — decision HD9: one admission rule for every call, `voice/call_admission.call_refusal` — the company's **free** credit (the wallet minus running runs' holds) must reach the AGENT floor and the company must be under its spend cap (GH-18); a balance that cannot be read **refuses** (gate `voice_call_credit`, now closed). Used at both inbound webhooks (Twilio: `<Hangup/>`; Tata: an error), on the media socket and by the campaign executor, with a `voice.call.admitted` / `voice.call.refused` event each time. `tests/integration/test_call_admission.py` (4), `tests/unit/test_inbound_call_admission.py` (2)
 
 Both inbound handlers do this:
 
@@ -264,7 +264,7 @@ recording may hear a different customer's call.
 
 ### VT-08 — The outbound and inbound credit gates disagree by design
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: unchanged (`websocket_handler.py:241`, `:284`). Decided together with VT-01. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — with VT-01 (HD9): the media socket applies the same rule to inbound and outbound calls — an inbound call short of credit is no longer let through, it is closed with `4002` like an outbound one
 
 At `_setup_live_and_run`, an **outbound** call with insufficient credit is blocked and the
 WebSocket closed with code `4002`. An **inbound** call is allowed through with a warning,

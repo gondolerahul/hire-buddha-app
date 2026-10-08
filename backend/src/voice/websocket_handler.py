@@ -235,28 +235,19 @@ class BaseStreamHandler:
         LiveClientFactory, connect to the live session, and launch the pipeline.
         Supports both Gemini Live and Azure OpenAI Realtime providers.
         """
-        # ── Credit gate-check ─────────────────────────────────────────
-        # Block outbound calls when credits are exhausted.
-        # Inbound calls are allowed through with a warning (so users
-        # don't miss important calls), but we still deduct at end.
+        # ── Credit admission (VT-01, VT-08, HD9) ─────────────────────
+        # The one rule for every call, inbound or outbound: short of free
+        # credit, over the spend cap, or not checkable → not connected.
         # Runs concurrently with the agent load (call-setup hot path); uses
         # its own DB session because self.db can't serve parallel queries.
         async def _credit_gate():
-            from src.billing.credit_service import CreditService, InsufficientCreditsError
-            try:
-                async with AsyncSessionLocal() as _credit_db:
-                    await CreditService(_credit_db).check_sufficient_for_execution(
-                        company_id=self.voice_session.company_id,
-                        entity_type="AGENT",
-                    )
-            except InsufficientCreditsError as e:
-                return e
-            except Exception as e:
-                # Don't block calls if the credit check itself fails (VT-01,
-                # until H5): a gate that fails open, and says so (GH-21).
-                from src.common.gates import gate_failed
-                gate_failed("voice_call_credit", e, company_id=str(self.voice_session.company_id))
-            return None
+            from src.voice.call_admission import call_refusal
+            async with AsyncSessionLocal() as _credit_db:
+                return await call_refusal(
+                    _credit_db, self.voice_session.company_id,
+                    direction=getattr(self.voice_session, "direction", "unknown") or "unknown",
+                    checkpoint="media_socket",
+                )
 
         credit_task = asyncio.create_task(_credit_gate())
 
@@ -272,26 +263,18 @@ class BaseStreamHandler:
 
         credit_error = await credit_task
         if credit_error is not None:
-            direction = getattr(self.voice_session, 'direction', 'unknown')
-            if direction == "outbound":
-                logger.warning(
-                    f"Blocking outbound call {self.session_id} — insufficient credits: {credit_error}"
-                )
-                try:
-                    await self.websocket.send_json({
-                        "event": "error",
-                        "error": "insufficient_credits",
-                        "message": str(credit_error),
-                    })
-                    await self.websocket.close(code=4002, reason="Insufficient credits")
-                except Exception:
-                    pass
-                return
-            else:
-                # Allow inbound calls through with a warning
-                logger.warning(
-                    f"Inbound call {self.session_id} proceeding with $0 balance: {credit_error}"
-                )
+            # Inbound calls too since HD9: no call runs on credit it lacks.
+            logger.warning(f"Not connecting call {self.session_id}: {credit_error}")
+            try:
+                await self.websocket.send_json({
+                    "event": "error",
+                    "error": "insufficient_credits",
+                    "message": str(credit_error),
+                })
+                await self.websocket.close(code=4002, reason="Insufficient credits")
+            except Exception:
+                pass
+            return
 
         # Resolve the correct live streaming client from task defaults
         factory = LiveClientFactory(

@@ -1197,17 +1197,23 @@ flowchart TD
     G --> I["BillingService.record_billing_event(event_category='telephony', telephony_in_minutes / telephony_out_minutes)"]
 ```
 
-Credit gating happens at three points:
+Every call is admitted by one rule (VT-01, VT-08, HD9, since 2026-10-08),
+[`voice/call_admission.call_refusal`](../../backend/src/voice/call_admission.py): the
+company's **free** credit (the wallet minus running runs' holds) must reach the `AGENT`
+floor and the company must be under its monthly spend cap (GH-18); a balance that cannot be
+read **refuses** the call. Inbound and outbound alike — the old rule let every inbound call
+through "so nobody misses an important call", and the webhooks compared `total_available`
+with $0.10 and connected the call on any error. Each decision emits `voice.call.admitted`
+or `voice.call.refused` (`direction`, `checkpoint`); an unreadable balance also emits
+`gate.failed` (`voice_call_credit`).
 
-| Point | Behaviour |
+| Checkpoint | Refused |
 |-------|-----------|
-| Inbound webhook, before creating the session | balance `< $0.10` → TwiML `<Say>` + `<Hangup/>` (Twilio) or `{"sucess": false}` (Tata) |
-| `_setup_live_and_run`, concurrently with agent load | **outbound** blocked, WebSocket closed with code `4002`; **inbound** allowed through with a warning so nobody misses an important call |
+| Inbound webhook, before creating the session | TwiML `<Say>` + `<Hangup/>` (Twilio) or `{"sucess": false}` (Tata); no session is created |
+| `_setup_live_and_run`, concurrently with agent load | any call: `insufficient_credits` sent and the WebSocket closed with code `4002` |
 | `CampaignExecutor`, per campaign and per call | campaign marked `failed`, remaining calls marked `insufficient_credits` |
 
 See [14 — Billing & credits](14-billing-and-credits.md) for the TB formula and the ledger.
-
-> **Live bug:** both pre-call credit checks in `webhook_router.py` reference a bare `db` that is not a parameter of those endpoint functions ([`webhook_router.py:74`](../../backend/src/voice/webhook_router.py:74) and [`:615`](../../backend/src/voice/webhook_router.py:615)). The resulting `NameError` is swallowed by `except Exception ... (allowing call)`, so **the inbound credit gate never actually fires**. Use `session_manager.db` when fixing.
 
 ---
 
@@ -1638,7 +1644,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 ## Gotchas and things that surprise newcomers
 
 - **Every voice endpoint is on port 8000.** The HTTP webhooks and the media-stream WebSockets are the same process; there is no gateway on 8001 or voice service on 8002 any more.
-- **The inbound credit gate never fires.** Both `CreditService(db)` calls in `webhook_router.py` reference an undefined `db`; the `NameError` is swallowed by a broad `except`.
+- ~~**The inbound credit gate never fires.**~~ (VT-01, fixed 2026-10-08): one admission rule for every call, and a balance it cannot read refuses.
 - **Azure Realtime does not work.** The handler stores the *client* where the *session* belongs. Same in `web_audio_adapter.py`, which additionally calls a nonexistent `AudioProcessor.pcm24_to_pcm16`.
 - **WhatsApp AI replies always fail.** `GeminiTextServiceFactory.get_service` is called with the wrong keyword arguments; every customer gets the fallback apology string.
 - **`"sucess"` is a real key on the wire** in both Tata voice webhook responses.

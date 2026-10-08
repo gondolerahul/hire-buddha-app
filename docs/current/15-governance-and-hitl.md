@@ -744,7 +744,7 @@ one gives its reason.
 | `credit_breaker` | **open** — a running run is not stopped on a wallet it cannot read; settlement still bills what it spent |
 | `webhook_signature` | an endpoint whose secret does not decrypt refuses the delivery (GW-01) |
 | `webhook_duplicate` | a delivery that cannot be checked for a repeat is a 503 (GW-03) |
-| `voice_call_credit` | **open** — a call whose credit cannot be checked goes ahead (VT-01, until H5 / HD9) |
+| `voice_call_credit` | a call whose credit cannot be checked is refused (VT-01, HD9; `voice/call_admission.py`) |
 
 The API's slowapi limiter is not in the list: when Redis fails it counts in process
 memory, so it degrades rather than opens.
@@ -1249,8 +1249,8 @@ redis-cli DEL "tool:search:company_<uuid>"
 ## 16. Gotchas
 
 1. ~~**Almost every gate fails open.**~~ (GH-21, fixed 2026-10-08): every gate that cannot
-   decide emits `gate.failed`, and all but two fail closed — the credit breaker and the
-   voice call credit check say why they do not (§10.1).
+   decide emits `gate.failed`, and all but one fail closed — the credit breaker says why it
+   does not (§10.1).
 
 2. **A HITL checkpoint survives a Redis outage.** The approval row is the record; Redis
    carries only the notice and the resume job, and the sweep re-enqueues a lost resume.
