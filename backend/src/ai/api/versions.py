@@ -164,4 +164,6 @@ async def publish(entity_id: UUID, version_id: UUID, db: AsyncSession = Depends(
     except (LookupError, VersionConflict, authoring.NotAVersionField) as exc:
         _refuse(exc)
     await db.commit()
+    from src.voice.agent_cache_bus import announce_agent_changed
+    await announce_agent_changed(entity.id, entity.company_id)  # the next call runs it (VT-16)
     return await get_version(entity_id, head.id, db, user)

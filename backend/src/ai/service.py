@@ -187,6 +187,9 @@ class AIService:
         await capture_head(self.db, entity.id, created_by=user_id)
         await self.db.commit()
         await self.db.refresh(entity)
+        # A voice call that starts now hears the edit, not a cached copy (VT-16).
+        from src.voice.agent_cache_bus import announce_agent_changed
+        await announce_agent_changed(entity.id, entity.company_id)
         return entity
 
     async def _require_composition(self, shape) -> None:
@@ -328,6 +331,9 @@ class AIService:
 
         await self.db.commit()
         logger.info(f"delete_entity: successfully soft-deleted entity {entity_id} and {len(all_entity_ids)-1} children")
+        from src.voice.agent_cache_bus import announce_agent_changed
+        for eid in all_entity_ids:  # no new call reaches a deleted agent (VT-16)
+            await announce_agent_changed(eid, entity.company_id)
 
     # Execution
     async def trigger_execution(self, execution_in: ExecutionRunCreate, company_id: UUID, user_id: UUID = None, user_role: str = None, entity_version_id: UUID = None) -> ExecutionRun:

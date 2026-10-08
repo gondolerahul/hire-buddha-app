@@ -1077,7 +1077,7 @@ Every threshold is a setting in [`config.py:45-91`](../../backend/src/common/con
 | `VOICE_VAD_RMS_THRESHOLD` | 300 | "lead is speaking" |
 | `VOICE_ECHO_SUPPRESS_RMS` | 600 | echo-gate ceiling; 0 disables |
 | `VOICE_BARGE_IN_RMS_THRESHOLD` | 1000 | required to honour an interruption |
-| `VOICE_AGENT_CACHE_TTL_SECONDS` | 300 | agent-context TTL cache |
+| `VOICE_AGENT_CACHE_TTL_SECONDS` | 300 | agent-context TTL cache (an edit drops its entry at once — VT-16) |
 | `TATA_AUTH_TOKEN_TTL_SECONDS` | 43200 | Smartflo JWT cache |
 | `DEFAULT_PHONE_COUNTRY_CODE` | `"91"` | prepended to 10-digit campaign numbers |
 
@@ -1259,6 +1259,15 @@ What voice **does not have**:
 What it does have that text agents don't: real-time barge-in, an activity watchdog, voicemail detection, a hard duration cap, and per-minute telephony metering.
 
 `AgentContextLoader` is the bridge. It TTL-caches the expensive, customer-independent part (persona, tools, context-source file extraction, API key) for `VOICE_AGENT_CACHE_TTL_SECONDS` because a cold load took **4.5–5 seconds** on the call-setup hot path and every call in a campaign shares one agent. Per-call parts — the last 10 conversation turns and campaign contact-data injection — are applied to a copy.
+
+An edit, a delete or a published version drops the agent from that cache in **every** API
+process (VT-16, fixed 2026-10-08): after its commit it calls
+`voice/agent_cache_bus.announce_agent_changed`, which drops the agent here, deletes the
+company's dispatcher routes (`gateway:agent:{company_id}:*`, in Redis) and publishes the id
+on `voice:agent_changed`. The API lifespan runs `agent_cache_bus.listen`, which drops an
+announced agent from its own process; when it loses the channel it reconnects and clears its
+whole cache, for whatever it missed. If Redis is down the editing process still drops its own
+entry, and the others fall back to the TTL.
 
 Contact injection does two things ([`_inject_contact_data`](../../backend/src/voice/agent_loader.py:522)): substitutes `{{column}}` placeholders case-insensitively from the CSV row, and appends a `## Call Context (Lead Information)` section listing every field except `phone`.
 
@@ -1608,7 +1617,7 @@ cd backend && .venv/bin/pytest tests/unit/test_call_guards.py -v
 | Campaign dials the whole list after Pause | — | Fixed: the loop re-reads status each iteration. If you see it again, check `_get_campaign_status` isn't failing open. |
 | Campaign stops dialing with pending calls | `concurrency wait capped at 180s` | Calls stuck in `calling` because status webhooks never arrived |
 | Voice cost is `$0` | `No active SKU found: <sku> for company <id>` | Seed the telephony / Gemini SKUs in `IntegrationRegistry` (APP-company SKUs are used as a fallback) |
-| Agent edits don't take effect on new calls | — | `VOICE_AGENT_CACHE_TTL_SECONDS` (300 s). Call `bust_agent_cache(agent_id)` or wait. |
+| Agent edits don't take effect on new calls | `Agent … changed; other processes keep it until the cache TTL` | Redis was unreachable when the edit was announced, so other processes keep the old context for `VOICE_AGENT_CACHE_TTL_SECONDS` (300 s). An edit made through the API is announced (VT-16); a direct DB edit is not — call `announce_agent_changed(agent_id, company_id)` or wait. |
 
 Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-in), `[PERF]` (TTFB and interrupt latency), `[TOOL]` (function calls), `[Campaign]` / `[LeadQueue]` (post-call bookkeeping), `[LiveClientFactory]` (which model was chosen).
 
@@ -1668,7 +1677,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 - **Silence is measured against the playback horizon, not send time.** The model emits a 30-second reply in a 2-second burst; naive timing would declare silence while the lead is still listening.
 - **Muted audio is sent as zeros, never dropped.** Gaps break Gemini's end-of-turn detection.
 - **Recording-artifact lookup has a time-proximity fallback** that can attach the wrong WAV when several calls end together.
-- **Agent edits take up to 5 minutes to reach new calls** because of the agent-context TTL cache.
+- ~~**Agent edits take up to 5 minutes to reach new calls**~~ (VT-16, fixed 2026-10-08): an edit, delete or publish is announced on `voice:agent_changed` and every API process drops the agent. An edit made directly in the database is not announced.
 - ~~**`ensure_chunk_size` pads with `0x00`**~~ (VT-17, fixed 2026-10-08): it pads with `0xFF`, mu-law silence (`pad_byte`); `0x00` is mu-law's loudest negative sample.
 - **DTMF is completely unimplemented** on both providers. There is no digit collection anywhere in the voice package.
 

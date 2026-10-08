@@ -40,9 +40,9 @@
 | [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 3 | 0 | 1 | 0 |
 | [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 2 | 1 | 2 | 0 |
-| [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 2 | 2 | 1 | 3 |
+| [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 3 | 2 | 0 | 3 |
 
-**Total: 21 defects (11 fixed, 3 partly fixed, 4 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (12 fixed, 3 partly fixed, 3 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -61,7 +61,7 @@
 | VT-13 | DTMF | partly — parsed for the mobile dialer only | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-14 | The lead queue is written and never drained | ✅ fixed (SA-08, `24650e7`) | — |
 | VT-15 | `"sucess"` is a real key on the wire | partly — a setting, still `"sucess"` | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
-| VT-16 | Agent edits take up to five minutes to reach new calls | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-16 | Agent edits take up to five minutes to reach new calls | ✅ fixed (2026-10-08) | — |
 | VT-17 | `ensure_chunk_size` pads with the wrong byte | ✅ fixed (2026-10-08) | — |
 | VT-18 | A campaign's company comes from the agent, not the user | not a defect — correct as-is | — |
 | VT-19 | Silence is measured against the playback horizon | not a defect — correct as-is | — |
@@ -320,7 +320,7 @@ Recorded so nobody "fixes" it in passing. Also **D-42** in the platform register
 
 ### VT-16 — Agent edits take up to five minutes to reach new calls
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: `voice/agent_loader.py` caches for `VOICE_AGENT_CACHE_TTL_SECONDS`; nothing invalidates an entry when the entity changes. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — An edit (`AIService.update_entity`), a delete (each soft-deleted entity) and a published version call `voice/agent_cache_bus.announce_agent_changed` after their commit: it drops the agent from this process's cache, deletes the company's dispatcher routes and publishes the id on `voice:agent_changed`; the API lifespan runs `agent_cache_bus.listen` in every process, which drops it there and clears everything after a reconnect. `tests/integration/test_agent_cache_bus.py` (2), `tests/unit/test_agent_cache_bus.py` (3)
 
 `AgentContextLoader` TTL-caches persona, tools, context-source extraction and the API key
 for `VOICE_AGENT_CACHE_TTL_SECONDS` (default 300), because a cold load took 4.5–5 seconds

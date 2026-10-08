@@ -22,8 +22,13 @@ from src.common.rate_limit import limiter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start the dispatcher: the agent cache for the audio/video WebSockets."""
+    """Start the dispatcher (the agent cache for the audio/video WebSockets) and
+    the listener that drops an edited agent from this process's cache (VT-16)."""
+    import asyncio
+    import contextlib
+
     from src.gateway.dispatcher import get_dispatcher
+    from src.voice import agent_cache_bus
 
     if not settings.internal_events_enabled:
         logging.getLogger(__name__).warning(
@@ -34,7 +39,11 @@ async def lifespan(app: FastAPI):
     await warn_if_table_missing()
     dispatcher = get_dispatcher()
     await dispatcher.start()
+    agent_changes = asyncio.create_task(agent_cache_bus.listen(settings.REDIS_URL))
     yield
+    agent_changes.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await agent_changes
     await dispatcher.stop()
 
 
