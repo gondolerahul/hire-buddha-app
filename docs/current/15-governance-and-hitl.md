@@ -725,19 +725,29 @@ The four pipelined commands do prune, add, count and expire atomically:
 
 Also available: `get_remaining(key, limit, window)` and `reset(key)`.
 
-### 10.1 Two fail-open paths
+### 10.1 When a gate cannot decide
 
-```python
-# backend/src/ai/governance/rate_limiter.py
-if not self.redis:
-    return True  # No Redis = no limiting
-...
-except Exception as e:
-    logger.warning(f"Rate limiter error for '{key}': {e}")
-    return True  # Fail open — don't block on Redis errors
-```
+[`common/gates.py`](../../backend/src/common/gates.py) lists every control that can refuse
+and what it does when it cannot evaluate (GH-21, since 2026-10-08). Each one's failure path
+calls `gate_failed(gate, error)`, which logs a warning and emits **`gate.failed`**
+`{gate, decision, error}` — to the structured log and the OTel exporter; it is the event to
+alert on. A gate that fails open says why; `tests/unit/test_gate_inventory.py` checks that
+every `gate_failed` call names a listed gate, every listed gate has a call, and every open
+one gives its reason.
 
-No Redis configured, or Redis erroring, means **no rate limiting at all**.
+| Gate | When it cannot decide |
+|---|---|
+| `rate_limiter` | `RedisRateLimiter` — Redis unreachable **refuses** (the default since GH-03; a caller can pass `fail_open=True`, and `gate.failed` then says `open`) |
+| `semantic_duplicate` | the agent-creation duplicate check refuses (MI-01) |
+| `hitl_checkpoint` | a checkpoint that cannot be evaluated asks a person (GH-09) |
+| `credit_admission` | a wallet or spend cap it cannot read: the run does not start |
+| `credit_breaker` | **open** — a running run is not stopped on a wallet it cannot read; settlement still bills what it spent |
+| `webhook_signature` | an endpoint whose secret does not decrypt refuses the delivery (GW-01) |
+| `webhook_duplicate` | a delivery that cannot be checked for a repeat is a 503 (GW-03) |
+| `voice_call_credit` | **open** — a call whose credit cannot be checked goes ahead (VT-01, until H5 / HD9) |
+
+The API's slowapi limiter is not in the list: when Redis fails it counts in process
+memory, so it degrades rather than opens.
 
 ### 10.2 The counting is slightly off by design
 
@@ -1223,10 +1233,9 @@ redis-cli DEL "tool:search:company_<uuid>"
 
 ## 16. Gotchas
 
-1. **Almost every gate fails open.** Credit checks, rate limiting, suspension
-   middleware, semantic duplicate checks — all swallow non-fatal errors and let
-   the request through. A broken gate looks exactly like a passing gate. (A HITL
-   checkpoint does not: nothing lets a step proceed without an APPROVED decision, §8.1.)
+1. ~~**Almost every gate fails open.**~~ (GH-21, fixed 2026-10-08): every gate that cannot
+   decide emits `gate.failed`, and all but two fail closed — the credit breaker and the
+   voice call credit check say why they do not (§10.1).
 
 2. **A HITL checkpoint survives a Redis outage.** The approval row is the record; Redis
    carries only the notice and the resume job, and the sweep re-enqueues a lost resume.

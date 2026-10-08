@@ -312,8 +312,9 @@ async def load_endpoint(db: AsyncSession, endpoint_id: str) -> Optional[BoundEnd
     endpoint = row[0]
     try:
         secret = decrypt_api_key(endpoint.secret_encrypted) or ""
-    except Exception:
-        logger.error("[WebhookRouter] Endpoint %s: secret does not decrypt", eid)
+    except Exception as exc:
+        from src.common.gates import gate_failed
+        gate_failed("webhook_signature", exc, endpoint_id=str(eid))
         return None
     if not secret:
         return None
@@ -442,8 +443,9 @@ async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession =
     delivery = delivery_id(endpoint.source, headers, raw_body)
     try:
         fresh = await claim_delivery(endpoint.id, delivery)
-    except Exception:
-        logger.exception(f"[WebhookRouter] Could not check delivery {correlation_id}")
+    except Exception as exc:
+        from src.common.gates import gate_failed
+        gate_failed("webhook_duplicate", exc, endpoint_id=str(endpoint.id), correlation_id=correlation_id)
         return JSONResponse(status_code=503, content={
             "status": "unavailable",
             "correlation_id": correlation_id,

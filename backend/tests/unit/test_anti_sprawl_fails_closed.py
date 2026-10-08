@@ -37,6 +37,6 @@ async def test_a_broken_search_refuses_the_creation_and_says_so(monkeypatch):
     assert result["is_duplicate"] is True and result["unavailable"] is True
     assert "could not run" in result["message"]
     (name, payload), = seen
-    assert name == "meta.gate.failed" and payload["gate"] == "semantic_duplicate"
+    assert name == "gate.failed" and payload["gate"] == "semantic_duplicate"
     assert "ConnectionError" in payload["error"]
     assert anti_sprawl  # module under test imported

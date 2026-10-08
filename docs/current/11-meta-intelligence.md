@@ -400,9 +400,9 @@ MetaEntityCreatorTool must block entity creation.
 Note **"must block"** — `AntiSprawlGuard` *reports*; the caller enforces. The
 Curator uses these advisorily; `MetaEntityCreatorTool` is the enforcement point.
 
-> ⚠️ `check_semantic_duplicate` **fails open**: `except Exception` logs a warning
-> and returns `is_duplicate: False` with *"Allowing creation."* A broken registry
-> search disables duplicate protection silently.
+> `check_semantic_duplicate` **fails closed** (MI-01): a search that cannot run returns
+> `is_duplicate: True, unavailable: True`, the creation is refused, and `gate.failed`
+> (gate `semantic_duplicate`) says so (GH-21).
 
 There is also a small **key mismatch** between producer and consumer. The guard
 returns `existing_entity_id`:
@@ -891,7 +891,7 @@ flowchart LR
 Stated plainly, since a new developer should know:
 
 - *(Resolved 2026-10-03, MI-01.)* The duplicate gate fails closed: when it cannot run it
-  refuses the creation and emits `meta.gate.failed`.
+  refuses the creation and emits `gate.failed` (it was `meta.gate.failed` until GH-21).
 - *(Resolved 2026-10-03, MI-02.)* The gates run in the creation service for every agent
   creation, not in one tool.
 - *(Resolved 2026-10-03, MI-03.)* A burst limit (3 a minute) sits beside the daily one.
@@ -949,8 +949,9 @@ Related: [tools/meta/entity_creator.py](../../backend/src/ai/tools/meta/entity_c
 
 6. **Promoter G5 accepts any curator decision.** Only a missing one fails.
 
-7. **Anti-sprawl gates fail open.** Exceptions are swallowed and creation
-   proceeds.
+7. ~~**Anti-sprawl gates fail open.**~~ They fail closed (MI-01, MI-03) and emit
+   `gate.failed` (GH-21): the burst limit refuses when Redis is down, the duplicate check
+   when the search cannot run.
 
 8. **`AntiSprawlGuard` does not block — callers must.** Only
    `MetaEntityCreatorTool` enforces.

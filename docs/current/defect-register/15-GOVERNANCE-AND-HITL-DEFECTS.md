@@ -39,9 +39,9 @@
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 5 | 1 | 0 | 0 |
 | [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 9 | 0 | 0 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 1 | 2 | 2 | 0 |
-| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 3 | 1 | 1 | 0 |
+| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 4 | 0 | 1 | 0 |
 
-**Total: 25 defects (18 fixed, 4 partly fixed, 3 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (19 fixed, 3 partly fixed, 3 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -65,7 +65,7 @@
 | GH-18 | Budget lives on the entity, not the company | ✅ fixed (2026-10-08) | — |
 | GH-19 | The tool-call counting is off by design | ✅ fixed `73afd55` (TL-21) | — |
 | GH-20 | There is no way to see why a flag has its value | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
-| GH-21 | Almost every gate in the platform fails open | partly — four gates still fail open | [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold) |
+| GH-21 | Almost every gate in the platform fails open | ✅ fixed (2026-10-08) | — |
 | GH-22 | Every HITL checkpoint fails to subscribe, so none of them waits | ✅ fixed `98af2c0` | — |
 | GH-23 | Authorize and Block Cycle always fail with 422 | ✅ fixed `1a55054` | — |
 | GH-24 | Any user can answer any company's approval | ✅ fixed `1a55054` | — |
@@ -519,7 +519,7 @@ resolution.
 
 ### GH-21 — Almost every gate in the platform fails open
 
-**✅ Verified · High · the pattern** · **Status: partly fixed** — re-verified 2026-10-07: HITL (GH-01/GH-22), the suspension check (SA-18), the API limiter's Redis fallback and the semantic duplicate check (MI-01, `37c44b7`) now fail closed. Still failing open: webhook signatures (GW-01), the inbound voice credit check (VT-01) and `RedisRateLimiter`'s default. No gate emits a failure metric yet ([GH-I2](#gh-i2--emit-a-metric-whenever-a-gate-fails-to-evaluate)). Plan: [H4](REMAINING-DEFECTS-PLAN.md#h4--governance-and-hitl-that-hold).
+**✅ Verified · High · the pattern** · **Status: fixed (2026-10-08)** — with GH-I2: `src/common/gates.py` lists every control that can refuse and what it does when it cannot decide; each failure path calls `gate_failed`, which logs and emits `gate.failed {gate, decision, error}` (the event replaces `meta.gate.failed`). Wired: `rate_limiter` (now refusing by default, GH-03), `semantic_duplicate`, `hitl_checkpoint`, `credit_admission`, `credit_breaker`, `webhook_signature`, `webhook_duplicate`, `voice_call_credit`. All fail closed except two that name their reason: the credit breaker (settlement still bills) and the voice call credit check (VT-01, until H5). `tests/unit/test_gate_inventory.py` fails on an unlisted gate, a listed gate nothing reports, or an open gate without a reason
 
 Collected in one place, because individually each looks defensible:
 
@@ -553,6 +553,10 @@ The two that clearly must fail closed are HITL
 ([GW-01](13-GATEWAY-AND-REALTIME-DEFECTS.md#gw-01--no-webhook-signature-is-ever-verified-and-a-failure-would-not-block)).
 
 ### GH-I2 — Emit a metric whenever a gate fails to evaluate
+
+> **Done 2026-10-08 with GH-21:** every gate's failure path emits `gate.failed {gate,
+> decision, error}` through `src/common/gates.py`; the event reaches the structured log and
+> the OTel exporter, which is where a counter per gate is read.
 
 **Effect: large, and it is the prerequisite for everything else.** Whatever a gate does on
 failure, it must be **countable**. One counter per gate, incremented on the exception path.

@@ -450,10 +450,11 @@ in [15 §13](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue)
 
 1. **Postgres is on host port 5433**, not the default 5432.
 
-2. **Most gates fail open.** Credit checks, rate limiting, suspension
-   middleware and duplicate detection all swallow non-fatal errors
-   and let the request through. A broken gate looks exactly like a passing gate.
-   Read logs, not just outcomes.
+2. **A gate that cannot decide says so.** Every control that can refuse emits
+   `gate.failed` when it cannot evaluate, and all but two refuse — the credit breaker
+   and the voice call credit check, which say why
+   ([15 §10.1](15-governance-and-hitl.md#101-when-a-gate-cannot-decide)). Watch for
+   `gate.failed` in the logs (GH-21).
 
 3. **Memory retrieval fails silently.** Every domain assembler catches broad
    `Exception`, logs at `debug`, and returns `[]`. An agent with broken memory is

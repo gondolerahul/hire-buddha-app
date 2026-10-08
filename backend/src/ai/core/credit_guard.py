@@ -100,12 +100,17 @@ class CreditGuard:
             return over
         if not self.top_level:
             return None
-        estimate = await self.estimate(plan_steps)
         try:
+            estimate = await self.estimate(plan_steps)
             held = await self._governance().check_credit_gate(self._run_ref(), entity_type, estimate)
         except InsufficientCreditsError as exc:
             await event_async("agent.loop.credit_refused", run_id=str(self.run_id), reason=str(exc))
             return str(exc)
+        except Exception as exc:
+            # Unreadable wallet or cap: the run does not start (BC-05), and says why (GH-21).
+            from src.common.gates import gate_failed
+            gate_failed("credit_admission", exc, run_id=str(self.run_id), company_id=str(self.company_id))
+            raise
         await event_async("agent.loop.credit_hold", run_id=str(self.run_id),
                           held_usd=float(held), estimate_usd=float(estimate))
         return None

@@ -161,10 +161,9 @@ class AntiSprawlGuard:
             # Fail closed (MI-01): a gate that cannot evaluate refuses. It used
             # to answer "no duplicate" on any error, so a broken registry search
             # turned duplicate protection off with no signal anywhere.
-            from src.ai.core.events import event
+            from src.common.gates import gate_failed
             logger.error("Semantic duplicate check failed; creation refused: %s", e)
-            event("meta.gate.failed", gate="semantic_duplicate", company_id=str(self.company_id),
-                  error=f"{type(e).__name__}: {e}")
+            gate_failed("semantic_duplicate", e, company_id=str(self.company_id))
             return {
                 "is_duplicate": True,
                 "unavailable": True,

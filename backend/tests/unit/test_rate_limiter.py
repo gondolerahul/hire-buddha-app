@@ -61,13 +61,14 @@ class TestRedisRateLimiter:
         mock_redis.delete.assert_called_once_with("test_key")
 
     @pytest.mark.asyncio
-    async def test_allow_when_no_redis(self):
+    async def test_refuse_when_no_redis(self):
+        # Fails closed by default since GH-03: no Redis lifts no limit.
         limiter = RedisRateLimiter(None)
         allowed = await limiter.check_and_consume("test", limit=1, window_seconds=60)
-        assert allowed is True
+        assert allowed is False
 
     @pytest.mark.asyncio
-    async def test_fail_open_on_exception(self, limiter, mock_redis):
+    async def test_fail_closed_on_exception(self, limiter, mock_redis):
         mock_redis.pipeline.side_effect = RuntimeError("Redis down")
         allowed = await limiter.check_and_consume("test_key", limit=10, window_seconds=60)
-        assert allowed is True  # Fail open
+        assert allowed is False  # fails closed by default (GH-03)

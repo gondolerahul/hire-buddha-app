@@ -78,7 +78,8 @@ class GovernanceService:
             # The company's monthly cap, counting this run's bill so far (GH-18).
             capped = await self.credit_service.spend_cap_refusal(run.company_id, pending=billed)
         except Exception as e:
-            logger.warning(f"Credit circuit breaker could not price run {run.id}: {e}")
+            from src.common.gates import gate_failed
+            gate_failed("credit_breaker", e, run_id=str(run.id), company_id=str(run.company_id))
             return
         if capped:
             logger.warning(f"Spend cap reached mid-execution for run {run.id}. Stopping.")
@@ -88,7 +89,8 @@ class GovernanceService:
             others = await self.credit_service.held_by_others(run.company_id, run.id)
             spendable = Decimal(str(balance["total_available"])) - others
         except Exception as e:
-            logger.warning(f"Credit circuit breaker could not read the wallet for run {run.id}: {e}")
+            from src.common.gates import gate_failed
+            gate_failed("credit_breaker", e, run_id=str(run.id), company_id=str(run.company_id))
             return
         if spendable - billed <= 0:
             logger.warning(
@@ -370,7 +372,9 @@ class GovernanceService:
         from src.ai.core.agent_loop_sse import event_async
         from src.ai.core.trace import span
 
-        logger.warning("HITL checkpoint %d of run %s cannot be evaluated: %s", index, run.id, problem)
+        from src.common.gates import gate_failed
+
+        gate_failed("hitl_checkpoint", problem, run_id=str(run.id), checkpoint=index)
         async with span("hitl", f"unusable checkpoint {index}", problem=problem) as handle:
             handle.set_error(problem)
         await event_async("agent.hitl.checkpoint_unusable", run_id=str(run.id),

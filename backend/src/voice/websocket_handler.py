@@ -252,8 +252,10 @@ class BaseStreamHandler:
             except InsufficientCreditsError as e:
                 return e
             except Exception as e:
-                # Don't block calls if the credit check itself fails
-                logger.error(f"Credit check error (non-blocking): {e}")
+                # Don't block calls if the credit check itself fails (VT-01,
+                # until H5): a gate that fails open, and says so (GH-21).
+                from src.common.gates import gate_failed
+                gate_failed("voice_call_credit", e, company_id=str(self.voice_session.company_id))
             return None
 
         credit_task = asyncio.create_task(_credit_gate())

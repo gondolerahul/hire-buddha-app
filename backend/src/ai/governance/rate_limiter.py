@@ -39,7 +39,7 @@ class RedisRateLimiter:
         key: str,
         limit: int,
         window_seconds: int,
-        fail_open: bool = True,
+        fail_open: bool = False,
     ) -> bool:
         """Check rate limit and consume one token if allowed.
 
@@ -47,10 +47,15 @@ class RedisRateLimiter:
         Old entries outside the window are pruned atomically.
 
         Returns True if the request is allowed (count <= limit). When Redis
-        cannot be used the answer is ``fail_open``: a gate passes ``False``
-        so an outage refuses instead of lifting the limit (MI-03).
+        cannot be used the answer is ``fail_open`` — ``False`` by default, so
+        an outage refuses instead of lifting the limit (MI-03, GH-03) — and
+        ``gate.failed`` says so (GH-21).
         """
+        from src.common.gates import gate_failed
+
         if not self.redis:
+            gate_failed("rate_limiter", "no Redis client", key=key,
+                        decision="open" if fail_open else "closed")
             return fail_open
 
         now = time.time()
@@ -79,7 +84,7 @@ class RedisRateLimiter:
 
             return allowed
         except Exception as e:
-            logger.warning(f"Rate limiter error for '{key}': {e}")
+            gate_failed("rate_limiter", e, key=key, decision="open" if fail_open else "closed")
             return fail_open
 
     async def get_remaining(

@@ -153,5 +153,5 @@ async def test_the_limiter_refuses_on_an_outage_when_asked_to():
 
     limiter = RedisRateLimiter(_Down())
     assert await limiter.check_and_consume(key="k", limit=3, window_seconds=60, fail_open=False) is False
-    assert await limiter.check_and_consume(key="k", limit=3, window_seconds=60) is True  # its old default
+    assert await limiter.check_and_consume(key="k", limit=3, window_seconds=60) is False  # the default since GH-03
     assert await RedisRateLimiter(None).check_and_consume(key="k", limit=3, window_seconds=60, fail_open=False) is False

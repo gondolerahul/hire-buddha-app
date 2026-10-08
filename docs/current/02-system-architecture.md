@@ -1276,9 +1276,8 @@ The DB pool comment is worth reading in full: Deep Research spawns roughly 15–
 concurrent connections per run, Postgres `max_connections` is 100, so 60 are
 allocated to the worker pool and ~40 left for the API.
 
-Both rate limiters keep serving when Redis fails: the tool-level
-`RedisRateLimiter` returns `True` (allowed), and the API's slowapi limiter counts
-in process memory until Redis recovers.
+When Redis fails, `RedisRateLimiter` refuses (GH-03; it emits `gate.failed`, GH-21) and
+the API's slowapi limiter counts in process memory until Redis recovers.
 
 ---
 
