@@ -38,11 +38,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 2 | 0 | 2 | 0 |
-| [T1](#3-t1--money-and-metering) | Money and metering | 4 | 3 | 0 | 1 | 0 |
+| [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 0 | 1 | 4 | 0 |
 | [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 1 | 2 | 2 | 3 |
 
-**Total: 21 defects (6 fixed, 3 partly fixed, 9 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (7 fixed, 3 partly fixed, 8 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -50,7 +50,7 @@
 | VT-02 | Azure Realtime returns a tuple where a session belongs | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-03 | Every WhatsApp AI reply is an apology | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
 | VT-04 | Port 8002 is a ghost that Apache still points at | ✅ fixed (single port, `19f57bb`) | — |
-| VT-05 | Voice tokens are estimated at a flat 167 per second | open | [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging) |
+| VT-05 | Voice tokens are estimated at a flat 167 per second | ✅ fixed (2026-10-08) | — |
 | VT-06 | Voice tool calls are unattributed and unbilled | ✅ fixed `66fe8bc` (TL-20) | — |
 | VT-07 | Recording-artifact lookup can attach the wrong file | ✅ fixed `86a95a0` | — |
 | VT-08 | The outbound and inbound credit gates disagree by design | ✅ fixed (2026-10-08) | — |
@@ -214,7 +214,7 @@ So an unconfigured deployment hands telephony a `wss://` URL pointing at nothing
 
 ### VT-05 — Voice tokens are estimated at a flat 167 per second
 
-**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: `usage_logger.py:256` still estimates 167 tokens per second; nothing reads the provider's usage metadata. Plan: [H5](REMAINING-DEFECTS-PLAN.md#h5--voice-and-messaging).
+**📄 Doc-reported · High** · **Status: fixed (2026-10-08)** — the socket sums every Live server message's `usage_metadata` (`voice/live_usage.LiveUsage`: prompt + tool-use prompt tokens, response + thinking tokens, the split by modality) and a token-priced SKU bills those tokens (`billing_mode: reported_tokens`, `tokens_by_modality` on the row). Summing follows developers' reconciliations with Google's bill (each message is a turn whose context is processed again); it is not yet reconciled against this platform's own provider invoice. When the provider sends none, each direction bills the audio it carried — PCM16 sent and returned, counted on the socket (VT-I1) — not the whole call twice. `tests/unit/test_live_usage.py` (4)
 
 There is no real token accounting for voice. When the SKU is not per-minute, cost is:
 

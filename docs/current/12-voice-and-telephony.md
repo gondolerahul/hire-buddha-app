@@ -1162,28 +1162,23 @@ Providers may also supply their own recording URL (`RecordingUrl` on Twilio stat
 | Row | SKU name | Quantity |
 |-----|----------|----------|
 | Telephony | `tata-tele-voice-in-out` or `in-out` (from `TELEPHONY_SKU_MAP`) | `ceil(duration_seconds / 60)` minutes |
-| LLM audio in | `gemini-3.1-flash-live-preview-in` | full call duration |
-| LLM audio out | `gemini-3.1-flash-live-preview-out` | full call duration |
+| LLM audio in | `gemini-3.1-flash-live-preview-in` | the prompt tokens the model reported, else the seconds of audio sent to it |
+| LLM audio out | `gemini-3.1-flash-live-preview-out` | the response tokens the model reported, else the seconds of audio it returned |
 
-Both LLM rows default to the **entire** call duration, because in a speech-to-speech session both directions are open the whole time.
+**What the provider reported** (VT-05, since 2026-10-08): the socket folds every Live
+server message's `usage_metadata` into a
+[`LiveUsage`](../../backend/src/voice/live_usage.py) — prompt tokens (with tool-use prompt
+tokens) and response tokens (with thinking tokens), and their split by modality. Each message
+describes its turn, whose whole context is processed again, so the call's usage is the
+**sum**; developers reconciling with Google's bill found the sum matched and the last
+message alone under-counted. A token-priced SKU bills those tokens (`billing_mode:
+reported_tokens`, `tokens_by_modality` in the row's metadata).
 
-LLM SKUs bill in one of two modes depending on the SKU's `cost_unit`:
-
-```python
-# backend/src/voice/usage_logger.py
-if "per_minute" in cost_unit or "per minute" in cost_unit:
-    duration_minutes = Decimal(str(math.ceil(audio_seconds / 60.0)))
-    calculated_cost = registry_entry.internal_cost * duration_minutes
-else:
-    tokens_per_second = Decimal("167")
-    estimated_tokens = tokens_per_second * Decimal(str(audio_seconds))
-    cost_divisor = Decimal("1000000")
-    if "1k" in cost_unit:
-        cost_divisor = Decimal("1000")
-    calculated_cost = (registry_entry.internal_cost * estimated_tokens) / cost_divisor
-```
-
-The **167 tokens/second** constant is the audio-to-token estimate. There is no real token accounting for voice.
+**When the provider reports nothing**, each direction bills the audio it carried (VT-I1):
+the PCM16 sent to the model (16 kHz) and received from it (24 kHz), counted on the socket —
+not the whole call twice, as before. A token-priced SKU then estimates 167 tokens a second
+(`billing_mode: estimated_from_audio`); a per-minute SKU bills `ceil(seconds / 60)` minutes
+of that direction either way.
 
 ```mermaid
 flowchart TD
@@ -1258,7 +1253,7 @@ What voice **does not have**:
 | Critics, self-correction, retries | No |
 | REACT loop with an explicit "next action" decision | No — the live model drives itself |
 | Memory / CORTEX write-back | No — only a `context_state.call_summary` |
-| Per-turn token accounting | No — duration × a 167 tok/s estimate |
+| Per-turn token accounting | Yes — the Live API's `usage_metadata`, summed (VT-05); per-direction audio when it sends none |
 | Governance / HITL approval gates | No |
 
 What it does have that text agents don't: real-time barge-in, an activity watchdog, voicemail detection, a hard duration cap, and per-minute telephony metering.
@@ -1614,7 +1609,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 | [`voice/session_manager.py`](../../backend/src/voice/session_manager.py) | 415 | CRUD for `voice_sessions` and `whatsapp_sessions`; optional (unused) Redis cache. |
 | [`voice/azure_realtime.py`](../../backend/src/voice/azure_realtime.py) | 360 | Azure GPT-4o Realtime WebSocket client. Not correctly used by the handler. |
 | [`voice/gemini_live.py`](../../backend/src/voice/gemini_live.py) | 348 | Gemini Live client, model capability registry, session config. |
-| [`voice/usage_logger.py`](../../backend/src/voice/usage_logger.py) | 334 | Three `UsageLog` rows per call; per-minute or 167-tok/s billing. |
+| [`voice/usage_logger.py`](../../backend/src/voice/usage_logger.py) | 385 | Three `UsageLog` rows per call: per-minute, the reported tokens, or 167 tok/s of each direction's audio. |
 | [`voice/gemini_mock.py`](../../backend/src/voice/gemini_mock.py) | 314 | Mock Live session. Not wired in. |
 | [`voice/number_router.py`](../../backend/src/voice/number_router.py) | 302 | DID → company/agent/customer resolution; outbound caller-ID selection. |
 | [`voice/public_urls.py`](../../backend/src/voice/public_urls.py) | 20 | `stream_url` / `callback_url` — the URLs handed to providers, from `STREAMING_HOST` / `STREAMING_PROTOCOL`. |

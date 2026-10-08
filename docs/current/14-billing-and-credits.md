@@ -442,7 +442,7 @@ flowchart TD
     B -->|"VoiceUsageLogger telephony"| D["ceil seconds divided by 60 - divisor 1"]
     B -->|"VoiceUsageLogger audio"| E{"parsed noun is minute?"}
     E -->|yes| D
-    E -->|no| F["estimate 167 tokens per second - divide by the parsed token quantity, default 1M"]
+    E -->|no| F["the tokens the Live API reported, else 167 tokens per second of that direction's audio - divide by the parsed token quantity, default 1M"]
     B -->|"ToolCostResolver"| G["internal_cost / unit_divisor per call"]
     C --> H["calculated_cost"]
     D --> H
@@ -565,7 +565,10 @@ flowchart LR
 | `gemini-3.1-flash-live-preview-in` | `3.000000` | `1M Tokens` |
 | `gemini-3.1-flash-live-preview-out` | `12.000000` | `1M Tokens` |
 
-`VoiceUsageLogger.log_voice_session_usage` defaults both audio directions to the full call duration — [usage_logger.py:80](../../backend/src/voice/usage_logger.py:80) — then logs three rows:
+`VoiceUsageLogger.log_voice_session_usage` bills the tokens the Live API reported for the call
+(VT-05); this worked example is the fallback when it reports none, for a call whose caller
+line carried 125 s and whose agent spoke for all of it. Before VT-05 both directions were
+always the full call duration:
 
 | Component | Computation | Cost |
 |---|---|---|
@@ -574,7 +577,7 @@ flowchart LR
 | Audio out | same 20,875 tokens; `12.0 × 20875 / 1e6` | `0.250500` |
 | **`voice_sessions.total_cost_usd`** | | **`c = 0.337125`** |
 
-The 167 tokens-per-second constant is hard-coded — [usage_logger.py:226](../../backend/src/voice/usage_logger.py:226).
+The 167 tokens-per-second constant is used only for that fallback; with the provider's usage the rows carry its token counts (`billing_mode: reported_tokens`).
 
 **Settlement happens inline in the WebSocket cleanup**, not through `GovernanceService` — [voice/websocket_handler.py:1428](../../backend/src/voice/websocket_handler.py:1428):
 
@@ -771,7 +774,7 @@ One row per billable thing. "Metered" means a `usage_logs` row and/or a `run.tot
 | Video generation | fixed `$0.05` (`video_generate`) | per call | [tool_cost_resolver.py:52](../../backend/src/ai/governance/tool_cost_resolver.py:52) | ⚠️ no `usage_logs` row |
 | Video edit / add sound | none | — | bills through the sandbox SKU | ✅ indirect |
 | Telephony minutes | `tata-tele-voice-in-out`, `in-out` | per minute, ceilinged | [usage_logger.py:148](../../backend/src/voice/usage_logger.py:148) | ✅ full |
-| Voice LLM audio | `gemini-3.1-flash-live-preview-in` / `-out` | per 1M tokens @ 167 tok/s, or per minute | [usage_logger.py:191](../../backend/src/voice/usage_logger.py:191) | ✅ full |
+| Voice LLM audio | `gemini-3.1-flash-live-preview-in` / `-out` | per 1M tokens as the Live API reports them (else 167 tok/s of each direction's audio), or per minute | [usage_logger.py](../../backend/src/voice/usage_logger.py) | ✅ full |
 | Web search | `serp-api-key` | per call | tool cost lookup | ⚠️ registry-only |
 | Batch web search | `serp-api-key` | per call | tool cost lookup | ⚠️ registry-only |
 | Web scraping | `firecrawl-api` / `firecrawl` | per call | tool cost lookup | ⚠️ registry-only |

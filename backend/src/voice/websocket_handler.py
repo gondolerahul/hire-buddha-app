@@ -116,6 +116,9 @@ class BaseStreamHandler:
         self._pipeline_started_at: Optional[float] = None
         self._greeting_sent_at: Optional[float] = None
         self._first_audio_received = False
+        # The model's reported usage and the audio each way, for the bill (VT-05).
+        from src.voice.live_usage import LiveUsage
+        self._live_usage = LiveUsage()
         self._first_agent_audio_sent_at: Optional[float] = None
         self._last_agent_audio_at: Optional[float] = None
         # Playback horizon: audio is sent to the provider in fast bursts but
@@ -532,6 +535,7 @@ class BaseStreamHandler:
                                         mime_type="audio/pcm;rate=16000",
                                     )
                                 )
+                                self._live_usage.sent(len(mulaw_chunk) * 4)
                             except Exception as e:
                                 logger.error(f"Error sending silence to upstream provider: {e}")
                                 break
@@ -630,6 +634,7 @@ class BaseStreamHandler:
                                     mime_type="audio/pcm;rate=16000",
                                 )
                             )
+                            self._live_usage.sent(len(pcm16_chunk))
                         except Exception as e:
                             logger.error(f"Error sending audio to upstream provider: {e}")
                             break
@@ -653,8 +658,13 @@ class BaseStreamHandler:
                     if not self.is_running:
                         break
 
+                    # The provider's usage for this turn, summed for the bill (VT-05).
+                    self._live_usage.add(getattr(response, "usage_metadata", None))
+
                     # ── 1. Audio PCM from model ──────────────────────────────
                     audio_data = response.data
+                    if audio_data:
+                        self._live_usage.received(len(audio_data))
                     if audio_data and self.mobile and not self.mobile.merged:
                         # Held leg: never play pre-merge model audio. A greeting
                         # pre-rolled when the lead answered is kept for the merge.
@@ -1519,6 +1529,7 @@ class BaseStreamHandler:
                             logger.warning(f"Closing the call's tool run failed: {_tool_err}")
                     usage_logger = VoiceUsageLogger(session)
                     usage = await usage_logger.log_voice_session_usage(
+                        live_usage=self._live_usage,
                         tool_cost=tool_cost,
                         session_id=self.session_id,
                         company_id=self.voice_session.company_id,

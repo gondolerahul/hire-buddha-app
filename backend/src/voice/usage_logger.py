@@ -20,6 +20,7 @@ from sqlalchemy import select, update
 
 from src.config.models import IntegrationRegistry
 from src.ai.orm import UsageLog
+from src.voice.live_usage import LiveUsage
 from src.voice.models import VoiceSession
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class VoiceUsageLogger:
         audio_output_seconds: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
         tool_cost: Decimal = Decimal("0"),
+        live_usage: Optional[LiveUsage] = None,
     ) -> VoiceUsage:
         """
         Log usage for a completed voice session.
@@ -87,6 +89,10 @@ class VoiceUsageLogger:
             tool_cost: The call's tool calls, already logged per call against
                 the call's run (``voice.tool_calls``, TL-20); counted in the
                 total so the call's one charge includes them
+            live_usage: What the model reported and the audio each way
+                (``voice.live_usage``, VT-05). Its tokens are billed when the
+                provider sent usage; otherwise each direction is billed for
+                the audio it carried, not the whole call
             
         Returns:
             The total cost in USD and its telephony part
@@ -94,13 +100,13 @@ class VoiceUsageLogger:
         total_cost = Decimal("0.0")
         telephony_part = Decimal("0")
 
-        # Default audio durations to total call duration.
-        # Both input (user speech) and output (agent speech) span the
-        # entire call, so each is billed for the full duration.
+        # Without the provider's usage, each direction is billed for the audio
+        # it carried (VT-I1); a caller that knows neither bills the call length.
         if audio_input_seconds is None:
-            audio_input_seconds = duration_seconds
+            audio_input_seconds = live_usage.seconds_in if live_usage is not None else duration_seconds
         if audio_output_seconds is None:
-            audio_output_seconds = duration_seconds
+            audio_output_seconds = live_usage.seconds_out if live_usage is not None else duration_seconds
+        reported = live_usage is not None and live_usage.reported
         
         # 1. Log Telephony Cost
         try:
@@ -121,7 +127,7 @@ class VoiceUsageLogger:
         except Exception as e:
             logger.error(f"Failed to log telephony usage: {e}")
         
-        # 2. Log LLM Audio Input Cost
+        # 2. Log LLM Audio Input Cost — the provider's tokens when it sent them (VT-05)
         try:
             input_cost = await self._log_llm_audio_usage(
                 company_id=company_id,
@@ -131,7 +137,9 @@ class VoiceUsageLogger:
                 metadata={
                     "session_id": str(session_id),
                     **(metadata or {})
-                }
+                },
+                reported_tokens=live_usage.prompt_tokens if reported and live_usage else None,
+                by_modality=live_usage.prompt_by_modality if reported and live_usage else None,
             )
             if input_cost:
                 total_cost += input_cost
@@ -149,7 +157,9 @@ class VoiceUsageLogger:
                 metadata={
                     "session_id": str(session_id),
                     **(metadata or {})
-                }
+                },
+                reported_tokens=live_usage.response_tokens if reported and live_usage else None,
+                by_modality=live_usage.response_by_modality if reported and live_usage else None,
             )
             if output_cost:
                 total_cost += output_cost
@@ -219,14 +229,18 @@ class VoiceUsageLogger:
         sku_name: str,
         audio_seconds: int,
         usage_type: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        reported_tokens: Optional[int] = None,
+        by_modality: Optional[Dict[str, int]] = None,
     ) -> Optional[Decimal]:
         """
         Log LLM audio usage.
         
         Supports two billing modes based on the SKU's cost_unit:
         - 'per_minute': Charges per minute (ceiling-rounded). E.g. 125s → 3 min.
-        - '1M Tokens' / '1K': Estimates tokens from audio duration (~167 tok/s).
+        - '1M Tokens' / '1K': the tokens the provider reported for the call
+          (``reported_tokens``, VT-05); when it reported none, an estimate
+          from this direction's audio seconds (~167 tok/s).
         """
         # Get SKU from registry
         registry_entry = await self._get_sku(company_id, sku_name)
@@ -253,19 +267,29 @@ class VoiceUsageLogger:
             }
         else:
             # ── Token-based billing (1M or 1K tokens) ─────────────────
-            tokens_per_second = Decimal("167")
-            estimated_tokens = tokens_per_second * Decimal(str(audio_seconds))
             cost_divisor = Decimal("1000000")
             if unit is not None and unit.noun == "token":
                 cost_divisor = unit.quantity
-            calculated_cost = (registry_entry.internal_cost * estimated_tokens) / cost_divisor
-            raw_quantity = estimated_tokens
-            log_extra = {
-                "billing_mode": "per_token",
-                "audio_seconds": audio_seconds,
-                "estimated_tokens": float(estimated_tokens),
-                "tokens_per_second": float(tokens_per_second),
-            }
+            if reported_tokens is not None:
+                # What the provider reported, summed over the call (VT-05).
+                tokens = Decimal(int(reported_tokens))
+                log_extra = {
+                    "billing_mode": "reported_tokens",
+                    "audio_seconds": audio_seconds,
+                    "reported_tokens": int(reported_tokens),
+                    "tokens_by_modality": dict(by_modality or {}),
+                }
+            else:
+                tokens_per_second = Decimal("167")
+                tokens = tokens_per_second * Decimal(str(audio_seconds))
+                log_extra = {
+                    "billing_mode": "estimated_from_audio",
+                    "audio_seconds": audio_seconds,
+                    "estimated_tokens": float(tokens),
+                    "tokens_per_second": float(tokens_per_second),
+                }
+            calculated_cost = (registry_entry.internal_cost * tokens) / cost_divisor
+            raw_quantity = tokens
         
         # Create usage log
         usage_log = UsageLog(

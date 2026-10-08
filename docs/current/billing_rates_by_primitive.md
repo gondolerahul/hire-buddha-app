@@ -178,7 +178,7 @@ Voice sessions incur **three cost components** logged separately:
 |---|---|---|
 | `gemini-3.1-flash-live-preview-in` | Token-based (`1M Tokens`) or `per_minute` | See below |
 
-- **Token mode**: `internal_cost × (167 tokens/sec × audio_seconds) / 1,000,000`
+- **Token mode**: `internal_cost × tokens / 1,000,000` — the prompt tokens the Live API reported for the call (VT-05); when it reports none, `167 × seconds of audio sent`
 - **Per-minute mode**: `internal_cost × ceil(audio_seconds / 60)`
 
 ### 5c. LLM Audio Output (Model Speech → User)
@@ -189,8 +189,8 @@ Voice sessions incur **three cost components** logged separately:
 
 ### Key Notes
 
-- Both audio input and output default to the **full call duration** when not explicitly measured.
-- Audio → token estimation: **167 tokens per second** of audio.
+- Each direction is billed for what it carried: the reported tokens, else the seconds of audio sent (input) or returned (output) — no longer the full call duration both ways (VT-05).
+- Audio → token estimation, for the fallback only: **167 tokens per second** of audio.
 - SKUs are resolved dynamically from the `speech_to_speech` task default in `ModelTaskDefault`; the hardcoded SKUs above are fallback-only.
 
 ### Billing Config Override
