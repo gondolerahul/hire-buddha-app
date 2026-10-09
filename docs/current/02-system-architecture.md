@@ -1109,7 +1109,13 @@ traced request, the span's parent is that request's span — so a webhook, the
 `process_gateway_event` it queued and anything that job does share one trace.
 Cron runs, and jobs enqueued straight on `ctx["redis"]` inside another job
 (child runs, `resume_parent_run`), start their own traces. Until SA-10
-(2026-09-30) the worker exported nothing. It still has no Prometheus endpoint.
+(2026-09-30) the worker exported nothing. Since IN-20 (2026-10-09) each worker also serves
+Prometheus `/metrics` on its own port — `WORKER_METRICS_PORT` (9101) and
+`CHILD_WORKER_METRICS_PORT` (9102), bound to `WORKER_METRICS_ADDR` (`127.0.0.1`):
+`hb_worker_jobs_total{function,outcome}`, `hb_worker_job_duration_seconds`,
+`hb_worker_jobs_in_progress`, and the backlog the heartbeat samples,
+`hb_worker_queue_due_jobs` / `hb_worker_queue_oldest_due_seconds` per queue. `traced_job`
+counts every job, so a new job is covered without a change. `prometheus.yml` scrapes both.
 
 [`docker-compose.observability.yml`](../../backend/docker-compose.observability.yml)
 brings up Jaeger (UI 16686, OTLP 4317/4318), Prometheus (9090) and Grafana. Two

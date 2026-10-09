@@ -53,9 +53,14 @@ async def beat(client: Any, queue: str, member: str, now: Optional[float] = None
 
 
 async def _heartbeat_forever(client: Any, queue: str, member: str) -> None:
+    from src.common.worker_metrics import record_queue
+
     while True:
         try:
             await beat(client, queue, member)
+            # The backlog, for the worker's /metrics (IN-20).
+            status = await queue_status(client, queue)
+            record_queue(queue, status["due_jobs"], status["oldest_due_seconds"])
         except Exception:  # Redis blips must not end the heartbeat
             logger.warning("worker heartbeat on %s failed", queue, exc_info=True)
         await asyncio.sleep(settings.WORKER_HEARTBEAT_SECONDS)

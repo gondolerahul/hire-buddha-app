@@ -125,7 +125,8 @@ def _job_tracer() -> trace.Tracer:
 
 
 def traced_job(job: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-    """Run an arq job (or cron) inside a span, continuing its producer's trace.
+    """Run an arq job (or cron) inside a span, continuing its producer's trace,
+    and count it in the worker's metrics (IN-20).
 
     The wrapper keeps the job's name, so arq registers it — and cron ids and
     enqueue-by-name keep working — exactly as before.
@@ -135,10 +136,12 @@ def traced_job(job: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[An
         attributes = {"messaging.system": "arq", "arq.function": job.__qualname__}
         if "job_id" in ctx:
             attributes.update({"arq.job_id": ctx["job_id"], "arq.job_try": ctx.get("job_try", 1)})
+        from src.common.worker_metrics import observe_job
+
         with _job_tracer().start_as_current_span(
             f"arq {job.__qualname__}", context=await _producer_context(ctx),
             kind=trace.SpanKind.CONSUMER, attributes=attributes,
-        ):
+        ), observe_job(job.__qualname__):           # IN-20
             return await job(ctx, *args, **kwargs)
 
     return run

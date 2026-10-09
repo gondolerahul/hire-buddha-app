@@ -57,6 +57,7 @@ from src.common.config import settings
 from src.common.job_queue import CHILD_RUN_QUEUE, arq_redis_settings
 from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
 from src.common.worker_health import start_heartbeat, stop_heartbeat
+from src.common.worker_metrics import serve_metrics
 from arq.constants import default_queue_name
 
 
@@ -75,6 +76,7 @@ def _listen_for_flag_changes(ctx: dict) -> None:
 
 async def startup(ctx: dict) -> None:
     setup_tracing("hirebuddha-worker")
+    serve_metrics(settings.WORKER_METRICS_PORT, settings.WORKER_METRICS_ADDR)          # IN-20
     # Reported on /api/v1/health, so a dead worker is visible (SA-I4).
     start_heartbeat(ctx, default_queue_name)
     _listen_for_flag_changes(ctx)
@@ -82,6 +84,7 @@ async def startup(ctx: dict) -> None:
 
 async def child_startup(ctx: dict) -> None:
     setup_tracing("hirebuddha-child-worker")
+    serve_metrics(settings.CHILD_WORKER_METRICS_PORT, settings.WORKER_METRICS_ADDR)    # IN-20
     start_heartbeat(ctx, CHILD_RUN_QUEUE)
     _listen_for_flag_changes(ctx)
 

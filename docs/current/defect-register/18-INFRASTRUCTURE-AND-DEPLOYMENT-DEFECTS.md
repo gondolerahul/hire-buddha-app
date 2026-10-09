@@ -39,9 +39,9 @@
 | [T0](#2-t0--data-loss-and-recovery) | Data loss and recovery | 4 | 0 | 0 | 4 | 0 |
 | [T1](#3-t1--not-production-ready-as-configured) | Not production-ready as configured | 6 | 1 | 0 | 5 | 0 |
 | [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 8 | 4 | 2 | 2 | 0 |
-| [T3](#5-t3--operability) | Operability | 5 | 1 | 1 | 3 | 0 |
+| [T3](#5-t3--operability) | Operability | 5 | 2 | 0 | 3 | 0 |
 
-**Total: 23 defects (6 fixed, 3 partly fixed, 14 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 23 defects (7 fixed, 2 partly fixed, 14 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -64,7 +64,7 @@
 | IN-17 | `core/` is 20 lines from its lint cap | ✅ fixed `3501ddc` | — |
 | IN-18 | Quality gates exist and run only when someone remembers | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | IN-19 | The observability stack does not work out of the box | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
-| IN-20 | The gateway and the worker have no tracing | partly fixed — tracing done; no worker metrics | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
+| IN-20 | The gateway and the worker have no tracing | ✅ fixed (2026-10-09) — tracing (SA-10) and worker metrics | — |
 | IN-21 | There is no rollback procedure beyond `git checkout` | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-22 | The backend image has no `.dockerignore` | ✅ fixed `84dae64` | — |
 | IN-23 | Tracing exports to `localhost:4317` whether or not anything listens | ✅ fixed (2026-10-09) | — |
@@ -351,10 +351,18 @@ time anyone starts this stack.
 
 ### IN-20 — The gateway and the worker have no tracing
 
-**✅ Verified · Medium** · **Status: partly fixed (2026-09-30)** — tracing is fixed (SA-10): the
+**✅ Verified · Medium** · **Status: ✅ fixed (2026-10-09)** — tracing is fixed (SA-10): the
 gateway is merged into the instrumented API, and the worker exports a span per job,
-joined to the trace of the request that queued it. The worker still has no metrics
-endpoint.
+joined to the trace of the request that queued it. Metrics since 2026-10-09: each worker
+serves Prometheus `/metrics` on its own port (`WORKER_METRICS_PORT` 9101, child
+`CHILD_WORKER_METRICS_PORT` 9102, bound to `WORKER_METRICS_ADDR`, loopback by default) —
+jobs by function and outcome, durations, jobs in progress (all counted in `traced_job`, which
+wraps every job and cron) and each queue's due jobs and oldest wait (sampled by the
+heartbeat). `prometheus.yml` scrapes both. `src/common/worker_metrics.py`;
+`tests/unit/test_worker_metrics.py` (6). Live: both restarted workers served `/metrics`, and
+the next `sweep_stuck_runs` cron showed as one success with its duration. Not checked: a
+containerised Prometheus scraping them (on Linux it needs `WORKER_METRICS_ADDR` it can reach,
+and the firewall of IN-08).
 
 `setup_telemetry` is called once, on the last line of `main.py`. The gateway has its own
 hand-rolled `/metrics/gateway` JSON endpoint and no OpenTelemetry. The worker has neither.

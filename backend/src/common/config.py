@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     # Child runs have their own queue and worker (SA-07); this many run at
     # once across all parents, and the rest wait in the queue.
     CHILD_WORKER_MAX_JOBS: int = 10
+    # Each worker serves Prometheus /metrics on its own port (IN-20); 0 = off.
+    # Loopback by default: a Prometheus that scrapes from a container on Linux
+    # needs an address it can reach, and the host's firewall in front (IN-08).
+    WORKER_METRICS_PORT: int = 9101
+    CHILD_WORKER_METRICS_PORT: int = 9102
+    WORKER_METRICS_ADDR: str = "127.0.0.1"
     # A parent suspended on its children (AK-03): when every child is done but
     # its resume never arrived, the sweeper re-enqueues the resume after the
     # grace; a parent still waiting after the timeout is failed and settled.
