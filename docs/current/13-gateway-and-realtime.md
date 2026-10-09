@@ -424,6 +424,7 @@ sequenceDiagram
 
     BR->>WA: text stop
     WA->>SM: end_voice_session
+    WA->>PG: CallSpend web_audio - run, live usage rows, settle (VT-22)
     WA->>BR: close
 ```
 
@@ -1184,7 +1185,7 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | [`backend/src/gateway/webhook_endpoints_router.py`](../../backend/src/gateway/webhook_endpoints_router.py) | 123 | `/api/v1/webhook-endpoints` — register, list, revoke |
 | [`backend/src/gateway/models.py`](../../backend/src/gateway/models.py) | 54 | `WebhookEndpoint`, `WEBHOOK_SOURCES` |
 | [`backend/src/gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) | 244 | `WS /stream/audio` handshake and provider routing. |
-| [`backend/src/gateway/web_audio_adapter.py`](../../backend/src/gateway/web_audio_adapter.py) | 255 | Browser PCM16 ↔ live LLM bridge, four concurrent tasks, transcript logging. |
+| [`backend/src/gateway/web_audio_adapter.py`](../../backend/src/gateway/web_audio_adapter.py) | 319 | Browser PCM16 ↔ live LLM bridge, four concurrent tasks, transcript logging; the session's live audio billed on one run (VT-22). |
 | [`backend/src/gateway/video_gateway.py`](../../backend/src/gateway/video_gateway.py) | 540 | `WS /stream/video` signalling, `VideoSession`, vision frame sampling, active-session registry. |
 | [`backend/src/ai/router.py:324`](../../backend/src/ai/router.py:324) | — | The SSE producer: `GET /api/v1/ai/executions/{id}/stream`. |
 | [`backend/src/ai/core/agent_loop_sse.py`](../../backend/src/ai/core/agent_loop_sse.py) | 80 | Internal event name → SSE `type` translation and Redis fan-out. |

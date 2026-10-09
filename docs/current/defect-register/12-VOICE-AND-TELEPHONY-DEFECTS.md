@@ -38,11 +38,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 4 | 0 | 0 | 0 |
-| [T1](#3-t1--money-and-metering) | Money and metering | 5 | 4 | 0 | 1 | 0 |
+| [T1](#3-t1--money-and-metering) | Money and metering | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 5 | 0 | 0 | 0 |
 | [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 4 | 1 | 0 | 3 |
 
-**Total: 22 defects (17 fixed, 1 partly fixed, 1 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 22 defects (18 fixed, 1 partly fixed, 0 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -67,7 +67,7 @@
 | VT-19 | Silence is measured against the playback horizon | not a defect — correct as-is | — |
 | VT-20 | Muted audio is sent as zeros rather than dropped | not a defect — correct as-is | — |
 | VT-21 | A voice call has no run record, so nothing about it is auditable the usual way | ✅ fixed `b45991d` | — |
-| VT-22 | Browser audio sessions are not billed | open — found 2026-10-08 (GW-02, GW-10) | — |
+| VT-22 | Browser audio sessions are not billed | ✅ fixed (2026-10-09) — one run per session, billed and settled | — |
 
 The three to read first:
 
@@ -283,7 +283,7 @@ all**, at either checkpoint.
 
 ### VT-22 — Browser audio sessions are not billed
 
-**✅ Verified · High** · **Status: open** — found 2026-10-08 while fixing GW-02 and GW-10.
+**✅ Verified · High** · **Status: ✅ fixed (2026-10-09)** — found 2026-10-08 while fixing GW-02 and GW-10.
 
 `/stream/audio` with provider `web` runs `gateway/web_audio_adapter.WebAudioAdapter`: a live
 model session for as long as the browser keeps it open. It writes no `usage_logs` row, opens
@@ -297,6 +297,20 @@ the company's live-session places, so it cannot start on an empty wallet or past
 **Fix:** the video call's shape (GW-10): a `LiveUsage` fed from each received message and
 the audio sent, and at the end `CallSpend(channel="web_audio").record_live_audio` then
 `finish`, so the session is one run with its rows, billed and settled.
+
+**Fixed (2026-10-09)** as proposed. `WebAudioAdapter` keeps a `LiveUsage`: the PCM16 it
+forwards to the model (`sent`), the audio and `usage_metadata` of every message it receives
+(`received`, `add`). `_cleanup` settles after ending the voice session: the run opens
+(the session's agent, `input_data.channel = "web_audio"`, `web_audio_session_id`), the live
+model's input and output rows are written on it and the run is closed and settled. A session
+with no agent has nothing to bill to; one refused at admission moved no audio and bills
+nothing; a settlement error is logged and does not break the teardown.
+
+Evidence: `tests/unit/test_web_audio_billing.py` (4, all fail on the old adapter) — audio
+each way and the provider's usage are counted, the end of a session records then settles.
+`tests/integration/test_web_audio_run.py` — on Postgres, a session's settlement leaves one
+`COMPLETED` run of the agent with the two live-model usage rows ($1.00 for 1M tokens at
+$1/1M) and settles it. Not checked against a live Gemini session (Vertex ADC expired).
 
 ---
 

@@ -12,6 +12,10 @@ Wire protocol:
 Control messages (JSON text frames):
   {"event": "stop"}   — client wants to end the session
   {"event": "ping"}   — keepalive
+
+Billing (VT-22): the session's live audio each way — the provider's reported
+tokens, else the audio it carried — is one run (channel ``web_audio``),
+opened and settled when the session ends, as a video call's is (GW-10).
 """
 from __future__ import annotations
 
@@ -31,6 +35,8 @@ from src.voice.audio_processor import AudioProcessor
 from src.voice.live_client_factory import LiveClientFactory
 from src.voice.conversation_logger import ConversationLogger
 from src.voice.models import VoiceSession
+from src.voice.live_usage import LiveUsage
+from src.gateway.call_spend import CallSpend
 from src.common.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
@@ -63,6 +69,12 @@ class WebAudioAdapter:
         self.is_running = False
         self.gemini_session = None
         self.outgoing_audio_queue: asyncio.Queue = asyncio.Queue()
+        # What the live model used, settled on one run at the end (VT-22).
+        self.usage = LiveUsage()
+        self.spend = CallSpend(
+            company_id=voice_session.company_id, agent_id=voice_session.agent_id,
+            channel="web_audio", session_id=str(self.session_id),
+        ) if voice_session.agent_id else None
 
         self._agent_transcript_buffer = ""
         self._customer_transcript_buffer = ""
@@ -170,6 +182,7 @@ class WebAudioAdapter:
                             await self.gemini_session.send_realtime_input(
                                 audio={"data": pcm16, "mime_type": "audio/pcm;rate=16000"}
                             )
+                            self.usage.sent(len(pcm16))
                         except Exception as exc:
                             logger.error(f"[WebAudioAdapter] Error sending audio to AI: {exc}")
                             break
@@ -201,8 +214,11 @@ class WebAudioAdapter:
                     if not self.is_running:
                         break
 
+                    # The provider's usage for this turn, summed for the bill (VT-05).
+                    self.usage.add(getattr(response, "usage_metadata", None))
                     audio_data = response.data
                     if audio_data:
+                        self.usage.received(len(audio_data))
                         # AI returns PCM24 — convert to PCM16 for browser
                         pcm16 = self.audio_processor.pcm24_to_pcm16(audio_data)
                         if pcm16:
@@ -284,6 +300,19 @@ class WebAudioAdapter:
                 await SessionManager(session).end_voice_session(self.session_id)
         except Exception:
             pass
+        await self._settle()
+
+    async def _settle(self) -> None:
+        """Bill the session's live audio on its run and settle it (VT-22).
+        Nothing when no audio moved, as when the session was refused."""
+        if getattr(self, "spend", None) is None:
+            return
+        try:
+            async with AsyncSessionLocal() as session:
+                await self.spend.record_live_audio(session, self.usage)
+                await self.spend.finish(session)
+        except Exception as exc:  # noqa: BLE001 - a billing hiccup must not break teardown
+            logger.warning(f"[WebAudioAdapter] Could not settle session {self.session_id}: {exc}")
         try:
             await self.websocket.close()
         except Exception:

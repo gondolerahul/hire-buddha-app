@@ -1700,13 +1700,14 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 | [`ai/campaign_worker.py`](../../backend/src/ai/campaign_worker.py) | 81 | Arq task wrappers. |
 | [`ai/lead_queue_model.py`](../../backend/src/ai/lead_queue_model.py) | 81 | `lead_queue` table. Nothing reads or writes it since SA-08. |
 | [`gateway/audio_gateway.py`](../../backend/src/gateway/audio_gateway.py) | 244 | Unified `WS /stream/audio` with a `connect` handshake; delegates to the same handlers. |
-| [`gateway/web_audio_adapter.py`](../../backend/src/gateway/web_audio_adapter.py) | 255 | Browser PCM16 adapter for `provider: "web"`. |
+| [`gateway/web_audio_adapter.py`](../../backend/src/gateway/web_audio_adapter.py) | 319 | Browser PCM16 adapter for `provider: "web"`; its live audio is billed on one run per session (VT-22). |
 
 ---
 
 ## Gotchas and things that surprise newcomers
 
 - **A company holds at most `LIVE_SESSIONS_PER_COMPANY` live sessions** (20; GW-02) — calls, browser audio, video. A call is refused at admission at the cap (`call_admission.call_refusal`, every checkpoint), and a session that connects past it closes `4429`. Browser audio (`/stream/audio`, provider `web`) is admitted by the same rule since then; it never was.
+- **A browser audio session is billed** (VT-22, 2026-10-09). `WebAudioAdapter` counts the audio it sends the model and receives from it, and sums each message's `usage_metadata` (`LiveUsage`, VT-05); when the session ends, `CallSpend(channel="web_audio")` opens the session's run, writes the live model's usage rows on it (the provider's tokens, else each direction's audio) and settles it — the video call's shape (GW-10). Before, the live audio each way was free to the tenant. A session with no agent, or one refused at admission, bills nothing.
 - **Every voice endpoint is on port 8000.** The HTTP webhooks and the media-stream WebSockets are the same process; there is no gateway on 8001 or voice service on 8002 any more.
 - ~~**The inbound credit gate never fires.**~~ (VT-01, fixed 2026-10-08): one admission rule for every call, and a balance it cannot read refuses.
 - ~~**Azure Realtime does not work.**~~ (VT-02, fixed 2026-10-08): the factory's Azure client connects like Gemini's and its session speaks the Gemini Live shape; `pcm24_to_pcm16` exists. Not yet checked against a live Azure deployment, and billed at the Gemini Live SKUs.
