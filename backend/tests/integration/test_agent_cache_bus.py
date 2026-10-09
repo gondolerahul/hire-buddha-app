@@ -12,6 +12,8 @@ import uuid
 import pytest
 from cachetools import TTLCache
 
+from tests.harness.infra import infra_unavailable
+
 pytestmark = pytest.mark.needs_db
 
 
@@ -20,7 +22,7 @@ async def _redis_or_skip():
     try:
         await shared_redis().ping()
     except Exception:
-        pytest.skip("Redis is not reachable")
+        infra_unavailable("Redis is not reachable")
     return shared_redis()
 
 

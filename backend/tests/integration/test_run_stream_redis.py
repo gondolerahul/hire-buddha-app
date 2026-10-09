@@ -8,6 +8,7 @@ import uuid
 import pytest
 
 from src.ai.core.run_stream import MAXLEN, publish_run_event, read_run_events, stream_key
+from tests.harness.infra import infra_unavailable
 
 pytestmark = pytest.mark.needs_db
 
@@ -22,7 +23,7 @@ async def redis():
     try:
         await client.ping()
     except Exception:
-        pytest.skip("Redis is not reachable")
+        infra_unavailable("Redis is not reachable")
     yield client
     await client.aclose()
 

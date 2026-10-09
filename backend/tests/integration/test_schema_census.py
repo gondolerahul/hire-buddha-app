@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.harness.infra import infra_unavailable
+
 pytestmark = [pytest.mark.needs_db, pytest.mark.slow]
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -64,7 +66,7 @@ def fresh_database_url():
     try:
         asyncio.run(admin(f'CREATE DATABASE "{name}"'))
     except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"cannot create a scratch database: {exc}")
+        infra_unavailable(f"cannot create a scratch database: {exc}")
     url = base.set(database=name).render_as_string(hide_password=False)
     try:
         env = {**os.environ, "DATABASE_URL": url, "PYTHONUTF8": "1", "OTEL_SDK_DISABLED": "true"}

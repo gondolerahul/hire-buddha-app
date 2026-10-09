@@ -38,11 +38,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 1 | 0 | 2 | 1 |
-| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 2 | 0 | 2 | 0 |
+| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 3 | 0 | 1 | 0 |
 | [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 3 | 0 | 2 | 0 |
 | [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 0 | 0 | 5 | 1 |
 
-**Total: 19 defects (6 fixed, 11 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (7 fixed, 10 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -50,7 +50,7 @@
 | TS-02 | 1,063 backend tests run only when someone remembers | open — Critical | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-03 | Three working quality gates have no trigger either | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-04 | `npm run lint` cannot run, and there is no frontend test runner | ✅ fixed (2026-10-09) — lint and `npm test` both run (FE-02, FE-03) | — |
-| TS-05 | Three test tiers skip instead of failing | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-05 | Three test tiers skip instead of failing | ✅ fixed (2026-10-09) — `REQUIRE_DB=1` fails what would skip | — |
 | TS-06 | An unmocked LLM call returns a `STUB:` string, not an error | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-07 | `e2e/` does not roll back | ✅ fixed `3352625` | — |
 | TS-08 | The frontend tests cannot run at all | ✅ fixed (2026-10-09) — `npm test`; test files type-checked (FE-03) | — |
@@ -175,7 +175,7 @@ that production does not run.
 
 ### TS-05 — Three test tiers skip instead of failing
 
-**✅ Verified · High** · **Status: open** — re-verified 2026-10-07: the `pytest.skip()` calls are unchanged (`integration/conftest.py:56`, `:65`; `parity/conftest.py:88`, `:96`, `:108`), and there is no `REQUIRE_DB` switch. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
+**✅ Verified · High** · **Status: ✅ fixed (2026-10-09)** — `REQUIRE_DB=1` turns every missing-infrastructure skip into a failure. The CI job that sets it is IN-05.
 
 `integration/`, `e2e/` and `parity/` all call `pytest.skip()` from their fixtures when the
 database is unreachable:
@@ -200,6 +200,21 @@ silently does not run.
 
 **Fix:** keep skipping locally, but fail in CI. An environment variable —
 `REQUIRE_DB=1` — that turns the skip into a failure is enough.
+
+**Fixed (2026-10-09).** `tests/harness/infra.py` has `infra_unavailable(reason)`: a skip by
+default, `pytest.fail` when `REQUIRE_DB` is `1`/`true`/`yes`/`on`. Every fixture that
+skipped for missing infrastructure calls it — the integration `_engine` (no URL, no
+`SELECT 1`), the parity `db` and `redis_client`, the four integration tests' Redis probes
+(`test_agent_cache_bus`, `test_flag_invalidation`, `test_run_quota`, `test_run_stream_redis`)
+and the schema census's scratch database. The e2e suite no longer skips on a missing
+database (its `app_admin` skip went with `3352625`); it errors. Skips that are not about
+infrastructure stay: the mobile suite's *disposable `_test` database* guard, the Docker
+image tests (their own job, H1.1) and the e2e suite's chained-data skips.
+
+Evidence: `tests/unit/test_require_db.py` (5). With `DATABASE_URL` on a dead port,
+`test_run_credit_guard.py` gives 8 skipped (exit 0) without the switch and 8 errors with
+it; with `REDIS_URL` on a dead port, `test_run_stream_redis.py` gives 3 errors under
+`REQUIRE_DB=1`.
 
 ---
 

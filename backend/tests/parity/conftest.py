@@ -19,6 +19,7 @@ from typing import Any, AsyncIterator
 import pytest
 import pytest_asyncio
 
+from tests.harness.infra import infra_unavailable
 from tests.parity.harness import register_engine_adapter
 
 
@@ -85,15 +86,15 @@ async def db() -> AsyncIterator[Any]:
     """
     url = _db_url()
     if not url:
-        pytest.skip("DATABASE_URL not set — parity gate needs a Postgres.")
+        infra_unavailable("DATABASE_URL not set — parity gate needs a Postgres.")
     from sqlalchemy import text
     from src.common.database import AsyncSessionLocal
-    # Connectivity probe so an unreachable DB skips rather than errors.
+    # Connectivity probe: an unreachable DB skips (or, under REQUIRE_DB=1, fails).
     try:
         async with AsyncSessionLocal() as probe:
             await probe.execute(text("SELECT 1"))
     except Exception as exc:                                            # noqa: BLE001
-        pytest.skip(f"Postgres unreachable — parity gate skipped ({exc}).")
+        infra_unavailable(f"Postgres unreachable — parity gate skipped ({exc}).")
     async with AsyncSessionLocal() as session:
         yield session
 
@@ -105,7 +106,7 @@ async def redis_client() -> AsyncIterator[Any]:
         client = await aioredis.from_url(_redis_url())
         await client.ping()
     except Exception as exc:                                            # noqa: BLE001
-        pytest.skip(f"Redis unreachable — parity gate skipped ({exc}).")
+        infra_unavailable(f"Redis unreachable — parity gate skipped ({exc}).")
     try:
         yield client
     finally:

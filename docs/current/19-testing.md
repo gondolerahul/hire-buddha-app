@@ -139,8 +139,9 @@ Actual usage across the tree is much thinner than the catalogue suggests:
 > With `--strict-markers` that would error; without it, it warns. Conversely
 > `needs_redis`, `needs_llm` and `kpi` are registered but effectively unused.
 >
-> The real skip mechanism is **not markers** — it is `pytest.skip()` called from
-> inside conftest fixtures when infrastructure is missing. See
+> The real skip mechanism is **not markers** — it is `infra_unavailable()`
+> (`tests/harness/infra.py`) called from inside fixtures when infrastructure is
+> missing: it skips locally and **fails under `REQUIRE_DB=1`** (TS-05). See
 > [§6.1](#61-the-db-fixture-chain).
 
 The comment in `pytest.ini` records the intended CI split:
@@ -269,10 +270,10 @@ These tests:
 ```mermaid
 flowchart TD
     URL["_db_url()<br/>settings.DATABASE_URL or env"] --> CHK{"URL present?"}
-    CHK -->|no| SKIP1["pytest.skip - suite skipped"]
+    CHK -->|no| SKIP1["infra_unavailable - skip, or fail under REQUIRE_DB=1"]
     CHK -->|yes| ENG["_engine fixture<br/>create_async_engine per test"]
     ENG --> PING{"SELECT 1 succeeds?"}
-    PING -->|no| SKIP2["pytest.skip - Postgres unreachable"]
+    PING -->|no| SKIP2["infra_unavailable - Postgres unreachable"]
     PING -->|yes| DB["db fixture<br/>connect + begin transaction"]
     DB --> SESS["AsyncSession bound to the connection"]
     SESS --> TEST["Test body"]
@@ -322,7 +323,7 @@ the single most important thing to understand about async testing here.
 
 | Fixture | Scope | Provides |
 |---|---|---|
-| `_engine` | function | Async engine, skips if DB unreachable |
+| `_engine` | function | Async engine; skips if the DB is unreachable, fails under `REQUIRE_DB=1` |
 | `db` | function | `AsyncSession` in a transaction, rolled back at teardown |
 | `test_company_id` | function | A throwaway `TENANT` company row |
 | `mock_llm` | function | `MockLLMRouter()` from `tests/harness` |
@@ -489,7 +490,7 @@ cd backend && .venv/bin/python -m pytest tests/parity -o addopts="" -q
 ```
 
 The gate **skips cleanly** when goldens are missing or Postgres/Redis are
-unreachable. With a real LLM key, `--no-hermetic` records from live provider
+unreachable — unless `REQUIRE_DB=1`, which fails it instead (TS-05). With a real LLM key, `--no-hermetic` records from live provider
 runs instead.
 
 ### 8.5 Files and cases
@@ -1163,9 +1164,11 @@ the trace viewer have none.
 1. **`asyncio_mode = auto`** — new async tests need no decorator, though 503
    existing tests still carry `@pytest.mark.asyncio`.
 
-2. **DB suites skip, they do not fail.** `integration/`, `e2e/` and `parity/`
-   call `pytest.skip()` from fixtures when Postgres is unreachable. Always read
-   the skip count before believing a green run.
+2. **DB suites skip locally, and fail under `REQUIRE_DB=1`.** `integration/` and
+   `parity/` call `infra_unavailable()` (`tests/harness/infra.py`) when Postgres or
+   Redis is unreachable: a skip by default, a failure with `REQUIRE_DB=1` (TS-05).
+   Set it on any run that is a gate (the CI job of IN-05 must); otherwise read the
+   skip count before believing a green run.
 
 3. **`integration/` rolls back; `e2e/` does not.** The e2e suite leaves users,
    companies and runs in your database on every run.

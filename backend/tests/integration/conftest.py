@@ -7,8 +7,11 @@ These tests:
   * Each test runs in its own SAVEPOINT and rolls back at teardown so
     the DB stays clean across the suite.
 
+No reachable Postgres skips the tier — or fails it under ``REQUIRE_DB=1``
+(``tests/harness/infra.py``, TS-05).
+
 Marker convention:
-  * ``@pytest.mark.needs_db`` — skipped when there's no DB.
+  * ``@pytest.mark.needs_db`` — needs the real Postgres.
   * ``@pytest.mark.slow``     — excluded from PR-fast CI lane.
 """
 from __future__ import annotations
@@ -21,6 +24,8 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+
+from tests.harness.infra import infra_unavailable
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +58,7 @@ async def _engine():
     """
     url = _db_url()
     if not url:
-        pytest.skip("DATABASE_URL not set; integration suite skipped")
+        infra_unavailable("DATABASE_URL not set; integration suite skipped")
     from sqlalchemy.ext.asyncio import create_async_engine
     eng = create_async_engine(url, pool_pre_ping=True, future=True)
     try:
@@ -62,7 +67,7 @@ async def _engine():
             await conn.execute(text("SELECT 1"))
     except Exception as exc:                                                  # noqa: BLE001
         await eng.dispose()
-        pytest.skip(f"Postgres unreachable; integration suite skipped ({exc})")
+        infra_unavailable(f"Postgres unreachable; integration suite skipped ({exc})")
     try:
         yield eng
     finally:

@@ -11,6 +11,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
+from tests.harness.infra import infra_unavailable
 from tests.integration.test_run_credit_guard import _company
 
 pytestmark = pytest.mark.needs_db
@@ -31,7 +32,7 @@ async def test_a_burst_over_the_quota_is_refused_with_429(db, monkeypatch):
         from src.common.redis_client import shared_redis
         await shared_redis().ping()
     except Exception:
-        pytest.skip("Redis is not reachable")
+        infra_unavailable("Redis is not reachable")
 
     company = await _company(db, "100")
     entity = HierarchicalEntity(company_id=company, type="AGENT", status="ACTIVE",
