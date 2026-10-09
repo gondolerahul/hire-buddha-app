@@ -6,6 +6,8 @@ Playwright and are exercised by the e2e suite.
 """
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from src.ai.tools.sandbox.runtime import (
@@ -27,7 +29,9 @@ def test_factory_returns_subprocess_runtime() -> None:
 @pytest.mark.asyncio
 async def test_exec_echo_ok() -> None:
     rt = SubprocessRuntime()
-    res = await rt.exec(["/bin/echo", "hello"])
+    # The test interpreter, not /bin/echo or /bin/sh, so the substrate is
+    # exercised on Windows too (H1.9).
+    res = await rt.exec([sys.executable, "-c", "print('hello')"])
     assert res.ok
     assert res.returncode == 0
     assert "hello" in res.stdout
@@ -37,7 +41,7 @@ async def test_exec_echo_ok() -> None:
 @pytest.mark.asyncio
 async def test_exec_nonzero_exit() -> None:
     rt = SubprocessRuntime()
-    res = await rt.exec(["/bin/sh", "-c", "echo oops 1>&2; exit 3"])
+    res = await rt.exec([sys.executable, "-c", "import sys; sys.stderr.write('oops'); sys.exit(3)"])
     assert res.returncode == 3
     assert "oops" in res.stderr
     assert res.ok is False
@@ -46,7 +50,7 @@ async def test_exec_nonzero_exit() -> None:
 @pytest.mark.asyncio
 async def test_exec_timeout() -> None:
     rt = SubprocessRuntime()
-    res = await rt.exec(["/bin/sh", "-c", "sleep 5"], timeout=0.3)
+    res = await rt.exec([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.3)
     assert res.timed_out is True
     assert res.returncode == -1
     assert res.ok is False
@@ -65,7 +69,7 @@ async def test_exec_not_found() -> None:
 async def test_exec_env_and_cwd(tmp_path) -> None:
     rt = SubprocessRuntime()
     res = await rt.exec(
-        ["/bin/sh", "-c", "echo $FOO; pwd"],
+        [sys.executable, "-c", "import os; print(os.environ['FOO']); print(os.getcwd())"],
         cwd=str(tmp_path),
         env={"FOO": "bar", "PATH": "/usr/bin:/bin"},
     )

@@ -277,7 +277,7 @@ async def test_embedding_usage_is_attributed(db, test_company_id) -> None:
     from src.ai.services.cost_attribution import CostAttribution
 
     app_co = await _resolve_app_company(db)
-    sku = "text-embedding-005-in"
+    sku = f"text-embedding-005-in-{uuid.uuid4().hex[:6]}"   # the registry seed owns the real SKU
     await _seed_embedding_sku(db, app_co, sku)
     run_id = await _seed_run(db, test_company_id)
 
@@ -363,7 +363,7 @@ async def test_no_usage_log_is_unattributed(db, test_company_id) -> None:
 
     app_co = await _resolve_app_company(db)
     llm_sku = f"mock-llm-{uuid.uuid4().hex[:6]}"
-    emb_sku = "text-embedding-005-in"
+    emb_sku = f"text-embedding-005-in-{uuid.uuid4().hex[:6]}"
     await _seed_llm_sku(db, app_co, llm_sku)
     await _seed_embedding_sku(db, app_co, emb_sku)
     run_id = await _seed_run(db, test_company_id)

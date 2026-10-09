@@ -30,11 +30,14 @@ async def test_pool_exhaustion_falls_through_to_default() -> None:
         async def execute(self, *_a, **_k):
             raise InvalidRequestError("connection pool exhausted")
 
+    # A declared flag (``agent_loop.enabled`` was retired with the legacy
+    # engine, C4, and its DEFAULTS entry with it).
+    key = "critic_pipeline.v2_enabled"
     invalidate_process_cache()
     ff = FeatureFlags(_ExhaustedPool())
-    res = await ff.resolve("agent_loop.enabled")
+    res = await ff.resolve(key)
     assert res.source == "default"
-    assert res.value == DEFAULTS["agent_loop.enabled"]
+    assert res.value == DEFAULTS[key]
 
 
 @pytest.mark.asyncio
