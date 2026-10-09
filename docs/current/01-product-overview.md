@@ -1251,7 +1251,7 @@ flowchart TD
     HID["tool hidden - get_visible_tools_for_company filters it out"]
 
     CONN["social_connections table"]
-    V9["8 platforms accepted by POST /api/social-connections"]
+    V9["8 platforms accepted by POST /api/v1/social-connections"]
     R8["8 platforms with an OAuth refresh config"]
 
     M16 --> EXP --> FLAG
@@ -1281,7 +1281,7 @@ README is blunt about why:
 the one it forgets to list.)
 
 Connection management itself is four endpoints under
-`/api/social-connections`: create (tokens encrypted at rest), list, delete, and
+`/api/v1/social-connections`: create (tokens encrypted at rest), list, delete, and
 `POST /{id}/refresh`.
 
 ### 6.12 Billing, wallet, credits and top-ups

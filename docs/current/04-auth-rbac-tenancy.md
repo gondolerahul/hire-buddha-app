@@ -1209,13 +1209,13 @@ Three problems with this flow, all visible in the code. The third is fixed (AU-2
 
 This is *not* login. It stores third-party OAuth tokens so agents can act on a tenant's social accounts. Router: [social_router.py](../../backend/src/ai/social_router.py). Service: [social_connection_service.py](../../backend/src/ai/social_connection_service.py).
 
-Critically, **the backend does not run the OAuth handshake for these.** `POST /api/social-connections` accepts an already-obtained `access_token` and `refresh_token` in the request body. The handshake happens somewhere outside this codebase (or by hand).
+Critically, **the backend does not run the OAuth handshake for these.** `POST /api/v1/social-connections` accepts an already-obtained `access_token` and `refresh_token` in the request body. The handshake happens somewhere outside this codebase (or by hand).
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant TA as tenant_admin
-    participant SR as "POST /api/social-connections"
+    participant SR as "POST /api/v1/social-connections"
     participant DEP as get_current_user_and_company
     participant SEC as "security.encrypt_api_key - AES-256-GCM"
     participant DB as social_connections

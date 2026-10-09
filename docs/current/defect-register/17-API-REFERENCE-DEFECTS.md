@@ -41,9 +41,9 @@
 | [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
-| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 0 | 1 | 5 | 1 |
+| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 1 | 1 | 4 | 1 |
 
-**Total: 20 defects (13 fixed, 1 partly fixed, 5 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (14 fixed, 1 partly fixed, 4 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -61,7 +61,7 @@
 | API-12 | `voice/phone_pool_router.py` | ✅ fixed | — |
 | API-13 | `GET /api/v1/auth/admin-only` | ✅ fixed `9f60567` | — |
 | API-14 | Nine admin routes have a doubled `admin/admin` segment | accepted — leave it | — |
-| API-15 | `/api/social-connections` breaks the versioning convention | open — decision HD16 | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-15 | `/api/social-connections` breaks the versioning convention | ✅ fixed (2026-10-08) | — |
 | API-16 | There is no universal pagination | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
 | API-17 | Full paths chain two prefixes, so the decorator misleads | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
 | API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | partly — hidden by default; verb unchanged | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
@@ -287,7 +287,7 @@ gain. Also **D-41**. Recorded so it is not "fixed" in passing.
 
 ### API-15 — `/api/social-connections` breaks the versioning convention
 
-**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: `ai/social_router.py:26` still declares `prefix="/api/social-connections"`. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
+**✅ Verified · Low** · **Status: fixed (2026-10-08)** — decision HD16: every route is at `/api/v1/social-connections`; the old `/api/social-connections` answers for one more release as a deprecated alias (hidden from OpenAPI, each call logged, `Deprecation: true` and a `Link` to the new path on each response) and is then removed. Nothing in the frontend called it. `tests/unit/test_social_connections_path.py` (4); the integration test posts to the new path
 
 Declared as `APIRouter(prefix="/api/social-connections")` — the only business route in the
 platform with no `/v1` segment.
@@ -419,6 +419,8 @@ A client cannot write one error handler. One envelope — `{"error": {"code", "m
 across the whole surface.
 
 ### API-I7 — Version the social-connections route
+
+**Status: done (2026-10-08)** — with [API-15](#api-15--apisocial-connections-breaks-the-versioning-convention).
 
 **Effect: small, do it now.** [API-15](#api-15--apisocial-connections-breaks-the-versioning-convention).
 There are no external consumers yet, so this is free today and a breaking change later.

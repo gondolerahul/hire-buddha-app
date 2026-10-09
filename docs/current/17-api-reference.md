@@ -96,7 +96,7 @@ flowchart LR
 | `ai/artifact_router.py` | *(none)* | `/api/v1/artifacts` | `/api/v1/artifacts` |
 | `ai/tool_management_router.py` | *(none)* | `/api/v1/ai/tool-registry` | `/api/v1/ai/tool-registry` |
 | `ai/reports_router.py` | *(none)* | `/api/v1/reports/analytics` | `/api/v1/reports/analytics` |
-| `ai/social_router.py` | *(none)* | `/api/social-connections` | `/api/social-connections` |
+| `ai/social_router.py` | *(none)* | `/api/v1/social-connections` (and `/api/social-connections`, deprecated) | `/api/v1/social-connections` |
 | `billing/billing_router.py` | *(none)* | `/api/v1` | `/api/v1` |
 | `billing/credits_router.py` | *(none)* | `/api/v1/credits` | `/api/v1/credits` |
 | `billing/cron_router.py` | *(none)* | `/api/v1/cron` | `/api/v1/cron` |
@@ -105,8 +105,11 @@ flowchart LR
 | `voice/sessions_router.py` | *(none)* | `/api/v1/streaming` | `/api/v1/streaming` |
 | `voice/messaging_router.py` | *(none)* | `/api/v1/messaging` | `/api/v1/messaging` |
 
-> ⚠️ `/api/social-connections` is **missing the `/v1`** — it is the only
-> business route that breaks the versioning convention.
+> Social connections moved to `/api/v1/social-connections` on 2026-10-08 (API-15): they
+> were the one business route without `/v1`. The old `/api/social-connections` answers
+> for one more release as a deprecated alias — hidden from OpenAPI, each call logged,
+> its responses carrying `Deprecation: true` and `Link: </api/v1/social-connections>;
+> rel="successor-version"` — and is then removed.
 
 ### 2.2 Authentication
 
@@ -171,7 +174,7 @@ not part of OpenAPI.
 | [Artifacts](#9-documents-artifacts-and-templates) | 5 | `/api/v1/artifacts` |
 | [Config](#11-configuration-and-the-integration-registry) | 10 | `/api/v1/config` |
 | [Email connections](#11-configuration-and-the-integration-registry) | 5 | `/api/v1/email` |
-| [Social connections](#11-configuration-and-the-integration-registry) | 4 | `/api/social-connections` |
+| [Social connections](#11-configuration-and-the-integration-registry) | 4 | `/api/v1/social-connections` |
 | [Billing](#13-billing-credits-and-reports) | 4 | `/api/v1` |
 | [Credits](#13-billing-credits-and-reports) | 11 | `/api/v1/credits` |
 | [Cron](#13-billing-credits-and-reports) | 2 | `/api/v1/cron` |
@@ -714,10 +717,13 @@ Full semantics in [10 — LLM providers](10-llm-providers.md).
 
 Every `/email/*` route needs a bearer token and is scoped to the caller's company (AU-02,
 2026-09-30); before, all five were anonymous.
-| POST | `/api/social-connections` | Create a social connection |
-| GET | `/api/social-connections` | List |
-| DELETE | `/api/social-connections/{connection_id}` | Delete |
-| POST | `/api/social-connections/{connection_id}/refresh` | Refresh OAuth token |
+| POST | `/api/v1/social-connections` | Create a social connection |
+| GET | `/api/v1/social-connections` | List |
+| DELETE | `/api/v1/social-connections/{connection_id}` | Delete |
+| POST | `/api/v1/social-connections/{connection_id}/refresh` | Refresh OAuth token |
+
+The same four under `/api/social-connections` are a deprecated alias for one release
+(API-15).
 
 ---
 
@@ -1212,8 +1218,8 @@ guard, was deleted on 2026-10-07 (API-13).
 2. **Nine admin routes have a doubled `admin/admin`** segment. Not a typo here —
    call them as written.
 
-3. **`/api/social-connections` has no `/v1`.** The only business route breaking
-   the convention.
+3. ~~**`/api/social-connections` has no `/v1`.**~~ (API-15, 2026-10-08): it is
+   `/api/v1/social-connections`; the old path is a deprecated alias for one release.
 
 4. **`AI_MODEL_CREDENTIALS_GUIDE.md` documents `/api/config/...`; the real path
    is `/api/v1/config/...`.**

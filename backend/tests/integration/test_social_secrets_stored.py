@@ -46,7 +46,7 @@ async def test_a_client_secret_is_stored_encrypted_and_resolves(db, monkeypatch)
         SimpleNamespace(id=None), SimpleNamespace(id=company.id))
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
-        r = await c.post("/api/social-connections", json={
+        r = await c.post("/api/v1/social-connections", json={
             "platform": "google_ads", "account_name": "ads", "access_token": "at-1",
             "oauth_metadata": {"client_id": "app-1", "client_secret": "cs-plain",
                                "developer_token": "dt-plain", "customer_id": "111"},

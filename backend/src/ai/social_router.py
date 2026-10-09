@@ -3,13 +3,19 @@ Social Connections API Router.
 
 Provides CRUD endpoints for managing social media platform connections
 (OAuth token storage) for AI agent integrations.
+
+Served at ``/api/v1/social-connections`` (API-15): it was the one business
+route without the version segment. The old ``/api/social-connections`` answers
+for one more release as a deprecated alias — each call is logged and its
+response carries ``Deprecation: true`` and a ``Link`` to the new path — and is
+then removed.
 """
 import logging
 from datetime import datetime
 from typing import Optional, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from src.auth.dependencies import get_current_user_and_company
@@ -23,7 +29,7 @@ from sqlalchemy import select, delete
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/social-connections", tags=["Social Connections"])
+_routes = APIRouter(tags=["Social Connections"])
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +79,7 @@ VALID_PLATFORMS = set(PLATFORM_REFRESH_CONFIG)
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("", response_model=SocialConnectionResponse, status_code=201)
+@_routes.post("", response_model=SocialConnectionResponse, status_code=201)
 async def create_social_connection(
     body: SocialConnectionCreate,
     auth=Depends(get_current_user_and_company),
@@ -136,7 +142,7 @@ async def create_social_connection(
         )
 
 
-@router.get("", response_model=SocialConnectionListResponse)
+@_routes.get("", response_model=SocialConnectionListResponse)
 async def list_social_connections(
     platform: Optional[str] = None,
     auth=Depends(get_current_user_and_company),
@@ -152,7 +158,7 @@ async def list_social_connections(
     )
 
 
-@router.delete("/{connection_id}", status_code=204)
+@_routes.delete("/{connection_id}", status_code=204)
 async def delete_social_connection(
     connection_id: UUID,
     auth=Depends(get_current_user_and_company),
@@ -181,7 +187,7 @@ async def delete_social_connection(
         )
 
 
-@router.post("/{connection_id}/refresh", response_model=dict)
+@_routes.post("/{connection_id}/refresh", response_model=dict)
 async def refresh_social_connection(
     connection_id: UUID,
     auth=Depends(get_current_user_and_company),
@@ -219,3 +225,23 @@ async def refresh_social_connection(
                 status_code=502,
                 detail="Token refresh failed. Check logs for details."
             )
+
+
+# ---------------------------------------------------------------------------
+# Mounting: the versioned path, and the old one for one more release (API-15)
+# ---------------------------------------------------------------------------
+
+PATH = "/api/v1/social-connections"
+LEGACY_PATH = "/api/social-connections"
+
+
+def _deprecated_path(request: Request, response: Response) -> None:
+    logger.warning("Deprecated path %s %s called; use %s", request.method, request.url.path, PATH)
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = f'<{PATH}>; rel="successor-version"'
+
+
+router = APIRouter()
+router.include_router(_routes, prefix=PATH)
+router.include_router(_routes, prefix=LEGACY_PATH, dependencies=[Depends(_deprecated_path)],
+                      deprecated=True, include_in_schema=False)
