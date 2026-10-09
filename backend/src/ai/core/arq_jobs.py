@@ -752,62 +752,98 @@ async def sweep_stuck_runs(ctx: dict[str, Any]) -> dict[str, Any]:
 # Scheduled CORTEX wake-ups — Arq cron job
 # ---------------------------------------------------------------------------
 async def cortex_resume_scheduled(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Cron: wake the suspended CORTEX trees whose ``next_resume_at`` has passed.
+
+    Each tree gets a new ``PENDING`` run carrying ``cortex_tree_id`` (the run
+    reopens that tree, ``memory/run_memory``), queued on the worker's own pool.
+    The run is committed before it is queued, so the worker always finds it,
+    and the tree's schedule is cleared only once the job is queued (MC-24).
+    Before, the job went through a re-wrapped pool that raised; the error was
+    logged per tree, and the commit after the loop kept a run nobody would
+    pick up and a tree with no schedule, never woken again.
+
+    A tree whose job cannot be queued keeps its schedule, so the next tick
+    tries again, and its run is marked ``FAILED`` with the reason.
     """
-    Periodic cron job that wakes up suspended CORTEX trees whose
-    next_resume_at timestamp has arrived. Creates a new execution run
-    for each tree and enqueues it.
-    """
-    from src.common.database import AsyncSessionLocal
     from src.ai.memory.cortex_models import CortexTree, CortexTreeStatus
-    from sqlalchemy import select
 
-    resumed = 0
-    try:
-        async with AsyncSessionLocal() as db:
-            # Find trees scheduled for resumption
-            result = await db.execute(
-                select(CortexTree).where(
-                    CortexTree.status == CortexTreeStatus.SUSPENDED,
-                    CortexTree.next_resume_at != None,
-                    CortexTree.next_resume_at <= datetime.utcnow(),
-                )
+    redis = ctx.get("redis")  # the worker's ArqRedis pool
+    if redis is None:
+        logger.error("CORTEX scheduled resume: no redis in worker context; nothing woken")
+        return {"resumed": 0, "failed": 0}
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)  # next_resume_at is naive UTC
+    async with AsyncSessionLocal() as db:
+        due = (await db.execute(
+            select(CortexTree.id).where(
+                CortexTree.status == CortexTreeStatus.SUSPENDED,
+                CortexTree.next_resume_at.is_not(None),
+                CortexTree.next_resume_at <= now,
             )
-            trees = result.scalars().all()
+        )).scalars().all()
 
-            for tree in trees:
-                try:
-                    # Create a new execution run to resume this tree
-                    from src.ai.orm import ExecutionRun
-                    resume_run = ExecutionRun(
-                        entity_id=tree.entity_id,
-                        company_id=tree.company_id,
-                        user_id=tree.user_id,
-                        input_data={"cortex_tree_id": str(tree.id)},
-                        status="PENDING",
-                    )
-                    db.add(resume_run)
-                    await db.flush()
+    counts = {"resumed": 0, "failed": 0}
+    for tree_id in due:
+        try:
+            outcome = await _wake_scheduled_tree(redis, tree_id, now)
+        except Exception:
+            logger.exception("CORTEX scheduled resume failed for tree %s", tree_id)
+            outcome = "failed"
+        if outcome in counts:
+            counts[outcome] += 1
+    return counts
 
-                    # Clear the schedule to prevent re-triggering
-                    tree.next_resume_at = None
 
-                    # Enqueue to Arq
-                    redis = ctx.get('redis')
-                    if redis:
-                        from arq.connections import ArqRedis
-                        arq = ArqRedis(redis)
-                        await arq.enqueue_job("run_execution_recursive", str(resume_run.id))
-                        resumed += 1
-                        logger.info(f"CORTEX scheduled resume: tree {tree.id} → run {resume_run.id}")
+async def _wake_scheduled_tree(redis: Any, tree_id: UUID, now: datetime) -> str:
+    """Wake one tree: ``resumed``, ``failed`` (it keeps its schedule) or ``skipped``."""
+    from sqlalchemy import update
 
-                except Exception as e:
-                    logger.error(f"CORTEX scheduled resume failed for tree {tree.id}: {e}")
+    from src.ai.memory.cortex_models import CortexTree, CortexTreeStatus
+    from src.common.job_queue import enqueue_on
 
-            await db.commit()
-    except Exception as e:
-        logger.error(f"CORTEX scheduled wake-up cron error: {e}")
+    async with AsyncSessionLocal() as db:
+        tree = await db.get(CortexTree, tree_id)
+        # Resumed, rescheduled or deleted since the scan.
+        if (tree is None or tree.status != CortexTreeStatus.SUSPENDED
+                or tree.next_resume_at is None or tree.next_resume_at > now):
+            return "skipped"
+        scheduled_for = tree.next_resume_at
+        run = ExecutionRun(
+            entity_id=tree.entity_id,
+            company_id=tree.company_id,
+            user_id=tree.user_id,
+            input_data={"cortex_tree_id": str(tree_id)},
+            status=RunStatus.PENDING.value,
+        )
+        db.add(run)
+        await db.flush()
+        run_id = run.id
+        await db.commit()
 
-    return {"resumed": resumed}
+    try:
+        await enqueue_on(redis, "run_execution_recursive", str(run_id))
+    except Exception as exc:
+        logger.error("CORTEX scheduled resume: run %s for tree %s was not queued (%s); "
+                     "the tree keeps its schedule", run_id, tree_id, exc)
+        async with AsyncSessionLocal() as db:
+            failed_run = await db.get(ExecutionRun, run_id)
+            if failed_run is not None:
+                failed_run.status = RunStatus.FAILED.value
+                failed_run.error_message = f"Scheduled CORTEX resume could not be queued: {exc}"
+                failed_run.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        return "failed"
+
+    async with AsyncSessionLocal() as db:
+        # Only the schedule this run answered: a tree rescheduled meanwhile keeps the new time.
+        await db.execute(
+            update(CortexTree)
+            .where(CortexTree.id == tree_id, CortexTree.next_resume_at == scheduled_for)
+            .values(next_resume_at=None)
+        )
+        await db.commit()
+    logger.info("CORTEX scheduled resume: tree %s -> run %s", tree_id, run_id)
+    return "resumed"
 
 
 # ---------------------------------------------------------------------------

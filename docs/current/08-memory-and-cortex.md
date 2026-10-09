@@ -1431,7 +1431,12 @@ for `skill_promotion_scan` and `meta_agent_prompt_evolution`.
 
 `cortex_resume_scheduled` runs every 5 minutes and wakes trees whose
 `next_resume_at` has passed — the mechanism behind `resume_schedule` on
-`CortexTree`.
+`CortexTree`. For each due, still-suspended tree it commits a `PENDING` run with
+`cortex_tree_id` in its input (the run reopens that tree), queues
+`run_execution_recursive` on the worker's pool, and only then clears
+`next_resume_at`. A job that cannot be queued fails its run and leaves the schedule,
+so the next tick tries again (MC-24, 2026-10-09). Nothing in the app sets
+`next_resume_at` yet.
 
 ---
 

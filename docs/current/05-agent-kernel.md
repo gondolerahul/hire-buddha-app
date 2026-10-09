@@ -232,7 +232,7 @@ run-level orchestration is the loop's job.
 | `resume_parent_run` | [arq_jobs.py:701](../../backend/src/ai/core/arq_jobs.py:701) | Calls `AgentLoop.resume(parent_run_id)` after a child finishes. |
 | `resume_paused_run` | [arq_jobs.py](../../backend/src/ai/core/arq_jobs.py) | Calls `AgentLoop.resume_after_approval(run_id)` for a run parked on a HITL approval (GH-07, [`core/approval_pause.py`](../../backend/src/ai/core/approval_pause.py)). |
 | `resume_execution` | [arq_jobs.py:685](../../backend/src/ai/core/arq_jobs.py:685) | Legacy checkpoint resume; calls `AgentLoop.run` again. |
-| `cortex_resume_scheduled` | [arq_jobs.py:735](../../backend/src/ai/core/arq_jobs.py:735) | Cron; wakes suspended CORTEX trees by creating new runs. |
+| `cortex_resume_scheduled` | [arq_jobs.py:754](../../backend/src/ai/core/arq_jobs.py:754) | Cron; wakes suspended CORTEX trees: commits a new run, queues it, then clears the schedule (MC-24). |
 | `sweep_stuck_runs` | [arq_jobs.py](../../backend/src/ai/core/arq_jobs.py), [stuck_runs.py](../../backend/src/ai/core/stuck_runs.py) | Cron, every 5 minutes; parents stuck in `WAITING_ON_CHILDREN` (AK-03, §9), and runs parked on an approval whose resume was lost (`sweep_paused_runs`, GH-07). |
 | Gateway / campaigns | [service.py:927](../../backend/src/ai/service.py:927), [cortex_bridge.py:357](../../backend/src/ai/memory/cortex_bridge.py:357) | Also enqueue `run_execution_recursive`. |
 

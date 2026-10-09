@@ -46,11 +46,11 @@
 | Tier | Theme | Count | Fixed | Deferred |
 |---|---|---|---|---|
 | [T0](#2-t0--memory-that-is-written-and-never-read) | Memory that is written and never read | 3 | 3 | 0 |
-| [T1](#3-t1--silent-failure-and-silent-no-ops) | Silent failure and silent no-ops | 5 | 2 | 3 |
+| [T1](#3-t1--silent-failure-and-silent-no-ops) | Silent failure and silent no-ops | 5 | 3 | 2 |
 | [T2](#4-t2--structural-gaps) | Structural gaps | 5 | 1 | 4 |
 | [T3](#5-t3--inconsistency-and-cost) | Inconsistency and cost | 7 | 3 | 4 |
 
-**Total: 20 defects (9 fixed, 11 deferred), 11 improvements (4 done).**
+**Total: 20 defects (10 fixed, 10 deferred), 11 improvements (4 done).**
 
 | ID | Defect | Status |
 |---|---|---|
@@ -73,7 +73,7 @@
 | MC-21 | Dreaming skips every episode it does not consolidate | ✅ fixed `a617dd3` |
 | MC-22 | Dreaming's token budgets truncate thinking-model answers | ✅ fixed `a617dd3` |
 | MC-23 | Episodes appear twice in the memory block | ⏸ deferred |
-| MC-24 | Scheduled CORTEX resume never enqueues, and loses the schedule | ⏸ deferred |
+| MC-24 | Scheduled CORTEX resume never enqueues, and loses the schedule | ✅ fixed (2026-10-09) |
 
 **Removed on 2026-09-29** by product decision: MC-04 (embedding every node is accepted),
 MC-08 (the 5-run / 24-hour Dreaming thresholds are intended), MC-17 (moot — nothing ever
@@ -268,8 +268,8 @@ cleaned up — the same silent-stall shape as
 
 ### MC-24 — Scheduled CORTEX resume never enqueues, and loses the schedule
 
-**✅ Verified · High** · **Status: deferred (2026-09-29)** — recorded 2026-09-29; first
-noted while fixing MC-02.
+**✅ Verified · High** · **Status: ✅ fixed (2026-10-09)** — recorded 2026-09-29; first
+noted while fixing MC-02. Un-deferred by the product owner (HD15).
 
 `cortex_resume_scheduled` wakes suspended trees whose `next_resume_at` has passed. For
 each tree it creates a `PENDING` run, clears `next_resume_at`, then enqueues with
@@ -286,6 +286,22 @@ run that does not exist yet.
 
 **Fix:** use `ctx['redis']` directly, commit the run before enqueueing, and only clear
 `next_resume_at` once the enqueue succeeded.
+
+**Fixed (2026-10-09).** The cron reads the due tree ids, then wakes each tree in its own
+transactions (`_wake_scheduled_tree`): it re-checks the tree is still suspended and due,
+commits a `PENDING` run carrying `cortex_tree_id`, and queues `run_execution_recursive` on
+the worker's own pool through `common/job_queue.enqueue_on` (no re-wrap; the caller's trace
+travels with the job). Only then is `next_resume_at` cleared, and only if it still holds the
+time this run answered, so a tree rescheduled meanwhile keeps its new time. If the job cannot
+be queued, the run is marked `FAILED` with the reason (it shows in run history) and the tree
+keeps its schedule, so the next tick tries again. A worker with no pool logs an error and
+wakes nothing. The cron returns `{"resumed", "failed"}`.
+
+Nothing in the app sets `next_resume_at` yet (only the package model and its migration), so
+no schedule had been lost in practice; the job is ready for the first caller that does.
+`tests/integration/test_cortex_scheduled_resume.py` (4): commit, then queue, then clear; a
+refused enqueue fails the run and keeps the schedule; a reschedule during the enqueue
+survives; no pool, no wake. All four fail against the old job.
 
 ---
 
@@ -604,9 +620,9 @@ on fresh evidence (the concern formerly recorded as MC-17).
   (MC-05, MC-12, MC-18).
 - Every open defect is **deferred** — real, understood, not scheduled. Pick them up on
   request. If one is picked up, [MC-06](#mc-06--every-retrieval-failure-is-silent) has the
-  widest effect now that memory is load-bearing, and
-  [MC-24](#mc-24--scheduled-cortex-resume-never-enqueues-and-loses-the-schedule) silently
-  breaks every scheduled resume.
+  widest effect now that memory is load-bearing.
+  [MC-24](#mc-24--scheduled-cortex-resume-never-enqueues-and-loses-the-schedule), which broke
+  every scheduled resume, was un-deferred and fixed on 2026-10-09 (HD15).
 - Open improvements: MC-I2, MC-I4, MC-I5, MC-I6, MC-I9, MC-I10, MC-I11.
 
 ---

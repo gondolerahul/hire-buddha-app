@@ -924,7 +924,7 @@ in a `try/except ImportError` in case `arq.cron` is unavailable.
 
 | Cron | Schedule (as written) | What it does |
 |------|----------------------|--------------|
-| `cortex_resume_scheduled` | every 5 minutes (`minute={0,5,...,55}`) | Wakes suspended CORTEX trees whose `next_resume_at` has passed; creates a run and enqueues `run_execution_recursive`. |
+| `cortex_resume_scheduled` | every 5 minutes (`minute={0,5,...,55}`) | Wakes suspended CORTEX trees whose `next_resume_at` has passed: commits a run, enqueues `run_execution_recursive`, then clears the schedule; a failed enqueue fails the run and keeps the schedule (MC-24). |
 | `dreaming_cron_trigger` | `hour={0,6,12,18}, minute={15}` | Finds memory-enabled entities (`capabilities.memory.enabled`) and enqueues `dreaming_worker` for each. |
 | `graph_maintenance_worker` | `hour={3}, minute={45}` | One global pass: decays stale semantic-graph edges and prunes the weakest. |
 | `critic_calibration_job` | `weekday=6, hour=3, minute=15` — the comment says Sunday 03:15 UTC | Per company, runs `CriticCalibrator` over recent `StepHealthRecord`s and writes false-pass/false-fail metrics back as Intelligence rules. |
