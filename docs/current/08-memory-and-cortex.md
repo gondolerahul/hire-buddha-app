@@ -1080,8 +1080,10 @@ Memory is opt-in per entity: `capabilities.memory.enabled` must be true, and
 `memory_scope` picks the domains. A resumed run reuses the memory stored in its
 AgentState snapshot instead of re-assembling. Child runs do **not** inherit the
 parent's memory keys — each child's own loop assembles its own entity's memory.
-Each assembly emits an `agent.memory.assembled` event (scope, rule and episode
-counts, block size).
+Each assembly runs in a `memory` trace span and emits an `agent.memory.assembled`
+event (scope, rule and episode counts, block size, and `failed` — the retrievals that
+failed). A failed retrieval also marks the span `error` and emits
+`agent.memory.retrieval_failed` (MC-06; see §11.3).
 
 ```mermaid
 sequenceDiagram
@@ -1145,21 +1147,31 @@ assembled from the four CORTEX domains.
 | Intelligence | `get_applicable_rules(...)` | `max_rules=10` |
 | Episodic | `get_recent_episodes(limit=5)` + `query_by_topic(top_k=3)`, deduped | capped at **10** |
 
-Every domain assembler is wrapped in `try/except` that logs at `debug` and
-returns `[]`:
+Each domain reads in its own savepoint (`_read_domain`). A failure is recorded,
+not swallowed (MC-06, 2026-10-09):
 
 ```python
 # backend/cortex_memory/assembly.py
-except Exception as e:
-    logger.debug(f"Knowledge assembly failed: {e}")
+try:
+    async with self.db.begin_nested():
+        return await read()
+except Exception as exc:
+    self._record_failure(result, name, exc)   # result.failures[name], WARNING log
     return []
 ```
 
-**This is a real operational trap.** If retrieval is silently broken — bad
-credentials, a missing pgvector index, a dimension mismatch — the agent simply
-runs with no memory and nobody gets an error. The only signal is a `debug`-level
-log line. When debugging "the agent forgot everything", turn on debug logging
-for `cortex_memory.assembly` first.
+`result.failures` names each retrieval that failed — the domain, or
+`knowledge_refs` / `episodic_topic` for the two partial steps — so an empty list
+with no failure means "nothing learned yet" and one with a failure means "not
+read". The savepoint keeps a failed query from aborting the transaction the other
+domains read in. The semantic reads embed their query through
+`embedding.require_query_vector`: a configured provider that returns no vector (Vertex
+refusing expired credentials, say) raises `EmbeddingUnavailable`, so an outage is a
+failure, not "nothing matched"; with no provider at all there is simply no semantic
+search. On the host, the failures mark the run's `memory` trace span as
+`error` (the span's error text names each one) and each is an
+`agent.memory.retrieval_failed` event. When an agent "forgot everything", look at
+the memory span on the run's trace first.
 
 ### 11.4 The rendered block
 
@@ -1771,10 +1783,11 @@ environment.
    docstring says "host re-export shim", the logic is in
    `backend/cortex_memory/`. Read there.
 
-2. **Retrieval failures are silent.** Every domain assembler catches broad
-   `Exception`, logs at `debug`, and returns `[]`. An agent with broken memory
-   looks exactly like an agent with empty memory. Enable debug logging on
-   `cortex_memory.assembly` before assuming "it just hasn't learned yet".
+2. **A failed retrieval reads as `[]` — but is named.** Until MC-06 (2026-10-09)
+   every domain caught broad `Exception`, logged at `debug` and returned `[]`, so
+   broken memory looked like empty memory. Now the run's `memory` trace span is
+   `error` and names the failed domains; check it before assuming "it just hasn't
+   learned yet".
 
 3. **Memory is opt-in per entity.** Nothing is assembled (and no episodes are
    recorded) unless `capabilities.memory.enabled` is true.

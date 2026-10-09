@@ -194,11 +194,10 @@ class SemanticGraphService:
         Hybrid search: embedding similarity seeds + graph expansion.
         Primary search interface for the v2 memory system.
         """
-        if self._embedding is None:
-            return []  # no embedding provider injected — no semantic seed
-        _res = await self._embedding.embed([query])
-        query_vector = _res.vectors[0] if _res.vectors and _res.vectors[0] else None
-
+        # No provider injected → no semantic seed; a provider that fails
+        # raises EmbeddingUnavailable rather than reading as "no match" (MC-06).
+        from cortex_memory.embedding import require_query_vector
+        query_vector = await require_query_vector(self._embedding, query)
         if not query_vector:
             return []
 

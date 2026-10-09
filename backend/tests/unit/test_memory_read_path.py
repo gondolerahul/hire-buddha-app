@@ -204,6 +204,84 @@ async def test_assembly_failure_runs_without_memory() -> None:
     assert await mem.intelligence_rules() == []
 
 
+@pytest.mark.asyncio
+async def test_assembly_passes_on_the_retrievals_that_failed() -> None:
+    from src.ai.memory.assembler import FAILURES_KEY
+
+    assembler = MagicMock()
+    assembler.assemble_runtime_memory = AsyncMock(return_value=SimpleNamespace(
+        formatted_prompt="", intelligence_rules=[], episodic_context=[],
+        knowledge_refs=[], experience_suggestions=[],
+        failures={"experience": "ProgrammingError: relation missing"},
+    ))
+    with patch("src.ai.memory.memory_assembly_service.MemoryAssemblyService",
+               return_value=assembler):
+        ctx = await assemble_memory(MagicMock(), uuid4(), uuid4())
+    assert ctx == {FAILURES_KEY: {"experience": "ProgrammingError: relation missing"}}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_retrieval_is_on_the_trace_not_in_the_context() -> None:
+    """MC-06: a domain that could not be read marks the run's memory span as
+    an error, naming it, and is an event of its own — not an empty memory."""
+    from contextlib import asynccontextmanager
+
+    from src.ai.core.trace import SpanHandle
+    from src.ai.memory.assembler import FAILURES_KEY
+
+    handles: list = []
+
+    @asynccontextmanager
+    async def _span(kind, name=None, **payload):
+        handle = SpanHandle(span_id=uuid4(), parent_span_id=None, kind=kind, name=name,
+                            iteration=None, seq=0, payload=payload)
+        handles.append(handle)
+        yield handle
+
+    db, state = _db(), _state(input="x")
+    assembled = {"__episodic_memory__": [{"input": "q"}],
+                 FAILURES_KEY: {"knowledge": "ProgrammingError: relation missing"}}
+    events = AsyncMock()
+    with patch("src.ai.memory.assembler.assemble_memory", new=AsyncMock(return_value=assembled)), \
+         patch("src.ai.core.trace.span", new=_span), \
+         patch("src.ai.core.agent_loop_sse.event_async", new=events):
+        await assemble_run_memory(db, state, entity=_entity({"enabled": True}))
+
+    [handle] = handles
+    assert (handle.kind, handle.name, handle.status) == ("memory", "FULL", "error")
+    assert "knowledge (ProgrammingError: relation missing)" in handle.error_message
+    assert FAILURES_KEY not in state.context_state
+    assert state.context_state["__episodic_memory__"] == [{"input": "q"}]
+    calls = events.await_args_list
+    assert [c.args[0] for c in calls] == ["agent.memory.retrieval_failed", "agent.memory.assembled"]
+    assert (calls[0].kwargs["domain"], calls[0].kwargs["severity"]) == ("knowledge", "warning")
+    assert calls[1].kwargs["failed"] == ["knowledge"]
+
+
+@pytest.mark.asyncio
+async def test_a_whole_assembly_failure_is_on_the_trace_too() -> None:
+    from contextlib import asynccontextmanager
+
+    from src.ai.core.trace import SpanHandle
+
+    handles: list = []
+
+    @asynccontextmanager
+    async def _span(kind, name=None, **payload):
+        handle = SpanHandle(span_id=uuid4(), parent_span_id=None, kind=kind, name=name,
+                            iteration=None, seq=0, payload=payload)
+        handles.append(handle)
+        yield handle
+
+    with patch("src.ai.memory.assembler.assemble_memory",
+               new=AsyncMock(side_effect=RuntimeError("vector index missing"))), \
+         patch("src.ai.core.trace.span", new=_span), \
+         patch("src.ai.core.agent_loop_sse.event_async", new=AsyncMock()):
+        await assemble_run_memory(_db(), _state(input="x"), entity=_entity({"enabled": True}))
+    assert handles[0].status == "error"
+    assert "assembly (RuntimeError: vector index missing)" in handles[0].error_message
+
+
 # ---------------------------------------------------------------------------
 # Consumers: step prompt + planner
 # ---------------------------------------------------------------------------

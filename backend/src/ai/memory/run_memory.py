@@ -140,22 +140,44 @@ async def assemble_run_memory(
     query = state.context_state.get("input")
     if not isinstance(query, str) or not query.strip():
         query = getattr(entity, "goal", None) or getattr(entity, "name", "") or ""
-    try:
-        memory_ctx = await assembler.assemble_memory(
-            db, state.company_id, state.entity_id,
-            task_description=str(query)[:2000],
-            memory_scope=scope,
-            runtime_tree=runtime_tree,
-        )
-        # Assembly writes reference nodes into the runtime tree.
-        await db.commit()
-    except Exception as exc:                                                # noqa: BLE001
-        logger.warning("Memory assembly failed; running without memory: %s", exc)
-        await db.rollback()
-        memory_ctx = {}
-
-    state.context_state.update(memory_ctx)
     from src.ai.core.agent_loop_sse import event_async
+    from src.ai.core.trace import span
+
+    # A failed read is not an empty memory (MC-06): the trace's memory span
+    # names each retrieval that failed, and each is an event of its own.
+    async with span("memory", scope) as handle:
+        failures: Dict[str, str] = {}
+        try:
+            memory_ctx = await assembler.assemble_memory(
+                db, state.company_id, state.entity_id,
+                task_description=str(query)[:2000],
+                memory_scope=scope,
+                runtime_tree=runtime_tree,
+            )
+            # Assembly writes reference nodes into the runtime tree.
+            await db.commit()
+        except Exception as exc:                                            # noqa: BLE001
+            logger.warning("Memory assembly failed; running without memory: %s", exc)
+            await db.rollback()
+            memory_ctx = {}
+            failures["assembly"] = f"{type(exc).__name__}: {exc}"[:500]
+        failures = {**memory_ctx.pop(assembler.FAILURES_KEY, {}), **failures}
+        handle.update(
+            rules=len(memory_ctx.get("__intelligence_rules__") or []),
+            episodes=len(memory_ctx.get("__episodic_memory__") or []),
+            failures=failures,
+        )
+        if failures:
+            handle.set_error("memory not read: " + "; ".join(
+                f"{name} ({error})" for name, error in sorted(failures.items())))
+
+    for name, error in sorted(failures.items()):
+        await event_async(
+            "agent.memory.retrieval_failed",
+            run_id=str(state.run_id), company_id=state.company_id,
+            severity="warning", domain=name, error=error,
+        )
+    state.context_state.update(memory_ctx)
     await event_async(
         "agent.memory.assembled",
         run_id=str(state.run_id),
@@ -163,6 +185,7 @@ async def assemble_run_memory(
         rules=len(memory_ctx.get("__intelligence_rules__") or []),
         episodes=len(memory_ctx.get("__episodic_memory__") or []),
         block_chars=len(memory_ctx.get("__memory__") or ""),
+        failed=sorted(failures),
     )
     return RunMemory(state.context_state, confirmed_only=confirmed_only)
 

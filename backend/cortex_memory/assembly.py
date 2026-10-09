@@ -15,6 +15,10 @@ Usage:
         task_description="Analyze Q3 revenue trends",
     )
     prompt_text = result.formatted_prompt
+
+A domain whose retrieval fails is named in ``result.failures`` (MC-06): its
+empty list means "not read", not "nothing learned". Each domain reads in its
+own savepoint, so one failed query does not abort the others.
 """
 from __future__ import annotations
 
@@ -22,7 +26,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +42,10 @@ class MemoryAssemblyResult:
     intelligence_rules: List[Dict[str, Any]] = field(default_factory=list)
     episodic_context: List[Dict[str, Any]] = field(default_factory=list)
     formatted_prompt: str = ""
+    # Each retrieval that failed, by name -> "ErrorType: message": the four
+    # domains, plus "knowledge_refs" (the runtime tree's reference nodes) and
+    # "episodic_topic" (the semantic half of the episodic read).
+    failures: Dict[str, str] = field(default_factory=dict)
 
 
 class MemoryAssemblyService:
@@ -84,26 +92,29 @@ class MemoryAssemblyService:
 
         # 1. KNOWLEDGE ASSEMBLY
         if "knowledge" in domains:
-            result.knowledge_refs = await self._assemble_knowledge(
-                entity_id, task_description, runtime_tree,
+            result.knowledge_refs = await self._read_domain(
+                result, "knowledge", lambda: self._assemble_knowledge(entity_id, task_description),
             )
+            if result.knowledge_refs and runtime_tree:
+                await self._create_runtime_knowledge_refs(result, runtime_tree, result.knowledge_refs[:5])
 
         # 2. EXPERIENCE RETRIEVAL
         if "experience" in domains:
-            result.experience_suggestions = await self._retrieve_experience(
-                entity_id, task_description,
+            result.experience_suggestions = await self._read_domain(
+                result, "experience", lambda: self._retrieve_experience(entity_id, task_description),
             )
 
         # 3. INTELLIGENCE INJECTION
         if "intelligence" in domains:
-            result.intelligence_rules = await self._retrieve_intelligence(
-                entity_id, task_description,
+            result.intelligence_rules = await self._read_domain(
+                result, "intelligence", lambda: self._retrieve_intelligence(entity_id, task_description),
             )
 
         # 4. EPISODIC CONTEXT
         if "episodic" in domains:
-            result.episodic_context = await self._retrieve_episodic(
-                entity_id, user_id, task_description,
+            result.episodic_context = await self._read_domain(
+                result, "episodic",
+                lambda: self._retrieve_episodic(entity_id, user_id, task_description, result=result),
             )
 
         # 5. Format for prompt
@@ -114,64 +125,88 @@ class MemoryAssemblyService:
     # Domain Assemblers
     # ===================================================================
 
+    @staticmethod
+    def _record_failure(result: MemoryAssemblyResult, name: str, exc: BaseException) -> None:
+        result.failures[name] = f"{type(exc).__name__}: {exc}"[:500]
+        logger.warning("CORTEX %s retrieval failed: %s", name, exc)
+
+    async def _read_domain(
+        self,
+        result: MemoryAssemblyResult,
+        name: str,
+        read: Callable[[], Awaitable[List[Dict[str, Any]]]],
+    ) -> List[Dict[str, Any]]:
+        """One domain's read in its own savepoint. A failure is recorded in
+        ``result.failures`` and reads as ``[]``; the savepoint keeps a failed
+        query from aborting the transaction the other domains read in."""
+        try:
+            async with self.db.begin_nested():
+                return await read()
+        except Exception as exc:
+            self._record_failure(result, name, exc)
+            return []
+
     async def _assemble_knowledge(
         self,
         entity_id: UUID,
         task_description: str,
-        runtime_tree: Any = None,
     ) -> List[Dict[str, Any]]:
+        """Find relevant knowledge nodes via semantic graph search."""
+        from cortex_memory.graph import SemanticGraphService
+        graph = SemanticGraphService(self.db, self.company_id, embedding=self._embedding)
+
+        results = await graph.semantic_graph_search(
+            query=task_description,
+            entity_id=entity_id,
+            domains=["knowledge"],
+            top_k=10,
+            graph_expansion_depth=1,
+        )
+        return results or []
+
+    async def _create_runtime_knowledge_refs(
+        self, result: MemoryAssemblyResult, runtime_tree: Any, items: List[Dict[str, Any]],
+    ) -> None:
+        """Create reference nodes in the runtime tree's knowledge root.
+
+        Each write has its own savepoint, so one bad reference costs only
+        itself; the failures are recorded as ``knowledge_refs``.
         """
-        Find relevant knowledge nodes via semantic graph search.
-        Creates reference nodes in runtime tree if available.
-        """
-        try:
-            from cortex_memory.graph import SemanticGraphService
-            graph = SemanticGraphService(self.db, self.company_id, embedding=self._embedding)
-
-            results = await graph.semantic_graph_search(
-                query=task_description,
-                entity_id=entity_id,
-                domains=["knowledge"],
-                top_k=10,
-                graph_expansion_depth=1,
-            )
-
-            if results and runtime_tree:
-                await self._create_runtime_knowledge_refs(runtime_tree, results[:5])
-
-            return results or []
-        except Exception as e:
-            logger.debug(f"Knowledge assembly failed: {e}")
-            return []
-
-    async def _create_runtime_knowledge_refs(self, runtime_tree: Any, results: Any) -> None:
-        """Create reference nodes in the runtime tree's knowledge root."""
+        failed: List[str] = []
         try:
             from cortex_memory.service import CortexService
             cortex = CortexService(self.db, self.company_id, llm=self._llm, child_run_factory=self._child_run_factory)
-            knowledge_root = await cortex.get_knowledge_root(runtime_tree.id)
+            async with self.db.begin_nested():
+                knowledge_root = await cortex.get_knowledge_root(runtime_tree.id)
             if not knowledge_root:
                 return
 
-            for item in results:
+            for item in items:
                 try:
-                    await cortex.write(
-                        parent_id=knowledge_root.id,
-                        node_type="knowledge",
-                        title=f"📎 {item.get('title', 'Reference')[:100]}",
-                        summary=item.get("summary", ""),
-                        content=None,
-                        source_ref={
-                            "ref_type": "cortex_node",
-                            "source_tree_id": item.get("tree_id"),
-                            "source_node_id": item.get("node_id"),
-                            "relevance_score": item.get("combined_score", 0),
-                        },
-                    )
-                except Exception:
-                    pass
-        except Exception as e:
-            logger.debug(f"Runtime knowledge reference creation failed: {e}")
+                    async with self.db.begin_nested():
+                        await cortex.write(
+                            parent_id=knowledge_root.id,
+                            node_type="knowledge",
+                            title=f"📎 {item.get('title', 'Reference')[:100]}",
+                            summary=item.get("summary", ""),
+                            content=None,
+                            source_ref={
+                                "ref_type": "cortex_node",
+                                "source_tree_id": item.get("tree_id"),
+                                "source_node_id": item.get("node_id"),
+                                "relevance_score": item.get("combined_score", 0),
+                            },
+                        )
+                except Exception as exc:
+                    failed.append(f"{type(exc).__name__}: {exc}")
+        except Exception as exc:
+            self._record_failure(result, "knowledge_refs", exc)
+            return
+        if failed:
+            self._record_failure(
+                result, "knowledge_refs",
+                RuntimeError(f"{len(failed)} of {len(items)} reference writes failed; last: {failed[-1]}"),
+            )
 
     async def _retrieve_experience(
         self,
@@ -179,29 +214,25 @@ class MemoryAssemblyService:
         task_description: str,
     ) -> List[Dict[str, Any]]:
         """Query Experience Tree for suggestions relevant to the current task."""
-        try:
-            from cortex_memory.graph import SemanticGraphService
-            graph = SemanticGraphService(self.db, self.company_id, embedding=self._embedding)
+        from cortex_memory.graph import SemanticGraphService
+        graph = SemanticGraphService(self.db, self.company_id, embedding=self._embedding)
 
-            results = await graph.semantic_graph_search(
-                query=task_description,
-                entity_id=entity_id,
-                domains=["experience"],
-                top_k=5,
-            )
+        results = await graph.semantic_graph_search(
+            query=task_description,
+            entity_id=entity_id,
+            domains=["experience"],
+            top_k=5,
+        )
 
-            return [
-                {
-                    "suggestion": r.get("summary", ""),
-                    "type": r.get("node_type"),
-                    "confidence": r.get("combined_score", 0),
-                }
-                for r in (results or [])
-                if r.get("node_type") in ("suggestion", "pattern", "observation")
-            ]
-        except Exception as e:
-            logger.debug(f"Experience retrieval failed: {e}")
-            return []
+        return [
+            {
+                "suggestion": r.get("summary", ""),
+                "type": r.get("node_type"),
+                "confidence": r.get("combined_score", 0),
+            }
+            for r in (results or [])
+            if r.get("node_type") in ("suggestion", "pattern", "observation")
+        ]
 
     async def _retrieve_intelligence(
         self,
@@ -209,66 +240,68 @@ class MemoryAssemblyService:
         task_description: str,
     ) -> List[Dict[str, Any]]:
         """Query Intelligence Tree for applicable rules."""
-        try:
-            from cortex_memory.intelligence_tree import IntelligenceTreeService
-            intelligence_svc = IntelligenceTreeService(self.db, self.company_id, embedding=self._embedding)
-            return await intelligence_svc.get_applicable_rules(
-                entity_id=entity_id,
-                task_description=task_description,
-                max_rules=10,
-            )
-        except Exception as e:
-            logger.debug(f"Intelligence retrieval failed: {e}")
-            return []
+        from cortex_memory.intelligence_tree import IntelligenceTreeService
+        intelligence_svc = IntelligenceTreeService(self.db, self.company_id, embedding=self._embedding)
+        rules: List[Dict[str, Any]] = await intelligence_svc.get_applicable_rules(
+            entity_id=entity_id,
+            task_description=task_description,
+            max_rules=10,
+        )
+        return rules
 
     async def _retrieve_episodic(
         self,
         entity_id: UUID,
         user_id: Optional[UUID] = None,
         task_description: str = "",
+        *,
+        result: Optional[MemoryAssemblyResult] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieve recent and topically relevant episodes."""
-        try:
-            from cortex_memory.episodic_tree import EpisodicTreeService
-            episodic_svc = EpisodicTreeService(self.db, self.company_id, embedding=self._embedding)
+        """Retrieve recent and topically relevant episodes.
 
-            # Recent episodes
-            recent = await episodic_svc.get_recent_episodes(
-                entity_id=entity_id, limit=5,
-            )
+        The recent episodes stand on their own: if the semantic half fails it
+        is recorded as ``episodic_topic`` and the recent ones are returned.
+        """
+        from cortex_memory.episodic_tree import EpisodicTreeService
+        episodic_svc = EpisodicTreeService(self.db, self.company_id, embedding=self._embedding)
 
-            # Topic-relevant episodes (semantic)
-            relevant = []
-            if task_description:
-                try:
+        # Recent episodes
+        recent = await episodic_svc.get_recent_episodes(
+            entity_id=entity_id, limit=5,
+        )
+
+        # Topic-relevant episodes (semantic)
+        relevant = []
+        if task_description:
+            try:
+                async with self.db.begin_nested():
                     relevant_raw = await episodic_svc.query_by_topic(
                         entity_id=entity_id,
                         query=task_description,
                         top_k=3,
                     )
-                    for ep in relevant_raw:
-                        relevant.append({
-                            "input": ep.get("content", ""),
-                            "output": ep.get("summary", ""),
-                            "status": (ep.get("metadata") or {}).get("status", ""),
-                            "at": ep.get("created_at", ""),
-                        })
-                except Exception:
-                    pass
+                for ep in relevant_raw:
+                    relevant.append({
+                        "input": ep.get("content", ""),
+                        "output": ep.get("summary", ""),
+                        "status": (ep.get("metadata") or {}).get("status", ""),
+                        "at": ep.get("created_at", ""),
+                    })
+            except Exception as exc:
+                if result is None:
+                    raise
+                self._record_failure(result, "episodic_topic", exc)
 
-            # Merge and deduplicate
-            seen = set()
-            episodes = []
-            for ep in recent + relevant:
-                key = ep.get("at", "") + ep.get("input", "")[:50]
-                if key not in seen:
-                    episodes.append(ep)
-                    seen.add(key)
+        # Merge and deduplicate
+        seen = set()
+        episodes = []
+        for ep in recent + relevant:
+            key = ep.get("at", "") + ep.get("input", "")[:50]
+            if key not in seen:
+                episodes.append(ep)
+                seen.add(key)
 
-            return episodes[:10]
-        except Exception as e:
-            logger.debug(f"Episodic retrieval failed: {e}")
-            return []
+        return episodes[:10]
 
     # ===================================================================
     # Prompt Formatting

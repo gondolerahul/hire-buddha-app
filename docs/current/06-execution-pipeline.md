@@ -1909,7 +1909,7 @@ is an append-only span tree modelling
 | Column | Meaning |
 |--------|---------|
 | `span_id` / `parent_span_id` | Tree edges; `parent_span_id` NULL at the iteration root. |
-| `kind` | One of `iteration`, `executor`, `step`, `child`, `tool`, `llm`, `critic`. |
+| `kind` | One of `iteration`, `executor`, `step`, `child`, `tool`, `llm`, `critic`, `memory` (the run's memory read, once at the start — MC-06). |
 | `status` | `running` \| `success` \| `error`. |
 | `seq` | In-process monotonic ordering within a run. |
 | `payload` | JSONB — full inputs/outputs/prompts, per-field capped at `TRACE_MAX_FIELD_BYTES` (1 MB default). Empty when `observability.log_thoughts` is false. |

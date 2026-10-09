@@ -145,6 +145,77 @@ async def test_assembler_runs(db) -> None:
     assert hasattr(res, "formatted_prompt") or hasattr(res, "episodic_context")
 
 
+async def test_a_failed_domain_is_named_and_the_others_still_read(db, monkeypatch) -> None:
+    """MC-06: an empty list from an error is not an empty memory, and a failed
+    query does not abort the transaction the later domains read in."""
+    from sqlalchemy import text
+
+    company, entity = uuid4(), uuid4()
+    episodic = EpisodicTreeService(db, company, embedding=HashEmbeddingProvider(dim=768))
+    await episodic.write_episode(entity_id=entity, run=_fake_run(company, entity))
+    await db.commit()
+
+    async def _broken(self, entity_id, task_description):
+        await self.db.execute(text("SELECT * FROM mc06_no_such_table"))
+        return []
+
+    monkeypatch.setattr(MemoryAssemblyService, "_retrieve_experience", _broken)
+    assembler = MemoryAssemblyService(
+        db, company,
+        embedding=HashEmbeddingProvider(dim=768), llm=_StructuredLLM(), child_run_factory=None,
+    )
+    res = await assembler.assemble_runtime_memory(
+        entity_id=entity, task_description="what did we learn?",
+        include_domains=["experience", "episodic"],
+    )
+    assert set(res.failures) == {"experience"}
+    assert "mc06_no_such_table" in res.failures["experience"]
+    assert res.experience_suggestions == []
+    assert res.episodic_context  # read after the failed query, in the same transaction
+
+
+async def test_an_empty_memory_reports_no_failures(db) -> None:
+    assembler = MemoryAssemblyService(
+        db, uuid4(),
+        embedding=HashEmbeddingProvider(dim=768), llm=_StructuredLLM(), child_run_factory=None,
+    )
+    res = await assembler.assemble_runtime_memory(entity_id=uuid4(), task_description="anything")
+    assert res.failures == {}
+    assert (res.knowledge_refs, res.experience_suggestions, res.intelligence_rules,
+            res.episodic_context) == ([], [], [], [])
+
+
+class _NoVectorEmbedding(HashEmbeddingProvider):
+    """A provider that is configured but answers with no vector — the host's
+    ``EmbeddingService`` does this when Vertex refuses (expired credentials)."""
+
+    async def embed(self, texts: Sequence[str], *, model: Optional[str] = None) -> EmbeddingResult:
+        return EmbeddingResult(vectors=[None] * len(texts))  # type: ignore[list-item]
+
+
+async def test_an_embedding_outage_is_a_failure_not_an_empty_memory(db) -> None:
+    """MC-06, found live: with the query unembeddable, every semantic read
+    returned [] as if nothing matched. Each is now named in ``failures``."""
+    company, entity = uuid4(), uuid4()
+    episodic = EpisodicTreeService(db, company, embedding=HashEmbeddingProvider(dim=768))
+    await episodic.write_episode(entity_id=entity, run=_fake_run(company, entity))
+    await db.commit()
+
+    assembler = MemoryAssemblyService(
+        db, company, embedding=_NoVectorEmbedding(dim=768), llm=_StructuredLLM(), child_run_factory=None,
+    )
+    res = await assembler.assemble_runtime_memory(entity_id=entity, task_description="what did we learn?")
+    assert set(res.failures) == {"knowledge", "experience", "intelligence", "episodic_topic"}
+    assert all("EmbeddingUnavailable" in error for error in res.failures.values())
+    assert res.episodic_context  # the recent episodes need no embedding
+
+
+async def test_no_embedding_provider_is_not_a_failure(db) -> None:
+    assembler = MemoryAssemblyService(db, uuid4(), embedding=None, llm=_StructuredLLM(), child_run_factory=None)
+    res = await assembler.assemble_runtime_memory(entity_id=uuid4(), task_description="anything")
+    assert res.failures == {}
+
+
 async def test_service_recurse_with_factory(db) -> None:
     company = uuid4()
     created: dict = {}

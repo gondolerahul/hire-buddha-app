@@ -472,7 +472,7 @@ independently. Defined at [orm/trace.py:51](../../backend/src/ai/orm/trace.py:51
 | `span_id` | UUID | no | — | Stable identity used by the close-update |
 | `parent_span_id` | UUID | yes | — | NULL for run-root (iteration) spans |
 | `iteration` | Integer | yes | — | Loop iteration number |
-| `kind` | String(16) | no | — | `iteration` / `executor` / `step` / `child` / `tool` / `llm` / `critic` |
+| `kind` | String(16) | no | — | `iteration` / `executor` / `step` / `child` / `tool` / `llm` / `critic` / `memory` |
 | `name` | String(512) | yes | — | Tool id, model name or step name |
 | `status` | String(16) | no | `running` | `running` / `success` / `error` |
 | `seq` | BigInteger | no | `0` | Monotonic order within a run |
@@ -1717,7 +1717,7 @@ From [orm/trace.py:44](../../backend/src/ai/orm/trace.py:44):
 
 ```python
 # backend/src/ai/orm/trace.py
-TRACE_KINDS = ("iteration", "executor", "step", "child", "tool", "llm", "critic")
+TRACE_KINDS = ("iteration", "executor", "step", "child", "tool", "llm", "critic", "memory")
 TRACE_STATUSES = ("running", "success", "error")
 ```
 

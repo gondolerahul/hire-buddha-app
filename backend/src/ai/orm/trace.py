@@ -42,7 +42,7 @@ __all__ = ["ExecutionTraceEvent"]
 
 
 # Span kinds — the node types in the work tree.
-TRACE_KINDS = ("iteration", "executor", "step", "child", "tool", "llm", "critic")
+TRACE_KINDS = ("iteration", "executor", "step", "child", "tool", "llm", "critic", "memory")
 
 # Span lifecycle status.
 TRACE_STATUSES = ("running", "success", "error")

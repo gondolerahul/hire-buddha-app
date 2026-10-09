@@ -22,6 +22,23 @@ async def embed_query(provider: Any, text: str) -> Optional[List[float]]:
     return None
 
 
+class EmbeddingUnavailable(RuntimeError):
+    """The provider returned no vector for a non-empty query (MC-06)."""
+
+
+async def require_query_vector(provider: Any, text: str) -> Optional[List[float]]:
+    """Embed a search query for a read whose empty answer must mean "nothing
+    matched". ``None`` only when there is nothing to search with (no provider,
+    no text); a provider that answers with no vector raises
+    ``EmbeddingUnavailable`` — an outage is not an empty memory."""
+    if provider is None or not text:
+        return None
+    vector = await embed_query(provider, text)
+    if not vector:
+        raise EmbeddingUnavailable("the embedding provider returned no vector for the query")
+    return vector
+
+
 async def embed_texts(provider: Any, texts: List[str]) -> tuple[List[Optional[List[float]]], str]:
     """Embed a batch; returns (vectors, model_name). Missing → None entries."""
     if provider is None or not texts:

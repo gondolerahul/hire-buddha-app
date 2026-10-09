@@ -426,7 +426,8 @@ export type SpanKind =
     | 'child'
     | 'tool'
     | 'llm'
-    | 'critic';
+    | 'critic'
+    | 'memory'; // the run's memory read, once at the start (MC-06)
 
 export type SpanStatus = 'running' | 'success' | 'error';
 

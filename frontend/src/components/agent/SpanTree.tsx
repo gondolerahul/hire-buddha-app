@@ -27,6 +27,7 @@ const KIND_ICON: Record<SpanKind, string> = {
     tool: '🔧',
     llm: '🧠',
     critic: '⚖️',
+    memory: '📚',
 };
 
 const STATUS_LABEL: Record<SpanStatus, string> = {

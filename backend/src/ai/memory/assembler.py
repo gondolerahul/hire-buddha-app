@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+# The retrievals that failed, by name -> error (MC-06). Returned beside the
+# context keys for ``run_memory`` to take off; never written to the run.
+FAILURES_KEY = "__memory_failures__"
+
 # memory_scope → the domains consulted. RUN_SCOPED carries nothing learned from
 # other runs (MemoryConfig: "only the current run's data") — just the entity's
 # own reference knowledge.
@@ -41,7 +45,8 @@ async def assemble_memory(
 
     Returns:
         The non-empty keys among ``__memory__`` (the rendered prompt block),
-        ``__intelligence_rules__`` and ``__episodic_memory__``.
+        ``__intelligence_rules__`` and ``__episodic_memory__``, and
+        ``FAILURES_KEY`` when a retrieval failed.
     """
     if memory_scope == "NONE":
         return {}
@@ -64,11 +69,15 @@ async def assemble_memory(
         memory_context["__intelligence_rules__"] = result.intelligence_rules
     if result.episodic_context:
         memory_context["__episodic_memory__"] = result.episodic_context
+    failures = getattr(result, "failures", None)
+    if failures:
+        memory_context[FAILURES_KEY] = dict(failures)
 
     logger.info(
         f"Memory assembly ({memory_scope}): {len(result.knowledge_refs)} knowledge refs, "
         f"{len(result.experience_suggestions)} experience suggestions, "
         f"{len(result.intelligence_rules)} rules, "
         f"{len(result.episodic_context)} episodes"
+        + (f"; failed: {', '.join(sorted(failures))}" if failures else "")
     )
     return memory_context

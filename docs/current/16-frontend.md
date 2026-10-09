@@ -1113,7 +1113,7 @@ The union types that the UI branches on:
 | `PostCriticVerdictKind` | `PASS`, `REVISE`, `REJECT` |
 | `SupervisorRecommendation` | `CONTINUE`, `REPLAN`, `ABORT`, `PAUSE` |
 | `CostAttribution` | 14 tags from `planner` through `test_driver` |
-| `SpanKind` | `iteration`, `executor`, `step`, `child`, `tool`, `llm`, `critic` |
+| `SpanKind` | `iteration`, `executor`, `step`, `child`, `tool`, `llm`, `critic`, `memory` |
 | `AgentEvent` | a 27-member discriminated union on `type` — see [§8](#8-real-time-in-the-browser) |
 
 See [05 — The agent kernel](05-agent-kernel.md) and

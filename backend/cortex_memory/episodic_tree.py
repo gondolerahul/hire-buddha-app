@@ -313,8 +313,9 @@ class EpisodicTreeService:
         if not tree:
             return []
 
-        from cortex_memory.embedding import embed_query
-        query_vector = await embed_query(self._embedding, query)
+        # An embedding outage raises, not reads as no match (MC-06).
+        from cortex_memory.embedding import require_query_vector
+        query_vector = await require_query_vector(self._embedding, query)
         if not query_vector:
             return []
 

@@ -191,8 +191,9 @@ class IntelligenceTreeService:
         """
         tree = await self.get_or_create_intelligence_tree(entity_id)
 
-        from cortex_memory.embedding import embed_query
-        query_vector = await embed_query(self._embedding, task_description)
+        # An embedding outage raises, not reads as no match (MC-06).
+        from cortex_memory.embedding import require_query_vector
+        query_vector = await require_query_vector(self._embedding, task_description)
 
         if not query_vector:
             return []

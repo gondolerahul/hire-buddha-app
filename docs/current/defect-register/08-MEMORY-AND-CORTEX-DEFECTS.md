@@ -46,11 +46,11 @@
 | Tier | Theme | Count | Fixed | Deferred |
 |---|---|---|---|---|
 | [T0](#2-t0--memory-that-is-written-and-never-read) | Memory that is written and never read | 3 | 3 | 0 |
-| [T1](#3-t1--silent-failure-and-silent-no-ops) | Silent failure and silent no-ops | 5 | 3 | 2 |
+| [T1](#3-t1--silent-failure-and-silent-no-ops) | Silent failure and silent no-ops | 5 | 4 | 1 |
 | [T2](#4-t2--structural-gaps) | Structural gaps | 5 | 1 | 4 |
 | [T3](#5-t3--inconsistency-and-cost) | Inconsistency and cost | 7 | 3 | 4 |
 
-**Total: 20 defects (10 fixed, 10 deferred), 11 improvements (4 done).**
+**Total: 20 defects (11 fixed, 9 deferred), 11 improvements (4 done).**
 
 | ID | Defect | Status |
 |---|---|---|
@@ -58,7 +58,7 @@
 | MC-02 | The scheduled dreaming job has never run | ✅ fixed `bb4f01e` |
 | MC-03 | Intelligence rules are distilled and never consumed | ✅ fixed `bb4f01e` |
 | MC-05 | `memory_pipeline="v1"` is accepted and ignored | ✅ fixed `a30bb85` |
-| MC-06 | Every retrieval failure is silent | ⏸ deferred |
+| MC-06 | Every retrieval failure is silent | ✅ fixed (2026-10-09) — package change, port to `hb-cortex-memory` |
 | MC-07 | `FULL` and `RUN_SCOPED` memory scopes are identical | ✅ fixed `f8db3b0` |
 | MC-09 | `recurse()` creates a run and does not enqueue it | ⏸ deferred |
 | MC-10 | CORTEX tables have no foreign keys to host tables | ⏸ deferred |
@@ -207,7 +207,8 @@ at all.
 
 ### MC-06 — Every retrieval failure is silent
 
-**✅ Verified · High** · **Status: deferred (2026-09-29)**
+**✅ Verified · High** · **Status: ✅ fixed (2026-10-09)** — un-deferred by the product owner
+(HD15). **Package change:** `cortex_memory/assembly.py` must be ported to `hb-cortex-memory`.
 
 Every domain assembler catches broad `Exception`, logs at `debug`, and returns `[]`.
 
@@ -230,6 +231,42 @@ identical.
 
 **Fix:** count retrieval failures and surface them on the run trace. `[]` from an error
 and `[]` from an empty tree must be distinguishable.
+
+**Fixed (2026-10-09).** In the package, `MemoryAssemblyResult.failures` names each retrieval
+that failed (`"ErrorType: message"`): the four domains, `knowledge_refs` (writing the runtime
+tree's reference nodes) and `episodic_topic` (the semantic half of the episodic read, whose
+recent half still counts). A domain missing from `failures` with an empty list found nothing;
+one listed there was not read. Each domain now reads in its own **savepoint**: before, a
+failed SQL query aborted the transaction, so every later domain failed too and the host's
+commit then threw the whole assembly away. Each reference-node write has its own savepoint,
+so one bad reference costs only itself. Failures log at `WARNING`, not `debug`.
+
+An embedding outage is a failure too. The host's `EmbeddingService` answers a refused Vertex
+call with no vector, and the three semantic reads (`semantic_graph_search`,
+`get_applicable_rules`, `query_by_topic`) returned `[]` on it — the same "nothing matched"
+as an empty tree. They now embed through `embedding.require_query_vector`, which raises
+`EmbeddingUnavailable` when a configured provider returns nothing (no provider at all is
+still "no semantic search", not a failure). Found live on 2026-10-09 with expired ADC: the
+dev database's assembly reported no failures while four embeddings failed; after the change
+it names `knowledge`, `experience`, `intelligence` and `episodic_topic`, and still returns
+the recent episodes.
+
+On the host, `assemble_memory` passes the failures back under `FAILURES_KEY`, which
+`assemble_run_memory` takes off (they never reach `context_state`). The assembly runs in a
+new `memory` trace span (`TRACE_KINDS`, the SPA's `SpanKind` with a 📚 icon): a failure marks
+it `error` with every failed retrieval and its error in the span's error text, so it shows
+in the run's trace view. Each failure is also an `agent.memory.retrieval_failed` event
+(severity `warning`, `domain`, `error`) — the count — and `agent.memory.assembled` carries
+`failed`. A failure of the whole assembly is recorded the same way as `assembly`.
+
+Tests: package `test_services.py` — a domain failing with a real SQL error is named while
+the next domain still reads in the same transaction, and an empty memory reports no
+failures (both fail against the old assembler), and a provider that returns no vector is
+named in every semantic domain (fails against the old searches) while no provider is not a
+failure; host `test_memory_read_path.py` — the
+failures reach the span and the events and not the context, and a whole-assembly failure
+marks the span. The package suite runs on a scratch database (`CORTEX_TEST_DATABASE_URL`):
+the host database's `cortex_trees.entity_id` foreign key rejects its random ids.
 
 ---
 
@@ -619,10 +656,10 @@ on fresh evidence (the concern formerly recorded as MC-17).
   (MC-03), and Dreaming's two learning bugs (MC-21, MC-22). The v1 memory path is gone
   (MC-05, MC-12, MC-18).
 - Every open defect is **deferred** — real, understood, not scheduled. Pick them up on
-  request. If one is picked up, [MC-06](#mc-06--every-retrieval-failure-is-silent) has the
-  widest effect now that memory is load-bearing.
-  [MC-24](#mc-24--scheduled-cortex-resume-never-enqueues-and-loses-the-schedule), which broke
-  every scheduled resume, was un-deferred and fixed on 2026-10-09 (HD15).
+  request. [MC-06](#mc-06--every-retrieval-failure-is-silent) (silent retrieval failures)
+  and [MC-24](#mc-24--scheduled-cortex-resume-never-enqueues-and-loses-the-schedule) (every
+  scheduled resume broken) were un-deferred and fixed on 2026-10-09 (HD15); MC-06's package
+  change must be ported to `hb-cortex-memory`.
 - Open improvements: MC-I2, MC-I4, MC-I5, MC-I6, MC-I9, MC-I10, MC-I11.
 
 ---
