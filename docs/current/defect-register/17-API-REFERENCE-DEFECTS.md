@@ -41,9 +41,9 @@
 | [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
-| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 1 | 1 | 4 | 1 |
+| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 2 | 1 | 3 | 1 |
 
-**Total: 20 defects (14 fixed, 1 partly fixed, 4 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (15 fixed, 1 partly fixed, 3 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -63,7 +63,7 @@
 | API-14 | Nine admin routes have a doubled `admin/admin` segment | accepted — leave it | — |
 | API-15 | `/api/social-connections` breaks the versioning convention | ✅ fixed (2026-10-08) | — |
 | API-16 | There is no universal pagination | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
-| API-17 | Full paths chain two prefixes, so the decorator misleads | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-17 | Full paths chain two prefixes, so the decorator misleads | ✅ fixed (2026-10-08) — the route census | — |
 | API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | partly — hidden by default; verb unchanged | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
 | API-19 | Two similarly named tool endpoints return different things | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
 | API-20 | The credentials guide documents the wrong path prefix | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
@@ -314,7 +314,7 @@ A client cannot write one paging helper, and no endpoint degrades gracefully as 
 
 ### API-17 — Full paths chain two prefixes, so the decorator misleads
 
-**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
+**✅ Verified · Low** · **Status: fixed (2026-10-08)** — the prefixes stay (they are how FastAPI composes routers); what was wrong is that nothing said what they add up to. `backend/scripts/route_census.py` lists every method and full path the running app serves, with the guard its dependencies apply and the module that declares it, into a generated block in [`17-api-reference.md` §24](../17-api-reference.md#24-the-route-census--every-route-the-app-serves) (265 routes); `tests/unit/test_route_census.py` fails when the block is not what the app serves. API-I1.
 
 `include_router(..., prefix="/api/v1")` + `APIRouter(prefix="/ai")` +
 `@router.post("/entities")` = `/api/v1/ai/entities`.
@@ -360,6 +360,8 @@ the full registry. The names do not signal the difference, and only one is admin
 ## 6. Improvements
 
 ### API-I1 — Add a route census to the merge gate
+
+**Status: done (2026-10-08)** — with [API-17](#api-17--full-paths-chain-two-prefixes-so-the-decorator-misleads): `scripts/route_census.py` and `tests/unit/test_route_census.py`; the gate it runs in is the unit suite until CI exists (H1).
 
 **Effect: large.** Compare the router decorators against the documented surface in
 `17-api-reference.md`. It would catch undocumented routes, dead routers
