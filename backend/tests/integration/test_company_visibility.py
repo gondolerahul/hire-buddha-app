@@ -97,7 +97,7 @@ async def test_partner_sees_own_and_tenant_entities_in_one_query(db, world):
     async with _client(db, _actor("partner_user", world.P), ai_router) as c:
         res = await c.get("/api/v1/ai/entities")
     assert res.status_code == 200
-    ids = {e["id"] for e in res.json()}
+    ids = {e["id"] for e in res.json()["items"]}
     assert {str(world.entities["P"].id), str(world.entities["T"].id)} <= ids
     assert str(world.entities["O"].id) not in ids
     assert len([s for s in statements if s.lstrip().upper().startswith("SELECT")

@@ -60,7 +60,7 @@ class APIClient:
         if resp.status_code != 200:
             print(f"  ❌ Auth failed: {resp.status_code}")
             sys.exit(1)
-        print(f"  ✅ Auth OK ({len(resp.json())} existing entities)")
+        print(f"  ✅ Auth OK ({len(resp.json()["items"])} existing entities on the first page)")
 
     def attach_files(self, entity_id, files):
         """A draft of the entity with ``files``, published: new runs execute it."""

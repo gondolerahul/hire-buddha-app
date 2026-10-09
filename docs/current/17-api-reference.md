@@ -137,8 +137,24 @@ reads the token from a query parameter — used where headers are unavailable
 | Created | `201` where declared; most POSTs return `200` |
 | Suspension | `403 {"detail": "Company is suspended. Please contact support."}` |
 
-There is **no platform-wide pagination convention**. List endpoints vary — some
-take `limit`/`offset`, some return everything. Check each endpoint.
+**One page contract** (API-16, 2026-10-08,
+[`common/pagination.py`](../../backend/src/common/pagination.py)). `GET /ai/entities`,
+`/ai/executions`, `/config/integrations` and `/artifacts` take `?limit=` (1–200, default
+50) and `?cursor=` (the previous page's `next_cursor`) and answer:
+
+```json
+{"items": [ … ], "next_cursor": "eyJ…" , "limit": 50}
+```
+
+Pages are keyset pages, newest first, on `(created_at, id)`: a row added while you page
+does not shift the next page, and `next_cursor` is `null` on the last page. The cursor
+is opaque; one this API did not give is a 400, a `limit` over 200 a 422. Until then each
+list decided for itself — three answered every row at once (`app_admin`: every
+company's integrations), `/artifacts` took `limit`/`offset` and answered
+`{"artifacts", "count"}`. The frontend reads them with
+[`services/pagination.ts`](../../frontend/src/services/pagination.ts): `fetchAllPages`
+for a picker that needs every row, a page and "Load more" for a long list. Other lists
+(templates, documents, users, …) still answer every row; they are short.
 
 ### 2.4 Interactive docs
 
@@ -475,8 +491,9 @@ entity to pass Meta-Agent validation — see
 
 ### `GET /api/v1/ai/entities`
 
-Returns entities scoped to the caller's `company_id`, excluding soft-deleted
-rows. An admin (`app_admin`, `partner_admin`, `tenant_admin`) may pass
+One page (§2.3) of the entities scoped to the caller's `company_id`, newest first,
+excluding soft-deleted rows; `voice_enabled=true` keeps voice agents, in SQL, so a page
+is full. An admin (`app_admin`, `partner_admin`, `tenant_admin`) may pass
 `include_deleted=true` to list them too, each with `status` `DELETED` and its
 `deleted_at`; anyone else gets 403 (API-18).
 
@@ -560,7 +577,7 @@ sequenceDiagram
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/v1/ai/executions` | List of runs for the tenant |
+| `GET /api/v1/ai/executions` | One page of the tenant's top-level runs, newest first (§2.3) |
 | `GET /api/v1/ai/executions/{id}` | Run row — status, cost, tokens, `result_data` |
 | `GET /api/v1/ai/executions/{id}/trace` | Full span tree |
 | `GET /api/v1/ai/executions/{id}/agent_state` | The typed `AgentState` snapshot |
@@ -1267,7 +1284,9 @@ guard, was deleted on 2026-10-07 (API-13).
 12. **Cron endpoints move money over HTTP.** `POST /api/v1/cron/daily-credits`
     and `/monthly-billing` are manually triggerable.
 
-13. **No universal pagination.** Check each list endpoint.
+13. ~~**No universal pagination.**~~ (API-16, 2026-10-08): the four long lists answer
+    one page — `items`, `next_cursor`, `limit` (§2.3); follow `next_cursor` until it is
+    `null`.
 
 14. **Company suspension returns 403 from middleware** before your handler runs —
     and it opens its own DB session to do so.

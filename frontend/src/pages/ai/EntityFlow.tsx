@@ -11,6 +11,7 @@ import { JellyButton } from '@/components/ui';
 import { Save, Layers, Trash2, Brain, Zap, Activity, Plus, Settings, Search, AlertTriangle, LayoutGrid, Workflow, Repeat, Network } from 'lucide-react';
 import { EntityType, HierarchicalEntity, ToolUsage } from '@/types';
 import { apiClient } from '@/services/api.client';
+import { fetchAllPages } from '@/services/pagination';
 import './EntityFlow.css';
 
 // ── Dagre layout helper ──────────────────────────────────────────────────────
@@ -159,10 +160,11 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
 
     const fetchLibraries = useCallback(async () => {
         try {
-            const [entitiesRes, toolsRes] = await Promise.all([
-                apiClient.get<HierarchicalEntity[]>('/ai/entities'),
+            const [allEntities, toolsRes] = await Promise.all([
+                fetchAllPages<HierarchicalEntity>('/ai/entities'),
                 apiClient.get<Tool[]>('/ai/tool-registry'),
             ]);
+            const entitiesRes = { data: allEntities };
             setEntities(entitiesRes.data);
             setTools(toolsRes.data);
 

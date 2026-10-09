@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, or_
 from fastapi import HTTPException
-from typing import Collection, Optional
+from typing import Any, Collection, Optional
 from uuid import UUID, uuid4
 import re
 import logging
@@ -18,6 +18,17 @@ from datetime import datetime
 import json
 
 logger = logging.getLogger(__name__)
+
+
+def _json_truthy(value: Any) -> Any:
+    """SQL for a JSONB value Python would call truthy: present, not null,
+    false, 0, "" or an empty object or array."""
+    from sqlalchemy import and_, cast, literal
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    falsy = ["null", "false", "0", '""', "{}", "[]"]
+    return and_(value.isnot(None), *[value != cast(literal(f), JSONB) for f in falsy])
+
 
 async def _take_run_slot(company_id: UUID) -> None:
     """One of the company's run starts this minute, or a 429 (GH-03, HD17)."""
@@ -104,7 +115,18 @@ class AIService:
 
         Soft-deleted entities are left out unless ``include_deleted`` (API-18).
         """
-        from sqlalchemy.orm import selectinload
+        query = self.entities_query(company_ids, type, is_template=is_template, voice_enabled=voice_enabled,
+                                    status_filter=status_filter, include_deleted=include_deleted)
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
+    def entities_query(self, company_ids: Optional[Collection[UUID]], type: EntityType = None, is_template: bool = None, voice_enabled: bool = None, status_filter: str = None, include_deleted: bool = False) -> Any:
+        """The SELECT behind :meth:`get_entities`, for a caller that pages it (API-16).
+
+        ``voice_enabled``: agents whose identity holds a voice configuration
+        (``identity.voice`` or ``identity.persona.voice``) — in SQL, so a page
+        is full; it was a Python filter over every row.
+        """
         query = select(HierarchicalEntity)
 
         if include_deleted:
@@ -129,10 +151,14 @@ class AIService:
         
         if status_filter:
             query = query.where(HierarchicalEntity.status == status_filter)
-        
-        query = query.options(selectinload(HierarchicalEntity.execution_runs))
-        result = await self.db.execute(query)
-        return result.scalars().all()
+
+        if voice_enabled:
+            query = query.where(HierarchicalEntity.type == "AGENT", or_(
+                _json_truthy(HierarchicalEntity.identity["voice"]),
+                _json_truthy(HierarchicalEntity.identity["persona"]["voice"]),
+            ))
+        # No eager load of each entity's runs: nothing the lists answer reads them.
+        return query
 
     async def get_entity(self, entity_id: UUID, company_id: UUID, user_role: str = None) -> HierarchicalEntity:
         from sqlalchemy.orm import selectinload
@@ -486,18 +512,20 @@ class AIService:
         return execution
 
     async def get_executions(self, company_id: UUID, user_role: str = None) -> list[ExecutionRun]:
+        query = self.executions_query(company_id, user_role).order_by(ExecutionRun.created_at.desc())
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
+    def executions_query(self, company_id: UUID, user_role: str = None) -> Any:
+        """The top-level runs a caller may list, unordered — for a caller that pages it (API-16)."""
         from sqlalchemy.orm import joinedload
         query = select(ExecutionRun).options(joinedload(ExecutionRun.entity))
-        
+
         # Platform administrators can view all executions across all companies
         if user_role != "app_admin":
             query = query.where(ExecutionRun.company_id == company_id)
-        
-        query = query.where(ExecutionRun.parent_run_id.is_(None))  # Only show root executions in list
-        query = query.order_by(ExecutionRun.created_at.desc())
 
-        result = await self.db.execute(query)
-        return result.scalars().all()
+        return query.where(ExecutionRun.parent_run_id.is_(None))  # Only show root executions in list
 
     async def record_csat(
         self,

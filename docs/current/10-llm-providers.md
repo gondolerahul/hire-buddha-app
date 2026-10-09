@@ -1675,8 +1675,9 @@ Two RBAC quirks worth knowing:
 - **Task defaults are app-admin-only, end to end.** Every `/config/task-defaults`
   endpoint and the AI Config page, its sidebar item and the Integrations page's card
   are `app_admin` only (PO-02).
-- **`GET /config/integrations` as `app_admin` returns every company's rows**
-  with no filter or pagination. Only the ciphertext is withheld.
+- **`GET /config/integrations` answers one company, one page at a time** (API-16): the
+  caller's own company; `app_admin` names another with `?company_id=`. It used to give
+  `app_admin` every company's rows at once. Only the ciphertext is withheld.
 
 Full API surface in [17 — API reference](17-api-reference.md).
 
@@ -1850,8 +1851,8 @@ Checklist for the adapter itself, learned from the three that exist:
    cannot run a single agent until an app admin configures `text_generation`.
 7. **Task defaults are `app_admin` only** — the API and the AI Config page alike.
    Tenant admins do not see the page (PO-02).
-8. **`GET /config/integrations` as `app_admin` returns every company's rows**
-   with no pagination.
+8. ~~**`GET /config/integrations` as `app_admin` returns every company's rows.**~~
+   (API-16): one company, one page; `app_admin` passes `?company_id=` for another.
 9. **Vertex AI needs no stored key** (LP-12). Leave `api_key` out for `google`,
    `gemini` and `anthropic` integrations.
 10. **An entity `model_override` changes the model id but not the provider.**

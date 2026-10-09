@@ -15,6 +15,7 @@ from src.ai.schemas import (
     DocumentDetail, DocumentUpdate, ApprovalDecision, EntityDeleted,
 )
 from src.ai.service import AIService
+from src.common.pagination import CursorParam, LimitParam, Page, keyset, page_of
 from src.ai.services.knowledge_base import KnowledgeBaseService, file_type_of
 
 router = APIRouter(prefix="/ai", tags=["AI Hierarchical Agent Platform"])
@@ -58,7 +59,7 @@ async def create_entity(
     return await service.create_entity(entity_in, effective_company_id, current_user.id,
                                        user_role=current_user.role)
 
-@router.get("/entities", response_model=List[HierarchicalEntityResponse])
+@router.get("/entities", response_model=Page[HierarchicalEntityResponse])
 async def list_entities(
     type: Optional[EntityType] = None,
     company_id: Optional[UUID] = None,
@@ -66,9 +67,13 @@ async def list_entities(
     status: Optional[str] = None,
     include_deleted: bool = Query(False, description=(
         "Admins only: include soft-deleted entities (status DELETED, deleted_at set) — API-18")),
+    limit: int = LimitParam(),
+    cursor: Optional[str] = CursorParam(),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """One page of the entities the caller may see, newest first (API-16:
+    ``items``, ``next_cursor``, ``limit``)."""
     # Every company the caller can see — partners include their tenants, in one
     # query (it was one query per tenant). app_admin sees all, or one company
     # with ?company_id=.
@@ -78,34 +83,14 @@ async def list_entities(
     if company_id and current_user.role == "app_admin":
         scope = frozenset({company_id})
 
-    service = AIService(db)
-    entities = list(await service.get_entities(
-        scope, type, is_template=False, status_filter=status, include_deleted=include_deleted,
-    ))
+    from src.ai.orm import HierarchicalEntity
 
-    # Client-requested voice filter: only return agents with voice config
-    if voice_enabled:
-        entities = [
-            e for e in entities
-            if (getattr(e.type, 'value', e.type) == "AGENT")
-            and _has_voice_config(e.identity)
-        ]
-
-    return entities
-
-
-def _has_voice_config(identity) -> bool:
-    """Check if an entity's identity JSON contains voice configuration.
-    Handles both direct format {"voice": {...}} and
-    wrapped format {"persona": {"voice": {...}}}."""
-    if not identity or not isinstance(identity, dict):
-        return False
-    if identity.get("voice"):
-        return True
-    persona = identity.get("persona")
-    if isinstance(persona, dict) and persona.get("voice"):
-        return True
-    return False
+    query = AIService(db).entities_query(
+        scope, type, is_template=False, voice_enabled=voice_enabled, status_filter=status,
+        include_deleted=include_deleted,
+    )
+    query = keyset(query, HierarchicalEntity.created_at, HierarchicalEntity.id, cursor, limit)
+    return page_of((await db.execute(query)).scalars().all(), limit)
 
 @router.get("/entities/{entity_id}", response_model=HierarchicalEntityResponse)
 async def get_entity(
@@ -178,13 +163,19 @@ async def trigger_execution(
     service = AIService(db)
     return await service.trigger_execution(execution_in, current_user.company_id, current_user.id, user_role=current_user.role)
 
-@router.get("/executions", response_model=List[ExecutionRunSummary])
+@router.get("/executions", response_model=Page[ExecutionRunSummary])
 async def list_executions(
+    limit: int = LimitParam(),
+    cursor: Optional[str] = CursorParam(),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    service = AIService(db)
-    return await service.get_executions(current_user.company_id, current_user.role)
+    """One page of the caller's top-level runs, newest first (API-16)."""
+    from src.ai.orm import ExecutionRun
+
+    query = AIService(db).executions_query(current_user.company_id, current_user.role)
+    query = keyset(query, ExecutionRun.created_at, ExecutionRun.id, cursor, limit)
+    return page_of((await db.execute(query)).unique().scalars().all(), limit)
 
 @router.get("/executions/{execution_id}", response_model=ExecutionRunResponse)
 async def get_execution(

@@ -120,7 +120,7 @@ async def test_list_integrations(client: httpx.AsyncClient, app_admin_token):
         headers=auth_headers(app_admin_token),
     )
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    assert isinstance(resp.json()["items"], list)       # one page (API-16)
 
 
 # ── Get Single Integration ────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { phonePoolService } from '@/services/platform.service';
 import './PhonePool.css';
 import { apiClient } from '@/services/api.client';
+import { fetchAllPages } from '@/services/pagination';
 
 interface PhoneNumberEntry {
     id: string;
@@ -109,10 +110,9 @@ const PhonePool: React.FC = () => {
     const fetchAgents = useCallback(async () => {
         try {
             // Fetch only ACTIVE, voice-enabled agents for assignment
-            const { data } = await apiClient.get('/ai/entities', {
-                params: { type: 'AGENT', voice_enabled: true, status: 'ACTIVE' },
-            });
-            setAgents(Array.isArray(data) ? data : data.entities || data.data || []);
+            setAgents(await fetchAllPages<any>('/ai/entities', {
+                type: 'AGENT', voice_enabled: true, status: 'ACTIVE',
+            }));
         } catch (err) {
             console.error('Error fetching agents:', err);
         }

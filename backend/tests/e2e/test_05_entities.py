@@ -107,7 +107,7 @@ async def test_create_process(client: httpx.AsyncClient, app_admin_token):
 async def test_list_all_entities(client: httpx.AsyncClient, app_admin_token):
     resp = await client.get("/api/v1/ai/entities", headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
-    entities = resp.json()
+    entities = resp.json()["items"]                     # one page (API-16)
     assert isinstance(entities, list)
     assert len(entities) >= len(_ENTITIES)
 

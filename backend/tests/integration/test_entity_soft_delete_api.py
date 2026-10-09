@@ -47,8 +47,8 @@ async def test_delete_returns_what_it_soft_deleted(db, test_company_id, monkeypa
 
     async def _ids(user, **kw):
         listed = await ai_router.list_entities(type=None, company_id=None, voice_enabled=None, status=None,
-                                               db=db, current_user=user, **kw)
-        return {e.id: e for e in listed}
+                                               limit=200, cursor=None, db=db, current_user=user, **kw)
+        return {e.id: e for e in listed["items"]}
 
     assert parent not in await _ids(admin, include_deleted=False)
     kept = await _ids(admin, include_deleted=True)
@@ -63,7 +63,7 @@ async def test_only_admins_may_list_deleted_entities(db, test_company_id):
     user = SimpleNamespace(id=uuid.uuid4(), company_id=test_company_id, role="tenant_user")
     with pytest.raises(HTTPException) as refused:
         await ai_router.list_entities(type=None, company_id=None, voice_enabled=None, status=None,
-                                      include_deleted=True, db=db, current_user=user)
+                                      include_deleted=True, limit=50, cursor=None, db=db, current_user=user)
     assert refused.value.status_code == 403
 
 

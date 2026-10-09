@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { Plus, Brain, Workflow, Zap, Activity, Edit, Trash2, Play, Layers, Tag, BookCopy, CheckCircle, Repeat, Network } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
+import { fetchAllPages } from '@/services/pagination';
 import { templateService } from '@/services/template.service';
 import { metaService } from '@/services/meta.service';
 import { HierarchicalEntity, EntityType, EntityStatus, UserRole } from '@/types';
@@ -25,8 +26,7 @@ export const EntityLibrary: React.FC = () => {
 
     const fetchEntities = async () => {
         try {
-            const { data } = await apiClient.get('/ai/entities');
-            setEntities(data);
+            setEntities(await fetchAllPages<HierarchicalEntity>('/ai/entities'));
         } catch (error) {
             console.error('Failed to fetch entities:', error);
         } finally {

@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { Upload, FileText, Trash2, Loader, Search, Eye, Pencil, RefreshCw, X, Globe, Bot } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
+import { fetchAllPages } from '@/services/pagination';
 import { useAuth } from '@/hooks/useAuth';
 import './KnowledgeBase.css';
 
@@ -87,9 +88,9 @@ export const KnowledgeBase: React.FC = () => {
     // Agents a document can be scoped to: this company's own.
     useEffect(() => {
         if (!user?.company_id) return;
-        apiClient.get('/ai/entities', { params: { company_id: user.company_id } })
-            .then(({ data }) => setAgents(
-                (data as any[])
+        fetchAllPages<any>('/ai/entities', { company_id: user.company_id })
+            .then((data) => setAgents(
+                data
                     .filter(e => e.company_id === user.company_id)
                     .map(e => ({ id: e.id, name: e.display_name || e.name }))
             ))

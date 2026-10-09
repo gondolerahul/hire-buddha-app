@@ -1,10 +1,11 @@
 from uuid import UUID
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 from src.common.database import get_db
+from src.common.pagination import CursorParam, LimitParam, Page, keyset, page_of
 from src.config.schemas import (
     IntegrationRegistryCreate,
     IntegrationRegistryUpdate,
@@ -82,19 +83,29 @@ async def create_integration(
     return await service.create_registry_entry(entry_in)
 
 
-@router.get("/integrations", response_model=list[IntegrationRegistryResponse])
+@router.get("/integrations", response_model=Page[IntegrationRegistryResponse])
 async def list_integrations(
+    company_id: Optional[UUID] = Query(None, description="app_admin: another company's; default your own"),
+    limit: int = LimitParam(),
+    cursor: Optional[str] = CursorParam(),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    service = ConfigService(db)
+    """One page of a company's integrations, newest first (API-16).
 
-    if current_user.role == "app_admin":
-        # App admin sees all integrations across all companies
-        return await service.get_registry_entries(company_id=None)
-    else:
-        # All other roles (partner, tenant) see only their own company's entries
-        return await service.get_registry_entries(company_id=current_user.company_id)
+    The caller's own company; ``app_admin`` may name another with
+    ``company_id``. ``app_admin`` used to get every company's rows at once.
+    """
+    from src.config.models import IntegrationRegistry
+
+    target = current_user.company_id
+    if company_id is not None and company_id != current_user.company_id:
+        if current_user.role != "app_admin":
+            raise HTTPException(status_code=403, detail="not authorised for that company")
+        target = company_id
+    query = select(IntegrationRegistry).where(IntegrationRegistry.company_id == target)
+    query = keyset(query, IntegrationRegistry.created_at, IntegrationRegistry.id, cursor, limit)
+    return page_of((await db.execute(query)).scalars().all(), limit)
 
 
 @router.get("/integrations/{entry_id}", response_model=IntegrationRegistryResponse)

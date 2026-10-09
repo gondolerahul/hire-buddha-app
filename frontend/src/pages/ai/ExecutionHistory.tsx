@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { Clock, CheckCircle, XCircle, Loader, Eye, RotateCcw, DollarSign, Database, Pause, Play } from 'lucide-react';
-import { apiClient } from '@/services/api.client';
+import { fetchPage } from '@/services/pagination';
 import { ExecutionRun, RunStatus } from '@/types';
 import './ExecutionHistory.css';
 
@@ -11,20 +11,31 @@ export const ExecutionHistory: React.FC = () => {
     const [executions, setExecutions] = useState<ExecutionRun[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<RunStatus | 'ALL'>('ALL');
+    // The next page's cursor; null once the oldest run is shown (API-16).
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [loadingMore, setLoadingMore] = useState(false);
 
     useEffect(() => {
         fetchExecutions();
     }, []);
 
-    const fetchExecutions = async () => {
+    const fetchExecutions = async (cursor: string | null = null) => {
         try {
-            const { data } = await apiClient.get('/ai/executions');
-            setExecutions(data);
+            const page = await fetchPage<ExecutionRun>('/ai/executions', {}, cursor);
+            setExecutions(prev => (cursor ? [...prev, ...page.items] : page.items));
+            setNextCursor(page.next_cursor);
         } catch (error) {
             console.error('Failed to fetch executions:', error);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
+    };
+
+    const loadMore = () => {
+        if (!nextCursor || loadingMore) return;
+        setLoadingMore(true);
+        void fetchExecutions(nextCursor);
     };
 
     const getStatusIcon = (status: RunStatus) => {
@@ -157,6 +168,13 @@ export const ExecutionHistory: React.FC = () => {
                     ))
                 )}
             </div>
+            {nextCursor && (
+                <div className="load-more">
+                    <JellyButton variant="secondary" onClick={loadMore} disabled={loadingMore}>
+                        {loadingMore ? 'Loading…' : 'Load older runs'}
+                    </JellyButton>
+                </div>
+            )}
         </div>
     );
 };

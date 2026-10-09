@@ -43,7 +43,7 @@ def update(eid, payload):
 print("Verifying auth...")
 r = requests.get(f"{BASE_URL}/ai/entities", headers=HEADERS)
 assert r.status_code == 200, f"Auth failed: {r.status_code}"
-print(f"  OK ({len(r.json())} entities exist)")
+print(f"  OK ({len(r.json()["items"])} entities on the first page)")
 
 # ===================== LAYER 1: ACTIONS (7) =====================
 print("\n== Creating ACTIONs (7) ==")

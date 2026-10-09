@@ -86,10 +86,7 @@ async def test_trigger_execution(client: httpx.AsyncClient, app_admin_token, exe
 async def test_list_executions(client: httpx.AsyncClient, app_admin_token):
     resp = await client.get("/api/v1/ai/executions", headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
-    data = resp.json()
-    assert "items" in data or isinstance(data, list)
-    
-    lst = data["items"] if "items" in data else data
+    lst = resp.json()["items"]                          # one page (API-16)
     assert len(lst) >= 1
 
 

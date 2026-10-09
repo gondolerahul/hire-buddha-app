@@ -199,3 +199,9 @@
     margin-top: var(--spacing-md);
     color: var(--color-text-primary);
 }
+/* "Load more" under a paged list (API-16). */
+.load-more {
+    display: flex;
+    justify-content: center;
+    margin: 24px 0;
+}

@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { JellyButton } from '@/components/ui';
 import { X, Upload, CheckCircle, AlertCircle, Smartphone, Server } from 'lucide-react';
 import { apiClient } from '@/services/api.client';
+import { fetchAllPages } from '@/services/pagination';
 import { HierarchicalEntity, EntityType } from '@/types';
 import { apiErrorMessage } from '@/utils/apiError';
 import './CampaignCreateModal.css';
@@ -79,8 +80,7 @@ export const CampaignCreateModal: React.FC<CampaignCreateModalProps> = ({ isOpen
 
     const fetchAgents = async () => {
         try {
-            const { data } = await apiClient.get('/ai/entities');
-            setAgents(data.filter((e: HierarchicalEntity) => e.type === EntityType.AGENT));
+            setAgents(await fetchAllPages<HierarchicalEntity>('/ai/entities', { type: EntityType.AGENT }));
         } catch (err) {
             console.error('Error fetching agents:', err);
         }

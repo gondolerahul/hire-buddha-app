@@ -49,7 +49,7 @@ async def test_list_artifacts(client: httpx.AsyncClient, app_admin_token):
     resp = await client.get("/api/v1/artifacts", headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data["artifacts"], list)
+    assert isinstance(data["items"], list) and "next_cursor" in data   # one page (API-16)
 
 
 @pytest.mark.asyncio

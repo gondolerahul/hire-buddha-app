@@ -1,4 +1,5 @@
 import { apiClient } from './api.client';
+import type { Page } from './pagination';
 import { API_ORIGIN } from '@/config/api';
 
 export interface Artifact {
@@ -30,13 +31,11 @@ export interface ArtifactListFilters {
     date_from?: string;
     date_to?: string;
     limit?: number;
-    offset?: number;
+    cursor?: string;          // the previous page's next_cursor (API-16)
 }
 
-export interface ArtifactListResponse {
-    artifacts: Artifact[];
-    count: number;
-}
+/** One page of files, newest first (API-16). */
+export type ArtifactListResponse = Page<Artifact>;
 
 export const artifactService = {
     list: async (filters: ArtifactListFilters = {}): Promise<ArtifactListResponse> => {

@@ -602,7 +602,7 @@ export const ExecutionDetail: React.FC = () => {
         if (!run?.id) return;
         let cancelled = false;
         artifactService.list({ run_id: run.id, limit: 200 })
-            .then(res => { if (!cancelled) setRunArtifacts(res.artifacts); })
+            .then(res => { if (!cancelled) setRunArtifacts(res.items); })
             .catch(err => console.error('Failed to load the run\'s files:', err));
         return () => { cancelled = true; };
     }, [run]);

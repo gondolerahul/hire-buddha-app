@@ -41,9 +41,9 @@
 | [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
-| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 4 | 0 | 2 | 1 |
+| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 5 | 0 | 1 | 1 |
 
-**Total: 20 defects (17 fixed, 0 partly fixed, 2 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (18 fixed, 0 partly fixed, 1 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -62,7 +62,7 @@
 | API-13 | `GET /api/v1/auth/admin-only` | ✅ fixed `9f60567` | — |
 | API-14 | Nine admin routes have a doubled `admin/admin` segment | accepted — leave it | — |
 | API-15 | `/api/social-connections` breaks the versioning convention | ✅ fixed (2026-10-08) | — |
-| API-16 | There is no universal pagination | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-16 | There is no universal pagination | ✅ fixed (2026-10-08) | — |
 | API-17 | Full paths chain two prefixes, so the decorator misleads | ✅ fixed (2026-10-08) — the route census | — |
 | API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | ✅ fixed (2026-10-08) | — |
 | API-19 | Two similarly named tool endpoints return different things | ✅ fixed (2026-10-08) — one endpoint | — |
@@ -301,7 +301,7 @@ there are no external consumers.
 
 ### API-16 — There is no universal pagination
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — one page contract (`common/pagination.py`): `GET /ai/entities`, `/ai/executions`, `/config/integrations` and `/artifacts` take `?limit=` (1–200, default 50) and `?cursor=` and answer `{"items", "next_cursor", "limit"}` — keyset pages on `(created_at, id)`, newest first; a cursor this API did not give is a 400. `/config/integrations` is one company's for `app_admin` too (`?company_id=` for another); `voice_enabled` on entities moved into SQL so a page is full; the entity list no longer eager-loads every entity's runs. The frontend follows: `services/pagination.ts` (`fetchAllPages` for the pickers, the Entity Library and the integrations pages; a page and "Load more" on run history and Artifacts); the builder's KB picker read `.artifacts`, and the seed scripts' sign-in checks count `items`. `tests/integration/test_pagination.py` (4). Live: run history 50 → 100 with the cursor; the Entity Library followed two pages to all 386 entities; Artifacts and Integrations render. Not paged (short lists): templates, documents, users
 
 Every list endpoint decides for itself. `GET /config/integrations` as `app_admin` returns
 **every company's rows** with no pagination at all
@@ -383,6 +383,8 @@ to write.
 becomes one curl instead of a log search.
 
 ### API-I3 — One pagination contract
+
+**Status: done (2026-10-08)** — with [API-16](#api-16--there-is-no-universal-pagination), as a cursor rather than `limit` / `offset` / `total`: a keyset page does not shift while rows are added, and needs no count.
 
 **Effect: medium.** [API-16](#api-16--there-is-no-universal-pagination). `limit`, `offset`
 and a `total` in the envelope, on every list endpoint. Clients get one helper; the platform

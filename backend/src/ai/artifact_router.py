@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from src.common.database import get_db
+from src.common.pagination import CursorParam, LimitParam, keyset, page_of
 from src.auth.router import get_current_user
 from src.auth.models import User
 from src.ai.artifact_service import ArtifactService, ORIGIN_USER, ORIGIN_SYSTEM
@@ -85,13 +86,17 @@ async def list_artifacts(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     run_id: Optional[UUID] = Query(None, description="A run's files, its child runs' included"),
-    limit: int = Query(50, le=200),
-    offset: int = Query(0, ge=0),
+    limit: int = LimitParam(),
+    cursor: Optional[str] = CursorParam(),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    svc = ArtifactService(db)
-    artifacts = await svc.list_artifacts(
+    """One page of the company's files, newest first: ``items``,
+    ``next_cursor``, ``limit`` (API-16; it was ``limit`` / ``offset`` and
+    ``{"artifacts", "count"}``)."""
+    from src.ai.artifact_models import Artifact
+
+    query = ArtifactService(db).artifacts_query(
         run_id=run_id,
         company_id=current_user.company_id,
         origin=origin,
@@ -100,10 +105,9 @@ async def list_artifacts(
         campaign_id=campaign_id,
         date_from=date_from,
         date_to=date_to,
-        limit=limit,
-        offset=offset,
     )
-    return {"artifacts": [_to_response(a) for a in artifacts], "count": len(artifacts)}
+    rows = (await db.execute(keyset(query, Artifact.created_at, Artifact.id, cursor, limit))).scalars().all()
+    return page_of(rows, limit, items=[_to_response(a) for a in rows])
 
 
 async def _require_own_links(db: AsyncSession, company_id: UUID, campaign_id: Optional[UUID],

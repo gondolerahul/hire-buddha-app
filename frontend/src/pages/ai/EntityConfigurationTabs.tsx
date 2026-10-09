@@ -6,6 +6,7 @@ import { EntityType, EntityStatus, HierarchicalEntity, HITLCheckpoint, HITLTrigg
 import { EntityFlow } from './EntityFlow';
 import { Node, Edge } from 'reactflow';
 import { apiClient } from '@/services/api.client';
+import { MAX_PAGE_SIZE, type Page } from '@/services/pagination';
 import './EntityConfigurationTabs.css';
 import { overlayConfig } from '@/utils/entityConfig';
 
@@ -508,7 +509,8 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
         try {
             // Load both artifacts and documents in parallel for unified KB view
             const [artRes, docRes] = await Promise.allSettled([
-                apiClient.get<{ artifacts: any[]; count: number }>('/artifacts?limit=200'),
+                // The 200 newest files: the largest page (API-16).
+                apiClient.get<Page<any>>('/artifacts', { params: { limit: MAX_PAGE_SIZE } }),
                 apiClient.get<any[]>('/ai/documents'),
             ]);
 
@@ -517,7 +519,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
 
             // Add artifacts
             if (artRes.status === 'fulfilled') {
-                for (const a of (artRes.value.data?.artifacts || artRes.value.data || [])) {
+                for (const a of (artRes.value.data?.items || [])) {
                     if (!seenIds.has(a.id)) {
                         seenIds.add(a.id);
                         items.push(a);

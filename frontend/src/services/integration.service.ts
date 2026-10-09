@@ -1,4 +1,5 @@
 import { apiClient } from './api.client';
+import { fetchAllPages } from './pagination';
 
 export interface Integration {
     id: string;
@@ -52,10 +53,8 @@ export interface Model {
 }
 
 export const integrationService = {
-    getIntegrations: async (): Promise<Integration[]> => {
-        const response = await apiClient.get<Integration[]>('/config/integrations');
-        return response.data;
-    },
+    /** Every integration of the caller's company, page by page (API-16). */
+    getIntegrations: async (): Promise<Integration[]> => fetchAllPages<Integration>('/config/integrations'),
 
     getModels: async (): Promise<Model[]> => {
         const response = await apiClient.get<Model[]>('/config/models');

@@ -897,7 +897,7 @@ def main():
     if resp.status_code != 200:
         print(f"  ❌ Auth failed: {resp.status_code} — {resp.text[:200]}")
         sys.exit(1)
-    print(f"  ✅ Authentication OK (found {len(resp.json())} existing entities)")
+    print(f"  ✅ Authentication OK (found {len(resp.json()["items"])} existing entities on the first page)")
 
     # ========================================
     # PHASE 1: Delete all old deep-research entities

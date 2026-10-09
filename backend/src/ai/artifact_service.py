@@ -12,7 +12,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List
+from typing import Any, Optional, List
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -134,15 +134,32 @@ class ArtifactService:
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         limit: int = 100,
-        offset: int = 0,
         run_id: Optional[UUID] = None,
     ) -> List[Artifact]:
-        """Return filtered artifact list for a company.
+        """Return filtered artifact list for a company, newest first.
 
         ``run_id``: the files of that run and of every run beneath it — what a
         run produced, child runs included (EP-21: the run page searched step
         outputs with regular expressions instead).
         """
+        stmt = self.artifacts_query(company_id, origin=origin, file_category=file_category,
+                                    agent_id=agent_id, campaign_id=campaign_id, date_from=date_from,
+                                    date_to=date_to, run_id=run_id)
+        result = await self.db.execute(stmt.order_by(Artifact.created_at.desc()).limit(limit))
+        return result.scalars().all()
+
+    def artifacts_query(
+        self,
+        company_id: UUID,
+        origin: Optional[str] = None,
+        file_category: Optional[str] = None,
+        agent_id: Optional[UUID] = None,
+        campaign_id: Optional[UUID] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        run_id: Optional[UUID] = None,
+    ) -> Any:
+        """The SELECT behind :meth:`list_artifacts`, unordered — for a caller that pages it (API-16)."""
         conditions = [Artifact.company_id == company_id]
         if run_id:
             from src.ai.orm.execution import ExecutionRun
@@ -163,15 +180,7 @@ class ArtifactService:
         if date_to:
             conditions.append(Artifact.created_at <= date_to)
 
-        stmt = (
-            select(Artifact)
-            .where(and_(*conditions))
-            .order_by(Artifact.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        result = await self.db.execute(stmt)
-        return result.scalars().all()
+        return select(Artifact).where(and_(*conditions))
 
     async def get_artifact(self, artifact_id: UUID, company_id: UUID) -> Optional[Artifact]:
         """Fetch a single artifact by ID, scoped to company."""

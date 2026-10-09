@@ -125,8 +125,9 @@ export const Artifacts: React.FC = () => {
         date_from: undefined,
         date_to: undefined,
         limit: 50,
-        offset: 0,
     });
+    // The next page's cursor; null once the oldest file is shown (API-16).
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [searchAgentId, setSearchAgentId] = useState('');
     const [searchCampaignId, setSearchCampaignId] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,13 +141,33 @@ export const Artifacts: React.FC = () => {
             if (searchAgentId.trim()) f.agent_id = searchAgentId.trim();
             if (searchCampaignId.trim()) f.campaign_id = searchCampaignId.trim();
             const res = await artifactService.list(f);
-            setArtifacts(res.artifacts);
+            setArtifacts(res.items);
+            setNextCursor(res.next_cursor);
         } catch (e: any) {
             setError(e?.response?.data?.detail || 'Failed to load artifacts');
         } finally {
             setLoading(false);
         }
     }, [filters, searchAgentId, searchCampaignId]);
+
+    // The next page, after the files already shown (API-16).
+    const [loadingMore, setLoadingMore] = useState(false);
+    const loadMore = useCallback(async () => {
+        if (!nextCursor || loadingMore) return;
+        setLoadingMore(true);
+        try {
+            const f: ArtifactListFilters = { ...filters, cursor: nextCursor };
+            if (searchAgentId.trim()) f.agent_id = searchAgentId.trim();
+            if (searchCampaignId.trim()) f.campaign_id = searchCampaignId.trim();
+            const res = await artifactService.list(f);
+            setArtifacts((prev) => [...prev, ...res.items]);
+            setNextCursor(res.next_cursor);
+        } catch (e: any) {
+            setError(e?.response?.data?.detail || 'Failed to load more artifacts');
+        } finally {
+            setLoadingMore(false);
+        }
+    }, [filters, nextCursor, loadingMore, searchAgentId, searchCampaignId]);
 
     useEffect(() => { fetchArtifacts(); }, [fetchArtifacts]);
 
@@ -410,6 +431,13 @@ export const Artifacts: React.FC = () => {
                             </div>
                         );
                     })}
+                </div>
+            )}
+            {!loading && nextCursor && (
+                <div className="load-more">
+                    <button className="btn-primary" onClick={() => void loadMore()} disabled={loadingMore}>
+                        {loadingMore ? 'Loading…' : 'Load older files'}
+                    </button>
                 </div>
             )}
         </div>
