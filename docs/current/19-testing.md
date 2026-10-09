@@ -386,10 +386,12 @@ def _email(role: str) -> str:
 
 Every run creates fresh users at `e2e_<role>_<random>@test.hirebuddha.com`.
 
-> ⚠️ **The e2e suite leaves data behind.** Unlike `integration/`, there is no
-> transaction rollback. Repeated runs accumulate companies, users, entities and
-> runs in your database. Use a disposable Postgres, or periodically clean rows
-> matching `%@test.hirebuddha.com`.
+> **The e2e suite deletes what it created** (TS-07). There is no transaction rollback:
+> the session records the companies it made (and each registration's workspace), and
+> `_e2e_cleanup` deletes them and every row under them with `tests/harness/purge.py`
+> (`purge_companies`, which walks the real foreign keys). A run that a live Arq worker
+> is still writing can deadlock that teardown; it then warns with the session's
+> `TEST_ID` and leaves the rows.
 
 The `register_and_login` helper ignores duplicate registration and returns both
 tokens, and `auth_headers(token)` builds the `Authorization` header — most e2e
@@ -504,8 +506,11 @@ Three goldens, matching three regression cases:
 
 The README is candid, and these matter operationally:
 
-- **Seeded `parity-*` tenants are not torn down** — the run spawns CORTEX
-  nodes and trees with FK chains. Use a disposable test Postgres.
+- **Seeded `parity-*` tenants are torn down** (TS-16): `seed_parity_run` records each
+  company it creates (`SEEDED_COMPANY_IDS`), and the session fixture
+  `_purge_parity_companies` deletes them and every row under them with
+  `purge_companies` on its own engine. A parity run leaves the row counts as it found
+  them. Only those companies are touched — the dev database is shared.
 - **The loop persists thinner run metadata than legacy** for static PROCESS runs
   (no `result_data["steps"]`, no `dynamic_plan` steps).
 
@@ -1167,7 +1172,8 @@ the trace viewer have none.
 10. ~~**The root `tests/` directory is empty scaffolding.**~~ Deleted 2026-10-07
     (TS-09). All tests are in `backend/tests/`.
 
-11. **Parity leaves `parity-*` tenants behind.** Use a disposable Postgres.
+11. ~~**Parity leaves `parity-*` tenants behind.**~~ It deletes them at session end since
+    2026-10-09 (TS-16). Tenants left by earlier runs stay until someone removes them.
 
 12. **Parity ignores wall-clock time** by design — mock timing is noise.
 

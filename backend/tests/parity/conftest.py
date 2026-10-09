@@ -80,9 +80,9 @@ async def db() -> AsyncIterator[Any]:
 
     Parity runs cannot use the rolled-back-savepoint pattern: the engines
     open their own ``AsyncSessionLocal`` sessions for final persistence, so
-    writes must actually commit. Seeded rows use uniquely-named,
-    ``parity-*`` throwaway entities; the configured DB is expected to be a
-    local/test Postgres.
+    writes must actually commit. Seeded rows live under ``parity-*``
+    companies, which ``_purge_parity_companies`` deletes when the session
+    ends (TS-16).
     """
     url = _db_url()
     if not url:
@@ -111,6 +111,34 @@ async def redis_client() -> AsyncIterator[Any]:
         yield client
     finally:
         await client.aclose()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _purge_parity_companies() -> AsyncIterator[None]:
+    """Delete the companies this session's seeds created, and every row under
+    them — runs, entities, usage, traces (TS-16). Only those companies: the
+    dev database is shared. A purge that fails leaves them, with a warning."""
+    yield
+    from tests.parity.hermetic import SEEDED_COMPANY_IDS
+    if not SEEDED_COMPANY_IDS:
+        return
+    import warnings
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from tests.harness.purge import purge_companies
+    # Its own engine: the app pool's connections may belong to a loop the
+    # in-process worker drainer has already closed.
+    engine = create_async_engine(_db_url(), poolclass=NullPool)
+    try:
+        async with engine.begin() as conn:
+            await purge_companies(conn, SEEDED_COMPANY_IDS)
+        SEEDED_COMPANY_IDS.clear()
+    except Exception as exc:                                            # noqa: BLE001
+        warnings.warn(f"Parity teardown left companies {sorted(map(str, SEEDED_COMPANY_IDS))}: {exc}")
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture(autouse=True)

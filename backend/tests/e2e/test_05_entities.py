@@ -116,7 +116,8 @@ async def test_list_all_entities(client: httpx.AsyncClient, app_admin_token):
 async def test_filter_entities_by_type(client: httpx.AsyncClient, app_admin_token):
     resp = await client.get("/api/v1/ai/entities?type=AGENT", headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
-    agents = resp.json()
+    agents = resp.json()["items"]                       # one page (API-16)
+    assert agents
     for ag in agents:
         assert ag["type"] == "AGENT"
 

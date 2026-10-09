@@ -40,9 +40,9 @@
 | [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 1 | 0 | 2 | 1 |
 | [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 3 | 0 | 1 | 0 |
 | [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 5 | 0 | 0 | 0 |
-| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 2 | 0 | 3 | 1 |
+| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 3 | 0 | 2 | 1 |
 
-**Total: 19 defects (11 fixed, 6 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (12 fixed, 5 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -61,7 +61,7 @@
 | TS-13 | One of the two `MockLLMRouter` classes | ✅ fixed `d3497d6` | — |
 | TS-14 | `@pytest.mark.integration` is used and not registered | ✅ fixed (2026-10-09) — registered; `--strict-markers` | — |
 | TS-15 | Marker usage is far below marker registration | ✅ fixed (2026-10-09) — every test carries its directory's tier | — |
-| TS-16 | The parity suite leaves tenants behind | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-16 | The parity suite leaves tenants behind | ✅ fixed (2026-10-09) — the session deletes what it seeded | — |
 | TS-17 | Fixture loading is coupled to the entity schema | open — decision HD18 | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-18 | Documentation and reality have drifted in three places | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 | TS-19 | The engine fixture is function-scoped, deliberately | accepted — keep function scope | — |
@@ -319,13 +319,34 @@ actually separate the fast tier from the slow one — the real separation is by 
 
 ### TS-16 — The parity suite leaves tenants behind
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: the parity conftest still expects a throwaway database. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
+**📄 Doc-reported · Medium** · **Status: ✅ fixed (2026-10-09)** — the parity session deletes the companies it seeded.
 
 Parity runs create `parity-*` tenants and do not clean them up. The advice is to use a
 disposable Postgres.
 
 Combined with [TS-07](#ts-07--e2e-does-not-roll-back), two of the eight tiers pollute the
 database they run against, and the suite has no teardown story.
+
+**Fixed (2026-10-09).** The e2e teardown's foreign-key walk moved to
+`tests/harness/purge.py` (`purge_companies`) and both suites use it. `seed_parity_run`
+records each company its `INSERT … RETURNING id` actually created (`SEEDED_COMPANY_IDS`;
+a caller's existing company is never recorded), and the session fixture
+`_purge_parity_companies` deletes them on a NullPool engine of its own (the app pool's
+connections can belong to a loop the in-process worker drainer has closed). The walk now
+breaks a reference cycle by setting the back-reference to NULL first:
+`hierarchical_entities.active_version_id` → `entity_versions` → `hierarchical_entities`
+made every purge of a company with a versioned entity fail — the e2e teardown included,
+whenever a test had created one.
+
+Evidence: a parity run left `parity-*` companies, runs and entities at 238 / 589 / 410 —
+the counts it found (before: +7 companies, +17 runs, +12 entities a run).
+`integration/test_purge_companies.py` (2): a company with a versioned entity and a run is
+deleted, another company's rows are untouched; it fails without the cycle handling. An e2e
+subset (`test_01`, `02`, `05`, `06`, `10`) left the company and user counts as it found
+them. One e2e teardown deadlocked against a live Arq worker still writing `test_06`'s run
+and left its rows, with the warning naming its `TEST_ID` — the race the e2e conftest
+describes. The 238 `parity-*` companies earlier runs left in the dev database are still
+there.
 
 ---
 

@@ -211,6 +211,11 @@ def _wire_child_entity_ids(planning: Optional[dict],
     return planning
 
 
+# The companies seed_parity_run created in this process; the parity conftest
+# deletes them, and everything under them, when the session ends (TS-16).
+SEEDED_COMPANY_IDS: set[uuid.UUID] = set()
+
+
 async def seed_parity_run(
     db: Any,
     *,
@@ -242,14 +247,16 @@ async def seed_parity_run(
     company_id = company_id or uuid.uuid4()
     dto = load_entity_fixture(entity_fixture)
 
-    await db.execute(
+    created = await db.scalar(
         text(
             "INSERT INTO companies (id, name, type, status, created_at, updated_at) "
             "VALUES (:id, :n, 'TENANT', 'active', now(), now()) "
-            "ON CONFLICT (id) DO NOTHING"
+            "ON CONFLICT (id) DO NOTHING RETURNING id"
         ),
         {"id": str(company_id), "n": f"parity-{company_id.hex[:8]}"},
     )
+    if created is not None:
+        SEEDED_COMPANY_IDS.add(company_id)
 
     # Seed children first so their ids can be wired into the parent plan.
     child_id_by_hint: dict[str, uuid.UUID] = {}
