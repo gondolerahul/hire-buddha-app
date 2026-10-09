@@ -1039,7 +1039,8 @@ Loaded by the API and the Arq worker.
 
 | Variable | Read in | Default | Purpose |
 |----------|---------|---------|---------|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | [`telemetry.py:32`](../../backend/src/common/telemetry.py:32) | `http://localhost:4317` | OTLP gRPC collector, for the API and the worker. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | [`telemetry.py`](../../backend/src/common/telemetry.py) | — (no export) | OTLP gRPC collector, for the API and the worker. Unset: spans are made and dropped, nothing retries an absent collector (IN-23). Set it to `http://localhost:4317` with the observability stack |
+| `OTEL_SDK_DISABLED` | [`telemetry.py`](../../backend/src/common/telemetry.py) | — | `true` installs no tracer provider at all |
 | `TRACE_MAX_FIELD_BYTES` | [`trace.py:57`](../../backend/src/ai/core/trace.py:57) | `1048576` | Per-field cap on trace payloads. |
 | `AI_FLAG_<KEY>` | [`feature_flags.py:147`](../../backend/src/ai/core/feature_flags.py:147) | — | Env override for any feature flag, e.g. `AI_FLAG_AGENT_LOOP_ENABLED=true`. Flag keys use dots; the env form uppercases and replaces `.` with `_`. |
 
@@ -1058,7 +1059,7 @@ graph TB
     subgraph OTEL["1. OpenTelemetry + Prometheus - infrastructure level"]
         SETUP["common/telemetry.py setup_telemetry - API"]
         SETUP --> FASTAPI["FastAPIInstrumentor - auto spans per HTTP request"]
-        SETUP --> OTLP["BatchSpanProcessor -> OTLP gRPC :4317"]
+        SETUP --> OTLP["BatchSpanProcessor -> OTLP gRPC, only if OTEL_EXPORTER_OTLP_ENDPOINT is set"]
         SETUP --> PROMEP["mount /metrics - prometheus_client ASGI app"]
         WSETUP["worker on_startup setup_tracing - worker"] --> OTLP
         WSETUP --> JOBSPAN["traced_job - a span per arq job and cron"]
@@ -1082,9 +1083,12 @@ graph TB
 
 [`common/telemetry.py`](../../backend/src/common/telemetry.py) serves both
 processes. In the API, `setup_telemetry` runs on the **last line of `main.py`**:
-it creates a `TracerProvider` with `service.name = "hirebuddha-backend"`, adds a
-`BatchSpanProcessor` pointing at
-`OTEL_EXPORTER_OTLP_ENDPOINT` (insecure gRPC), instruments the FastAPI app for
+it creates a `TracerProvider` with `service.name = "hirebuddha-backend"` and, only when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set, a `BatchSpanProcessor` exporting to it (insecure
+gRPC). The exporter (`BoundedOTLPSpanExporter`) makes one attempt per batch with a 2 s
+timeout: an unreachable collector drops the batch with a warning instead of the stock
+exporter's minute of backoff, which used to stall every reload and worker stop (IN-23).
+`OTEL_SDK_DISABLED=true` installs nothing. It then instruments the FastAPI app for
 HTTP only (WebSocket scopes are excluded — a span per audio frame would swamp the
 exporter), and mounts the `prometheus_client` ASGI app at `/metrics`.
 `GET /metrics/gateway` is a separate JSON endpoint with the active video

@@ -4,6 +4,7 @@ import logging
 import os
 from typing import Any, Awaitable, Callable
 
+from grpc import RpcError
 from opentelemetry import propagate, trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
@@ -24,13 +25,54 @@ WEBSOCKET_URLS = "^wss?://"
 TRACE_KEY_PREFIX = "hb:trace:"
 TRACE_KEY_TTL_SECONDS = 86400
 
+# An unreachable collector costs a batch at most this long, not a minute of
+# backoff (IN-23).
+OTLP_TIMEOUT_SECONDS = 2
+
+
+class BoundedOTLPSpanExporter(OTLPSpanExporter):
+    """One export attempt per batch, bounded by the exporter's timeout.
+
+    The 1.22 exporter retries an unavailable collector with backoff up to a
+    hard-coded 64 s, holding its lock — and a process's shutdown waits on that
+    lock (IN-23). A span batch is not worth a minute: a failed one is dropped
+    with one warning.
+    """
+
+    def _export(self, data):  # type: ignore[override]
+        if self._shutdown:
+            return self._result.FAILURE
+        with self._export_lock:
+            try:
+                self._client.Export(
+                    request=self._translate_data(data), metadata=self._headers, timeout=self._timeout,
+                )
+                return self._result.SUCCESS
+            except RpcError as error:
+                logger.warning("Span export to %s failed (%s); batch dropped", self._endpoint, error.code())
+                return self._result.FAILURE
+
+
+def _sdk_disabled() -> bool:
+    return os.getenv("OTEL_SDK_DISABLED", "").strip().lower() == "true"
+
 
 def setup_tracing(service_name: str) -> None:
-    """Install the process-wide tracer provider, exporting spans over OTLP."""
+    """Install the process-wide tracer provider, exporting spans over OTLP
+    only when ``OTEL_EXPORTER_OTLP_ENDPOINT`` names a collector (IN-23).
+
+    With no endpoint the spans are made (trace context still crosses into
+    jobs) and dropped; there is no exporter retrying an absent ``:4317``
+    for a minute on every reload and shutdown. ``OTEL_SDK_DISABLED=true``
+    installs nothing.
+    """
+    if _sdk_disabled():
+        return
     provider = TracerProvider(resource=Resource.create(attributes={"service.name": service_name}))
-    # OTLP Exporter (for Jaeger/Tempo)
-    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)))
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    if otlp_endpoint:
+        exporter = BoundedOTLPSpanExporter(endpoint=otlp_endpoint, insecure=True, timeout=OTLP_TIMEOUT_SECONDS)
+        provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
 
 

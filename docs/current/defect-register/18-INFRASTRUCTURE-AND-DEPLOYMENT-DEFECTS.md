@@ -38,10 +38,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--data-loss-and-recovery) | Data loss and recovery | 4 | 0 | 0 | 4 | 0 |
 | [T1](#3-t1--not-production-ready-as-configured) | Not production-ready as configured | 6 | 1 | 0 | 5 | 0 |
-| [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 8 | 3 | 2 | 3 | 0 |
+| [T2](#4-t2--traps-in-the-scripts-and-configs) | Traps in the scripts and configs | 8 | 4 | 2 | 2 | 0 |
 | [T3](#5-t3--operability) | Operability | 5 | 1 | 1 | 3 | 0 |
 
-**Total: 23 defects (5 fixed, 3 partly fixed, 15 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 23 defects (6 fixed, 3 partly fixed, 14 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -67,7 +67,7 @@
 | IN-20 | The gateway and the worker have no tracing | partly fixed — tracing done; no worker metrics | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-21 | There is no rollback procedure beyond `git checkout` | open | [H3](REMAINING-DEFECTS-PLAN.md#h3--keep-the-data-harden-the-host) |
 | IN-22 | The backend image has no `.dockerignore` | ✅ fixed `84dae64` | — |
-| IN-23 | Tracing exports to `localhost:4317` whether or not anything listens | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| IN-23 | Tracing exports to `localhost:4317` whether or not anything listens | ✅ fixed (2026-10-09) | — |
 
 The three to read first:
 
@@ -297,7 +297,7 @@ things.
 | **IN-15** | `streaming.hirebuddha.com` reuses the gateway certificate | So does `api.hirebuddha.com`. Renewing one certificate affects three hostnames, and a missing SAN entry produces a hostname mismatch. Also **D-43** context | 📄 Doc-reported · partly fixed (2026-09-30) — the streaming vhosts are deleted; `api.` still reuses the gateway certificate |
 | **IN-16** | Two competing `*:80` vhosts for `app.hirebuddha.com` | `app.hirebuddha.com.conf` declares one; `app.hirebuddha.com-le-ssl.conf` declares a **second** at line 20 with the HTTPS redirect commented out. Whichever Apache loads first wins | ✅ fixed (2026-09-30, SA-14) — the second block is deleted; the redirecting `app.hirebuddha.com.conf` is the only port-80 vhost |
 | **IN-22** | The backend image has no `.dockerignore` | `backend/Dockerfile` ends with `COPY . .`, so the whole build context goes into the runtime image: `backend/.env` with its secrets, and any host `.venv` — which lands on `/app/.venv` over the Linux virtualenv the builder stage just copied in (a Windows one breaks the image). Found 2026-09-30 while verifying SA-21; the check built only the builder stage from a clean context for this reason. Pairs with IN-06 / IN-I4 | ✅ fixed (2026-09-30, `84dae64`) — `backend/.dockerignore` leaves out `.env*` (bar `.env.example`), host virtualenvs, `uploads/`, `artifact/`, caches, logs and PID files. A full build's context went to 9.4 MB; the image has no `.env`, its `/app/.venv` is the builder's (Python 3.12.14), and it booted against the local Postgres/Redis with health `ok`. `tests/unit/test_dockerignore.py` |
-| **IN-23** | Tracing exports to `localhost:4317` whether or not anything listens | `common/telemetry.py` defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `http://localhost:4317`. With no collector (every local setup), the exporter retries each batch with backoff (1, 2, 4 … 32 s) and logs `Transient error StatusCode.UNAVAILABLE` each time. A process's shutdown flushes the same way, so an API `--reload` takes about a minute to come back, and stopping a worker waits too. Tests set `OTEL_SDK_DISABLED=true` to avoid it | ✅ Verified · **open** — found 2026-09-30. Fix: export only when an endpoint is configured, and cap the exporter's timeout · re-verified 2026-10-07: `OTEL_SDK_DISABLED=true` does not silence it either — `common/telemetry.py` `setup_tracing` always attaches the exporter, and a unit run with the variable set still retried for minutes · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| **IN-23** | Tracing exports to `localhost:4317` whether or not anything listens | `common/telemetry.py` defaults `OTEL_EXPORTER_OTLP_ENDPOINT` to `http://localhost:4317`. With no collector (every local setup), the exporter retries each batch with backoff (1, 2, 4 … 32 s) and logs `Transient error StatusCode.UNAVAILABLE` each time. A process's shutdown flushes the same way, so an API `--reload` takes about a minute to come back, and stopping a worker waits too. Tests set `OTEL_SDK_DISABLED=true` to avoid it | ✅ Verified · **open** — found 2026-09-30. Fix: export only when an endpoint is configured, and cap the exporter's timeout · re-verified 2026-10-07: `OTEL_SDK_DISABLED=true` does not silence it either — `common/telemetry.py` `setup_tracing` always attaches the exporter, and a unit run with the variable set still retried for minutes · **✅ fixed (2026-10-09):** `setup_tracing` attaches an exporter only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (no default), installs nothing under `OTEL_SDK_DISABLED=true`, and its `BoundedOTLPSpanExporter` makes one 2 s attempt per batch (the 1.22 exporter's `timeout` is per attempt; its backoff to 64 s is hard-coded). A process that made one span and shut tracing down with nothing on :4317: 65.4 s before, 0.0 s now with no endpoint, 2.1 s with the endpoint set. `tests/unit/test_otel_export.py` (4, all fail on the old code). Hosts that run Jaeger must now set the variable (`.env.example`) |
 
 ---
 
