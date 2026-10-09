@@ -2,7 +2,7 @@
 
 Single asserts to prove the conftest fixtures wire up:
   * The DB session works and rolls back at teardown.
-  * MockLLMRouter answers an unmatched prompt with a marked stub.
+  * MockLLMRouter refuses an unmatched prompt (TS-06).
   * deterministic_embedding is stable across calls.
 """
 from __future__ import annotations
@@ -19,14 +19,9 @@ async def test_db_session_works(db) -> None:
     assert val == 42
 
 
-async def test_mock_llm_returns_default(mock_llm) -> None:
-    resp = await mock_llm.call_llm(
-        task_type="text_generation",
-        system_prompt="x",
-        user_prompt="y",
-    )
-    assert resp.metadata.get("stub") is True
-    assert resp.model_provider == "mock"
+async def test_mock_llm_refuses_an_unmatched_prompt(mock_llm) -> None:
+    with pytest.raises(LookupError, match="no fixture"):
+        await mock_llm.call_llm(task_type="text_generation", system_prompt="x", user_prompt="y")
     assert mock_llm.calls and mock_llm.calls[0]["task_type"] == "text_generation"
 
 

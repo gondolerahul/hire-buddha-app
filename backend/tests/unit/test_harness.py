@@ -234,8 +234,8 @@ async def test_mock_llm_returns_fixture_on_match() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mock_llm_stub_fallback_on_miss() -> None:
-    router = MockLLMRouter()
+async def test_mock_llm_stub_fallback_is_opt_in() -> None:
+    router = MockLLMRouter(strict=False)
     resp = await router.call_llm(task_type="PLANNING", user_prompt="anything")
     # PLANNING stub returns parseable JSON.
     assert "step_id" in resp.output
@@ -243,15 +243,18 @@ async def test_mock_llm_stub_fallback_on_miss() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mock_llm_strict_mode_raises_on_miss() -> None:
-    router = MockLLMRouter(strict=True)
-    with pytest.raises(LookupError):
-        await router.call_llm(task_type="PLANNING", user_prompt="anything")
+async def test_mock_llm_raises_on_miss_by_default() -> None:
+    """TS-06: an unmocked call is an error, not a STUB answer a test could
+    assert on and pass."""
+    router = MockLLMRouter()
+    with pytest.raises(LookupError, match="no fixture"):
+        await router.call_llm(task_type="text_generation", user_prompt="anything")
+    assert router.calls  # the miss is still logged
 
 
 @pytest.mark.asyncio
 async def test_mock_llm_logs_calls() -> None:
-    router = MockLLMRouter()
+    router = MockLLMRouter(strict=False)
     await router.call_llm(task_type="REVIEW", user_prompt="check this")
     assert len(router.calls) == 1
     assert router.calls[0]["task_type"] == "REVIEW"
@@ -263,6 +266,7 @@ def test_mock_llm_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "f.json"
     router.save(path)
     router2 = MockLLMRouter.from_file(path)
+    assert router2.strict
     assert len(router2.fixtures) == 1
     [resp] = router2.fixtures.values()
     assert resp.output == "r"

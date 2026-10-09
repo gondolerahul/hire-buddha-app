@@ -752,10 +752,11 @@ classDiagram
 # backend/tests/harness/mock_llm.py
 """
 A test fixture file maps ``(task_type, prompt_hash)`` keys to recorded
-``LLMResponse`` payloads. When a test asks the mock for an LLM call
-that has no fixture, the mock falls back to a deterministic stub
-generator so the run still terminates (with a clear "STUB:" prefix in
-the output) rather than throwing.
+``LLMResponse`` payloads. A call with no fixture **raises** ``LookupError``
+(TS-06): a stub answer would let a test assert on output nothing generated
+and pass. A test that only needs the run to terminate opts into the
+deterministic stub generator with ``strict=False`` (outputs are marked
+``STUB::`` and ``metadata["stub"]``).
 """
 ```
 
@@ -766,9 +767,10 @@ Two modes, both needed:
 | Replay | Record a golden with the real router, then replay the fixture |
 | Inline | Construct `MockLLMRouter(fixtures={...})` and assert on **prompt shape**, not response text |
 
-The fallback behaviour is the good design choice here: an unmatched call returns
-a `STUB:`-prefixed response rather than raising, so a test exercising a new code
-path still terminates and you can see in the output which calls were unmocked.
+An unmatched call raises `LookupError` naming the missing `task_type:prompt_hash` key
+(TS-06, 2026-10-09) — until then it answered a `STUB:` string, so a test could assert on
+output nothing generated and pass. `MockLLMRouter(strict=False)` opts back into the stub
+for a test that only needs a run to terminate; the miss is in `router.calls` either way.
 
 The harness deliberately does not import the production `LLMResponse`:
 
@@ -1005,8 +1007,8 @@ async def test_planner_prompt_includes_the_goal(db, test_company_id, mock_llm):
     assert "summarise Q3 revenue" in prompt
 ```
 
-Assert on **prompt shape**, not response text — the mock's response is either a
-fixture or a `STUB:` string, so asserting on it tests nothing.
+Assert on **prompt shape**, not response text — the mock's response is the fixture you
+gave it (or, with `strict=False`, a `STUB:` string), so asserting on it tests nothing.
 
 ### 16.5 An API test
 
@@ -1180,8 +1182,8 @@ the trace viewer have none.
 13. ~~**Two `MockLLMRouter` definitions exist**~~ — one since 2026-10-07 (TS-13),
     in `tests/harness/mock_llm.py`.
 
-14. **An unmocked LLM call returns a `STUB:` response, not an error.** If output
-    looks wrong, grep it for `STUB:`.
+14. ~~**An unmocked LLM call returns a `STUB:` response, not an error.**~~ It raises
+    `LookupError` since 2026-10-09 (TS-06); `strict=False` opts into the stub.
 
 15. **Loading an entity fixture validates it** against
     `HierarchicalEntityCreate` — schema changes break fixture loading.

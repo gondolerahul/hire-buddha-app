@@ -38,11 +38,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 1 | 0 | 2 | 1 |
-| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 3 | 0 | 1 | 0 |
+| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 5 | 0 | 0 | 0 |
 | [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 3 | 0 | 2 | 1 |
 
-**Total: 19 defects (12 fixed, 5 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (13 fixed, 4 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -51,7 +51,7 @@
 | TS-03 | Three working quality gates have no trigger either | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-04 | `npm run lint` cannot run, and there is no frontend test runner | ✅ fixed (2026-10-09) — lint and `npm test` both run (FE-02, FE-03) | — |
 | TS-05 | Three test tiers skip instead of failing | ✅ fixed (2026-10-09) — `REQUIRE_DB=1` fails what would skip | — |
-| TS-06 | An unmocked LLM call returns a `STUB:` string, not an error | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-06 | An unmocked LLM call returns a `STUB:` string, not an error | ✅ fixed (2026-10-09) — raises; stub is opt-in | — |
 | TS-07 | `e2e/` does not roll back | ✅ fixed `3352625` | — |
 | TS-08 | The frontend tests cannot run at all | ✅ fixed (2026-10-09) — `npm test`; test files type-checked (FE-03) | — |
 | TS-09 | The root `tests/` directory | ✅ fixed `c9edbfd` | — |
@@ -220,7 +220,7 @@ it; with `REDIS_URL` on a dead port, `test_run_stream_redis.py` gives 3 errors u
 
 ### TS-06 — An unmocked LLM call returns a `STUB:` string, not an error
 
-**📄 Doc-reported · High** · **Status: open** — re-verified 2026-10-07: `tests/harness/mock_llm.py:172` still answers `STUB::…`. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
+**📄 Doc-reported · High** · **Status: ✅ fixed (2026-10-09)** — `MockLLMRouter` is strict by default: an unmatched call raises `LookupError` naming the key; `strict=False` is the explicit opt-in to the marked stub. The only stub users were the harness's own tests and the integration smoke test, now asserting the refusal; no other test reached an unmocked call. `test_harness.py::test_mock_llm_raises_on_miss_by_default` (and `from_file` defaults strict) fail on the old router.
 
 When a test path reaches the LLM without a mock configured, the harness returns a response
 beginning `STUB:` rather than raising.

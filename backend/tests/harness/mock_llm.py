@@ -2,10 +2,11 @@
 tests/harness/mock_llm.py — Mock LLM router for hermetic tests.
 
 A test fixture file maps ``(task_type, prompt_hash)`` keys to recorded
-``LLMResponse`` payloads. When a test asks the mock for an LLM call
-that has no fixture, the mock falls back to a deterministic stub
-generator so the run still terminates (with a clear "STUB:" prefix in
-the output) rather than throwing.
+``LLMResponse`` payloads. A call with no fixture **raises** ``LookupError``
+(TS-06): a stub answer would let a test assert on output nothing generated
+and pass. A test that only needs the run to terminate opts into the
+deterministic stub generator with ``strict=False`` (outputs are marked
+``STUB::`` and ``metadata["stub"]``).
 
 Both modes are needed:
   * Recording a golden snapshot uses the real LLM router, captures
@@ -72,7 +73,7 @@ class MockLLMRouter:
       }
     """
     fixtures: dict[str, MockLLMResponse] = field(default_factory=dict)
-    strict: bool = False                  # raise on miss instead of stubbing
+    strict: bool = True                   # raise on miss; False opts into stubbing (TS-06)
     calls: list[dict[str, Any]] = field(default_factory=list)   # call log
 
     # ------------------------------------------------------------------
@@ -80,7 +81,7 @@ class MockLLMRouter:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_file(cls, path: Path, *, strict: bool = False) -> "MockLLMRouter":
+    def from_file(cls, path: Path, *, strict: bool = True) -> "MockLLMRouter":
         data = json.loads(Path(path).read_text())
         fx_raw = data.get("fixtures", {})
         fixtures = {k: MockLLMResponse(**v) for k, v in fx_raw.items()}
@@ -133,8 +134,8 @@ class MockLLMRouter:
             return self.fixtures[key]
         if self.strict:
             raise LookupError(
-                f"MockLLMRouter has no fixture for {key!r}. "
-                f"Add it to fixtures or pass strict=False."
+                f"MockLLMRouter has no fixture for {key!r}. Add one, or construct "
+                f"the router with strict=False to accept a marked stub."
             )
         return _stub_response(task_type, user_prompt)
 
