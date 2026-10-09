@@ -115,6 +115,7 @@ From [`package.json`](../../frontend/package.json):
 | `framer-motion` | ^10.16 | Only 3 files: `GlassCard`, `GlassInput`, `JellyButton` |
 | `lucide-react` | ^0.294 | All icons |
 | `three` | ^0.182 | `AnimatedBackground` |
+| `@tanstack/react-query` | ^5.104 | The query cache — [§6.7](#67-the-query-cache) |
 
 Dev-only: `vitest`, `jsdom` and `@testing-library/react` / `dom` (installed, not yet wired
 to a `test` script — FE-03).
@@ -891,6 +892,44 @@ export const toolService = {
 | `credits.service.ts` | `/credits` | balance, Razorpay top-up + verify, subscriptions |
 | `artifact.service.ts` | `/artifacts` | list/get/upload/delete/`getDownloadUrl` |
 | `events.ts` | SSE | `useAgentEvents` hook + `parseAgentEvent` |
+
+### 6.7 The query cache
+
+Shared reads go through one `@tanstack/react-query` client
+([`queries/client.ts`](../../frontend/src/queries/client.ts)), provided outermost in `App.tsx`
+and cleared by `useAuth` at sign-out (FE-21, 2026-10-09).
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `staleTime` | 30 s | Leaving a page and coming back inside it makes no request |
+| `gcTime` | 5 min | After that, cached data shows at once and refreshes behind it |
+| `retry` | 1 | One retry, then the page's error state |
+| `refetchOnWindowFocus` | off | A tab switch is not a reason to refetch a list |
+
+The hooks are in [`queries/hooks.ts`](../../frontend/src/queries/hooks.ts), over the keys in
+[`queries/keys.ts`](../../frontend/src/queries/keys.ts):
+
+| Hook | Reads | Used by |
+|------|-------|---------|
+| `useEntityList(params?)` | `/ai/entities`, all pages | `EntityFlow`, `PhonePool` (voice agents) |
+| `useToolRegistry()` | `/ai/tool-registry` | `EntityFlow`, `ToolManagement` |
+| `usePhoneNumbers()` | `/phone-numbers` | `PhonePool` |
+| `useCustomerCompanies(isAdmin)`, `useCompanyList()` | `/companies/tenants` + `/companies/partners`, `/companies` | `PhonePool` |
+| `usePartners()`, `useTenants()` | `/companies/partners`, `/companies/tenants` | `PlatformManagement` |
+| `useUserList()`, `useCurrentUser()` | `/users`, `authService.getCurrentUser` | `PlatformManagement` |
+| `useReport(name, fetcher, ...params)` | any `reportsService` getter; a failure reads as `null` | `AppAdminReports`, `TenantAdminReports`, `AppAdminDashboard` |
+
+**Writes invalidate what they change.** `api.client.ts` announces every successful
+`POST`/`PUT`/`PATCH`/`DELETE` (`onApiWrite`), and `WRITE_INVALIDATES` maps the path to the keys
+it touched: `/ai/entities` and `/ai/templates` → entities, `/ai/tool-registry` → tools,
+`/phone-numbers`, `/companies` and `/users` → their lists. An invalidated list on screen is
+refetched at once; one that is not is refetched when next shown. Nothing else the page holds is
+refetched. A page that has to wait for the fresh list (the phone pool after each action) awaits
+`queryClient.invalidateQueries` itself.
+
+**Adding a shared read:** add a key to `keys.ts`, a hook to `hooks.ts`, and — if a write path
+changes it — a line to `WRITE_INVALIDATES`. One-screen reads that nothing else shares can stay
+in a `useEffect`.
 
 ---
 
@@ -1941,19 +1980,11 @@ stateDiagram-v2
 
 `phonePoolService` lives in
 [`platform.service.ts:100`](../../frontend/src/services/platform.service.ts:100)
-and does go through `apiClient`. But the page's *lookup* fetches do not:
-
-```tsx
-// frontend/src/pages/PhonePool.tsx:112
-const res = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL}/ai/entities?type=AGENT&voice_enabled=true&status=ACTIVE`,
-    { headers: { Authorization: `Bearer ${token}` } },
-);
-```
-
-Four raw `fetch` calls (voice-enabled agents, tenants, partners, companies) fire
-on mount alongside the number list — five requests, no 401 refresh on any of
-them.
+and goes through `apiClient`. The page reads its five lists — numbers, voice-enabled agents,
+tenants, partners, companies — through the query cache ([§6.7](#67-the-query-cache)): once on
+the first visit, and not again on a return inside 30 seconds. A sync or an edit invalidates the
+number list; assigning an agent also invalidates the entity list (FE-21, 2026-10-09). Until
+FE-07 the four lookups were raw `fetch` calls with no 401 refresh.
 
 ### 14.2 Streaming pages
 
@@ -2002,19 +2033,21 @@ flowchart TD
     D1 --> RC["Recharts: ResponsiveContainer + Area/Bar/Pie/Line"]
 ```
 
-The house pattern, from
-[`AppAdminDashboard.tsx:17`](../../frontend/src/pages/dashboards/AppAdminDashboard.tsx:17):
+`AppAdminDashboard` and the two report pages read through `useReport`
+([§6.7](#67-the-query-cache)) with the same keys, so the platform dashboard and the reports share
+one fetch per report (FE-21). The other dashboards keep the older pattern, from
+[`TenantAdminDashboard.tsx:14`](../../frontend/src/pages/dashboards/TenantAdminDashboard.tsx:14):
 
 ```tsx
 useEffect(() => {
     const fetchData = async () => {
         try {
-            const [walletRes, execRes, llmRes] = await Promise.all([
-                reportsService.getWalletLiability(),
-                reportsService.getExecutionHealth(30, true),
-                reportsService.getLLMPerformance(30, true),
+            const [forecastRes, agentRes, campRes] = await Promise.all([
+                reportsService.getCreditForecast(),
+                reportsService.getAgentErrors(30),
+                reportsService.getCampaignAnalytics(30),
             ]);
-            setWalletData(walletRes); setExecData(execRes); setLlmData(llmRes);
+            setForecastData(forecastRes); setAgentData(agentRes); setCampaignData(campRes);
         } catch (err) {
             console.error("Failed to load dashboard data", err);
         } finally { setLoading(false); }
@@ -2204,7 +2237,7 @@ for the backend picture, which is much better covered.
 | `EntityConfigurationTabs.tsx` | 1883 | ~110 `useState` in one component, so every keystroke re-executes the whole function (only the active tab is mounted). Since FE-20 the tool list — the costly part, ~100 rows — is a memoised `ToolPoolList` with stable handlers, and the tool, KB and tree filters are `useMemo`s: a keystroke on the Capabilities tab went from ~30 ms to ~10 ms (dev build). Splitting it per tab is the remaining step. |
 | `ExecutionDetail.tsx` | 1175 | Until FE-18, `findArtifactInTree`, `flattenChildSteps` and `collectChildLLMLogs` ran on every render under a 3-second poll. Now `deriveRunView` runs once per fetched run (`useMemo`), and the poll stops when the run finishes (FE-19). |
 | `PhonePool.tsx` | 759 | ~20 `useState`, five inline modals, all in one function. |
-| `AppAdminReports.tsx` | 664 | Seven parallel report fetches in one page. |
+| `AppAdminReports.tsx` | 664 | Seven report tabs, each a cached `useReport` (FE-21). |
 
 `React.memo` appears exactly **twice** in the whole app — `EntityNode` and
 `ToolNode`, where ReactFlow requires it.
@@ -2215,10 +2248,10 @@ for the backend picture, which is much better covered.
 |---------|-------|--------|
 | Fixed-interval polling regardless of visibility | `ExecutionDetail` (3s), `AgentLoopExecutionDetail` (3s × 3 endpoints), `FeatureFlagsProvider` (60s, this one *does* check visibility) | A single open execution page issues ~1.3 requests/second indefinitely |
 | Poll never stops in the legacy body | `ExecutionDetail.tsx:557` | The interval is created once with `[id]` deps and only *skips* work when the status is terminal — the timer keeps firing forever |
-| Fan-out on mount | `PhonePool` (5 requests), `AppAdminReports` (7), `TenantAdminReports` (6) | Slow first paint; no request dedup or cache |
-| Refetch-everything after a mutation | `PhonePool`, `PlatformManagement`, `ToolManagement` | Every create/update/delete re-lists the whole collection |
-| No caching layer at all | everywhere | Navigating away and back refetches from scratch. A `@tanstack/react-query` adoption would remove most of the polling and all of the manual `loading` state. |
-| N+1 on the entity canvas | `EntityFlow.fetchLibraries` pulls **all** entities and **all** tools every time the Hierarchy tab mounts | Fine at 50 entities, painful at 5,000 |
+| Fan-out on mount | `PhonePool` (5 requests), `AppAdminReports` (7), `TenantAdminReports` (6) | **Fixed (FE-21, 2026-10-09).** The reads are cached and shared ([§6.7](#67-the-query-cache)); a return inside 30 seconds makes none |
+| Refetch-everything after a mutation | `PhonePool`, `PlatformManagement`, `ToolManagement` | **Fixed (FE-21).** A write invalidates only the keys its path changes |
+| No caching layer at all | everywhere | **Fixed (FE-21)** for the shared lists and reports; one-screen pages still fetch in a `useEffect` |
+| N+1 on the entity canvas | `EntityFlow` pulled **all** entities and **all** tools every time the Hierarchy tab mounted | **Fixed (FE-21).** It reads the cached entity and tool lists, shared with the library and tool pages |
 
 ### 19.3 Bundle
 

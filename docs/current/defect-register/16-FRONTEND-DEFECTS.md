@@ -40,12 +40,12 @@
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 6 | 0 |
 | [T3](#5-t3--performance) | Performance | 7 | 6 | 1 |
 
-**Total: 32 defects (30 fixed, 2 open), 10 improvements (5 done, 1 partly done, 4 open).**
+**Total: 32 defects (31 fixed, 1 open), 10 improvements (6 done, 1 partly done, 3 open).**
 Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
 way and added (FE-26 to FE-31). The user ran two of the package changes this session's
 permission check refused, committed in `dc21c2f`: the unused packages are gone (FE-12) and
 `vitest` is installed (FE-03 still needs it wired in). FE-21's package, `@tanstack/react-query`,
-was installed in `895ddc8` and nothing uses it yet; FE-28 is fixed (2026-10-07, URL tokens).
+was installed in `895ddc8` and adopted on 2026-10-09 (H9); FE-28 is fixed (2026-10-07, URL tokens).
 Re-verified against the code 2026-10-07; the three open defects are scheduled in
 [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (FE-03 [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights), FE-28 [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), FE-21 [H9](REMAINING-DEFECTS-PLAN.md#h9--frontend-data-layer)).
 
@@ -71,7 +71,7 @@ Re-verified against the code 2026-10-07; the three open defects are scheduled in
 | FE-18 | `ExecutionDetail` walks the whole run tree on every render | ✅ fixed `3d1dcec` |
 | FE-19 | The execution poll never stops | ✅ fixed `3d1dcec` |
 | FE-20 | `EntityConfigurationTabs` re-renders everything on every keystroke | ✅ fixed `d32d412` |
-| FE-21 | No caching layer, and fan-out on mount | open — `@tanstack/react-query` installed `895ddc8`, not used yet; plan [H9](REMAINING-DEFECTS-PLAN.md#h9--frontend-data-layer) |
+| FE-21 | No caching layer, and fan-out on mount | ✅ fixed (2026-10-09) — one query cache; writes invalidate what they change |
 | FE-22 | `recharts` may be duplicated across 13 chunks | ✅ fixed `abcebdb` |
 | FE-23 | `useState(entity?.x)` only reads the prop once | ✅ fixed `0dbd5ef` |
 | FE-24 | Reloading any `/reports/*` page proxies the browser to the gateway | ✅ fixed `50dac40` |
@@ -88,7 +88,7 @@ Re-verified against the code 2026-10-07; the three open defects are scheduled in
 |---|---|---|
 | FE-I1 | Error boundary, lint config, test runner | ◐ two of three — the test runner is FE-03 |
 | FE-I2 | Stop the polls | ✅ done `3d1dcec` |
-| FE-I3 | Adopt a query cache | open — FE-21 |
+| FE-I3 | Adopt a query cache | ✅ done (2026-10-09) — FE-21 |
 | FE-I4 | Lazy-load the background and make it sleep | ✅ done `428ff7c` |
 | FE-I5 | Memoise the two heavy components | ✅ done `3d1dcec`, `d32d412` |
 | FE-I6 | Route everything through `apiClient` | ✅ done `cb3026f` |
@@ -860,7 +860,7 @@ for a few milliseconds per keystroke in a dev build.
 
 ### FE-21 — No caching layer, and fan-out on mount
 
-**✅ Verified · Medium** · **Status: open (2026-10-01)** — confirmed: `PhonePool` makes five
+**✅ Verified · Medium** · **Status: ✅ fixed (2026-10-09)** — confirmed: `PhonePool` makes five
 requests on mount, and `EntityFlow` fetches every entity and every tool each time the
 Hierarchy tab mounts. The product owner chose `@tanstack/react-query` (FE-I3); installing it
 was refused by this session's permission check, so it waits for the user.
@@ -876,6 +876,29 @@ was refused by this session's permission check, so it waits for the user.
 
 The canvas one is the sharpest: fine at 50 entities, painful at 5,000, and it re-runs on
 every tab switch.
+
+**Fix (2026-10-09).** One `QueryClient` for the app
+([`queries/client.ts`](../../../frontend/src/queries/client.ts)), mounted outermost in
+`App.tsx` and cleared at sign-out. A result is shared by every component that asks for the same
+key, fresh for 30 seconds and kept for five minutes; the window-focus refetch is off. The reads
+are hooks in [`queries/hooks.ts`](../../../frontend/src/queries/hooks.ts) over the keys in
+[`queries/keys.ts`](../../../frontend/src/queries/keys.ts):
+
+| Pattern | Now |
+|---|---|
+| Fan-out on mount | `PhonePool`'s five requests are `usePhoneNumbers`, `useEntityList`, `useCustomerCompanies` (tenants and partners) and `useCompanyList`; each report tab is a `useReport`, and `AppAdminDashboard` uses the same keys, so the dashboard and the reports share one fetch |
+| Refetch-everything after a mutation | every successful write through `apiClient` is announced (`onApiWrite`); `WRITE_INVALIDATES` maps the write's path to the keys it changed — `/ai/entities`, `/ai/templates` → entities, `/ai/tool-registry` → tools, `/phone-numbers`, `/companies`, `/users` — and only those are refetched: at once if on screen, otherwise when next shown |
+| No cache at all | navigating away and back within 30 seconds makes no request; after that the cached data shows at once and refreshes behind it |
+| N+1 on the entity canvas | `EntityFlow` reads `useEntityList()` and `useToolRegistry()`, shared with the library and tool pages; the dagre layout runs once, when both have arrived, not on every tab switch |
+
+Checked in the browser: the phone pool made its five requests once, and a return within 30
+seconds made none; the dashboard made one request per report (it had made two under
+`StrictMode`) and none on a return. `queries/hooks.test.tsx` covers the deduplication, a failed
+report reading as `null`, and the write-to-key mapping.
+
+**Not done:** the other dashboards (`TenantAdminDashboard` and the rest) still fetch in a
+`useEffect`. They are one-screen pages with no shared keys; moving them is mechanical when
+someone next touches them.
 
 ---
 
@@ -951,6 +974,8 @@ interval on terminal status. Then, when the SSE stream gains replay
 the polling can be removed entirely rather than merely stopped.
 
 ### FE-I3 — Adopt a query cache
+
+**Status: ✅ done (2026-10-09)** — see [FE-21](#fe-21--no-caching-layer-and-fan-out-on-mount).
 
 **Effect: large.** [FE-21](#fe-21--no-caching-layer-and-fan-out-on-mount).
 `@tanstack/react-query` would remove most of the polling, all of the manual `loading` state,

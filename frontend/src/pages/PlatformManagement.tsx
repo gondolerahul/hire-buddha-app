@@ -1,9 +1,11 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/queries/keys';
+import { useCurrentUser, usePartners, useTenants, useUserList } from '@/queries/hooks';
 import { GlassCard, JellyButton } from '@/components/ui';
 import { companyService } from '@/services/company.service';
 import { userService } from '@/services/user.service';
-import { authService } from '@/services/auth.service';
 import { Company, User, UserRole } from '@/types';
 import {
     AlertTriangle,
@@ -27,12 +29,7 @@ type ManagementTab = 'ALL' | 'PARTNERS' | 'TENANTS' | 'USERS';
 
 export const PlatformManagement: React.FC = () => {
     const [activeTab, setActiveTab] = useState<ManagementTab>('ALL');
-    const [partners, setPartners] = useState<Company[]>([]);
-    const [tenants, setTenants] = useState<Company[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [actionError, setError] = useState<string | null>(null);
 
     // Modal states
     const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
@@ -40,55 +37,36 @@ export const PlatformManagement: React.FC = () => {
     const [editingCompany, setEditingCompany] = useState<Company | undefined>(undefined);
     const [editingUser, setEditingUser] = useState<User | undefined>(undefined);
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
+    // Cached reads (FE-21): a tab's lists come from the query cache, so moving
+    // between tabs does not refetch; a change invalidates what it changed.
+    const queryClient = useQueryClient();
+    const showPartners = activeTab === 'ALL' || activeTab === 'PARTNERS';
+    const showTenants = activeTab === 'ALL' || activeTab === 'TENANTS';
+    const showUsers = activeTab === 'ALL' || activeTab === 'USERS';
+    const meQuery = useCurrentUser();
+    const partnersQuery = usePartners(showPartners);
+    const tenantsQuery = useTenants(showTenants);
+    const usersQuery = useUserList(showUsers);
+    const currentUser: User | null = meQuery.data ?? null;
+    const partners: Company[] = partnersQuery.data ?? [];
+    const tenants: Company[] = tenantsQuery.data ?? [];
+    const users: User[] = usersQuery.data ?? [];
+    const shown = [meQuery, ...(showPartners ? [partnersQuery] : []), ...(showTenants ? [tenantsQuery] : []),
+                   ...(showUsers ? [usersQuery] : [])];
+    const loading = shown.some(q => q.isLoading);
+    const fetching = shown.some(q => q.isFetching);
+    const error = actionError ?? (shown.some(q => q.isError) ? `Failed to load ${activeTab.toLowerCase()}` : null);
+    const refresh = () => {
         setError(null);
-        try {
-            const user = await authService.getCurrentUser();
-            setCurrentUser(user);
-
-            if (activeTab === 'ALL') {
-                const [pData, tData, uData] = await Promise.all([
-                    companyService.getPartners(),
-                    companyService.getTenants(),
-                    userService.getUsers()
-                ]);
-                setPartners(pData);
-                setTenants(tData);
-                setUsers(uData);
-            } else if (activeTab === 'PARTNERS') {
-                const data = await companyService.getPartners();
-                setPartners(data);
-            } else if (activeTab === 'TENANTS') {
-                const data = await companyService.getTenants();
-                setTenants(data);
-            } else if (activeTab === 'USERS') {
-                const data = await userService.getUsers();
-                setUsers(data);
-            }
-        } catch (err) {
-            console.error(`Failed to fetch ${activeTab.toLowerCase()}`, err);
-            setError(`Failed to load ${activeTab.toLowerCase()}`);
-        } finally {
-            setLoading(false);
-        }
-    }, [activeTab]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
+    };
 
     const handleToggleCompanyStatus = async (company: Company) => {
         try {
             const newStatus = company.status === 'active' ? 'suspended' : 'active';
             await companyService.updateCompany(company.id, { status: newStatus });
-
-            if (activeTab === 'PARTNERS' || activeTab === 'ALL') {
-                setPartners(partners.map(p => p.id === company.id ? { ...p, status: newStatus } : p));
-            }
-            if (activeTab === 'TENANTS' || activeTab === 'ALL') {
-                setTenants(tenants.map(t => t.id === company.id ? { ...t, status: newStatus } : t));
-            }
+            await queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
         } catch (err) {
             console.error('Failed to update company status', err);
             setError('Failed to update status');
@@ -99,7 +77,7 @@ export const PlatformManagement: React.FC = () => {
         try {
             const newStatus = !user.is_active;
             await userService.updateUser(user.id, { is_active: newStatus });
-            setUsers(users.map(u => u.id === user.id ? { ...u, is_active: newStatus } : u));
+            await queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
         } catch (err) {
             console.error('Failed to update user status', err);
             setError('Failed to update status');
@@ -112,7 +90,7 @@ export const PlatformManagement: React.FC = () => {
         } else {
             await companyService.createCompany(data);
         }
-        fetchData();
+        await queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
     };
 
     const handleUserSubmit = async (id: string | undefined, data: any) => {
@@ -121,7 +99,7 @@ export const PlatformManagement: React.FC = () => {
         } else {
             await userService.createUser(data);
         }
-        fetchData();
+        await queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
     };
 
     const openEditCompany = (company: Company) => {
@@ -182,8 +160,8 @@ export const PlatformManagement: React.FC = () => {
                     <p>Orchestrate Partners, Tenants, and User Access Control</p>
                 </div>
                 <div className="header-actions">
-                    <JellyButton onClick={fetchData} variant="ghost" className="mr-2">
-                        <RefreshCw size={20} className={loading ? 'spin' : ''} />
+                    <JellyButton onClick={refresh} variant="ghost" className="mr-2">
+                        <RefreshCw size={20} className={fetching ? 'spin' : ''} />
                     </JellyButton>
                     <JellyButton onClick={openCreate} roseGold disabled={activeTab === 'ALL'}>
                         <Plus size={20} />

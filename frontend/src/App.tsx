@@ -1,4 +1,6 @@
 import React, { Suspense, lazy } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './queries/client';
 import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import { FeatureFlagsProvider } from './hooks/useFeatureFlag';
@@ -13,16 +15,18 @@ import './styles/global.css';
 
 const App: React.FC = () => {
     return (
-        <ThemeProvider>
-            <AuthProvider>
-                <FeatureFlagsProvider>
-                    <Suspense fallback={null}>
-                        <AnimatedBackground />
-                    </Suspense>
-                    <AppRouter />
-                </FeatureFlagsProvider>
-            </AuthProvider>
-        </ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+                <AuthProvider>
+                    <FeatureFlagsProvider>
+                        <Suspense fallback={null}>
+                            <AnimatedBackground />
+                        </Suspense>
+                        <AppRouter />
+                    </FeatureFlagsProvider>
+                </AuthProvider>
+            </ThemeProvider>
+        </QueryClientProvider>
     );
 };
 

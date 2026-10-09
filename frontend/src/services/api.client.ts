@@ -1,6 +1,9 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '@/config/api';
 
+/** Told of every successful write: its method and path (FE-21). */
+export type WriteListener = (method: string, url: string) => void;
+
 
 class ApiClient {
     private client: AxiosInstance;
@@ -29,7 +32,19 @@ class ApiClient {
         // Concurrent 401s share one refresh: a refresh token is rotated on use,
         // and presenting a rotated token again ends every session (AU-09).
         this.client.interceptors.response.use(
-            (response) => response,
+            (response) => {
+                const method = (response.config.method || 'get').toLowerCase();
+                if (method !== 'get' && method !== 'head' && method !== 'options') {
+                    for (const listener of this.writeListeners) {
+                        try {
+                            listener(method, response.config.url || '');
+                        } catch {
+                            // A listener must never fail the request.
+                        }
+                    }
+                }
+                return response;
+            },
             async (error) => {
                 const originalRequest = error.config;
 
@@ -60,6 +75,16 @@ class ApiClient {
 
     private refreshing: Promise<string> | null = null;
 
+    private writeListeners: WriteListener[] = [];
+
+    /** Call `listener` after every successful write; returns the unsubscribe. */
+    onWrite(listener: WriteListener): () => void {
+        this.writeListeners.push(listener);
+        return () => {
+            this.writeListeners = this.writeListeners.filter((l) => l !== listener);
+        };
+    }
+
     private refreshAccessToken(): Promise<string> {
         if (!this.refreshing) {
             const refreshToken = localStorage.getItem('refresh_token');
@@ -82,4 +107,9 @@ class ApiClient {
     }
 }
 
-export const apiClient = new ApiClient().getInstance();
+const client = new ApiClient();
+
+export const apiClient = client.getInstance();
+
+/** Subscribe to every successful write through `apiClient` (FE-21). */
+export const onApiWrite = (listener: WriteListener): (() => void) => client.onWrite(listener);

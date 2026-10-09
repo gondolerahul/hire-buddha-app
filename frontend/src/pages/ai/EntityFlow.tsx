@@ -10,8 +10,7 @@ import { ToolNode } from './builder-nodes/ToolNode';
 import { JellyButton } from '@/components/ui';
 import { Save, Layers, Trash2, Brain, Zap, Activity, Plus, Settings, Search, AlertTriangle, LayoutGrid, Workflow, Repeat, Network } from 'lucide-react';
 import { EntityType, HierarchicalEntity, ToolUsage } from '@/types';
-import { apiClient } from '@/services/api.client';
-import { fetchAllPages } from '@/services/pagination';
+import { useEntityList, useToolRegistry } from '@/queries/hooks';
 import './EntityFlow.css';
 
 // ── Dagre layout helper ──────────────────────────────────────────────────────
@@ -128,6 +127,10 @@ const STEP_TYPE_COLORS: Record<string, string> = {
 
 interface Tool { name: string; description: string; }
 
+// Stable empty lists while the libraries load (effects depend on them).
+const NO_ENTITIES: HierarchicalEntity[] = [];
+const NO_TOOLS: Tool[] = [];
+
 interface PlannedTool { tool_id: string; usage: ToolUsage; }
 
 interface EntityFlowProps {
@@ -149,61 +152,56 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
     const [layoutDirection, setLayoutDirection] = useState<'TB' | 'LR'>('TB');
 
     // Library data
-    const [entities, setEntities] = useState<HierarchicalEntity[]>([]);
-    const [tools, setTools] = useState<Tool[]>([]);
-    const [loadingLibraries, setLoadingLibraries] = useState(true);
+    // Cached (FE-21): every entity and the tool list come from the query cache,
+    // so switching back to the Hierarchy tab does not fetch them again.
+    const entitiesQuery = useEntityList<HierarchicalEntity>();
+    const toolsQuery = useToolRegistry();
+    const entities = entitiesQuery.data ?? NO_ENTITIES;
+    const tools = (toolsQuery.data as Tool[] | undefined) ?? NO_TOOLS;
+    const loadingLibraries = entitiesQuery.isLoading || toolsQuery.isLoading;
     const [entitySearch, setEntitySearch] = useState('');
 
     // The graph as this component first received it: the library load lays it
     // out once. (The props default to a new [] on every render.)
     const initialGraph = useRef({ nodes: initialNodes, edges: initialEdges });
 
-    const fetchLibraries = useCallback(async () => {
-        try {
-            const [allEntities, toolsRes] = await Promise.all([
-                fetchAllPages<HierarchicalEntity>('/ai/entities'),
-                apiClient.get<Tool[]>('/ai/tool-registry'),
-            ]);
-            const entitiesRes = { data: allEntities };
-            setEntities(entitiesRes.data);
-            setTools(toolsRes.data);
+    // Once the libraries have arrived: name the initial nodes and lay the
+    // initial graph out, once.
+    const laidOut = useRef(false);
+    useEffect(() => {
+        const loaded = entitiesQuery.data;
+        if (laidOut.current || !loaded || !toolsQuery.data) return;
+        laidOut.current = true;
 
-            // Resolve labels for initial nodes loaded from hierarchy.children
-            // (they may only have UUIDs as labels if child_name wasn't stored)
-            const entityMap = new Map(entitiesRes.data.map((e: HierarchicalEntity) => [e.id, e]));
-            setNodes(prevNodes => prevNodes.map(n => {
-                if (n.data.entityRef?.id && entityMap.has(n.data.entityRef.id)) {
-                    const resolved = entityMap.get(n.data.entityRef.id)!;
-                    return {
-                        ...n,
-                        data: {
-                            ...n.data,
-                            label: resolved.display_name || resolved.name,
-                            entityRef: { id: resolved.id, name: resolved.name, type: resolved.type },
-                            stepType: resolved.type,
-                        },
-                    };
-                }
-                return n;
-            }));
-
-            // Auto-layout initial nodes with dagre if they came from hierarchy
-            const { nodes: firstNodes, edges: firstEdges } = initialGraph.current;
-            if (firstNodes.length > 0) {
-                setNodes(prev => {
-                    const layouted = applyDagreLayout(prev, firstEdges, 'TB');
-                    return layouted.nodes;
-                });
-                setEdges(firstEdges.map(e => ({ ...e, type: 'relationship', animated: e.label === 'PARALLEL' })));
+        // Resolve labels for initial nodes loaded from hierarchy.children
+        // (they may only have UUIDs as labels if child_name wasn't stored)
+        const entityMap = new Map(loaded.map((e: HierarchicalEntity) => [e.id, e]));
+        setNodes(prevNodes => prevNodes.map(n => {
+            if (n.data.entityRef?.id && entityMap.has(n.data.entityRef.id)) {
+                const resolved = entityMap.get(n.data.entityRef.id)!;
+                return {
+                    ...n,
+                    data: {
+                        ...n.data,
+                        label: resolved.display_name || resolved.name,
+                        entityRef: { id: resolved.id, name: resolved.name, type: resolved.type },
+                        stepType: resolved.type,
+                    },
+                };
             }
-        } catch (error) {
-            console.error('Failed to fetch libraries:', error);
-        } finally {
-            setLoadingLibraries(false);
-        }
-    }, [setNodes, setEdges]);
+            return n;
+        }));
 
-    useEffect(() => { fetchLibraries(); }, [fetchLibraries]);
+        // Auto-layout initial nodes with dagre if they came from hierarchy
+        const { nodes: firstNodes, edges: firstEdges } = initialGraph.current;
+        if (firstNodes.length > 0) {
+            setNodes(prev => {
+                const layouted = applyDagreLayout(prev, firstEdges, 'TB');
+                return layouted.nodes;
+            });
+            setEdges(firstEdges.map(e => ({ ...e, type: 'relationship', animated: e.label === 'PARALLEL' })));
+        }
+    }, [entitiesQuery.data, toolsQuery.data, setNodes, setEdges]);
 
     // ── Sync PLANNED/BOTH tools onto canvas ──────────────────────────────────
     // Works on the current nodes (an updater, not the render's `nodes`, which

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { phonePoolService } from '@/services/platform.service';
 import './PhonePool.css';
-import { apiClient } from '@/services/api.client';
-import { fetchAllPages } from '@/services/pagination';
+import { queryKeys } from '@/queries/keys';
+import { useCompanyList, useCustomerCompanies, useEntityList, usePhoneNumbers } from '@/queries/hooks';
 
 interface PhoneNumberEntry {
     id: string;
@@ -48,10 +49,6 @@ interface Company {
 
 const PhonePool: React.FC = () => {
     const { user } = useAuth();
-    const [numbers, setNumbers] = useState<PhoneNumberEntry[]>([]);
-    const [agents, setAgents] = useState<Agent[]>([]);
-    const [customers, setCustomers] = useState<CustomerCompany[]>([]);
-    const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('');
     const [providerFilter, setProviderFilter] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -78,7 +75,6 @@ const PhonePool: React.FC = () => {
     // Claim modal state — app_admin can choose target company
     const [showClaimModal, setShowClaimModal] = useState<PhoneNumberEntry | null>(null);
     const [claimCompanyId, setClaimCompanyId] = useState('');
-    const [companies, setCompanies] = useState<Company[]>([]);
 
     const [addForm, setAddForm] = useState({
         phone_number: '',
@@ -95,68 +91,17 @@ const PhonePool: React.FC = () => {
 
     const isAdmin = user?.role === 'app_admin';
 
-    const fetchNumbers = useCallback(async () => {
-        try {
-            setLoading(true);
-            const data = await phonePoolService.listNumbers(statusFilter || undefined, providerFilter || undefined);
-            setNumbers(data.phone_numbers || data || []);
-        } catch (err) {
-            console.error('Failed to fetch numbers:', err);
-        } finally {
-            setLoading(false);
-        }
-    }, [statusFilter, providerFilter]);
-
-    const fetchAgents = useCallback(async () => {
-        try {
-            // Fetch only ACTIVE, voice-enabled agents for assignment
-            setAgents(await fetchAllPages<any>('/ai/entities', {
-                type: 'AGENT', voice_enabled: true, status: 'ACTIVE',
-            }));
-        } catch (err) {
-            console.error('Error fetching agents:', err);
-        }
-    }, []);
-
-    const fetchCustomers = useCallback(async () => {
-        try {
-            const results: CustomerCompany[] = [];
-            // Tenants, and partners for app_admin; either list may be refused on its own
-            const [tenantRes, partnerRes] = await Promise.allSettled([
-                apiClient.get('/companies/tenants'),
-                isAdmin ? apiClient.get('/companies/partners') : Promise.reject(new Error('not admin')),
-            ]);
-            if (tenantRes.status === 'fulfilled') {
-                const tenantData = tenantRes.value.data;
-                const tenants = Array.isArray(tenantData) ? tenantData : tenantData.data || [];
-                results.push(...tenants.map((c: any) => ({ id: c.id, name: c.name, type: 'TENANT' })));
-            }
-            if (partnerRes.status === 'fulfilled') {
-                const partnerData = partnerRes.value.data;
-                const partners = Array.isArray(partnerData) ? partnerData : partnerData.data || [];
-                results.push(...partners.map((c: any) => ({ id: c.id, name: c.name, type: 'PARTNER' })));
-            }
-            setCustomers(results);
-        } catch (err) {
-            console.error('Error fetching customers:', err);
-        }
-    }, [isAdmin]);
-
-    const fetchCompanies = useCallback(async () => {
-        try {
-            const { data } = await apiClient.get('/companies');
-            setCompanies(Array.isArray(data) ? data : []);
-        } catch (err) {
-            console.error('Error fetching companies:', err);
-        }
-    }, []);
-
-    useEffect(() => { fetchNumbers(); }, [fetchNumbers]);
-    useEffect(() => {
-        fetchAgents();
-        fetchCustomers();
-        if (isAdmin) fetchCompanies();
-    }, [fetchAgents, fetchCustomers, fetchCompanies, isAdmin]);
+    // Cached reads (FE-21): one request per resource on mount, none on a quick
+    // return; a change invalidates the numbers instead of refetching everything.
+    const queryClient = useQueryClient();
+    const numbersQuery = usePhoneNumbers<PhoneNumberEntry>(statusFilter, providerFilter);
+    const numbers = numbersQuery.data ?? [];
+    const loading = numbersQuery.isLoading;
+    // Only ACTIVE, voice-enabled agents can be assigned.
+    const agents: Agent[] = useEntityList<Agent>({ type: 'AGENT', voice_enabled: true, status: 'ACTIVE' }).data ?? [];
+    const customers: CustomerCompany[] = useCustomerCompanies(isAdmin).data ?? [];
+    const companies: Company[] = useCompanyList<Company>(isAdmin).data ?? [];
+    const refreshNumbers = () => queryClient.invalidateQueries({ queryKey: queryKeys.phoneNumbers.all });
 
     const handleSync = async () => {
         setSyncing(true);
@@ -164,7 +109,7 @@ const PhonePool: React.FC = () => {
         try {
             const result = await phonePoolService.syncNumbers();
             setSyncResult(result);
-            fetchNumbers();
+            void refreshNumbers();
         } catch (err: any) {
             setSyncResult({ error: err.message || 'Sync failed' });
         } finally {
@@ -178,7 +123,7 @@ const PhonePool: React.FC = () => {
             await phonePoolService.addNumber(addForm);
             setShowAddModal(false);
             setAddForm({ phone_number: '', provider: 'tata_tele', country_code: '+91', label: '', notes: '' });
-            fetchNumbers();
+            void refreshNumbers();
         } catch (err: any) {
             alert(err?.response?.data?.detail || 'Failed to add number');
         }
@@ -194,7 +139,7 @@ const PhonePool: React.FC = () => {
         // Non-admin: direct claim
         try {
             await phonePoolService.claimNumber(entry.id);
-            fetchNumbers();
+            void refreshNumbers();
         } catch (err: any) {
             alert(err?.response?.data?.detail || 'Failed to claim number');
         }
@@ -209,7 +154,7 @@ const PhonePool: React.FC = () => {
             );
             setShowClaimModal(null);
             setClaimCompanyId('');
-            fetchNumbers();
+            void refreshNumbers();
         } catch (err: any) {
             alert(err?.response?.data?.detail || 'Failed to claim number');
         }
@@ -220,7 +165,7 @@ const PhonePool: React.FC = () => {
             message: 'Are you sure you want to release this number back to the pool? The agent and customer assignments will be removed.',
             action: async () => {
                 await phonePoolService.releaseNumber(id);
-                fetchNumbers();
+                void refreshNumbers();
             },
         });
     };
@@ -235,7 +180,7 @@ const PhonePool: React.FC = () => {
             });
             setShowAssignModal(null);
             setAssignForm({ agent_id: '', customer_name: '' });
-            fetchNumbers();
+            void refreshNumbers();
         } catch (err: any) {
             alert(err?.response?.data?.detail || 'Failed to assign');
         }
@@ -244,7 +189,7 @@ const PhonePool: React.FC = () => {
     const handleToggleActive = async (id: string, currentActive: boolean) => {
         try {
             await phonePoolService.updateNumber(id, { is_active: !currentActive });
-            fetchNumbers();
+            void refreshNumbers();
         } catch (err: any) {
             alert(err?.response?.data?.detail || 'Failed to update');
         }
@@ -255,7 +200,7 @@ const PhonePool: React.FC = () => {
             message: 'Are you sure you want to permanently delete this phone number? This action cannot be undone.',
             action: async () => {
                 await phonePoolService.deleteNumber(id);
-                fetchNumbers();
+                void refreshNumbers();
             },
         });
     };
@@ -300,7 +245,7 @@ const PhonePool: React.FC = () => {
 
             await phonePoolService.updateNumber(showEditModal.id, updates);
             setShowEditModal(null);
-            fetchNumbers();
+            void refreshNumbers();
         } catch (err: any) {
             alert(err?.response?.data?.detail || 'Failed to update number');
         }
@@ -451,7 +396,8 @@ const PhonePool: React.FC = () => {
                                                     onClick={() => {
                                                         setShowAssignModal(n);
                                                         setAssignForm({ agent_id: '', customer_name: '' });
-                                                        fetchAgents(); // Refresh agent list on every open
+                                                        // The agent list, fresh on every open
+                                                        void queryClient.invalidateQueries({ queryKey: queryKeys.entities.all });
                                                     }}
                                                 >
                                                     Assign Agent

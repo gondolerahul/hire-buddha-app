@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { reportsService, WalletLiabilityData, ExecutionHealthData, LLMPerformanceData } from '@/services/reports.service';
+import { useReport } from '@/queries/hooks';
 import { DollarSign, Activity, Cpu, CheckCircle } from 'lucide-react';
 import { StatCard, SectionTitle, EmptyChart, fmtUSD, fmtPct } from './DashboardShared';
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, Legend, BarChart, Bar } from 'recharts';
@@ -8,32 +9,17 @@ import '@/components/ui/AccessibleChart.css';
 import './SharedDashboard.css';
 
 export const AppAdminDashboard: React.FC = () => {
-    const [walletData, setWalletData] = useState<WalletLiabilityData | null>(null);
-    const [execData, setExecData] = useState<ExecutionHealthData | null>(null);
-    const [llmData, setLlmData] = useState<LLMPerformanceData | null>(null);
-    const [loading, setLoading] = useState(true);
+    // Same keys as the report tabs, so the dashboard and the reports share one fetch (FE-21).
+    const wallet = useReport<WalletLiabilityData>('getWalletLiability', () => reportsService.getWalletLiability());
+    const exec = useReport<ExecutionHealthData>(
+        'getExecutionHealth', () => reportsService.getExecutionHealth(30, true), 30, true);
+    const llm = useReport<LLMPerformanceData>(
+        'getLLMPerformance', () => reportsService.getLLMPerformance(30, true), 30, true);
+    const walletData = wallet.data ?? null;
+    const execData = exec.data ?? null;
+    const llmData = llm.data ?? null;
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const [walletRes, execRes, llmRes] = await Promise.all([
-                    reportsService.getWalletLiability(),
-                    reportsService.getExecutionHealth(30, true),
-                    reportsService.getLLMPerformance(30, true),
-                ]);
-                setWalletData(walletRes);
-                setExecData(execRes);
-                setLlmData(llmRes);
-            } catch (err) {
-                console.error("Failed to load dashboard data", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, []);
-
-    if (loading) return <div className="loading-state"><div className="pulse">Loading System Data…</div></div>;
+    if (wallet.isLoading || exec.isLoading || llm.isLoading) return <div className="loading-state"><div className="pulse">Loading System Data…</div></div>;
 
     const execTrend = execData?.daily_trend || [];
     const models = llmData?.model_breakdown || [];

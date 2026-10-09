@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/queries/keys';
+import { useToolRegistry } from '@/queries/hooks';
 import {
     Search, Plus, Wrench, Edit, Trash2, Power, RefreshCw,
     AlertTriangle, Package, Zap
@@ -31,8 +34,12 @@ const TOOL_TYPE_FILTER = [
 ];
 
 export const ToolManagement: React.FC = () => {
-    const [tools, setTools] = useState<ToolRegistryEntry[]>([]);
-    const [loading, setLoading] = useState(true);
+    // The tool list from the query cache (FE-21), the same entry the builder
+    // reads; a change invalidates it instead of refetching by hand.
+    const queryClient = useQueryClient();
+    const toolsQuery = useToolRegistry();
+    const tools: ToolRegistryEntry[] = toolsQuery.data ?? [];
+    const loading = toolsQuery.isLoading;
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
     const [typeFilter, setTypeFilter] = useState('');
@@ -51,21 +58,7 @@ export const ToolManagement: React.FC = () => {
     const [formConfig, setFormConfig] = useState('');
     const [formError, setFormError] = useState('');
 
-    const fetchTools = useCallback(async () => {
-        try {
-            setLoading(true);
-            const data = await toolService.listTools();
-            setTools(data);
-        } catch (err) {
-            console.error('Failed to fetch tools:', err);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchTools();
-    }, [fetchTools]);
+    const fetchTools = () => queryClient.invalidateQueries({ queryKey: queryKeys.tools.all });
 
     // ─── Filtering ──────────────────────────────────────────────────
     const filteredTools = tools.filter(tool => {
@@ -171,7 +164,7 @@ export const ToolManagement: React.FC = () => {
                 await toolService.createTool(createData);
             }
             setShowModal(false);
-            fetchTools();
+            void fetchTools();
         } catch (err: any) {
             setFormError(err?.response?.data?.detail || 'Failed to save tool.');
         }
@@ -182,7 +175,7 @@ export const ToolManagement: React.FC = () => {
         try {
             await toolService.deleteTool(deleteTarget.id);
             setDeleteTarget(null);
-            fetchTools();
+            void fetchTools();
         } catch (err: any) {
             alert(err?.response?.data?.detail || 'Failed to delete tool.');
         }
@@ -192,7 +185,7 @@ export const ToolManagement: React.FC = () => {
         if (!tool.id) return;
         try {
             await toolService.toggleTool(tool.id);
-            fetchTools();
+            void fetchTools();
         } catch (err) {
             console.error('Failed to toggle tool:', err);
         }
@@ -203,7 +196,7 @@ export const ToolManagement: React.FC = () => {
         try {
             const result = await toolService.syncBuiltIn();
             alert(`Sync complete: ${result.created} new tool(s) registered, ${result.updated ?? 0} brought up to date, ${result.removed ?? 0} removed.`);
-            fetchTools();
+            void fetchTools();
         } catch (err) {
             console.error('Failed to sync built-in tools:', err);
         } finally {

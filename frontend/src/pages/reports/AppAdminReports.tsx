@@ -1,5 +1,6 @@
 import { parseServerDate } from '@/utils/datetime';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useReport } from '@/queries/hooks';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     AreaChart, Area, PieChart, Pie, Cell,
@@ -54,12 +55,9 @@ function fmtPct(v: number) { return `${v.toFixed(1)}%`; }
 
 // ── Revenue & Margin Tab ─────────────────────────────────────────────────────
 const RevenueTab: React.FC = () => {
-    const [data, setData] = useState<WalletLiabilityData | null>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        reportsService.getWalletLiability().then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, []);
+    const { data = null, isLoading: loading } = useReport<WalletLiabilityData>(
+        'getWalletLiability', () => reportsService.getWalletLiability());
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 
@@ -128,12 +126,9 @@ const RevenueTab: React.FC = () => {
 
 // ── Subscription & MRR Tab ───────────────────────────────────────────────────
 const SubscriptionTab: React.FC = () => {
-    const [data, setData] = useState<SubscriptionMRRData | null>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        reportsService.getSubscriptionMRR().then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, []);
+    const { data = null, isLoading: loading } = useReport<SubscriptionMRRData>(
+        'getSubscriptionMRR', () => reportsService.getSubscriptionMRR());
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 
@@ -211,16 +206,9 @@ const SubscriptionTab: React.FC = () => {
 
 // ── Execution Health Tab ─────────────────────────────────────────────────────
 const ExecHealthTab: React.FC = () => {
-    const [data, setData] = useState<ExecutionHealthData | null>(null);
     const [days, setDays] = useState(30);
-    const [loading, setLoading] = useState(true);
-
-    const load = useCallback(() => {
-        setLoading(true);
-        reportsService.getExecutionHealth(days, true).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, [days]);
-
-    useEffect(() => { load(); }, [load]);
+    const { data = null, isLoading: loading } = useReport<ExecutionHealthData>(
+        'getExecutionHealth', () => reportsService.getExecutionHealth(days, true), days, true);
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 
@@ -294,12 +282,9 @@ const ExecHealthTab: React.FC = () => {
 
 // ── LLM Performance Tab ──────────────────────────────────────────────────────
 const LLMTab: React.FC = () => {
-    const [data, setData] = useState<LLMPerformanceData | null>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        reportsService.getLLMPerformance(30, true).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, []);
+    const { data = null, isLoading: loading } = useReport<LLMPerformanceData>(
+        'getLLMPerformance', () => reportsService.getLLMPerformance(30, true), 30, true);
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 
@@ -362,13 +347,10 @@ const LLMTab: React.FC = () => {
 
 // ── Tool Efficacy Tab ────────────────────────────────────────────────────────
 const ToolsTab: React.FC = () => {
-    const [data, setData] = useState<ToolEfficacyData | null>(null);
-    const [loading, setLoading] = useState(true);
     const [sortBy, setSortBy] = useState<'error_rate' | 'total_calls' | 'avg_latency_ms'>('error_rate');
 
-    useEffect(() => {
-        reportsService.getToolEfficacy(30, true).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, []);
+    const { data = null, isLoading: loading } = useReport<ToolEfficacyData>(
+        'getToolEfficacy', () => reportsService.getToolEfficacy(30, true), 30, true);
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 
@@ -435,12 +417,9 @@ const ToolsTab: React.FC = () => {
 
 // ── Partner Performance Tab ──────────────────────────────────────────────────
 const PartnerTab: React.FC = () => {
-    const [data, setData] = useState<PartnerPerformanceData | null>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        reportsService.getPartnerPerformance().then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, []);
+    const { data = null, isLoading: loading } = useReport<PartnerPerformanceData>(
+        'getPartnerPerformance', () => reportsService.getPartnerPerformance());
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 
@@ -484,12 +463,9 @@ const PartnerTab: React.FC = () => {
 
 // ── Wallet Tab (HITL) ────────────────────────────────────────────────────────
 const WalletTab: React.FC = () => {
-    const [data, setData] = useState<WalletLiabilityData | null>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        reportsService.getWalletLiability().then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, []);
+    const { data = null, isLoading: loading } = useReport<WalletLiabilityData>(
+        'getWalletLiability', () => reportsService.getWalletLiability());
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 
@@ -548,12 +524,9 @@ const WalletTab: React.FC = () => {
 
 // ── Global HITL Tab ──────────────────────────────────────────────────────────
 const HitlTab: React.FC = () => {
-    const [data, setData] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        reportsService.getHitlOverview(30, true).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-    }, []);
+    const { data = null, isLoading: loading } = useReport<any>(
+        'getHitlOverview', () => reportsService.getHitlOverview(30, true), 30, true);
 
     if (loading) return <div className="loading-state"><div className="pulse">Loading…</div></div>;
 

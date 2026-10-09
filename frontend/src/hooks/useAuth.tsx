@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '@/types';
 import { authService } from '@/services/auth.service';
+import { queryClient } from '@/queries/client';
 
 interface AuthContextType {
     user: User | null;
@@ -80,6 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         void authService.logout();
         setUser(null);
         setToken(null);
+        queryClient.clear();   // nothing cached for one user is shown to the next (FE-21)
     };
 
     return (
