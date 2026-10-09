@@ -78,6 +78,8 @@ graph TB
 > once ran on 8002 is deleted. See
 > [02 §2.2](02-system-architecture.md#22-the-former-unified-gateway--merged-into-the-api).
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. Local development from a fresh clone

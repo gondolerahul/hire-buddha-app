@@ -104,6 +104,8 @@ graph TB
     Run --> Observe
 ```
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/01-PRODUCT-OVERVIEW-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. What HireBuddha is

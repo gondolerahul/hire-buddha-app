@@ -127,6 +127,8 @@ graph TB
     AL --> TR
 ```
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/05-AGENT-KERNEL-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. How a run reaches the loop

@@ -63,19 +63,37 @@ This codebase implements `docs/history/phase11/`. Skim:
 
 ## 5. First PR (15 min) — guided exercise
 
-Enable the EXPERIMENTAL `video_generate` tool for your dev tenant:
+Learn the control that decides whether a tool may run — a **tool grant** — by
+limiting one. An entity runs only the tools in its `capabilities.tools`, and
+`governance/tool_access.py`'s `ToolAccess` is the one place every execution
+path asks (TL-50).
 
-1. Find the tenant's company_id in the `companies` table.
-2. Insert a row into `feature_flags`:
-   ```sql
-   INSERT INTO feature_flags (id, company_id, flag_key, enabled)
-   VALUES (gen_random_uuid(), '<company-id>', 'tools.experimental.video_generate', true);
+1. Read `ToolAccess._check` in `governance/tool_access.py`: the order of its
+   refusals is the order a call is checked in.
+2. Add a test to `tests/unit/test_tool_access.py`: an entity granted
+   `web_search` with `rate_limit_per_run: 1` may call it once and is refused
+   the second time.
+   ```python
+   from src.ai.governance.tool_access import ToolAccess, ToolDenied
+   from src.ai.schemas.capabilities import ToolGrant
+
+
+   def test_a_grant_with_a_rate_limit_allows_one_call_per_run() -> None:
+       access = ToolAccess(company_id=None,
+                           grants={"web_search": ToolGrant(tool_id="web_search", rate_limit_per_run=1)})
+       assert not isinstance(access.resolve("web_search"), ToolDenied)
+       access.record("web_search")
+       refused = access.resolve("web_search")
+       assert isinstance(refused, ToolDenied) and refused.reason == "rate_limited"
+       assert access.resolve("send_email").reason == "not_granted"
    ```
-3. Add a unit test under `tests/unit/test_tool_status.py` that asserts
-   `ToolRegistry.get_visible_tools_for_company(<company_id>, feature_flags=...)`
-   surfaces `video_generate` when the flag is on.
-4. Run `.venv/bin/python -m pytest tests/unit/test_tool_status.py`.
-5. Submit the PR. The CI will run the lint + the unit suite.
+3. Run `.venv/bin/python -m pytest tests/unit/test_tool_access.py`.
+4. Run the gates yourself — `scripts/run_ci_matrix.sh fast` — then submit the
+   PR. Nothing runs them on push yet (no CI for the app, IN-05).
+
+(The exercise used to enable `video_generate` through a feature flag and assert
+on `get_visible_tools_for_company`, a gate nothing called and that has since
+been deleted — ON-06.)
 
 ## Where to ask questions
 

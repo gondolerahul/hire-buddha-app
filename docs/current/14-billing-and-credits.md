@@ -106,6 +106,8 @@ Three sentences you can hold in your head:
 2. **Cost accrues on the run, billing happens once at the end.** Every metered event bumps `execution_runs.total_cost_usd`; the TB formula and the credit deduction fire once, in `settle_billing`.
 3. **Credits are a prepaid balance, not an invoice.** There is no invoice table in the live schema — `billing_events` is the closest thing, and it is a *monthly aggregate*, not a statement.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/14-BILLING-AND-CREDITS-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. The billing data model

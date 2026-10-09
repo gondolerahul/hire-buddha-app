@@ -79,6 +79,8 @@ Four ideas hold the layer together:
 4. **Cross-run learning is company-scoped.** A `MetaIntelligenceTree` per company
    accumulates anti-patterns, curator decisions and test failures.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/11-META-INTELLIGENCE-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. The Meta-Agent is just an agent

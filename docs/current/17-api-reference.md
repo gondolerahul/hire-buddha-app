@@ -63,6 +63,8 @@ Behind Apache, both `api.hirebuddha.com` and `gateway.hirebuddha.com` proxy to
 > nothing). The gateway is merged into the API and the voice service deleted —
 > see [02 §2.2](02-system-architecture.md#22-the-former-unified-gateway--merged-into-the-api).
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/17-API-REFERENCE-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. Conventions

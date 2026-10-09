@@ -122,6 +122,8 @@ graph TB
 The edge modules are a **fan-in point, not a brain**. Business logic is
 elsewhere. They normalise, authenticate lightly, and hand off.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/13-GATEWAY-AND-REALTIME-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. How the edge is mounted

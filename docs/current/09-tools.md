@@ -87,6 +87,8 @@ Four things a newcomer should internalise straight away:
    posting and sandboxed shell all make network calls or spend money from inside
    the tool. Read §20 before you add one.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/09-TOOLS-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. The tool registry

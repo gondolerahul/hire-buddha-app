@@ -79,6 +79,8 @@ does not block execution. That is a deliberate availability choice, and it means
 a broken gate is invisible unless you read logs. Every instance is flagged in
 [§16](#16-gotchas).
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/15-GOVERNANCE-AND-HITL-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. The gate stack
@@ -1009,12 +1011,13 @@ given. It also raises `RuntimeError` if `db is None`.
 
 ## 13. Feature flags — the complete catalogue
 
-**29 boolean flags** and **4 numeric flags**, extracted from
-[core/feature_flags.py](../../backend/src/ai/core/feature_flags.py). Thirteen
-flags that nothing read were deleted on 2026-10-01 (AK-10);
-`tests/unit/test_feature_flag_census.py` now fails when a declared flag has no
-reader, apart from a short `KNOWN_UNREAD` list that names the decision each
-one waits on.
+**18 boolean flags** and **3 numeric flags**, extracted from
+[core/feature_flags.py](../../backend/src/ai/core/feature_flags.py). Every one is read by
+the code it names: flags nothing read were deleted (thirteen on 2026-10-01, AK-10; the
+Board's seven with MI-20; four memory flags on 2026-10-09, GH-15/GH-16), and
+`tests/unit/test_feature_flag_census.py` fails on a declared flag with no reader.
+`tests/unit/test_flag_catalogue.py` keeps this catalogue and those counts equal to the
+code (ON-16): a flag added or deleted without its row here fails it.
 
 ### 13.1 Agent loop
 
@@ -1050,20 +1053,14 @@ one waits on.
 
 | Flag | Default | Controls |
 |---|---|---|
-| `meta_agent.board_routing` | `True` | Board is the default Meta-Agent path — **read by nothing** (MI-20) |
-| `meta_agent.spec_critic_required` | `True` | Spec critic must run — **read by nothing** (MI-20) |
-| `meta_agent.draft_lifecycle` | `True` | DRAFT → ACTIVE lifecycle — **read by nothing** (MI-20) |
-| `meta_agent.testdriver_suite_enabled` | `True` | Run the TestDriver suite — **read by nothing** (MI-20) |
 | `meta_agent.skill_promotion_cron` | `True` | Weekly skill-candidate scan (per company) |
 | `meta_agent.prompt_evolution_cron` | `True` | Weekly prompt-evolution proposal (per company) |
-| `meta_agent.curator_consolidation_enabled` | `False` | Merge-plan proposals for duplicate clusters — **read by nothing** (MI-20) |
-| `meta_agent.spec_critic_tiebreak` | `False` | Third-model tiebreak on high-stakes disagreement — **read by nothing** (MI-20) |
 | `meta_agent.tool_synthesis_enabled` | **`False`** | ⚠️ Agents writing new tools |
 
-The six Board flags gate the seven-role Architecture Board, which has no
-production caller (MI-20 in [register 11](defect-register/11-META-INTELLIGENCE-DEFECTS.md)).
-They are listed in the census test's `KNOWN_UNREAD` until P10 of the
-[consolidated plan](defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md) decides the Board.
+The Board's flags (`meta_agent.board_routing`, `spec_critic_required`, `draft_lifecycle`,
+`testdriver_suite_enabled`, `curator_consolidation_enabled`, `spec_critic_tiebreak` and the
+numeric `testdriver_budget_usd`) were deleted with the unused Board roles (MI-20, D27 in
+[register 11](defect-register/11-META-INTELLIGENCE-DEFECTS.md)).
 
 The tool-synthesis flag is described in code as the kill switch for *"the
 marquee/most-dangerous capability"*:
@@ -1080,6 +1077,7 @@ marquee/most-dangerous capability"*:
 
 | Flag | Default | Controls |
 |---|---|---|
+| `tools.video.people_of_all_ages` | `False` | `video_generate` may depict minors: on sends Veo `person_generation="allow_all"` (restricted in some regions), off `"allow_adult"` (TL-46) |
 | `tools.resilience_v2_enabled` | — | Deleted (P8.6, EP-22): the healing ladder is unconditional |
 
 `tools.cost_attribution_required` was deleted (AK-10): it was the last canary of
@@ -1109,7 +1107,6 @@ is threaded into the tool context as `persistent_browser`.
 |---|---|---|
 | `memory.v2_canonical` | `True` | v2 four-domain memory is canonical |
 | `memory.dreaming_outcome_trigger` | `True` | Trigger dreaming on run completion |
-| `memory.trust_score_learning` | `False` | Learned per-source trust scores |
 | `memory.rule_lifecycle_confirmed_only` | `False` | Only `confirmed` rules enter prompts |
 
 `memory.viewport_compact`, `memory.scope_policy_enforced`, `memory.embedding_resolver_v2` and
@@ -1125,7 +1122,6 @@ See [08 — Memory and CORTEX](08-memory-and-cortex.md) for what each does.
 |---|---|---|
 | `bandit.epsilon` | `0.10` | Exploration rate for the plan-style bandit |
 | `agent_loop.budget_pressure_threshold` | `0.70` | Pressure past which "finish, don't expand" is injected |
-| `meta_agent.testdriver_budget_usd` | `3.00` | Shared budget for the Board's test suite — **read by nothing** (MI-20); `TestDriver` uses its own `$3.00` constant |
 | `planner.n_candidates` | `3` | Plan candidates generated per planning call |
 
 ### 13.10 Flags that are OFF by default
@@ -1135,24 +1131,14 @@ dangerous capabilities:
 
 ```mermaid
 flowchart LR
-    subgraph Stubs["Unimplemented executors"]
-        E1["agent_loop.executor_dialog_enabled"]
-        E2["agent_loop.executor_skill_enabled"]
-        E3["agent_loop.executor_tool_burst_enabled"]
-    end
     subgraph Canary["Canary / not rolled out"]
         C1["task_classifier.v2_enabled"]
-        C2["meta_agent.curator_consolidation_enabled"]
-        C3["meta_agent.spec_critic_tiebreak"]
         C4["sandbox.persistent_browser_enabled"]
-        C5["memory.trust_score_learning"]
         C6["memory.rule_lifecycle_confirmed_only"]
     end
-    subgraph Danger["Dangerous"]
+    subgraph Danger["Dangerous or restricted"]
         D1["meta_agent.tool_synthesis_enabled"]
-    end
-    subgraph Legacy["Legacy alias"]
-        L1["critic_pipeline.enabled"]
+        D2["tools.video.people_of_all_ages"]
     end
 ```
 
@@ -1163,7 +1149,7 @@ flowchart LR
 ### 14.1 Turn a flag on for one tenant
 
 ```bash
-psql -h localhost -p 5433 -U postgres -d hirebuddha -c "INSERT INTO feature_flags (id, company_id, flag_key, enabled) VALUES (gen_random_uuid(), '<company-uuid>', 'memory.trust_score_learning', true) ON CONFLICT (flag_key, company_id) WHERE company_id IS NOT NULL DO UPDATE SET enabled = true;"
+psql -h localhost -p 5433 -U postgres -d hirebuddha -c "INSERT INTO feature_flags (id, company_id, flag_key, enabled) VALUES (gen_random_uuid(), '<company-uuid>', 'task_classifier.v2_enabled', true) ON CONFLICT (flag_key, company_id) WHERE company_id IS NOT NULL DO UPDATE SET enabled = true;"
 ```
 
 Prefer `FeatureFlags.set(...)` or the admin `PUT` where you can. Direct SQL does
@@ -1175,7 +1161,7 @@ to 60 seconds (GH-14).
 ### 14.2 Turn a flag on globally without touching the DB
 
 ```bash
-AI_FLAG_MEMORY_TRUST_SCORE_LEARNING=true
+AI_FLAG_TASK_CLASSIFIER_V2_ENABLED=true
 ```
 
 Set it in the worker and API environment, then restart. Remember: env vars sit
@@ -1314,7 +1300,7 @@ redis-cli DEL "tool:search:company_<uuid>"
 10. **There is no `agent_loop.enabled` flag any more.** The legacy engine was
     deleted; the loop is unconditional.
 
-11. **`meta_agent.board_routing` is defined twice** in `DEFAULTS` (both `True`).
+11. ~~**`meta_agent.board_routing` is defined twice** in `DEFAULTS`~~ — deleted with the Board (MI-20).
 
 12. ~~**`critic_pipeline.enabled` and `memory_v2.canonical` are legacy aliases**~~ —
     both deleted (AK-10, 2026-10-01; GH-15, 2026-10-09). Use `critic_pipeline.v2_enabled`

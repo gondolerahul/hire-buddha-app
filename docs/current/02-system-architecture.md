@@ -83,6 +83,8 @@ graph TB
 
 Everything else in this document is detail on those boxes and arrows.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/02-SYSTEM-ARCHITECTURE-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. The runtime processes

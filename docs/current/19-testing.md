@@ -76,6 +76,8 @@ cd backend && .venv/bin/python -m pytest tests/unit/ -q
 > said *"~420 passed"*, the Phase 11 baseline, until TS-18). For scale, the unit tier was
 > 2,133 tests on 2026-10-09.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/19-TESTING-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. Configuration and markers

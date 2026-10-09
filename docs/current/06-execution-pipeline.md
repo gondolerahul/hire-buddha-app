@@ -112,6 +112,8 @@ graph TB
     K1 --> D4
 ```
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/06-EXECUTION-PIPELINE-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. `HierarchicalEntity` — the configuration model

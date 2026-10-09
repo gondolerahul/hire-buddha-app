@@ -86,6 +86,8 @@ Four ideas carry the whole chapter:
 | **Task defaults** | `model_task_defaults` maps a logical task (`text_generation`, `thinking`, `speech_to_speech`, …) to an integration row. Change the row, every agent switches model. |
 | **Adapter** | A thin per-provider class implementing two methods. It translates HireBuddha's internal message and tool-schema format into the provider's, and normalises the reply. |
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/10-LLM-PROVIDERS-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. The Integration Registry

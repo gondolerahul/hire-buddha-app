@@ -77,6 +77,8 @@ The single most important file to read first is
 [`src/router/index.tsx`](../../frontend/src/router/index.tsx) — 602 lines that
 list every screen in the product.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/16-FRONTEND-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. Build and tooling

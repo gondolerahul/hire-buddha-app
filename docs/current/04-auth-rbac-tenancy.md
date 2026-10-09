@@ -69,6 +69,8 @@ flowchart TD
 
 Read the rest of this document if you are about to add an endpoint, change a role check, or debug "why can this user see that row".
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/04-AUTH-RBAC-TENANCY-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. The identity tables

@@ -54,7 +54,7 @@ Five facts that orient everything else:
 | Four processes on one VM | API 8000 (REST, webhooks, WebSockets), Arq worker, Vite 3000, Docker (Postgres 5433, Redis 6379) |
 | Everything is tenant-scoped by `company_id` | Get this wrong and you leak customer data |
 | Third-party credentials live **in the database**, not `.env` | Encrypted, per-company, no redeploy to change |
-| The AI kernel is heavily feature-flagged | 42 boolean + 5 numeric flags change behaviour at runtime |
+| The AI kernel is feature-flagged | Every declared flag is read by the code it names — `tests/unit/test_feature_flag_census.py` fails on one that is not (GH-16), so the [catalogue](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue) is the list of real switches |
 
 ---
 
@@ -71,9 +71,10 @@ flowchart TD
     C2 --> D["5. docker compose up -d db redis"]
     D --> E["6. alembic upgrade head"]
     E --> F["7. seed_admin_user.py"]
-    F --> G["8. cd frontend && npm install --legacy-peer-deps"]
-    G --> H["9. ./start_services.sh"]
-    H --> I["10. open localhost:3000"]
+    F --> F2["8. seed_integration_registry.py - a model and the sandbox SKU"]
+    F2 --> G["9. cd frontend && npm install --legacy-peer-deps"]
+    G --> H["10. ./start_services.sh"]
+    H --> I["11. open localhost:3000"]
 
     style C2 fill:#4a3a2d,stroke:#a85
 ```
@@ -105,6 +106,15 @@ cd backend && .venv/bin/alembic upgrade head
 cd backend && .venv/bin/python db-scripts/seed_admin_user.py
 ```
 
+Then give the platform a model. Without this every agent run fails with "No model
+configured", and sandbox work is never billed (ON-01, LP-10). The seed is idempotent; it
+registers Gemini and the embedding model on Vertex AI (which authenticates with your
+`gcloud auth application-default login`), the task defaults, and the `sandbox-runtime` SKU:
+
+```bash
+cd backend && VERTEX_PROJECT_ID=<your-gcp-project> .venv/bin/python db-scripts/seed_integration_registry.py
+```
+
 ```bash
 cd frontend && npm install --legacy-peer-deps
 ```
@@ -130,7 +140,20 @@ cleanly. If it fails, nothing else will work.
 cd backend && .venv/bin/python -m pytest tests/unit/ -q
 ```
 
-Then open `http://localhost:3000` and `http://localhost:8000/docs`.
+None of the checks above needs a model, so they pass on an install that cannot run an
+agent (ON-03). Two more do:
+
+```bash
+curl -s localhost:8000/api/v1/health | python -c "import json,sys; h=json.load(sys.stdin); print('models:', h['models']['status'], h['models']['missing'] or '')"
+```
+
+It must print `models: ok`. `missing` names the task types with no model (seed step 8).
+Then open `http://localhost:3000`, sign in as the admin, create an AGENT in the builder
+with a one-line goal, and run it: the run must end `COMPLETED` with an answer. That is the
+only check that exercises the model credentials themselves — an expired
+`gcloud auth application-default login` fails here, not above.
+
+Open `http://localhost:8000/docs` for the API.
 
 ### 2.2 If something is broken
 
@@ -140,7 +163,8 @@ Then open `http://localhost:3000` and `http://localhost:8000/docs`.
 | `npm install` fails on peer deps | Missing `--legacy-peer-deps` |
 | `start_services.sh` exits immediately | `backend/.env` does not exist |
 | Port already in use | The script skips occupied ports — check `lsof -i :8000` |
-| Agent runs but does nothing | No LLM credentials registered — see [10](10-llm-providers.md) |
+| Agent runs but does nothing | No model registered (health says `models: missing`) — run the seed in step 8, see [10](10-llm-providers.md) |
+| Every run fails with "Reauthentication is needed" | Vertex credentials expired — `gcloud auth application-default login` |
 | Docker permission denied | Log out and back in after `usermod -aG docker` |
 
 ---
@@ -229,7 +253,10 @@ flowchart TD
 
 **The 20-minute tour:** read only section 1 ("The 60-second version") of
 documents 01 through 19. Each one has a summary diagram. That gives you the
-whole system shape without the detail.
+whole system shape without the detail. Each §1 ends with a **Known gaps** line linking
+that area's [defect register](defect-register/README.md): a summary describes the design,
+and the register says where the code falls short of it — open it before you rely on one
+(ON-18).
 
 Then read [03 — Data model](03-data-model.md) properly. Almost every question
 you will have in week one is answerable from the schema.
@@ -239,57 +266,65 @@ you will have in week one is answerable from the schema.
 ## 5. Your first change
 
 The in-repo onboarding guide
-([backend/src/ai/ONBOARDING.md](../../backend/src/ai/ONBOARDING.md)) proposes a
-guided exercise: enable the `EXPERIMENTAL` `video_generate` tool for your dev
-tenant.
+([backend/src/ai/ONBOARDING.md](../../backend/src/ai/ONBOARDING.md)) has a guided
+exercise on the control that decides whether a tool may run: a **tool grant**. An entity
+runs only the tools in its `capabilities.tools`, and a grant can limit how often one runs;
+[`governance/tool_access.py`](../../backend/src/ai/governance/tool_access.py)'s `ToolAccess`
+is the one place every execution path asks (TL-50). (Until 2026-10-09 the exercise asserted
+on `get_visible_tools_for_company`, a gate nothing called and that has since been deleted —
+ON-06.)
 
 ```mermaid
 sequenceDiagram
     participant You
-    participant DB as PostgreSQL
     participant T as Test
-    participant CI as Quality gates
+    participant G as Gates you run
 
-    You->>DB: find company_id in companies
-    You->>DB: INSERT feature_flags row
-    You->>T: add a test in tests/unit/test_tool_status.py
-    T-->>You: assert get_visible_tools_for_company surfaces the tool
-    You->>CI: pytest + lint_ai_layout + ruff
-    CI-->>You: green
+    You->>You: read governance/tool_access.py
+    You->>T: add a test in tests/unit/test_tool_access.py
+    T-->>You: one call allowed, the second refused rate_limited
+    You->>G: scripts/run_ci_matrix.sh fast
+    G-->>You: no failures
     You->>You: open PR
 ```
 
-**Step 1** — find your company id:
+**Step 1** — read `ToolAccess._check` in
+[`governance/tool_access.py`](../../backend/src/ai/governance/tool_access.py): the order of
+the refusals is the order a call is checked in.
 
-```bash
-psql -h localhost -p 5433 -U postgres -d hirebuddha -c "SELECT id, name, type FROM companies;"
+**Step 2** — add a test to `backend/tests/unit/test_tool_access.py`: an entity granted
+`web_search` with `rate_limit_per_run: 1` may call it once, and is refused the second time:
+
+```python
+from src.ai.governance.tool_access import ToolAccess, ToolDenied
+from src.ai.schemas.capabilities import ToolGrant
+
+
+def test_a_grant_with_a_rate_limit_allows_one_call_per_run() -> None:
+    access = ToolAccess(company_id=None,
+                        grants={"web_search": ToolGrant(tool_id="web_search", rate_limit_per_run=1)})
+    assert not isinstance(access.resolve("web_search"), ToolDenied)
+    access.record("web_search")
+    refused = access.resolve("web_search")
+    assert isinstance(refused, ToolDenied) and refused.reason == "rate_limited"
+    assert access.resolve("send_email").reason == "not_granted"
 ```
 
-**Step 2** — enable the flag:
+**Step 3** — run it:
 
 ```bash
-psql -h localhost -p 5433 -U postgres -d hirebuddha -c "INSERT INTO feature_flags (id, company_id, flag_key, enabled) VALUES (gen_random_uuid(), '<company-id>', 'tools.experimental.video_generate', true);"
+cd backend && .venv/bin/python -m pytest tests/unit/test_tool_access.py -q
 ```
 
-**Step 3** — add a unit test in `backend/tests/unit/test_tool_status.py`
-asserting `ToolRegistry.get_visible_tools_for_company(...)` surfaces
-`video_generate` when the flag is on.
-
-**Step 4** — run it:
-
-```bash
-cd backend && .venv/bin/python -m pytest tests/unit/test_tool_status.py -q
-```
-
-**Step 5** — run the gates before pushing:
+**Step 4** — run the gates before pushing:
 
 ```bash
 cd backend && scripts/run_ci_matrix.sh fast
 ```
 
 > The unit suite should end with **no failures**; the pass count grows with the suite,
-> so it is not a target (TS-18). Also note there is **no CI wired to run any of this** — the gates are
-> manual. See [19 §15.1](19-testing.md#151-the-ci-lanes).
+> so it is not a target (TS-18). **Nothing runs these gates for you yet** — there is no CI
+> on push (IN-05), so run them yourself. See [19 §15.1](19-testing.md#151-the-ci-lanes).
 
 ---
 
@@ -388,8 +423,10 @@ intent; the code is truth. Where they disagree, trust the code.
 
 ### 8.1 Architecture rules (mechanically enforced)
 
-[`lint_ai_layout.py`](../../backend/scripts/lint_ai_layout.py) will fail your
-build for:
+[`lint_ai_layout.py`](../../backend/scripts/lint_ai_layout.py) enforces these, and
+`tests/unit/test_layout.py` runs it inside the unit suite — so a violation fails
+`pytest tests/unit` and `scripts/run_ci_matrix.sh fast`. Nothing runs either on push yet
+(no CI — IN-05, ON-08), so the enforcement is only as good as your running them:
 
 | Rule | Limit |
 |---|---|
@@ -454,9 +491,10 @@ in [15 §13](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue)
    ([15 §10.1](15-governance-and-hitl.md#101-when-a-gate-cannot-decide)). Watch for
    `gate.failed` in the logs (GH-21).
 
-3. **Memory retrieval fails silently.** Every domain assembler catches broad
-   `Exception`, logs at `debug`, and returns `[]`. An agent with broken memory is
-   indistinguishable from one that has not learned yet.
+3. **A memory read that failed is not an empty memory.** Since MC-06 each domain that
+   could not be read is named on the run's `memory` trace span and as an
+   `agent.memory.retrieval_failed` event — an expired embedding credential shows there.
+   When an agent "forgot everything", look at that span first.
 
 4. **Third-party credentials are in the database, not `.env`.** Encrypted,
    per-company, with APP-level fallback. Adding a provider needs no redeploy —
@@ -466,15 +504,16 @@ in [15 §13](15-governance-and-hitl.md#13-feature-flags--the-complete-catalogue)
    extracted to a package; its source sits in
    `backend/cortex_memory/`.
 
-6. **A HITL checkpoint blocks an Arq worker slot** for up to `timeout_ms`
-   (5 minutes by default) while a human decides.
+6. **A run waiting on a person holds no worker.** A HITL checkpoint parks the run
+   `PAUSED` (GH-07); the approval endpoint, its deadline or the stuck-run sweep resumes it.
+   A rejection ends it `CANCELLED`, a timeout `FAILED` (GH-25).
 
-7. **There is effectively no CI.** The one GitHub Actions workflow targets a
-   directory that does not exist under that name. Run
-   `scripts/run_ci_matrix.sh fast` yourself.
+7. **There is no CI for the app.** The one GitHub Actions workflow covers the
+   `cortex_memory` package only (IN-05). Run `scripts/run_ci_matrix.sh fast` yourself, and
+   `REQUIRE_DB=1` when the integration tier must not skip (TS-05).
 
-8. **The frontend has two test files and no test runner** configured to execute
-   them.
+8. **The frontend's tests run with `npm test`** (vitest, since FE-03), and `tsc`
+   type-checks them; `npm run lint` allows zero warnings.
 
 9. **There is one backend port.** The API on 8000 serves REST, webhooks and every
    WebSocket; the gateway (8001) was merged into it and the voice service (8002)
@@ -508,14 +547,14 @@ Terms this codebase invents or uses in a specific way.
 | **Subgoal** | A decomposed piece of the entity's goal, tracked in `AgentState`. |
 | **Reflection** | The Reflector's output after an iteration; can escalate scope from run to entity. |
 | **Executor** | An adapter that performs one kind of action — DAG, Recursive, SingleStep, ChildEntity. |
-| **Reasoning strategy** | REACT, CHAIN_OF_THOUGHT, REFLECTION, TREE_OF_THOUGHTS — how the LLM is prompted to think. |
+| **Reasoning strategy** | REACT or CHAIN_OF_THOUGHT — how the LLM is prompted to think. REFLECTION and TREE_OF_THOUGHTS are **deprecated** (`DEPRECATED_REASONING_MODES`): still accepted with a warning, and migration `p12_retire_reasoning_modes` moved stored entities off them. Do not build on them. |
 
 ### Memory
 
 | Term | Meaning |
 |---|---|
 | **CORTEX** | The persistent cognitive tree that is an agent's memory. |
-| **Viewport** | The bounded slice of the tree the agent actually sees — default 4000 chars. |
+| **Viewport** | *Design, not wired.* The bounded slice of the tree an agent would see (default 4000 chars). Nothing fills it on the live path since the Perceiver was deleted (AK-05); memory reaches the prompt as the `__memory__` block instead. |
 | **Node** | One piece of information in a CORTEX tree, typed (`finding`, `chunk`, `episode`, …). |
 | **Checkpoint** | A compacted snapshot node written when context gets large. |
 | **ScopePolicy** | Rules confining a child run's reads and writes to its subtree. |

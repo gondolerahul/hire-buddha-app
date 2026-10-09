@@ -93,6 +93,8 @@ once per run from `AgentLoop._compose`. The only legal write path is
 > back to the package repo. See [§19](#19-key-files-reference) for the
 > shim-to-source map.
 
+> **Known gaps:** what this document describes that the code does not yet do, or does wrong, is tracked in [its defect register](defect-register/08-MEMORY-AND-CORTEX-DEFECTS.md) — read that before relying on a summary here.
+
 ---
 
 ## 2. Why a tree and not a context window
