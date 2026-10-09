@@ -1262,7 +1262,7 @@ what the failure tags say.
 | Credit circuit breaker | trips when effective balance ≤ 0 mid-run | [`governance_service.py:90`](../../backend/src/ai/governance/governance_service.py:90) |
 | Child credit gate | pre-spawn check before launching a child entity | `governance_service.py:120` |
 | Redis sliding-window rate limiter | caller-supplied `limit` / `window_seconds` | [`governance/rate_limiter.py`](../../backend/src/ai/governance/rate_limiter.py) |
-| API HTTP rate limit | `RATE_LIMIT` (`200/minute`) per client IP; webhooks and internal events exempt | [`common/rate_limit.py`](../../backend/src/common/rate_limit.py), `SlowAPIMiddleware` in `main.py` |
+| API HTTP rate limit | `RATE_LIMIT` (`200/minute`) per client IP; webhooks and internal events exempt — webhooks are limited per endpoint, live sockets per IP and live sessions per company instead (GW-02) | [`common/rate_limit.py`](../../backend/src/common/rate_limit.py), `SlowAPIMiddleware` in `main.py` |
 
 The DB pool comment is worth reading in full: Deep Research spawns roughly 15–20
 concurrent connections per run, Postgres `max_connections` is 100, so 60 are
@@ -1282,7 +1282,7 @@ flowchart TD
     CORS --> RL["SlowAPIMiddleware - RATE_LIMIT per client IP, Redis backed"]
     RL --> ROUTE{"route"}
     ROUTE -->|"/internal/event"| INT["require_internal - X-Internal-Token"]
-    ROUTE -->|"/webhook/inbound, WebSockets"| NATIVE["handler - own checks, not rate limited"]
+    ROUTE -->|"/webhook/inbound, WebSockets"| NATIVE["handler - own checks and limits: per endpoint, per IP handshake, live sessions per company"]
     ROUTE -->|"REST"| DEP["Route dependencies - get_current_user incl. suspension 403, RoleChecker"]
     DEP --> SVC["Service layer"]
 ```
@@ -1308,7 +1308,10 @@ request from 4 SQL statements to 3.
 `SlowAPIMiddleware` applies `RATE_LIMIT` to every HTTP route except those marked
 `@limiter.exempt` — `POST /webhook/inbound` and `POST /internal/event`, which the
 gateway never limited either. Static mounts have no route handler and are not
-counted.
+counted. The edge has its own limits since GW-02: signed webhook deliveries per
+endpoint (`WEBHOOK_RATE_LIMIT`), live-socket handshakes per client IP
+(`WS_HANDSHAKE_RATE_LIMIT`), and live AI sessions per company
+(`LIVE_SESSIONS_PER_COMPANY`) — see [13](13-gateway-and-realtime.md).
 
 `POST /internal/event` depends on `require_internal`
 ([`internal_event.py`](../../backend/src/gateway/internal_event.py)), which

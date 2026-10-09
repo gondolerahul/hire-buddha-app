@@ -43,17 +43,17 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 3 | 1 | 0 | 1 |
+| [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 4 | 0 | 0 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
 | [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 6 | 0 | 1 | 0 |
 
-**Total: 21 defects (15 fixed, 3 partly fixed, 2 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (16 fixed, 2 partly fixed, 2 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | GW-01 | No webhook signature is ever verified, and a failure would not block | ✅ fixed `f0ec5db` | — |
-| GW-02 | Rate limiting covers one route | partly fixed — REST limited; WebSockets not | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-02 | Rate limiting covers one route | ✅ fixed (2026-10-08) | — |
 | GW-03 | No webhook idempotency | ✅ fixed `302d276` | — |
 | GW-04 | The auth middleware never sees a WebSocket | ✅ fixed `4357a92` | — |
 | GW-05 | Rate limits are keyed on `127.0.0.1` in production | invalid | — |
@@ -131,11 +131,25 @@ agents run, and pay for it.
 
 ### GW-02 — Rate limiting covers one route
 
-**✅ Verified · High** · **Status: partly fixed (2026-09-30)** — the API installs
-`SlowAPIMiddleware`, so every REST route is limited at `RATE_LIMIT` per client IP (GW-I1).
-`/webhook/inbound` and `/internal/event` are deliberately `@limiter.exempt` — the merge
-kept their behaviour — and WebSockets are still unlimited. The limiter now falls back to
-in-memory counts when Redis is down instead of failing the request.
+**✅ Verified · High** · **Status: fixed (2026-10-08)** — REST since 2026-09-30: the API installs
+`SlowAPIMiddleware`, so every REST route is limited at `RATE_LIMIT` per client IP (GW-I1),
+falling back to in-memory counts when Redis is down. The rest of the edge since 2026-10-08:
+signed webhook deliveries per endpoint — one company, one source — at `WEBHOOK_RATE_LIMIT`
+(300/minute; 429 + `Retry-After`, after the signature check so unsigned requests cannot use
+up a tenant's allowance, and before the delivery is claimed so the retry is taken);
+live-socket handshakes per client IP on `/stream/audio`, `/stream/video` and `/mobile/ws`
+at `WS_HANDSHAKE_RATE_LIMIT` (30/minute; close `4429`) — `gateway/socket_limits.py`, counted
+in the REST limiter's Redis, in process memory when it is down (gate `edge_rate_limit`); and
+live AI sessions per company at `LIVE_SESSIONS_PER_COMPANY` (20, `voice/live_sessions.py`):
+a call is refused at admission at the cap (`call_refusal`, every checkpoint) and a session
+that connects past it — the media socket or browser audio — closes `4429`. The webhooks
+stay exempt from the per-IP limit (a provider's IPs are shared by every tenant) and so does
+`/internal/event` (it carries the internal token; GH-03 caps the runs it starts). Browser
+audio (`/stream/audio`, provider `web`) was never admitted for credit at all; it goes
+through `call_refusal` now. The telephony streams are not limited per IP (their IPs are the
+provider's); each is gated by its call. `tests/unit/test_edge_limits.py` (13). Live on :8000:
+of 32 handshakes from one address, the first 30 reached the handshake check and the 31st
+and 32nd closed `4429`. The live-session count is per process (one instance, GW-21).
 
 The limiter is constructed with `default_limits=[settings.RATE_LIMIT]`, attached to
 `app.state.limiter`, and given an exception handler. **`SlowAPIMiddleware` is never

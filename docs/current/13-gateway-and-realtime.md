@@ -245,6 +245,9 @@ defaults — its `DATABASE_URL` pointed at port 5432, not the compose file's 543
 |---------|---------|---------|
 | `REDIS_URL` | **required** | Rate-limit storage, the dispatcher's agent cache, the arq queue (via [`common/job_queue.py`](../../backend/src/common/job_queue.py)). |
 | `RATE_LIMIT` | `200/minute` | slowapi limit per client IP, every REST route; `/webhook/inbound` and `/internal/event` are exempt. |
+| `WEBHOOK_RATE_LIMIT` | `300/minute` | Signed deliveries per webhook endpoint (one company, one source); over it 429 + `Retry-After`, before the delivery is claimed (GW-02). |
+| `WS_HANDSHAKE_RATE_LIMIT` | `30/minute` | Handshakes per client IP on `/stream/audio`, `/stream/video`, `/mobile/ws`; over it the socket closes `4429` (GW-02). Not the telephony streams: their IPs are the provider's. |
+| `LIVE_SESSIONS_PER_COMPANY` | `20` | Live AI sessions a company may hold at once — calls, browser audio, video. A call is refused at admission at the cap, and a session that connects past it closes `4429` (GW-02). Counted in the process (one instance, GW-21). |
 | `CORS_ORIGINS` | 6 origins incl. `localhost:3000`, `dev/app/gateway.hirebuddha.com` | Comma-separated; exposed as `cors_origins_list`. |
 | `STREAMING_HOST` | `localhost:8000` | Public host used to build the `ws(s)://` URLs handed to telephony providers ([`voice/public_urls.py`](../../backend/src/voice/public_urls.py)). Set to `gateway.hirebuddha.com` in production. |
 | `STREAMING_PROTOCOL` | `ws` | Scheme for those URLs; `wss` in production (then HTTP callbacks are `https`). |
@@ -1211,10 +1214,15 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 - **`@app.on_event` handlers never fire** on the API: it passes a custom
   `lifespan`. Put startup and shutdown work in `lifespan` in `main.py`.
 - **Rate limiting covers every REST route** through `SlowAPIMiddleware`, except
-  `/webhook/inbound` and `/internal/event` (`@limiter.exempt`) and the
-  WebSockets. A module with an exempt route must not use `from __future__ import
-  annotations` — FastAPI would resolve its string annotations against slowapi's
-  wrapper and turn `request: Request` into a query parameter.
+  `/webhook/inbound` and `/internal/event` (`@limiter.exempt`). The edge has its
+  own (GW-02, [`gateway/socket_limits.py`](../../backend/src/gateway/socket_limits.py),
+  [`voice/live_sessions.py`](../../backend/src/voice/live_sessions.py)): signed
+  webhook deliveries per endpoint, live-socket handshakes per IP, live AI
+  sessions per company. The internal event carries the internal token, and the
+  runs it starts are capped per company (GH-03). A module with an exempt route
+  must not use `from __future__ import annotations` — FastAPI would resolve its
+  string annotations against slowapi's wrapper and turn `request: Request` into
+  a query parameter.
 - ~~**Rate limits are keyed on `127.0.0.1` in production**~~ — not so (GW-05, invalid):
   uvicorn trusts `X-Forwarded-For` from `127.0.0.1` by default and keys on the address
   Apache appends. `RemoteIPHeader` would only change Apache's own logs.

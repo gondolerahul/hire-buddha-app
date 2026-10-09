@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     # Per client IP, on every REST route except the inbound webhook and
     # internal-event endpoints. Counted in Redis; in memory if Redis is down.
     RATE_LIMIT: str = "200/minute"
+    # GW-02. Signed deliveries per webhook endpoint (one company, one source);
+    # a provider's IPs are shared by every tenant, so not per IP.
+    WEBHOOK_RATE_LIMIT: str = "300/minute"
+    # Live-socket handshakes (/stream/audio, /stream/video, /mobile/ws) per
+    # client IP. Telephony media streams are gated by their call instead.
+    WS_HANDSHAKE_RATE_LIMIT: str = "30/minute"
+    # Live AI sessions (calls, browser audio, video) a company may hold at once.
+    LIVE_SESSIONS_PER_COMPANY: int = 20
 
     # ── Account emails (AU-06, AU-08) ─────────────────────────────────────
     # Where verification and password-reset links point: the SPA's origin.

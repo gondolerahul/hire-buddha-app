@@ -81,6 +81,39 @@ class WebAudioAdapter:
             await self._cleanup()
 
     async def _setup_and_run(self) -> None:
+        """Admit the session, then run it while it holds a live-session place.
+
+        A browser session is a call like any other: admitted by the one rule
+        (``call_admission`` — it never was) and holding one of the company's
+        live-session places until it ends (GW-02).
+        """
+        from src.voice import live_sessions
+        from src.voice.call_admission import call_refusal
+
+        company = self.voice_session.company_id
+        refusal = await call_refusal(self.db, company,
+                                     direction=self.voice_session.direction or "inbound",
+                                     checkpoint="web_audio")
+        slot = None if refusal else live_sessions.acquire(company, kind="web_audio")
+        if slot is None:
+            code, reason = ((4002, "insufficient_credits") if refusal and not live_sessions.at_cap(company)
+                            else (4429, "too_many_live_sessions"))
+            logger.warning(f"[WebAudioAdapter] Not connecting session {self.session_id}: {reason}")
+            try:
+                await self.websocket.send_text(json.dumps({
+                    "event": "error", "code": reason,
+                    "message": refusal or live_sessions.cap_message(),
+                }))
+                await self.websocket.close(code=code, reason=reason)
+            except Exception:
+                pass
+            return
+        try:
+            await self._connect_and_stream()
+        finally:
+            slot.release()
+
+    async def _connect_and_stream(self) -> None:
         """Set up Gemini/Azure live session and start the audio pipeline."""
         agent_context = await self.agent_loader.load_agent_for_session(
             agent_id=self.voice_session.agent_id,

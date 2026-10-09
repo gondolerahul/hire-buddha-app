@@ -28,6 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.gateway.dispatcher import get_dispatcher
+from src.gateway.socket_limits import TOO_MANY, handshake_allowed
 from src.gateway.stream_auth import stream_company
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,11 @@ async def unified_audio_streaming(websocket: WebSocket):
     """
     await websocket.accept()
     logger.info("[AudioGateway] New WebSocket connection")
+    if not handshake_allowed(websocket):
+        # GW-02: so many handshakes from one address a minute.
+        await _send_error(websocket, "rate_limited", "Too many live connections from this address; retry shortly")
+        await websocket.close(code=TOO_MANY, reason="rate_limited")
+        return
 
     # ── Step 1: Wait for connect handshake ───────────────────────────────────
     try:

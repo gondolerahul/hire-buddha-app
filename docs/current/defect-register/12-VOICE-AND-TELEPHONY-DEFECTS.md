@@ -90,6 +90,8 @@ The three to read first:
 
 **✅ Verified · Critical** · **Status: fixed (2026-10-08, `0d9bbad`)** — decision HD9: one admission rule for every call, `voice/call_admission.call_refusal` — the company's **free** credit (the wallet minus running runs' holds) must reach the AGENT floor and the company must be under its spend cap (GH-18); a balance that cannot be read **refuses** (gate `voice_call_credit`, now closed). Used at both inbound webhooks (Twilio: `<Hangup/>`; Tata: an error), on the media socket and by the campaign executor, with a `voice.call.admitted` / `voice.call.refused` event each time. `tests/integration/test_call_admission.py` (4), `tests/unit/test_inbound_call_admission.py` (2)
 
+> **Update 2026-10-08 (GW-02):** browser audio (`/stream/audio`, provider `web`, `WebAudioAdapter`) had no admission at all; it goes through `call_refusal` too now, and every checkpoint also refuses a company at its live-session cap.
+
 Both inbound handlers do this:
 
 ```python

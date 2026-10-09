@@ -15,7 +15,9 @@ socket or from a campaign — is admitted by this one rule:
   reach the ``AGENT`` floor, and the company must be under its monthly spend
   cap (GH-18) — ``CreditService.check_sufficient_for_execution``;
 * a balance that cannot be read **refuses** the call (gate
-  ``voice_call_credit``, GH-21).
+  ``voice_call_credit``, GH-21);
+* the company must hold fewer live sessions than ``LIVE_SESSIONS_PER_COMPANY``
+  (GW-02, :mod:`src.voice.live_sessions`).
 
 Every decision is an event — ``voice.call.admitted`` / ``voice.call.refused``
 with the direction and the checkpoint — so refusals can be counted.
@@ -38,7 +40,13 @@ async def call_refusal(db: Any, company_id: Any, *, direction: str, checkpoint: 
     from src.billing.credit_service import CreditService, InsufficientCreditsError
     from src.common.gates import gate_failed
 
+    from src.voice import live_sessions
+
     context = {"company_id": str(company_id), "direction": direction, "checkpoint": checkpoint}
+    if live_sessions.at_cap(company_id):
+        # As many live calls as the company may hold (GW-02).
+        event("voice.call.refused", reason="live session cap", **context)
+        return live_sessions.cap_message()
     try:
         await CreditService(db).check_sufficient_for_execution(company_id=company_id, entity_type="AGENT")
     except InsufficientCreditsError as exc:

@@ -3,8 +3,11 @@
 ``RATE_LIMIT`` (default 200/minute) per client IP, counted in Redis, applied by
 ``SlowAPIMiddleware`` in ``main.py`` to every route. It is what the gateway on
 :8001 applied to everything it proxied; the gateway is now merged into the API.
-The inbound webhook and internal-event endpoints are ``@limiter.exempt`` — the
-gateway never limited them. WebSockets and static mounts are not limited.
+The inbound webhook and internal-event endpoints are ``@limiter.exempt``: a
+webhook is limited per endpoint instead, and the live sockets per address
+(``gateway/socket_limits.py``, GW-02); an internal event carries the internal
+token, and the runs it starts are capped per company (GH-03). Static mounts are
+not limited.
 
 If Redis is unreachable the count falls back to process memory instead of
 failing the request (the gateway's limiter returned a 500 on every request).

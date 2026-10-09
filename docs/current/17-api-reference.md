@@ -937,16 +937,16 @@ Served by the API on 8000 (the `src/gateway/` routers). Full semantics in
 |---|---|---|---|---|
 | GET | `/health`, `/api/v1/health` | none | yes | Liveness + routers that failed to mount |
 | GET | `/metrics/gateway` | none | yes | Event bus and video-session counters |
-| POST | `/webhook/inbound/{endpoint_id}` | the endpoint's signature | **no** | Inbound webhook, per registered endpoint (GW-01) |
+| POST | `/webhook/inbound/{endpoint_id}` | the endpoint's signature | per endpoint, `WEBHOOK_RATE_LIMIT` (300/minute) of signed deliveries → 429 + `Retry-After` (GW-02) | Inbound webhook, per registered endpoint (GW-01) |
 | POST | `/webhook/inbound` | — | **no** | Retired: always 401 |
 | POST, GET, DELETE | `/api/v1/webhook-endpoints[/{id}]` | Bearer + company admin | yes | Register, list, revoke webhook endpoints |
 | POST | `/internal/event` | `X-Internal-Token` | **no** | Internal event ingress |
-| WS | `/stream/audio` | handshake `token` (URL token, scope `/stream/`) | — | Browser + telephony audio |
-| WS | `/stream/video` | handshake `token` (URL token, scope `/stream/`) | — | WebRTC video |
-| WS | `/webhooks/voice/tata/incoming` | — | — | Tata Tele media |
-| WS | `/stream/twilio/{session_id}` | — | — | Twilio Media Streams |
-| WS | `/stream/tata/{session_id}` | — | — | Tata Tele stream |
-| WS | `/mobile/ws` | access token in the first message | — | Mobile dialer push socket |
+| WS | `/stream/audio` | handshake `token` (URL token, scope `/stream/`) | handshakes per IP, `WS_HANDSHAKE_RATE_LIMIT` (30/minute) → close 4429; the company's live sessions (GW-02) | Browser + telephony audio |
+| WS | `/stream/video` | handshake `token` (URL token, scope `/stream/`) | handshakes per IP → 4429 (GW-02) | WebRTC video |
+| WS | `/webhooks/voice/tata/incoming` | — | the company's live sessions | Tata Tele media |
+| WS | `/stream/twilio/{session_id}` | — | the company's live sessions | Twilio Media Streams |
+| WS | `/stream/tata/{session_id}` | — | the company's live sessions | Tata Tele stream |
+| WS | `/mobile/ws` | access token in the first message | handshakes per IP → 4429 (GW-02) | Mobile dialer push socket |
 
 There is no catch-all route any more; until 2026-09-30 the gateway's
 `/{path:path}` proxy forwarded everything else to 8000.
@@ -962,6 +962,10 @@ There is no catch-all route any more; until 2026-09-30 the gateway's
 
 Every HTTP route except the two ingress endpoints is rate limited at
 `RATE_LIMIT` (200/minute) per client IP; CORS uses the one `CORS_ORIGINS` list.
+The edge has its own limits (GW-02): signed webhook deliveries per endpoint,
+live-socket handshakes per IP, and live AI sessions (calls, browser audio, video)
+per company — `LIVE_SESSIONS_PER_COMPANY` (20), checked when a call is admitted
+and when its session connects (close **4429**).
 
 ---
 

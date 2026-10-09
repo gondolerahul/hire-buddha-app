@@ -7,6 +7,10 @@ the secret, so:
   1. the request is checked with that source's signature scheme
      (``gateway.webhook_signatures``) — a missing or wrong signature is a 401 and
      nothing is queued (GW-01);
+  1a. a signed delivery over the endpoint's allowance (``WEBHOOK_RATE_LIMIT``
+     a minute) is a 429 with ``Retry-After``, before it is claimed (GW-02); the
+     endpoints are exempt from the per-IP REST limit, which a provider's
+     shared IPs would exhaust;
   2. a delivery the endpoint has already taken in the last 24 hours (the
      provider's delivery id, else the body's hash) is acknowledged with 200
      ``duplicate`` and not run again (GW-03);
@@ -42,6 +46,7 @@ from src.common.database import get_db
 from src.common.rate_limit import limiter
 from src.common.redis_client import shared_redis
 from src.gateway.envelope import EventEnvelope, queue_event
+from src.gateway.socket_limits import webhook_allowed
 from src.gateway.webhook_signatures import SignedRequest, verify_signature
 
 logger = logging.getLogger(__name__)
@@ -437,6 +442,18 @@ async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession =
         event("gateway.webhook.signature_failed", endpoint_id=str(endpoint.id),
               company_id=str(endpoint.company_id), source=endpoint.source)
         return _rejected(401, correlation_id, "Webhook signature missing or invalid")
+
+    # So many signed deliveries a minute per endpoint — one company, one
+    # source (GW-02). Before the delivery is claimed, so the provider's retry
+    # is taken, not dropped as a duplicate.
+    if not webhook_allowed(endpoint.id):
+        from src.ai.core.events import event
+        event("gateway.webhook.rate_limited", endpoint_id=str(endpoint.id),
+              company_id=str(endpoint.company_id), source=endpoint.source)
+        return JSONResponse(status_code=429, headers={"Retry-After": "60"}, content={
+            "status": "rate_limited", "correlation_id": correlation_id,
+            "detail": "Too many deliveries to this endpoint; retry later.",
+        })
 
     # A provider's retry of an event already queued is acknowledged, not run
     # again (GW-03). Unable to tell — Redis down — is a 503, never a second run.

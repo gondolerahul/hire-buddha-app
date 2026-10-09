@@ -37,6 +37,7 @@ from src.voice.conversation_logger import ConversationLogger
 from src.voice.models import ConversationHistory, VoiceSession
 from src.voice.number_router import NumberRouter
 from src.voice.usage_logger import VoiceUsageLogger
+from src.voice import live_sessions
 from src.voice.call_guards import (
     ActivityState,
     END_CALL_SYSTEM_SUFFIX,
@@ -279,6 +280,29 @@ class BaseStreamHandler:
                 pass
             return
 
+        # One of the company's live-session places, held until the call ends
+        # (GW-02): of two calls admitted together for the last place, the
+        # second is refused here.
+        slot = live_sessions.acquire(self.voice_session.company_id, kind="call")
+        if slot is None:
+            logger.warning(f"Not connecting call {self.session_id}: live session cap")
+            try:
+                await self.websocket.send_json({
+                    "event": "error",
+                    "error": "too_many_live_sessions",
+                    "message": live_sessions.cap_message(),
+                })
+                await self.websocket.close(code=4429, reason="Too many live sessions")
+            except Exception:
+                pass
+            return
+        try:
+            await self._connect_and_stream(agent_context)
+        finally:
+            slot.release()
+
+    async def _connect_and_stream(self, agent_context):
+        """Connect the live model session and run the call's pipeline to its end."""
         # Resolve the correct live streaming client from task defaults
         factory = LiveClientFactory(
             db=self.db,

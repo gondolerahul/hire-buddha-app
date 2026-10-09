@@ -39,6 +39,7 @@ from typing import Any, Dict, Optional, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from src.gateway.dispatcher import get_dispatcher
+from src.gateway.socket_limits import TOO_MANY, handshake_allowed
 from src.gateway.stream_auth import stream_company
 
 logger = logging.getLogger(__name__)
@@ -399,6 +400,10 @@ async def unified_video_streaming(websocket: WebSocket):
     """
     await websocket.accept()
     logger.info("[VideoGateway] New WebSocket connection")
+    if not handshake_allowed(websocket):
+        # GW-02: so many handshakes from one address a minute.
+        await websocket.close(code=TOO_MANY, reason="rate_limited")
+        return
 
     session_id = str(uuid.uuid4())
     session: Optional[VideoSession] = None

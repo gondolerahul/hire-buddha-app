@@ -20,6 +20,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from src.gateway.socket_limits import TOO_MANY, handshake_allowed
 from src.mobile import realtime
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,10 @@ async def _relay_signal(user, msg: dict) -> None:
 @router.websocket("/mobile/ws")
 async def mobile_push_socket(websocket: WebSocket):
     await websocket.accept()
+    if not handshake_allowed(websocket):
+        # GW-02: so many handshakes from one address a minute.
+        await websocket.close(code=TOO_MANY, reason="rate_limited")
+        return
     try:
         first = await asyncio.wait_for(websocket.receive_text(), timeout=AUTH_TIMEOUT_SECONDS)
         hello = json.loads(first)

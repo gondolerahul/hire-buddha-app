@@ -1706,6 +1706,7 @@ Useful greps while a call is live: `[GUARD]` (guardrails), `[INTERRUPT]` (barge-
 
 ## Gotchas and things that surprise newcomers
 
+- **A company holds at most `LIVE_SESSIONS_PER_COMPANY` live sessions** (20; GW-02) — calls, browser audio, video. A call is refused at admission at the cap (`call_admission.call_refusal`, every checkpoint), and a session that connects past it closes `4429`. Browser audio (`/stream/audio`, provider `web`) is admitted by the same rule since then; it never was.
 - **Every voice endpoint is on port 8000.** The HTTP webhooks and the media-stream WebSockets are the same process; there is no gateway on 8001 or voice service on 8002 any more.
 - ~~**The inbound credit gate never fires.**~~ (VT-01, fixed 2026-10-08): one admission rule for every call, and a balance it cannot read refuses.
 - ~~**Azure Realtime does not work.**~~ (VT-02, fixed 2026-10-08): the factory's Azure client connects like Gemini's and its session speaks the Gemini Live shape; `pcm24_to_pcm16` exists. Not yet checked against a live Azure deployment, and billed at the Gemini Live SKUs.
