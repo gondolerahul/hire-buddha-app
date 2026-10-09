@@ -39,10 +39,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 1 | 0 | 2 | 1 |
 | [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 3 | 0 | 1 | 0 |
-| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 3 | 0 | 2 | 0 |
-| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 0 | 0 | 5 | 1 |
+| [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 5 | 0 | 0 | 0 |
+| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 2 | 0 | 3 | 1 |
 
-**Total: 19 defects (7 fixed, 10 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (11 fixed, 6 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -55,12 +55,12 @@
 | TS-07 | `e2e/` does not roll back | ✅ fixed `3352625` | — |
 | TS-08 | The frontend tests cannot run at all | ✅ fixed (2026-10-09) — `npm test`; test files type-checked (FE-03) | — |
 | TS-09 | The root `tests/` directory | ✅ fixed `c9edbfd` | — |
-| TS-10 | The `kpi` marker and its CI step | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| TS-11 | The `needs_redis` marker | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-10 | The `kpi` marker and its CI step | ✅ fixed (2026-10-09) — marker and lane deleted | — |
+| TS-11 | The `needs_redis` marker | ✅ fixed (2026-10-09) — deleted | — |
 | TS-12 | `backend/tests/phase9/` | ✅ fixed `ebdb54b` | — |
 | TS-13 | One of the two `MockLLMRouter` classes | ✅ fixed `d3497d6` | — |
-| TS-14 | `@pytest.mark.integration` is used and not registered | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| TS-15 | Marker usage is far below marker registration | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-14 | `@pytest.mark.integration` is used and not registered | ✅ fixed (2026-10-09) — registered; `--strict-markers` | — |
+| TS-15 | Marker usage is far below marker registration | ✅ fixed (2026-10-09) — every test carries its directory's tier | — |
 | TS-16 | The parity suite leaves tenants behind | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-17 | Fixture loading is coupled to the entity schema | open — decision HD18 | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-18 | Documentation and reality have drifted in three places | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
@@ -270,8 +270,8 @@ So the frontend has two test files that cannot execute and would not compile.
 | ID | Delete | Notes | Status |
 |---|---|---|---|
 | **TS-09** | The root `tests/` directory | Four directories containing nothing but `__init__.py` — `fixtures/`, `harness/`, `parity/`, `regression/`. Mirrors four `backend/tests/` names and holds nothing. A leftover from a package-layout experiment | ✅ Verified · **fixed (2026-10-07, `c9edbfd`)** — deleted; all tests live in `backend/tests/` (`19-testing.md` §3.1) |
-| **TS-10** | The `kpi` marker and its CI step | Registered in `pytest.ini`, used **0 times**, and `backend/tests/kpi/` does not exist. Both the marker and the CI lane are placeholders | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| **TS-11** | The `needs_redis` marker | Registered, used **0 times** | ✅ Verified · **open** (re-verified 2026-10-07) — still registered in `pytest.ini`, still unused · plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| **TS-10** | The `kpi` marker and its CI step | Registered in `pytest.ini`, used **0 times**, and `backend/tests/kpi/` does not exist. Both the marker and the CI lane are placeholders | ✅ Verified · **fixed (2026-10-09)** — the marker and `run_ci_matrix.sh`'s `run_kpi` lane are deleted; `test_marker_census.py` fails on a registered marker nothing carries |
+| **TS-11** | The `needs_redis` marker | Registered, used **0 times** | ✅ Verified · **fixed (2026-10-09)** — deleted; the Redis-backed tests are in `integration/` and carry that tier |
 | **TS-12** | `backend/tests/phase9/` | Two legacy scripts, **no pytest tests**. Also violates the canary-label ban that `lint_ai_layout.py` enforces on `src/ai/` | 📄 Doc-reported · **fixed (2026-10-07, `ebdb54b`)** — deleted; neither script was a test or was referenced (`19-testing.md` §12) |
 | **TS-13** | One of the two `MockLLMRouter` classes | Defined in both [`tests/harness/mock_llm.py`](../../../backend/tests/harness/mock_llm.py) and [`tests/fixtures/llm_fixture.py`](../../../backend/tests/fixtures/llm_fixture.py). Which one a test gets depends on its conftest | ✅ Verified · **fixed (2026-10-07, `d3497d6`)** — one double, `tests/harness/mock_llm.py`; `tests/fixtures/llm_fixture.py` keeps only the embedding helpers, and the integration `mock_llm` fixture returns the harness router. `tests/unit/test_one_mock_llm_router.py` |
 
@@ -281,7 +281,7 @@ So the frontend has two test files that cannot execute and would not compile.
 
 ### TS-14 — `@pytest.mark.integration` is used and not registered
 
-**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07: still unregistered; its three uses are now in `integration/test_egress_proxy_docker.py`. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
+**✅ Verified · Medium** · **Status: ✅ fixed (2026-10-09)** — `integration` is registered (and applied by directory); the three uses in `test_egress_proxy_docker.py` became the module's new `docker` marker, with `test_container_runtime_docker.py`; `pytest.ini` has `addopts = --strict-markers`. `test_marker_census.py` collects a probe with `@pytest.mark.needs_dbb` and expects a collection error.
 
 `pytest.ini` registers `parity`, `regression`, `chaos`, `kpi`, `slow`, `needs_db`,
 `needs_redis` and `needs_llm`. It does **not** register `integration` — which is used three
@@ -297,7 +297,7 @@ ignored — a test filtered by it simply never runs.
 
 ### TS-15 — Marker usage is far below marker registration
 
-**✅ Verified · Low** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
+**✅ Verified · Low** · **Status: ✅ fixed (2026-10-09)** — `tests/conftest.py` marks every test under `integration/`, `e2e/`, `parity/`, `regression/` and `chaos/` with its directory (the chaos conftest's own auto-mark folded in), so `-m` selection separates the tiers: 2,129 unit, 455 integration (14 of them `docker`), 203 e2e, 5 chaos, 2 parity, 1 regression — 2,795 in all, each in exactly one tier. `run_ci_matrix.sh`'s fast integration lane is `-m "not (slow or docker)"`. `test_marker_census.py` (6).
 
 | Marker | Registered | Used |
 |---|---|---|

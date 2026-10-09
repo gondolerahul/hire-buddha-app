@@ -1,5 +1,23 @@
 """Fixtures for every test suite."""
+from pathlib import Path
+
 import pytest
+
+# A test's tier is its directory (TS-15): every test under one of these is
+# marked with it, so `-m` selection matches the layout without decorators.
+TIER_DIRECTORIES = ("integration", "e2e", "parity", "regression", "chaos")
+
+_TESTS_ROOT = Path(__file__).resolve().parent
+
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        try:
+            top = Path(str(item.fspath)).resolve().relative_to(_TESTS_ROOT).parts[0]
+        except (ValueError, IndexError):
+            continue
+        if top in TIER_DIRECTORIES:
+            item.add_marker(getattr(pytest.mark, top))
 
 
 @pytest.fixture(autouse=True)

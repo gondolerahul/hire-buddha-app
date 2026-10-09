@@ -43,11 +43,12 @@ run_unit() {
 }
 
 run_integration_fast() {
-    # Integration suites that don't carry the slow / chaos / parity /
-    # regression marker. Per the test strategy doc, "fast" integration
-    # tests must complete in well under a minute on a clean CI runner.
+    # tests/integration without the slow tests and the Docker-image tests
+    # (those need the built images: their own job). Per the test strategy
+    # doc, "fast" integration tests must complete in well under a minute on
+    # a clean CI runner.
     bold "integration (fast)"
-    $PYTEST tests/integration/ -q -m "not (slow or chaos or parity or regression or kpi)"
+    $PYTEST tests/integration/ -q -m "not (slow or docker)"
 }
 
 run_chaos() {
@@ -63,15 +64,6 @@ run_parity() {
 run_regression() {
     bold "regression suite"
     $PYTEST tests/regression/ -q
-}
-
-run_kpi() {
-    bold "KPI drift suite"
-    if [ -d tests/kpi ]; then
-        $PYTEST tests/kpi/ -q -m kpi
-    else
-        echo "(no tests/kpi/ yet — skipped)"
-    fi
 }
 
 run_migration_roundtrip() {
@@ -92,7 +84,6 @@ case "$LANE" in
         run_parity
         run_regression
         run_chaos
-        run_kpi
         ;;
     migration)
         run_migration_roundtrip
@@ -108,7 +99,6 @@ case "$LANE" in
         run_chaos
         run_parity
         run_regression
-        run_kpi
         run_migration_roundtrip
         ;;
     *)

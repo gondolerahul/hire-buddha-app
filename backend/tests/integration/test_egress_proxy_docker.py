@@ -44,11 +44,11 @@ def _image_present(image: str) -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
+pytestmark = [pytest.mark.docker, pytest.mark.skipif(
     not _docker_ok() or not _image_present(_PROXY_IMAGE),
     reason="Docker unavailable or hb-egress-proxy:local image absent "
            "(build: docker build -t hb-egress-proxy:local backend/docker/egress-proxy)",
-)
+)]
 
 
 @pytest_asyncio.fixture()
@@ -78,19 +78,16 @@ def _wget(network: str, url: str, *, proxy_url: str | None = None) -> int:
     ).returncode
 
 
-@pytest.mark.integration
 def test_allowlisted_host_reachable_through_proxy(proxy) -> None:
     rc = _wget(proxy.internal_network, "https://example.com", proxy_url=proxy.proxy_url)
     assert rc == 0, "allow-listed host should be reachable via the proxy"
 
 
-@pytest.mark.integration
 def test_non_allowlisted_host_blocked(proxy) -> None:
     rc = _wget(proxy.internal_network, "https://api.github.com", proxy_url=proxy.proxy_url)
     assert rc != 0, "non-allow-listed host must be refused by the proxy"
 
 
-@pytest.mark.integration
 def test_no_direct_egress_without_proxy(proxy) -> None:
     # On the --internal network with no proxy env there is no route at all.
     rc = _wget(proxy.internal_network, "https://example.com")

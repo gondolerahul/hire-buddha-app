@@ -101,55 +101,41 @@ the parity suite documents at length — see [§8.3](#83-the-single-event-loop-c
 
 ```ini
 # backend/pytest.ini
+addopts = --strict-markers
 markers =
-    parity: parity tests comparing legacy ExecutionEngine vs new AgentLoop (Track 2+); slow, requires DB+Redis or golden snapshot
-    regression: nightly regression suite cases under tests/regression/
-    chaos: chaos / fault-injection suites under tests/chaos/
-    kpi: KPI drift tests under tests/kpi/
+    integration: tests/integration — real Postgres (and Redis), rolled back
+    e2e: tests/e2e — the whole app in-process against the dev database; cleans up after itself
+    parity: tests/parity — AgentLoop against recorded goldens; needs DB + Redis
+    regression: tests/regression — nightly regression cases
+    chaos: tests/chaos — fault injection
+    docker: needs Docker and the built hb-sandbox / hb-egress-proxy images (its own CI job)
     slow: any test that takes more than 5s on a clean machine
     needs_db: requires a real Postgres connection
-    needs_redis: requires a real Redis connection
     needs_llm: makes a real LLM API call (default: skipped)
 ```
 
-| Marker | Meaning | Where used |
-|---|---|---|
-| `parity` | Legacy-vs-loop equivalence | `tests/parity/` |
-| `regression` | Nightly YAML cases | `tests/regression/` |
-| `chaos` | Fault injection | `tests/chaos/` (auto-applied) |
-| `kpi` | KPI drift | ⚠️ `tests/kpi/` does not exist |
-| `slow` | > 5s on a clean machine | Sparingly |
-| `needs_db` | Real Postgres | Sparingly |
-| `needs_redis` | Real Redis | Declared, not observed in use |
-| `needs_llm` | Real LLM call — **skipped by default** | Declared, not observed in use |
+**A test's tier is its directory.** `tests/conftest.py`'s `pytest_collection_modifyitems`
+marks every test under `integration/`, `e2e/`, `parity/`, `regression/` and `chaos/` with
+that directory's name (TS-15), so `-m` selection matches the layout without anyone
+remembering a decorator. Everything else (`unit/`, `ai/`, `eval/`) is the unit tier:
 
-Actual usage across the tree is much thinner than the catalogue suggests:
+| Selection | Tests (2026-10-09) |
+|---|---:|
+| `-m "not (integration or e2e or parity or regression or chaos or docker)"` — unit | 2,129 |
+| `-m integration` | 455 |
+| `-m e2e` | 203 |
+| `-m docker` (inside `integration/`) | 14 |
+| `-m chaos` / `-m parity` / `-m regression` | 5 / 2 / 1 |
 
-| Decorator | Occurrences |
-|---|---|
-| `@pytest.mark.asyncio` | 503 |
-| `@pytest.mark.parametrize` | 20 |
-| `@pytest.mark.skipif` | 3 |
-| `@pytest.mark.integration` | 3 |
-| `@pytest.mark.chaos` | 2 |
-| `@pytest.mark.slow` | 1 |
-| `@pytest.mark.needs_db` | 1 |
+`--strict-markers` makes an unregistered marker a collection error, so a typo'd marker no
+longer silently selects nothing (TS-14). `tests/unit/test_marker_census.py` keeps the
+registered list and the markers in use in step: a marker nothing carries (as `kpi` and
+`needs_redis` were, TS-10, TS-11) fails it.
 
-> ⚠️ **`@pytest.mark.integration` is used but not registered** in `pytest.ini`.
-> With `--strict-markers` that would error; without it, it warns. Conversely
-> `needs_redis`, `needs_llm` and `kpi` are registered but effectively unused.
->
-> The real skip mechanism is **not markers** — it is `infra_unavailable()`
-> (`tests/harness/infra.py`) called from inside fixtures when infrastructure is
-> missing: it skips locally and **fails under `REQUIRE_DB=1`** (TS-05). See
-> [§6.1](#61-the-db-fixture-chain).
-
-The comment in `pytest.ini` records the intended CI split:
-
-```ini
-# Default pytest run executes everything; CI restricts via `-m "not (parity or regression or chaos)"`
-# for fast PRs and `-m "parity or regression"` for nightly.
-```
+The real skip mechanism is **not markers** — it is `infra_unavailable()`
+(`tests/harness/infra.py`) called from inside fixtures when infrastructure is missing: it
+skips locally and **fails under `REQUIRE_DB=1`** (TS-05). See
+[§6.1](#61-the-db-fixture-chain).
 
 ---
 
@@ -879,7 +865,7 @@ cd backend && .venv/bin/python -m pytest tests/ -k "cortex and not slow" -q
 ```
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/ -m "not (parity or regression or chaos)" -q
+cd backend && .venv/bin/python -m pytest tests/ -m "not (integration or e2e or parity or regression or chaos or docker)" -q
 ```
 
 ```bash
@@ -910,13 +896,12 @@ flowchart TD
     subgraph Fast["fast - every PR"]
         F1["lint_ai_layout.py"] --> F2["typecheck_ai.py"]
         F2 --> F3["pytest tests/unit/"]
-        F3 --> F4["pytest tests/integration/<br/>-m 'not (slow or chaos or parity or regression or kpi)'"]
+        F3 --> F4["pytest tests/integration/<br/>-m 'not (slow or docker)'"]
     end
     subgraph Nightly["nightly"]
         N1["pytest tests/chaos/ -m chaos"]
         N2["pytest tests/parity/"]
         N3["pytest tests/regression/"]
-        N4["pytest tests/kpi/ -m kpi"]
     end
     subgraph Migration["migration"]
         M1["alembic upgrade head"] --> M2["alembic downgrade -1"]
@@ -927,25 +912,13 @@ flowchart TD
 | Lane | Runs |
 |---|---|
 | `fast` | layout lint → typecheck → unit → fast integration |
-| `nightly` | chaos, parity, regression, KPI |
+| `nightly` | chaos, parity, regression |
 | `migration` | Alembic up → down → up round-trip |
 | `all` | Every lane sequentially |
 
-The `kpi` step degrades gracefully:
-
-```bash
-# backend/scripts/run_ci_matrix.sh
-run_kpi() {
-    bold "KPI drift suite"
-    if [ -d tests/kpi ]; then
-        $PYTEST tests/kpi/ -q -m kpi
-    else
-        echo "(no tests/kpi/ yet — skipped)"
-    fi
-}
-```
-
-`tests/kpi/` does not exist, so this always prints the skip message.
+The `kpi` step, which always printed a skip message because `tests/kpi/` never existed,
+was removed with the `kpi` marker (TS-10, 2026-10-09). The fast integration step excludes
+`slow` and `docker`; the Docker-image tests need the built images and get their own job.
 
 The `migration` lane is genuinely valuable — `downgrade -1` catches
 irreversible migrations before they reach production, which matters for the
@@ -1183,11 +1156,11 @@ the trace viewer have none.
 6. **The engine fixture is function-scoped on purpose** — a deliberate
    performance trade for isolation.
 
-7. **`@pytest.mark.integration` is not registered** in `pytest.ini`;
-   `needs_redis`, `needs_llm` and `kpi` are registered but unused.
+7. ~~**`@pytest.mark.integration` is not registered**~~ — since 2026-10-09 markers are
+   strict and every test carries its directory's tier (TS-14, TS-15); `needs_redis` and
+   `kpi` are gone (TS-10, TS-11). A new marker must be registered in `pytest.ini`.
 
-8. **`tests/kpi/` does not exist.** The `kpi` marker and CI step are
-   placeholders.
+8. ~~**`tests/kpi/` does not exist.**~~ The `kpi` marker and CI step are deleted (TS-10).
 
 9. ~~**`tests/phase9/` contains no pytest tests**~~ — deleted 2026-10-07 (TS-12).
 

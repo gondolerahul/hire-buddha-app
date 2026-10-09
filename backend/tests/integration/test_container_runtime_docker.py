@@ -41,7 +41,8 @@ def _docker_ok() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(not _docker_ok(), reason=f"Docker or {_IMAGE} unavailable")
+pytestmark = [pytest.mark.docker,
+              pytest.mark.skipif(not _docker_ok(), reason=f"Docker or {_IMAGE} unavailable")]
 
 
 @pytest_asyncio.fixture
