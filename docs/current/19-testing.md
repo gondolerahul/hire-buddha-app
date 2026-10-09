@@ -70,12 +70,11 @@ Three things to internalise before you run anything:
 cd backend && .venv/bin/python -m pytest tests/unit/ -q
 ```
 
-> [backend/src/ai/ONBOARDING.md](../../backend/src/ai/ONBOARDING.md) says this
-> should print *"~420 passed (Phase 11 baseline)"*. The `tests/unit/` directory
-> now contains **745** test functions, so that figure is stale — it was written
-> at the Phase 11 baseline and the suite has roughly doubled since. I could not
-> execute the suite to confirm the current pass count; the numbers in this
-> document are static counts from the source, not from a run.
+> The run should end with **no failures** — there are no known failures on any
+> platform since 2026-10-09 (H1.9). The pass count grows with the suite, so the docs no
+> longer quote one as a target ([backend/src/ai/ONBOARDING.md](../../backend/src/ai/ONBOARDING.md)
+> said *"~420 passed"*, the Phase 11 baseline, until TS-18). For scale, the unit tier was
+> 2,133 tests on 2026-10-09.
 
 ---
 
@@ -595,7 +594,7 @@ harness**. From [tests/eval/README.md](../../backend/tests/eval/README.md):
 
 ```mermaid
 flowchart LR
-    CORPUS["Corpus = tests/regression/cases/*.yml"] --> A["Replay under EvalConfig A"]
+    CORPUS["Corpus = tests/regression/cases/*.yaml"] --> A["Replay under EvalConfig A"]
     CORPUS --> B["Replay under EvalConfig B"]
     A --> MA["RunMetrics per case"]
     B --> MB["RunMetrics per case"]
@@ -633,11 +632,9 @@ keeps the dependency footprint small.
 
 Both are feature flags from [15 — Governance and flags](15-governance-and-hitl.md).
 
-Note the corpus is *"just `tests/regression/cases/*.yml`… no separate format"* —
-adding a regression case automatically enlarges the eval corpus.
-
-> ⚠️ The eval README refers to `*.yml` while the actual case files use `*.yaml`.
-> Check the loader's glob if a case is not picked up.
+The corpus is just `tests/regression/cases/*.yaml` — no separate format — so adding a
+regression case automatically enlarges the eval corpus. The loader's glob is `*.yaml`
+(`tests/regression/loader.py`): a case saved as `.yml` is not picked up.
 
 ---
 
@@ -800,6 +797,13 @@ def load_entity_fixture(name: str) -> HierarchicalEntityCreate:
 
 Note the second sentence — **loading a fixture is itself a schema test**. If you
 change `HierarchicalEntityCreate`, every fixture must still validate.
+
+**This coupling is kept on purpose** (TS-17, accepted under HD18 on 2026-10-09): it is what
+catches a schema change that would break stored entities. The cost is that one schema change
+can turn every tier that loads fixtures red at once. When it does, change the fixtures in the
+same commit as the schema — `list_entity_fixtures()` names them all, and
+`load_entity_fixture_raw` lets a test that needs an old shape build one on purpose. Do not
+loosen the validation to get green.
 
 | Function | Returns |
 |---|---|
@@ -1188,10 +1192,14 @@ the trace viewer have none.
 15. **Loading an entity fixture validates it** against
     `HierarchicalEntityCreate` — schema changes break fixture loading.
 
-16. **The eval README says `*.yml`; the cases are `*.yaml`.**
+16. **Regression cases are `*.yaml`.** The loader globs `*.yaml`; a `.yml` case is
+    silently not collected. (The eval README that said `*.yml` is gone — TS-18.)
 
-17. **The ONBOARDING.md "~420 passed" figure is stale** — `tests/unit/` now has
-    745 test functions.
+17. **No doc quotes a pass count as a target** (TS-18): the suite grows. A run is
+    right when it ends with no failures.
+
+18. **`@pytest.mark.asyncio` is redundant** under `asyncio_mode = auto` — about 1,200
+    tests still carry it, harmlessly. New tests need not.
 
 18. **No CI runs any of this automatically.** Run `scripts/run_ci_matrix.sh fast`
     before pushing.

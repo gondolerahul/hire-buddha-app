@@ -40,9 +40,9 @@
 | [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 1 | 0 | 2 | 1 |
 | [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 4 | 0 | 0 | 0 |
 | [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 5 | 0 | 0 | 0 |
-| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 3 | 0 | 2 | 1 |
+| [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 4 | 0 | 0 | 2 |
 
-**Total: 19 defects (13 fixed, 4 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (14 fixed, 2 open, 3 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -62,8 +62,8 @@
 | TS-14 | `@pytest.mark.integration` is used and not registered | ✅ fixed (2026-10-09) — registered; `--strict-markers` | — |
 | TS-15 | Marker usage is far below marker registration | ✅ fixed (2026-10-09) — every test carries its directory's tier | — |
 | TS-16 | The parity suite leaves tenants behind | ✅ fixed (2026-10-09) — the session deletes what it seeded | — |
-| TS-17 | Fixture loading is coupled to the entity schema | open — decision HD18 | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| TS-18 | Documentation and reality have drifted in three places | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| TS-17 | Fixture loading is coupled to the entity schema | accepted (HD18) — documented | — |
+| TS-18 | Documentation and reality have drifted in three places | ✅ fixed (2026-10-09) — docs follow the code | — |
 | TS-19 | The engine fixture is function-scoped, deliberately | accepted — keep function scope | — |
 
 The three to read first:
@@ -352,7 +352,7 @@ there.
 
 ### TS-17 — Fixture loading is coupled to the entity schema
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
+**📄 Doc-reported · Medium** · **Status: accepted (2026-10-09, HD18)** — the coupling is what catches schema drift; it is documented in `19-testing.md` §13 (the shared harness), with what to do when a schema change turns fixtures red.
 
 Loading an entity fixture validates it against `HierarchicalEntityCreate`. Any schema change
 breaks fixture loading across every tier that uses fixtures.
@@ -365,7 +365,7 @@ change can turn a large part of the suite red at once, which is a strong incenti
 
 ### TS-18 — Documentation and reality have drifted in three places
 
-**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: unchanged. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
+**📄 Doc-reported · Low** · **Status: ✅ fixed (2026-10-09)** — `ONBOARDING.md`, `19-testing.md` and `20-onboarding-and-glossary.md` no longer quote a pass count as a target (a run is right when it has no failures; there are no known failures since H1.9); the `*.yml` claims are `*.yaml`, as `tests/regression/loader.py` globs (the eval README that said otherwise no longer exists); the `@pytest.mark.asyncio` count is updated (≈1,200, redundant and harmless under `asyncio_mode = auto`) — the decorators stay, removing them is churn with no effect.
 
 | Claim | Reality |
 |---|---|

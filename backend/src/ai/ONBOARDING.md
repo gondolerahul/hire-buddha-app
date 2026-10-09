@@ -24,7 +24,8 @@ Smoke-test the worker boots:
 ```bash
 .venv/bin/python -m pytest tests/unit/ -q
 ```
-Should print `~420 passed` (Phase 11 baseline). If anything fails, stop and ask.
+Should end with no failures. The pass count grows with the suite, so do not compare it with a
+fixed figure; a failure, or an error in collection, is the signal. If anything fails, stop and ask.
 
 ## 2. Read the loop (15 min)
 

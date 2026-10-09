@@ -287,10 +287,8 @@ cd backend && .venv/bin/python -m pytest tests/unit/test_tool_status.py -q
 cd backend && scripts/run_ci_matrix.sh fast
 ```
 
-> ⚠️ The `ONBOARDING.md` version of this exercise says the unit suite should
-> print *"~420 passed"*. That figure is from the Phase 11 baseline;
-> `tests/unit/` now holds 745 test functions. Do not treat the number as a
-> target. Also note there is **no CI wired to run any of this** — the gates are
+> The unit suite should end with **no failures**; the pass count grows with the suite,
+> so it is not a target (TS-18). Also note there is **no CI wired to run any of this** — the gates are
 > manual. See [19 §15.1](19-testing.md#151-the-ci-lanes).
 
 ---
