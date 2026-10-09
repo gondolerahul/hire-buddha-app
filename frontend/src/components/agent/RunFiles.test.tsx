@@ -2,7 +2,6 @@
 /**
  * RunFiles.test.tsx — the agent-loop run page lists the run's files (FE-32).
  */
-import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 

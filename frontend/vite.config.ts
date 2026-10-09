@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
@@ -41,6 +42,11 @@ export default defineConfig(({ mode }) => {
                 '@/types': path.resolve(__dirname, './src/types'),
                 '@/utils': path.resolve(__dirname, './src/utils'),
             },
+        },
+        // `npm test` (FE-03): the component and hook tests need a DOM.
+        test: {
+            environment: 'jsdom',
+            include: ['src/**/*.test.{ts,tsx}'],
         },
         server: {
             allowedHosts: ["dev.hirebuddha.com", "app.hirebuddha.com"],

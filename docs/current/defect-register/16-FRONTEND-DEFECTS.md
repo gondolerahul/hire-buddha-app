@@ -35,16 +35,16 @@
 
 | Tier | Theme | Count | Fixed | Open |
 |---|---|---|---|---|
-| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | 6 | 1 |
-| [T1](#3-t1--broken-behaviour) | Broken behaviour | 12 | 11 | 1 |
+| [T0](#2-t0--the-app-can-blank-out-and-nobody-would-know) | The app can blank out and nobody would know | 7 | 7 | 0 |
+| [T1](#3-t1--broken-behaviour) | Broken behaviour | 12 | 12 | 0 |
 | [T2](#4-t2--dead-code-and-unused-dependencies) | Dead code and unused dependencies | 6 | 6 | 0 |
-| [T3](#5-t3--performance) | Performance | 7 | 6 | 1 |
+| [T3](#5-t3--performance) | Performance | 7 | 7 | 0 |
 
-**Total: 32 defects (31 fixed, 1 open), 10 improvements (6 done, 1 partly done, 3 open).**
+**Total: 32 defects (32 fixed, 0 open), 10 improvements (7 done, 3 open).**
 Worked 2026-10-01 on branch `roadmap-development-defect-fixes`; six defects were found on the
 way and added (FE-26 to FE-31). The user ran two of the package changes this session's
 permission check refused, committed in `dc21c2f`: the unused packages are gone (FE-12) and
-`vitest` is installed (FE-03 still needs it wired in). FE-21's package, `@tanstack/react-query`,
+`vitest` is installed (wired in as `npm test` on 2026-10-09, FE-03). FE-21's package, `@tanstack/react-query`,
 was installed in `895ddc8` and adopted on 2026-10-09 (H9); FE-28 is fixed (2026-10-07, URL tokens).
 Re-verified against the code 2026-10-07; the three open defects are scheduled in
 [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md) (FE-03 [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights), FE-28 [H2](REMAINING-DEFECTS-PLAN.md#h2--close-the-open-doors), FE-21 [H9](REMAINING-DEFECTS-PLAN.md#h9--frontend-data-layer)).
@@ -53,7 +53,7 @@ Re-verified against the code 2026-10-07; the three open defects are scheduled in
 |---|---|---|
 | FE-01 | There is no error boundary | ✅ fixed `547cca5` |
 | FE-02 | `npm run lint` cannot run | ✅ fixed `eac9f2f` |
-| FE-03 | There is no test runner | open — `vitest` installed `dc21c2f`; needs a `test` script and the `tsconfig` exclude dropped; plan [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| FE-03 | There is no test runner | ✅ fixed (2026-10-09) — `npm test`; test files type-checked; CI job is H1.3's workflow part |
 | FE-04 | If you forget `.env`, development talks to production | ✅ fixed `50dac40` |
 | FE-05 | Three legacy redirects emit a literal `:id` | ✅ fixed `547cca5` |
 | FE-06 | Bad JSON in the IO-contract fields silently kills the save | ✅ fixed `0dbd5ef` |
@@ -86,7 +86,7 @@ Re-verified against the code 2026-10-07; the three open defects are scheduled in
 
 | ID | Improvement | Status |
 |---|---|---|
-| FE-I1 | Error boundary, lint config, test runner | ◐ two of three — the test runner is FE-03 |
+| FE-I1 | Error boundary, lint config, test runner | ✅ done (2026-10-09) — the test runner was FE-03 |
 | FE-I2 | Stop the polls | ✅ done `3d1dcec` |
 | FE-I3 | Adopt a query cache | ✅ done (2026-10-09) — FE-21 |
 | FE-I4 | Lazy-load the background and make it sleep | ✅ done `428ff7c` |
@@ -197,7 +197,7 @@ poll stopped after the first tick; the canvas laid out the stored plan.
 
 ### FE-03 — There is no test runner
 
-**✅ Verified · High** · **Status: open (2026-10-01)** — `vitest`, `jsdom` and
+**✅ Verified · High** · **Status: ✅ fixed (2026-10-09)** — `vitest`, `jsdom` and
 `@testing-library/react` / `dom` are installed (`dc21c2f`, run by the user after this
 session's permission check refused it); the runner is not wired in yet. Since
 FE-14 one test file is left (`cortex-helpers.test.ts` went with the dead module). When the
@@ -226,6 +226,16 @@ Two knock-on effects:
 - Also recorded as **D-40** in the platform register
 
 **Fix:** `npm i -D vitest jsdom`, add `"test": "vitest run"`, drop the `exclude`.
+
+**Fixed (2026-10-09).** `package.json` has `"test": "vitest run"`; `vite.config.ts` gives
+vitest a `test` block (`environment: 'jsdom'`, `src/**/*.test.{ts,tsx}`), so a test needs no
+per-file environment pragma — `urlToken.test.ts`, which had none, failed on
+`localStorage is not defined` until then. `tsconfig.json` no longer excludes test files:
+`tsc` (and `npm run build`) type-checks them. `_INITIAL` had already been given `spans`; the
+one error the check found was an unused `React` import in `RunFiles.test.tsx`. The two pure
+helpers have their first tests (`utils/datetime.test.ts`, `utils/entityConfig.test.ts`).
+`npm test`: 8 files, 35 tests. Running it in CI is H1.3's workflow, which is out of this
+pass (CI is excluded).
 
 ---
 
@@ -952,8 +962,8 @@ a real entity.
 
 ### FE-I1 — Add an error boundary, a lint config and a test runner
 
-**Status: two of three (2026-10-01)** — the error boundary (FE-01) and the lint config
-(FE-02) are in; the test runner is FE-03.
+**Status: ✅ done (2026-10-09)** — the error boundary (FE-01), the lint config (FE-02) and
+the test runner (FE-03, `npm test`).
 
 **Effect: large, and it is one afternoon.**
 [FE-01](#fe-01--there-is-no-error-boundary),

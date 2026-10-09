@@ -90,6 +90,7 @@ From [`package.json`](../../frontend/package.json):
 | `npm run dev` | `vite` | Dev server on port 3000, all interfaces |
 | `npm run build` | `tsc && vite build` | Type-check first, then bundle to `dist/` |
 | `npm run lint` | `eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` | Lint with zero warnings allowed; config in `.eslintrc.cjs` |
+| `npm test` | `vitest run` | Every `src/**/*.test.ts(x)`, in jsdom — [§18](#18-testing) |
 | `npm run preview` | `vite preview` | Serve the built `dist/` locally |
 
 > **`npm run lint` passes** since FE-02 (2026-10-01): `.eslintrc.cjs` extends the
@@ -117,8 +118,7 @@ From [`package.json`](../../frontend/package.json):
 | `three` | ^0.182 | `AnimatedBackground` |
 | `@tanstack/react-query` | ^5.104 | The query cache — [§6.7](#67-the-query-cache) |
 
-Dev-only: `vitest`, `jsdom` and `@testing-library/react` / `dom` (installed, not yet wired
-to a `test` script — FE-03).
+Dev-only: `vitest`, `jsdom` and `@testing-library/react` / `dom` — `npm test` (FE-03).
 
 `date-fns`, `react-hook-form`, `zod`, `@hookform/resolvers` and the three `@react-three/*`
 packages were declared but never imported; they were removed in `dc21c2f` (FE-12).
@@ -189,14 +189,9 @@ those links use `API_ORIGIN`, derived from `VITE_API_BASE_URL`. So is the
 `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`,
 `noEmit`, `jsx: "react-jsx"`, `moduleResolution: "bundler"`.
 
-The important line is the exclude:
-
-```json
-"exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
-```
-
-Test files are **not type-checked** by the build. That matters — see
-[§18](#18-testing).
+There is no `exclude`: test files are type-checked with the rest of `src` (FE-03,
+2026-10-09). Until then `src/**/*.test.ts(x)` was excluded, so a test could stop
+compiling without anyone noticing.
 
 ### 2.6 Running it
 
@@ -2196,35 +2191,26 @@ attach.
 
 ## 18. Testing
 
-**There is no test runner configured.** `package.json` has no `test` script, and
-neither `vitest` nor `jest` appears in `package.json` or `package-lock.json`.
+`npm test` runs `vitest run` over every `src/**/*.test.ts(x)` (FE-03, 2026-10-09).
+The environment is `jsdom` for all of them — the `test` block in `vite.config.ts`,
+which also gives the tests the app's `@/` aliases. Test files are type-checked by
+`tsc` like any other source.
 
-One test file exists, and it imports from `vitest` (a second, `cortex-helpers.test.ts`,
-tested dead code and was deleted with it under FE-14):
+| File | What it tests |
+|------|---------------|
+| [`hooks/useExecutionEvents.test.ts`](../../frontend/src/hooks/useExecutionEvents.test.ts) | The pure `executionEventReducer` — iteration slices, critic verdicts, resume, bandit/replan accumulation, cost summing, task class, unknown events, reset |
+| [`services/events.test.ts`](../../frontend/src/services/events.test.ts) | The run stream's resume URL and its terminal frame (GW-18, GW-19) |
+| [`services/urlToken.test.ts`](../../frontend/src/services/urlToken.test.ts) | URL tokens: minted per scope and login, never the login token in a URL (FE-28) |
+| [`services/pagination.test.ts`](../../frontend/src/services/pagination.test.ts) | Following a list's cursor to its end (API-16) |
+| [`queries/hooks.test.tsx`](../../frontend/src/queries/hooks.test.tsx) | The query cache: shared reads, failed reports, write invalidation (FE-21) |
+| [`components/agent/RunFiles.test.tsx`](../../frontend/src/components/agent/RunFiles.test.tsx) | The agent-loop run page lists the run's files (FE-32) |
+| [`utils/datetime.test.ts`](../../frontend/src/utils/datetime.test.ts) | Naive-UTC API timestamps read as UTC (FE-09) |
+| [`utils/entityConfig.test.ts`](../../frontend/src/utils/entityConfig.test.ts) | Saving from the builder keeps what it does not show (FE-25) |
 
-| File | Lines | What it tests |
-|------|-------|---------------|
-| [`hooks/useExecutionEvents.test.ts`](../../frontend/src/hooks/useExecutionEvents.test.ts) | 127 | 8 cases over the pure `executionEventReducer` — iteration slices, four critic verdicts, resume, bandit/replan accumulation, cost summing, task class, unknown events, reset |
-
-It even documents the missing setup in its header:
-
-```ts
-// frontend/src/hooks/useExecutionEvents.test.ts:4
- * To run: install vitest (`npm install --save-dev vitest @testing-library/react
- * @testing-library/jest-dom jsdom`) then `npx vitest run`.
-```
-
-Two consequences worth knowing:
-
-- `tsconfig.json` **excludes** `*.test.ts`, so the file is not type-checked
-  by `npm run build`. `useExecutionEvents.test.ts`'s local `_INITIAL` object is
-  already missing the `spans` field that was later added to
-  `ExecutionEventState` — it would not compile if it were checked.
-
-To make the tests runnable: `npm i -D vitest jsdom`, add
-`"test": "vitest run"` to scripts, and drop the `exclude` from `tsconfig.json`
-(or add a `tsconfig.test.json`). See [19 — Testing & quality gates](19-testing.md)
-for the backend picture, which is much better covered.
+Mock the API with `vi.mock('@/services/api.client', ...)`; a hook test renders
+with its own `QueryClient` (see `queries/hooks.test.tsx`). Nothing runs these in
+CI yet — that is H1.3's workflow. See [19 — Testing & quality gates](19-testing.md)
+for the backend.
 
 ---
 

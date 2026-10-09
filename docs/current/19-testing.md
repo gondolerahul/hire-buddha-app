@@ -1118,28 +1118,18 @@ see [15 §13.5](15-governance-and-hitl.md#135-tools-and-cost).
 
 ## 18. Frontend testing
 
-Two test files exist:
+`npm test` (in `frontend/`) runs Vitest over every `src/**/*.test.ts(x)` in
+jsdom: 8 files, 35 tests on 2026-10-09 (FE-03, TS-04, TS-08). The list, and how
+to write one, is in [16 — Frontend §18](16-frontend.md#18-testing).
 
-| File | Covers |
-|---|---|
-| [useExecutionEvents.test.ts](../../frontend/src/hooks/useExecutionEvents.test.ts) | The SSE execution-event hook |
+Test files are type-checked by `tsc` like the rest of `src` (until FE-03 the
+`tsconfig.json` excluded them). The frontend gates are `npm run lint`
+(`--max-warnings 0`), `npx tsc --noEmit -p tsconfig.json`, `npm test` and
+`npx vite build`; nothing runs them in CI yet (H1.3).
 
-> ⚠️ **No test runner is configured.** `frontend/package.json` has four scripts
-> — `dev`, `build`, `lint`, `preview` — and **no `test` script**. Neither Vitest
-> nor Jest appears in `dependencies` or `devDependencies`. These two `.test.ts`
-> files cannot currently be executed by any command in the repository.
->
-> They are written in a Vitest-compatible style. Wiring it up would mean adding
-> `vitest` as a dev dependency and a `"test": "vitest"` script — a small change
-> that would immediately make two existing test files useful.
-
-For a 25,000-line React application including a 1,780-line configuration screen
-and a live-trace viewer, two unexecutable test files is the largest coverage gap
-in the repository.
-
-The only automated frontend checks that do run are `npm run lint`
-(`--max-warnings 0`) and `npm run build` (which runs `tsc` first, so type errors
-are caught).
+For a 25,000-line React application the coverage is still thin — services,
+pure helpers, the query cache and one component. The configuration screen and
+the trace viewer have none.
 
 ---
 

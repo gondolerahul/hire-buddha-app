@@ -37,23 +37,23 @@
 
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
-| [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 0 | 1 | 2 | 1 |
-| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 1 | 1 | 2 | 0 |
+| [T0](#2-t0--nothing-enforces-any-of-it) | Nothing enforces any of it | 4 | 1 | 0 | 2 | 1 |
+| [T1](#3-t1--a-green-run-can-be-an-empty-run) | A green run can be an empty run | 4 | 2 | 0 | 2 | 0 |
 | [T2](#4-t2--dead-scaffolding) | Dead scaffolding | 5 | 3 | 0 | 2 | 0 |
 | [T3](#5-t3--traps-and-drift) | Traps and drift | 6 | 0 | 0 | 5 | 1 |
 
-**Total: 19 defects (4 fixed, 2 partly fixed, 11 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 19 defects (6 fixed, 11 open, 2 accepted or invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
 | TS-01 | The only CI workflow has never fired | invalid (the gap is IN-05) | — |
 | TS-02 | 1,063 backend tests run only when someone remembers | open — Critical | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-03 | Three working quality gates have no trigger either | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
-| TS-04 | `npm run lint` cannot run, and there is no frontend test runner | half fixed — lint runs; no test runner | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-04 | `npm run lint` cannot run, and there is no frontend test runner | ✅ fixed (2026-10-09) — lint and `npm test` both run (FE-02, FE-03) | — |
 | TS-05 | Three test tiers skip instead of failing | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-06 | An unmocked LLM call returns a `STUB:` string, not an error | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-07 | `e2e/` does not roll back | ✅ fixed `3352625` | — |
-| TS-08 | The frontend tests cannot run at all | partly — `vitest` installed; not wired | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
+| TS-08 | The frontend tests cannot run at all | ✅ fixed (2026-10-09) — `npm test`; test files type-checked (FE-03) | — |
 | TS-09 | The root `tests/` directory | ✅ fixed `c9edbfd` | — |
 | TS-10 | The `kpi` marker and its CI step | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
 | TS-11 | The `needs_redis` marker | open | [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights) |
@@ -149,9 +149,11 @@ file as a ratchet.
 
 ### TS-04 — `npm run lint` cannot run, and there is no frontend test runner
 
-**✅ Verified · High** · **Status: half fixed (2026-10-01)** — `npm run lint` runs and passes
-([FE-02](16-FRONTEND-DEFECTS.md#fe-02--npm-run-lint-cannot-run)); the test runner
-([FE-03](16-FRONTEND-DEFECTS.md#fe-03--there-is-no-test-runner)) is still open.
+**✅ Verified · High** · **Status: ✅ fixed (2026-10-09)** — `npm run lint` runs and passes
+([FE-02](16-FRONTEND-DEFECTS.md#fe-02--npm-run-lint-cannot-run), 2026-10-01), and `npm test`
+runs the vitest suite in jsdom
+([FE-03](16-FRONTEND-DEFECTS.md#fe-03--there-is-no-test-runner), 2026-10-09). Running both in
+CI is H1.3's workflow.
 
 `package.json` declares a `lint` script and installs `eslint`, `@typescript-eslint/*`,
 `eslint-plugin-react-hooks` and `eslint-plugin-react-refresh`. There is **no ESLint config
@@ -233,7 +235,7 @@ this is the one most likely to be run repeatedly against one database.
 
 ### TS-08 — The frontend tests cannot run at all
 
-**✅ Verified · High** · **Status: partly fixed** — re-verified 2026-10-07: `vitest` is installed (`dc21c2f`) and a second test file exists (`RunFiles.test.tsx`, FE-32), but `package.json` has no `test` script and `tsconfig.json` still excludes `src/**/*.test.ts(x)`. Same work as FE-03. Plan: [H1](REMAINING-DEFECTS-PLAN.md#h1--turn-on-the-lights).
+**✅ Verified · High** · **Status: ✅ fixed (2026-10-09)** — with FE-03: `npm test` (`vitest run`, jsdom) runs every `src/**/*.test.ts(x)` — 8 files, 35 tests — and `tsconfig.json` no longer excludes them, so `tsc` type-checks the tests too.
 
 Two `.test.ts` files exist and both import from `vitest`, which is not installed.
 

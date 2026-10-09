@@ -1,8 +1,7 @@
 /**
  * useExecutionEvents.test.ts — Phase 11 reducer tests.
  *
- * To run: install vitest (`npm install --save-dev vitest @testing-library/react
- * @testing-library/jest-dom jsdom`) then `npx vitest run`.
+ * To run: `npm test` (FE-03).
  *
  * The reducer is a pure function over the event union so these tests
  * don't need a DOM or a real EventSource; they just describe the
