@@ -7,8 +7,12 @@ Resolution order (first hit wins):
   2. Per-company row in the ``feature_flags`` table.
   3. Global row (``company_id IS NULL``) in the ``feature_flags`` table.
   4. Environment variable: ``AI_FLAG_<KEY>`` (e.g.
-     ``AI_FLAG_AGENT_LOOP_ENABLED=true``).
-  5. Hard-coded default from ``DEFAULTS`` below.
+     ``AI_FLAG_AGENT_LOOP_ENABLED=true``; a number for a numeric flag,
+     ``AI_FLAG_BANDIT_EPSILON=0.2`` — GH-13).
+  5. Hard-coded default from ``DEFAULTS`` (``NUMERIC_DEFAULTS``) below.
+
+Numeric flags read the database rows' ``value_json`` with ``get_float``; both
+kinds report the tier their value came from (``resolve`` / ``resolve_float``).
 
 Track 13 owns the formal admin-UI + audit-log story. This module is the
 minimum viable plumbing the AgentLoop needs in Track 2.
@@ -131,12 +135,28 @@ NUMERIC_DEFAULTS: dict[str, float] = {
 }
 
 
+def _env_name(key: str) -> str:
+    return "AI_FLAG_" + key.upper().replace(".", "_")
+
+
 def _env_lookup(key: str) -> Optional[bool]:
-    env_key = "AI_FLAG_" + key.upper().replace(".", "_")
-    raw = os.environ.get(env_key)
+    raw = os.environ.get(_env_name(key))
     if raw is None:
         return None
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(key: str) -> Optional[float]:
+    """A numeric flag from ``AI_FLAG_<KEY>`` (GH-13); a value that is not a
+    number is ignored, and said so."""
+    raw = os.environ.get(_env_name(key))
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("%s=%r is not a number; %s falls through to its default", _env_name(key), raw, key)
+        return None
 
 
 @dataclass
@@ -247,21 +267,39 @@ class FeatureFlags:
         """Resolve a numeric flag (``bandit.epsilon``, ``planner.n_candidates``).
 
         Order: per-entity ``value_json`` → per-company ``value_json``
-        → global ``value_json`` → ``NUMERIC_DEFAULTS[flag_key]`` →
-        ``default`` (caller fallback, 0.0 if not given).
+        → global ``value_json`` → ``AI_FLAG_<KEY>`` (GH-13; numeric flags
+        had no env tier, so they could not be set without a database row)
+        → ``NUMERIC_DEFAULTS[flag_key]`` → ``default`` (caller fallback, 0.0
+        if not given).
         """
+        value, _source = await self.resolve_float(flag_key, company_id=company_id,
+                                                  entity_id=entity_id, default=default)
+        return value
+
+    async def resolve_float(
+        self,
+        flag_key: str,
+        *,
+        company_id: Optional[UUID] = None,
+        entity_id: Optional[UUID] = None,
+        default: Optional[float] = None,
+    ) -> tuple[float, str]:
+        """A numeric flag's value and the tier it came from (``get_float``'s order)."""
         if self.db is not None:
             for c_id, e_id in self._db_scope_chain(company_id, entity_id):
                 val = await self._db_lookup_value_json(flag_key, c_id, e_id)
                 if val is None:
                     continue
                 try:
-                    return float(val)
+                    return float(val), ("entity_row" if e_id else "company" if c_id else "global")
                 except (TypeError, ValueError):
                     continue
+        env_val = _env_float(flag_key)
+        if env_val is not None:
+            return env_val, "env"
         if flag_key in NUMERIC_DEFAULTS:
-            return float(NUMERIC_DEFAULTS[flag_key])
-        return float(default if default is not None else 0.0)
+            return float(NUMERIC_DEFAULTS[flag_key]), "default"
+        return float(default if default is not None else 0.0), "caller_default"
 
     async def set(
         self,

@@ -969,8 +969,9 @@ Two separate dictionaries and two separate accessors:
 | | Boolean | Numeric |
 |---|---|---|
 | Dict | `DEFAULTS` | `NUMERIC_DEFAULTS` |
-| Accessor | `is_on(...)` / `resolve(...)` | `get_float(...)` |
+| Accessor | `is_on(...)` / `resolve(...)` | `get_float(...)` / `resolve_float(...)` |
 | DB column | `enabled` | `value_json` |
+| Env | `AI_FLAG_<KEY>` truthy / falsy | `AI_FLAG_<KEY>` as a number (GH-13) |
 
 ```python
 # backend/src/ai/core/feature_flags.py
@@ -978,13 +979,15 @@ async def get_float(self, flag_key, *, company_id=None, entity_id=None, default=
     """Resolve a numeric flag (``bandit.epsilon``, ``planner.n_candidates``).
 
     Order: per-entity ``value_json`` → per-company ``value_json``
-    → global ``value_json`` → ``NUMERIC_DEFAULTS[flag_key]`` →
-    ``default`` (caller fallback, 0.0 if not given).
+    → global ``value_json`` → ``AI_FLAG_<KEY>`` → ``NUMERIC_DEFAULTS[flag_key]``
+    → ``default`` (caller fallback, 0.0 if not given).
     """
 ```
 
-> ⚠️ `get_float` has **no env-var tier**. Boolean flags can be overridden with
-> `AI_FLAG_*`; numeric ones cannot. Numeric overrides require a DB row.
+Since GH-13 (2026-10-08) a numeric flag has the env tier too: `AI_FLAG_BANDIT_EPSILON=0.2`
+sets `bandit.epsilon` where no row does. A value that is not a number is ignored with a
+warning. `resolve_float` returns the value and its tier (`entity_row`, `company`,
+`global`, `env`, `default`, `caller_default`).
 
 `set()` accepts `enabled`, `value_json`, or both, and raises if neither is
 given. It also raises `RuntimeError` if `db is None`.
@@ -1272,8 +1275,8 @@ redis-cli DEL "tool:search:company_<uuid>"
    `>` and `>=`.**~~ (GH-10, fixed 2026-10-08): `step_count` and `cost` with
    `> >= < <= ==`, `has_key('x')`, joined by `and` / `or` — nothing else (§9).
 
-8. **`get_float` has no env-var tier.** Numeric flags cannot be overridden with
-   `AI_FLAG_*`; they need a DB row.
+8. ~~**`get_float` has no env-var tier.**~~ (GH-13, fixed 2026-10-08): a numeric
+   flag reads `AI_FLAG_<KEY>` between the global row and its default.
 
 9. **Direct SQL flag writes do not invalidate caches.** Up to 60 seconds of
    staleness per worker. Use `FeatureFlags.set()`.

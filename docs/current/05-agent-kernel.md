@@ -1721,7 +1721,8 @@ register 08, the Board flags in MI-20).
 
 ### `NUMERIC_DEFAULTS`
 
-Read with `FeatureFlags.get_float(...)`, which checks `value_json` rows first.
+Read with `FeatureFlags.get_float(...)`, which checks `value_json` rows first, then
+`AI_FLAG_<KEY>` (GH-13), then this default.
 
 | Flag | Default | What it does |
 |------|---------|--------------|
