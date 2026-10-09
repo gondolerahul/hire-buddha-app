@@ -927,8 +927,18 @@ Two cache layers:
 | `_PROCESS_CACHE` | Module-global, keyed `(flag_key, company_id, entity_id)` | 60s | `invalidate_process_cache(flag_key=None)` |
 | `self._cache` | Per-service-instance | Instance lifetime | Instance discarded |
 
-`set()` publishes to the Redis `feature_flag_invalidations` channel so other
-workers drop their caches.
+Every process hears about a change at once (GH-14, 2026-10-08). `set()` and
+`delete()` publish the flag on the Redis `feature_flag_invalidations` channel **once
+the caller's transaction commits** (a SQLAlchemy `after_commit` hook — published
+before, another process would re-read the old row and cache it for a minute; a
+rolled-back change is not announced). The API (its lifespan) and both workers (their
+startup) run `listen_for_invalidations`, which drops the flag from that process's
+cache; a process that loses the channel drops its whole cache when it is back. Every
+admin write goes through `set()` — the experimental-tool toggle used to upsert with
+raw SQL — and a change made with SQL is announced with
+`POST /api/v1/ai/admin/feature_flags/invalidate[?flag_key=…]` (`app_admin`). Until
+GH-14 nothing listened, and the admin endpoint's `set()` had no Redis client to
+publish with: up to 60 s of staleness in every process.
 
 ```mermaid
 sequenceDiagram
@@ -936,17 +946,20 @@ sequenceDiagram
     participant S as FeatureFlags.set
     participant DB as feature_flags table
     participant R as Redis
-    participant W1 as Worker 1
-    participant W2 as Worker 2
+    participant P1 as API
+    participant W1 as Worker
+    participant W2 as Child worker
 
     A->>S: set(flag, enabled=True, company_id=X)
     S->>DB: UPSERT (ON CONFLICT on partial unique index)
-    S->>R: PUBLISH feature_flag_invalidations
-    R-->>W1: invalidate
-    R-->>W2: invalidate
+    A->>DB: commit
+    S->>R: after_commit - PUBLISH feature_flag_invalidations
+    R-->>P1: listen_for_invalidations
+    R-->>W1: listen_for_invalidations
+    R-->>W2: listen_for_invalidations
+    P1->>P1: invalidate_process_cache(flag_key)
     W1->>W1: invalidate_process_cache(flag_key)
     W2->>W2: invalidate_process_cache(flag_key)
-    Note over W1,W2: without the event, up to 60s of staleness
 ```
 
 The upsert has a subtlety worth respecting, from the code comments:
@@ -1152,9 +1165,11 @@ flowchart LR
 psql -h localhost -p 5433 -U postgres -d hirebuddha -c "INSERT INTO feature_flags (id, company_id, flag_key, enabled) VALUES (gen_random_uuid(), '<company-uuid>', 'memory.trust_score_learning', true) ON CONFLICT (flag_key, company_id) WHERE company_id IS NOT NULL DO UPDATE SET enabled = true;"
 ```
 
-Prefer `FeatureFlags.set(...)` where you can — direct SQL does **not** publish
-the Redis invalidation event, so workers keep the old value for up to 60
-seconds.
+Prefer `FeatureFlags.set(...)` or the admin `PUT` where you can. Direct SQL does
+**not** announce itself: follow it with
+`POST /api/v1/ai/admin/feature_flags/invalidate?flag_key=<key>` (omit `flag_key`
+to drop every flag), or every API and worker process keeps its cached value for up
+to 60 seconds (GH-14).
 
 ### 14.2 Turn a flag on globally without touching the DB
 
@@ -1278,8 +1293,9 @@ redis-cli DEL "tool:search:company_<uuid>"
 8. ~~**`get_float` has no env-var tier.**~~ (GH-13, fixed 2026-10-08): a numeric
    flag reads `AI_FLAG_<KEY>` between the global row and its default.
 
-9. **Direct SQL flag writes do not invalidate caches.** Up to 60 seconds of
-   staleness per worker. Use `FeatureFlags.set()`.
+9. **Direct SQL flag writes do not announce themselves.** Follow one with
+   `POST /api/v1/ai/admin/feature_flags/invalidate`, or use `FeatureFlags.set()`
+   / the admin `PUT`, which announce once committed (GH-14).
 
 10. **There is no `agent_loop.enabled` flag any more.** The legacy engine was
     deleted; the loop is unconditional.

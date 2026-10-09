@@ -508,32 +508,18 @@ async def toggle_experimental_tool(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
-    """Flip the per-company ``tools.experimental.{tool_id}`` flag."""
+    """Flip the per-company ``tools.experimental.{tool_id}`` flag.
+
+    Through ``FeatureFlags.set``, so every process drops its cached value
+    when this commits (GH-14); a raw upsert left them on it for a minute.
+    """
     if user.company_id is None:
         raise HTTPException(status_code=400, detail="user has no company")
     flag_key = f"tools.experimental.{tool_id}"
     try:
-        # Upsert into feature_flags table — the per-company scope tier
-        # is uniquely indexed on (flag_key, company_id) where
-        # entity_id IS NULL (see p11t02_feature_flags migration).
-        await db.execute(
-            text(
-                """
-                INSERT INTO feature_flags (id, company_id, flag_key, enabled,
-                                            created_at, updated_at)
-                VALUES (gen_random_uuid(), :company_id, :flag_key, :enabled,
-                        now(), now())
-                ON CONFLICT (flag_key, company_id)
-                  WHERE company_id IS NOT NULL AND entity_id IS NULL
-                DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()
-                """
-            ),
-            {
-                "company_id": str(user.company_id),
-                "flag_key": flag_key,
-                "enabled": enabled,
-            },
-        )
+        from src.ai.core.feature_flags import FeatureFlags
+
+        await FeatureFlags(db).set(flag_key, enabled=enabled, company_id=user.company_id)
         await db.commit()
     except Exception as exc:
         logger.warning(f"toggle_experimental_tool failed: {exc}")
@@ -1432,6 +1418,23 @@ async def delete_feature_flag(
     )
     await db.commit()
     return {"deleted": deleted, "flag_key": flag_key, "scope": scope}
+
+
+@router.post("/feature_flags/invalidate")
+async def invalidate_feature_flags(
+    flag_key: Optional[str] = Query(None, description="One flag; every flag when omitted"),
+    user: User = Depends(RoleChecker(["app_admin"])),
+) -> dict:
+    """Drop cached flag values in every API and worker process (GH-14).
+
+    For a change made with SQL: ``PUT`` / ``DELETE`` on a flag announce
+    themselves when they commit, a manual ``UPDATE feature_flags`` does not,
+    and each process would keep its cached value for up to a minute.
+    """
+    from src.ai.core.feature_flags import publish_invalidation
+
+    announced = await publish_invalidation(flag_key)
+    return {"invalidated": flag_key or "*", "announced": announced}
 
 
 @router.get("/feature_flags/me")

@@ -1672,8 +1672,9 @@ Env var naming: `AI_FLAG_` + key uppercased with `.` → `_`. So
 Truthy values are `1`, `true`, `yes`, `on`.
 
 DB rows are cached per process for 60 seconds
-(`_PROCESS_CACHE_TTL_SECONDS`), invalidated by `set()` / `delete()` and by a
-Redis pubsub message on `feature_flag_invalidations`. The table is **optional** —
+(`_PROCESS_CACHE_TTL_SECONDS`), invalidated by `set()` / `delete()` and — in every
+API and worker process — by the Redis message on `feature_flag_invalidations` they
+publish once committed (GH-14). The table is **optional** —
 if the migration has not run, lookups fail silently and the resolver falls
 through to env + defaults, so deploy order does not matter.
 

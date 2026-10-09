@@ -903,8 +903,10 @@ These are the HITL approval paths for the meta layer — see
 | PUT | `/api/v1/ai/admin/feature_flags/{flag_key}` | Set a flag |
 | DELETE | `/api/v1/ai/admin/feature_flags/{flag_key}` | Clear an override |
 | GET | `/api/v1/ai/admin/feature_flags/me` | Flags as resolved for the caller |
+| POST | `/api/v1/ai/admin/feature_flags/invalidate` | `app_admin`: drop `?flag_key=` (or every flag) from every process's cache, after a change made with SQL (GH-14) |
 
-Prefer `PUT` over direct SQL — it publishes the Redis invalidation event. See
+Prefer `PUT` over direct SQL — it announces the change to every API and worker
+process once it commits. See
 [15 §12.3](15-governance-and-hitl.md#123-caching-and-invalidation).
 
 ### KPI and programme tracking

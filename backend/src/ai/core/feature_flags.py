@@ -214,6 +214,88 @@ def invalidate_process_cache(flag_key: Optional[str] = None) -> None:
         _PROCESS_CACHE.pop(k, None)
 
 
+# ---------------------------------------------------------------------------
+# Every process's cache (GH-14)
+# ---------------------------------------------------------------------------
+# Each API and worker process caches resolved flags for a minute. A change
+# made through ``FeatureFlags.set`` / ``delete`` is published on
+# ``feature_flag_invalidations`` once it commits, and every process runs
+# :func:`listen_for_invalidations`, which drops the flag there. A change made
+# with SQL is announced with ``POST /api/v1/ai/admin/feature_flags/invalidate``.
+# Before, nothing listened, the admin endpoint published with no Redis client,
+# and the experimental-tool toggle wrote raw SQL: up to a minute of staleness
+# in every process.
+
+_LISTEN_RETRY_SECONDS = 5.0
+
+
+async def publish_invalidation(
+    flag_key: Optional[str] = None,
+    *,
+    company_id: Optional[UUID] = None,
+    entity_id: Optional[UUID] = None,
+    redis: Any = None,
+) -> bool:
+    """Drop ``flag_key`` (every flag when None) here and in every process."""
+    import json as _json
+
+    invalidate_process_cache(flag_key)
+    try:
+        if redis is None:
+            from src.common.redis_client import shared_redis
+            redis = shared_redis()
+        await redis.publish(_REDIS_INVALIDATION_CHANNEL, _json.dumps({
+            "flag_key": flag_key,
+            "company_id": str(company_id) if company_id else None,
+            "entity_id": str(entity_id) if entity_id else None,
+        }))
+        return True
+    except Exception as exc:                                              # noqa: BLE001
+        logger.warning("Flag %s changed; other processes keep it until their cache expires (%ss): %s",
+                       flag_key or "*", _PROCESS_CACHE_TTL_SECONDS, exc)
+        return False
+
+
+async def listen_for_invalidations(redis_url: str) -> None:
+    """Drop a flag from this process's cache when any process announces it changed.
+
+    Runs for the life of the process (the API's lifespan, each worker's
+    startup); a process that loses the channel drops its whole cache when it
+    is back, for what it may have missed.
+    """
+    import asyncio
+    import json as _json
+
+    import redis.asyncio as redis_lib
+
+    while True:
+        client = redis_lib.from_url(redis_url)  # type: ignore[no-untyped-call]
+        pubsub = client.pubsub()
+        try:
+            await pubsub.subscribe(_REDIS_INVALIDATION_CHANNEL)
+            invalidate_process_cache()
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if not message or message.get("type") != "message":
+                    continue
+                try:
+                    flag_key = _json.loads(message.get("data") or "{}").get("flag_key")
+                except (TypeError, ValueError, AttributeError):
+                    flag_key = None                  # unreadable: drop everything
+                invalidate_process_cache(flag_key)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:                                          # noqa: BLE001
+            logger.warning("Flag invalidation channel lost (%s); retrying in %ss", exc, _LISTEN_RETRY_SECONDS)
+            await asyncio.sleep(_LISTEN_RETRY_SECONDS)
+        finally:
+            try:
+                await pubsub.aclose()
+                await client.aclose()
+            except Exception:                                             # noqa: BLE001
+                pass
+
+
 class FeatureFlags:
     """Async service. Construct one per Arq job / request — short-lived.
 
@@ -405,7 +487,7 @@ class FeatureFlags:
             },
         )
         invalidate_process_cache(flag_key)
-        await self._publish_invalidation(flag_key, company_id, entity_id)
+        await self._announce_after_commit(flag_key, company_id, entity_id)
 
     async def delete(
         self,
@@ -437,27 +519,43 @@ class FeatureFlags:
         affected = (result.rowcount or 0) > 0
         if affected:
             invalidate_process_cache(flag_key)
-            await self._publish_invalidation(flag_key, company_id, entity_id)
+            await self._announce_after_commit(flag_key, company_id, entity_id)
         return affected
 
-    async def _publish_invalidation(
+    async def _announce_after_commit(
         self,
         flag_key: str,
         company_id: Optional[UUID],
         entity_id: Optional[UUID],
     ) -> None:
-        if self.redis is None:
+        """Tell every process once the caller's transaction commits (GH-14).
+
+        Published before the commit, another process would re-read the old
+        row and cache it for a minute. A session with no transaction to wait
+        for (a test double) publishes now.
+        """
+        sync_session = getattr(self.db, "sync_session", None)
+        if sync_session is None:
+            await self._publish_invalidation(flag_key, company_id, entity_id)
             return
-        try:
-            import json as _json
-            payload = _json.dumps({
-                "flag_key": flag_key,
-                "company_id": str(company_id) if company_id else None,
-                "entity_id": str(entity_id) if entity_id else None,
-            })
-            await self.redis.publish(_REDIS_INVALIDATION_CHANNEL, payload)
-        except Exception as exc:                                              # pragma: no cover
-            logger.debug("feature_flag invalidation publish failed: %s", exc)
+        import asyncio
+        from sqlalchemy import event
+
+        loop = asyncio.get_running_loop()
+
+        def _committed(_session: Any) -> None:
+            invalidate_process_cache(flag_key)   # sessions of this process that read meanwhile
+            loop.create_task(self._publish_invalidation(flag_key, company_id, entity_id))
+
+        event.listen(sync_session, "after_commit", _committed, once=True)
+
+    async def _publish_invalidation(
+        self,
+        flag_key: Optional[str],
+        company_id: Optional[UUID] = None,
+        entity_id: Optional[UUID] = None,
+    ) -> None:
+        await publish_invalidation(flag_key, company_id=company_id, entity_id=entity_id, redis=self.redis)
 
     async def _resolve(
         self,

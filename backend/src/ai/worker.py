@@ -64,18 +64,32 @@ from arq.constants import default_queue_name
 # Arq WorkerSettings
 # ---------------------------------------------------------------------------
 
+def _listen_for_flag_changes(ctx: dict) -> None:
+    """Drop a changed feature flag from this worker's cache at once (GH-14)."""
+    import asyncio
+
+    from src.ai.core.feature_flags import listen_for_invalidations
+
+    ctx["flag_listener"] = asyncio.create_task(listen_for_invalidations(settings.REDIS_URL))
+
+
 async def startup(ctx: dict) -> None:
     setup_tracing("hirebuddha-worker")
     # Reported on /api/v1/health, so a dead worker is visible (SA-I4).
     start_heartbeat(ctx, default_queue_name)
+    _listen_for_flag_changes(ctx)
 
 
 async def child_startup(ctx: dict) -> None:
     setup_tracing("hirebuddha-child-worker")
     start_heartbeat(ctx, CHILD_RUN_QUEUE)
+    _listen_for_flag_changes(ctx)
 
 
 async def shutdown(ctx: dict) -> None:
+    listener = ctx.pop("flag_listener", None)
+    if listener is not None:
+        listener.cancel()
     await stop_heartbeat(ctx)
     shutdown_tracing()
 

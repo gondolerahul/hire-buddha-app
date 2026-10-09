@@ -22,8 +22,9 @@ from src.common.rate_limit import limiter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start the dispatcher (the agent cache for the audio/video WebSockets) and
-    the listener that drops an edited agent from this process's cache (VT-16)."""
+    """Start the dispatcher (the agent cache for the audio/video WebSockets),
+    the listener that drops an edited agent from this process's cache (VT-16)
+    and the one that drops a changed feature flag (GH-14)."""
     import asyncio
     import contextlib
 
@@ -34,16 +35,18 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).warning(
             "INTERNAL_TOKEN is empty or a placeholder: POST /internal/event answers 503"
         )
-    from src.ai.core.feature_flags import warn_if_table_missing
+    from src.ai.core.feature_flags import listen_for_invalidations, warn_if_table_missing
 
     await warn_if_table_missing()
     dispatcher = get_dispatcher()
     await dispatcher.start()
     agent_changes = asyncio.create_task(agent_cache_bus.listen(settings.REDIS_URL))
+    flag_changes = asyncio.create_task(listen_for_invalidations(settings.REDIS_URL))
     yield
-    agent_changes.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await agent_changes
+    for listener in (agent_changes, flag_changes):
+        listener.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await listener
     await dispatcher.stop()
 
 

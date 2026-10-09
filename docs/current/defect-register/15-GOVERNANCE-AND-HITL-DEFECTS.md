@@ -38,10 +38,10 @@
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 6 | 0 | 0 | 0 |
 | [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 9 | 0 | 0 | 0 |
-| [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 2 | 2 | 1 | 0 |
+| [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 3 | 2 | 0 | 0 |
 | [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 4 | 0 | 1 | 0 |
 
-**Total: 25 defects (21 fixed, 2 partly fixed, 2 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (22 fixed, 2 partly fixed, 1 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -58,7 +58,7 @@
 | GH-11 | The approvals page does not show what is being approved | ✅ fixed | — |
 | GH-12 | `meta_agent.board_routing` is declared twice | ✅ fixed `b7644b7` | — |
 | GH-13 | `get_float` has no env-var tier | ✅ fixed (2026-10-08) | — |
-| GH-14 | Direct SQL flag writes do not invalidate the cache | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| GH-14 | Direct SQL flag writes do not invalidate the cache | ✅ fixed (2026-10-08) | — |
 | GH-15 | Legacy alias flags that control nothing | partly — `memory_v2.canonical` remains | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | GH-16 | Flags declared and never read | partly — four `memory.*` flags remain | [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | GH-17 | `ToolCostResolver` is cached per process, and has no callers | ✅ fixed `d71918d`, `902af7c` | — |
@@ -441,7 +441,7 @@ a retry. Decide with the product owner whether a rejection ends the whole run.
 |---|---|---|---|
 | **GH-12** | `meta_agent.board_routing` is declared twice | Both `True`, at [`feature_flags.py:53`](../../../backend/src/ai/core/feature_flags.py:53) and [`:71`](../../../backend/src/ai/core/feature_flags.py:71). Harmless — the second wins — and it makes the file look unreviewed. Also **D-29** | ✅ Verified · **fixed (2026-10-03, `b7644b7`)** — the flag went with the unused Board roles (MI-20); no declaration remains. |
 | **GH-13** | `get_float` has no env-var tier | Boolean flags resolve entity → company → global → `AI_FLAG_*` → default. Numeric flags skip the env tier entirely, so a numeric knob **cannot** be set without a database row. The documented five-tier resolution is only four tiers for half the flags | ✅ Verified · **fixed (2026-10-08)** — `get_float` reads `AI_FLAG_<KEY>` as a number between the global row and `NUMERIC_DEFAULTS` (a value that is not a number is ignored with a warning); `resolve_float` returns the value and its tier. `tests/unit/test_numeric_flag_env.py` (4) |
-| **GH-14** | Direct SQL flag writes do not invalidate the cache | Up to 60 seconds of staleness **per worker**, and the invalidation is process-local. The runbook says to use `FeatureFlags.set()`; the admin UI and any manual SQL do not | 📄 Doc-reported · **open** (re-verified 2026-10-07) — the admin flag endpoint (`ai/api/admin.py:516`) still upserts with raw SQL and invalidates nothing · plan [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| **GH-14** | Direct SQL flag writes do not invalidate the cache | Up to 60 seconds of staleness **per worker**, and the invalidation is process-local. The runbook says to use `FeatureFlags.set()`; the admin UI and any manual SQL do not | 📄 Doc-reported · **fixed (2026-10-08)** — worse than recorded: nothing subscribed to `feature_flag_invalidations` at all, and the admin `PUT` called `set()` with no Redis client, so nothing was published either. Now `set()` / `delete()` publish once the caller's transaction commits (an `after_commit` hook; a rolled-back change is not announced), the API's lifespan and both workers' startup run `listen_for_invalidations`, the experimental-tool toggle writes through `set()`, and `POST /api/v1/ai/admin/feature_flags/invalidate` (`app_admin`) announces a change made with SQL. Integration `test_flag_invalidation.py` (3, local Redis), unit `test_flag_announcements.py` (5). Live: three subscribers on the channel (the API and both workers); an admin `PUT`, an invalidate and a `DELETE` each published the flag |
 | **GH-15** | Legacy alias flags that control nothing | `critic_pipeline.enabled` and `memory_v2.canonical` are aliases that do **not** control the modern paths — those are `critic_pipeline.v2_enabled` and `memory.v2_canonical`. Toggling the alias changes nothing and reads as though it should | 📄 Doc-reported · **partly fixed** (re-verified 2026-10-07) — `critic_pipeline.enabled` is deleted (`eecad67`, AK-10); `memory_v2.canonical` remains, known-unread in `test_feature_flag_census.py` (register 08, deferred) · plan [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 | **GH-16** | Flags declared and never read | At least eight: `agent_loop.perception_bounded_viewport`, `agent_loop.snapshot_every_iteration`, the three `agent_loop.executor_*_enabled`, `tools.cost_resolver_v2_enabled` (deleted 2026-09-30, BC-17), `sandbox.container_runtime_enabled` (never threaded into context), and `tools.experimental.*` (gates a function nothing calls). All appear on the admin Feature Flags page | ✅ Verified · **partly fixed** (re-verified 2026-10-07) — the dead kernel flags are deleted and `test_feature_flag_census.py` fails on any new unread flag (`eecad67`); four `memory.*` flags remain known-unread, deferred with register 08 · plan [H11](REMAINING-DEFECTS-PLAN.md#h11--deferred-items) |
 
