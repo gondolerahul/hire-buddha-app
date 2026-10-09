@@ -122,9 +122,16 @@ async def test_the_video_gateway_sends_the_frame_as_an_image(monkeypatch):
         async def record(self, db, response, **kw):
             billed.append((response.output, kw["attribution"]))
 
-    session = SimpleNamespace(agent_info={"company_id": str(uuid.uuid4())}, vision_context="", spend=_Spend())
+    shared = []
+
+    async def _share():
+        shared.append(session.vision_context)
+
+    session = SimpleNamespace(agent_info={"company_id": str(uuid.uuid4())}, vision_context="", spend=_Spend(),
+                              share_vision_context=_share)
     await video_gateway.VideoSession._analyze_video_frame(session, JPEG)
     assert billed == [("One person, smiling.", "video_frame")]          # LP-26
+    assert shared == ["One person, smiling."]                           # GW-10: the live model is told
 
     (call,) = calls
     assert call["task_type"] == "vision"

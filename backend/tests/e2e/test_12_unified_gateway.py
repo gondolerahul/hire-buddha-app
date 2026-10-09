@@ -225,15 +225,13 @@ async def test_internal_event_rejects_wrong_token(gateway_client):
 
 @pytest.mark.asyncio
 async def test_internal_event_schema_validation(gateway_client):
-    """POST /internal/event with invalid priority returns 422."""
+    """POST /internal/event without its event_type returns 422."""
     resp = await gateway_client.post(
         "/internal/event",
         json={
-            "event_type": "doc_indexed",
             "client_id": "company-uuid-123",
             "source": "vector_db",
             "payload": {},
-            "priority": 99,  # Out of range (1-10)
         },
         headers={"X-Internal-Token": TEST_INTERNAL_TOKEN},
     )

@@ -80,12 +80,6 @@ class InternalEvent(BaseModel):
         default_factory=dict,
         description="Event payload data (arbitrary JSON)",
     )
-    priority: int = Field(
-        default=5,
-        ge=1,
-        le=10,
-        description="Priority 1 (highest) to 10 (lowest). Default: 5",
-    )
     correlation_id: Optional[str] = Field(
         default=None,
         description="Optional correlation ID for tracing (auto-generated if omitted)",
@@ -131,7 +125,7 @@ async def unified_internal_event(
 
     logger.info(
         f"[InternalEvent] Received {event.event_type} from {event.source} "
-        f"for client={event.client_id} priority={event.priority} "
+        f"for client={event.client_id} "
         f"correlation={correlation_id}"
     )
 
@@ -141,10 +135,7 @@ async def unified_internal_event(
         client_id=event.client_id,
         event_type=event.event_type,
         raw_data=event.payload,
-        metadata={
-            "priority": event.priority,
-            "correlation_id": correlation_id,
-        },
+        metadata={"correlation_id": correlation_id},
         id=correlation_id,
     )
 
@@ -187,7 +178,6 @@ async def emit_internal_event(
     client_id: str,
     source: str,
     payload: Dict[str, Any],
-    priority: int = 5,
 ) -> str:
     """
     Helper for other platform services (API or worker) to emit an internal
@@ -203,7 +193,7 @@ async def emit_internal_event(
         client_id=client_id,
         event_type=event_type,
         raw_data=payload,
-        metadata={"priority": priority, "correlation_id": correlation_id},
+        metadata={"correlation_id": correlation_id},
         id=correlation_id,
     )
     await queue_event(envelope)

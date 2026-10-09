@@ -44,11 +44,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 4 | 0 | 0 | 1 |
-| [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
-| [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
+| [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 4 | 1 | 0 | 0 |
+| [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
 | [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 6 | 0 | 1 | 0 |
 
-**Total: 21 defects (16 fixed, 2 partly fixed, 2 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (18 fixed, 1 partly fixed, 1 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -57,14 +57,14 @@
 | GW-03 | No webhook idempotency | ✅ fixed `302d276` | — |
 | GW-04 | The auth middleware never sees a WebSocket | ✅ fixed `4357a92` | — |
 | GW-05 | Rate limits are keyed on `127.0.0.1` in production | invalid | — |
-| GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | partly fixed — TURN settings still unread | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-06 | `EVENT_BUS_TYPE` and the TURN credentials are never read | ✅ fixed (2026-10-08) | — |
 | GW-07 | The event bus is in-process with one subscriber | ✅ fixed (single port) | — |
 | GW-08 | The arq fallback runs a full AgentLoop inside the gateway | ✅ fixed (single port) | — |
 | GW-09 | `X-Accel-Buffering: no` does nothing here | ✅ fixed `01fa369` | — |
-| GW-10 | `aiortc` is not installed, and the video path has a second bug behind it | open — decision HD11 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-10 | `aiortc` is not installed, and the video path has a second bug behind it | partly — fixed in code and declared (HD11: fix it); waits on the install and the scripted-peer run | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
 | GW-11 | `gateway/main.py` and `gateway/config.py` | ✅ fixed (single port) | — |
 | GW-12 | `@app.on_event("shutdown")` / `close_proxy_client` | ✅ fixed (single port) | — |
-| GW-13 | `EVENT_BUS_TYPE`, `TURN_USERNAME`, `TURN_CREDENTIAL`, event `priority` | partly fixed — see GW-06 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-13 | `EVENT_BUS_TYPE`, `TURN_USERNAME`, `TURN_CREDENTIAL`, event `priority` | ✅ fixed (2026-10-08) | — |
 | GW-14 | Both `streaming.hirebuddha.com` vhosts | ✅ fixed | — |
 | GW-15 | The proxy copies response headers verbatim after decompressing | ✅ fixed | — |
 | GW-16 | Auth middleware runs before CORS, so its 401s have no CORS headers | ✅ fixed | — |
@@ -254,9 +254,12 @@ vhosts. `mod_remoteip` is already enabled by `setup_apache.sh`.
 
 ### GW-06 — `EVENT_BUS_TYPE` and the TURN credentials are never read
 
-**📄 Doc-reported · Medium** · **Status: partly fixed (2026-09-30)** — `EVENT_BUS_TYPE` is gone
-with the gateway's settings class. `TURN_USERNAME` / `TURN_CREDENTIAL` (now in the one
-`Settings`) are still never read.
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `EVENT_BUS_TYPE` went with the
+gateway's settings class (2026-09-30). `TURN_USERNAME` / `TURN_CREDENTIAL` are passed with
+`TURN_SERVER_URL` to the video peer connection's `RTCIceServer`, and the same ICE list goes
+to the client in `connected.ice_servers` (`video_gateway.ice_servers`, GW-10). The internal
+event's `priority` is deleted (GW-13): arq has no per-job priority, and a caller that still
+sends it is not refused. `tests/unit/test_video_gateway.py`, `tests/unit/test_internal_event_fields.py` (3)
 
 Three settings are declared, documented and unused:
 
@@ -333,7 +336,7 @@ streaming and this header will not save them.
 
 ### GW-10 — `aiortc` is not installed, and the video path has a second bug behind it
 
-**✅ Verified · Medium** · **Status: open** — re-verified 2026-10-07: `aiortc` is still undeclared, and `video_gateway.py:207` still iterates over `track.recv.__self__.__class__.__mro__[0]`. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
+**✅ Verified · Medium** · **Status: partly fixed (2026-10-08)** — decision HD11: fix it. `aiortc` is declared in `backend/pyproject.toml` (it brings `av`); **the lock file and the local venv wait on the install**, so the endpoint still answers `webrtc_enabled: false` here. In `gateway/video_gateway.py`: the `__mro__` loop is gone; the audio track connects the live model by the one connect path (VT-02 — it still used the pre-VT-02 tuple), and each frame is resampled to 16 kHz PCM16 mono before it is sent (it went unconverted); the session runs from the start (its video loop ended at once when video arrived before audio); client ICE candidates are parsed with `candidate_from_sdp` (`RTCIceCandidate(candidate=…)` is not an aiortc constructor); the frame descriptions are added to the live session as context (`send_client_content(turn_complete=False)`), not only to the system instruction sent before there is one; the call is admitted by the call rule and holds a live-session place (GW-02); and its live audio each way is billed to the call's run with the frame descriptions (`VoiceUsageLogger.log_live_model_usage`, `CallSpend.record_live_audio` — it was never billed). `tests/unit/test_video_gateway.py` (13). `tests/integration/test_video_webrtc.py` connects a scripted aiortc peer over loopback to the real endpoint; it skips until aiortc is installed and **has not run**. Not checked with a browser or a live model.
 
 `aiortc` appears in neither `pyproject.toml` nor the virtualenv, and `video_gateway.py`
 imports it conditionally. So `/stream/video` answers the signalling handshake, tells the
@@ -359,7 +362,7 @@ upgrade rule and the STUN/TURN settings.
 |---|---|---|---|
 | **GW-11** | `gateway/main.py` and `gateway/config.py` | The superseded pure-proxy gateway and its settings class. Only `app.py` and `gateway_config.py` run | ✅ fixed (2026-09-30) — deleted, with `app.py` and `gateway_config.py` (SA-11) |
 | **GW-12** | `@app.on_event("shutdown")` / `close_proxy_client` | A custom `lifespan` was supplied at `app.py:98`, so the `on_event` handler at `:330` **never fires**. The shared `httpx` client is never closed on shutdown | ✅ fixed (2026-09-30) — the proxy and its client are gone with `gateway/app.py` |
-| **GW-13** | `EVENT_BUS_TYPE`, `TURN_USERNAME`, `TURN_CREDENTIAL`, event `priority` | See [GW-06](#gw-06--event_bus_type-and-the-turn-credentials-are-never-read). Delete or wire | 📄 Doc-reported · partly fixed (2026-09-30) — `EVENT_BUS_TYPE` deleted |
+| **GW-13** | `EVENT_BUS_TYPE`, `TURN_USERNAME`, `TURN_CREDENTIAL`, event `priority` | See [GW-06](#gw-06--event_bus_type-and-the-turn-credentials-are-never-read). Delete or wire | 📄 Doc-reported · ✅ fixed (2026-10-08) — `EVENT_BUS_TYPE` deleted (2026-09-30); the TURN pair wired (GW-06); `priority` deleted |
 | **GW-14** | Both `streaming.hirebuddha.com` vhosts | They point at port 8002, which nothing serves. Part of **W-1** | ✅ fixed (2026-09-30) — deleted (SA-13) |
 
 > Move `close_proxy_client`'s body into the `lifespan` shutdown half rather than deleting

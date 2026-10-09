@@ -254,9 +254,9 @@ defaults — its `DATABASE_URL` pointed at port 5432, not the compose file's 543
 | `INTERNAL_TOKEN` | `""` | Shared secret for `X-Internal-Token` on `/internal/event`. Empty or a placeholder disables the endpoint (503). |
 | `VIDEO_STREAMING_ENABLED` | `True` | Kill switch for `/stream/video` media (signalling still answers). |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
-| `TURN_SERVER_URL` | `""` | Appended to the ICE server list when set. |
-| `TURN_USERNAME` | `""` | Declared but **never used** — `RTCIceServer` is built with `urls` only. |
-| `TURN_CREDENTIAL` | `""` | Same: declared, never used. Authenticated TURN will not work as written. |
+| `TURN_SERVER_URL` | `""` | Added to the ICE servers, for the server's peer connection and in `connected.ice_servers` for the client. |
+| `TURN_USERNAME` | `""` | The TURN server's username, with `TURN_SERVER_URL` (GW-06). |
+| `TURN_CREDENTIAL` | `""` | The TURN server's credential, with `TURN_SERVER_URL` (GW-06). |
 
 Gone with the gateway: `BACKEND_URL` (the proxy target), `GATEWAY_PORT`,
 `JWT_SECRET` / `JWT_ALGORITHM` (a second copy of the JWT key, used only to decode
@@ -454,59 +454,46 @@ the `if/elif` above. The named adapter classes do not exist in the repo.
 ## 10. Video and WebRTC
 
 Interface 5, `WS /stream/video`, is a WebRTC signalling channel:
-[`video_gateway.py`](../../backend/src/gateway/video_gateway.py) (540 lines).
+[`video_gateway.py`](../../backend/src/gateway/video_gateway.py). Decision HD11
+(2026-10-08) was to make it work rather than delete it (GW-10, GW-06, GW-13).
 
-### 10.1 Implemented versus stubbed — read this first
+### 10.1 What a video call does
 
 | Piece | State |
 |-------|-------|
-| WebSocket signalling endpoint, handshake, agent resolution | Implemented |
-| `webrtc_enabled` feature gate and graceful "install aiortc" message | Implemented |
-| `RTCPeerConnection` creation with STUN/TURN from config | Implemented, but **TURN credentials are never passed** |
-| SDP offer → answer | Implemented (`setRemoteDescription`, `createAnswer`, `setLocalDescription`) |
-| Client → server ICE candidates | Implemented, via `RTCIceCandidate(...)` built from the candidate string |
-| Server → client ICE candidates | Registered on a `pc.on("icecandidate")` handler. aiortc does not emit trickle-ICE events, so this almost certainly never fires. |
-| Video frame sampling → vision model → `vision_context` | Implemented (5 s interval, JPEG q60, capped at 500 chars). Billed since LP-26 (2026-10-06): the first description opens a run for the call (its agent, channel `video`), each writes `video_frame` usage and interaction rows against it, and the call's end waits for in-flight descriptions (up to 30 s), closes the run with the sum of its rows and settles it like any top-level run ([`call_spend.py`](../../backend/src/gateway/call_spend.py)). Before, every description was free |
-| Audio track → AI live client | **Broken.** See below. |
-| AI audio → client | Sent as binary WS frames, not as an RTP track back into the peer connection |
+| WebSocket signalling endpoint, handshake, agent resolution | Implemented; the handshake needs a stream token (GW-04) and is limited per address (GW-02) |
+| Admission | The one call rule (`call_admission.call_refusal`, checkpoint `video`): credit, spend cap, the company's live-session cap; refused with `4002` (credit) or `4429` (live sessions). The call holds one of the company's live-session places until it ends (GW-02) |
+| `aiortc` | A declared dependency (`backend/pyproject.toml`, which brings `av`). An install without it answers the handshake with `webrtc_enabled: false` and an `info` message, then closes |
+| `RTCPeerConnection` ICE servers | `STUN_SERVERS`, and `TURN_SERVER_URL` with `TURN_USERNAME` / `TURN_CREDENTIAL` when set (GW-06). The same list goes to the client in `connected.ice_servers`, so a browser behind a symmetric NAT can use the relay too |
+| SDP offer → answer | `setRemoteDescription`, `createAnswer`, `setLocalDescription`. aiortc gathers its candidates before answering (no trickle), so they are in the answer's SDP |
+| Client → server ICE candidates | Parsed with `aiortc.sdp.candidate_from_sdp` (the old `RTCIceCandidate(candidate=…)` call was not a constructor aiortc has) |
+| Audio track → live model | The one connect path every call uses (VT-02): `create_client`, then `connect()` entered as a context manager. Each received frame (48 kHz Opus, often stereo) is resampled to 16 kHz PCM16 mono (`av.AudioResampler`) and sent with `send_realtime_input`. Until GW-10 the pipeline iterated over a class (the `__mro__` line) and aborted, used the factory's pre-VT-02 return shape, and sent WebRTC audio unconverted |
+| Model audio → client | Binary WS frames (PCM16, 24 kHz), not an RTP track back into the peer connection |
+| Video frame sampling → vision model | A frame every 5 s → JPEG q60 → `call_llm(task_type="vision")` → `vision_context` (≤ 500 chars), billed `video_frame` on the call's run (LP-26). The description is then **added to the live session** with `send_client_content(turn_complete=False)` — context, not a turn to answer. It used to go only into the system instruction, sent once when there was none. Azure Realtime's session has no such call and keeps the instruction-time context only |
+| The bill | The call's run (opened by its first model use, [`call_spend.py`](../../backend/src/gateway/call_spend.py)) gets the frame descriptions and, at the end, the live model's audio each way — the provider's reported tokens, else each direction's audio, the same rows a phone call writes (`VoiceUsageLogger.log_live_model_usage`, VT-05). Until GW-10 the live audio of a video call was never billed |
 | Zoom / Teams bot | Not in this repo. The docstring documents the contract for a bot you would have to build. |
-| **aiortc installed?** | **No.** `aiortc` and `av` are absent from `backend/.venv`. `AIORTC_AVAILABLE` is `False`, so every connection today takes the "WebRTC media disabled" branch. |
 
-The audio-track bug is at [`video_gateway.py:202`](../../backend/src/gateway/video_gateway.py:202):
-
-```python
-# backend/src/gateway/video_gateway.py:201-207
-# Forward WebRTC audio frames → AI
-async for frame in track.recv.__self__.__class__.__mro__[0]:  # type hint workaround
-    break  # This is just for type hints; actual loop below
-
-while self.is_running:
-    try:
-        frame = await track.recv()
-```
-
-`track.recv.__self__.__class__.__mro__[0]` is the track's *class object*.
-`async for` over a class raises `TypeError`, which is caught by the method's
-outer `except Exception` and logged as "Audio track error" — so the `while` loop
-underneath is never reached. If you install aiortc and wonder why video calls
-have no voice, delete those two lines first.
+Not checked end to end with a browser or a live model. `tests/unit/test_video_gateway.py`
+drives the pipeline with fakes; `tests/integration/test_video_webrtc.py` connects a
+scripted aiortc peer (audio and video tracks over loopback) to the real endpoint and
+runs where aiortc is installed.
 
 ### 10.2 Signalling protocol
 
 | Direction | Message | Fields |
 |-----------|---------|--------|
-| C → S | `connect` | `provider` (`web`/`zoom`/`teams`), `client_id`, `token` (unused) |
-| S → C | `connected` | `session_id`, `status`, `provider`, `agent_id`, `webrtc_enabled` |
-| S → C | `info` | `message` — sent only when WebRTC is disabled, then the socket closes after 2 s |
-| S → C | `error` | `code`, `message` — e.g. `no_agent`, then close `1008` |
+| C → S | `connect` | `provider` (`web`/`zoom`/`teams`), `token` (a URL token for `/stream/`), optional `client_id` (must be the token's company), optional `agent_id` |
+| S → C | `connected` | `session_id`, `status`, `provider`, `agent_id`, `webrtc_enabled`, `ice_servers` (`urls`, and `username` / `credential` for TURN) |
+| S → C | `info` | `message` — sent only when WebRTC is unavailable, then the socket closes after 2 s |
+| S → C | `error` | `code`, `message` — `no_agent`, `ambiguous_agent`, `insufficient_credits`, `too_many_live_sessions`, then close |
 | C → S | `offer` | `sdp`, `type` |
 | S → C | `answer` | `sdp`, `type` |
 | C → S | `ice_candidate` | `candidate.{candidate, sdpMid, sdpMLineIndex}` |
-| S → C | `ice_candidate` | same shape (handler registered; see caveat above) |
+| S → C | `ice_candidate` | same shape (handler registered; aiortc puts its candidates in the answer instead) |
 | C → S | `stop` | ends the signalling loop |
-| S → C | binary | raw AI audio bytes |
+| S → C | binary | the model's audio, PCM16 24 kHz |
 
-### 10.3 Sequence — a browser video session (with aiortc installed)
+### 10.3 Sequence — a browser video session
 
 ```mermaid
 sequenceDiagram
@@ -515,36 +502,32 @@ sequenceDiagram
     participant D as Dispatcher
     participant PC as RTCPeerConnection
     participant LLM as LLMRouter vision
-    participant AI as Live audio client
+    participant AI as Live model session
 
-    BR->>VG: WS /stream/video, then connect message
-    VG->>D: resolve_agent_for_client client_id, video
+    BR->>VG: WS /stream/video, then connect with a stream token
+    VG->>D: resolve_agent_for_client company, video
     D-->>VG: agent_info
-    VG->>VG: webrtc_enabled = AIORTC_AVAILABLE and VIDEO_STREAMING_ENABLED
-    VG-->>BR: connected with webrtc_enabled
-
-    alt webrtc_enabled false
-        VG-->>BR: info "install aiortc" then close
-    else enabled
-        VG->>PC: create with iceServers from STUN_SERVERS plus TURN_SERVER_URL
-        BR->>VG: offer with SDP
-        VG->>PC: setRemoteDescription then createAnswer then setLocalDescription
-        VG-->>BR: answer with SDP
-        BR->>VG: ice_candidate messages
-        VG->>PC: addIceCandidate
-        PC-->>VG: on track audio
-        VG->>AI: connect live client with system prompt plus VIDEO CONTEXT
-        PC-->>VG: on track video
-        loop every 5 seconds
-            VG->>VG: frame to JPEG quality 60
-            VG->>LLM: call_llm task_type vision
-            LLM-->>VG: description, stored in vision_context capped 500 chars
-        end
-        AI-->>VG: audio response bytes
-        VG-->>BR: binary frames
-        BR->>VG: stop
+    VG->>VG: call_refusal checkpoint video, then a live-session place
+    VG-->>BR: connected with webrtc_enabled and ice_servers
+    VG->>PC: create with STUN and TURN with credentials
+    BR->>VG: offer with SDP
+    VG->>PC: setRemoteDescription then createAnswer then setLocalDescription
+    VG-->>BR: answer with SDP and candidates
+    PC-->>VG: on track audio
+    VG->>AI: create_client then connect, entered
+    loop each audio frame
+        VG->>AI: send_realtime_input 16 kHz PCM16
     end
-    VG->>VG: session.close, remove from _active_video_sessions
+    PC-->>VG: on track video
+    loop every 5 seconds
+        VG->>LLM: call_llm task_type vision, billed video_frame
+        LLM-->>VG: description
+        VG->>AI: send_client_content, turn_complete false
+    end
+    AI-->>VG: audio and usage_metadata
+    VG-->>BR: binary frames
+    BR->>VG: stop
+    VG->>VG: close - bill the live audio, settle the run, give the place back
 ```
 
 ### 10.4 Video session state
@@ -552,23 +535,27 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Accepted: websocket.accept
+    Accepted --> Limited: over the per-address handshake limit, 4429
     Accepted --> Handshaking: await first text frame
-    Handshaking --> Rejected: not a connect event or no client_id
-    Handshaking --> NoAgent: resolve_agent_for_client returns None
+    Handshaking --> Rejected: not a connect event, or no valid stream token
+    Handshaking --> NoAgent: resolve_agent_for_client returns none or ambiguous
     Handshaking --> Disabled: aiortc missing or VIDEO_STREAMING_ENABLED false
-    Handshaking --> Signalling: peer connection created and registered
-    Signalling --> Media: on track fires, is_running true
-    Media --> Signalling: connectionstatechange failed or closed
+    Handshaking --> Refused: call_refusal or the live-session cap, 4002 or 4429
+    Handshaking --> Signalling: admitted, peer connection created and registered
+    Signalling --> Media: on track fires
+    Media --> Closing: connectionstatechange failed or closed
     Signalling --> Closing: stop message or WebSocketDisconnect
     Media --> Closing: stop message or WebSocketDisconnect
+    Limited --> [*]
     Rejected --> [*]
     NoAgent --> [*]
     Disabled --> [*]
-    Closing --> [*]: session.close and registry pop
+    Refused --> [*]
+    Closing --> [*]: session.close, billing, place released, registry pop
 ```
 
 `_active_video_sessions` is a module-level dict, surfaced by
-[`get_active_video_sessions`](../../backend/src/gateway/video_gateway.py:529) on
+[`get_active_video_sessions`](../../backend/src/gateway/video_gateway.py) on
 `/metrics/gateway`. It is per-process — see [section 14](#14-scaling-and-state).
 
 ---
@@ -1114,9 +1101,10 @@ websocat ws://localhost:8000/stream/audio
 
 ```bash
 websocat ws://localhost:8000/stream/video
-{"event":"connect","provider":"web","client_id":"<company-uuid>"}
-# expect: {"event":"connected",...,"webrtc_enabled":false}
-# then:   {"event":"info","message":"WebRTC media disabled. Install aiortc: pip install aiortc aiohttp"}
+{"event":"connect","provider":"web","token":"<URL token for /stream/>"}
+# expect: {"event":"connected",...,"webrtc_enabled":true,"ice_servers":[...]}
+# without aiortc installed: webrtc_enabled false, then
+#         {"event":"info","message":"WebRTC media is unavailable: aiortc is not installed on this server"}
 ```
 
 **Through Apache** (production shape):
@@ -1145,7 +1133,7 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | `[process_gateway_event] No active entity for company <id>` (worker log) | Tenant has no non-archived `HierarchicalEntity`. |
 | `[AudioGateway] Session <id> ready (web, agent=<id>)` | Browser audio session established. |
 | `[VideoGateway] Session <id> connected (provider=web, ..., webrtc=False)` | aiortc missing or video disabled. |
-| `[VideoSession] Audio track error: ...` | Almost certainly the `__mro__` bug in [10.1](#101-implemented-versus-stubbed--read-this-first). |
+| `[VideoSession] Audio track error: ...` | The live model could not be connected (its credentials, the `speech_to_speech` task default), or `av` could not resample. |
 | `AgentLoop SSE publish failed for <event>: ...` | Redis publish failed; the run continues but the UI goes quiet. |
 
 ### 15.4 Common failures
@@ -1161,7 +1149,7 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 | Webhook returns 503 | Redis is down or unreachable from the API | `redis-cli ping`; the API log shows `Could not queue event` |
 | Everyone is rate limited at once | `get_remote_address` sees `127.0.0.1` for all callers behind Apache | Configure `RemoteIPHeader X-Forwarded-For` |
 | Duplicate executions from one webhook | Provider retried; no idempotency | See [8.3](#83-idempotency--there-is-none) |
-| Video calls silent | aiortc not installed, and the `__mro__` bug | `pip list \| grep aiortc`, then fix `video_gateway.py:202` |
+| Video calls silent | aiortc not installed, or the client is not playing the binary frames (PCM16, 24 kHz) | `pip list \| grep aiortc`; the `[VideoSession] Connected` log line |
 
 ---
 
@@ -1202,8 +1190,6 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
   API mounts; `gateway.hirebuddha.com` is the API's public name on port 8000.
 - **There is no event bus any more.** Webhook and internal events go straight
   onto the arq queue before the endpoint answers; a 503 means Redis refused them.
-- **`TURN_USERNAME` and `TURN_CREDENTIAL` are never read.** `priority` on
-  internal events is stored and ignored.
 - **Nothing authenticates `/stream/audio` or `/stream/video`.** HTTP middleware
   passes WebSockets straight through, and the handshake `token` is read into a
   variable and never validated.
@@ -1241,9 +1227,10 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
   very long run backfills from the trace and health-record endpoints.
 - **WebSockets are not traced.** The OTel ASGI instrumentation would open a span
   per message; `setup_telemetry` excludes `ws://`/`wss://` URLs.
-- **aiortc is not installed**, so `/stream/video` currently only answers the
-  handshake and closes. Even with it installed, the audio pipeline aborts on the
-  `__mro__` line at `video_gateway.py:202`.
+- **A video call is a call.** It is admitted by the call rule, holds a
+  live-session place, and its live audio and frame descriptions are billed to
+  one run (§10.1). aiortc is a declared dependency; an install without it
+  answers the handshake only.
 
 ---
 

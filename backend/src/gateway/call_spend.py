@@ -73,6 +73,23 @@ class CallSpend:
                                      company_id=self.company_id, run_id=run_id,
                                      system_prompt=system_prompt, user_prompt=user_prompt)
 
+    async def record_live_audio(self, db: Any, usage: Any) -> Decimal:
+        """Bill the live model's audio each way (a ``LiveUsage``) on the call's run.
+
+        The same rows a phone call writes (VT-05): the provider's reported
+        tokens, else each direction's audio. Nothing when no audio moved.
+        """
+        if not (usage.reported or usage.audio_in_bytes or usage.audio_out_bytes):
+            return Decimal("0")
+        from src.voice.usage_logger import VoiceUsageLogger
+
+        run_id = await self._open(db)
+        return await VoiceUsageLogger(db).log_live_model_usage(
+            company_id=self.company_id, live_usage=usage, run_id=run_id,
+            audio_input_seconds=usage.seconds_in, audio_output_seconds=usage.seconds_out,
+            metadata={f"{self.channel}_session_id": self.session_id},
+        )
+
     async def finish(self, db: Any, *, error: Optional[str] = None) -> Decimal:
         """Close the run with the sum of its rows and settle it; returns the
         amount billed. A call that made no model call has nothing to settle."""

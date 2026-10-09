@@ -38,11 +38,11 @@
 | Tier | Theme | Count | Fixed | Partly fixed | Open | Closed otherwise |
 |---|---|---|---|---|---|---|
 | [T0](#2-t0--broken-end-to-end) | Broken end to end | 4 | 4 | 0 | 0 | 0 |
-| [T1](#3-t1--money-and-metering) | Money and metering | 4 | 4 | 0 | 0 | 0 |
+| [T1](#3-t1--money-and-metering) | Money and metering | 5 | 4 | 0 | 1 | 0 |
 | [T2](#4-t2--controls-that-are-stored-and-ignored) | Controls that are stored and ignored | 5 | 5 | 0 | 0 | 0 |
 | [T3](#5-t3--correctness-and-dead-ends) | Correctness and dead ends | 8 | 4 | 1 | 0 | 3 |
 
-**Total: 21 defects (17 fixed, 1 partly fixed, 0 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 22 defects (17 fixed, 1 partly fixed, 1 open, 3 not a defect), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -67,6 +67,7 @@
 | VT-19 | Silence is measured against the playback horizon | not a defect — correct as-is | — |
 | VT-20 | Muted audio is sent as zeros rather than dropped | not a defect — correct as-is | — |
 | VT-21 | A voice call has no run record, so nothing about it is auditable the usual way | ✅ fixed `b45991d` | — |
+| VT-22 | Browser audio sessions are not billed | open — found 2026-10-08 (GW-02, GW-10) | — |
 
 The three to read first:
 
@@ -279,6 +280,23 @@ That is a defensible product decision. It is recorded here because combined with
 [VT-01](#vt-01--the-inbound-credit-gate-has-never-run) — where the earlier inbound gate
 never fires either — it means there is **no working credit control on inbound calls at
 all**, at either checkpoint.
+
+### VT-22 — Browser audio sessions are not billed
+
+**✅ Verified · High** · **Status: open** — found 2026-10-08 while fixing GW-02 and GW-10.
+
+`/stream/audio` with provider `web` runs `gateway/web_audio_adapter.WebAudioAdapter`: a live
+model session for as long as the browser keeps it open. It writes no `usage_logs` row, opens
+no run (VT-21 notes it is "not a telephony call") and settles nothing — the live audio each
+way is free to the tenant. It also counts nothing: its receive loop does not fold the
+provider's `usage_metadata` in, as the phone path does (VT-05).
+
+Since GW-02 it is at least admitted (`call_refusal`, checkpoint `web_audio`) and holds one of
+the company's live-session places, so it cannot start on an empty wallet or past the cap.
+
+**Fix:** the video call's shape (GW-10): a `LiveUsage` fed from each received message and
+the audio sent, and at the end `CallSpend(channel="web_audio").record_live_audio` then
+`finish`, so the session is one run with its rows, billed and settled.
 
 ---
 

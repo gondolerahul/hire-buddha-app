@@ -942,7 +942,7 @@ Served by the API on 8000 (the `src/gateway/` routers). Full semantics in
 | POST, GET, DELETE | `/api/v1/webhook-endpoints[/{id}]` | Bearer + company admin | yes | Register, list, revoke webhook endpoints |
 | POST | `/internal/event` | `X-Internal-Token` | **no** | Internal event ingress |
 | WS | `/stream/audio` | handshake `token` (URL token, scope `/stream/`) | handshakes per IP, `WS_HANDSHAKE_RATE_LIMIT` (30/minute) → close 4429; the company's live sessions (GW-02) | Browser + telephony audio |
-| WS | `/stream/video` | handshake `token` (URL token, scope `/stream/`) | handshakes per IP → 4429 (GW-02) | WebRTC video |
+| WS | `/stream/video` | handshake `token` (URL token, scope `/stream/`) | handshakes per IP → 4429; the call rule and the company's live sessions → 4002 / 4429 (GW-02, GW-10) | WebRTC video: the `connected` message carries `ice_servers` (STUN, TURN with credentials); see [13 §10](13-gateway-and-realtime.md#10-video-and-webrtc) |
 | WS | `/webhooks/voice/tata/incoming` | — | the company's live sessions | Tata Tele media |
 | WS | `/stream/twilio/{session_id}` | — | the company's live sessions | Twilio Media Streams |
 | WS | `/stream/tata/{session_id}` | — | the company's live sessions | Tata Tele stream |

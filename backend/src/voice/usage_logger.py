@@ -113,7 +113,6 @@ class VoiceUsageLogger:
             audio_input_seconds = live_usage.seconds_in if live_usage is not None else duration_seconds
         if audio_output_seconds is None:
             audio_output_seconds = live_usage.seconds_out if live_usage is not None else duration_seconds
-        reported = live_usage is not None and live_usage.reported
         
         # 1. Log Telephony Cost
         try:
@@ -135,48 +134,13 @@ class VoiceUsageLogger:
         except Exception as e:
             logger.error(f"Failed to log telephony usage: {e}")
         
-        # 2. Log LLM Audio Input Cost — the provider's tokens when it sent them (VT-05)
-        try:
-            input_cost = await self._log_llm_audio_usage(
-                company_id=company_id,
-                sku_name=self.GEMINI_INPUT_SKU,
-                audio_seconds=audio_input_seconds,
-                usage_type="input",
-                metadata={
-                    "session_id": str(session_id),
-                    **(metadata or {})
-                },
-                reported_tokens=live_usage.prompt_tokens if reported and live_usage else None,
-                by_modality=live_usage.prompt_by_modality if reported and live_usage else None,
-                run_id=run_id,
-            )
-            if input_cost:
-                total_cost += input_cost
-                logger.info(f"Logged LLM input cost: ${input_cost} for {audio_input_seconds}s")
-        except Exception as e:
-            logger.error(f"Failed to log LLM input usage: {e}")
-        
-        # 3. Log LLM Audio Output Cost
-        try:
-            output_cost = await self._log_llm_audio_usage(
-                company_id=company_id,
-                sku_name=self.GEMINI_OUTPUT_SKU,
-                audio_seconds=audio_output_seconds,
-                usage_type="output",
-                metadata={
-                    "session_id": str(session_id),
-                    **(metadata or {})
-                },
-                reported_tokens=live_usage.response_tokens if reported and live_usage else None,
-                by_modality=live_usage.response_by_modality if reported and live_usage else None,
-                run_id=run_id,
-            )
-            if output_cost:
-                total_cost += output_cost
-                logger.info(f"Logged LLM output cost: ${output_cost} for {audio_output_seconds}s")
-        except Exception as e:
-            logger.error(f"Failed to log LLM output usage: {e}")
-        
+        # 2–3. The model's audio each way — the provider's tokens when it sent them (VT-05)
+        total_cost += await self.log_live_model_usage(
+            company_id=company_id, live_usage=live_usage, run_id=run_id,
+            audio_input_seconds=audio_input_seconds, audio_output_seconds=audio_output_seconds,
+            metadata={"session_id": str(session_id), **(metadata or {})},
+        )
+
         # 4. The call's tool calls (each has its own usage_logs row on the run).
         if tool_cost and tool_cost > 0:
             total_cost += Decimal(str(tool_cost))
@@ -189,6 +153,59 @@ class VoiceUsageLogger:
             logger.error(f"Failed to update session total cost: {e}")
 
         return VoiceUsage(total_cost, telephony_part, billed_minutes(duration_seconds))
+
+    async def log_live_model_usage(
+        self,
+        company_id: UUID,
+        live_usage: Optional[LiveUsage],
+        audio_input_seconds: int,
+        audio_output_seconds: int,
+        run_id: Optional[UUID] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Decimal:
+        """The live model's audio in and out, on the call's run; returns their cost.
+
+        A phone call's and a video call's model use are billed the same way:
+        the tokens the provider reported, else each direction's audio (VT-05).
+        """
+        total = Decimal("0")
+        reported = live_usage is not None and live_usage.reported
+        try:
+            input_cost = await self._log_llm_audio_usage(
+                company_id=company_id,
+                sku_name=self.GEMINI_INPUT_SKU,
+                audio_seconds=audio_input_seconds,
+                usage_type="input",
+                metadata=metadata,
+                reported_tokens=live_usage.prompt_tokens if reported and live_usage else None,
+                by_modality=live_usage.prompt_by_modality if reported and live_usage else None,
+                run_id=run_id,
+            )
+            if input_cost:
+                total += input_cost
+                logger.info(f"Logged LLM input cost: ${input_cost} for {audio_input_seconds}s")
+        except Exception as e:
+            logger.error(f"Failed to log LLM input usage: {e}")
+        
+        # The model's audio out
+        try:
+            output_cost = await self._log_llm_audio_usage(
+                company_id=company_id,
+                sku_name=self.GEMINI_OUTPUT_SKU,
+                audio_seconds=audio_output_seconds,
+                usage_type="output",
+                metadata=metadata,
+                reported_tokens=live_usage.response_tokens if reported and live_usage else None,
+                by_modality=live_usage.response_by_modality if reported and live_usage else None,
+                run_id=run_id,
+            )
+            if output_cost:
+                total += output_cost
+                logger.info(f"Logged LLM output cost: ${output_cost} for {audio_output_seconds}s")
+        except Exception as e:
+            logger.error(f"Failed to log LLM output usage: {e}")
+
+        return total
 
     async def _log_telephony_usage(
         self,

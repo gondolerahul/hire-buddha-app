@@ -1004,7 +1004,7 @@ Loaded by the API and the Arq worker.
 | `INTERNAL_TOKEN` | `""` | Shared secret for `POST /internal/event`. Empty or a placeholder (`change-me-in-production` …) disables the endpoint — it answers 503 — and `/api/v1/health` reports `internal_events: disabled` (SA-20). |
 | `VIDEO_STREAMING_ENABLED` | `True` | |
 | `STUN_SERVERS` | `stun:stun.l.google.com:19302` | Comma-separated; exposed as `stun_servers_list`. |
-| `TURN_SERVER_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` | `""` | Optional TURN relay for WebRTC. |
+| `TURN_SERVER_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` | `""` | Optional TURN relay for WebRTC, with its credentials; sent to the video client too (GW-06). |
 | `SANDBOX_CONTAINER_RUNTIME_ENABLED` | `True` | The deployment's default for the `sandbox.container_runtime_enabled` flag, the one switch for per-tenant container sandboxing (a company or global flag row overrides it). On since TL-01 (D29): a host without Docker or the `hb-sandbox` image refuses sandbox calls. Off = `SubprocessRuntime`, a development opt-out. See [09 §12.1](09-tools.md#121-the-runtime-abstraction). |
 | `SANDBOX_IMAGE` | `hb-sandbox:local` | Sandbox image tag or digest. |
 | `SANDBOX_NETWORK` | `none` | Docker network for the sandbox. |
