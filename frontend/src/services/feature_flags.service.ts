@@ -7,7 +7,7 @@
  * Admins additionally use the admin endpoints for the Feature Flags page.
  */
 import { apiClient } from './api.client';
-import type { FeatureFlagsResponse, FeatureFlagRow } from '@/types/agentKernel';
+import type { FeatureFlagsResponse, FeatureFlagRow, FlagExplanation } from '@/types/agentKernel';
 
 export type FeatureFlagScope = 'all' | 'global' | 'company' | 'entity';
 
@@ -23,6 +23,14 @@ export const featureFlagsService = {
     async fetchMine(): Promise<FeatureFlagsResponse> {
         const { data } = await apiClient.get('/ai/admin/feature_flags/me');
         return data ?? { defaults: {}, numeric_defaults: {}, overrides: {} };
+    },
+
+    /** Every declared flag for a company: its value and the tier that set it (GH-20). */
+    async explain(companyId?: string): Promise<FlagExplanation[]> {
+        const { data } = await apiClient.get('/ai/admin/feature_flags/explain', {
+            params: companyId ? { company_id: companyId } : {},
+        });
+        return Array.isArray(data?.flags) ? data.flags : [];
     },
 
     async listAdmin(scope: FeatureFlagScope = 'all'): Promise<FeatureFlagRow[]> {

@@ -899,7 +899,8 @@ These are the HITL approval paths for the meta layer — see
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/v1/ai/admin/feature_flags/admin` | All flags with resolution source |
+| GET | `/api/v1/ai/admin/feature_flags/admin` | Every `feature_flags` row the caller may see |
+| GET | `/api/v1/ai/admin/feature_flags/explain` | Every declared flag for a company (`?company_id=`, `app_admin` only for another): `kind`, `value` and `source` — the tier that set it (GH-20) |
 | PUT | `/api/v1/ai/admin/feature_flags/{flag_key}` | Set a flag |
 | DELETE | `/api/v1/ai/admin/feature_flags/{flag_key}` | Clear an override |
 | GET | `/api/v1/ai/admin/feature_flags/me` | Flags as resolved for the caller |

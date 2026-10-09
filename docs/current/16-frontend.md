@@ -1516,7 +1516,7 @@ is noted.
 |------|-------|---------|---------------|------|
 | [`admin/MetaIntelligencePage.tsx`](../../frontend/src/pages/admin/MetaIntelligencePage.tsx) | `/admin/agent-kernel/meta-intelligence` | Skill candidates, anti-patterns, prompt candidates — with promote/approve | `metaService.*` | 3 admins |
 | [`admin/CostAttributionDashboard.tsx`](../../frontend/src/pages/admin/CostAttributionDashboard.tsx) | `/admin/agent-kernel/cost` | Cost by the 14 attribution tags over 24h/7d/30d | `kpiService.getCostBreakdown` | 3 admins |
-| [`admin/FeatureFlagsPage.tsx`](../../frontend/src/pages/admin/FeatureFlagsPage.tsx) | `/admin/agent-kernel/feature-flags` | View effective flags, set/remove global and company overrides | `featureFlagsService.*` | 3 admins |
+| [`admin/FeatureFlagsPage.tsx`](../../frontend/src/pages/admin/FeatureFlagsPage.tsx) | `/admin/agent-kernel/feature-flags` | Every flag's effective value and the tier that set it (`explain`, GH-20); set/remove global and company overrides | `featureFlagsService.*` | 3 admins |
 | [`admin/RiskAndExitPage.tsx`](../../frontend/src/pages/admin/RiskAndExitPage.tsx) | `/admin/agent-kernel/risks` | Risk indicators, exit checklist, append-only decision log | `kpiService.getRiskIndicators/getExitChecklist/listDecisions/appendDecision` | 3 admins |
 
 ### 10.8 Dead code you can delete

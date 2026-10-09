@@ -1182,9 +1182,22 @@ Set it in the worker and API environment, then restart. Remember: env vars sit
 
 ### 14.3 Find out why a flag has its value
 
+The Feature Flags page (`/admin/agent-kernel/feature-flags`) shows every declared
+flag's value **and the tier that set it** — entity row, company row, global row,
+`AI_FLAG_` env var, code default — on its Effective and Numeric tabs (GH-20). Behind
+it, `GET /api/v1/ai/admin/feature_flags/explain[?company_id=]` resolves every flag in
+`DEFAULTS` and `NUMERIC_DEFAULTS` from one query, uncached
+([`core/flag_explain.py`](../../backend/src/ai/core/flag_explain.py)); an integration
+test holds it to the resolver's answer flag by flag. A tenant admin sees their own
+company; `app_admin` may name another. The `env` tier is the API process's
+environment — the workers read their own.
+
+From a shell:
+
 ```python
 res = await FeatureFlags(db).resolve("bandit.enabled", company_id=cid, entity_id=eid)
 print(res.value, res.source)   # e.g. True 'company'
+value, source = await FeatureFlags(db).resolve_float("bandit.epsilon", company_id=cid)
 ```
 
 ### 14.4 Unstick a run waiting on HITL

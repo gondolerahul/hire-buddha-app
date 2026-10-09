@@ -344,6 +344,17 @@ export interface FeatureFlagsResponse {
     overrides: Record<string, { company?: boolean; global?: boolean }>;
 }
 
+/** The tier a flag's value came from (GH-20), highest first. */
+export type FlagSource = 'entity_row' | 'company' | 'global' | 'env' | 'default';
+
+/** One declared flag as it resolves for a company, and why (GH-20). */
+export interface FlagExplanation {
+    flag_key: string;
+    kind: 'boolean' | 'numeric';
+    value: boolean | number;
+    source: FlagSource;
+}
+
 export interface FeatureFlagRow {
     id: string;
     company_id: string | null;

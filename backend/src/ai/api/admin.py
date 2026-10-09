@@ -1420,6 +1420,26 @@ async def delete_feature_flag(
     return {"deleted": deleted, "flag_key": flag_key, "scope": scope}
 
 
+@router.get("/feature_flags/explain")
+async def explain_feature_flags(
+    company_id: Optional[UUID] = Query(None, description="app_admin: another company's; default your own"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(RoleChecker(ADMIN_ROLES)),
+) -> dict:
+    """Every declared flag for a company: its value and the tier that set it (GH-20).
+
+    ``source`` is ``company``, ``global`` (a ``feature_flags`` row), ``env``
+    (``AI_FLAG_<KEY>`` on this process) or ``default`` (the code) — resolved
+    as the runtime resolves it, uncached.
+    """
+    target = company_id or user.company_id
+    if user.role != "app_admin" and target != user.company_id:
+        raise HTTPException(status_code=403, detail="not authorised for that company")
+    from src.ai.core.flag_explain import explain_flags
+
+    return {"company_id": str(target) if target else None, "flags": await explain_flags(db, target)}
+
+
 @router.post("/feature_flags/invalidate")
 async def invalidate_feature_flags(
     flag_key: Optional[str] = Query(None, description="One flag; every flag when omitted"),

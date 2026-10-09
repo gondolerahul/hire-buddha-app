@@ -39,9 +39,9 @@
 | [T0](#2-t0--gates-that-fail-open) | Gates that fail open | 6 | 6 | 0 | 0 | 0 |
 | [T1](#3-t1--hitl-correctness) | HITL correctness | 9 | 9 | 0 | 0 | 0 |
 | [T2](#4-t2--feature-flags-that-are-not-controls) | Feature flags that are not controls | 5 | 3 | 2 | 0 | 0 |
-| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 4 | 0 | 1 | 0 |
+| [T3](#5-t3--cost-resolution-and-operability) | Cost resolution and operability | 5 | 5 | 0 | 0 | 0 |
 
-**Total: 25 defects (22 fixed, 2 partly fixed, 1 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 25 defects (23 fixed, 2 partly fixed, 0 open), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -64,7 +64,7 @@
 | GH-17 | `ToolCostResolver` is cached per process, and has no callers | ✅ fixed `d71918d`, `902af7c` | — |
 | GH-18 | Budget lives on the entity, not the company | ✅ fixed `1d5ff72` | — |
 | GH-19 | The tool-call counting is off by design | ✅ fixed `73afd55` (TL-21) | — |
-| GH-20 | There is no way to see why a flag has its value | open | [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust) |
+| GH-20 | There is no way to see why a flag has its value | ✅ fixed (2026-10-08) | — |
 | GH-21 | Almost every gate in the platform fails open | ✅ fixed `e34192e` | — |
 | GH-22 | Every HITL checkpoint fails to subscribe, so none of them waits | ✅ fixed `98af2c0` | — |
 | GH-23 | Authorize and Block Cycle always fail with 422 | ✅ fixed `1a55054` | — |
@@ -503,7 +503,7 @@ debugging.
 
 ### GH-20 — There is no way to see why a flag has its value
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: the flags page still shows only the effective value. Plan: [H7](REMAINING-DEFECTS-PLAN.md#h7--feature-flags-you-can-trust).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — `GET /api/v1/ai/admin/feature_flags/explain` returns every declared flag (boolean and numeric) for a company with its value and the tier that set it — entity row, company row, global row, `AI_FLAG_` env var, code default — from one query, uncached (`core/flag_explain.py`); a tenant admin sees their own company, `app_admin` may name another. The Feature Flags page shows the source on its Effective and Numeric tabs; before, it guessed company / global / default from `/me` and never saw the env tier, and the Numeric tab showed only the defaults. Integration `test_flag_explain.py` holds it to `FeatureFlags.resolve` / `resolve_float` flag by flag; unit `test_flag_explain_endpoint.py` (3). Live: a global row for `task_classifier.v2_enabled` showed "ON — global row", the rest "code default"; the row was deleted after
 
 Resolution is entity → company → global → env → default. The admin page shows the
 **effective** value. It does not show which tier produced it.
@@ -595,6 +595,8 @@ an operator a single lever, and gives a tenant admin a cap they can reason about
 editing 40 entities.
 
 ### GH-I7 — Show the winning tier on the flags page
+
+**Status: done (2026-10-08)** — with [GH-20](#gh-20--there-is-no-way-to-see-why-a-flag-has-its-value).
 
 **Effect: medium.** [GH-20](#gh-20--there-is-no-way-to-see-why-a-flag-has-its-value). The
 resolver already knows which tier answered. Returning it turns a multi-query investigation

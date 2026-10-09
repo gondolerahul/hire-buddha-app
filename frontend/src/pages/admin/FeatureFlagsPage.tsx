@@ -2,35 +2,60 @@
  * pages/admin/FeatureFlagsPage — View & toggle Phase 11 feature flags.
  *
  * Tabs:
- *   1. Effective — what THIS user/company sees right now (defaults +
- *      overrides applied).
+ *   1. Effective — every boolean flag as it resolves for this company, and
+ *      the tier that set it (GH-20): an entity, company or global row, the
+ *      `AI_FLAG_` env var, or the code default.
  *   2. Admin     — every row in `feature_flags` visible to the caller,
  *      with toggle/delete actions and a "create override" form.
- *   3. Numeric   — float / int knobs.
+ *   3. Numeric   — float / int knobs, with their value and tier too.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/hooks/useAuth';
 import { featureFlagsService } from '@/services/feature_flags.service';
-import type { FeatureFlagRow, FeatureFlagsResponse } from '@/types/agentKernel';
+import type { FeatureFlagRow, FlagExplanation, FlagSource } from '@/types/agentKernel';
 import { UserRole } from '@/types';
 
 import './FeatureFlagsPage.css';
 
 type Tab = 'effective' | 'admin' | 'numeric';
 
+/** Each tier, as the source column names it (GH-20). */
+const SOURCE_LABELS: Record<FlagSource, string> = {
+    entity_row: 'entity row',
+    company: 'company row',
+    global: 'global row',
+    env: 'AI_FLAG_ env var',
+    default: 'code default',
+};
+
+const SOURCE_HINTS: Record<FlagSource, string> = {
+    entity_row: 'A feature_flags row for one entity',
+    company: 'A feature_flags row for this company',
+    global: 'A feature_flags row for every company',
+    env: 'AI_FLAG_<KEY> in the environment of the API and the workers',
+    default: 'No row and no env var: the default in backend/src/ai/core/feature_flags.py',
+};
+
+const SourceCell: React.FC<{ source: FlagSource }> = ({ source }) => (
+    <td className="ff-page__source" title={SOURCE_HINTS[source] ?? ''}>
+        {SOURCE_LABELS[source] ?? source}
+    </td>
+);
+
 export const FeatureFlagsPage: React.FC = () => {
     const { user } = useAuth();
     const [tab, setTab] = useState<Tab>('effective');
-    const [data, setData] = useState<FeatureFlagsResponse | null>(null);
+    const [flags, setFlags] = useState<FlagExplanation[] | null>(null);
     const [loading, setLoading] = useState(true);
 
     const isAppAdmin = user?.role === UserRole.APP_ADMIN;
 
     const refreshEffective = useCallback(() => {
         setLoading(true);
-        featureFlagsService.fetchMine()
-            .then(setData)
+        featureFlagsService.explain()
+            .then(setFlags)
+            .catch(() => setFlags([]))
             .finally(() => setLoading(false));
     }, []);
 
@@ -38,15 +63,16 @@ export const FeatureFlagsPage: React.FC = () => {
         refreshEffective();
     }, [refreshEffective]);
 
-    if (loading && !data) return <p>loading…</p>;
+    if (loading && !flags) return <p>loading…</p>;
 
     return (
         <div className="page-container ff-page">
             <header className="page-header">
                 <h1>Feature Flags</h1>
                 <p>
-                    Phase 11 feature-flag scope tiers: defaults &lt; global &lt;
-                    per-company &lt; per-entity. Higher tiers win.
+                    A flag takes the first value it finds: an entity row, a company row,
+                    a global row, the <code>AI_FLAG_</code> env var, then the code default.
+                    The source column says which one set it.
                 </p>
             </header>
 
@@ -66,11 +92,11 @@ export const FeatureFlagsPage: React.FC = () => {
                 <button
                     className="ff-page__refresh"
                     onClick={refreshEffective}
-                    title="Re-fetch /feature_flags/me"
+                    title="Re-fetch /feature_flags/explain"
                 >↻ refresh</button>
             </nav>
 
-            {tab === 'effective' && data && <EffectiveTab data={data} />}
+            {tab === 'effective' && flags && <EffectiveTab flags={flags.filter((f) => f.kind === 'boolean')} />}
             {tab === 'admin' && (
                 <AdminTab
                     isAppAdmin={isAppAdmin}
@@ -78,7 +104,7 @@ export const FeatureFlagsPage: React.FC = () => {
                     companyId={user?.company_id ?? null}
                 />
             )}
-            {tab === 'numeric' && data && <NumericTab data={data} />}
+            {tab === 'numeric' && flags && <NumericTab flags={flags.filter((f) => f.kind === 'numeric')} />}
         </div>
     );
 };
@@ -87,51 +113,30 @@ export const FeatureFlagsPage: React.FC = () => {
 // Tab: Effective
 // ---------------------------------------------------------------------------
 
-const EffectiveTab: React.FC<{ data: FeatureFlagsResponse }> = ({ data }) => {
-    const rows = useMemo(() => {
-        const keys = new Set<string>([
-            ...Object.keys(data.defaults ?? {}),
-            ...Object.keys(data.overrides ?? {}),
-        ]);
-        return [...keys].sort().map((k) => {
-            const ov = data.overrides?.[k];
-            const eff = ov?.company ?? ov?.global ?? data.defaults?.[k] ?? false;
-            const source = ov?.company !== undefined
-                ? 'company'
-                : ov?.global !== undefined
-                    ? 'global'
-                    : 'default';
-            return { key: k, effective: eff, source };
-        });
-    }, [data]);
-
-    return (
-        <table className="ff-page__table">
-            <thead>
-                <tr>
-                    <th>flag</th>
-                    <th>effective</th>
-                    <th>source</th>
+const EffectiveTab: React.FC<{ flags: FlagExplanation[] }> = ({ flags }) => (
+    <table className="ff-page__table">
+        <thead>
+            <tr>
+                <th>flag</th>
+                <th>effective</th>
+                <th>source</th>
+            </tr>
+        </thead>
+        <tbody>
+            {flags.map((f) => (
+                <tr key={f.flag_key}>
+                    <td className="ff-page__key">{f.flag_key}</td>
+                    <td>
+                        <span className={`ff-page__pill ff-page__pill--${f.value ? 'on' : 'off'}`}>
+                            {f.value ? 'ON' : 'OFF'}
+                        </span>
+                    </td>
+                    <SourceCell source={f.source} />
                 </tr>
-            </thead>
-            <tbody>
-                {rows.map((r) => (
-                    <tr key={r.key}>
-                        <td className="ff-page__key">{r.key}</td>
-                        <td>
-                            <span
-                                className={`ff-page__pill ff-page__pill--${r.effective ? 'on' : 'off'}`}
-                            >
-                                {r.effective ? 'ON' : 'OFF'}
-                            </span>
-                        </td>
-                        <td className="ff-page__source">{r.source}</td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-    );
-};
+            ))}
+        </tbody>
+    </table>
+);
 
 // ---------------------------------------------------------------------------
 // Tab: Admin (toggle + delete + create)
@@ -398,16 +403,17 @@ const CreateOverrideForm: React.FC<CreateFormProps> = ({
 // Tab: Numeric
 // ---------------------------------------------------------------------------
 
-const NumericTab: React.FC<{ data: FeatureFlagsResponse }> = ({ data }) => (
+const NumericTab: React.FC<{ flags: FlagExplanation[] }> = ({ flags }) => (
     <table className="ff-page__table">
         <thead>
-            <tr><th>flag</th><th>value</th></tr>
+            <tr><th>flag</th><th>value</th><th>source</th></tr>
         </thead>
         <tbody>
-            {Object.entries(data.numeric_defaults ?? {}).sort().map(([k, v]) => (
-                <tr key={k}>
-                    <td className="ff-page__key">{k}</td>
-                    <td>{v}</td>
+            {flags.map((f) => (
+                <tr key={f.flag_key}>
+                    <td className="ff-page__key">{f.flag_key}</td>
+                    <td>{String(f.value)}</td>
+                    <SourceCell source={f.source} />
                 </tr>
             ))}
         </tbody>
