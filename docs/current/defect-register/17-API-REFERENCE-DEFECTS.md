@@ -41,9 +41,9 @@
 | [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
-| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 5 | 0 | 1 | 1 |
+| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 6 | 0 | 0 | 1 |
 
-**Total: 20 defects (18 fixed, 0 partly fixed, 1 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (19 fixed, 0 partly fixed, 0 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -66,7 +66,7 @@
 | API-17 | Full paths chain two prefixes, so the decorator misleads | ✅ fixed (2026-10-08) — the route census | — |
 | API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | ✅ fixed (2026-10-08) | — |
 | API-19 | Two similarly named tool endpoints return different things | ✅ fixed (2026-10-08) — one endpoint | — |
-| API-20 | The credentials guide documents the wrong path prefix | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
+| API-20 | The credentials guide documents the wrong path prefix | ✅ fixed (2026-10-09) | — |
 
 The three to read first:
 
@@ -350,7 +350,7 @@ the full registry. The names do not signal the difference, and only one is admin
 
 ### API-20 — The credentials guide documents the wrong path prefix
 
-**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: `docs/how-to/AI_MODEL_CREDENTIALS_GUIDE.md` still documents `/api/config/integrations`. Plan: [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding).
+**📄 Doc-reported · Low** · **Status: ✅ fixed (2026-10-09)** — the guide's 28 `/api/config/…` paths are `/api/v1/config/…`, each checked against the generated route table in `17-api-reference.md`. Two more of its paths never existed and are corrected: the end-to-end test posted to `/api/ai/entities/{id}/chat` (there is no chat route; it is a `POST /api/v1/ai/execute` run now), and the social OAuth redirect named `/api/social-connections/callback/…` (the API has no such callback; the guide says the tokens are stored through `POST /api/v1/social-connections`, which is now `/v1` — API-15).
 
 `AI_MODEL_CREDENTIALS_GUIDE.md` documents `/api/config/...`. The real prefix is
 `/api/v1/config/...`. Anyone following the guide gets a 404 on their first call.

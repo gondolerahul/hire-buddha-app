@@ -290,7 +290,7 @@ Now that you have your GCP and Azure credentials, add them to HireBuddha's Integ
 
 ### Method A: Via the API (Recommended)
 
-Use the REST API endpoint `POST /api/config/integrations`.
+Use the REST API endpoint `POST /api/v1/config/integrations`.
 
 You need to be logged in as an **app_admin** or **tenant_admin**.
 
@@ -302,7 +302,7 @@ AUTH_TOKEN="your-jwt-token"
 COMPANY_ID="your-company-uuid"
 
 # --- Gemini 2.0 Flash (Text Generation) ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -321,7 +321,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 
 # --- Gemini 2.5 Flash (Text Generation) ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -340,7 +340,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 
 # --- Gemini Embeddings ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -359,7 +359,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 
 # --- Gemini Live Audio (Speech-to-Speech) ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -378,7 +378,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 
 # --- Image Generation ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -397,7 +397,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 
 # --- Video Generation ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -422,7 +422,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
 
 ```bash
 # --- Claude 3.5 Sonnet ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -449,7 +449,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
 
 ```bash
 # --- GPT-4o ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -470,7 +470,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 
 # --- GPT-4o Mini ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -491,7 +491,7 @@ curl -X POST "https://your-domain.com/api/config/integrations" \
   }'
 
 # --- GPT-4o Realtime (for speech-to-speech) ---
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -590,13 +590,13 @@ After registering integrations, you need to tell HireBuddha which model to use f
 
 ```bash
 # First, get the integration IDs
-curl -s "https://your-domain.com/api/config/integrations" \
+curl -s "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" | python3 -m json.tool
 
 # Note the 'id' field of each integration you want to assign
 
 # Set text_generation default to Gemini 2.0 Flash
-curl -X POST "https://your-domain.com/api/config/task-defaults" \
+curl -X POST "https://your-domain.com/api/v1/config/task-defaults" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -606,7 +606,7 @@ curl -X POST "https://your-domain.com/api/config/task-defaults" \
   }'
 
 # Set thinking default to Claude 3.5 Sonnet
-curl -X POST "https://your-domain.com/api/config/task-defaults" \
+curl -X POST "https://your-domain.com/api/v1/config/task-defaults" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -616,7 +616,7 @@ curl -X POST "https://your-domain.com/api/config/task-defaults" \
   }'
 
 # Set speech_to_speech default to Gemini Live
-curl -X POST "https://your-domain.com/api/config/task-defaults" \
+curl -X POST "https://your-domain.com/api/v1/config/task-defaults" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -626,7 +626,7 @@ curl -X POST "https://your-domain.com/api/config/task-defaults" \
   }'
 
 # Set text_to_image default
-curl -X POST "https://your-domain.com/api/config/task-defaults" \
+curl -X POST "https://your-domain.com/api/v1/config/task-defaults" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -636,7 +636,7 @@ curl -X POST "https://your-domain.com/api/config/task-defaults" \
   }'
 
 # Set text_to_video default
-curl -X POST "https://your-domain.com/api/config/task-defaults" \
+curl -X POST "https://your-domain.com/api/v1/config/task-defaults" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -653,7 +653,7 @@ curl -X POST "https://your-domain.com/api/config/task-defaults" \
 ### 6.1: Check Registered Integrations
 
 ```bash
-curl -s "https://your-domain.com/api/config/integrations" \
+curl -s "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" | python3 -m json.tool
 ```
 
@@ -665,7 +665,7 @@ Verify each integration has:
 ### 6.2: Check Task Defaults
 
 ```bash
-curl -s "https://your-domain.com/api/config/task-defaults" \
+curl -s "https://your-domain.com/api/v1/config/task-defaults" \
   -H "Authorization: Bearer $AUTH_TOKEN" | python3 -m json.tool
 ```
 
@@ -704,11 +704,11 @@ print('✅ Azure OpenAI works:', r.choices[0].message.content)
 ### 6.5: Test End-to-End via LLM Router
 
 ```bash
-# Send a chat message to an entity to test the full pipeline
-curl -X POST "https://your-domain.com/api/ai/entities/YOUR_ENTITY_ID/chat" \
+# Run an entity to test the full pipeline (there is no chat endpoint; a run is the test)
+curl -X POST "https://your-domain.com/api/v1/ai/execute" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello, can you hear me?"}'
+  -d '{"entity_id": "YOUR_ENTITY_ID", "input_data": {"input": "Hello, can you hear me?"}}'
 ```
 
 ---
@@ -722,7 +722,7 @@ curl -X POST "https://your-domain.com/api/ai/entities/YOUR_ENTITY_ID/chat" \
 **Fix:**
 ```bash
 # Update the integration to include project_id
-curl -X PATCH "https://your-domain.com/api/config/integrations/INTEGRATION_UUID" \
+curl -X PATCH "https://your-domain.com/api/v1/config/integrations/INTEGRATION_UUID" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -761,7 +761,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-key.json"
 
 **Fix:**
 ```bash
-curl -X PATCH "https://your-domain.com/api/config/integrations/INTEGRATION_UUID" \
+curl -X PATCH "https://your-domain.com/api/v1/config/integrations/INTEGRATION_UUID" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -893,7 +893,7 @@ In the Twilio Console, configure your webhook URLs:
 ### 8.4: Register in Integration Registry
 
 ```bash
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -940,7 +940,7 @@ Tata Tele Business Services provides **WhatsApp Business API** and **voice** for
 ### 9.3: Register in Integration Registry
 
 ```bash
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -992,7 +992,7 @@ Razorpay handles **subscription billing**, **auto-debit mandates**, and **credit
 Razorpay credentials go into the Integration Registry with `service_sku = "razorpay_keys"`:
 
 ```bash
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1030,7 +1030,7 @@ Firecrawl provides intelligent web scraping, converting web pages to clean Markd
 ### 11.2: Register in Integration Registry
 
 ```bash
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1075,7 +1075,7 @@ Google Custom Search Engine (CSE) provides high-quality web search results.
 ### 12.3: Register in Integration Registry
 
 ```bash
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1109,7 +1109,7 @@ SerpAPI provides Google search results via a managed API. Used as a fallback if 
 ### 13.2: Register in Integration Registry
 
 ```bash
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1139,7 +1139,7 @@ Two separate email systems exist:
 System emails (account verification, payment failure notices) use SMTP. Credentials are stored in the Integration Registry with `service_sku = "smtp-system"`.
 
 ```bash
-curl -X POST "https://your-domain.com/api/config/integrations" \
+curl -X POST "https://your-domain.com/api/v1/config/integrations" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1228,16 +1228,18 @@ For each platform you want to support, you need to register an OAuth App/Client:
 **Example: LinkedIn**
 1. Go to [LinkedIn Developer Portal](https://www.linkedin.com/developers/)
 2. Create an App → note Client ID and Client Secret
-3. Set redirect URI: `https://your-domain.com/api/social-connections/callback/linkedin`
+3. Set the redirect URI to the page that completes your OAuth flow — the API has no social
+   OAuth callback route; it stores the tokens your flow obtains through
+   `POST /api/v1/social-connections`
 4. Request necessary products (Share on LinkedIn, Marketing, etc.)
 
 **Example: Twitter/X**
 1. Go to [Twitter Developer Portal](https://developer.twitter.com/)
 2. Create a Project & App → get API Key, API Secret, Bearer Token
 3. Enable OAuth 2.0 with PKCE
-4. Set callback URL: `https://your-domain.com/api/social-connections/callback/twitter`
+4. Set the callback URL the same way (no API callback route — see the LinkedIn note)
 
-> **Management API:** `POST /api/social-connections` — connect accounts, `GET /api/social-connections` — list connections
+> **Management API:** `POST /api/v1/social-connections` — connect accounts, `GET /api/v1/social-connections` — list connections. (`/api/social-connections` is a deprecated alias for one release — API-15.)
 
 ---
 
