@@ -937,15 +937,26 @@ flowchart TD
 
 ## 14. Scaling and state
 
+> **Decision HD12 (2026-10-08, GW-21): the API runs as one instance.** A call's live
+> state lives in the process holding its socket (below), and nothing gives a
+> reconnect affinity to that process. When a second instance is needed, it comes
+> with **sticky sessions by `session_id`** at the proxy (Apache `mod_proxy_balancer`
+> `stickysession`, or the load balancer's equivalent) and the live-session count
+> (GW-02) moved to Redis. Until then: one uvicorn process on :8000, no `--workers`.
+> `GET /api/v1/health` reports `instance` — `id` (`INSTANCE_ID`, else host and pid),
+> `started_at` and the live sessions it holds — so two answers from two processes
+> are told apart.
+
 ### 14.1 Is the edge stateless?
 
-Mostly, but not entirely. Three things live in the API process's memory:
+Mostly, but not entirely. These live in the API process's memory:
 
 | State | Where | Consequence with more than one instance |
 |-------|-------|-----------------------------------------|
 | `CentralDispatcher` singleton (agent cache client) | [`dispatcher.py`](../../backend/src/gateway/dispatcher.py) | One per instance. Fine: the cache itself is in Redis. |
 | `_active_video_sessions` dict | [`video_gateway.py:341`](../../backend/src/gateway/video_gateway.py:341) | `/metrics/gateway` reports only the sessions on the instance you happened to hit. |
 | Open WebSocket connections and their `VoiceSession` / `RTCPeerConnection` | per connection | **Session affinity required.** A telephony provider or browser must keep talking to the same instance for the life of the call. |
+| The company's live-session count (GW-02) | [`voice/live_sessions.py`](../../backend/src/voice/live_sessions.py) | Each instance counts its own, so the cap becomes per instance. |
 
 Shared, therefore safe to scale:
 
@@ -994,10 +1005,12 @@ graph TB
 3. **Nothing else.** Webhooks, internal events and REST are genuinely stateless
    because the handoff point is Redis or Postgres.
 
-Today there is exactly one instance: `start_services.sh` binds a single uvicorn to
-8000 and `docker-compose.yml` declares one `app` service with no `deploy.replicas`.
-Running uvicorn with `--workers N` has the same effect as N instances behind one
-port: a WebSocket stays on the worker that accepted it, which is fine.
+Today there is exactly one instance, by decision (HD12): `start_services.sh` binds a
+single uvicorn to 8000 and `docker-compose.yml` declares one `app` service with no
+`deploy.replicas`. Running uvicorn with `--workers N` has the same effect as N
+instances behind one port: a WebSocket stays on the worker that accepted it, which
+is fine — but each worker counts its own live sessions, so the per-company cap
+becomes N times larger.
 
 ### 14.3 Where affinity is required
 

@@ -46,9 +46,9 @@
 | [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 4 | 0 | 0 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 4 | 1 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
-| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 6 | 0 | 1 | 0 |
+| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 6 | 0 | 0 | 1 |
 
-**Total: 21 defects (18 fixed, 1 partly fixed, 1 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (18 fixed, 1 partly fixed, 0 open, 1 accepted, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -72,7 +72,7 @@
 | GW-18 | SSE has no replay and no `Last-Event-ID` | ✅ fixed (2026-10-08) | — |
 | GW-19 | SSE terminates on a substring match | ✅ fixed (2026-10-08) | — |
 | GW-20 | The catch-all proxy must stay last, and nothing enforces it | ✅ fixed | — |
-| GW-21 | WebSocket sessions require affinity that nothing provides | open — decision HD12 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-21 | WebSocket sessions require affinity that nothing provides | accepted — decision HD12: one instance (2026-10-08) | — |
 
 The three to read first:
 
@@ -462,7 +462,7 @@ Same as [SA-16](02-SYSTEM-ARCHITECTURE-DEFECTS.md#sa-16--route-order-in-the-gate
 
 ### GW-21 — WebSocket sessions require affinity that nothing provides
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: unchanged; latent while there is one instance. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
+**📄 Doc-reported · Medium** · **Status: accepted (2026-10-08)** — decision HD12: the API runs as one instance, recorded in [`13-gateway-and-realtime.md` §14](../13-gateway-and-realtime.md#14-scaling-and-state). A second instance comes with sticky sessions by `session_id` at the proxy and the live-session count (GW-02) in Redis. `GET /api/v1/health` reports `instance` — `id` (`INSTANCE_ID`, else host and pid), `started_at`, the live sessions this process holds (`src/common/instance.py`). `tests/unit/test_instance_health.py` (2)
 
 `VoiceSession` objects, live LLM sockets, audio buffers and `RTCPeerConnection` objects all
 live in the gateway process. A reconnect landing on a second instance finds none of them.

@@ -23,7 +23,7 @@ from src.common.config import settings
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["LiveSlot", "acquire", "at_cap", "open_count", "cap_message"]
+__all__ = ["LiveSlot", "acquire", "at_cap", "open_count", "total_open", "cap_message"]
 
 _open: Counter[str] = Counter()
 
@@ -45,6 +45,11 @@ class LiveSlot:
 
 def open_count(company_id: Any) -> int:
     return _open.get(str(company_id), 0)
+
+
+def total_open() -> int:
+    """Every company's live sessions in this process."""
+    return sum(_open.values())
 
 
 def at_cap(company_id: Any) -> bool:

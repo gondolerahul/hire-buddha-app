@@ -10,6 +10,7 @@ import logging
 
 from fastapi import APIRouter, FastAPI, Request
 
+from src.common.instance import instance_info
 from src.common.worker_health import worker_status
 from src.config.model_health import model_status
 
@@ -67,4 +68,6 @@ async def health(request: Request) -> dict:
         "models": models,
         # Configuration, not health: disabled until INTERNAL_TOKEN is a real secret.
         "internal_events": "enabled" if settings.internal_events_enabled else "disabled",
+        # Which process answered: the API is one instance by decision (HD12, GW-21).
+        "instance": instance_info(),
     }
