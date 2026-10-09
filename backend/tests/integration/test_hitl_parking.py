@@ -30,6 +30,12 @@ class _Redis:
     async def publish(self, *_):
         pass
 
+    async def xadd(self, *_, **__):
+        pass
+
+    async def expire(self, *_):
+        pass
+
 
 def _step():
     return PlanStep(step_id="s1", name="Send email", type="ACTION", target={"prompt_template": "Send it"})
@@ -99,7 +105,7 @@ async def test_a_redis_outage_does_not_skip_the_checkpoint(db, test_company_id):
     from src.ai.governance.governance_service import GovernanceService
 
     class _DeadRedis:
-        async def publish(self, *_):
+        async def xadd(self, *_, **__):
             raise ConnectionError("redis unreachable")
 
     run, _ = await _run(db, test_company_id)

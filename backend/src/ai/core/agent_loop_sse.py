@@ -2,7 +2,7 @@
 
 AgentLoop telemetry is emitted through :func:`event_async`. Besides the
 structured log / OTel sink (``events.event``), each event is republished to the
-per-run Redis channel ``execution:{run_id}`` that the SSE endpoint
+per-run Redis stream ``run_events:{run_id}`` that the SSE endpoint
 (``GET /api/v1/ai/executions/{id}/stream``) relays to the browser. The frontend
 reducer (``frontend/src/hooks/useExecutionEvents.ts``) switches on a short
 ``type`` discriminator, so we translate the internal event name to that contract
@@ -59,7 +59,7 @@ _SSE_EVENT_TYPES: dict[str, str] = {
 
 def set_sse_redis(client: Any) -> None:
     """Register the redis client used to fan AgentLoop events out to the
-    per-run ``execution:{run_id}`` SSE channel.
+    per-run ``run_events:{run_id}`` stream.
 
     Idempotent and safe to call once per run. Concurrent runs publish to
     distinct channels (keyed by the event's ``run_id``), so sharing one

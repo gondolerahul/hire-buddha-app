@@ -148,8 +148,11 @@ class _Redis:
     def __init__(self):
         self.frames = []
 
-    async def publish(self, channel, body):
-        self.frames.append((channel, json.loads(body)))
+    async def xadd(self, key, fields, **_):
+        self.frames.append((key, json.loads(fields["data"])))
+
+    async def expire(self, *_):
+        pass
 
 
 @pytest.mark.asyncio
@@ -169,7 +172,7 @@ async def test_the_step_stream_publishes_throttled_frames(monkeypatch):
     await stream.close()
 
     bodies = [b for _, b in redis.frames]
-    assert {c for c, _ in redis.frames} == {"execution:run-1"}
+    assert {c for c, _ in redis.frames} == {"run_events:run-1"}
     assert bodies == [
         {"type": "step_delta", "step": "research", "text": "a"},
         {"type": "step_delta", "step": "research", "text": "bcd"},

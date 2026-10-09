@@ -15,33 +15,8 @@ from uuid import uuid4
 import pytest
 
 from src.ai.core import agent_loop_sse
-from src.ai.core.run_stream import is_terminal
-
-
-class _PubSub:
-    def __init__(self, frames):
-        self.frames = frames
-
-    async def subscribe(self, channel):
-        self.channel = channel
-
-    async def unsubscribe(self, channel):
-        pass
-
-    async def listen(self):
-        for frame in self.frames:
-            yield {"type": "message", "data": json.dumps(frame).encode()}
-
-
-class _StreamRedis:
-    def __init__(self, frames):
-        self._pubsub = _PubSub(frames)
-
-    def pubsub(self):
-        return self._pubsub
-
-    async def close(self):
-        pass
+from src.ai.core.run_stream import is_terminal, stream_key
+from tests.harness.run_stream import FakeStreamRedis
 
 
 async def _relay(monkeypatch, frames) -> list[dict]:
@@ -54,10 +29,19 @@ async def _relay(monkeypatch, frames) -> list[dict]:
         async def get_execution(self, *args, **kwargs):
             return None
 
+    async def _running(_run_id):
+        return "RUNNING"
+
+    run_id = uuid4()
+    redis = FakeStreamRedis()
+    for frame in frames:
+        redis.add(stream_key(run_id), frame)
     monkeypatch.setattr(ai_router, "AIService", _Service)
-    monkeypatch.setattr("redis.asyncio.from_url", lambda *a, **k: _StreamRedis(frames))
+    monkeypatch.setattr(ai_router, "_stored_run_status", _running)
+    monkeypatch.setattr("redis.asyncio.from_url", lambda *a, **k: redis)
     user = SimpleNamespace(company_id=uuid4(), role="admin")
-    response = await ai_router.stream_execution(uuid4(), db=None, current_user=user)
+    response = await ai_router.stream_execution(run_id, request=SimpleNamespace(headers={}),
+                                                last_event_id=None, db=None, current_user=user)
     out = []
     async for chunk in response.body_iterator:
         text = chunk if isinstance(chunk, str) else chunk.decode()
@@ -94,8 +78,11 @@ class _Recorder:
     def __init__(self):
         self.frames: list[dict] = []
 
-    async def publish(self, channel, data):
-        self.frames.append(json.loads(data))
+    async def xadd(self, key, fields, **_):
+        self.frames.append(json.loads(fields["data"]))
+
+    async def expire(self, *_):
+        pass
 
 
 @pytest.mark.asyncio

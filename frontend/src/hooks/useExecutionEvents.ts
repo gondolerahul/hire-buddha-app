@@ -5,9 +5,9 @@
  * every typed event, and maintains a derived state object the
  * ExecutionDetail page can render against.
  */
-import { useEffect, useReducer } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 
-import { useAgentEvents } from '@/services/events';
+import { type StreamConnection, useAgentEvents } from '@/services/events';
 import type {
     AgentEvent,
     CostAttribution,
@@ -269,6 +269,23 @@ function _writeSlice(
 export interface UseExecutionEventsResult {
     state: ExecutionEventState;
     reset: () => void;
+    /** Whether the stream is delivering; a page polls only while it is not (GW-18). */
+    connection: StreamConnection;
+    /**
+     * Counts the frames after which the run's stored state has changed — an
+     * iteration began or ended, the run resumed, ended or waits on a person.
+     * A page re-reads the run when it changes instead of polling.
+     */
+    milestones: number;
+}
+
+const MILESTONE_TYPES = new Set(['iteration_start', 'iteration_end', 'resume', 'run_end', 'cancelled']);
+
+/** Whether a frame means the run's stored state has moved on. */
+export function isMilestone(raw: unknown): boolean {
+    if (!raw || typeof raw !== 'object') return false;
+    const frame = raw as Record<string, unknown>;
+    return MILESTONE_TYPES.has(String(frame.type)) || frame.status === 'HITL_PENDING' || frame.terminal === true;
 }
 
 /**
@@ -280,6 +297,8 @@ export interface UseExecutionEventsResult {
  */
 export function useExecutionEvents(url: string | null): UseExecutionEventsResult {
     const [state, dispatch] = useReducer(executionEventReducer, _INITIAL);
+    const [connection, setConnection] = useState<StreamConnection>('connecting');
+    const [milestones, setMilestones] = useState(0);
 
     useEffect(() => {
         dispatch({ kind: 'reset' });
@@ -287,12 +306,21 @@ export function useExecutionEvents(url: string | null): UseExecutionEventsResult
 
     useAgentEvents({
         url,
-        onEvent: (event) => dispatch({ kind: 'event', event }),
-        onUnknown: (raw) => dispatch({ kind: 'unknown', raw }),
+        onEvent: (event) => {
+            dispatch({ kind: 'event', event });
+            if (isMilestone(event)) setMilestones((n) => n + 1);
+        },
+        onUnknown: (raw) => {
+            dispatch({ kind: 'unknown', raw });
+            if (isMilestone(raw)) setMilestones((n) => n + 1);
+        },
+        onConnection: setConnection,
     });
 
     return {
         state,
         reset: () => dispatch({ kind: 'reset' }),
+        connection,
+        milestones,
     };
 }

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -322,44 +322,85 @@ async def get_execution_trace(
 SSE_HEADERS = {"Cache-Control": "no-cache, no-transform"}
 
 
+# With nothing to send for this long, the stream sends a keep-alive comment and
+# checks that the run is still going.
+SSE_IDLE_SECONDS = 15
+
+
+async def _stored_run_status(run_id: UUID) -> Optional[str]:
+    """The run's status as stored now, read on a session of its own (the
+    request's session is not the stream's to use)."""
+    from src.ai.orm import ExecutionRun
+    from src.common.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        status = (await session.execute(
+            select(ExecutionRun.status).where(ExecutionRun.id == run_id)
+        )).scalar_one_or_none()
+    return None if status is None else str(status)
+
+
 @router.get("/executions/{execution_id}/stream")
 async def stream_execution(
     execution_id: UUID,
+    request: Request,
+    last_event_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user_from_query)
 ):
-    # Verify access
+    """The run's live frames as server-sent events (GW-18, GW-19).
+
+    Reads the run's Redis stream (``ai/core/run_stream.py``) from the start, or
+    from after the client's last frame — the ``Last-Event-ID`` header the
+    browser sends when it reconnects by itself, or ``?last_event_id=`` from a
+    client that opens a new stream — so a reconnect misses nothing. Every frame
+    carries its stream id as the SSE ``id:``. The stream ends after the frame
+    marked ``terminal``. With nothing to send for ``SSE_IDLE_SECONDS`` it sends
+    a keep-alive comment; and when the run has finished with no terminal frame
+    left to send (its frames expired, or it ended outside the loop), it ends
+    with a terminal ``run_end`` of the stored status.
+    """
     service = AIService(db)
     await service.get_execution(execution_id, current_user.company_id, current_user.role)
-    
+
+    import json
+    import logging
     from fastapi.responses import StreamingResponse
     import redis.asyncio as redis
-    from src.ai.core.run_stream import channel as run_channel, is_terminal
+    from src.ai.core.run_stream import is_terminal, is_terminal_status, read_run_events, start_id
     from src.common.config import settings
     import asyncio
 
+    resume_after = start_id(request.headers.get("last-event-id") or last_event_id)
+
     async def event_generator():
         r = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")
-        pubsub = r.pubsub()
-        channel = run_channel(execution_id)
-        await pubsub.subscribe(channel)
-
+        after = resume_after
+        wait = None  # the first read does not wait: a finished run ends at once
         try:
-            # Send initial connection message
             yield "data: {\"status\": \"connected\"}\n\n"
-
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    data = message["data"].decode("utf-8")
-                    yield f"data: {data}\n\n"
-                    # The frame says it is the last (GW-19); a payload that
-                    # merely contains a status word does not end the stream.
+            while True:
+                frames = await read_run_events(r, execution_id, after, block_ms=wait)
+                for entry_id, data in frames:
+                    after = entry_id
+                    yield f"id: {entry_id}\ndata: {data}\n\n"
                     if is_terminal(data):
-                        break
+                        return
+                if not frames:
+                    status = await _stored_run_status(execution_id)
+                    if status is None or is_terminal_status(status):
+                        last = {"type": "run_end", "outcome": status, "terminal": True}
+                        yield f"data: {json.dumps(last)}\n\n"
+                        return
+                    if wait is not None:
+                        yield ": keep-alive\n\n"
+                wait = SSE_IDLE_SECONDS * 1000
         except asyncio.CancelledError:
             pass
+        except redis.RedisError as exc:
+            # The page falls back to polling when its stream drops.
+            logging.getLogger(__name__).warning("run stream %s: %s", execution_id, exc)
         finally:
-            await pubsub.unsubscribe(channel)
             await r.close()
 
     return StreamingResponse(
@@ -378,7 +419,7 @@ async def cancel_execution(
     """Cancel an in-flight execution run.
 
     Sets the run to the terminal ``CANCELLED`` state and publishes on the
-    ``execution:{id}`` Redis channel. A running AgentLoop re-reads the run
+    run's stream (``run_events:{id}``). A running AgentLoop re-reads the run
     status at the top of every iteration and aborts, so an operator can stop
     a spinning run without killing the arq worker.
     """

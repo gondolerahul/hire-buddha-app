@@ -13,7 +13,7 @@ in their signatures — can open/close spans through the ambient recorder:
 Each span does two things:
 
   * **Live sink** — publishes ``span_open`` / ``span_close`` to the existing
-    ``execution:{run_id}`` Redis channel the SSE endpoint relays to the SPA
+    run's Redis stream (``run_events:{run_id}``) the SSE endpoint relays to the SPA
     (same envelope contract as ``agent_loop.event_async``).
   * **Historical sink** — persists one ``execution_trace_events`` row on close
     (full payload), on a *dedicated* short-lived ``AsyncSessionLocal`` so a

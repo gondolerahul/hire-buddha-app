@@ -166,7 +166,7 @@ class AgentLoop(RunPersistence, LoopLearning):
 
     async def run(self, run_id: UUID) -> dict[str, Any]:
         # Cache the run id and register our redis client so per-iteration
-        # events fan out to the ``execution:{run_id}`` SSE channel the
+        # events reach the run's stream (``run_events:{run_id}``) the
         # frontend ExecutionDetail page subscribes to.
         self._run_id = run_id
         set_sse_redis(self.redis)

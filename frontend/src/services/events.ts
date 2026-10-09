@@ -18,6 +18,12 @@ import type { AgentEvent } from '@/types/agentKernel';
 export type AgentEventListener = (event: AgentEvent) => void;
 
 /**
+ * Where a run's stream is: opening, delivering, down (the page should poll),
+ * or ended by the run's last frame.
+ */
+export type StreamConnection = 'connecting' | 'open' | 'error' | 'done';
+
+/**
  * Best-effort parser. Returns the event when the payload matches
  * something we model in `AgentEvent`; returns `null` for unknowns
  * (caller can fall through to legacy handling).
@@ -29,11 +35,23 @@ export function parseAgentEvent(raw: unknown): AgentEvent | null {
     return obj as unknown as AgentEvent;
 }
 
+/** The run's last frame says so with `terminal: true` (GW-19). */
+export function isTerminalFrame(raw: unknown): boolean {
+    return !!raw && typeof raw === 'object' && (raw as Record<string, unknown>).terminal === true;
+}
+
+/** The stream URL, resuming after `lastEventId` when there is one (GW-18). */
+export function resumeUrl(url: string, lastEventId: string | null): string {
+    if (!lastEventId) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}last_event_id=${encodeURIComponent(lastEventId)}`;
+}
+
 interface UseAgentEventsOptions {
     url: string | null;
     onEvent: AgentEventListener;
     onUnknown?: (raw: unknown) => void;
     onError?: (err: Event) => void;
+    onConnection?: (state: StreamConnection) => void;
 }
 
 /**
@@ -44,54 +62,77 @@ interface UseAgentEventsOptions {
  * `/api/v1/ai/executions/` goes in `?token=` — never the login token, which
  * the API refuses there (FE-28). If the stream is closed for good (an expired
  * or refused token), it is reopened with a fresh token, up to three times.
+ *
+ * Replay (GW-18): every frame carries an `id:`. The browser's own reconnect
+ * sends it back as `Last-Event-ID`; a reopened stream asks for what came after
+ * it with `?last_event_id=`, so nothing published while it was down is lost.
+ * The run's last frame (`terminal: true`) closes the stream for good.
  */
 export function useAgentEvents({
     url,
     onEvent,
     onUnknown,
     onError,
+    onConnection,
 }: UseAgentEventsOptions): void {
     const eventRef = useRef<AgentEventListener>(onEvent);
     eventRef.current = onEvent;
+    const connectionRef = useRef(onConnection);
+    connectionRef.current = onConnection;
 
     useEffect(() => {
         if (!url) return;
         let source: EventSource | null = null;
         let closed = false;
+        let finished = false;
         let reopened = 0;
+        let lastEventId: string | null = null;
         let timer: ReturnType<typeof setTimeout> | undefined;
+        connectionRef.current?.('connecting');
 
         const open = async (fresh: boolean) => {
             let token: string;
             try {
                 token = await getUrlToken('/api/v1/ai/executions/', fresh);
             } catch {
+                connectionRef.current?.('error');
                 if (!closed) timer = setTimeout(() => void open(true), 5_000);
                 return;
             }
             if (closed) return;
-            const current = new EventSource(withUrlToken(url, token));
+            const current = new EventSource(withUrlToken(resumeUrl(url, lastEventId), token));
             source = current;
 
             current.onopen = () => {
                 reopened = 0;
+                connectionRef.current?.('open');
             };
             current.onmessage = (msg) => {
+                if (msg.lastEventId) lastEventId = msg.lastEventId;
+                let raw: unknown;
                 try {
-                    const raw = JSON.parse(msg.data);
-                    // An iteration's frames arrive as one message (AK-I9).
-                    const items: unknown[] = raw && raw.type === 'batch' && Array.isArray(raw.events) ? raw.events : [raw];
-                    for (const item of items) {
-                        const parsed = parseAgentEvent(item);
-                        if (parsed) eventRef.current(parsed);
-                        else if (onUnknown) onUnknown(item);
-                    }
+                    raw = JSON.parse(msg.data);
                 } catch {
-                    // Non-JSON payload — ignore.
+                    return; // Non-JSON payload — ignore.
+                }
+                // An iteration's frames arrive as one message (AK-I9).
+                const batch = raw as { type?: unknown; events?: unknown };
+                const items: unknown[] = batch && batch.type === 'batch' && Array.isArray(batch.events) ? batch.events : [raw];
+                for (const item of items) {
+                    const parsed = parseAgentEvent(item);
+                    if (parsed) eventRef.current(parsed);
+                    else if (onUnknown) onUnknown(item);
+                }
+                if (isTerminalFrame(raw)) {
+                    finished = true;
+                    current.close();
+                    connectionRef.current?.('done');
                 }
             };
             current.onerror = (e) => {
+                if (finished) return;
                 onError?.(e);
+                connectionRef.current?.('error');
                 if (current.readyState === EventSource.CLOSED && !closed && reopened < 3) {
                     reopened += 1;
                     current.close();

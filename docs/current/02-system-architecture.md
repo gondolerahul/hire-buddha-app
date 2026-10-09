@@ -77,7 +77,7 @@ graph TB
     API -->|"arq enqueue"| RD
     API --> PG
     ARQ --> PG
-    API -->|"SSE relay via pubsub"| RD
+    API -->|"SSE from a stream per run"| RD
     ARQ -->|"publish spans"| RD
 ```
 
@@ -668,14 +668,15 @@ graph LR
     EXT -->|"WebSocket audio"| API
     API -->|"arq enqueue_job"| RD
     RD -->|"dequeue"| WK
-    WK -->|"PUBLISH execution:run_id"| RD
-    RD -->|"SUBSCRIBE"| API
+    WK -->|"XADD run_events:run_id"| RD
+    RD -->|"XREAD"| API
 ```
 
 | Mechanism | Where | Notes |
 |-----------|-------|-------|
 | Arq job queue | Redis sorted set, consumed by the worker | The only durable hand-off between the web tier and the execution tier. Producers enqueue through [`common/job_queue.py`](../../backend/src/common/job_queue.py); inbound webhooks and internal events through [`gateway/envelope.py`](../../backend/src/gateway/envelope.py), before their 202. |
-| Redis pub-sub | Channel `execution:{run_id}` (per-run trace/SSE), `agent.events` (global telemetry), `voice:session:{id}:control` and `mobile:user:{id}:push` (mobile dialer) | Producers: [`trace.py:251`](../../backend/src/ai/core/trace.py:251), [`agent_loop_sse.py:75`](../../backend/src/ai/core/agent_loop_sse.py:75), [`events.aevent`](../../backend/src/ai/core/events.py:241), [`mobile/realtime.py`](../../backend/src/mobile/realtime.py). Consumers: the SSE endpoint, the stream handler, the push socket. |
+| Redis stream per run | `run_events:{run_id}` (per-run trace/SSE, GW-18): appended by [`run_stream.publish_run_event`](../../backend/src/ai/core/run_stream.py), read by the SSE endpoint from the client's `Last-Event-ID`; capped at ~1,000 frames, kept a day | Producers: the loop, the trace recorder, HITL, cancel. Consumer: the SSE endpoint. |
+| Redis pub-sub | `agent.events` (global telemetry), `voice:session:{id}:control` and `mobile:user:{id}:push` (mobile dialer) | Producers: [`events.aevent`](../../backend/src/ai/core/events.py:241), [`mobile/realtime.py`](../../backend/src/mobile/realtime.py). Consumers: the stream handler, the push socket. |
 | Internal token | Header `X-Internal-Token`, checked by `require_internal` in [`internal_event.py`](../../backend/src/gateway/internal_event.py) | Only `POST /internal/event` takes it; compared in constant time with `INTERNAL_TOKEN`. |
 
 ### 7.1 Sequence: an HTTP execute request that ends up in the worker
@@ -703,7 +704,7 @@ sequenceDiagram
     W->>PG: "load run + entity, guard against ghost or terminal run"
     W->>W: "bind TraceRecorder via set_recorder"
     W->>W: "AgentLoop.run run_id"
-    W->>R: "PUBLISH execution:run_id  span_open / span_close"
+    W->>R: "XADD run_events:run_id  span_open / span_close"
     W->>PG: "INSERT execution_trace_events, UPDATE run status"
 ```
 
@@ -812,17 +813,17 @@ sequenceDiagram
     B->>A: "GET /api/v1/ai/executions/id/stream?token=JWT"
     A->>API: proxy
     API->>API: "get_current_user_from_query - JWT in query string"
-    API->>R: "SUBSCRIBE execution:id"
     API-->>B: "200 text/event-stream + data connected"
+    API->>R: "XREAD run_events:id after Last-Event-ID, else from the start"
 
     loop while run is live
-        W->>R: "PUBLISH execution:id  span_open"
-        R-->>API: message
-        API-->>B: "data: ...span_open..."
+        W->>R: "XADD run_events:id  span_open"
+        R-->>API: frame
+        API-->>B: "id: ... data: ...span_open..."
     end
 
-    W->>R: "PUBLISH execution:id  run_end with terminal true"
-    R-->>API: message
+    W->>R: "XADD run_events:id  run_end with terminal true"
+    R-->>API: frame
     API->>API: "terminal field seen -> break"
     API-->>B: close
 ```
@@ -1070,7 +1071,7 @@ graph TB
     end
     subgraph TR["3. Execution traces - per-run spans"]
         SPAN["core/trace.py span context manager"]
-        SPAN --> LIVE["Redis PUBLISH execution:run_id"]
+        SPAN --> LIVE["Redis XADD run_events:run_id"]
         SPAN --> HIST["INSERT execution_trace_events"]
     end
     LIVE --> SSE["GET /api/v1/ai/executions/id/stream"]
@@ -1137,8 +1138,8 @@ async with span("tool", tool_id, input=raw_input) as sp:
     sp.set_output(result)
 ```
 
-Each span has two sinks. **Live**: `span_open` / `span_close` envelopes published
-to `execution:{run_id}` — the same channel the SSE endpoint relays. **Historical**:
+Each span has two sinks. **Live**: `span_open` / `span_close` envelopes appended
+to `run_events:{run_id}` — the run's stream the SSE endpoint serves. **Historical**:
 one `execution_trace_events` row per closed span, written on a *dedicated*
 short-lived `AsyncSessionLocal` so a trace write can never poison the run's own
 session. Both are best-effort; failures are logged at DEBUG and swallowed.

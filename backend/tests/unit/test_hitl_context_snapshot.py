@@ -25,6 +25,12 @@ class _FakeRedis:
     async def publish(self, *_):
         pass
 
+    async def xadd(self, *_, **__):
+        pass
+
+    async def expire(self, *_):
+        pass
+
 
 class _FakeDB:
     def __init__(self):

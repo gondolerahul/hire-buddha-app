@@ -46,9 +46,9 @@
 | [T0](#2-t0--the-edge-is-not-defended) | The edge is not defended | 5 | 3 | 1 | 0 | 1 |
 | [T1](#3-t1--wired-to-nothing) | Wired to nothing | 5 | 3 | 1 | 1 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 3 | 1 | 0 | 0 |
-| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 5 | 0 | 2 | 0 |
+| [T3](#5-t3--correctness-and-scaling) | Correctness and scaling | 7 | 6 | 0 | 1 | 0 |
 
-**Total: 21 defects (14 fixed, 3 partly fixed, 3 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 21 defects (15 fixed, 3 partly fixed, 2 open, 1 invalid), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -69,7 +69,7 @@
 | GW-15 | The proxy copies response headers verbatim after decompressing | ✅ fixed | — |
 | GW-16 | Auth middleware runs before CORS, so its 401s have no CORS headers | ✅ fixed | — |
 | GW-17 | Agent selection is `LIMIT 1` with no `ORDER BY`, in three places | ✅ fixed `3ca2d38` | — |
-| GW-18 | SSE has no replay and no `Last-Event-ID` | open | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
+| GW-18 | SSE has no replay and no `Last-Event-ID` | ✅ fixed (2026-10-08) | — |
 | GW-19 | SSE terminates on a substring match | ✅ fixed (2026-10-08) | — |
 | GW-20 | The catch-all proxy must stay last, and nothing enforces it | ✅ fixed | — |
 | GW-21 | WebSocket sessions require affinity that nothing provides | open — decision HD12 | [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport) |
@@ -402,7 +402,7 @@ possibly a different one on each delivery of the same event type.
 
 ### GW-18 — SSE has no replay and no `Last-Event-ID`
 
-**📄 Doc-reported · Medium** · **Status: open** — re-verified 2026-10-07: SSE frames carry no `id:`; nothing reads `Last-Event-ID`. Plan: [H6](REMAINING-DEFECTS-PLAN.md#h6--real-time-transport).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — a run's frames are a Redis stream per run, `run_events:{run_id}` (`ai/core/run_stream.py`: `XADD … MAXLEN ~ 1000`, kept a day after the last frame), not pub/sub. The SSE endpoint sends each frame with its stream id as `id:`, starts after `Last-Event-ID` (the header of the browser's own reconnect) or `?last_event_id=` (a reopened `EventSource`), else from the first frame kept, sends a keep-alive every 15 s of silence, and ends a finished run with nothing left to send at once (a terminal `run_end` of the stored status). The page opens one stream (`useExecutionEvents` in `ExecutionDetail`), re-reads REST half a second after a frame that changes what is stored, and polls every 3 s only while the stream is down, ended before the final status was stored, or the run waits on children. `tests/unit/test_run_stream_replay.py` (8), integration `test_run_stream_redis.py` (3, the local Redis), `frontend/src/services/events.test.ts` (4). Live: frames carry ids; a reconnect with `Last-Event-ID` got the frame published while it was away; the run page made no poll for 10 s while the stream was open, one re-read per milestone, polled while the API was stopped, showed the frame published during the outage once the API was back, and closed its stream on the terminal frame without reconnecting
 
 A reconnecting `EventSource` loses everything that happened while it was disconnected.
 There is no event id, no buffer, no replay.
@@ -511,6 +511,8 @@ handshake already carries `?client_id=` and `?token=`; the token is simply never
 Do it in the endpoint, where the scope exists, and delete the dead middleware branch.
 
 ### GW-I7 — Give SSE an event id and a short replay buffer
+
+**Status: done (2026-10-08)** — with [GW-18](#gw-18--sse-has-no-replay-and-no-last-event-id), as a Redis stream per run rather than `seq` (spans are only part of what the page shows).
 
 **Effect: medium.** [GW-18](#gw-18--sse-has-no-replay-and-no-last-event-id). `seq` already
 exists on `execution_trace_events` and is monotonic per run. Emitting it as the SSE event

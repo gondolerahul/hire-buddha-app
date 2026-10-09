@@ -528,7 +528,7 @@ class AIService:
         """Cooperatively cancel an in-flight run.
 
         Flips ``ExecutionRun.status`` to ``CANCELLED`` (a terminal state) and
-        publishes a ``cancelled`` event on the ``execution:{id}`` Redis channel.
+        appends a terminal ``cancelled`` frame to the run's stream (``run_events:{id}``).
         The running AgentLoop re-reads the status at the top of each iteration
         (see ``AgentLoop._check_cancelled``) and aborts; legacy-engine runs that
         outlive the cancel simply settle as-is. Cancelling an already-terminal

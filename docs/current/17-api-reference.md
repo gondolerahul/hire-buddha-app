@@ -580,7 +580,7 @@ sequenceDiagram
     participant C as Client / HITLPanel
 
     W->>DB: INSERT human_approvals (PENDING)
-    W->>R: PUBLISH execution:{run_id} HITL_PENDING
+    W->>R: XADD run_events:{run_id} HITL_PENDING
     C->>C: GET /api/v1/ai/approvals/pending
     C->>C: POST /api/v1/ai/approvals/{id}/respond
     C->>R: PUBLISH hitl:{approval_id} {status: APPROVED}
@@ -1069,21 +1069,28 @@ sequenceDiagram
     participant R as Redis
     participant W as Worker
 
-    B->>API: GET /executions/{id}/stream
-    API->>R: SUBSCRIBE execution:{id}
+    B->>API: GET /executions/{id}/stream, Last-Event-ID optional
     API-->>B: text/event-stream opens
+    API->>R: XREAD run_events:{id} after Last-Event-ID
     loop while running
-        W->>R: PUBLISH execution:{id} {...}
-        R-->>API: message
-        API-->>B: data: {...}
+        W->>R: XADD run_events:{id} {...}
+        R-->>API: frame
+        API-->>B: id: ..., data: {...}
     end
-    W->>R: PUBLISH terminal event
-    API-->>B: data: {status: COMPLETED}
+    W->>R: XADD run_end with terminal true
+    API-->>B: id: ..., data: {type: run_end, terminal: true}
     API->>B: close
 ```
 
-The Redis channel is `execution:{run_id}` — the same channel HITL publishes
-`HITL_PENDING` on, so an approval request appears inline in the trace stream.
+Each record carries `id:`; send it back as `Last-Event-ID` (the browser does this
+on its own reconnect) or as `?last_event_id=` to resume after it (GW-18). With no
+id the stream starts from the first frame kept (~1,000 per run, for a day). A
+comment `: keep-alive` arrives every 15 s of silence. The stream ends after the
+frame with `"terminal": true`; a finished run with nothing left to send gets a
+terminal `run_end` of its stored status at once.
+
+The Redis stream is `run_events:{run_id}` — HITL appends `HITL_PENDING` to it
+too, so an approval request appears inline in the trace stream.
 See [15 §8](15-governance-and-hitl.md#8-parking-on-a-decision).
 
 The frontend consumer is

@@ -526,7 +526,7 @@ sequenceDiagram
 
     L->>G: step s1 — evaluate_hitl(BEFORE)
     G->>DB: INSERT HumanApproval (PENDING)
-    G-->>UI: PUBLISH execution:{run_id} {status: HITL_PENDING, approval_id, …}
+    G-->>UI: XADD run_events:{run_id} {status: HITL_PENDING, approval_id, …}
     G-->>L: raise HITLPending(approval_id, deadline)
     L->>DB: snapshot (awaiting_approval, s1 re-queued), status PAUSED
     L->>Q: resume_paused_run, deferred to the deadline
@@ -548,7 +548,7 @@ no step has used (`human_approvals.consumed_at IS NULL`):
 
 | Found | Result |
 |---|---|
-| nothing | open a PENDING approval, publish `HITL_PENDING` on `execution:{run_id}`, raise `HITLPending` — the run parks |
+| nothing | open a PENDING approval, append `HITL_PENDING` to the run's stream `run_events:{run_id}`, raise `HITLPending` — the run parks |
 | `PENDING` | raise `HITLPending` on that approval — park again, no second request |
 | `APPROVED` | mark it used, then the next checkpoint, then the step runs |
 | `REJECTED` | mark it used, raise `HITLRejected("Execution blocked by human reviewer: … — <reviewer notes>")` — the run ends `CANCELLED` (§8.4) |

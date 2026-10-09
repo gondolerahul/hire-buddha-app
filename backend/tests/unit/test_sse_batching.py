@@ -27,8 +27,11 @@ class _Redis:
     def __init__(self):
         self.published: list[dict] = []
 
-    async def publish(self, channel, data):
-        self.published.append(json.loads(data))
+    async def xadd(self, key, fields, **_):
+        self.published.append(json.loads(fields["data"]))
+
+    async def expire(self, *_):
+        pass
 
 
 class _Done:

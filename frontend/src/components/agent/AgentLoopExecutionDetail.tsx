@@ -8,10 +8,11 @@
  * is on for the run; otherwise the legacy ExecutionDetail body renders
  * as before.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { agentService } from '@/services/agent.service';
-import { useExecutionEvents } from '@/hooks/useExecutionEvents';
+import type { ExecutionEventState } from '@/hooks/useExecutionEvents';
+import type { StreamConnection } from '@/services/events';
 import type {
     AgentStateSnapshot,
     HealthRecordRow,
@@ -26,13 +27,24 @@ import './AgentLoopExecutionDetail.css';
 
 interface Props {
     runId: string;
-    streamUrl: string | null;
+    /** The run's live stream, read once by the page (`useExecutionEvents`). */
+    events: ExecutionEventState;
+    connection: StreamConnection;
+    milestones: number;
+    /** The run has reached a terminal status. */
+    finished: boolean;
     headerBlock?: React.ReactNode;
 }
 
+/** Fallback polls before giving up (~5 min at 3 s). */
+const MAX_FALLBACK_POLLS = 100;
+
 export const AgentLoopExecutionDetail: React.FC<Props> = ({
     runId,
-    streamUrl,
+    events,
+    connection,
+    milestones,
+    finished,
     headerBlock,
 }) => {
     const [snapshot, setSnapshot] = useState<AgentStateSnapshot | null>(null);
@@ -40,40 +52,51 @@ export const AgentLoopExecutionDetail: React.FC<Props> = ({
     const [healthRecords, setHealthRecords] = useState<HealthRecordRow[]>([]);
     const [traceSpans, setTraceSpans] = useState<TraceSpan[]>([]);
 
-    // Poll the agent-state snapshot + health records over REST. This drives
-    // the AgentState rail and backfills the iteration timeline, and — unlike
-    // the SSE stream (which a buffering reverse proxy can block) — works
-    // everywhere. Polling stops once the run reports done, with a safety cap.
-    useEffect(() => {
-        let cancelled = false;
-        let polls = 0;
-        setLoading(true);
-        const tick = async () => {
-            const [state, hrs, trace] = await Promise.all([
-                agentService.getAgentState(runId).catch(() => null),
-                agentService.getHealthRecords(runId).catch(() => []),
-                agentService.getTrace(runId).catch(() => []),
-            ]);
-            if (cancelled) return;
-            setSnapshot(state);
-            setHealthRecords(hrs);
-            setTraceSpans(trace);
-            setLoading(false);
-            polls += 1;
-            // Stop once the loop is done, or after ~5 min as a safety cap.
-            if ((state && (state as any).done) || polls > 100) {
-                window.clearInterval(timer);
-            }
-        };
-        const timer = window.setInterval(tick, 3000);
-        void tick();
-        return () => {
-            cancelled = true;
-            window.clearInterval(timer);
-        };
+    // The agent-state snapshot, health records and trace over REST drive the
+    // AgentState rail and backfill the iteration timeline.
+    const currentRun = useRef(runId);
+    currentRun.current = runId;
+    const load = useCallback(async () => {
+        const [state, hrs, trace] = await Promise.all([
+            agentService.getAgentState(runId).catch(() => null),
+            agentService.getHealthRecords(runId).catch(() => []),
+            agentService.getTrace(runId).catch(() => []),
+        ]);
+        if (currentRun.current !== runId) return; // another run's page by now
+        setSnapshot(state);
+        setHealthRecords(hrs);
+        setTraceSpans(trace);
+        setLoading(false);
     }, [runId]);
 
-    const { state: events } = useExecutionEvents(streamUrl);
+    // Read once, again when the run finishes, and again shortly after each
+    // frame that changes what is stored (GW-18) — no poll while the stream works.
+    useEffect(() => {
+        setLoading(true);
+        void load();
+    }, [load]);
+    useEffect(() => {
+        if (finished) void load();
+    }, [finished, load]);
+    useEffect(() => {
+        if (!milestones) return;
+        const timer = window.setTimeout(() => void load(), 500);
+        return () => window.clearTimeout(timer);
+    }, [milestones, load]);
+
+    // Poll every 3 s only while the stream is not delivering (a buffering
+    // proxy, a dropped connection) and the run is still going.
+    const snapshotDone = !!(snapshot && (snapshot as { done?: boolean }).done);
+    useEffect(() => {
+        if (finished || snapshotDone || connection === 'open') return;
+        let polls = 0;
+        const timer = window.setInterval(() => {
+            polls += 1;
+            if (polls > MAX_FALLBACK_POLLS) window.clearInterval(timer);
+            else void load();
+        }, 3000);
+        return () => window.clearInterval(timer);
+    }, [finished, snapshotDone, connection, load]);
 
     // Merge persisted health records into the per-iteration slices the
     // SSE reducer maintains, so the page shows accurate verdicts even

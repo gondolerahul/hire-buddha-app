@@ -1200,44 +1200,41 @@ reducer — see [§12](#12-deep-dive-executiondetail-and-the-agent-kernel-widget
 The reducer is a **pure function** exported separately from the hook, which is
 exactly why it is the one piece of this frontend with real unit tests.
 
-### 8.3 Belt and braces: SSE plus REST polling
+### 8.3 The stream first, REST when it says so
 
-`AgentLoopExecutionDetail` does not trust SSE alone.
+Since GW-18 (2026-10-08) the run's stream replays: every frame has an `id:`, and a
+reconnect resumes after `Last-Event-ID` (a reopened `EventSource` sends
+`?last_event_id=`). So the page reads REST when the stream says something changed,
+and polls only while the stream is not delivering.
 
 ```mermaid
 sequenceDiagram
+    participant P as ExecutionDetail
     participant C as AgentLoopExecutionDetail
     participant API as Backend REST
     participant SSE as SSE stream
 
+    P->>SSE: useExecutionEvents - one EventSource for the page
+    P->>API: GET the run
     C->>API: getAgentState + getHealthRecords + getTrace (Promise.all)
-    API-->>C: snapshot, health records, spans
-    Note over C: setInterval every 3000 ms
-    C->>SSE: subscribe via useExecutionEvents
 
     loop live
-        SSE-->>C: span_open / critic_post / iteration_end ...
-        C->>C: reducer updates events state
-        API-->>C: poll refreshes snapshot + records + spans
-        C->>C: useMemo merges - live SSE wins on span_id collision
+        SSE-->>P: span_open / critic_post / iteration_end ...
+        P->>P: reducer updates events state, passed to C
+        Note over P,C: a milestone frame - iteration start or end, resume, run_end, cancelled, HITL_PENDING
+        P->>API: re-read the run 500 ms later
+        C->>API: re-read snapshot + records + spans 500 ms later
     end
 
-    Note over C: stop polling when snapshot.done, or after 100 polls (~5 min)
+    Note over P,C: poll every 3 s only while the stream is down, or ended before the run's final status was stored, or the run waits on children
+    SSE-->>P: run_end with terminal true - the EventSource is closed
 ```
 
-The reason is in the code comment:
-
-```tsx
-// frontend/src/components/agent/AgentLoopExecutionDetail.tsx:43
-// Poll the agent-state snapshot + health records over REST. This drives
-// the AgentState rail and backfills the iteration timeline, and — unlike
-// the SSE stream (which a buffering reverse proxy can block) — works
-// everywhere.
-```
-
-Apache buffering can swallow SSE, so the REST poll is the guaranteed path and
-SSE is the low-latency bonus. The merge is explicit: REST spans first, then live
-spans overwrite by `span_id` (`AgentLoopExecutionDetail.tsx:124-147`).
+`useExecutionEvents` returns the reducer state, the stream's `connection`
+(`connecting`, `open`, `error`, `done`) and a `milestones` counter. Apache
+buffering or a dropped connection shows as `error`, and the page falls back to
+the 3-second poll until the stream is back. The merge is explicit: REST spans
+first, then live spans overwrite by `span_id`.
 
 ### 8.4 Audio: there is no WebSocket in the browser
 

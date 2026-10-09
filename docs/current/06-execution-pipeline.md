@@ -64,7 +64,7 @@ flowchart TD
         TOOLC --> ART["artifacts row + file on disk"]
         CTX --> RES["result_data - output plus steps"]
         LOOP --> BILL["settle_billing - credits deducted"]
-        LOOP --> SSE["Redis channel execution:run_id - SSE"]
+        LOOP --> SSE["Redis stream run_events:run_id - SSE"]
         SX --> LOGS["llm_interaction_logs, tool_interaction_logs, usage_logs"]
         EXEC --> TRACE["execution_trace_events - spans"]
     end
@@ -653,8 +653,8 @@ timeout_ms: 300000, notification_channels: [], message, auto_approve_on_timeout:
 | `TOOL_CALL` | BEFORE | step is `TOOL_CALL` and `target.tool_id == tool_ref`. |
 | `CUSTOM` | BEFORE | the expression holds: `step_count` / `cost` with `> >= < <= ==`, `has_key('x')`, joined by `and` / `or` (GH-10). |
 
-Firing writes a `human_approvals` row, publishes `HITL_PENDING` on
-`execution:{run_id}`, and parks the run `PAUSED` without holding the worker until
+Firing writes a `human_approvals` row, appends `HITL_PENDING` to the run's
+stream (`run_events:{run_id}`), and parks the run `PAUSED` without holding the worker until
 `POST /ai/approvals/{id}/respond` or `timeout_ms` resumes it (GH-07). A checkpoint
 that could never fire is refused when the entity is saved; one stored before asks a
 person (GH-09). Detail in [15 — Governance & HITL](15-governance-and-hitl.md).
@@ -1039,7 +1039,7 @@ Note what is **not** validated: entity `status` (a `DRAFT` or `ARCHIVED` entity 
 
 | Column | Set when | Meaning |
 |--------|----------|---------|
-| `id` | insert | Run identity; the SSE channel is `execution:{id}`. |
+| `id` | insert | Run identity; the run's SSE frames are the Redis stream `run_events:{id}`. |
 | `entity_id` | insert | What is being run. |
 | `parent_run_id` | insert (child runs only) | Tree edge: the run that dispatched this one. |
 | `retry_of_run_id` | insert (retries, refines) | The run this one repeats (EP-03). |
@@ -1939,15 +1939,17 @@ the SPA assembles the tree from `span_id` / `parent_span_id`.
 
 ### The SSE stream
 
-`GET /ai/executions/{id}/stream` subscribes to the Redis channel
-`execution:{run_id}` and relays every message verbatim as an SSE `data:` frame.
-It closes after the frame that carries `"terminal": true` — `run_end` with a
+`GET /ai/executions/{id}/stream` reads the run's Redis stream
+`run_events:{run_id}` and sends every frame verbatim as an SSE `data:` record with
+its stream id as `id:`, from the first frame kept or from after the client's
+`Last-Event-ID` (header or `?last_event_id=`), so a reconnect misses nothing
+(GW-18). It closes after the frame that carries `"terminal": true` — `run_end` with a
 finished outcome, or `cancelled` — and on nothing else (GW-19): every frame is
 published through one helper, [`run_stream.py`](../../backend/src/ai/core/run_stream.py).
 **Auth is via `?token=` query param** (`get_current_user_from_query`) because
 `EventSource` cannot set headers.
 
-Three producers publish to that one channel:
+These producers append to that one stream (`XADD … MAXLEN ~ 1000`, kept a day):
 
 | Producer | Frames |
 |----------|--------|
@@ -2011,7 +2013,7 @@ All routes below are mounted under `/api/v1` from
 | POST | `/ai/executions/{id}/csat` | user | Record ±1 CSAT. 409 if the run is not finished. |
 | GET | `/ai/executions/{id}/agent_state` | user | Debug: newest CORTEX `snapshot` node for the run. 404 if none. |
 | GET | `/ai/executions/{id}/trace` | user | All trace spans ordered by `seq`; optional `?iteration=N`. |
-| GET | `/ai/executions/{id}/stream` | **`get_current_user_from_query`** (`?token=`) | SSE relay of `execution:{id}`. |
+| GET | `/ai/executions/{id}/stream` | **`get_current_user_from_query`** (`?token=`) | SSE of the run's stream `run_events:{id}`; resumes after `Last-Event-ID` / `?last_event_id=`. |
 | POST | `/ai/executions/{id}/cancel` | user | Cooperative cancel. |
 | POST | `/ai/executions/{id}/retry` | user | New run resuming from `context_state`. |
 | POST | `/ai/executions/{id}/refine` | user | New run with LLM-selected step re-execution. |

@@ -13,6 +13,7 @@ import { Artifact, artifactService } from '@/services/artifact.service';
 import { RunFiles, downloadArtifactFile } from '@/components/agent/RunFiles';
 import { ExecutionRun, RunStatus, EntityType, LLMInteractionLog, ToolInteractionLog } from '@/types';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
+import { useExecutionEvents } from '@/hooks/useExecutionEvents';
 import { AgentLoopExecutionDetail } from '@/components/agent/AgentLoopExecutionDetail';
 import './ExecutionDetail.css';
 import { API_BASE_URL } from '@/config/api';
@@ -536,18 +537,29 @@ export const ExecutionDetail: React.FC = () => {
         fetchRun();
     }, [fetchRun]);
 
-    // Poll only while the run can still change (FE-19). The interval used to
-    // run for as long as the page was open — about 1.3 requests a second with
-    // the agent-loop panel, all night for a tab left open — skipping work on a
-    // finished run; and its list of states to refresh left out
-    // WAITING_ON_CHILDREN, so a parent waiting on children stopped updating.
-    // A refine moves the run out of a terminal state and restarts the poll.
-    const live = !run || !TERMINAL_STATUSES.has(String(run.status));
+    // The run's live stream, opened once for the page (GW-18). It replays from
+    // the last frame it saw after a reconnect, so the page re-reads the run
+    // when a frame says its stored state moved on, instead of polling.
+    const runId = run?.id;
+    const streamUrl = runId ? `${_API_BASE}/ai/executions/${runId}/stream` : null;
+    const { state: events, connection, milestones } = useExecutionEvents(streamUrl);
     useEffect(() => {
-        if (!live) return;
+        if (!milestones) return;
+        const timer = setTimeout(fetchRun, 500);
+        return () => clearTimeout(timer);
+    }, [milestones, fetchRun]);
+
+    // Poll only while the run can still change (FE-19) and the stream is not
+    // delivering — it is down, or it ended before the run's final status was
+    // stored — or while the run waits on children, whose progress is on their
+    // own streams. A refine moves the run out of a terminal state.
+    const live = !run || !TERMINAL_STATUSES.has(String(run.status));
+    const poll = live && (connection !== 'open' || String(run?.status) === 'WAITING_ON_CHILDREN');
+    useEffect(() => {
+        if (!poll) return;
         const interval = setInterval(fetchRun, 3000);
         return () => clearInterval(interval);
-    }, [live, fetchRun]);
+    }, [poll, fetchRun]);
 
     const handleRetry = async () => {
         if (!run || retrying) return;
@@ -625,7 +637,6 @@ export const ExecutionDetail: React.FC = () => {
     // Phase 11 Track 2: render the new AgentLoop layout when the
     // run's company has the `agent_loop.enabled` flag on.
     if (agentLoopEnabled) {
-        const streamUrl = `${_API_BASE}/ai/executions/${run.id}/stream`;
         return (
             <div className="page-container execution-detail-page">
                 <header className="page-header">
@@ -641,7 +652,10 @@ export const ExecutionDetail: React.FC = () => {
                 </header>
                 <AgentLoopExecutionDetail
                     runId={run.id}
-                    streamUrl={streamUrl}
+                    events={events}
+                    connection={connection}
+                    milestones={milestones}
+                    finished={!live}
                     headerBlock={<RunFiles artifacts={runArtifacts} />}
                 />
             </div>

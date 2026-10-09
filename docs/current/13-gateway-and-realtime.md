@@ -86,7 +86,7 @@ graph TB
     end
 
     subgraph State["Shared state"]
-        RD["Redis - pub/sub, arq queue, rate limits"]
+        RD["Redis - run streams, arq queue, rate limits"]
         PG["PostgreSQL"]
     end
 
@@ -112,7 +112,7 @@ graph TB
     R5 --> DISP
     RD --> WK
     WK --> PG
-    WK -->|publish execution:run_id| RD
+    WK -->|XADD run_events:run_id| RD
     RD --> SSE
     REST --> PG
     R4 --> PG
@@ -577,83 +577,97 @@ This is how the Execution Detail page shows an agent run unfolding live.
 ### 11.1 Endpoint and stream format
 
 The producer is an ordinary API route:
-[`GET /api/v1/ai/executions/{execution_id}/stream`](../../backend/src/ai/router.py:324).
+[`GET /api/v1/ai/executions/{execution_id}/stream`](../../backend/src/ai/router.py).
 The browser reaches it through Apache directly; until the merge it went through
 the gateway's SSE relay ([section 5](#5-the-former-rest-proxy)).
 
+Since GW-18 (2026-10-08) a run's frames live in a **Redis stream per run**,
+`run_events:{run_id}` ([`ai/core/run_stream.py`](../../backend/src/ai/core/run_stream.py)):
+every publisher appends with `XADD … MAXLEN ~ 1000` and renews a one-day
+expiry, and the endpoint reads it with `XREAD`. Until then it was Redis pub/sub
+on `execution:{run_id}`: a frame published while nobody listened was gone.
+
 ```python
-# backend/src/ai/router.py:324-364
+# backend/src/ai/router.py (abridged)
 @router.get("/executions/{execution_id}/stream")
-async def stream_execution(
-    execution_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user_from_query)
-):
-    service = AIService(db)
-    await service.get_execution(execution_id, current_user.company_id, current_user.role)
+async def stream_execution(execution_id: UUID, request: Request,
+                           last_event_id: Optional[str] = None, ...):
+    await AIService(db).get_execution(execution_id, current_user.company_id, current_user.role)
+    resume_after = start_id(request.headers.get("last-event-id") or last_event_id)
 
     async def event_generator():
-        r = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")
-        pubsub = r.pubsub()
-        channel = f"execution:{execution_id}"
-        await pubsub.subscribe(channel)
-        try:
-            yield "data: {\"status\": \"connected\"}\n\n"
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    data = message["data"].decode("utf-8")
-                    yield f"data: {data}\n\n"
-                    # The frame says it is the last (GW-19); a payload that
-                    # merely contains a status word does not end the stream.
-                    if is_terminal(data):
-                        break
-        except asyncio.CancelledError:
-            pass
-        finally:
-            await pubsub.unsubscribe(channel)
-            await r.close()
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+        after, wait = resume_after, None    # the first read does not wait
+        yield "data: {\"status\": \"connected\"}\n\n"
+        while True:
+            frames = await read_run_events(r, execution_id, after, block_ms=wait)
+            for entry_id, data in frames:
+                after = entry_id
+                yield f"id: {entry_id}\ndata: {data}\n\n"
+                if is_terminal(data):        # the run's last frame (GW-19)
+                    return
+            if not frames:
+                status = await _stored_run_status(execution_id)
+                if status is None or is_terminal_status(status):
+                    last = {"type": "run_end", "outcome": status, "terminal": True}
+                    yield f"data: {json.dumps(last)}\n\n"
+                    return
+                if wait is not None:
+                    yield ": keep-alive\n\n"
+            wait = SSE_IDLE_SECONDS * 1000   # 15 s
 ```
 
-Auth is by **query parameter**, because the browser `EventSource` API cannot set
-headers. `get_current_user_from_query` takes `token` as a plain query arg and
-runs the same `_authenticate_user` as the header path
-([`dependencies.py:72`](../../backend/src/auth/dependencies.py:72)). Then the run
-itself is authorised through `AIService.get_execution` with the caller's
-`company_id` and role, so cross-tenant reads are blocked.
+- **Where it starts.** From the client's last frame — the `Last-Event-ID` header
+  the browser sends when it reconnects by itself, or `?last_event_id=` from a
+  client that opens a new `EventSource` (a new one cannot send the header) — else
+  from the first frame still kept. A page opened mid-run therefore gets the run
+  so far, and a reconnect gets exactly what it missed.
+- **Where it stops.** After the frame marked `"terminal": true`. If there is
+  nothing to send and the run's stored status is finished (its frames expired,
+  or it ended without a terminal frame), it sends a terminal `run_end` of that
+  status and stops — at once on the first read, so a finished run's page does
+  not hold a connection.
+- **Keep-alive.** A comment line every 15 s of silence, which also keeps idle
+  proxies from closing the connection.
 
-A real frame sequence on the wire (each record is `data: <json>` followed by a
-blank line; there are no `event:` names and no `id:` fields):
+Auth is by **query parameter**, because the browser `EventSource` API cannot set
+headers: a ten-minute URL token scoped to `/api/v1/ai/executions/` (FE-28), read
+by `get_current_user_from_query`. Then the run itself is authorised through
+`AIService.get_execution` with the caller's `company_id` and role, so
+cross-tenant reads are blocked.
+
+A real frame sequence on the wire (each record is `id:` and `data: <json>`
+followed by a blank line; there are no `event:` names):
 
 ```text
 data: {"status": "connected"}
 
+id: 1791473788566-0
 data: {"type": "task_class_classified", "task_class": "research"}
 
+id: 1791473788568-0
 data: {"type": "span_open", "span_id": "0f1c…", "parent_span_id": null, "kind": "iteration", "name": "iteration-1", "iteration": 1, "seq": 1, "status": "running", "duration_ms": null, "cost_usd": null, "tokens_in": null, "tokens_out": null, "child_run_id": null, "payload": {}, "error": null}
 
-data: {"type": "iteration_start", "iteration": 1, "executor": "tool_call", "budget_pressure": 0.08, "open_subgoals": 3}
+id: 1791473788706-0
+data: {"type": "batch", "events": [{"type": "iteration_start", "iteration": 1, "executor": "tool_call", "budget_pressure": 0.08, "open_subgoals": 3}, {"type": "critic_pre", "iteration": 1, "verdict": "PROCEED", "concerns_count": 0, "cost_usd": 0.0004}]}
 
-data: {"type": "critic_pre", "iteration": 1, "verdict": "PROCEED", "concerns_count": 0, "cost_usd": 0.0004}
+: keep-alive
 
-data: {"type": "iteration_end", "iteration": 1, "outcome": "success", "decision": "CONTINUE", "cost_iter_usd": 0.0121}
-
+id: 1791473789691-0
 data: {"type": "run_end", "outcome": "COMPLETED", "iters": 4, "total_cost_usd": 0.0488, "terminal": true}
 
 ```
 
-### 11.2 Who publishes to `execution:{run_id}`
+### 11.2 Who publishes to a run's stream
 
 Every producer writes its JSON through one helper,
 [`run_stream.publish_run_event`](../../backend/src/ai/core/run_stream.py), which
-marks the run's last frame `"terminal": true` (GW-19). This is genuine Redis
-pub/sub — unlike the edge's in-process event bus — which is why a run
-executing in the arq worker can stream to a browser attached to the API.
+appends it to `run_events:{run_id}` and marks the run's last frame
+`"terminal": true` (GW-19). A run executing in the arq worker therefore streams
+to a browser attached to any API process.
 
 | Publisher | File | Payload `type` values |
 |-----------|------|----------------------|
-| AgentLoop telemetry | [`agent_loop_sse.py`](../../backend/src/ai/core/agent_loop_sse.py) | inside an iteration, `batch` (`events`: a list of the frames below — AK-I9, two messages per iteration); otherwise one frame each: `iteration_start`, `iteration_end`, `resume`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `retry_picked`, `retry_dequeued`, `replan_triggered`, `bandit_arm_updated`, `task_class_classified`, `cancelled`, `run_end` |
+| AgentLoop telemetry | [`agent_loop_sse.py`](../../backend/src/ai/core/agent_loop_sse.py) | inside an iteration, `batch` (`events`: a list of the frames below — AK-I9, two messages per iteration); otherwise one frame each: `iteration_start`, `iteration_end`, `resume`, `critic_pre`, `critic_post`, `critic_align`, `critic_super`, `retry_picked`, `retry_dequeued`, `replan_triggered`, `bandit_arm_updated`, `task_class_classified`, `cost_charged`, `cancelled`, `run_end` |
 | Step text | [`agent_loop_sse.StepTextStream`](../../backend/src/ai/core/agent_loop_sse.py) | `step_delta` |
 | Trace spans | [`trace.py`](../../backend/src/ai/core/trace.py) | `span_open`, `span_close` |
 | HITL checkpoints | [`governance_service.py`](../../backend/src/ai/governance/governance_service.py) | no `type`; `{"status": "HITL_PENDING", "approval_id", "trigger", "message"}` |
@@ -692,10 +706,15 @@ reaches the browser. If you add a loop event and it does not show up in the UI,
 this dict is the missing link. `tests/unit/test_sse_event_contract.py` fails when a
 key is a name nothing emits, or a value has no case in the reducer (AK-11).
 
-### 11.3 HITL on the same channel
+### 11.3 HITL on the same stream
 
 [15 — Governance & HITL](15-governance-and-hitl.md) documents the checkpoint
-protocol; from a transport point of view it is two channels:
+protocol. From a transport point of view: the checkpoint opens a PENDING
+approval, appends a `HITL_PENDING` frame to the run's stream, and parks the run
+`PAUSED` (GH-07) — it holds no worker while a person decides. The run's
+`run_end` frame for the suspension has outcome `PAUSED` and is **not** terminal,
+so the stream stays open. The decision (`POST /api/v1/ai/approvals/{id}/respond`)
+enqueues the resume, and the resumed loop's frames follow on the same stream.
 
 ```mermaid
 sequenceDiagram
@@ -708,89 +727,79 @@ sequenceDiagram
 
     W->>G: checkpoint reached
     G->>G: INSERT approval row PENDING
-    G->>R: PUBLISH execution:run_id status HITL_PENDING, approval_id, trigger, message
-    R->>BE: pubsub message
-    BE-->>BR: data: {"status": "HITL_PENDING", ...}
-    G->>R: SUBSCRIBE hitl:approval_id and wait until timeout_ms
+    G->>R: XADD run_events:run_id status HITL_PENDING, approval_id, trigger, message
+    R->>BE: XREAD returns the frame
+    BE-->>BR: id and data HITL_PENDING
+    W->>R: XADD run_end outcome PAUSED, not terminal
+    W->>W: snapshot, status PAUSED, worker freed
     OP->>BE: POST /api/v1/ai/approvals/approval_id/respond
-    BE->>R: PUBLISH hitl:approval_id status APPROVED, responded_by, notes
-    R->>G: message received, checkpoint unblocks
-    G->>W: resume the loop
+    BE->>R: enqueue resume_paused_run
+    R->>W: resume at the same step
+    W->>R: XADD resume, iteration frames, then run_end terminal
 ```
-
-Note the asymmetry: `execution:{run_id}` is browser-facing and relayed as SSE;
-`hitl:{approval_id}` is worker-facing and never leaves the backend.
 
 ### 11.4 Stream termination and reconnection
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Connecting: EventSource constructed with token query param
+    [*] --> Connecting: EventSource constructed with a URL token
     Connecting --> Open: first frame status connected
     Connecting --> Errored: non-200 or network failure
-    Open --> Open: data frames relayed from Redis
+    Open --> Open: frames with id, keep-alive every 15 s
     Open --> Closed: a frame with terminal true
     Open --> Errored: proxy timeout or backend restart
-    Errored --> Connecting: browser EventSource auto-retry
-    Closed --> [*]: generator breaks, pubsub unsubscribed
+    Errored --> Connecting: browser retry with Last-Event-ID, or a new EventSource with last_event_id
+    Closed --> [*]: the page closes its EventSource
 ```
 
-**There is no resume.** Nothing in the backend or frontend references
-`Last-Event-ID`; no `id:` field is ever emitted, and Redis pub/sub has no
-backlog. On reconnect the client gets `{"status": "connected"}` and then only
-events published from that moment on. Everything emitted while the connection was
-down is lost from the stream.
+**A reconnect resumes.** The browser's own retry sends the last `id:` it saw as
+`Last-Event-ID`; when the `EventSource` is closed for good (an expired URL
+token), [`services/events.ts`](../../frontend/src/services/events.ts) opens a new
+one with a fresh token and `?last_event_id=`. Either way the endpoint replays
+what was appended after that id. Frames are kept for a day after the last one
+and capped at about 1,000 per run (`step_delta` text is the bulk), so a long run
+can trim its first iterations — the page backfills those from the trace and
+health-record endpoints.
 
-The UI compensates rather than resumes. `AgentLoopExecutionDetail` polls the REST
-snapshot, health records and persisted trace spans every 3 s and merges them over
-the SSE-derived slices:
+**The page polls only as a fallback.** The run page opens one stream
+(`useExecutionEvents` in `ExecutionDetail`) and re-reads the run — and, on the
+agent-loop view, the state snapshot, health records and trace — half a second
+after a frame that changes what is stored: `iteration_start`, `iteration_end`,
+`resume`, `run_end`, `cancelled`, `HITL_PENDING`. It polls every 3 s only while
+the stream is not delivering (down, or ended before the run's final status was
+stored) and while the run waits on children, whose progress is on their own
+streams. Until GW-18 it polled every 3 s for as long as the run was live,
+because the stream could not be trusted to have delivered everything.
 
-```
-// frontend/src/components/agent/AgentLoopExecutionDetail.tsx:79-82
-// Merge persisted health records into the per-iteration slices the
-// SSE reducer maintains, so the page shows accurate verdicts even
-// for iterations that finished before the page subscribed.
-```
-
-So SSE is a *latency optimisation* layered on a polled source of truth. That is
-worth knowing before you spend a day making the stream resumable.
+The terminal frame closes the page's `EventSource`; without that the browser
+would reconnect to a finished stream.
 
 ### 11.5 The frontend consumers
 
 | Hook | File | Used by | Behaviour |
 |------|------|---------|-----------|
-| `useAgentEvents` | [`services/events.ts`](../../frontend/src/services/events.ts) | `useExecutionEvents` | Low level. Opens one `EventSource`, JSON-parses each `message`, routes to `onEvent` or `onUnknown`. |
-| `useExecutionEvents` | [`hooks/useExecutionEvents.ts`](../../frontend/src/hooks/useExecutionEvents.ts) | `AgentLoopExecutionDetail` | Reducer over `AgentEvent`. Builds `iterations`, `iterationOrder`, `spans`, `banditUpdates`, `replans`, `costByAttribution`, `taskClass`. |
+| `useAgentEvents` | [`services/events.ts`](../../frontend/src/services/events.ts) | `useExecutionEvents` | Low level. Opens one `EventSource` with a URL token, JSON-parses each message (and each frame of a `batch`), routes to `onEvent` or `onUnknown`, keeps the last event id for a reopen, reports the connection (`connecting`, `open`, `error`, `done`) and closes on the terminal frame. |
+| `useExecutionEvents` | [`hooks/useExecutionEvents.ts`](../../frontend/src/hooks/useExecutionEvents.ts) | `ExecutionDetail`, which passes its state to `AgentLoopExecutionDetail` | Reducer over `AgentEvent`. Builds `iterations`, `iterationOrder`, `spans`, `banditUpdates`, `replans`, `costByAttribution`, `taskClass`, `liveText`; also returns `connection` and a `milestones` counter. |
 
-Token injection is identical in both live hooks:
-
-```typescript
-// frontend/src/services/events.ts:56-59
-const token = localStorage.getItem('access_token');
-const sep = url.includes('?') ? '&' : '?';
-const source = new EventSource(`${url}${sep}token=${token ?? ''}`);
-```
-
-The URL comes from [`ExecutionDetail.tsx:777`](../../frontend/src/pages/ai/ExecutionDetail.tsx:777):
+The URL is built once per run in [`ExecutionDetail.tsx`](../../frontend/src/pages/ai/ExecutionDetail.tsx):
 
 ```typescript
-const streamUrl = `${_API_BASE}/ai/executions/${run.id}/stream`;
+const streamUrl = runId ? `${_API_BASE}/ai/executions/${runId}/stream` : null;
+const { state: events, connection, milestones } = useExecutionEvents(streamUrl);
 ```
-
-with `_API_BASE` defaulting to `https://gateway.hirebuddha.com/api/v1`. So the
-browser talks to the API (through Apache), and the API relays from Redis.
 
 ```mermaid
 flowchart LR
-    W["Arq worker AgentLoop"] -->|publish| RD[("Redis channel execution:run_id")]
-    G["GovernanceService HITL"] -->|publish| RD
-    T["TraceRecorder spans"] -->|publish| RD
-    S["AIService cancel"] -->|publish| RD
-    RD -->|pubsub.listen| BE["API GET /ai/executions/id/stream"]
+    W["Arq worker AgentLoop"] -->|XADD| RD[("Redis stream run_events:run_id")]
+    G["GovernanceService HITL"] -->|XADD| RD
+    T["TraceRecorder spans"] -->|XADD| RD
+    S["AIService cancel"] -->|XADD| RD
+    RD -->|XREAD after Last-Event-ID| BE["API GET /ai/executions/id/stream"]
     BE -->|text/event-stream via Apache| ES["Browser EventSource"]
     ES --> HK["useAgentEvents parse"]
     HK --> RED["executionEventReducer"]
     RED --> UI["Iteration timeline, span tree, cost panel"]
+    HK -->|milestone| REST["re-read the run over REST"]
 ```
 
 ---
@@ -955,7 +964,7 @@ Shared, therefore safe to scale:
 | Rate-limit counters | Redis (`storage_uri=settings.REDIS_URL`) |
 | Agent resolution cache | Redis key `gateway:agent:{client_id}:{channel}`, TTL 300 s |
 | Job queue | Redis via arq |
-| SSE fan-out | Redis pub/sub, `execution:{run_id}` |
+| SSE fan-out | A Redis stream per run, `run_events:{run_id}` (GW-18) |
 | Voice sessions, runs, entities | PostgreSQL |
 
 ```mermaid
@@ -964,7 +973,7 @@ graph TB
     LB --> G2["API instance B"]
 
     subgraph SharedOK["Shared - scales cleanly"]
-        RD[("Redis - rate limits, agent cache, arq, pubsub")]
+        RD[("Redis - rate limits, agent cache, arq, run streams")]
         PG[("PostgreSQL")]
     end
 
@@ -1006,7 +1015,7 @@ port: a WebSocket stays on the worker that accepted it, which is fine.
 |------|----------|-----|
 | `/api/v1/*` | none | Request/response. |
 | `/webhook/inbound`, `/internal/event` | none | Handoff to Redis. |
-| `/api/v1/ai/executions/{id}/stream` | none | Redis pub/sub is shared; any instance can relay. |
+| `/api/v1/ai/executions/{id}/stream` | none | The run's Redis stream is shared; any instance can serve it, and a reconnect to another instance resumes from `Last-Event-ID`. |
 | `/stream/audio`, `/stream/twilio/*`, `/stream/tata/*`, `/webhooks/voice/tata/incoming` | **required for connection lifetime** | In-memory session + live LLM socket. |
 | `/stream/video` | **required for connection lifetime** | `RTCPeerConnection` is process-local. |
 
@@ -1140,7 +1149,7 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 
 | Symptom | Likely cause | Check |
 |---------|--------------|-------|
-| SSE connects then hangs forever with no events | Nothing is publishing to `execution:{run_id}` — the run finished before you subscribed, or `set_sse_redis` was never called | `redis-cli PUBLISH execution:$RUN_ID '{"type":"x"}'` and see if the curl prints it |
+| SSE connects, then only keep-alives | Nothing is appending to `run_events:{run_id}` — `set_sse_redis` was never called, or the run is waiting (on children, or `PAUSED` for a person). A finished run's stream ends by itself | `redis-cli XRANGE run_events:$RUN_ID - +` lists what was published; `redis-cli XADD run_events:$RUN_ID '*' data '{"type":"x"}'` and see if the curl prints it |
 | SSE works on `gateway.*` but dies on `api.*` | `api.hirebuddha.com` vhost has no `ProxyTimeout` | Use the gateway hostname |
 | WebSocket returns 200 HTML or 400 instead of upgrading | Path not covered by the Apache rewrite rules | `grep RewriteRule deploy/apache/gateway.hirebuddha.com-le-ssl.conf` |
 | WebSocket drops after ~60 s in production | `ProxyTimeout` missing on that vhost | Add `ProxyTimeout 86400` |
@@ -1218,9 +1227,10 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
   the company's only active top-level agent; several is refused (`ambiguous_agent`,
   close 1008 on a socket, a logged refusal for a webhook event) rather than guessed.
   Multi-agent tenants must name one.
-- **SSE has no `Last-Event-ID` and no replay.** Reconnection loses everything that
-  happened while disconnected; the UI's 3-second polling is what actually keeps
-  the page correct.
+- **The run stream replays.** Frames carry ids and a reconnect resumes from
+  `Last-Event-ID` (GW-18), so the run page polls only while the stream is down.
+  Frames are capped at ~1,000 per run and kept a day: a page opened on an old or
+  very long run backfills from the trace and health-record endpoints.
 - **WebSockets are not traced.** The OTel ASGI instrumentation would open a span
   per message; `setup_telemetry` excludes `ws://`/`wss://` URLs.
 - **aiortc is not installed**, so `/stream/video` currently only answers the
@@ -1240,7 +1250,7 @@ cd backend && python -m pytest tests/e2e/test_12_unified_gateway.py -v
 - [06 — Entities & the execution pipeline](06-execution-pipeline.md) — what
   `process_gateway_event` builds once a webhook becomes a run.
 - [15 — Governance, HITL & feature flags](15-governance-and-hitl.md) — the
-  `execution:{run_id}` / `hitl:{approval_id}` protocol in full.
+  checkpoint, parking and approval protocol in full.
 - [16 — Frontend architecture](16-frontend.md) — where `useExecutionEvents` sits
   in the React app.
 - [17 — API reference](17-api-reference.md) — the exhaustive endpoint list.

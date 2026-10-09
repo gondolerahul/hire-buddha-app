@@ -699,17 +699,17 @@ sequenceDiagram
     API->>R: enqueue_job run_execution_recursive
     API-->>U: 200 run id
     U->>API: GET /ai/executions/id/stream  SSE
-    API->>R: SUBSCRIBE execution:id
+    API->>R: XREAD run_events:id from the start
     W->>DB: stamp feature_flags agent_loop.enabled true
     W->>W: AgentLoop.run
     loop each iteration
-        W->>R: PUBLISH execution:id typed event
-        R-->>API: message
-        API-->>U: data: event
+        W->>R: XADD run_events:id typed event
+        R-->>API: frame
+        API-->>U: id and data: event
     end
-    W->>DB: status COMPLETED, total_cost_usd, billed_amount
-    W->>R: PUBLISH terminal status
+    W->>R: XADD run_end with terminal true
     API-->>U: stream closes
+    W->>DB: status COMPLETED, total_cost_usd, billed_amount
 ```
 
 The run status machine is declared once and validated on every transition
@@ -820,18 +820,17 @@ sequenceDiagram
 
     W->>W: step boundary reached, checkpoint matches
     W->>DB: INSERT human_approvals status PENDING
-    W->>R: PUBLISH execution:runid  approval_required
-    W->>R: SUBSCRIBE hitl:approvalid
-    W->>W: block, polling with timeout_ms
+    W->>R: XADD run_events:runid  HITL_PENDING
+    W->>DB: snapshot, run status PAUSED - the worker is freed (GH-07)
+    W->>R: resume_paused_run deferred to the deadline
     H->>API: GET /ai/approvals/pending  polls every 10s
     API->>DB: SELECT PENDING approvals for company
     API-->>H: list of checkpoints
     H->>API: POST /ai/approvals/id/respond APPROVED
     API->>DB: UPDATE status, responded_by, responded_at, reviewer_notes
-    API->>R: PUBLISH hitl:approvalid
-    R-->>W: message
-    W->>W: resume the step
-    Note over W: on timeout - auto_approve_on_timeout true means APPROVED, else TIMEOUT
+    API->>R: enqueue resume_paused_run
+    R-->>W: a worker resumes the run at the same step
+    Note over W: a rejection ends the run CANCELLED; past the deadline, auto_approve_on_timeout true means APPROVED, else the run ends FAILED
 ```
 
 The approval row itself
@@ -1704,7 +1703,7 @@ sequenceDiagram
         W->>LLM: perceive, strategize, act
         LLM-->>W: tokens
         W->>DB: llm_interaction_logs plus usage_logs attribution actor_step
-        W->>R: PUBLISH execution:runid  iteration_start, span_open, critic_post, cost_charged
+        W->>R: XADD run_events:runid  iteration_start, span_open, critic_post, cost_charged
         R-->>FE: live trace renders
     end
 
@@ -1726,7 +1725,7 @@ sequenceDiagram
     W->>W: settle_billing - TB equals c times mf plus fees minus discount
     W->>DB: billed_amount on the run, BillingEvent for the month
     W->>DB: CreditService deducts daily then wallet then subscription
-    W->>R: PUBLISH terminal status  SSE closes
+    W->>R: XADD run_end terminal true  SSE closes
 
     Note over TA,DB: 8. See the bill
     TA->>FE: /wallet

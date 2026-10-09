@@ -18,8 +18,11 @@ class _FakeRedis:
     def __init__(self):
         self.published = []
 
-    async def publish(self, channel, body):
-        self.published.append((channel, body))
+    async def xadd(self, key, fields, **_):
+        self.published.append((key, fields["data"]))
+
+    async def expire(self, *_):
+        pass
 
 
 @pytest.mark.asyncio
@@ -40,7 +43,7 @@ async def test_iteration_end_carries_narrative() -> None:
 
     assert fake.published, "expected an SSE publish"
     channel, body = fake.published[0]
-    assert channel == "execution:run-123"
+    assert channel == "run_events:run-123"
     payload = json.loads(body)
     assert payload["type"] == "iteration_end"
     assert payload["narrative"] == "searched the web and summarised 3 sources"

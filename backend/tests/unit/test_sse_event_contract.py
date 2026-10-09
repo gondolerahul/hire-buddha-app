@@ -67,8 +67,11 @@ class _RecordingRedis:
     def __init__(self) -> None:
         self.published: list[tuple[str, str]] = []
 
-    async def publish(self, channel: str, body: str) -> None:
-        self.published.append((channel, body))
+    async def xadd(self, key: str, fields: dict, **_) -> None:
+        self.published.append((key, fields["data"]))
+
+    async def expire(self, *_) -> None:
+        pass
 
 
 async def test_a_resume_frame_is_published_to_the_run_channel() -> None:
@@ -84,6 +87,6 @@ async def test_a_resume_frame_is_published_to_the_run_channel() -> None:
         agent_loop_sse.set_sse_redis(None)
     assert len(redis.published) == 1
     channel, body = redis.published[0]
-    assert channel == "execution:run-1"
+    assert channel == "run_events:run-1"
     frame = json.loads(body)
     assert frame["type"] == "resume" and frame["from_iteration"] == 4

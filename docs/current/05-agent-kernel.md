@@ -162,7 +162,7 @@ sequenceDiagram
     W->>W: bind TraceRecorder via ContextVar
     W->>AL: AgentLoop.run run_id
     AL->>PG: status = RUNNING, started_at = now
-    AL-->>RQ: publish agent.* events on execution:{run_id}
+    AL-->>RQ: append agent.* events to run_events:{run_id}
     RQ-->>UI: SSE frames
     AL->>PG: final status, cost, result_data, settle billing
 ```
@@ -1748,7 +1748,7 @@ flowchart TD
     end
     EA --> EV["events.event - structured log plus optional OTel exporter"]
     EA --> MAP{"name in _SSE_EVENT_TYPES?"}
-    MAP -- yes --> PUB1["redis.publish execution:run_id with a short type"]
+    MAP -- yes --> PUB1["XADD run_events:run_id with a short type"]
     MAP -- no --> DROP["log only"]
     SP --> REC{"TraceRecorder bound to ContextVar?"}
     REC -- no --> NOOP["null span - setters still work"]
@@ -1777,8 +1777,8 @@ split out of kwargs; everything else is sanitised into `payload`.
 
 The loop does **not** call `aevent` directly. It calls `event_async` from
 [agent_loop_sse.py](../../backend/src/ai/core/agent_loop_sse.py), which calls
-`event(...)` and then republishes to the **per-run** channel
-`execution:{run_id}` with a short `type` discriminator the frontend reducer
+`event(...)` and then appends to the **per-run** stream
+`run_events:{run_id}` (GW-18) with a short `type` discriminator the frontend reducer
 switches on. Since P8.11 (2026-10-03, AK-I9) an iteration's frames are buffered
 (`iteration_batch`, a ContextVar) and published as `{"type": "batch", "events": [...]}` —
 once when the executor starts, so the page shows the iteration begin, and once when it
@@ -1827,9 +1827,9 @@ Every event the loop emits:
 > fails when a map key is never emitted or a mapped type has no reducer case. The
 > `resume` frame carries `from_iteration`, which the reducer reads.
 
-The `run_end` frame also stamps `status` so the SSE generator can close the
-stream — [router.py:346](../../backend/src/ai/router.py:346) breaks out of the
-pubsub loop when it sees `COMPLETED`, `FAILED` or `CANCELLED`.
+The `run_end` frame of a finished run carries `"terminal": true`, and the SSE
+endpoint stops on that field (GW-19); a suspension's `run_end` (`PAUSED`,
+`WAITING_ON_CHILDREN`) does not end the stream.
 
 ### Channel 2 — trace spans
 
@@ -1859,8 +1859,8 @@ flowchart TD
     DBS --> CAND["candidate spans"]
 ```
 
-Each span has two sinks: a live `span_open` / `span_close` publish to the same
-`execution:{run_id}` channel, and one `execution_trace_events` row on close,
+Each span has two sinks: a live `span_open` / `span_close` frame on the same
+`run_events:{run_id}` stream, and one `execution_trace_events` row on close,
 written on a **dedicated short-lived session** so a trace write can never
 corrupt the run's session. Payload fields are capped at
 `TRACE_MAX_FIELD_BYTES` (default 1 MB) and dropped entirely when the entity's
@@ -1871,7 +1871,7 @@ corrupt the run's session. Payload fields are capped at
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/v1/ai/executions/{id}/stream` | SSE relay of the `execution:{id}` Redis channel ([router.py:324](../../backend/src/ai/router.py:324)) |
+| `GET /api/v1/ai/executions/{id}/stream` | SSE of the run's Redis stream `run_events:{id}`, resuming after `Last-Event-ID` ([router.py](../../backend/src/ai/router.py)) |
 | `GET /api/v1/ai/executions/{id}/trace` | Historical spans ordered by `seq`, optionally filtered by `iteration` ([router.py:265](../../backend/src/ai/router.py:265)) |
 | `GET /api/v1/ai/executions/{id}/agent_state` | Newest `snapshot` CORTEX node for the run ([router.py:215](../../backend/src/ai/router.py:215)) |
 

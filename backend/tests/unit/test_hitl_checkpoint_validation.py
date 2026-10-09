@@ -141,6 +141,12 @@ class _Redis:
     async def publish(self, *_):
         pass
 
+    async def xadd(self, *_, **__):
+        pass
+
+    async def expire(self, *_):
+        pass
+
 
 async def _evaluate(checkpoint, phase="BEFORE", spent=0.0, monkeypatch=None):
     db = _NoApprovals()

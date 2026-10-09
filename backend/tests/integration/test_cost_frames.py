@@ -26,8 +26,11 @@ class _Redis:
     def __init__(self):
         self.published: list[tuple[str, dict]] = []
 
-    async def publish(self, channel, body):
-        self.published.append((channel, json.loads(body)))
+    async def xadd(self, key, fields, **_):
+        self.published.append((key, json.loads(fields["data"])))
+
+    async def expire(self, *_):
+        pass
 
 
 @pytest.fixture
@@ -62,7 +65,7 @@ async def test_an_llm_row_publishes_a_cost_charged_frame(db, redis):
     await UsageService(db).log_usage(company, "p48-model-in", 500_000, execution_id=run.id,
                                      attribution="critic_post")
     [(channel, frame)] = redis.published
-    assert channel == f"execution:{run.id}"
+    assert channel == f"run_events:{run.id}"
     assert frame["type"] == "cost_charged" and frame["attribution"] == "critic_post"
     assert frame["sku"] == "p48-model-in" and frame["amount_usd"] == pytest.approx(0.5)
     assert frame["persisted"] is True
