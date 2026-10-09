@@ -99,13 +99,20 @@ class AIService:
         )
         return result.scalar_one()
 
-    async def get_entities(self, company_ids: Optional[Collection[UUID]], type: EntityType = None, is_template: bool = None, voice_enabled: bool = None, status_filter: str = None) -> list[HierarchicalEntity]:
-        """Entities of ``company_ids`` (``None``: every company) — see ``auth.visibility``."""
+    async def get_entities(self, company_ids: Optional[Collection[UUID]], type: EntityType = None, is_template: bool = None, voice_enabled: bool = None, status_filter: str = None, include_deleted: bool = False) -> list[HierarchicalEntity]:
+        """Entities of ``company_ids`` (``None``: every company) — see ``auth.visibility``.
+
+        Soft-deleted entities are left out unless ``include_deleted`` (API-18).
+        """
         from sqlalchemy.orm import selectinload
         query = select(HierarchicalEntity)
 
-        # ── Always exclude soft-deleted entities from listings ──
-        query = query.where(HierarchicalEntity.status != "DELETED")
+        if include_deleted:
+            # The ORM hides deleted rows from every SELECT unless asked (DM-16).
+            from src.ai.orm.entity import INCLUDE_DELETED
+            query = query.execution_options(**{INCLUDE_DELETED: True})
+        else:
+            query = query.where(HierarchicalEntity.status != "DELETED")
 
         # Templates are public (company_id=NULL) — visible to everyone
         if is_template is True:
@@ -206,7 +213,8 @@ class AIService:
                        "< LOOP < GRAPH), in the same company, with no cycle.",
             )
 
-    async def delete_entity(self, entity_id: UUID, company_id: UUID, user_role: Optional[str] = None):
+    async def delete_entity(self, entity_id: UUID, company_id: UUID, user_role: Optional[str] = None) -> dict:
+        """Soft-delete an entity and its descendants; returns what was done (API-18)."""
         entity = await self.get_entity(entity_id, company_id, user_role=user_role)
         if entity.is_template:
             self._require_template_writer(user_role)
@@ -334,6 +342,7 @@ class AIService:
         from src.voice.agent_cache_bus import announce_agent_changed
         for eid in all_entity_ids:  # no new call reaches a deleted agent (VT-16)
             await announce_agent_changed(eid, entity.company_id)
+        return {"entity_id": entity_id, "status": "DELETED", "deleted_at": now, "deleted_ids": all_entity_ids}
 
     # Execution
     async def trigger_execution(self, execution_in: ExecutionRunCreate, company_id: UUID, user_id: UUID = None, user_role: str = None, entity_version_id: UUID = None) -> ExecutionRun:

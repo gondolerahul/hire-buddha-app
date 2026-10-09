@@ -477,12 +477,22 @@ entity to pass Meta-Agent validation — see
 ### `GET /api/v1/ai/entities`
 
 Returns entities scoped to the caller's `company_id`, excluding soft-deleted
-rows (`deleted_at IS NULL`).
+rows. An admin (`app_admin`, `partner_admin`, `tenant_admin`) may pass
+`include_deleted=true` to list them too, each with `status` `DELETED` and its
+`deleted_at`; anyone else gets 403 (API-18).
 
 ### `DELETE /api/v1/ai/entities/{entity_id}`
 
-**Soft delete** — sets `deleted_at`. The row remains for audit and for
-historical runs that reference it.
+**Soft delete** (API-18, as OpenAPI says too): the entity and every descendant keep
+their rows — their runs, usage and billing still point at them — with `status`
+`DELETED` and `deleted_at` set; documents, artifacts, call logs and phone numbers
+are unlinked from them. The answer says what was done:
+
+```json
+{"entity_id": "…", "status": "DELETED", "deleted_at": "2026-10-08T…", "deleted_ids": ["…", "…"]}
+```
+
+`DELETE /api/v1/ai/templates/{template_id}` (app_admin) does the same for a template.
 
 ### Entity versions — `/api/v1/ai/entities/{entity_id}/versions`
 
@@ -1247,7 +1257,9 @@ guard, was deleted on 2026-10-07 (API-13).
 10. **SSE needs `curl -N`** and a query-parameter token — `EventSource` cannot
     set headers.
 
-11. **`DELETE /api/v1/ai/entities/{id}` is a soft delete.** The row stays.
+11. **`DELETE /api/v1/ai/entities/{id}` is a soft delete.** The rows stay; the
+    answer lists the ids it marked `DELETED`, and an admin can list them again with
+    `include_deleted=true` (API-18).
 
 12. **Cron endpoints move money over HTTP.** `POST /api/v1/cron/daily-credits`
     and `/monthly-billing` are manually triggerable.

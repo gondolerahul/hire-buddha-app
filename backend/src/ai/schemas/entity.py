@@ -28,6 +28,7 @@ __all__ = [
     "HierarchicalEntityCreateRequest",
     "HierarchicalEntityUpdateRequest",
     "HierarchicalEntityResponse",
+    "EntityDeleted",
 ]
 
 
@@ -193,6 +194,9 @@ class HierarchicalEntityResponse(HierarchicalEntityBase):
     created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
+    # Set when the entity was soft-deleted (status DELETED); listed only with
+    # ``include_deleted`` (API-18).
+    deleted_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -237,3 +241,16 @@ class HierarchicalEntityResponse(HierarchicalEntityBase):
         if v is None:
             return []
         return v
+
+
+class EntityDeleted(BaseModel):
+    """What ``DELETE /ai/entities/{id}`` did (API-18): a soft delete.
+
+    The entity and every descendant keep their rows — runs, usage and billing
+    still point at them — with ``status`` ``DELETED`` and ``deleted_at`` set.
+    They are hidden from lists unless an admin asks for ``include_deleted``.
+    """
+    entity_id: UUID
+    status: EntityStatus = EntityStatus.DELETED
+    deleted_at: datetime
+    deleted_ids: List[UUID]

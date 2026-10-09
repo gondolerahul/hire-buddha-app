@@ -41,9 +41,9 @@
 | [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
-| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 2 | 1 | 3 | 1 |
+| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 3 | 0 | 3 | 1 |
 
-**Total: 20 defects (15 fixed, 1 partly fixed, 3 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (16 fixed, 0 partly fixed, 3 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -64,7 +64,7 @@
 | API-15 | `/api/social-connections` breaks the versioning convention | ✅ fixed (2026-10-08) | — |
 | API-16 | There is no universal pagination | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
 | API-17 | Full paths chain two prefixes, so the decorator misleads | ✅ fixed (2026-10-08) — the route census | — |
-| API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | partly — hidden by default; verb unchanged | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | ✅ fixed (2026-10-08) | — |
 | API-19 | Two similarly named tool endpoints return different things | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
 | API-20 | The credentials guide documents the wrong path prefix | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 
@@ -327,7 +327,7 @@ be three concatenations away from what the code shows.
 
 ### API-18 — `DELETE /api/v1/ai/entities/{id}` is a soft delete
 
-**📄 Doc-reported · Medium** · **Status: partly fixed** — re-verified 2026-10-07: soft-deleted entities are hidden by default since DM-16 (`d00fbd6`), so a delete-then-list no longer shows them. The API still does not say that `DELETE` is a soft delete. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
+**📄 Doc-reported · Medium** · **Status: fixed (2026-10-08)** — hidden by default since DM-16 (`d00fbd6`). The verb stays (a soft delete is still a delete to the caller); what changed is that the API says so: `DELETE /ai/entities/{id}` and `DELETE /ai/templates/{id}` are documented in OpenAPI as a soft delete and return `EntityDeleted` — `entity_id`, `status` `DELETED`, `deleted_at`, `deleted_ids` (the tree) — instead of `{"status": "success"}`; `GET /ai/entities` takes `include_deleted` for admins (403 for anyone else), which also lifts the ORM's DM-16 filter; the entity response carries `deleted_at`. `tests/integration/test_entity_soft_delete_api.py` (3)
 
 The row stays; `status` becomes `DELETED` and `deleted_at` is set, recursively across
 descendants.
@@ -428,6 +428,8 @@ across the whole surface.
 There are no external consumers yet, so this is free today and a breaking change later.
 
 ### API-I8 — Make soft delete explicit in the API
+
+**Status: done (2026-10-08)** — with [API-18](#api-18--delete-apiv1aientitiesid-is-a-soft-delete): the documented soft delete and its answer, and `include_deleted`; no `?hard=true` (the rows are kept for billing).
 
 **Effect: small.** [API-18](#api-18--delete-apiv1aientitiesid-is-a-soft-delete). Return
 `202 Accepted` with the new status, or add `?hard=true` for a real delete. Silently

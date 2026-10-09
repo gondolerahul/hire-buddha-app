@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, File, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -7,11 +7,12 @@ from src.common.database import get_db
 from src.auth.dependencies import get_current_user, get_current_user_from_query, RoleChecker
 from src.auth.visibility import in_scope, visible_company_ids
 from src.auth.models import User
+from src.auth.roles import ADMIN_ROLES
 from src.ai.schemas import (
     HierarchicalEntityCreateRequest, HierarchicalEntityUpdateRequest, HierarchicalEntityResponse,
     ExecutionRunCreate, ExecutionRunResponse, ExecutionRunSummary, EntityType,
     DocumentResponse, DocumentSearchResult, ExecutionRefineRequest, CSATRequest,
-    DocumentDetail, DocumentUpdate, ApprovalDecision,
+    DocumentDetail, DocumentUpdate, ApprovalDecision, EntityDeleted,
 )
 from src.ai.service import AIService
 from src.ai.services.knowledge_base import KnowledgeBaseService, file_type_of
@@ -63,19 +64,23 @@ async def list_entities(
     company_id: Optional[UUID] = None,
     voice_enabled: Optional[bool] = None,
     status: Optional[str] = None,
+    include_deleted: bool = Query(False, description=(
+        "Admins only: include soft-deleted entities (status DELETED, deleted_at set) — API-18")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     # Every company the caller can see — partners include their tenants, in one
     # query (it was one query per tenant). app_admin sees all, or one company
     # with ?company_id=.
+    if include_deleted and current_user.role not in ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="include_deleted is for admins")
     scope = await visible_company_ids(db, current_user)
     if company_id and current_user.role == "app_admin":
         scope = frozenset({company_id})
 
     service = AIService(db)
     entities = list(await service.get_entities(
-        scope, type, is_template=False, status_filter=status,
+        scope, type, is_template=False, status_filter=status, include_deleted=include_deleted,
     ))
 
     # Client-requested voice filter: only return agents with voice config
@@ -121,15 +126,24 @@ async def update_entity(
     service = AIService(db)
     return _shown(await service.update_entity(entity_id, entity_in, current_user.company_id, user_role=current_user.role, user_id=current_user.id))
 
-@router.delete("/entities/{entity_id}")
+_SOFT_DELETE = (
+    "A **soft delete**: the entity and every descendant keep their rows — their runs, usage "
+    "and billing still point at them — with `status` `DELETED` and `deleted_at` set. "
+    "Documents, artifacts, call logs and phone numbers are unlinked from them. They are left "
+    "out of every list unless an admin passes `include_deleted=true`. Returns the ids deleted "
+    "(API-18)."
+)
+
+
+@router.delete("/entities/{entity_id}", response_model=EntityDeleted,
+               summary="Soft-delete an entity and its descendants", description=_SOFT_DELETE)
 async def delete_entity(
     entity_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    await service.delete_entity(entity_id, current_user.company_id, user_role=current_user.role)
-    return {"status": "success"}
+    return await service.delete_entity(entity_id, current_user.company_id, user_role=current_user.role)
 
 @router.post("/entities/{entity_id}/convert-to-template", response_model=HierarchicalEntityResponse)
 async def convert_entity_to_template(
@@ -804,15 +818,15 @@ async def update_template(
     service = AIService(db)
     return _shown(await service.update_entity(template_id, entity_in, current_user.company_id, user_role=current_user.role, user_id=current_user.id))
 
-@router.delete("/templates/{template_id}")
+@router.delete("/templates/{template_id}", response_model=EntityDeleted,
+               summary="Soft-delete a template and its descendants", description=_SOFT_DELETE)
 async def delete_template(
     template_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(app_admin_only)
 ):
     service = AIService(db)
-    await service.delete_entity(template_id, current_user.company_id, user_role=current_user.role)
-    return {"status": "success"}
+    return await service.delete_entity(template_id, current_user.company_id, user_role=current_user.role)
 
 @router.post("/templates/{template_id}/clone", response_model=HierarchicalEntityResponse)
 async def clone_template(
