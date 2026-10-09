@@ -435,3 +435,27 @@ Columns: phase · ids · commit · evidence. Updated as each fix lands.
 | H5.10 | VT-16 | `c270631` | `voice/agent_cache_bus.py`: edit, delete and publish announce the agent on `voice:agent_changed`; every API process drops it; the dispatcher's routes are deleted. Integration `test_agent_cache_bus.py` on the local Redis (2), unit (3) |
 | H5.11 | VT-17 | `cbc0aa0` | Mu-law padded with `0xFF`. `test_mulaw_padding.py` (2) |
 | **H5** | 13 of 14 fixed | — | Unit 2,043 + the 5 known; integration and parity 422 + the 2 known; frontend lint, type check and build clean. VT-15 is the one left (a live Smartflo check). Not exercised live: an Azure call, a WhatsApp reply, a recorded Gemini session's bill. Seen on the way: the Tata WhatsApp send path loads no credentials |
+| H6.1 | GW-19, PO-19 | `1dc9658` | The SSE stream ends on a frame marked `terminal: true`, not a status word |
+| H6.2 | GW-18 | `28b8c48` | Run events in a Redis stream per run; `Last-Event-ID` replays; the page polls only while the stream is down |
+| H6.3 | GW-02 | `5e401ee` | Webhooks, live sockets and live sessions limited at the edge (`test_edge_limits.py`). Found on the way: VT-22 |
+| H6.4 | GW-10, GW-06, GW-13 | `0f8a2f7` | Per HD11, fixed: the video pipeline works once media arrives; TURN used. **GW-10 partly:** waits on installing `aiortc` and the scripted-peer run |
+| H6.5 | GW-21 | `3ba31f3` | Per HD12: one API instance, recorded; health names the instance |
+| H7.1–H7.3 | GH-13, GH-14, GH-20 | `03985c7`, `1f04ac3`, `3f1b39e` | Numeric flags from the env; a change reaches every process on commit; the flags page names each value's tier |
+| H8.1–H8.5 | API-15, API-17, API-18, API-19, API-16 | `65e1449`, `d5f9910`, `c5726f3`, `9948a47`, `56af488` | `/api/v1/social-connections` (+ alias); generated route census; soft delete documented; one tool list; one page envelope |
+| H9.1 | FE-21 | `9d61b59` | One query cache; writes invalidate what they change |
+| H11 | MC-24 | `6a4330b` | Per HD15: a scheduled CORTEX resume queues its run and keeps the schedule if it cannot |
+| H1.3 | FE-03, TS-04, TS-08 | `5255250` | `npm test` runs vitest; `tsc` checks the tests |
+| H11 | MC-06 | `9449a80` | Per HD15: each failed retrieval is named on the run's `memory` trace span and as an event; an unembeddable query is a failure (found live with expired ADC). **Package change — port to `hb-cortex-memory`** |
+| H1.4 | TS-05 | `1c40f73` | `REQUIRE_DB=1` turns every missing-infrastructure skip into a failure (`tests/harness/infra.py`) |
+| H1.8 | IN-23 | `73f4048` | No endpoint, no exporter; one 2 s attempt per batch. Shutdown with nothing on :4317: 65.4 s → 0.0 s |
+| H1.6 | TS-10, TS-11, TS-14, TS-15 | `32ec1bf` | `--strict-markers`; every test carries its directory's tier; `kpi`/`needs_redis` gone; `docker` marker; `test_marker_census.py` |
+| H1.7 | TS-16 | `031dda0` | Parity deletes the companies it seeded (`tests/harness/purge.py`, shared with e2e); the purge breaks the entity ↔ version FK cycle |
+| H1.5 | TS-06 | `da9e203` | `MockLLMRouter` raises on an unmatched call; `strict=False` opts into the stub |
+| H1.9 | — | `a0c8ef4` | Chaos flag test, the two `test_cost_attribution` SKU collisions and the four Windows sandbox tests fixed: **zero known failures** |
+| — | VT-22 | `1a5df62` | Browser audio sessions billed on one run (`CallSpend(channel="web_audio")`). Not checked against a live Gemini session |
+| H1.11, H10.7 | TS-17, TS-18 | `de173d1` | TS-17 accepted (HD18), documented; no doc quotes a pass count as a target; `*.yaml` |
+| H11 | GH-15, GH-16 | `7cd1ee8` | The four unread memory flags deleted; `KNOWN_UNREAD` empty |
+| H10.8 | API-20 | `1a5cd87` | The credentials guide's 28 paths are `/api/v1/...`; two routes that never existed corrected |
+| H10.1–H10.6 | ON-01, ON-03, ON-06, ON-07, ON-08, ON-15, ON-16, ON-17, ON-18 | `2799488` | Setup seeds a model; verification runs an agent; exercise on tool grants (run as written); flag catalogue checked by `test_flag_catalogue.py`; Known gaps line in every §1. **ON-08 partly:** enforcement waits on CI |
+| H3.13 | IN-20 | `400260a` | Each worker serves Prometheus `/metrics` (9101 / 9102): jobs, durations, failures, backlog. Live on the restarted workers |
+| **2026-10-09** | — | — | Unit tier 2,133 (0 failed); integration + parity 445 + 17 skipped (0 failed). Workers restarted on this code; the API process still runs older code until restarted (VT-22, IN-23 take effect then). **Left, all excluded as CI or VM/Linux work or waiting on a person:** H1.1/H1.2/H1.10 and IN-05, TS-02, TS-03, IN-18, IN-13 (CI); H3 except IN-20 (VM); VT-15 (a live Smartflo call); GW-10 (installing `aiortc`); ON-08 enforcement (CI); the deferred register 01 and 08 items (HD15). 238 `parity-*` companies from earlier parity runs remain in the dev database |

@@ -44,19 +44,19 @@ something that works but costs more than it should.
 | 05 | [The agent kernel](05-AGENT-KERNEL-DEFECTS.md) | [05](../05-agent-kernel.md) | 21 (21 fixed) | 10 |
 | 06 | [Entities & the execution pipeline](06-EXECUTION-PIPELINE-DEFECTS.md) | [06](../06-execution-pipeline.md) | 29 (29 fixed) | 10 |
 | 07 | [Planning, critics & self-correction](07-PLANNING-AND-CRITICS-DEFECTS.md) | [07](../07-planning-and-critics.md) | 27 (27 fixed) | 10 |
-| 08 | [Memory, CORTEX & retrieval](08-MEMORY-AND-CORTEX-DEFECTS.md) | [08](../08-memory-and-cortex.md) | 20 (9 fixed, 11 deferred) | 11 (4 done) |
+| 08 | [Memory, CORTEX & retrieval](08-MEMORY-AND-CORTEX-DEFECTS.md) | [08](../08-memory-and-cortex.md) | 20 (11 fixed, 9 deferred) | 11 (4 done) |
 | 09 | [Tools & the tool registry](09-TOOLS-DEFECTS.md) | [09](../09-tools.md) | 6 (6 fixed) + **[49 deep](TOOL-LAYER-DEFECTS.md)** | 10 |
 | 10 | [LLM providers & routing](10-LLM-PROVIDERS-DEFECTS.md) | [10](../10-llm-providers.md) | 26 (26 fixed) | 10 |
 | 11 | [Meta-intelligence & the Board](11-META-INTELLIGENCE-DEFECTS.md) | [11](../11-meta-intelligence.md) | 20 (14 fixed, 5 invalid, 1 moot) | 10 |
-| 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 21 (17 fixed, 1 partly, 3 not a defect) | 10 |
-| 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 (13 fixed, 3 partly, **4 open**, 1 invalid) | 10 |
+| 12 | [Voice, telephony & messaging](12-VOICE-AND-TELEPHONY-DEFECTS.md) | [12](../12-voice-and-telephony.md) | 22 (18 fixed, 1 partly, 3 not a defect) | 10 |
+| 13 | [Gateway & real-time transport](13-GATEWAY-AND-REALTIME-DEFECTS.md) | [13](../13-gateway-and-realtime.md) | 21 (18 fixed, 1 partly, 1 accepted, 1 invalid) | 10 |
 | 14 | [Billing, costing & credits](14-BILLING-AND-CREDITS-DEFECTS.md) | [14](../14-billing-and-credits.md) | 31 (30 fixed, 1 won't fix) | 10 (8 done, 1 done for tools, 1 partly) |
-| 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 (20 fixed, 2 partly, **3 open**) | 10 (GH-I2 done) |
-| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 32 (30 fixed, **2 open**) | 10 (5 done, 1 partly, 4 open) |
-| 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 (13 fixed, 1 partly, **5 open**, 1 accepted) | 10 |
-| 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 23 (5 fixed, 3 partly, **15 open**) | 10 |
-| 19 | [Testing & quality gates](19-TESTING-DEFECTS.md) | [19](../19-testing.md) | 19 (4 fixed, 2 partly, **11 open**, 1 accepted, 1 invalid) | 10 |
-| 20 | [Developer onboarding & glossary](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md) | [20](../20-onboarding-and-glossary.md) | 18 (7 fixed, **9 open**, 2 invalid) | 10 |
+| 15 | [Governance, HITL & feature flags](15-GOVERNANCE-AND-HITL-DEFECTS.md) | [15](../15-governance-and-hitl.md) | 25 (25 fixed) | 10 (GH-I2 done) |
+| 16 | [Frontend architecture](16-FRONTEND-DEFECTS.md) | [16](../16-frontend.md) | 32 (32 fixed) | 10 (5 done, 1 partly, 4 open) |
+| 17 | [API reference](17-API-REFERENCE-DEFECTS.md) | [17](../17-api-reference.md) | 20 (19 fixed, 1 accepted) | 10 |
+| 18 | [Infrastructure & deployment](18-INFRASTRUCTURE-AND-DEPLOYMENT-DEFECTS.md) | [18](../18-infrastructure-and-deployment.md) | 23 (7 fixed, 2 partly, **14 open**) | 10 |
+| 19 | [Testing & quality gates](19-TESTING-DEFECTS.md) | [19](../19-testing.md) | 19 (14 fixed, **2 open**, 2 accepted, 1 invalid) | 10 |
+| 20 | [Developer onboarding & glossary](20-ONBOARDING-AND-GLOSSARY-DEFECTS.md) | [20](../20-onboarding-and-glossary.md) | 18 (15 fixed, 1 partly, 2 invalid) | 10 |
 | — | [**Tool layer — deep pass**](TOOL-LAYER-DEFECTS.md) | [09](../09-tools.md) | 49 (48 fixed, 1 accepted) | — |
 | — | [**Tool stack audit (PO-06)**](PO-06-TOOL-STACK-AUDIT.md) | [09](../09-tools.md) | 19 (TL-50…TL-68, 19 fixed) | — |
 | — | [**Consolidated plan — 05/06/07/09/10/11 + tools**](CONSOLIDATED-KERNEL-TOOLS-PLAN.md) | 05, 06, 07, 09, 10, 11 | 171 distinct — **complete** (P0–P11, 2026-10-06); AK-08, merged into AK-05 and found still open on 2026-10-07, was fixed on 2026-10-08 (H4.1) | 60 (merged) |
