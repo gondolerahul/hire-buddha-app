@@ -28,7 +28,7 @@ async def test_env_override_truthy(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_env_override_falsy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_FLAG_MEMORY_V2_CANONICAL", "no")
     f = FeatureFlags(db=None)
-    assert await f.is_on("memory_v2.canonical") is False
+    assert await f.is_on("memory.v2_canonical") is False
 
 
 @pytest.mark.asyncio

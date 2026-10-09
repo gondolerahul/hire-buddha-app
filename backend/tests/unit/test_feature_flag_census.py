@@ -18,13 +18,8 @@ FLAGS_MODULE = SRC / "ai" / "core" / "feature_flags.py"
 
 # Declared, not yet read — each waits on a decision recorded in
 # docs/current/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md.
-KNOWN_UNREAD: dict[str, str] = {
-    # Register 08 (memory) — open items deferred by the product owner.
-    "memory.viewport_compact": "register 08, deferred",
-    "memory.scope_policy_enforced": "register 08, deferred",
-    "memory.embedding_resolver_v2": "register 08, deferred",
-    "memory_v2.canonical": "register 08, deferred",
-}
+# Empty since GH-15/GH-16 (2026-10-09): every declared flag is read.
+KNOWN_UNREAD: dict[str, str] = {}
 
 
 def _source_outside_flags_module() -> str:

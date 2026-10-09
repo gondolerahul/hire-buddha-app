@@ -70,7 +70,6 @@ FEATURE_FLAG_OVERRIDES: Dict[str, bool] = {
     "planner.v2_enabled": True,
     # memory v2
     "memory.v2_canonical": True,
-    "memory.scope_policy_enforced": True,
     "memory.dreaming_outcome_trigger": True,
     # tool + cost
     "tools.cost_resolver_v2_enabled": True,

@@ -1699,13 +1699,13 @@ through to env + defaults, so deploy order does not matter.
 | `sandbox.container_runtime_enabled` | `True` | Per-tenant container sandbox. |
 | `sandbox.persistent_browser_enabled` | `False` | Per-tenant persistent browser profile. |
 | `memory.v2_canonical` | `True` | Memory v2 canonicalisation. |
-| `memory.viewport_compact` | `True` | Compact CORTEX viewport rendering. |
-| `memory.scope_policy_enforced` | `True` | Memory scope policy. |
 | `memory.dreaming_outcome_trigger` | `True` | **Live.** `_enqueue_dreaming_trigger` fires `dreaming_outcome_trigger` after every run with reason `success` or `failure`. |
-| `memory.embedding_resolver_v2` | `True` | Embedding resolution. |
 | `memory.trust_score_learning` | `False` | Learned per-source trust scores. |
 | `memory.rule_lifecycle_confirmed_only` | `False` | Read where `RunMemory` is built (P8.10). ON → only `confirmed` Intelligence rules reach the critics. |
-| `memory_v2.canonical` | `True` | Legacy alias for pre-Track-6 code. |
+
+Deleted on 2026-10-09 because nothing read them (GH-15, GH-16): `memory.viewport_compact`,
+`memory.scope_policy_enforced`, `memory.embedding_resolver_v2` and the alias
+`memory_v2.canonical`. What they named is unconditional.
 
 Deleted on 2026-10-01 because nothing read them (AK-10):
 `agent_loop.perception_bounded_viewport`, the three `agent_loop.executor_*_enabled`

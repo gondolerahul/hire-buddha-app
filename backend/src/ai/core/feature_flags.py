@@ -103,19 +103,17 @@ DEFAULTS: dict[str, bool] = {
     # a company that turns this on gets "allow_all", which includes minors and
     # is restricted in some regions. It was hardcoded "allow_all" for everyone.
     "tools.video.people_of_all_ages": False,
-    # Memory v2 canonicalisation defaults.
+    # Memory v2 canonicalisation defaults. (memory.viewport_compact,
+    # memory.scope_policy_enforced, memory.embedding_resolver_v2 and the alias
+    # memory_v2.canonical were deleted: nothing read them, so they controlled
+    # nothing — GH-15, GH-16.)
     "memory.v2_canonical": True,
-    "memory.viewport_compact": True,
-    "memory.scope_policy_enforced": True,
     "memory.dreaming_outcome_trigger": True,
-    "memory.embedding_resolver_v2": True,
     # IntelligenceTree rule lifecycle (Phase 12 `06` §5): when ON, only
     # `confirmed` rules (candidate→confirmed→retired) enter planner/critic
     # prompts. Retired rules are always dropped; default OFF keeps legacy
     # (lifecycle-less) rules eligible so enabling never blanks prompts.
     "memory.rule_lifecycle_confirmed_only": False,
-    # Legacy alias kept for any pre-Track-6 code paths.
-    "memory_v2.canonical": True,
 }
 
 

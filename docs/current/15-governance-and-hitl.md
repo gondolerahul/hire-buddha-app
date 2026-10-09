@@ -1108,13 +1108,14 @@ is threaded into the tool context as `persistent_browser`.
 | Flag | Default | Controls |
 |---|---|---|
 | `memory.v2_canonical` | `True` | v2 four-domain memory is canonical |
-| `memory.viewport_compact` | `True` | Compact viewport rendering |
-| `memory.scope_policy_enforced` | `True` | `ScopePolicy` enforcement on CORTEX ops |
 | `memory.dreaming_outcome_trigger` | `True` | Trigger dreaming on run completion |
-| `memory.embedding_resolver_v2` | `True` | Per-company embedding model resolution |
 | `memory.trust_score_learning` | `False` | Learned per-source trust scores |
 | `memory.rule_lifecycle_confirmed_only` | `False` | Only `confirmed` rules enter prompts |
-| `memory_v2.canonical` | `True` | ⚠️ Legacy alias of `memory.v2_canonical` |
+
+`memory.viewport_compact`, `memory.scope_policy_enforced`, `memory.embedding_resolver_v2` and
+the alias `memory_v2.canonical` were deleted on 2026-10-09 (GH-15, GH-16): nothing read them,
+so toggling them changed nothing. `tests/unit/test_feature_flag_census.py` now has no known
+unread flag.
 
 See [08 — Memory and CORTEX](08-memory-and-cortex.md) for what each does.
 
@@ -1315,9 +1316,9 @@ redis-cli DEL "tool:search:company_<uuid>"
 
 11. **`meta_agent.board_routing` is defined twice** in `DEFAULTS` (both `True`).
 
-12. **`critic_pipeline.enabled` and `memory_v2.canonical` are legacy aliases**
-    that do not control the modern paths. Use `critic_pipeline.v2_enabled` and
-    `memory.v2_canonical`.
+12. ~~**`critic_pipeline.enabled` and `memory_v2.canonical` are legacy aliases**~~ —
+    both deleted (AK-10, 2026-10-01; GH-15, 2026-10-09). Use `critic_pipeline.v2_enabled`
+    and `memory.v2_canonical`.
 
 13. ~~**An unmapped tool costs $0** and warns only once per process~~ (GH-05, fixed
     2026-10-08): every call writes a $0 row and a `tool.cost.missing` event, and the price
