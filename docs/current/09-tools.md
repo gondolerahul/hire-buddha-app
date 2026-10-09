@@ -1849,8 +1849,7 @@ Two routers expose tools.
 
 | Method | Path | Auth | Handler | What it does |
 |---|---|---|---|---|
-| `GET` | `/api/v1/ai/tools` | any authenticated user | [router.py:468](../../backend/src/ai/router.py:468) | merged built-in + DB list; falls back to `ToolRegistry.list_tools()` if the DB is down |
-| `GET` | `/api/v1/ai/tool-registry` | any authenticated user | [tool_management_router.py:34](../../backend/src/ai/tool_management_router.py:34) | same merged list, the rows the viewer may see (DM-08), never with `configuration` (TL-06) |
+| `GET` | `/api/v1/ai/tool-registry` | any authenticated user | [tool_management_router.py](../../backend/src/ai/tool_management_router.py) | the one tool list (API-19): built-in tools merged with the rows the viewer may see (DM-08), `is_enabled` included, never with `configuration` (TL-06). `GET /api/v1/ai/tools` returned the same list (and the bare in-memory registry when the DB failed) and is gone |
 | `GET` | `/api/v1/ai/tool-registry/{tool_id}` | any authenticated user | :44 | one DB row by UUID, if visible; `configuration` only for `app_admin` (TL-06) — the tool editor reads it here |
 | `POST` | `/api/v1/ai/tool-registry` | **`app_admin`** | :59 | create a CUSTOM entry; 409 if the name collides with a built-in |
 | `PUT` | `/api/v1/ai/tool-registry/{tool_id}` | **`app_admin`** | :70 | patch any field of a row |
@@ -1902,7 +1901,7 @@ Its `CATEGORIES` filter lists the package categories (`core`, `crm`, `document`,
 
 The tool picker is the entity builder's Capabilities tab
 ([EntityConfigurationTabs.tsx](../../frontend/src/pages/ai/EntityConfigurationTabs.tsx)).
-It fetches `/ai/tools`, filters out disabled tools, and stores a plain array of
+It fetches `/ai/tool-registry`, filters out disabled tools, and stores a plain array of
 tool *names* in `capabilities.tools`. (A separate, unused `ToolSelectionPanel`
 was deleted under FE-30.)
 

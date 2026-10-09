@@ -161,7 +161,7 @@ export const EntityFlow: React.FC<EntityFlowProps> = ({ initialNodes = [], initi
         try {
             const [entitiesRes, toolsRes] = await Promise.all([
                 apiClient.get<HierarchicalEntity[]>('/ai/entities'),
-                apiClient.get<Tool[]>('/ai/tools'),
+                apiClient.get<Tool[]>('/ai/tool-registry'),
             ]);
             setEntities(entitiesRes.data);
             setTools(toolsRes.data);

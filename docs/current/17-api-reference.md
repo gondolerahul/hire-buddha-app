@@ -267,7 +267,6 @@ declares it — is [§24](#24-the-route-census--every-route-the-app-serves).
 | POST | `/api/v1/ai/executions/{execution_id}/refine` | Refine |
 | GET | `/api/v1/ai/approvals/pending` | Pending HITL approvals |
 | POST | `/api/v1/ai/approvals/{approval_id}/respond` | Approve / reject |
-| GET | `/api/v1/ai/tools` | Tools visible to this tenant |
 | POST | `/api/v1/ai/context-sources/upload` | Upload a context source |
 | POST | `/api/v1/ai/documents/upload` | Upload a RAG document |
 | POST | `/api/v1/ai/avatar/upload` | Upload an avatar |
@@ -511,10 +510,11 @@ Reads follow the entity's visibility (another company's entity is 404). Writes n
 entity in the caller's companies; only `app_admin` changes a template (PO-23). Each write
 runs in a savepoint, so a refusal undoes only that request.
 
-### `GET /api/v1/ai/tools`
+### `GET /api/v1/ai/tools` — removed (API-19)
 
-Tools visible to this tenant after feature-flag and status gating — see
-[09 — Tools](09-tools.md).
+It returned the same list as `GET /api/v1/ai/tool-registry` under a name that suggested
+otherwise, and — when the database failed — every built-in tool, whatever the caller may
+see. The entity builder reads `GET /api/v1/ai/tool-registry` ([§12](#12-tool-registry)).
 
 ---
 
@@ -755,8 +755,11 @@ The same four under `/api/social-connections` are a deprecated alias for one rel
 `sync-built-in` is the one to run after adding a tool in code — it reconciles the
 in-code registry with `tool_registry_entries`. See [09 — Tools](09-tools.md).
 
-Note this is distinct from `GET /api/v1/ai/tools`, which returns the
-**tenant-visible** subset for entity configuration.
+`GET /api/v1/ai/tool-registry` is the one tool list (API-19): every tool the caller may
+see — the built-in ones and their company's custom and synthesized ones (`app_admin`:
+every company's) — with `is_enabled`, disabled ones included; the builder's picker
+filters them. Any signed-in user reads it; every write is `app_admin`'s. Each route's
+OpenAPI summary says what it returns and who may call it.
 
 ---
 
@@ -1269,8 +1272,9 @@ guard, was deleted on 2026-10-07 (API-13).
 14. **Company suspension returns 403 from middleware** before your handler runs —
     and it opens its own DB session to do so.
 
-15. **`GET /api/v1/ai/tools` and `GET /api/v1/ai/tool-registry` are different
-    things** — tenant-visible tools versus the full registry.
+15. ~~**`GET /api/v1/ai/tools` and `GET /api/v1/ai/tool-registry` are different
+    things.**~~ (API-19, 2026-10-08): they had become the same list; `/ai/tools` is
+    gone and `/ai/tool-registry` is the one.
 
 ---
 
@@ -1372,7 +1376,6 @@ after adding, moving or removing a route, run
 | GET | `/api/v1/ai/tool-registry/{tool_id}` | signed in | `src.ai.tool_management_router` |
 | PUT | `/api/v1/ai/tool-registry/{tool_id}` | roles: app_admin | `src.ai.tool_management_router` |
 | POST | `/api/v1/ai/tool-registry/{tool_id}/toggle` | roles: app_admin | `src.ai.tool_management_router` |
-| GET | `/api/v1/ai/tools` | signed in | `src.ai.router` |
 | GET | `/api/v1/artifacts` | signed in | `src.ai.artifact_router` |
 | POST | `/api/v1/artifacts/upload` | signed in | `src.ai.artifact_router` |
 | DELETE | `/api/v1/artifacts/{artifact_id}` | signed in | `src.ai.artifact_router` |

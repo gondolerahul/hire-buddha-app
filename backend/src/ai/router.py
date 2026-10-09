@@ -522,21 +522,6 @@ async def respond_to_approval(
     return {"status": "success", "decision": decision.status}
 
 # --- Tools ---
-@router.get("/tools", response_model=list[dict])
-async def list_tools(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """List all available tools with enriched metadata."""
-    try:
-        from src.ai.tool_management_service import ToolManagementService
-        service = ToolManagementService(db)
-        return await service.list_all_tools(viewer=current_user)
-    except Exception:
-        # Fallback to simple ToolRegistry list if DB is unavailable
-        from src.ai.tools import ToolRegistry
-        return ToolRegistry.list_tools()
-
 # --- Context Source Upload ---
 @router.post("/context-sources/upload", response_model=dict)
 async def upload_context_source(

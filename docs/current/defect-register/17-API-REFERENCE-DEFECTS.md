@@ -41,9 +41,9 @@
 | [T0](#2-t0--reachable-and-should-not-be) | Reachable and should not be | 4 | 4 | 0 | 0 | 0 |
 | [T1](#3-t1--documented-and-not-reachable) | Documented and not reachable | 5 | 5 | 0 | 0 | 0 |
 | [T2](#4-t2--delete) | Delete | 4 | 4 | 0 | 0 | 0 |
-| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 3 | 0 | 3 | 1 |
+| [T3](#5-t3--inconsistency-across-the-surface) | Inconsistency across the surface | 7 | 4 | 0 | 2 | 1 |
 
-**Total: 20 defects (16 fixed, 0 partly fixed, 3 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
+**Total: 20 defects (17 fixed, 0 partly fixed, 2 open, 1 accepted), 10 improvements.** Re-verified against the code on 2026-10-07; what is left is scheduled in [`REMAINING-DEFECTS-PLAN.md`](REMAINING-DEFECTS-PLAN.md).
 
 | ID | Defect | Status | Plan |
 |---|---|---|---|
@@ -65,7 +65,7 @@
 | API-16 | There is no universal pagination | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
 | API-17 | Full paths chain two prefixes, so the decorator misleads | ✅ fixed (2026-10-08) — the route census | — |
 | API-18 | `DELETE /api/v1/ai/entities/{id}` is a soft delete | ✅ fixed (2026-10-08) | — |
-| API-19 | Two similarly named tool endpoints return different things | open | [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface) |
+| API-19 | Two similarly named tool endpoints return different things | ✅ fixed (2026-10-08) — one endpoint | — |
 | API-20 | The credentials guide documents the wrong path prefix | open | [H10](REMAINING-DEFECTS-PLAN.md#h10--documentation-and-onboarding) |
 
 The three to read first:
@@ -341,7 +341,7 @@ then lists will still see the entity in any query that forgets
 
 ### API-19 — Two similarly named tool endpoints return different things
 
-**📄 Doc-reported · Low** · **Status: open** — re-verified 2026-10-07: `GET /api/v1/ai/tools` (`ai/router.py:474`) and `/api/v1/ai/tool-registry` (`tool_management_router.py`) both remain. Plan: [H8](REMAINING-DEFECTS-PLAN.md#h8--one-consistent-api-surface).
+**📄 Doc-reported · Low** · **Status: fixed (2026-10-08)** — by now the two returned the **same** list (`ToolManagementService.list_all_tools(viewer=…)`, since DM-08), and `GET /api/v1/ai/tools` alone fell back, on any database error, to the bare in-memory registry — every built-in tool, whatever the caller may see, in another shape. It is deleted; the builder's Capabilities tab and the hierarchy canvas read `GET /api/v1/ai/tool-registry`, the one tool list, and every tool-registry route's OpenAPI summary says what it returns and who may call it. `tests/unit/test_single_port_app.py` lists `/api/v1/ai/tools` among the retired routes; the route census shows 264 routes. Live: the builder's Capabilities tab loads its tools from `/ai/tool-registry`
 
 `GET /api/v1/ai/tools` returns tenant-visible tools. `GET /api/v1/ai/tool-registry` returns
 the full registry. The names do not signal the difference, and only one is admin-gated.

@@ -97,6 +97,7 @@ def test_there_is_no_catch_all_proxy():
 @pytest.mark.parametrize("prefix", [
     "/api/v1/assets",              # redirect shims for a table dropped by DM-10 (API-11)
     "/api/v1/auth/admin-only",     # a role-guard probe on the public surface (API-13)
+    "/api/v1/ai/tools",            # the same list as /ai/tool-registry, failing open (API-19)
 ])
 def test_retired_routes_are_gone(prefix):
     paths = {getattr(r, "path", "") for r in app.routes}

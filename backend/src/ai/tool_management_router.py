@@ -3,6 +3,12 @@ Tool Management Router — CRUD endpoints for tool registry.
 
 All write operations (create, update, delete, toggle) are restricted
 to app_admin role. Read operations are available to all authenticated users.
+
+``GET /api/v1/ai/tool-registry`` is the one tool list (API-19): the entity
+builder's picker and the registry page both read it. ``GET /api/v1/ai/tools``
+returned the same list under a name that suggested otherwise — and, when the
+database failed, every built-in tool regardless of what the caller may see —
+and is gone.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,17 +37,21 @@ app_admin_only = RoleChecker(["app_admin"])
 # Read endpoints — all authenticated users
 # ---------------------------------------------------------------------------
 
-@router.get("", response_model=List[dict])
+@router.get("", response_model=List[dict], summary="The tools you may see — the one tool list")
 async def list_all_tools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List all tools (built-in + custom), enriched with metadata."""
+    """Every tool the caller may see: the built-in tools, and the custom and
+    synthesized tools of their company (``app_admin``: of every company), each
+    with its registry metadata and ``is_enabled`` — disabled ones included, so a
+    picker filters them. Any signed-in user."""
     service = ToolManagementService(db)
     return await service.list_all_tools(viewer=current_user)
 
 
-@router.get("/{tool_id}", response_model=ToolRegistryEntryResponse)
+@router.get("/{tool_id}", response_model=ToolRegistryEntryResponse,
+            summary="One tool's registry entry (configuration: app_admin only)")
 async def get_tool(
     tool_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -65,7 +75,8 @@ async def get_tool(
 # Write endpoints — app_admin only
 # ---------------------------------------------------------------------------
 
-@router.post("", response_model=ToolRegistryEntryResponse, status_code=201)
+@router.post("", response_model=ToolRegistryEntryResponse, status_code=201,
+             summary="Create a custom tool (app_admin)")
 async def create_tool(
     tool_in: ToolRegistryEntryCreate,
     db: AsyncSession = Depends(get_db),
@@ -76,7 +87,7 @@ async def create_tool(
     return await service.create_tool(tool_in, current_user.company_id, current_user.id)
 
 
-@router.put("/{tool_id}", response_model=ToolRegistryEntryResponse)
+@router.put("/{tool_id}", response_model=ToolRegistryEntryResponse, summary="Update a tool (app_admin)")
 async def update_tool(
     tool_id: UUID,
     tool_in: ToolRegistryEntryUpdate,
@@ -88,7 +99,7 @@ async def update_tool(
     return await service.update_tool(tool_id, tool_in)
 
 
-@router.delete("/{tool_id}")
+@router.delete("/{tool_id}", summary="Delete a custom tool (app_admin)")
 async def delete_tool(
     tool_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -100,7 +111,8 @@ async def delete_tool(
     return {"status": "success", "message": "Tool deleted"}
 
 
-@router.post("/{tool_id}/toggle", response_model=ToolRegistryEntryResponse)
+@router.post("/{tool_id}/toggle", response_model=ToolRegistryEntryResponse,
+             summary="Enable or disable a tool (app_admin)")
 async def toggle_tool(
     tool_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -111,7 +123,7 @@ async def toggle_tool(
     return await service.toggle_tool(tool_id)
 
 
-@router.post("/sync-built-in")
+@router.post("/sync-built-in", summary="Write the built-in tools into the registry (app_admin)")
 async def sync_built_in_tools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(app_admin_only),

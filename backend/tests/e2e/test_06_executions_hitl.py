@@ -18,7 +18,7 @@ def execution_context():
 
 @pytest.mark.asyncio
 async def test_list_tools(client: httpx.AsyncClient, app_admin_token):
-    resp = await client.get("/api/v1/ai/tools", headers=auth_headers(app_admin_token))
+    resp = await client.get("/api/v1/ai/tool-registry", headers=auth_headers(app_admin_token))
     assert resp.status_code == 200
     tools = resp.json()
     assert isinstance(tools, list)

@@ -1463,8 +1463,8 @@ is noted.
 |------|-------|---------|---------------|------|
 | [`ai/EntityLibrary.tsx`](../../frontend/src/pages/ai/EntityLibrary.tsx) | `/ai/entities` | Grid of entities, filter by type, delete, convert-to-template, promote draft | `GET/DELETE /ai/entities`, `templateService.convertToTemplate`, `metaService.promoteDraftEntity` | any authed |
 | [`ai/EntityBuilder.tsx`](../../frontend/src/pages/ai/EntityBuilder.tsx) | `/ai/entities/create`, `/edit/:id` | Thin shell: load, save, error banner | `GET/POST/PUT /ai/entities` | any authed |
-| [`ai/EntityConfigurationTabs.tsx`](../../frontend/src/pages/ai/EntityConfigurationTabs.tsx) | (child of builder) | **1780 lines.** The whole entity editor | `/ai/tools`, `/companies`, `/artifacts`, `/ai/documents`, `/cortex/trees`, `/ai/avatar/upload`, `/ai/context-sources/upload` | — |
-| [`ai/EntityFlow.tsx`](../../frontend/src/pages/ai/EntityFlow.tsx) | (child of Hierarchy tab) | ReactFlow canvas | `GET /ai/entities`, `GET /ai/tools` | — |
+| [`ai/EntityConfigurationTabs.tsx`](../../frontend/src/pages/ai/EntityConfigurationTabs.tsx) | (child of builder) | **1780 lines.** The whole entity editor | `/ai/tool-registry`, `/companies`, `/artifacts`, `/ai/documents`, `/cortex/trees`, `/ai/avatar/upload`, `/ai/context-sources/upload` | — |
+| [`ai/EntityFlow.tsx`](../../frontend/src/pages/ai/EntityFlow.tsx) | (child of Hierarchy tab) | ReactFlow canvas | `GET /ai/entities`, `GET /ai/tool-registry` | — |
 | [`ai/ExecutionPage.tsx`](../../frontend/src/pages/ai/ExecutionPage.tsx) | `/ai/execute/:id` | Fill input variables and launch a run | `GET /ai/entities/:id`, `POST /ai/execute` | any authed |
 | [`ai/ExecutionHistory.tsx`](../../frontend/src/pages/ai/ExecutionHistory.tsx) | `/ai/executions` | Run list with status filter | `GET /ai/executions` | any authed |
 | [`ai/ExecutionDetail.tsx`](../../frontend/src/pages/ai/ExecutionDetail.tsx) | `/ai/executions/:id` | **1111 lines.** Trace view, retry, refine, artifact download | `GET /ai/executions/:id`, `POST .../retry`, `POST .../refine` | any authed |

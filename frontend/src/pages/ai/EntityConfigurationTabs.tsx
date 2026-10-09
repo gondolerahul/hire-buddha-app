@@ -349,7 +349,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     const [availableTools, setAvailableTools] = useState<RegistryTool[]>([]);
     const [toolSearchQuery, setToolSearchQuery] = useState('');
     useEffect(() => {
-        apiClient.get<any[]>('/ai/tools').then(res => setAvailableTools(res.data.filter((t: any) => t.is_enabled !== false))).catch(() => {});
+        apiClient.get<any[]>('/ai/tool-registry').then(res => setAvailableTools(res.data.filter((t: any) => t.is_enabled !== false))).catch(() => {});
     }, []);
     // Updaters, so the handlers are stable and the memoised tool list can skip renders.
     const toggleToolAssignment = useCallback((toolName: string) => {
