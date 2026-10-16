@@ -28,9 +28,10 @@
 16. [Configuration changes](#16-configuration-changes)
 17. [Testing strategy](#17-testing-strategy)
 18. [Technical decisions and spikes](#18-technical-decisions-and-spikes)
-19. [Appendix A — table placement](#appendix-a--table-placement)
-20. [Appendix B — event type catalog](#appendix-b--event-type-catalog)
-21. [Appendix C — new and changed APIs](#appendix-c--new-and-changed-apis)
+19. [Portability: on-premise, hybrid and other clouds](#19-portability-on-premise-hybrid-and-other-clouds)
+20. [Appendix A — table placement](#appendix-a--table-placement)
+21. [Appendix B — event type catalog](#appendix-b--event-type-catalog)
+22. [Appendix C — new and changed APIs](#appendix-c--new-and-changed-apis)
 
 ---
 
@@ -253,7 +254,7 @@ New package `src/common/tenancy/`:
 | `engines.py` | Per-tenant `AsyncEngine` cache (LRU, default 200 engines per process; `pool_size=2`, `max_overflow=3`, target PgBouncer port 6432). Entra access tokens are injected per connection through an `async_creator` and refreshed 5 minutes before expiry (`azure-identity` `DefaultAzureCredential`). Local dev uses password auth. |
 | `session.py` | `control_session()` (replaces `AsyncSessionLocal`), `tenant_session(company_id)`, FastAPI dependencies `get_control_db` and `get_tenant_db` (tenant resolved from the authenticated user) |
 | `bases.py` | `ControlBase` and `TenantBase` declarative bases. `TenantBase.metadata.schema = "platform"` |
-| `migrate.py` | Migration runner CLI: `python -m src.common.tenancy.migrate control|tenants [--tenant KEY] [--parallel N]` |
+| `migrate.py` | Migration runner CLI: `python -m src.common.tenancy.migrate control\|tenants [--tenant KEY] [--parallel N]` |
 
 Rules:
 
@@ -981,7 +982,7 @@ Azure Managed Redis, private endpoint, TLS. Used for Arq queues (`arq:queue`, `c
 | Model family | Path on Azure |
 |--------------|---------------|
 | Gemini, Gemini Live, Imagen/Veo, Gemini embeddings | Still Vertex AI on Google. Pods authenticate with **workload identity federation**: a Google workload identity pool trusts the AKS OIDC issuer; the pod's projected service-account token is exchanged for Google credentials through an `external_account` credential file (no key files). `genai_factory.py` loads credentials from `GOOGLE_WIF_CREDENTIAL_FILE`. Spike SP-4. |
-| Claude | Microsoft Foundry (Entra auth) or Anthropic API; `anthropic_adapter.py` gains a provider switch (`service_metadata.provider = foundry|vertex|anthropic`). Spike SP-5 checks model availability in the chosen region. |
+| Claude | Microsoft Foundry (Entra auth) or Anthropic API; `anthropic_adapter.py` gains a provider switch (`service_metadata.provider = foundry\|vertex\|anthropic`). Spike SP-5 checks model availability in the chosen region. |
 | GPT | Azure OpenAI (unchanged), moving to managed-identity auth. |
 
 Gemini embeddings stay, so stored vectors remain valid. Live voice latency Azure → Google is measured in SP-8 before the voice path moves.
@@ -1052,7 +1053,7 @@ A dedicated suite (`backend/tests/isolation/`) runs in staging on every release:
 | Data | Method |
 |------|--------|
 | Control tables | `pg_dump --format=custom` from GCP Postgres (or Azure's PostgreSQL migration service in online mode over a site-to-site VPN for a shorter window) → `hb_control` |
-| Tenant-plane tables | **Tenant split tool** `python -m src.common.tenancy.split --source <gcp-dsn>`: for each active company: provision tenant (§6) → `COPY (SELECT … WHERE company_id = $1)` per table in dependency order into `t_<key>.platform` → convert credentials (§10.7) → write a manifest (row counts, per-table checksum `md5(string_agg(id::text || updated_at::text ORDER BY id))`) → compare |
+| Tenant-plane tables | **Tenant split tool** `python -m src.common.tenancy.split --source <gcp-dsn>`: for each active company: provision tenant (§6) → `COPY (SELECT … WHERE company_id = $1)` per table in dependency order into `t_<key>.platform` → convert credentials (§10.7) → write a manifest (row counts, per-table checksum `md5(string_agg(id::text \|\| updated_at::text ORDER BY id))`) → compare |
 | Files | `azcopy` from the VM disk (artifact, uploads, reports, recordings) into `migration/` then a rewrite job moves each file to `t-<key>/…` and updates `storage_key` |
 | CORTEX | Moves with the tenant tables (same database package, tenant base) |
 | Redis | Not migrated; queues drain on GCP before the switch; in-flight runs are checkpointed and re-enqueued on Azure |
@@ -1075,13 +1076,15 @@ New or changed settings in `common/config.py` (all have local-dev defaults):
 
 | Setting | Purpose |
 |---------|---------|
-| `CLOUD` | `local` \| `azure` |
+| `PLATFORM_PROFILE` | `local` \| `azure` \| `onprem` — sets the default adapter for every capability (§19) |
+| `SECRETS_BACKEND`, `KEY_WRAPPER`, `IMAGE_BUILDER` | Adapter overrides (§19.3) |
+| `TRUSTED_PROXY_HEADERS`, `TRUSTED_PROXY_CIDRS` | Which edge (Front Door, Cloudflare, on-premise WAF) may set client-address headers (P-10) |
 | `CONTROL_DATABASE_URL` | Replaces `DATABASE_URL` (alias kept one release) |
-| `TENANT_DB_AUTH` | `password` (dev) \| `entra` |
+| `TENANT_DB_AUTH` | `password` (dev) \| `entra_token` \| `vault_dynamic` |
 | `TENANT_DB_PORT` | 6432 (PgBouncer) |
 | `TENANT_ENGINE_CACHE_SIZE` | Default 200 |
 | `AZURE_KEYVAULT_URL`, `AZURE_TENANT_KEYS_VAULT_URL` | Platform secrets / tenant KEKs |
-| `AZURE_STORAGE_ACCOUNT_URL`, `STORAGE_BACKEND` | `local` \| `azure_blob` |
+| `AZURE_STORAGE_ACCOUNT_URL`, `STORAGE_BACKEND` | `local_disk` \| `azure_blob` \| `s3` |
 | `REDIS_URL` | Azure Managed Redis (TLS) |
 | `SCHEDULER_TICK_SECONDS`, `SCHEDULER_GRACE_SECONDS` | 5, 600 |
 | `AUTOMATION_MAX_CHAIN_DEPTH`, `AUTOMATION_TENANT_MAX_ACTIVE_RUNS`, `AUTOMATION_AGENT_MAX_SCHEDULES` | 5, 20, 50 |
@@ -1090,7 +1093,7 @@ New or changed settings in `common/config.py` (all have local-dev defaults):
 | `CONNECTION_SERVICE_URL`, `CONNECT_PUBLIC_BASE_URL` | Internal / OAuth callback base |
 | `SANDBOX_RUNTIME` | `subprocess` \| `docker` \| `kubernetes` |
 | `SANDBOX_RUNTIME_CLASS`, `SANDBOX_IDLE_DELETE_SECONDS`, `SCRATCH_RETENTION_DAYS` | `kata-vm-isolation`, 900, 7 |
-| `APPS_BASE_DOMAIN`, `APPS_ACR_LOGIN_SERVER`, `GITEA_URL` | App hosting |
+| `APPS_BASE_DOMAIN`, `APPS_IMAGE_REGISTRY`, `GITEA_URL` | App hosting (registry host is a setting, not an ACR assumption — P-09) |
 | `GOOGLE_WIF_CREDENTIAL_FILE` | Google federation config |
 | `ANTHROPIC_PROVIDER`, `FOUNDRY_ENDPOINT` | Claude routing |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | Traces |
@@ -1134,6 +1137,7 @@ Removed after cutover: `ENCRYPTION_MASTER_KEY` (kept read-only for the migration
 | TD-11 | Operational tables (campaigns, calls, leads, conversations) move to the tenant `platform` schema unchanged in Phase 14; remodelling into GTM business objects is E13–E18 work |
 | TD-12 | PostgreSQL 16 for all new servers and local dev |
 | TD-13 | Azure resources as code with Bicep (Azure Verified Modules); in-cluster components with Helm. (Terraform is acceptable if the team prefers it; decide at WS0 kickoff.) |
+| TD-14 | Application code is cloud-neutral: cloud SDKs live only in adapter modules behind interfaces, so the same code and charts can run on Azure, on-premise, or split between the two (§19) |
 
 ### 18.2 Spikes (each ends with a short decision note in `docs/phase14/spikes/`)
 
@@ -1149,6 +1153,111 @@ Removed after cutover: `ENCRYPTION_MASTER_KEY` (kept read-only for the migration
 | SP-8 | Gemini Live latency from the Azure region | Within agreed budget vs GCP baseline |
 | SP-9 | Sleep-when-idle apps (KEDA HTTP add-on or controller-based) | Wake < 5 s; no lost requests |
 | SP-10 | Built-in Git: Gitea vs bare repositories on Azure Files | Push/PR/status flows work through the platform |
+
+---
+
+## 19. Portability: on-premise, hybrid and other clouds
+
+### 19.1 Goal
+
+Azure is the home of the platform (D39). Two other shapes must stay possible **without forking the application code**:
+
+* **On-premise / private cloud:** the whole platform in a data centre we or a partner run.
+* **Hybrid (private deployment):** the shared control plane stays on Azure, while one tenant's environment (database, Data API, apps, sandbox, files) runs in that customer's data centre for data-residency reasons (E34).
+
+Portability is a property of the **code and the Helm charts**. Infrastructure-as-code is written per target (Bicep for Azure; whatever the on-premise target uses). Phase 14 keeps the platform portable; it does **not** build or test an on-premise deployment — that becomes its own work item when a customer or cost case needs it.
+
+### 19.2 Rules
+
+| ID | Rule |
+|----|------|
+| P-01 | Application code depends only on portable contracts: the Kubernetes API, PostgreSQL 16 (wire protocol + the allow-listed extensions `vector`, `pgcrypto`, `pg_trgm`, `uuid-ossp`, `btree_gin`), the Redis protocol, OIDC/JWT, OpenTelemetry and the Prometheus exposition format. |
+| P-02 | Cloud SDKs (`azure.*`, `google.cloud.*` for infrastructure, provider CLIs) are imported **only** inside adapter modules under `backend/src/common/platform/<capability>/`. A CI import-contract check (`import-linter`) fails any other import. Model-provider SDKs (`google-genai`, `anthropic`, `openai`) are not infrastructure and stay in `ai/llm/`. |
+| P-03 | Each capability has one interface and one adapter per target, chosen by settings: `PLATFORM_PROFILE=azure\|onprem\|local` sets the defaults, and each capability can be overridden (`STORAGE_BACKEND`, `SECRETS_BACKEND`, `KEY_WRAPPER`, `TENANT_DB_AUTH`, `IMAGE_BUILDER`, `SANDBOX_RUNTIME`). |
+| P-04 | No managed-service-only behaviour in the data path. Flexible Server–specific functions (`pgaadauth_*`, server parameters) are used only by the provisioning adapter, never by migrations or services. The same migrations run on Flexible Server and on community PostgreSQL. |
+| P-05 | Persisted data never contains provider-specific addresses. Files are stored by neutral keys (`t-<key>/artifacts/…`), never Blob URLs; signed URLs are produced at request time by the storage adapter. |
+| P-06 | Encrypted data is portable. Ciphertext records the key-wrapper provider and key version; moving a tenant between providers re-wraps its DEK only — connection secrets and app-auth keys are not re-encrypted (§10.4). |
+| P-07 | No long-lived static credentials in any target. Azure uses workload identity and Entra tokens; on-premise uses Vault's Kubernetes auth with short-lived dynamic database credentials. |
+| P-08 | Helm charts are cloud-neutral. Storage classes, load-balancer annotations, workload-identity annotations, the sandbox runtime class, ingress classes and node-pool labels come from `values-azure.yaml` / `values-onprem.yaml`, never from templates. |
+| P-09 | Images are standard OCI images (linux/amd64; arm64 optional) pulled from a configurable registry. Nothing at runtime depends on ACR-specific features. |
+| P-10 | The edge is replaceable. Code trusts proxy headers only from a configured list (`TRUSTED_PROXY_HEADERS`, `TRUSTED_PROXY_CIDRS`), so Front Door, Cloudflare or an on-premise WAF can sit in front. |
+| P-11 | Observability is configured, not coded: OpenTelemetry exporters and Prometheus scraping are chosen by settings and charts. |
+| P-12 | The sandbox stays behind the `SandboxRuntime` protocol; the runtime class name (Azure Pod Sandboxing, or Kata QEMU / Cloud Hypervisor on-premise) is a setting. |
+
+### 19.3 Interfaces and adapters
+
+| Capability | Interface | Azure adapter (built in Phase 14) | On-premise adapter (built when needed) | Local dev / tests |
+|-----------|-----------|-----------------------------------|----------------------------------------|-------------------|
+| Object storage | `StorageBackend` (§12.1) | `azure_blob` | `s3` (MinIO, Ceph RGW) | `local_disk` |
+| Secrets | `SecretsProvider` | `azure_keyvault` (via CSI driver or SDK) | `vault` | `env` |
+| Tenant key wrapping | `KeyWrapper` (§10.4) | `azure_keyvault` | `vault_transit` | `local_aesgcm` (dev only) |
+| Database authentication | `DbCredentialProvider` (§5.3) | `entra_token` | `vault_dynamic` | `password` |
+| Workload identity to other services | `WorkloadTokenSource` | `azure_workload_identity` | `vault_k8s_auth` / projected service-account token | `none` |
+| Tenant provisioning | `InfraProvisioner` (§6.2) | `azure` (ARM: database, identity, Key Vault, Blob) | `onprem` (CloudNativePG cluster or database, Vault policy, bucket) | `local` (databases in Docker Postgres) |
+| Image builds | `ImageBuilder` (§11.4) | `acr_tasks` | `buildkit` (rootless, in-cluster Job) | `docker` |
+| Sandbox | `SandboxRuntime` (§11.1) | `kubernetes` + Pod Sandboxing | `kubernetes` + Kata | `subprocess` / `docker` |
+| Google model access | credential file setting (§12.4) | workload identity federation from AKS | federation from the on-premise cluster's OIDC issuer, or a service-account key in Vault | developer ADC |
+
+Interfaces live in `backend/src/common/platform/<capability>/__init__.py`; adapters in sibling modules. The interfaces are part of WS1, WS2 and WS5; Phase 14 implements the Azure and local adapters only.
+
+### 19.4 Component mapping
+
+| Azure (Phase 14) | On-premise equivalent |
+|------------------|-----------------------|
+| AKS | Self-managed Kubernetes (RKE2, k3s, OpenShift) or AKS on Azure Local |
+| Pod Sandboxing | Kata Containers on bare metal (no nested virtualization needed) |
+| Azure Database for PostgreSQL Flexible Server | PostgreSQL 16 managed by an operator (CloudNativePG), PgBouncer, pgBackRest backups with point-in-time restore |
+| Azure Managed Redis | Redis / Valkey with Sentinel |
+| Blob Storage | MinIO or Ceph RGW (S3 API) |
+| Key Vault (platform secrets, tenant KEKs) | HashiCorp Vault / OpenBao (KV + Transit) |
+| Entra ID, workload identity | Keycloak (people), Vault Kubernetes auth or SPIFFE/SPIRE (workloads) |
+| Container registries, ACR Tasks | Harbor; BuildKit Jobs |
+| Front Door + WAF | Cloudflare in front, or an on-premise WAF (Coraza / ModSecurity) behind upstream DDoS protection |
+| NAT gateway fixed IP | ISP static IPs on the egress firewall |
+| Azure Monitor, Managed Grafana, App Insights | Prometheus, Grafana, Loki, Tempo |
+| Azure Files (built-in Git storage) | NFS or Ceph RBD/CephFS volumes |
+
+### 19.5 Deployment shapes
+
+```mermaid
+flowchart LR
+    subgraph AZ["Azure (shared control plane)"]
+        API[API, scheduler, router,\nConnection Service]
+        WK[Shared workers]
+        CDB[(Control DB)]
+    end
+    subgraph DC["Customer data centre (one tenant)"]
+        TW[Tenant workers\nqueue tenant-key]
+        DAPI[Data API]
+        APPS[Apps + sandbox]
+        TDB[(Tenant DB)]
+        OBJ[(S3 storage)]
+        KMS[Vault Transit\ntenant KEK]
+    end
+    API -- site-to-site VPN / ExpressRoute --> DAPI
+    API -- jobs for this tenant --> TW
+    TW --> TDB
+    DAPI --> TDB
+    APPS --> DAPI
+    TW --> OBJ
+```
+
+| Shape | What changes |
+|-------|--------------|
+| **Azure** (default) | Nothing: this specification. |
+| **On-premise** | `PLATFORM_PROFILE=onprem`, `values-onprem.yaml`, on-premise infrastructure code; every component in §19.4 runs in the data centre; model providers, telephony and social webhooks are still reached over the internet. |
+| **Hybrid tenant** | The tenant directory records `location = site:<name>` with that site's Data API URL, database endpoint and key-wrapper. Because workers read and write the tenant's platform schema heavily, a remote tenant gets its own **tenant worker pool** in its site, consuming a dedicated queue `tenant:<key>` (the per-tenant worker option from TD-01). Its files, CORTEX memory and secrets never leave the site. Provider webhooks still enter through the Azure edge and are forwarded over the VPN as events. |
+
+### 19.6 Always cloud-dependent
+
+In every shape these remain internet services: Gemini, Claude and GPT model APIs (unless self-hosted models from E35 are adopted), telephony providers (Twilio, Tata Tele, Exotel), Meta, LinkedIn, Google and GitHub APIs and their webhooks (which need a public HTTPS entry point), and outbound email.
+
+### 19.7 How portability is checked in Phase 14
+
+* **Import contract** (P-02) runs in CI on every pull request.
+* **Local profile run:** the backend test suite runs with `PLATFORM_PROFILE=local` against Docker Compose (PostgreSQL 16, Redis, local disk). Because no Azure service is reachable there, a hidden Azure dependency fails the suite.
+* **Chart lint:** `helm template` with a stub `values-onprem.yaml` must render without Azure-only annotations in the output.
+* **Data portability:** the tenant export (§14) produces a database dump plus neutral-key files that restore into a plain PostgreSQL 16 and an S3 bucket in the DR drill.
 
 ---
 
@@ -1178,19 +1287,19 @@ Removed after cutover: `ENCRYPTION_MASTER_KEY` (kept read-only for the migration
 | Type | Producer | Notes |
 |------|----------|-------|
 | `schedule.fired`, `timer.fired` | Scheduler | `data.trigger_id`, `data.scheduled_for` |
-| `record.<object>.created|updated|deleted` | Data API | `data.id`, `data.changed`, `data.after` (non-sensitive) |
+| `record.<object>.created\|updated\|deleted` | Data API | `data.id`, `data.changed`, `data.after` (non-sensitive) |
 | `run.completed`, `run.failed`, `run.cancelled` | Workers | Enables "when X finishes, start Y" without agents calling each other |
 | `approval.requested`, `approval.decided` | HITL | |
 | `custom.<name>` | Agents (`emit_event`) | Namespace reserved for agents and apps |
 | `social.comment.created`, `social.message.received`, `social.mention.created` | Connectors | |
 | `whatsapp.message.received`, `whatsapp.status.updated` | Connectors | |
 | `email.received` | Mailbox poller | |
-| `github.push`, `github.pull_request.opened|merged|closed`, `github.issue.opened`, `github.check.completed` | GitHub App | |
+| `github.push`, `github.pull_request.opened\|merged\|closed`, `github.issue.opened`, `github.check.completed` | GitHub App | |
 | `sheet.row_inserted` | Google Sheets webhook | Existing |
 | `crm.<object>.<verb>` | CRM webhooks | Existing adapters |
 | `connection.needs_reconnect`, `connection.revoked`, `connection.expiring` | Connection Service | |
 | `schema.change.proposed`, `schema.version.activated` | Schema engine | |
-| `app.build.succeeded|failed`, `app.deployed`, `app.unhealthy` | App Controller | |
+| `app.build.succeeded\|failed`, `app.deployed`, `app.unhealthy` | App Controller | |
 | `automation.loop_blocked`, `automation.event_dead` | Router | |
 
 ## Appendix C — new and changed APIs

@@ -33,6 +33,7 @@ It ends with HireBuddha running fully on Azure.
 4. **Logical split before physical split.** First separate code into control-plane and tenant-plane sessions while both still point at one database; then point tenant sessions at real tenant databases; then move the data.
 5. **Safety rails ship with the feature.** No trigger without loop guard, rate limit and budget check; no connection without per-tenant encryption; no app without code review and rollback.
 6. **Every acceptance criterion is proven on the real path** (API → worker → tool → UI), per the roadmap's definition of done. A passing unit test or a seed file is not evidence.
+7. **Portable by default.** Azure SDKs only inside adapter modules behind interfaces; charts take cloud settings from values files; CI enforces both ([tech spec §19](02_tech_spec.md#19-portability-on-premise-hybrid-and-other-clouds)). WS1 (storage, secrets, model credentials), WS2 (database credentials, provisioning), WS5 (key wrapping) and WS6 (image builds, sandbox) each build their capability as an interface plus an Azure adapter and a local adapter.
 
 ---
 
@@ -43,7 +44,7 @@ It ends with HireBuddha running fully on Azure.
 | 1 | Merge the current `roadmap-development-defect-fixes` branch to `main` (per its merge-readiness notes). |
 | 2 | Cut `release/gcp` from `main`. GCP production deploys only from this branch from now on: hotfixes only, each cherry-picked forward to `main`. |
 | 3 | `main` becomes the Phase 14 line. It deploys automatically to **Azure dev**, and by tag to **Azure staging**. |
-| 4 | Long-running changes use short-lived feature branches + settings flags (`AUTOMATION_V2_ENABLED`, `TENANCY_MODE=single|split`, `STORAGE_BACKEND`, `SANDBOX_RUNTIME`, `CONNECTIONS_V2_ENABLED`). |
+| 4 | Long-running changes use short-lived feature branches + settings flags (`AUTOMATION_V2_ENABLED`, `TENANCY_MODE=single\|split`, `STORAGE_BACKEND`, `SANDBOX_RUNTIME`, `CONNECTIONS_V2_ENABLED`). |
 | 5 | At switch-over (WS9) Azure production is deployed from a `main` tag; `release/gcp` is archived after the standby period. |
 
 ---
@@ -133,7 +134,7 @@ Each workstream lists: tasks (with the files they touch), done criteria, and tes
 | 1.3 | Signed download endpoint `GET /api/v1/files/{id}`; frontend switches from static URLs | `ai/artifact_router.py`, `frontend/src/services/*` |
 | 1.4 | **Secrets**: settings load from env injected by the Key Vault CSI driver; remove secrets from images; keep `.env` for dev | `common/config.py`, Helm chart |
 | 1.5 | **Google federation**: `genai_factory.py` and `embedding_service.py` accept an `external_account` credential file (`GOOGLE_WIF_CREDENTIAL_FILE`); Vertex project/region unchanged | `common/genai_factory.py`, `ai/memory/embedding_service.py`, `ai/llm/gemini_adapter.py`, `voice/*` (Live), `mobile/realtime.py` |
-| 1.6 | **Claude provider switch**: `service_metadata.provider = foundry|vertex|anthropic` | `ai/llm/anthropic_adapter.py`, `config/service.py` |
+| 1.6 | **Claude provider switch**: `service_metadata.provider = foundry\|vertex\|anthropic` | `ai/llm/anthropic_adapter.py`, `config/service.py` |
 | 1.7 | Azure OpenAI via managed identity (keys optional) | `ai/llm/azure_adapter.py` |
 | 1.8 | Redis: `REDIS_URL` with TLS for Azure Managed Redis; run the Arq suite (SP-2 outcome applied) | `common/job_queue.py`, `common/config.py` |
 | 1.9 | Telemetry exporter to Application Insights; Prometheus annotations | `common/telemetry.py`, chart |
