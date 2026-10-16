@@ -1,17 +1,17 @@
 # Tenant data plane, Cortex, and ad hoc work
 
-These epics add the ad hoc capabilities requested after the first roadmap pass. They extend the marketing/sales foundation to a complete business platform while preserving a shared control plane for identity, subscriptions, billing and minimal job routing. Business data, source files, Cortex state, generated code, applications and websites remain inside an isolated tenant environment.
+These epics add the ad hoc capabilities requested after the first roadmap pass. They extend the marketing/sales foundation to a complete business platform while preserving a shared control plane for identity, subscriptions, billing and minimal job routing. Business data, source files, Cortex state, generated code, applications and websites remain inside an isolated tenant environment. E41 (added 16 Oct 2026) moves the whole platform from GCP to Azure: tenant environments run on AKS (D34) and tenant databases on Azure Database for PostgreSQL Flexible Server (D38).
 
 ## E36 — Isolated relational tenant data plane
 
-**Outcome:** each tenant has a queryable, exportable business database and no tenant can read another tenant's business payload. **Baseline:** current code has shared models and several operational tables; the isolated relational data plane is new. **Dependencies:** E01/E02/E03/E04/E06/E07/E09/E12.
+**Outcome:** each tenant has a queryable, exportable business database and no tenant can read another tenant's business payload. **Baseline:** current code has shared models and several operational tables; the isolated relational data plane is new. **Dependencies:** E01/E02/E03/E04/E06/E07/E09/E12; E41 for the Azure environments. Database hosting follows D38, the Data API D37.
 
 ### E36-F01 — Tenant database and API
 
 | Story | User need | Acceptance criteria | Gate |
 |---|---|---|---|
 | E36-S01 | As a tenant, I can store business records in a dedicated relational database. | Typed tables, foreign keys, constraints, indexes and reviewed versioned migrations are used; campaigns, contacts, activities, finance and other module records are queryable without a generic JSONB record store or JSONB custom-field bag. | H0 |
-| E36-S02 | As a Skill or application, I can use a safe tenant data API. | Every request is tenant-scoped and authorized; filtering, sorting, pagination, transactions, validation, optimistic concurrency and audit attribution are defined; cross-tenant identifiers and unbounded queries fail safely. | H1 |
+| E36-S02 | As a Skill or application, I can use a safe tenant data API. | The Data API runs inside the tenant environment and is the only path to the tenant's business records for agents, apps, app end users, approved outside systems and scratch code, while HireBuddha runtime services use only the platform schema with their own identities (D37); endpoints are generated from the versioned schema blueprint, with published API documentation; every request is tenant-scoped and authorized; filtering, sorting, pagination, transactions, validation, optimistic concurrency and audit attribution are defined; every write emits an outbox event; cross-tenant identifiers and unbounded queries fail safely. | H1 |
 
 ### E36-F02 — Control-plane boundary and operational migration
 
@@ -27,9 +27,22 @@ These epics add the ad hoc capabilities requested after the first roadmap pass. 
 | E36-S05 | As a security owner, I can prove tenant isolation under every execution path. | API, tools, workers, event consumers, scheduled jobs, logs, caches, volumes and network policies enforce tenant boundaries; negative tests show a tenant cannot address another tenant's records or files; resource and storage limits are enforced. | H2 |
 | E36-S06 | As an owner, I can recover or leave with my complete business state. | Export and restore include the tenant database plus artifact, source-document, Cortex and application manifests; checksums, schema version, permissions and restoration evidence are recorded; restore does not expose data to another tenant. | H4 |
 
+### E36-F04 — Data API access for apps and outside systems
+
+| Story | User need | Acceptance criteria | Gate |
+|---|---|---|---|
+| E36-S07 | As an app or outside system, I can use the tenant Data API with my own key. | Each app and outside system has its own key limited to declared tables and operations; app end users act through their own login and row rules; public exposure is off by default and rate-limited when enabled; keys rotate and revoke without redeploying the app; a schema change lists affected apps, keys and reports before activation. | H4 |
+
+### E36-F05 — Managed tenant databases
+
+| Story | User need | Acceptance criteria | Gate |
+|---|---|---|---|
+| E36-S08 | As a platform owner, I can create, back up, restore and retire a tenant database on Azure Flexible Server automatically. | Provisioning creates the tenant database on the server chosen under O10, applies the base schema, registers it in the tenant directory and grants access only to the Data API and migration-runner identities; access is private-network only with Entra ID sign-in; pgvector and the approved extension list are enabled; backup and point-in-time restore are verified per tenant; one migration runner upgrades every tenant database and records each one's schema version; retirement exports first, then deletes. | H1 |
+| E36-S09 | As an owner, I can move my database to a dedicated server. | A guided move from a shared pool server to a dedicated server, or to another region, previews downtime, copies and verifies counts and checksums, switches the tenant directory entry and can roll back; database cost per tenant is visible in billing. | H4 |
+
 ## E37 — Tenant runtime, generated software and hosting
 
-**Outcome:** a tenant can safely create and operate internal applications, generated tools and websites in its own containerized runtime. **Dependencies:** E01/E02/E03/E04/E08/E09/E12/E36.
+**Outcome:** a tenant can safely create and operate internal applications, generated tools and websites in its own containerized runtime. **Baseline:** one long-lived Docker container per company runs generated code through the `docker` CLI on the host, with no network by default, and is paused and reaped when idle; there is no source control, build, publication or app hosting. **Dependencies:** E01/E02/E03/E04/E08/E09/E12/E36; E41 for AKS. Runtime layout follows D34, code lanes D35, source control D36.
 
 ### E37-F01 — Isolated runtime and persistent code
 
@@ -51,6 +64,21 @@ These epics add the ad hoc capabilities requested after the first roadmap pass. 
 |---|---|---|---|
 | E37-S05 | As a tenant, I can build, preview and host a website. | Website source, assets, builds, preview URL and publication state are tenant-owned; provider/domain configuration is explicit and portable; publication is gated by permissions, safety checks and rollback. | H4 |
 | E37-S06 | As an operator, I can find and manage files and generated artifacts. | Tenant storage uses stable folders for source mirrors, uploads, artifacts, code, apps and site builds; metadata includes owner, provenance, version, retention and checksum; quotas, alerts, deletion and restore are enforced. | H2 |
+
+### E37-F04 — Code lanes and source control
+
+| Story | User need | Acceptance criteria | Gate |
+|---|---|---|---|
+| E37-S07 | As an owner, I can connect GitHub so my apps' code lives in my account. | Connection uses a HireBuddha GitHub App limited to the repositories the owner selects; repositories can be created or imported; every agent change is a branch and pull request; review comments and merges are visible; GitHub push, pull-request and issue webhooks become tenant events; revoking the app stops pushes and lists affected apps; built-in tenant Git serves tenants without GitHub and can push full history later. | H4 |
+| E37-S08 | As a security owner, I can tell scratch code from company assets. | Every code item records its lane; scratch code runs only in the sandbox with no secrets, no direct database access and network limited to an allow-list, and is deleted after its retention period; promotion to an asset requires tests, a security scan and human approval; asset code never loads code from the sandbox at runtime. | H2 |
+
+### E37-F05 — Build, publish and operate apps
+
+| Story | User need | Acceptance criteria | Gate |
+|---|---|---|---|
+| E37-S09 | As an owner, I can publish an approved app to a URL or my own domain. | Builds start only from an approved commit; each build is a versioned image with provenance; a preview URL precedes publication; publish and unpublish are explicit; custom domains get automatic HTTPS; rollback to the previous version is one step and preserves records. | H4 |
+| E37-S10 | As an owner, I can get a website, mobile app backend or internal tool with its own users. | Supported templates cover static and form websites, mobile app backends and CRM/admin tools on two or three supported stacks; app end users sign in through a tenant-scoped login module separate from HireBuddha users; roles limit the rows each user reaches through the Data API; app-store submission of mobile apps is out of scope until separately approved. | H4 |
+| E37-S11 | As an operator, I can see and control running apps. | Each app shows logs, health, restarts, traffic and resource use; CPU, memory and bandwidth limits apply; each app is always-on or sleeps when idle, by choice; hosting cost is attributed to the tenant wallet; stop and rollback work even when the agent runtime is down. | H4 |
 
 ## E38 — Cortex knowledge graph and legacy RAG retirement
 
@@ -126,3 +154,23 @@ These epics add the ad hoc capabilities requested after the first roadmap pass. 
 |---|---|---|---|
 | E40-S05 | As a business owner, I can add or reorganize departments without duplicating execution. | Adding/removing Loops recomputes routing, policy inheritance, budgets and reporting; existing runs pin their versions; event and schedule subscriptions remain idempotent. | H6 |
 | E40-S06 | As a tenant without the hierarchy, I can still run normal work. | Flat Process/Agent/Skill/Action workflows and ad hoc jobs operate with equivalent authorization, observability and stop controls; enabling the hierarchy is reversible and does not copy executable Skills. | H5 |
+
+## E41 — Azure platform and GCP exit
+
+**Outcome:** HireBuddha runs entirely on Azure; the new tenant platform is built there first and the existing product moves in one rehearsed switch-over. **Baseline:** test and production run on Ubuntu VMs on GCP with PostgreSQL and Redis in Docker, Apache with certbot, files on the VM disk, the sandbox started through the `docker` CLI, monthly same-disk `pg_dump` backups and Vertex AI for Gemini and Claude; Azure is used only for Azure OpenAI. **Dependencies:** E01/E02/E07/E12/E36/E37. Follows D34, D38 and D39; needs O10 and O11.
+
+### E41-F01 — Azure foundation and container platform
+
+| Story | User need | Acceptance criteria | Gate |
+|---|---|---|---|
+| E41-S01 | As a platform owner, I have Azure dev, staging and production environments created from code. | Each environment has its own subscription or resource groups; network, private DNS, Entra ID identities, Key Vault, Container Registry, AKS, Flexible Server, Managed Redis, Blob Storage, Front Door and monitoring are defined in Bicep or Terraform; an environment can be rebuilt from scratch; infrastructure changes go through review and CI. | H0 |
+| E41-S02 | As an engineer, every service runs as a container on AKS without host access. | API, workers, scheduler, event router, Connection Service and Data API have container images, deployment charts and health checks; files go through a storage layer to Blob Storage; secrets come from Key Vault through workload identity; each tenant has a namespace with network policies, quotas and its own identity; the sandbox starts pods through the Kubernetes API on a sandboxed node pool instead of the `docker` CLI; the frontend is served as a production build. | H1 |
+| E41-S03 | As an operator, I can call Google models from Azure without key files. | Gemini, Gemini Live, Google image/video models and Gemini embeddings authenticate through workload identity federation; Claude runs through Microsoft Foundry or Anthropic's API; live-voice latency from the chosen Azure region is measured against the GCP baseline; embeddings stay compatible with stored vectors. | H1 |
+
+### E41-F02 — Rehearsed move and GCP exit
+
+| Story | User need | Acceptance criteria | Gate |
+|---|---|---|---|
+| E41-S04 | As a release owner, I can rehearse the move with production-like data. | A rehearsal copies control-plane data, splits tenant business data into tenant databases, copies files to Blob Storage and compares counts and checksums; sample agent runs, calls, WhatsApp messages and payment callbacks succeed; the window is timed and repeated until it meets the agreed downtime. | H2 |
+| E41-S05 | As a customer, I experience the switch-over as one short, announced maintenance window. | DNS TTLs are lowered in advance; schedules and campaigns pause and resume; the final data copy is verified; public hostnames stay the same, so provider webhooks need no change; partners that allow-list IPs receive the new fixed outbound IPs beforehand; smoke tests pass before reopening; a rollback path exists until the agreed point of no return. | H2 |
+| E41-S06 | As a finance owner, I see GCP shut down once Azure is proven. | The standby period with GCP untouched is completed; a final cold backup is stored on Azure; GCP compute, disks, IPs, DNS records and credentials are deleted or revoked; GCP billing is closed apart from the Google model APIs kept under D39. | H3 |

@@ -204,7 +204,7 @@ All items are proposed backlog, not claims of shipped functionality. Gates are d
 
 ## E09 — Connections and system-of-record sync
 
-**Outcome:** integration setup produces usable, recoverable capabilities with clear data ownership. **Baseline:** some adapters exist; MCP transport and complete sync are new. **Sources:** GTM §§4,7; FEAS N-6; RT §21; TL defects. **Dependencies:** E01/E03/E08; E06/E07 for record sync. Strategy follows D02.
+**Outcome:** integration setup produces usable, recoverable capabilities with clear data ownership. **Baseline:** some adapters exist; MCP transport and complete sync are new. Tenant connections are new: `social_connections` accepts only pasted tokens together with the tenant's own OAuth app credentials, no tenant screen connects social, messaging or developer accounts, and `integration_registry` mixes platform prices and credentials with tenant rows under one platform encryption key. **Sources:** GTM §§4,7; FEAS N-6; RT §21; TL defects; owner ad hoc requirement (D40). **Dependencies:** E01/E03/E08; E06/E07 for record sync; E36 for tenant-database storage. Strategy follows D02; credential placement follows D40.
 
 ### E09-F01 — Connection lifecycle and MCP
 
@@ -226,6 +226,16 @@ All items are proposed backlog, not claims of shipped functionality. Gates are d
 |---|---|---|---|
 | E09-S05 | As a business user, I can synchronize the knowledge and collaboration sources my workflow requires. | Prioritize Drive/SharePoint/Notion and Slack/Teams by chosen pilot; sync respects source access, changed/deleted documents and cursors; review cards call the same authenticated approval service; each advertised integration passes a representative end-to-end use case. | H2 |
 | E09-S06 | As an administrator, I can see which business integrations are supported rather than infer readiness from tool names. | Catalog distinguishes available, preview, unavailable and planned capabilities; roadmap includes calendar, email, CRM, analytics, enrichment, e-signature, payments, bank feeds, tax, HRIS, inventory and helpdesk families. Each enablement requires connection, metering, policy and recovery evidence. | H4 |
+
+### E09-F04 — Tenant connections and system integrations
+
+| Story | User need | Acceptance criteria | Gate |
+|---|---|---|---|
+| E09-S07 | As an owner, I can connect my social, messaging, developer and document accounts from one Connections screen. | The catalog shows only approved connectors with their sign-in type and requested permissions; Connect runs the provider's sign-in (OAuth, GitHub App installation, WhatsApp Business sign-up, API-key or mailbox form); the owner chooses the pages, numbers, repositories or folders and which agents and apps may use each connection; a test call confirms access; the screen shows health, expiry, last use and dependent agents, apps and triggers; reconnect and disconnect show the impact first; Pragya can offer the same connect step in conversation. | H2 |
+| E09-S08 | As a security owner, I know tenant credentials are stored and used safely. | Tenant connections and tokens are stored in the tenant database, encrypted with a per-tenant key held in Azure Key Vault; a token is issued to a tool or app only at use time after a permission check and never enters prompts, logs or traces; refresh happens before expiry, and failure produces a reconnect state and an event; every issue and use is audited; deleting a tenant's key makes its stored tokens unreadable. | H2 |
+| E09-S09 | As a platform owner, I keep only system integrations in the shared registry. | `integration_registry` holds AI models, telephony, web search and scraping, Razorpay, SMTP, prices and HireBuddha's own OAuth app registrations, with secrets referenced from Key Vault; tenant-owned registry rows, `social_connections` and `email_connections` migrate into tenant databases with a reconnect prompt where needed; shared tables lose their tenant credential columns after verified cutover. | H2 |
+| E09-S10 | As an operator, I see webhooks from connected accounts reach the right tenant. | A shared lookup maps provider and external account ID to tenant without storing tokens; it is written on connect and removed on disconnect; inbound events resolve through it into the tenant's event stream; events for unknown or disconnected accounts are parked and visible rather than dropped or misrouted. | H2 |
+| E09-S11 | As a product owner, I have each platform's approval before offering its connector. | HireBuddha's apps for Meta, LinkedIn, Google, X and GitHub hold the verification, review and API access required for the scopes the catalog requests; approval status, expiry and limits are recorded per connector; the catalog shows a connector as available only when approved. | H1 |
 
 ## E10 — Pragya and business onboarding
 

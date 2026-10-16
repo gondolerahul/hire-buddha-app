@@ -1,10 +1,10 @@
 # HireBuddha refined functional roadmap
 
-Prepared 16 September 2026. **Refined functional baseline:** rebuilt from the marketing/sales design and extended across business functions, following the owner's direction in this review. Remaining product questions are recorded in [01 — Product decisions](01-product-decisions.md). Suggested sequencing is not an approved delivery commitment.
+Prepared 16 September 2026; updated 16 October 2026 with decisions D34–D40, tenant connection stories in E09, Data API and managed-database stories in E36, code lanes and app publishing in E37, and the new Azure epic E41. **Refined functional baseline:** rebuilt from the marketing/sales design and extended across business functions, following the owner's direction in this review. Remaining product questions are recorded in [01 — Product decisions](01-product-decisions.md). Suggested sequencing is not an approved delivery commitment.
 
-**Inventory:** 40 epics, 112 features and 229 user stories, each with acceptance criteria. Start with the operating model, then the decisions and delivery gates; use the backlog files for detailed refinement.
+**Inventory:** 41 epics, 119 features and 248 user stories, each with acceptance criteria. Start with the operating model, then the decisions and delivery gates; use the backlog files for detailed refinement.
 
-**Confirmed:** rebuild from GTM; Skills are the main authoring unit; create a new Generative UI frontend after its Design Gate; reserve safe-completion funds without intentional debt; keep identity/billing/minimal routing in a shared control plane with isolated tenant data/runtime; approve workflow policy once and review exceptions; use Pragya as the voice-first human workspace. **Still awaiting implementation inputs:** exact connector/provider choices, commercial packaging, authority thresholds and operational targets recorded in [01 — Product decisions](01-product-decisions.md).
+**Confirmed:** rebuild from GTM; Skills are the main authoring unit; create a new Generative UI frontend after its Design Gate; reserve safe-completion funds without intentional debt; keep identity/billing/minimal routing in a shared control plane with isolated tenant data/runtime; approve workflow policy once and review exceptions; use Pragya as the voice-first human workspace; move hosting from GCP to Azure, with every tenant database on Azure Database for PostgreSQL Flexible Server; keep tenant connections in tenant databases, separate from system integrations. **Still awaiting implementation inputs:** exact connector/provider choices, commercial packaging, authority thresholds and operational targets recorded in [01 — Product decisions](01-product-decisions.md).
 
 ## Product direction
 
@@ -24,13 +24,13 @@ The first usable slice is grounded research and reviewed drafts; the first sales
 | [03 — Marketing and sales backlog](03-gtm-backlog.md) | E13–E18: research, content, inbound, outbound, deal desk, revenue reporting |
 | [04 — Business expansion backlog](04-business-expansion-backlog.md) | E19–E30: customer success, operations, finance, HR, legal, risk, IT, product, partnerships, capital |
 | [05 — Intelligence and experience backlog](05-intelligence-experience-backlog.md) | E31–E35: routing, learning, Generative UI, packaging/federation, proprietary models |
-| [08 — Tenant and ad hoc backlog](08-ad-hoc-tenant-platform-backlog.md) | E36–E40: isolated tenant data/runtime, apps/sites, Cortex cutover, ad hoc work, Pragya design and optional Graph/Loop digital twin |
+| [08 — Tenant and ad hoc backlog](08-ad-hoc-tenant-platform-backlog.md) | E36–E41: isolated tenant data/runtime, apps/sites, Cortex cutover, ad hoc work, Pragya design, optional Graph/Loop digital twin, and the Azure platform and GCP exit |
 | [06 — Delivery gates](06-delivery-gates.md) | Suggested increments, dependencies, evidence needed to release, and success measures |
 | [07 — Source coverage](07-source-coverage.md) | Source inventory, old-to-new coverage mapping, defect mapping, and corrections to source claims |
 
 ## How to use the backlog
 
-- **Epic:** a coherent business or platform outcome, identified as `E01`–`E35`.
+- **Epic:** a coherent business or platform outcome, identified as `E01`–`E41`.
 - **Feature:** a capability within an epic, identified as `E01-F01`.
 - **Story:** a user/administrator need with observable acceptance criteria, identified as `E01-S01`. IDs are stable; subsequent refinement should add IDs rather than renumber existing ones.
 - **Gate:** the earliest suggested delivery increment, `H0`–`H6`, defined in document 06. It is neither a date nor evidence that work is implemented. Later increments may start discovery earlier.
@@ -84,6 +84,7 @@ The backlog contains functional stories rather than implementation tasks. Schema
 | E38 | Cortex knowledge graph and legacy RAG retirement | Original sources become traceable tenant intelligence |
 | E39 | Pragya solution design and ad hoc workbench | One human workspace handles packaged and one-off goals |
 | E40 | Optional Graph/Loop operating model and digital twin | Organizational scope is editable and visually traversable when enabled |
+| E41 | Azure platform and GCP exit | The whole platform runs on Azure after one rehearsed switch-over |
 
 ## Boundaries and evidence
 
