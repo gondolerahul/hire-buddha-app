@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HireBuddha · WhatsApp workspace concept</title>
+<link rel="icon" href="assets/logo.png"><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/theme.css"><link rel="stylesheet" href="prototype.css"><link rel="stylesheet" href="screens.css?v=1">
+</head>
+<body>
+<div id="background-root" aria-hidden="true"></div>
+<div class="prototype-strip"><span><strong>DESIGN EXPLORATION</strong> <span class="strip-detail">WhatsApp workspace · 03 Oct 2026</span></span><span>Sample data · All actions are simulated <a href="#journeys">Screens & flows ↗</a></span></div>
+<aside class="sidebar">
+<div class="sidebar-brand"><img src="assets/logo.png" alt=""><strong>HireBuddha</strong><span class="muted">×</span></div>
+<div class="tenant-card"><span class="tenant-mark">AL</span><div><strong>Aarunya Living</strong><span>Tenant workspace</span></div><span class="muted">⌄</span></div>
+<nav aria-label="Main navigation" class="main-nav">
+<button data-action="existing-dashboard"><span data-icon="grid"></span>Dashboard</button>
+<button data-action="existing-platform"><span data-icon="server"></span>Platform Hub</button>
+<button data-action="existing-agent"><span data-icon="bot"></span>AI Workspace <span class="nav-chevron">⌄</span></button>
+<button class="expanded"><span data-icon="radio"></span>Communications <span class="nav-chevron">⌃</span></button>
+<div class="nav-children">
+<button data-go="number"><span data-icon="phone"></span>Phone Numbers</button>
+<button data-action="existing-sessions"><span data-icon="activity"></span>Streaming Sessions</button>
+<button data-go="campaigns"><span data-icon="megaphone"></span>Campaigns</button>
+<button class="active" data-go="overview"><span data-icon="message"></span>WhatsApp <span class="mini-new">NEW</span></button>
+</div>
+<button data-action="existing-assets"><span data-icon="folder"></span>Assets & Connections <span class="nav-chevron">⌄</span></button>
+<button data-go="analytics"><span data-icon="chart"></span>Analytics & Reports <span class="nav-chevron">⌄</span></button>
+<button data-action="existing-finance"><span data-icon="wallet"></span>Finance & Administration</button>
+</nav>
+<div class="sidebar-bottom"><button data-action="theme"><span data-icon="sun"></span><span id="theme-label">Luminescence Mode</span></button><div class="profile"><span class="avatar">RS</span><div><strong>Riya Shah</strong><span>Tenant administrator</span></div><span>⌄</span></div></div>
+</aside>
+<main class="main-content">
+<div class="context-bar"><span>Communications <span class="muted">/</span> <strong>WhatsApp</strong></span><span class="context-right"><span class="status-dot"></span>Meta Cloud API <span class="muted">·</span> <button data-go="number">Aarunya · +91 80 0000 0142 ⌄</button></span></div>
+<nav class="workspace-nav" id="workspace-nav" aria-label="WhatsApp workspace"></nav>
+<div id="screen" tabindex="-1"></div>
+<footer class="page-footer"><span>HireBuddha · WhatsApp concept</span><span>Prototype only · No messages sent · No accounts connected</span></footer>
+</main>
+<dialog id="dialog"><div class="dialog-header"><h2 id="dialog-title"></h2><button class="icon-btn" id="close-dialog" aria-label="Close dialog">×</button></div><div id="dialog-content"></div></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="assets/background.js"></script>
+<script src="prototype.js?v=1"></script>
+<script src="screens-core.js?v=1"></script>
+<script src="screens-operations.js?v=1"></script>
+<script src="screens-assets.js?v=1"></script>
+<script src="screens-review.js?v=1"></script>
+<script>WA.start();</script>
+</body></html>
