@@ -4,6 +4,7 @@
 > **Date:** 2026-10-16
 > **Design it implements:** [02 — Technical specification](02_tech_spec.md) §4, §5, §10.4, §12.
 > **Decisions:** D34 (AKS layout), D38 (Flexible Server), D39 (move to Azure); open item O11 (regions) — this guide assumes **Central India** until O11 is decided.
+> **Prefer clicking?** [05 — Portal guide](05_azure_environment_setup_portal.md) builds the same environment, with the same names, through the Azure portal.
 
 > ⚠️ **About the commands.** They are written for the Azure CLI in a **bash** shell (Azure Cloud Shell, WSL or Git Bash). Azure CLI flags change between versions. Commands marked **(verify)** use features whose names or availability vary by CLI version or region — if one fails, run it with `--help` and check the linked product's current docs. Never paste secrets into files that are committed.
 
