@@ -29,9 +29,10 @@
 17. [Testing strategy](#17-testing-strategy)
 18. [Technical decisions and spikes](#18-technical-decisions-and-spikes)
 19. [Portability: on-premise, hybrid and other clouds](#19-portability-on-premise-hybrid-and-other-clouds)
-20. [Appendix A — table placement](#appendix-a--table-placement)
-21. [Appendix B — event type catalog](#appendix-b--event-type-catalog)
-22. [Appendix C — new and changed APIs](#appendix-c--new-and-changed-apis)
+20. [Readiness for Pragya](#20-readiness-for-pragya)
+21. [Appendix A — table placement](#appendix-a--table-placement)
+22. [Appendix B — event type catalog](#appendix-b--event-type-catalog)
+23. [Appendix C — new and changed APIs](#appendix-c--new-and-changed-apis)
 
 ---
 
@@ -1138,6 +1139,7 @@ Removed after cutover: `ENCRYPTION_MASTER_KEY` (kept read-only for the migration
 | TD-12 | PostgreSQL 16 for all new servers and local dev |
 | TD-13 | Azure resources as code with Bicep (Azure Verified Modules); in-cluster components with Helm. (Terraform is acceptable if the team prefers it; decide at WS0 kickoff.) |
 | TD-14 | Application code is cloud-neutral: cloud SDKs live only in adapter modules behind interfaces, so the same code and charts can run on Azure, on-premise, or split between the two (§19) |
+| TD-15 | Everything Phase 14 builds is drivable by Pragya (D41) through public, annotated APIs, on-behalf-of tokens and a tenant event stream; Phase 14 reserves Pragya's runtime slot and tenant state schema but does not build Pragya (§20) |
 
 ### 18.2 Spikes (each ends with a short decision note in `docs/phase14/spikes/`)
 
@@ -1261,6 +1263,64 @@ In every shape these remain internet services: Gemini, Claude and GPT model APIs
 
 ---
 
+## 20. Readiness for Pragya
+
+### 20.1 What Pragya is (D41)
+
+Pragya is **not** a hierarchical entity and **not** an agent inside the execution kernel. It is a separate application layer with its own runtime that sits between the new Generative UI (E33) and the backend, and controls both. It has complete knowledge of and control over platform functions, each tenant's functions, data, knowledge base and apps, and the Generative UI itself. Pragya is built after Phase 14 (E10, E33, E39); Phase 14 must give it everything it will need, so nothing has to be reworked later.
+
+```
+           Person (voice · text · direct visual edits)
+                              │
+                 ┌────────────▼────────────┐
+                 │      Generative UI       │◄──── UI instructions ───────┐
+                 └────────────┬────────────┘                              │
+                              │ intents, UI events                        │
+   ┌──────────────────────────▼────────────────────────────────────────┐  │
+   │  PRAGYA  (own runtime · namespace hb-pragya · own identity)        │──┘
+   │  conversation, voice, planning, its own memory per tenant          │
+   └────┬───────────────┬───────────────┬───────────────┬──────────────┘
+        │ platform API  │ Data APIs     │ event stream  │ capability catalog
+        │ (on behalf of │ (on behalf of │ (tenant-      │ (what can be done,
+        │  a person)    │  a person)    │  scoped)      │  with what risk)
+   ┌────▼───────────────▼───────────────▼───────────────▼──────────────┐
+   │  BACKEND (Phase 14): API, workers, triggers, scheduler, schema     │
+   │  engine, Data APIs, Connection Service, apps, CORTEX               │
+   │  permissions · approvals · budgets · audit · emergency stop        │
+   └────────────────────────────────────────────────────────────────────┘
+```
+
+### 20.2 Principle: complete coverage, no bypass
+
+"Complete control" means **every capability is reachable**, not that Pragya skips the rules. A layer that can do everything is the largest blast radius in the system, so it must be the most governed caller, not the least:
+
+* Pragya never holds database credentials or raw secrets; it uses the same platform API, Data APIs and token broker as every other caller.
+* Every action is authorised as **the person Pragya is serving**, limited by that person's permissions and by Pragya's own allowed scopes, and audited with both identities.
+* Tenant isolation (D25, D37), approvals (D03, D19–D21) and budgets (D06) apply unchanged; Pragya cannot approve its own proposals (D15).
+* The emergency stop (D24) is a deterministic control that works when Pragya, voice or the models are down.
+
+### 20.3 Requirements on Phase 14
+
+| ID | Requirement | Where it lands |
+|----|-------------|----------------|
+| PR-1 | **API-first completeness.** Every Phase 14 capability — triggers, events, waits, schema changes, records, keys, connections, code items, apps, tenant settings and platform-admin functions — is reachable through the documented platform API or Data API. No feature exists only in a screen or only as an internal function. A CI check fails if a frontend screen calls an undocumented endpoint. | All workstreams |
+| PR-2 | **Capability catalog.** Every endpoint carries OpenAPI extensions: `x-hb-summary` (plain-language purpose), `x-hb-effect` (`read`, `write_internal`, `write_external`, `spend`, `destructive`), `x-hb-permission`, `x-hb-approval` (`none`, `human`, `dual`), `x-hb-idempotent`, `x-hb-scope` (`tenant`, `platform`). `GET /api/v1/capabilities` merges them into one machine-readable catalog per caller; each tenant's Data API publishes its own. The catalog can later be exposed as an MCP server. | WS3–WS6, WS8 |
+| PR-3 | **On-behalf-of identity.** The token service supports OAuth 2.0 token exchange (RFC 8693): Pragya presents its own workload identity plus the person's session and receives a short-lived token with `sub` = person, `act` = `pragya`, the tenant, and scopes no wider than the person's. The platform API, Data APIs and Connection Service accept the `act` claim, authorise on the person's permissions, and write both identities to `audit_log`, `connection_audit`, `trigger_firings` and `usage_logs`. Work with no person present (e.g. overnight summaries) uses a tenant-scoped service principal under an owner-approved policy, never platform-wide rights. Pragya for HireBuddha staff is a separate deployment with platform-admin scope and no tenant data access outside audited support access. | WS4 (token service), WS3, WS5 |
+| PR-4 | **Awareness.** `GET /api/v1/events/stream` streams a tenant's events (SSE or WebSocket), filtered by type and subject, resumable from an event id, over the event store of §7; the existing run trace streams stay available. Every event type in Appendix B has a versioned JSON schema. | WS3 |
+| PR-5 | **Knowledge access.** Read APIs cover CORTEX search and browsing, the schema blueprint, records, apps and their health, connection metadata (never tokens), automation state, approvals and costs. Pragya uses connections only through the token broker under its on-behalf-of identity. | WS3–WS6 |
+| PR-6 | **Governance hooks.** Approvals are listed and decided through the API so Pragya can present them, but a decision must come from the person (click or verified voice confirmation, E01-S06). Proposals created by Pragya are marked `proposed_by = pragya` and cannot be approved by Pragya. | WS3, WS4 |
+| PR-7 | **UI built for composition.** Phase 14 screens are thin views over public APIs, built from registered components with JSON-schema props and no business rules in the browser. A component registry (name, props schema, data source endpoint) lets the Generative UI — and Pragya driving it — reuse them. The UI protocol between Pragya and the Generative UI is designed in E33; Phase 14 only avoids blocking it. | WS8 |
+| PR-8 | **Runtime slot.** WS0 creates (empty): namespace `hb-pragya`, identity `id-hb-<env>-pragya`, and network policies allowing Pragya → platform API, Data APIs, Connection Service internal token endpoint and the event stream, while denying Postgres, Redis and Key Vault secrets. Realtime voice uses the same WebSocket edge as telephony (spike SP-7). | WS0 |
+| PR-9 | **Pragya's own state.** Conversation history, preferences and working memory per tenant belong in the tenant plane (D13). The tenant platform baseline reserves an empty schema `assistant` owned by role `hb_assistant`, granted later to Pragya's identity, so adding Pragya needs no fleet-wide restructuring. | WS2 |
+| PR-10 | **Cost attribution.** Pragya's model usage and the actions it triggers are attributed to the tenant and person in `usage_logs` with `actor_kind = 'pragya'`, and count against the same budgets. | WS4 |
+| PR-11 | **Relationship to agents.** Pragya is not stored in `hierarchical_entities` and has no `AgentLoop` runs of its own. It starts, watches, pauses and cancels entity runs through the run APIs; the solution-architect Meta Agent (D30) stays an entity that Pragya invokes. | — |
+
+### 20.4 What this adds to Phase 14
+
+Small, mostly additive work: the `x-hb-*` annotations and the capabilities endpoint, the event stream endpoint, token exchange with the `act` claim, `actor_kind`/`on_behalf_of` columns in the audit tables, the empty `hb-pragya` namespace and identity, the reserved `assistant` schema, and the component registry for the frontend. The implementation plan lists these under the workstreams named above.
+
+---
+
 ## Appendix A — table placement
 
 | Table | Plane | Notes |
@@ -1316,5 +1376,8 @@ In every shape these remain internet services: Gemini, Claude and GPT model APIs
 | Platform API (admin) | `/api/v1/admin/tenants` | directory, move to dedicated server, provisioning log |
 | Platform API (admin) | `/api/v1/admin/system-integrations` | today's `/integrations` endpoints, admin-only |
 | Platform API | `/webhook/provider/{provider}` | app-level signed webhooks (§10.6) |
+| Platform API | `/api/v1/capabilities` | merged capability catalog for the caller (§20, PR-2) |
+| Platform API | `/api/v1/events/stream` | tenant event stream, resumable (§20, PR-4) |
+| Platform API | `/api/v1/auth/token-exchange` | on-behalf-of tokens with the `act` claim (§20, PR-3) |
 | Data API | `/v1/*` | §9.2 |
 | Connection Service | `/v1/*`, `/oauth/callback/*`, `/internal/v1/*` | §10.5 |

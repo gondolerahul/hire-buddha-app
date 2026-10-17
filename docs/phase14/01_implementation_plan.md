@@ -34,6 +34,16 @@ It ends with HireBuddha running fully on Azure.
 5. **Safety rails ship with the feature.** No trigger without loop guard, rate limit and budget check; no connection without per-tenant encryption; no app without code review and rollback.
 6. **Every acceptance criterion is proven on the real path** (API → worker → tool → UI), per the roadmap's definition of done. A passing unit test or a seed file is not evidence.
 7. **Portable by default.** Azure SDKs only inside adapter modules behind interfaces; charts take cloud settings from values files; CI enforces both ([tech spec §19](02_tech_spec.md#19-portability-on-premise-hybrid-and-other-clouds)). WS1 (storage, secrets, model credentials), WS2 (database credentials, provisioning), WS5 (key wrapping) and WS6 (image builds, sandbox) each build their capability as an interface plus an Azure adapter and a local adapter.
+8. **Ready for Pragya (D41).** Pragya is a separate layer built after Phase 14 that will drive both the backend and the Generative UI. Every feature is therefore public-API-first, annotated for the capability catalog, accepts on-behalf-of tokens, and emits events ([tech spec §20](02_tech_spec.md#20-readiness-for-pragya)). The Pragya-specific additions per workstream:
+
+   | WS | Addition |
+   |----|----------|
+   | WS0 | Empty `hb-pragya` namespace, `id-hb-<env>-pragya` identity, network policies (PR-8) |
+   | WS2 | Reserved empty `assistant` schema and `hb_assistant` role in the tenant baseline (PR-9) |
+   | WS3 | `/api/v1/events/stream`, versioned event schemas, approvals listable and decidable through the API, `proposed_by` (PR-4, PR-6) |
+   | WS3–WS6 | `x-hb-*` annotations on every new endpoint; `/api/v1/capabilities` (PR-1, PR-2) |
+   | WS4 | Token exchange with the `act` claim; `actor_kind` / `on_behalf_of` in audit and usage records (PR-3, PR-10) |
+   | WS8 | Screens as thin views over public APIs; component registry; CI check that screens call only documented endpoints (PR-1, PR-7) |
 
 ---
 
@@ -115,13 +125,25 @@ Each workstream lists: tasks (with the files they touch), done criteria, and tes
 
 | # | Task | Files / artefacts |
 |---|------|-------------------|
-| 0.1 | Run the [setup guide](04_azure_environment_setup.md) for **dev** by hand to learn the shape; record every value | `docs/phase14/04_*` |
+| 0.1 | Build **dev** by hand from the [CLI guide](04_azure_environment_setup.md) or the [portal guide](05_azure_environment_setup_portal.md), **in slices** (below), to learn the shape; record every value | `docs/phase14/04_*`, `05_*` |
 | 0.2 | Codify the same in Bicep (Azure Verified Modules): network, NAT, DNS zones, Key Vaults, ACRs, Log Analytics, Monitor workspace, Grafana, App Insights, identities, AKS (+ node pools), Flexible Servers, Managed Redis, Storage, Front Door | `infra/azure/bicep/` (new) |
 | 0.3 | Parameter files per environment; deploy staging and prod from code | `infra/azure/env/{dev,staging,prod}.bicepparam` |
 | 0.4 | Cluster bootstrap with Helm: namespaces, KEDA config, cert-manager, egress proxy, platform ingress, tenant app edge (after SP-3), Secrets Store CSI classes, Prometheus scrape config | `infra/k8s/bootstrap/` (new) |
 | 0.5 | GitHub Actions with OIDC federation: build images → ACR → `helm upgrade` to dev on merge, to staging on tag; infra workflow with `what-if` on PR | `.github/workflows/` |
 | 0.6 | Budgets and alerts per subscription; Defender for Cloud baseline | IaC |
 | 0.7 | Run spikes SP-1…SP-10 (tech spec §18.2) and write decision notes | `docs/phase14/spikes/` |
+
+**Dev environment in slices.** Development itself starts on laptops (Docker Compose) from day one; the Azure dev environment grows just ahead of the work that needs it, and each slice is codified in Bicep (0.2) before the next one is added:
+
+| Slice | Add | Needed by | Approx. cost/month |
+|-------|-----|-----------|--------------------|
+| 1 — Foundation (week 1) | Resource groups, VNet, NAT gateway, Log Analytics, Key Vault (platform), platform registry, Storage, AKS with `system` + `platform` pools, one Flexible Server, Managed Redis (no HA) | M1, spikes SP-2, SP-4, SP-6 | ≈ $550 |
+| 2 — Tenancy | Second Flexible Server (pool), tenant-keys vault, provisioner/migrator identities, dev tenants | WS2 (M2) | + ≈ $200 |
+| 3 — Public entry | DNS zone, Front Door, `connect.` / `gateway.` hostnames (OAuth callbacks and webhooks need public HTTPS) | WS3 webhooks, WS5 (M3, M5), SP-7 | + ≈ $40 |
+| 4 — Tenant runtime | `apps` and `sandbox` pools, apps registry, tenant app edge, Gitea | WS6 (M6), SP-1, SP-3 | + ≈ $350 |
+| 5 — Observability extras | Managed Prometheus, Grafana, App Insights tuning | Load and resilience tests (M7) | + ≈ $75 |
+
+A single Azure VM as the development platform is not recommended: it would not exercise AKS, workload identity, private Flexible Server or Kata sandboxes — the very things Phase 14 has to prove — and would repeat today's hand-built VM pattern.
 
 **Done:** dev, staging and prod can be destroyed and recreated from code; a PR shows the infra diff; a merge deploys to dev without manual steps; spike notes exist.
 

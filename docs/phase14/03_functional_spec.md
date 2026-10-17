@@ -25,6 +25,9 @@ Until now an agent works only when someone presses **Run**. After Phase 14 a bus
 | **App user** | Someone who uses an app built for the tenant (e.g. Acme's sales staff or customers) | Logs in to the app; never sees HireBuddha |
 | **Agent** | An AI worker in HireBuddha | Runs when triggered; may schedule work, send signals, wait for replies, read and write records within its permissions |
 | **Platform admin** | HireBuddha staff | Manages system integrations, connector approvals, tenant databases, the Azure move |
+| **Pragya** *(built after Phase 14)* | A separate assistant layer between the new Generative UI and the backend (D41) — not an agent | Will do anything in this specification **on behalf of** the person it is talking to, with that person's permissions; it cannot approve its own proposals, and every action shows "done by Pragya for <person>" |
+
+Because Pragya will later drive everything described here, every action in this specification must be possible through the API as well as the screen, must ask the same approvals, and must be recorded with who asked for it.
 
 ### 2.1 Permissions
 
@@ -431,7 +434,7 @@ Nothing changes for phone numbers, webhook addresses or login. Partners that all
 * Per-tenant agent workers (agents run on shared, isolated workers).
 * Remodelling campaigns, leads and calls into the new standard business tables (E13–E18); they move as they are.
 * Full business modules (accounting, HR, inventory) — E19–E30.
-* The new Generative UI frontend (E33); Phase 14 screens are transitional and reused by Pragya.
+* The new Generative UI frontend (E33) and Pragya itself (E10, E39, D41). Phase 14 screens are transitional; the Generative UI and Pragya reuse the same APIs and screen components.
 * Optional Graph/Loop hierarchy (E40).
 
 ---
