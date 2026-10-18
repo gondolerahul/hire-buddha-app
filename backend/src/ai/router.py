@@ -532,12 +532,29 @@ async def respond_to_approval(
     db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Answer one of your company's pending approvals: ``{"status": "APPROVED" | "REJECTED", "notes"?}``."""
+    """Answer one of your company's pending approvals: ``{"status": "APPROVED" | "REJECTED", "notes"?}``.
+
+    A schema change an agent proposed (Phase 14 WS4, D20) is decided by owners
+    and admins; the answer applies or rejects it.
+    """
+    from src.ai.orm import HumanApproval
+    from src.schema_engine import approvals as schema_approvals
+
+    pending = (await db.execute(select(HumanApproval).where(
+        HumanApproval.id == approval_id, HumanApproval.company_id == current_user.company_id))).scalar_one_or_none()
+    change_id = schema_approvals.change_of(pending) if pending is not None else None
+    if change_id and current_user.role not in ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="Owners and admins decide changes to the business's data")
     service = AIService(db)
     approval = await service.respond_to_approval(
         approval_id, decision.status, current_user.id, decision.notes,
         company_id=current_user.company_id,
     )
+    if change_id:
+        change = await schema_approvals.decided_in_inbox(current_user.company_id, change_id,
+                                                         approved=decision.status == "APPROVED",
+                                                         user_id=current_user.id)
+        return {"status": "success", "decision": decision.status, "schema_change": change}
 
     # The run is parked PAUSED on this approval, holding no worker (GH-07):
     # resume it now. Best-effort — the stuck-run sweep resumes a run whose

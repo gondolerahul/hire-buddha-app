@@ -42,7 +42,16 @@ export interface PlatformAutomation {
     paused_reason: string | null;
 }
 
-export type TriggerKind = 'schedule' | 'timer' | 'event' | 'data' | 'manual';
+export type TriggerKind = 'schedule' | 'timer' | 'event' | 'data' | 'condition' | 'manual';
+
+/** A condition trigger's check on the business's records (backend src/automation/conditions.py). */
+export interface TriggerCondition {
+    object: string;
+    filter: [string, string, unknown][];
+    measure: { fn: 'count' | 'sum' | 'avg' | 'min' | 'max'; field?: string };
+    op: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'ne';
+    value: number | string;
+}
 export type TriggerStatus = 'active' | 'off' | 'finished' | 'paused';
 
 export interface FilterCondition {
@@ -63,6 +72,7 @@ export interface TriggerFields {
     event_type?: string | null;
     filter?: TriggerFilter | null;
     cron?: string | null;
+    condition?: TriggerCondition | null;
     timezone?: string | null;
     run_at?: string | null;
     until_at?: string | null;
@@ -86,6 +96,7 @@ export interface Trigger {
     event_type: string | null;
     filter: TriggerFilter | null;
     cron: string | null;
+    condition?: TriggerCondition | null;
     timezone: string | null;
     run_at: string | null;
     until_at: string | null;

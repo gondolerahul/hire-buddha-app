@@ -112,6 +112,9 @@ class ToolAccess:
     max_tool_calls: Optional[int] = None
     creation_limit: Optional[int] = None
     used: dict[str, int] = field(default_factory=dict)
+    # What each tool's declaration says for this business and entity
+    # (``Tool.tailoring``; the record tools' objects and fields, WS4 4.8).
+    tailoring: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     async def load(
@@ -139,6 +142,7 @@ class ToolAccess:
             max_tool_calls=_max_tool_calls(entity),
             creation_limit=None if is_meta_agent else _max_runtime_creations(entity),
             used=await _calls_so_far(db, _as_uuid(run_id)),
+            tailoring=await _tailoring(cid, entity, [*grants, *injected]),
         )
 
     # ------------------------------------------------------------------
@@ -219,12 +223,14 @@ class ToolAccess:
         for name in self.llm_tool_ids():
             tool = self._check(name, "llm")
             if isinstance(tool, Tool):
-                out.append(tool.get_function_schema())
+                schema = tool.function_schema_for(self.tailoring.get(name))
+                if schema is not None:
+                    out.append(schema)
         return out
 
     def schema_for(self, name: str) -> Optional[dict[str, Any]]:
         tool = self._check(name, "plan" if name in self.grants else "llm")
-        return tool.get_function_schema() if isinstance(tool, Tool) else None
+        return tool.function_schema_for(self.tailoring.get(name)) if isinstance(tool, Tool) else None
 
     def grant(self, name: str) -> Optional[ToolGrant]:
         return self.grants.get(name)
@@ -312,6 +318,25 @@ class ExecutionContext:
         }
         ctx.update(self.loop_state)
         return ctx
+
+
+async def _tailoring(company_id: Optional[UUID], entity: Any, names: Iterable[str]) -> dict[str, Any]:
+    """Each tool's ``tailoring`` for this business and entity; a tool whose
+    tailoring fails keeps its plain declaration (it is logged)."""
+    out: dict[str, Any] = {}
+    shared: dict[str, Any] = {}
+    for name in dict.fromkeys(names):
+        tool = ToolRegistry.get_tool(name, company_id=company_id)
+        if not isinstance(tool, Tool) or type(tool).tailoring is Tool.tailoring:
+            continue
+        try:
+            value = await tool.tailoring(company_id, entity, shared)
+        except Exception as error:                          # noqa: BLE001 - a declaration is never fatal
+            logger.warning("Tool %s: no per-business declaration (%s)", name, error)
+            continue
+        if value is not None:
+            out[name] = value
+    return out
 
 
 def _meta_extensions(entity: Any) -> Mapping[str, Any]:

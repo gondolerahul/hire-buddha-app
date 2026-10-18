@@ -148,15 +148,21 @@ async def decide(db: Any, company_id: Any, trigger: Trigger, event: Event, limit
     return await policy(db, company_id, trigger) or decision
 
 
-def _render_input(trigger: Trigger, event: Event) -> Dict[str, Any]:
+def _render_input(trigger: Trigger, event: Event, condition: Any = None) -> Dict[str, Any]:
     from src.automation import gateway
 
     if not trigger.input_template and trigger.kind in triggers_mod.EVENT_KINDS:
         input_data = gateway.default_input(event)  # the event itself, as the old inbound path gave runs
+    elif not trigger.input_template and condition is not None:
+        input_data = {"input": f"{trigger.name}: the condition holds — {condition.summary}"}
     else:
-        rendered = templates.render(trigger.input_template or {}, event_view(event),
-                                    {"id": str(trigger.id), "name": trigger.name})
+        about = {"id": str(trigger.id), "name": trigger.name}
+        if condition is not None:
+            about["condition"] = condition.view()
+        rendered = templates.render(trigger.input_template or {}, event_view(event), about)
         input_data = rendered if isinstance(rendered, dict) else {"input": rendered}
+    if condition is not None:
+        input_data["condition"] = condition.view()
     subjects = gateway.subjects_for(event)
     if subjects is not None:  # an inbound event's lead or sender: the platform's, not a template's (TL-09)
         input_data["subjects"] = subjects
@@ -181,8 +187,10 @@ async def _firing(db: Any, trigger_id: UUID, event_id: UUID) -> Optional[Trigger
         TriggerFiring.trigger_id == trigger_id, TriggerFiring.event_id == event_id))).scalar_one_or_none()
 
 
-async def start(db: Any, company_id: Any, trigger: Trigger, event: Event, firing: TriggerFiring) -> guards.Decision:
+async def start(db: Any, company_id: Any, trigger: Trigger, event: Event, firing: TriggerFiring,
+                condition: Any = None) -> guards.Decision:
     """Create the trigger's run; ``firing`` (pending in ``db``) commits with it.
+    ``condition``: a condition trigger's check that held (``conditions.Checked``).
 
     Returns the decision that stands: ``started``, or why the run's checks
     refused it (the firing is then rolled back for the caller to record).
@@ -198,7 +206,8 @@ async def start(db: Any, company_id: Any, trigger: Trigger, event: Event, firing
     firing.run_id, firing.outcome = run_id, guards.STARTED
     try:
         await AIService(db).trigger_execution(
-            ExecutionRunCreate(entity_id=trigger.entity_id, input_data=_render_input(trigger, event)), company_id,
+            ExecutionRunCreate(entity_id=trigger.entity_id, input_data=_render_input(trigger, event, condition)),
+            company_id,
             user_id=trigger.created_by_id if trigger.created_by_kind == "user" else None,
             entity_version_id=trigger.entity_version_id,
             # Written on the run as it is created, with its firing in the same commit.
@@ -248,23 +257,41 @@ async def _loop_blocked(db: Any, trigger: Trigger, event: Event, decision: guard
 
 def _count_firing(trigger: Trigger, now: datetime) -> None:
     trigger.last_fired_at = now
-    if trigger.kind in triggers_mod.EVENT_KINDS:  # the scheduler counts a schedule's fire times
+    # The scheduler counts a schedule's fire times; a condition trigger counts the runs it started.
+    if trigger.kind in triggers_mod.EVENT_KINDS or trigger.kind == "condition":
         trigger.firings = (trigger.firings or 0) + 1
         if trigger.max_firings is not None and trigger.firings >= trigger.max_firings:
             trigger.enabled, trigger.paused_reason = False, f"finished: ran {trigger.firings} times"
 
 
+async def _check_condition(company_id: Any, trigger: Trigger) -> Any:
+    """A condition trigger's check: ``(checked, None)`` when it holds, else ``(None, the decision)``."""
+    from src.automation import conditions
+
+    try:
+        checked = await conditions.check(company_id, trigger.condition)
+    except conditions.ConditionError as error:
+        return None, guards.Decision(guards.FAILED, f"condition not checked: {error}")
+    if not checked.holds:
+        return None, guards.Decision(guards.SKIPPED_CONDITION_FALSE, f"condition false: {checked.summary}")
+    return checked, None
+
+
 async def decide_and_start(db: Any, company_id: Any, trigger: Trigger, event: Event, limits: AutomationLimits,
                            now: datetime) -> Dict[str, Any]:
     """One trigger's decision about one event, recorded and committed."""
-    decision = await decide(db, company_id, trigger, event, limits, now)
+    checked, decision = None, None
+    if trigger.kind == "condition":
+        checked, decision = await _check_condition(company_id, trigger)
+    if decision is None:
+        decision = await decide(db, company_id, trigger, event, limits, now)
     trigger_id, event_id = trigger.id, event.id
     firing = TriggerFiring(id=uuid.uuid4(), trigger_id=trigger_id, event_id=event_id, decided_at=now,
                            outcome=decision.outcome, reason=decision.reason or None)
     if decision.outcome == guards.STARTED:
         db.add(firing)
         _count_firing(trigger, now)
-        decision = await start(db, company_id, trigger, event, firing)
+        decision = await start(db, company_id, trigger, event, firing, checked)
         if decision.outcome != guards.STARTED:  # refused and rolled back: record why
             trigger = await db.get(Trigger, trigger_id)
             firing = TriggerFiring(id=uuid.uuid4(), trigger_id=trigger_id, event_id=event_id, decided_at=now,

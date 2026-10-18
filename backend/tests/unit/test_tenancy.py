@@ -88,6 +88,8 @@ APPENDIX_A_TENANT = {
     "email_connections", "social_connections",
     # Automation (WS3, tech spec §7.3).
     "events", "triggers", "trigger_firings", "waits",
+    # Records (WS4, tech spec §8.4, §9.3): blueprints, changes, audit, keys.
+    "schema_blueprints", "schema_changes", "audit_log", "api_keys", "records_settings",
 }
 
 # What the foreign keys between the planes were: a tenant database cannot hold

@@ -180,9 +180,6 @@ async def fire_trigger(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
         if trigger.next_fire_at is not None and trigger.next_fire_at > now:
             pass  # an edit moved the trigger later than its index row: the row only follows
         elif trigger.enabled and trigger.kind in triggers_mod.TIMED:
-            if trigger.kind == "condition":  # needs reports (WS4 4.10); validate refuses new ones
-                await _hold(cdb, due, owner, now + UNSUPPORTED_RECHECK)
-                return {"trigger": str(trigger.id), "unsupported": "condition"}
             decided = plan(trigger, now=now, tz_name=tz_name, limits=await limits_for(due.company_id, cdb),
                            grace=_grace())
             for moment in decided.fire:
@@ -196,7 +193,8 @@ async def fire_trigger(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
                                      outcome=guards.SKIPPED_MISSED,
                                      reason=f"missed while automation was not running: {start:%Y-%m-%d %H:%M} to "
                                             f"{end:%Y-%m-%d %H:%M} UTC (catch-up rule)"))
-            trigger.firings = (trigger.firings or 0) + len(created)
+            if trigger.kind != "condition":  # a condition trigger counts the runs its checks start (router)
+                trigger.firings = (trigger.firings or 0) + len(created)
             trigger.next_fire_at = triggers_mod.next_fire_at(trigger, now=decided.after or now,
                                                              default_timezone=tz_name)
             if trigger.kind == "timer":

@@ -58,7 +58,10 @@ class TriggerFields(BaseModel):
         None, description="The run's input; text may use {{ event.data.x }} and {{ trigger.name }}")
     event_type: Optional[str] = Field(None, description="event and data triggers: a type or a prefix like record.order.*")
     filter: Optional[Dict[str, Any]] = Field(None, description="event and data triggers: which events (src/automation/filters.py)")
-    cron: Optional[str] = Field(None, description="schedule: five-field cron in the trigger's time zone")
+    cron: Optional[str] = Field(None, description="schedule and condition: five-field cron in the trigger's time zone")
+    condition: Optional[Dict[str, Any]] = Field(None, description=(
+        "condition: checked on the business's records each time the schedule fires — {object, filter: "
+        "[{field, op, value}], measure: {fn, field}, op, value} (src/automation/conditions.py)"))
     timezone: Optional[str] = Field(None, description="IANA zone; null uses the business time zone")
     run_at: Optional[datetime] = Field(None, description="timer: when it fires once")
     until_at: Optional[datetime] = Field(None, description="schedule: no firing after this")
@@ -72,7 +75,7 @@ class TriggerFields(BaseModel):
 
 class TriggerCreate(TriggerFields):
     name: str = Field(..., max_length=200)
-    kind: str = Field(..., description="schedule | timer | event | data | manual")
+    kind: str = Field(..., description="schedule | timer | event | data | condition | manual")
     entity_id: UUID
 
 
@@ -90,6 +93,7 @@ class TriggerOut(BaseModel):
     event_type: Optional[str] = None
     filter: Optional[Dict[str, Any]] = None
     cron: Optional[str] = None
+    condition: Optional[Dict[str, Any]] = None
     timezone: Optional[str] = None
     run_at: Optional[datetime] = None
     until_at: Optional[datetime] = None

@@ -50,6 +50,8 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "agent_reflect", "meta_entity_creator", "meta_entity_executor", "tool_synthesis",
     # automation: a schedule made, cancelled, a signal sent
     "schedule_agent", "cancel_schedule", "emit_event",
+    # the business's records and their structure (WS4)
+    "create_record", "update_record", "link_records", "archive_record", "propose_schema_change",
 })
 
 # Names that read like a write but only produce output the run keeps.

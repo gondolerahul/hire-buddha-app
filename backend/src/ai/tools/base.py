@@ -203,6 +203,20 @@ class Tool(ABC):
             return await self.run(input_data)
         raise NotImplementedError(f"tool '{self.name}' implements neither execute nor run_with_context")
 
+    # ── Per-business schemas (Phase 14 WS4 4.8) ────────────────────────────
+    async def tailoring(self, company_id: Any, entity: Any, shared: Dict[str, Any]) -> Any:
+        """What this business and entity change in the tool's declaration (the
+        record tools: the objects and fields the agent may use), read once when
+        a run loads its tools. ``shared`` is per load, so tools of one family
+        read the same thing once. ``None``: nothing changes."""
+        return None
+
+    def function_schema_for(self, tailoring: Any) -> Optional[Dict[str, Any]]:
+        """The declaration the model is shown, given :meth:`tailoring`'s result;
+        ``None`` when there is nothing this entity could do with the tool here
+        (it is not offered)."""
+        return self.get_function_schema()
+
     def get_function_schema(self) -> Dict[str, Any]:
         """The function declaration the model is shown: from ``Params`` when typed."""
         if self.Params is not None:
@@ -225,7 +239,7 @@ class Tool(ABC):
 _PACKAGE_CATEGORIES = {
     "core": "core", "documents": "document", "email": "email", "media": "media",
     "social": "social", "crm": "crm", "sandbox": "execution", "meta": "meta",
-    "automation": "automation",
+    "automation": "automation", "records": "records",
 }
 
 
@@ -246,13 +260,13 @@ def _plain_schema(schema: Dict[str, Any], defs: Optional[Dict[str, Any]] = None)
     ``type``, and an ``anyOf`` with no ``type`` would be advertised as a string.
     """
     defs = schema.get("$defs", {}) if defs is None else defs
-    if "$ref" in schema:
-        target = defs.get(schema["$ref"].rsplit("/", 1)[-1], {})
-        schema = {**target, **{k: v for k, v in schema.items() if k != "$ref"}}
-    if "anyOf" in schema:
+    if "anyOf" in schema:  # first: an Optional model is anyOf [$ref, null]
         variants = [v for v in schema["anyOf"] if v.get("type") != "null"]
         if len(variants) == 1:
             schema = {**{k: v for k, v in schema.items() if k != "anyOf"}, **variants[0]}
+    if "$ref" in schema:
+        target = defs.get(schema["$ref"].rsplit("/", 1)[-1], {})
+        schema = {**target, **{k: v for k, v in schema.items() if k != "$ref"}}
     out: Dict[str, Any] = {}
     for key, value in schema.items():
         if key in ("title", "$defs"):

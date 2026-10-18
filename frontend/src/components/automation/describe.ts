@@ -3,7 +3,7 @@
  * (functional spec §3.4): when a trigger fires, what a decision means, and
  * times in the business time zone.
  */
-import type { EventStatus, Trigger, TriggerFilter } from '@/services/automation.service';
+import type { EventStatus, Trigger, TriggerCondition, TriggerFilter } from '@/services/automation.service';
 import { parseServerDate } from '@/utils/datetime';
 
 /** A time in the business time zone, e.g. "18 Oct, 09:00". */
@@ -75,9 +75,20 @@ export const watchedAgent = (trigger: Pick<Trigger, 'kind' | 'event_type' | 'fil
 
 const FINISHES: Record<RunOutcome, string> = { completed: 'completes', failed: 'fails', any: 'finishes' };
 
+const COMPARISONS: Record<string, string> = { gt: '>', gte: '≥', lt: '<', lte: '≤', eq: '=', ne: '≠' };
+
+/** A condition trigger's check, as the backend words it: "count of product where stock lt 10 > 0". */
+export const describeCondition = (condition: TriggerCondition | null | undefined): string => {
+    if (!condition) return 'a condition';
+    const { measure } = condition;
+    const what = measure.fn === 'count' ? 'count' : `${measure.fn} of ${measure.field ?? ''}`;
+    const where = (condition.filter ?? []).map(([field, op, value]) => `${field} ${op} ${String(value)}`).join(' and ');
+    return `${what} of ${condition.object}${where ? ` where ${where}` : ''} ${COMPARISONS[condition.op] ?? condition.op} ${condition.value}`;
+};
+
 /** What starts the trigger, in a few words. */
 export const describeWhen = (trigger: Pick<Trigger, 'kind' | 'cron' | 'run_at' | 'event_type' | 'timezone'>
-    & Partial<Pick<Trigger, 'filter'>>, timeZone: string, names: Record<string, string> = {}): string => {
+    & Partial<Pick<Trigger, 'filter' | 'condition'>>, timeZone: string, names: Record<string, string> = {}): string => {
     const watched = watchedAgent({ kind: trigger.kind, event_type: trigger.event_type, filter: trigger.filter ?? null });
     if (watched) return `when ${names[watched.agentId] ?? 'an agent'} ${FINISHES[watched.outcome]}`;
     switch (trigger.kind) {
@@ -89,6 +100,8 @@ export const describeWhen = (trigger: Pick<Trigger, 'kind' | 'cron' | 'run_at' |
             return `on ${trigger.event_type ?? 'event'}`;
         case 'data':
             return `on change ${trigger.event_type ?? ''}`;
+        case 'condition':
+            return `schedule ${trigger.cron ?? ''}, if ${describeCondition(trigger.condition)}`;
         default:
             return 'run by hand';
     }

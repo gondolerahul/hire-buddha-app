@@ -62,8 +62,6 @@ def validate(fields: Dict[str, Any], *, now: datetime, new_run_at: bool = True) 
     kind = data.get("kind")
     if kind not in TRIGGER_KINDS:
         raise TriggerError(f"kind must be one of {', '.join(TRIGGER_KINDS)}")
-    if kind == "condition":
-        raise TriggerError("condition triggers arrive with reports (Phase 14 WS4); use a schedule for now")
     if not str(data.get("name") or "").strip():
         raise TriggerError("name is required")
     if not data.get("entity_id"):
@@ -89,6 +87,15 @@ def validate(fields: Dict[str, Any], *, now: datetime, new_run_at: bool = True) 
                 schedules.validate_timezone(data["timezone"])
         except schedules.ScheduleError as error:
             raise TriggerError(f"cron: {error}") from None
+    if kind == "condition":  # checked on the business's records each time the schedule fires (WS4 4.10)
+        from src.automation import conditions
+
+        try:
+            data["condition"] = conditions.validate(data.get("condition"))
+        except conditions.ConditionError as error:
+            raise TriggerError(str(error)) from None
+    else:
+        data["condition"] = None
     if kind == "timer":
         if data.get("run_at") is None:
             raise TriggerError("a timer needs run_at")

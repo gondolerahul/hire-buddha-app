@@ -299,6 +299,21 @@ class Settings(BaseSettings):
     # Events routed at once by one event worker (queue "events"). Routing is
     # short (it creates runs, it does not run them).
     EVENT_WORKER_MAX_JOBS: int = 20
+    # The Data API (WS4, tech spec §9): the key its tokens are signed with
+    # (derived from SECRET_KEY when empty), the business one instance serves
+    # (empty: any, by the token), and the environment named in app keys.
+    # DATA_API_URL is where agents' record tools reach it (…/data/v1); empty:
+    # in this process.
+    DATA_API_SIGNING_KEY: str = ""
+    DATA_API_TENANT_KEY: str = ""
+    DATA_API_KEY_ENV: str = "dev"
+    DATA_API_URL: str = ""
+    # Per-key rate limits (tech spec §9.5): requests a second on average and in
+    # a burst, for app keys and for outside systems' keys.
+    DATA_API_KEY_RATE: int = 20
+    DATA_API_KEY_BURST: int = 100
+    DATA_API_EXTERNAL_RATE: int = 5
+    DATA_API_EXTERNAL_BURST: int = 25
 
     # Weekly database exports (decision D45, scripts/backup_databases.py): how
     # many weeks are kept, and the pg_dump binary (its major version must be

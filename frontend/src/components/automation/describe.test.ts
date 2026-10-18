@@ -45,6 +45,10 @@ describe('automation describe', () => {
             .toBe('schedule 0 9 * * * (UTC)');
         expect(describeWhen({ ...base, kind: 'event', event_type: 'social.comment.*' }, 'UTC')).toBe('on social.comment.*');
         expect(describeWhen({ ...base, kind: 'manual' }, 'UTC')).toBe('run by hand');
+        expect(describeWhen({
+            ...base, kind: 'condition', cron: '0 * * * *',
+            condition: { object: 'product', filter: [['stock', 'lt', 10]], measure: { fn: 'count' }, op: 'gt', value: 0 },
+        }, 'UTC')).toBe('schedule 0 * * * *, if count of product where stock lt 10 > 0');
     });
 
     it('says what is next, or that a timer is finished', () => {

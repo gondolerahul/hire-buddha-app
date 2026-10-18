@@ -6,7 +6,7 @@ meta-cognition toggles.
 """
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -20,6 +20,7 @@ __all__ = [
     "ContextEngineering",
     "MetaCognitionConfig",
     "AutomationCapability",
+    "RecordsCapability",
     "Capabilities",
 ]
 
@@ -151,9 +152,28 @@ class AutomationCapability(BaseModel):
     can_schedule: List[str] = []
 
 
+class RecordsCapability(BaseModel):
+    """What the agent may do with the business's records (Phase 14 WS4 4.8;
+    tech spec §9.3) — the scopes of its run token for the Data API.
+
+    * ``objects`` — object (or ``*``) → operations among read, create, update,
+      delete (or ``*``): ``{"contact": ["read", "update"], "order": ["read"]}``;
+    * ``reports`` — it may run aggregate reports;
+    * ``schema_changes`` — ``propose``: it may propose schema changes, which
+      wait for a person unless the owner auto-approves simple additions.
+
+    The record tools are tool grants like any other (``find_records``,
+    ``create_record``, …); this says which records they reach.
+    """
+    objects: Dict[str, Union[Literal["*"], List[Literal["read", "create", "update", "delete", "*"]]]] = {}
+    reports: bool = False
+    schema_changes: Literal["none", "propose"] = "none"
+
+
 class Capabilities(BaseModel):
     tools: List[ToolGrant] = []
     memory: MemoryConfig = MemoryConfig()
     context_engineering: ContextEngineering = ContextEngineering()
     meta_cognition: MetaCognitionConfig = MetaCognitionConfig()
     automation: Optional[AutomationCapability] = None
+    records: Optional[RecordsCapability] = None

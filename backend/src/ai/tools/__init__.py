@@ -120,6 +120,12 @@ ToolRegistry.register(ListSchedulesTool())
 ToolRegistry.register(EmitEventTool())
 ToolRegistry.register(WaitForEventTool())
 
+# Records (Phase 14 WS4 4.8): the business's own records through the Data API;
+# what an agent reaches is its capabilities.records.
+from src.ai.tools.records import RECORD_TOOLS
+for _record_tool in RECORD_TOOLS:
+    ToolRegistry.register(_record_tool())
+
 __all__ = [
     "Tool", "ToolRegistry",
     "CalculatorTool", "WebSearchTool", "BatchWebSearchTool", "ExcelTool", "ScraperTool",

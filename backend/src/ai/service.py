@@ -194,12 +194,13 @@ class AIService:
             self._require_template_writer(user_role)
 
         update_data = entity_in.model_dump(mode='json', exclude_unset=True)
-        # An edit that does not mention the agent's automation settings keeps
-        # them (Phase 14 WS3): they are set on its Automation tab.
+        # An edit that does not mention the agent's automation or records
+        # settings keeps them (Phase 14 WS3, WS4): they are set on their own tabs.
         caps = update_data.get("capabilities")
         stored = entity.capabilities if isinstance(entity.capabilities, dict) else {}
-        if isinstance(caps, dict) and "automation" not in caps and stored.get("automation") is not None:
-            caps["automation"] = stored["automation"]
+        for kept in ("automation", "records"):
+            if isinstance(caps, dict) and kept not in caps and stored.get(kept) is not None:
+                caps[kept] = stored[kept]
         # Whether an entity is a template is not an edit: convert-to-template
         # copies one into the platform's library (PO-23).
         for field in ("is_template", "template_source_id"):

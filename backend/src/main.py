@@ -188,6 +188,13 @@ mount_optional(app, "src.gateway.status")               # GET /metrics/gateway
 # Event-driven automation (Phase 14 WS3): settings, and the control room as it grows
 mount_optional(app, "src.automation.api")                # /api/v1/automation/*, /api/v1/admin/automation/*
 mount_optional(app, "src.notifications.router")         # /api/v1/notifications
+mount_optional(app, "src.data_api.platform_router")     # /api/v1/records/token, /api/v1/data-keys
+
+# The Data API (WS4, tech spec §9): a business's records at /data/v1/…; it also
+# runs on its own (src.data_api.main), one per business in Kubernetes.
+from src.data_api.app import create_app as _create_data_api  # noqa: E402
+
+app.mount("/data", _create_data_api())
 
 
 @app.get("/")

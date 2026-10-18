@@ -77,9 +77,19 @@ _MODEL = "its model calls are billed as LLM usage"
 _SANDBOX = "metered as sandbox time"
 _RUN = "starts a run, which is billed itself"
 _AUTOMATION = "saves a schedule or a signal; the runs it starts are billed themselves"
+_RECORDS = "reads or writes the business's own records (Data API); no paid service"
 FREE_TOOLS: dict[str, str] = {
     "agent_introspect": _LOCAL,
     "agent_reflect": _LOCAL,
+    "archive_record": _RECORDS,
+    "create_record": _RECORDS,
+    "describe_schema": _RECORDS,
+    "find_records": _RECORDS,
+    "get_record": _RECORDS,
+    "link_records": _RECORDS,
+    "propose_schema_change": _RECORDS,
+    "run_report": _RECORDS,
+    "update_record": _RECORDS,
     "calculator": _LOCAL,
     "cancel_schedule": _LOCAL,
     "emit_event": _AUTOMATION,

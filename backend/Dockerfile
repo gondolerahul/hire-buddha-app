@@ -5,6 +5,7 @@
 #   docker build --target child-worker -t hb-child-worker . # arq: queue "children"
 #   docker build --target event-worker -t hb-event-worker . # arq: queue "events" (WS3 router)
 #   docker build --target scheduler    -t hb-scheduler .    # WS3 tenant scheduler
+#   docker build --target data-api     -t hb-data-api .     # WS4 Data API on :8080, one per business
 #   docker build --target backup       -t hb-backup .       # weekly pg_dump exports (D45)
 #   docker build --target dev          -t hb-dev .          # local: --reload, used by docker-compose
 #
@@ -100,6 +101,12 @@ FROM runtime AS scheduler
 # The tenant scheduler (tech spec §7.7): fires schedules and timers from the
 # control database's time index.
 CMD ["python", "-m", "src.automation.scheduler"]
+
+FROM runtime AS data-api
+# The Data API alone (tech spec §9.1): one Deployment per business, which
+# DATA_API_TENANT_KEY pins; /healthz and /readyz for the probes.
+EXPOSE 8080
+CMD ["sh", "-c", "exec uvicorn src.data_api.main:app --host 0.0.0.0 --port 8080 --proxy-headers --forwarded-allow-ips \"${FORWARDED_ALLOW_IPS:-127.0.0.1}\""]
 
 FROM runtime AS backup
 # Weekly database exports (decision D45): pg_dump must be the servers' major
