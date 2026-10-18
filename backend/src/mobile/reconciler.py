@@ -9,6 +9,10 @@ Periodic mobile-dialer housekeeping (Arq cron, every 5 minutes).
    release their lead.
 3. Stuck calls: campaign calls left ``calling`` by a merged attempt whose
    handler never cleaned up are closed after 2 h.
+
+Runs once per tenant database (Phase 14 WS2 2.4; once, over the shared
+database, while ``TENANCY_MODE=single``). Devices are control-plane rows,
+read in a query of their own.
 """
 import logging
 from datetime import datetime, timedelta
@@ -16,7 +20,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, func, select, update
 
 from src.common.config import settings
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import is_split, tenant_scopes, tenant_session
 from src.ai.campaign_models import Campaign, CampaignCall
 from src.mobile.models import (
     ATTEMPT_EXPIRED, ATTEMPT_PENDING, IDENT_RECONCILED, IDENT_UNIDENTIFIED,
@@ -48,13 +52,19 @@ async def reconcile_unidentified_sessions(db) -> int:
         caller = meta.get("caller")
         if not caller:
             continue
-        attempt = (await db.execute(
-            select(MobileCallAttempt)
-            .join(UserDevice, UserDevice.id == MobileCallAttempt.device_id)
-            .where(and_(
-                MobileCallAttempt.company_id == session.company_id,
+        devices = (await db.execute(
+            select(UserDevice.id).where(and_(
                 UserDevice.company_id == session.company_id,
                 UserDevice.verified_cli == caller,
+            ))
+        )).scalars().all()
+        if not devices:
+            continue
+        attempt = (await db.execute(
+            select(MobileCallAttempt)
+            .where(and_(
+                MobileCallAttempt.company_id == session.company_id,
+                MobileCallAttempt.device_id.in_(devices),
                 MobileCallAttempt.voice_session_id.is_(None),
                 MobileCallAttempt.ai_answered_at.isnot(None),
                 MobileCallAttempt.ai_answered_at.between(session.started_at - window, session.started_at + window),
@@ -198,21 +208,43 @@ async def close_finished_campaigns(db) -> int:
     return len(stuck)
 
 
+HOUSEKEEPING_STEPS = (
+    ("expired", expire_stale_attempts),
+    ("reconciled", reconcile_unidentified_sessions),
+    ("runs_closed", close_stale_runs),
+    ("campaigns_closed", close_finished_campaigns),
+)
+
+
+async def _housekeep(scope) -> dict:
+    """One tenant database's pass: each step in a session of its own."""
+    counts = {}
+    for key, step in HOUSEKEEPING_STEPS:
+        async with tenant_session(scope) as db:
+            counts[key] = await step(db)
+    return counts
+
+
 async def mobile_housekeeping_job(ctx=None) -> dict:
-    async with AsyncSessionLocal() as db:
-        expired = await expire_stale_attempts(db)
-    async with AsyncSessionLocal() as db:
-        reconciled = await reconcile_unidentified_sessions(db)
-    async with AsyncSessionLocal() as db:
-        runs_closed = await close_stale_runs(db)
-    async with AsyncSessionLocal() as db:
-        campaigns_closed = await close_finished_campaigns(db)
-    if expired or reconciled or runs_closed or campaigns_closed:
+    totals = {key: 0 for key, _ in HOUSEKEEPING_STEPS}
+    errors = []
+    for scope in await tenant_scopes():
+        try:
+            counts = await _housekeep(scope)
+        except Exception as e:
+            if not is_split():
+                raise
+            # One tenant's failure must not stop the others' housekeeping.
+            logger.error(f"[Mobile] housekeeping failed for tenant {scope}: {e}")
+            errors.append(f"{scope}: {e}")
+            continue
+        for key, n in counts.items():
+            totals[key] += n
+    if any(totals.values()):
         logger.info(
-            f"[Mobile] housekeeping: expired={expired} reconciled={reconciled} "
-            f"runs_closed={runs_closed} campaigns_closed={campaigns_closed}"
+            f"[Mobile] housekeeping: expired={totals['expired']} reconciled={totals['reconciled']} "
+            f"runs_closed={totals['runs_closed']} campaigns_closed={totals['campaigns_closed']}"
         )
-    return {
-        "expired": expired, "reconciled": reconciled,
-        "runs_closed": runs_closed, "campaigns_closed": campaigns_closed,
-    }
+    if errors:
+        totals["errors"] = errors
+    return totals

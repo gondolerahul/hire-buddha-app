@@ -69,7 +69,7 @@ class LiveClientFactory:
                 "Please set a default in the AI Model Configuration page."
             )
         from src.config.models import needs_api_key
-        if not api_key and needs_api_key(integration.provider_name):
+        if not api_key and needs_api_key(integration.provider_name, integration.service_metadata):
             raise RuntimeError(
                 f"No API key found for speech_to_speech model "
                 f"'{integration.provider_name}/{integration.model_name}'. "

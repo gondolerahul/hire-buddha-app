@@ -1,0 +1,143 @@
+name: ci
+
+# Phase 14 WS0 0.5 / WS1: every pull request and every push to main runs the
+# backend tiers on PostgreSQL 16 (TD-12) with PLATFORM_PROFILE=local — no
+# Azure service is reachable here, so a hidden Azure dependency fails the
+# suite (tech spec §19.7) — plus the frontend gates and the chart checks.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  POETRY_VERSION: "2.5.1"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hirebuddha
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      PLATFORM_PROFILE: local
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/hirebuddha
+      REDIS_URL: redis://localhost:6379
+      # Throwaway values for the test run only.
+      SECRET_KEY: ci-only-not-a-secret-${{ github.run_id }}
+      ENCRYPTION_MASTER_KEY: ci-only-encryption-key-${{ github.run_id }}-padding-to-32
+      REQUIRE_DB: "1"
+      REQUIRE_AZURITE: "1"
+      AZURITE_CONNECTION_STRING: UseDevelopmentStorage=true
+      PYTHONUTF8: "1"
+      VERTEX_PROJECT_ID: ci-project
+      SANDBOX_CONTAINER_RUNTIME_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azurite (Blob emulator for the azure_blob storage adapter)
+        # A step, not a service: the SDK may be newer than the emulator's API table.
+        run: >-
+          docker run -d --name azurite -p 10000:10000 mcr.microsoft.com/azure-storage/azurite:3.35.0
+          azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck --loose
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Poetry
+        run: pipx install "poetry==${POETRY_VERSION}"
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-root --no-ansi
+      - name: Migrations (up, down one, up) on an empty database
+        run: |
+          poetry run alembic upgrade head
+          poetry run alembic downgrade -1
+          poetry run alembic upgrade head
+      - name: Seeds
+        run: |
+          poetry run python db-scripts/seed_admin_user.py
+          poetry run python db-scripts/seed_integration_registry.py
+      - name: Layout lint and type gate
+        run: |
+          poetry run python scripts/lint_ai_layout.py
+          poetry run python scripts/typecheck_ai.py
+      - name: Unit tier (includes the cloud-SDK import contract, P-02)
+        run: poetry run pytest tests/unit tests/ai -q -m "not (integration or e2e or parity or regression or chaos or docker)"
+      - name: Integration tier (PostgreSQL 16, Redis, Azurite)
+        run: poetry run pytest tests/integration -q -m "not (slow or docker)"
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npx tsc --noEmit -p tsconfig.json
+      - run: npm test
+      - run: npx vite build
+        env:
+          VITE_API_BASE_URL: /api/v1
+
+  charts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: Lint
+        run: |
+          helm lint infra/k8s/charts/hb-platform -f infra/k8s/charts/hb-platform/values-azure.yaml -f infra/k8s/env/dev/hb-platform.yaml
+          helm lint infra/k8s/charts/hb-bootstrap -f infra/k8s/charts/hb-bootstrap/values-azure.yaml -f infra/k8s/env/dev/hb-bootstrap.yaml             --set certManager.issuer.email=ci@example.com --set otelCollector.keyVault.name=kv             --set otelCollector.keyVault.tenantId=t --set otelCollector.keyVault.clientId=c
+      - name: Render default, Azure dev and on-premise
+        run: |
+          mkdir -p rendered
+          C=infra/k8s/charts/hb-platform
+          helm template hb-platform $C -n hb-platform > rendered/default.yaml
+          helm template hb-platform $C -n hb-platform -f $C/values-azure.yaml -f infra/k8s/env/dev/hb-platform.yaml > rendered/azure-dev.yaml
+          helm template hb-platform $C -n hb-platform -f $C/values-onprem.yaml > rendered/onprem.yaml
+          B=infra/k8s/charts/hb-bootstrap
+          helm template hb-bootstrap $B -n hb-system -f $B/values-azure.yaml -f infra/k8s/env/dev/hb-bootstrap.yaml             --set certManager.issuer.email=ci@example.com --set otelCollector.keyVault.name=kv             --set otelCollector.keyVault.tenantId=t --set otelCollector.keyVault.clientId=c > rendered/bootstrap-azure.yaml
+      - name: Kubernetes schemas
+        run: |
+          docker run --rm -v "$PWD/rendered:/r" ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -ignore-missing-schemas -summary -kubernetes-version 1.31.0 /r/default.yaml /r/azure-dev.yaml /r/onprem.yaml /r/bootstrap-azure.yaml
+      - name: Bootstrap script
+        run: docker run --rm -v "$PWD:/mnt" koalaman/shellcheck:v0.10.0 /mnt/infra/k8s/bootstrap/install.sh
+      - name: The on-premise render carries nothing Azure-only (P-08)
+        run: |
+          if grep -nE 'azure\.workload\.identity|secrets-store|provider: azure|\.azurecr\.io|\.azure\.com' rendered/onprem.yaml; then
+            echo "Azure-only content in the on-premise render"; exit 1
+          fi

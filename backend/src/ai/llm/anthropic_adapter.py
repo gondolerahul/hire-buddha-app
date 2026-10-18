@@ -1,8 +1,19 @@
 """
-ai.llm.anthropic_adapter — Anthropic Claude adapter via Vertex AI.
+ai.llm.anthropic_adapter — Anthropic Claude adapter.
 
 Handles Anthropic-specific SDK initialization, tool declaration conversion,
 and the Anthropic REACT loop protocol (tool_use / tool_result blocks).
+
+Where Claude runs is the integration's ``service_metadata.provider``
+(Phase 14 WS1 1.6, tech spec §12.4), else ``settings.ANTHROPIC_PROVIDER``:
+
+* ``vertex`` — Vertex AI (``project_id``, ``region``), Google credentials.
+* ``foundry`` — Microsoft Foundry (``resource`` or ``foundry_endpoint``). The
+  stored key if the integration has one, else an Entra token from the
+  workload's identity (``entra_scope`` overrides the scope).
+* ``anthropic`` — the Anthropic API with the stored key.
+
+The request itself is the same on all three.
 
 Extracted from llm_router.py during Phase 10B restructuring.
 """
@@ -19,18 +30,40 @@ from src.ai.llm.base import BaseLLMAdapter, call_id, pair_tool_results
 logger = logging.getLogger(__name__)
 
 
+CLAUDE_PROVIDERS = ("vertex", "foundry", "anthropic")
+
+
 class AnthropicAdapter(BaseLLMAdapter):
-    """Adapter for Anthropic Claude models via Vertex AI only."""
+    """Adapter for Anthropic Claude models on Vertex AI, Microsoft Foundry or the Anthropic API."""
 
     @property
     def _provider_name(self):
         return "anthropic"
+
+    def claude_provider(self) -> str:
+        from src.common.config import settings
+
+        provider = str(self.service_metadata.get("provider") or settings.ANTHROPIC_PROVIDER or "vertex")
+        provider = provider.strip().lower()
+        if provider not in CLAUDE_PROVIDERS:
+            raise ValueError(f"service_metadata.provider must be one of {', '.join(CLAUDE_PROVIDERS)}, "
+                             f"not {provider!r}")
+        return provider
 
     def _build_client(self):
         try:
             import anthropic
         except ImportError:
             raise RuntimeError("anthropic package not installed. Run: pip install anthropic")
+
+        # Retries are ai/llm/retry.py's (LP-03); the SDK's own would multiply them.
+        provider = self.claude_provider()
+        if provider == "foundry":
+            return self._foundry_client(anthropic)
+        if provider == "anthropic":
+            if not self.api_key:
+                raise ValueError("Claude through the Anthropic API needs the integration's API key")
+            return anthropic.AsyncAnthropic(api_key=self.api_key, max_retries=0)
 
         project = self.service_metadata.get("project_id")
         region = self.service_metadata.get("region", "us-east5")
@@ -39,8 +72,33 @@ class AnthropicAdapter(BaseLLMAdapter):
                 "service_metadata.project_id is required for Anthropic via Vertex AI. "
                 "Please configure the Anthropic integration with your GCP project ID."
             )
-        # Retries are ai/llm/retry.py's (LP-03); the SDK's own would multiply them.
-        return anthropic.AsyncAnthropicVertex(project_id=project, region=region, max_retries=0)
+        from src.common.genai_factory import google_credentials
+
+        return anthropic.AsyncAnthropicVertex(project_id=project, region=region, max_retries=0,
+                                              credentials=google_credentials())
+
+    def _foundry_client(self, anthropic):
+        """``AsyncAnthropicFoundry`` for the integration's resource or endpoint.
+
+        Both are passed explicitly: the SDK refuses a ``base_url`` beside a
+        resource, and would read ``ANTHROPIC_FOUNDRY_RESOURCE`` from the
+        environment otherwise."""
+        from src.common.config import settings
+
+        resource = str(self.service_metadata.get("resource") or "").strip() or None
+        endpoint = None if resource else (
+            str(self.service_metadata.get("foundry_endpoint") or settings.FOUNDRY_ENDPOINT or "").strip() or None)
+        if not (resource or endpoint):
+            raise ValueError("Claude on Microsoft Foundry needs service_metadata.resource (the Foundry "
+                             "resource name) or foundry_endpoint, or FOUNDRY_ENDPOINT")
+        location = {"resource": resource} if resource else {"base_url": endpoint}
+        if self.api_key:
+            return anthropic.AsyncAnthropicFoundry(api_key=self.api_key, max_retries=0, **location)
+        from src.common.platform.identity import COGNITIVE_SERVICES_SCOPE, token_provider
+
+        scope = str(self.service_metadata.get("entra_scope") or COGNITIVE_SERVICES_SCOPE)
+        return anthropic.AsyncAnthropicFoundry(azure_ad_token_provider=token_provider(scope),
+                                               max_retries=0, **location)
 
     def _build_messages(self, system_prompt: str, messages: List[Dict]) -> Tuple[str, List]:
         """Convert unified format to Anthropic messages format."""

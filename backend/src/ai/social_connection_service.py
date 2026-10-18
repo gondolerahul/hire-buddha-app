@@ -127,12 +127,12 @@ async def resolve_connection(
         return {}
 
     try:
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
         from src.common.security import decrypt_api_key
         from sqlalchemy import select
         from src.ai.social_models import SocialConnection
 
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db:
             company_uuid = _UUID(str(company_id))
             query = (
                 select(SocialConnection)
@@ -254,7 +254,7 @@ async def _refresh_token(conn, credentials: Dict[str, Any]) -> Optional[Dict[str
                 f"{resp.status_code} {resp.text}"
             )
             # Mark connection as token_expired
-            await _update_connection_status(str(conn.id), "token_expired")
+            await _update_connection_status(str(conn.id), "token_expired", conn.company_id)
             return None
 
         data = resp.json()
@@ -276,6 +276,7 @@ async def _refresh_token(conn, credentials: Dict[str, Any]) -> Optional[Dict[str
             new_access_token,
             new_refresh_token,
             new_expires_at,
+            conn.company_id,
         )
 
         logger.info(f"[SocialConnSvc] Successfully refreshed token for {platform}/{conn.account_name}")
@@ -296,15 +297,16 @@ async def _update_tokens(
     access_token: str,
     refresh_token: Optional[str],
     expires_at: Optional[datetime],
+    company_id: Any = None,
 ) -> None:
     """Persist refreshed tokens to the database."""
     try:
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
         from src.common.security import encrypt_api_key
         from sqlalchemy import update
         from src.ai.social_models import SocialConnection
 
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db:
             values = {
                 "encrypted_access_token": encrypt_api_key(access_token),
                 "token_expires_at": expires_at,
@@ -324,14 +326,14 @@ async def _update_tokens(
         logger.error(f"[SocialConnSvc] Failed to update tokens: {e}")
 
 
-async def _update_connection_status(connection_id: str, status: str) -> None:
+async def _update_connection_status(connection_id: str, status: str, company_id: Any = None) -> None:
     """Update the status of a social connection (e.g. on auth failure)."""
     try:
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
         from sqlalchemy import update
         from src.ai.social_models import SocialConnection
 
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db:
             await db.execute(
                 update(SocialConnection)
                 .where(SocialConnection.id == _UUID(connection_id))
@@ -345,11 +347,11 @@ async def _update_connection_status(connection_id: str, status: str) -> None:
 async def list_connections(company_id: str, platform: Optional[str] = None) -> List[Dict[str, Any]]:
     """List all social connections for a company (without decrypting tokens)."""
     try:
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
         from sqlalchemy import select
         from src.ai.social_models import SocialConnection
 
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db:
             query = (
                 select(SocialConnection)
                 .where(SocialConnection.company_id == _UUID(company_id))

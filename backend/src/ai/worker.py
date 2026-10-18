@@ -9,7 +9,8 @@ This file is intentionally minimal. The job functions live in
 Only the two worker settings classes and cron registration remain here
 because arq requires them at module level for worker discovery:
 ``WorkerSettings`` consumes the default queue (top-level runs, documents,
-campaigns, events, crons) and ``ChildWorkerSettings`` the child-run queue. Every job and cron is
+campaigns, gateway events, crons), ``ChildWorkerSettings`` the child-run
+queue and ``EventWorkerSettings`` the automation events (Phase 14 WS3). Every job and cron is
 registered through ``traced_job``, so each run is a span in the trace of
 whatever queued it (SA-10).
 """
@@ -54,7 +55,9 @@ from src.billing.jobs import billing_daily_credits, billing_subscription_reconci
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
 from src.common.config import settings
-from src.common.job_queue import CHILD_RUN_QUEUE, arq_redis_settings
+from src.common.job_queue import CHILD_RUN_QUEUE, EVENT_QUEUE, arq_redis_settings
+from src.automation.retention import prune_event_history
+from src.automation.worker import automation_sweep, release_parked, route_event
 from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
 from src.common.worker_health import start_heartbeat, stop_heartbeat
 from src.common.worker_metrics import serve_metrics
@@ -66,12 +69,17 @@ from arq.constants import default_queue_name
 # ---------------------------------------------------------------------------
 
 def _listen_for_flag_changes(ctx: dict) -> None:
-    """Drop a changed feature flag from this worker's cache at once (GH-14)."""
+    """Drop a changed feature flag from this worker's cache at once (GH-14), and
+    in split mode a changed tenant directory row."""
     import asyncio
 
     from src.ai.core.feature_flags import listen_for_invalidations
 
     ctx["flag_listener"] = asyncio.create_task(listen_for_invalidations(settings.REDIS_URL))
+    from src.common.tenancy.session import is_split
+    if is_split():  # tenant directory changes (Phase 14 WS2)
+        from src.common.tenancy.directory import listen_for_changes
+        ctx["directory_listener"] = asyncio.create_task(listen_for_changes(settings.REDIS_URL))
 
 
 async def startup(ctx: dict) -> None:
@@ -89,10 +97,18 @@ async def child_startup(ctx: dict) -> None:
     _listen_for_flag_changes(ctx)
 
 
+async def event_startup(ctx: dict) -> None:
+    setup_tracing("hirebuddha-event-worker")
+    serve_metrics(settings.EVENT_WORKER_METRICS_PORT, settings.WORKER_METRICS_ADDR)
+    start_heartbeat(ctx, EVENT_QUEUE)
+    _listen_for_flag_changes(ctx)
+
+
 async def shutdown(ctx: dict) -> None:
-    listener = ctx.pop("flag_listener", None)
-    if listener is not None:
-        listener.cancel()
+    for name in ("flag_listener", "directory_listener"):
+        listener = ctx.pop(name, None)
+        if listener is not None:
+            listener.cancel()
     await stop_heartbeat(ctx)
     shutdown_tracing()
 
@@ -183,3 +199,33 @@ class ChildWorkerSettings:
     on_startup = child_startup
     on_shutdown = shutdown
 
+
+class EventWorkerSettings:
+    """Automation events only (Phase 14 WS3, tech spec §7.8):
+    ``python -m arq src.ai.worker.EventWorkerSettings``.
+
+    The router decides which triggers an event starts and creates their runs;
+    the runs themselves go to the default queue. Its own queue and worker, so
+    a burst of events (a busy webhook, a schedule catching up) never waits
+    behind long runs, nor takes their slots. The automation sweep — the
+    outbox relay, held events after a resume, queued firings — is its cron.
+    """
+    queue_name = EVENT_QUEUE
+    functions = [traced_job(job) for job in (route_event, release_parked, automation_sweep, prune_event_history)]
+    max_jobs = settings.EVENT_WORKER_MAX_JOBS
+    job_timeout = 600
+    redis_settings = WorkerSettings.redis_settings
+
+    on_startup = event_startup
+    on_shutdown = shutdown
+
+
+try:
+    from arq.cron import cron
+    EventWorkerSettings.cron_jobs = [
+        cron(traced_job(automation_sweep), second={0, 30}),
+        # Event history kept (D47): only businesses that set a limit lose anything.
+        cron(traced_job(prune_event_history), hour={2}, minute={40}),
+    ]
+except ImportError:
+    pass

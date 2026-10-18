@@ -26,14 +26,12 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.base import NO_VALUE
 
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from src.auth.models import Company, User
     from src.ai.orm.entity import HierarchicalEntity
-    from src.ai.orm.usage import UsageLog
 
 __all__ = [
     "ExecutionRun",
@@ -44,7 +42,7 @@ __all__ = [
 ]
 
 
-class ExecutionRun(Base):
+class ExecutionRun(TenantBase):
     __tablename__ = "execution_runs"
     # The list endpoints filter on company or entity and sort by newest; child
     # runs are found by their parent (DM-05). A B-tree serves ``DESC`` too.
@@ -75,8 +73,8 @@ class ExecutionRun(Base):
     # the way down. NULL until the run dispatches a child (EP-06).
     depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     max_depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, info=refers_to("users.id"))
     status: Mapped[str | None] = mapped_column(String, default="PENDING")
     input_data: Mapped[Any] = mapped_column(JSONB, nullable=True)
     dynamic_plan: Mapped[Any] = mapped_column(JSONB, nullable=True)
@@ -105,13 +103,19 @@ class ExecutionRun(Base):
     csat_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     csat_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    company: Mapped["Company"] = relationship("Company")
+    # What started the run when automation did (Phase 14 WS3, tech spec §7.3):
+    # the trigger, the event it decided on, the event chain the run belongs to
+    # and how deep in it — an event the run emits is one step deeper (§7.8).
+    trigger_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    chain_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
     entity: Mapped["HierarchicalEntity"] = relationship("HierarchicalEntity", back_populates="execution_runs")
     parent_run: Mapped["ExecutionRun | None"] = relationship(
         "ExecutionRun", remote_side=[id], backref="child_runs", foreign_keys=[parent_run_id],
     )
     llm_logs: Mapped[list["LLMInteractionLog"]] = relationship("LLMInteractionLog", back_populates="run")
-    usage_logs: Mapped[list["UsageLog"]] = relationship("UsageLog", back_populates="run")
     human_approvals: Mapped[list["HumanApproval"]] = relationship("HumanApproval", back_populates="run")
     tool_logs: Mapped[list["ToolInteractionLog"]] = relationship("ToolInteractionLog", back_populates="run")
 
@@ -150,7 +154,7 @@ def run_company_key(table: str, **kw: Any) -> ForeignKeyConstraint:
                                 name=f"fk_{table}_run_company", **kw)
 
 
-class LLMInteractionLog(Base):
+class LLMInteractionLog(TenantBase):
     __tablename__ = "llm_interaction_logs"
     __table_args__ = (
         run_company_key("llm_interaction_logs"),
@@ -177,7 +181,7 @@ class LLMInteractionLog(Base):
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="llm_logs")
 
 
-class ToolInteractionLog(Base):
+class ToolInteractionLog(TenantBase):
     __tablename__ = "tool_interaction_logs"
     __table_args__ = (
         run_company_key("tool_interaction_logs"),
@@ -205,7 +209,7 @@ class ToolInteractionLog(Base):
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="tool_logs")
 
 
-class HumanApproval(Base):
+class HumanApproval(TenantBase):
     __tablename__ = "human_approvals"
     __table_args__ = (
         run_company_key("human_approvals"),
@@ -220,7 +224,7 @@ class HumanApproval(Base):
     checkpoint_trigger: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str | None] = mapped_column(String, default="PENDING")  # PENDING, APPROVED, REJECTED, TIMEOUT
     requested_by: Mapped[str | None] = mapped_column(String, nullable=True)
-    responded_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    responded_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, info=refers_to("users.id"))
     context_snapshot: Mapped[Any] = mapped_column(JSONB, nullable=True)
     reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     notification_channels: Mapped[Any] = mapped_column(JSONB, nullable=True)
@@ -232,10 +236,9 @@ class HumanApproval(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="human_approvals")
-    reviewer: Mapped["User | None"] = relationship("User")
 
 
-class RunSubject(Base):
+class RunSubject(TenantBase):
     """A subject a run found while it ran: a contact or lead it may act on (TL-09).
 
     The rest of a run's subject scope is derived from data the run already

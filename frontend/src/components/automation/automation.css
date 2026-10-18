@@ -1,0 +1,163 @@
+/* The control room and the trigger editor (Phase 14 WS3/WS8). */
+.ar-page { max-width: 1200px; }
+.ar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+.ar-header h1 { margin: 0 0 4px; }
+.ar-header p { margin: 0; font-size: 13px; color: var(--color-text-secondary, #aaa); }
+.ar-state {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    font-size: 13px;
+}
+.ar-state--paused { background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.35); }
+.ar-link { font-size: 13px; }
+
+.ar-today {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: baseline;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 14px;
+}
+.ar-today small { color: var(--color-text-secondary, #aaa); }
+
+.ar-section {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ar-section h2 { margin: 0 0 8px; font-size: 15px; }
+.ar-attention, .ar-upcoming, .ar-decisions { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.ar-attention li, .ar-upcoming li, .ar-decisions li {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0;
+}
+
+.ar-tabs { display: flex; gap: 4px; align-items: center; margin-bottom: 10px; }
+.ar-tabs button {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: inherit;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 14px;
+}
+.ar-tabs .ar-tab--on { border-bottom-color: var(--color-primary, #6366f1); font-weight: 600; }
+.ar-tabs .ar-tabs__new { margin-left: auto; }
+
+.ar-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ar-table th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--color-text-secondary, #aaa);
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ar-table td { padding: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); vertical-align: top; }
+.ar-row-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.ar-clickable { cursor: pointer; }
+.ar-clickable:hover, .ar-open { background: rgba(255, 255, 255, 0.03); }
+
+.ar-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
+.ar-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-size: 11px;
+    background: rgba(99, 102, 241, 0.12);
+    color: var(--color-text-secondary, #bbb);
+}
+.ar-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    text-transform: capitalize;
+    background: rgba(255, 255, 255, 0.06);
+}
+.ar-pill--active, .ar-pill--routed { background: rgba(34, 197, 94, 0.14); color: #22c55e; }
+.ar-pill--paused, .ar-pill--parked, .ar-pill--received { background: rgba(245, 158, 11, 0.14); color: #f59e0b; }
+.ar-pill--dead { background: rgba(248, 113, 113, 0.14); color: #f87171; }
+.ar-tone--ok strong { color: #22c55e; }
+.ar-tone--wait strong { color: #f59e0b; }
+.ar-tone--bad, .ar-tone--bad strong { color: #f87171; }
+
+.ar-note { margin: 6px 0; font-size: 13px; color: var(--color-text-secondary, #aaa); }
+.ar-note--ok { color: #22c55e; }
+.ar-note--bad { color: #f87171; }
+
+.ar-detail { padding: 8px 4px; }
+.ar-detail__head { display: flex; gap: 10px; align-items: center; }
+.ar-detail h4 { margin: 12px 0 4px; font-size: 13px; }
+.ar-json {
+    max-height: 260px;
+    overflow: auto;
+    padding: 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.25);
+    font-size: 12px;
+}
+
+/* The trigger editor */
+.ar-editor {
+    width: min(760px, 100%);
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 20px 22px;
+    border-radius: 12px;
+    background: var(--color-bg-secondary, #16161d);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ar-editor h2 { margin: 0 0 12px; }
+.ar-group { border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+.ar-group legend { padding: 0 6px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-secondary, #aaa); }
+.ar-field { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; font-size: 13px; flex: 1; min-width: 160px; }
+.ar-field > span { color: var(--color-text-secondary, #aaa); font-size: 12px; }
+.ar-field small { color: var(--color-text-secondary, #aaa); }
+.ar-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin: 6px 0; }
+.ar-input {
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+}
+.ar-kinds { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.ar-kind {
+    display: flex; gap: 6px; align-items: center;
+    padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ar-kind--on { border-color: var(--color-primary, #6366f1); background: rgba(99, 102, 241, 0.1); }
+.ar-conditions > span { display: block; font-size: 12px; color: var(--color-text-secondary, #aaa); margin-top: 6px; }
+.ar-preview { margin: 0; padding-left: 20px; columns: 2; font-size: 13px; }
+.ar-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+
+/* An agent's Automation tab */
+.ar-check { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; cursor: pointer; }
+.ar-check input[type="checkbox"] { width: auto; min-width: 0; flex: 0 0 auto; margin: 3px 0 0; }
+.ar-check span { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 14px; text-align: left; }
+.ar-check small { color: var(--color-text-secondary, #aaa); font-size: 12px; }
+.ar-check--small { margin: 4px 0; }
+.ar-check--small span { flex-direction: row; gap: 6px; font-size: 13px; }
+.ar-targets { margin: 0 0 8px 26px; }

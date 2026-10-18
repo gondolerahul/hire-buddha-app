@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
-from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params_async
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +87,10 @@ class ImageGenerationTool(Tool):
         if company_id:
             try:
                 from uuid import UUID as _UUID
-                from src.common.database import AsyncSessionLocal
+                from src.common.tenancy.session import control_session
                 from src.config.service import ConfigService
 
-                async with AsyncSessionLocal() as db:
+                async with control_session() as db:
                     config_service = ConfigService(db)
                     company_uuid = _UUID(str(company_id))
 
@@ -126,10 +126,10 @@ class ImageGenerationTool(Tool):
             return None
         try:
             from uuid import UUID as _UUID
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import control_session
             from src.config.service import ConfigService
 
-            async with AsyncSessionLocal() as db:
+            async with control_session() as db:
                 config_service = ConfigService(db)
                 company_uuid = _UUID(str(company_id))
                 integration, _ = await config_service.resolve_model_for_task(
@@ -173,7 +173,7 @@ class ImageGenerationTool(Tool):
             return json.dumps({"error": NO_CONTEXT_ERROR})
         # Paths the model gives resolve inside this company's files (TL-54).
         try:
-            confine_params(params, company_id, ('reference_image_path',))
+            await confine_params_async(params, company_id, ('reference_image_path',))
         except PathOutsideWorkspace as exc:
             return json.dumps({"error": str(exc)})
         reference_image_path = params.get('reference_image_path')

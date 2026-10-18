@@ -36,7 +36,6 @@ def one_session(db, monkeypatch):
     async def _session():
         yield db
     monkeypatch.setattr("src.common.database.AsyncSessionLocal", _session)
-    monkeypatch.setattr("src.voice.websocket_handler.AsyncSessionLocal", _session)
     return db
 
 

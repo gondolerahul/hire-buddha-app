@@ -90,7 +90,7 @@ class _NoDB:
 
 @pytest.mark.asyncio
 async def test_the_end_of_a_session_bills_and_settles_its_run(monkeypatch) -> None:
-    monkeypatch.setattr(web_audio_adapter, "AsyncSessionLocal", _NoDB)
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", _NoDB)  # through tenant_session
 
     class _Sessions:
         def __init__(self, _db):

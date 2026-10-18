@@ -429,7 +429,8 @@ Avoid repeating yourself or being overly formal."""
 
             try:
                 if src_type in ("DOCUMENT", "KNOWLEDGE_BASE"):
-                    from src.ai.artifact_service import ArtifactService
+                    from src.ai.artifact_service import ArtifactService, artifact_local_file
+                    from src.common.platform.storage import StorageObjectNotFound
                     art_svc = ArtifactService(self.db)
                     artifact = await art_svc.get_artifact(UUID(ref_id), company_id)
 
@@ -437,8 +438,6 @@ Avoid repeating yourself or being overly formal."""
                         logger.warning(f"Context source artifact not found: {ref_id}")
                         continue
 
-                    from pathlib import Path
-                    fpath = Path(artifact.file_path)
                     mime = artifact.mime_type or ""
                     label = desc or file_name or artifact.file_name
 
@@ -446,14 +445,16 @@ Avoid repeating yourself or being overly formal."""
                     if mime.startswith(("image/", "audio/", "video/")):
                         continue
 
-                    if fpath.exists():
-                        content = self._extract_text_from_file(fpath, mime)
-                        if content:
-                            loaded_parts.append(f"### {label}\n{content}")
-                        else:
-                            logger.warning(f"Could not extract text from {fpath}")
+                    try:
+                        async with artifact_local_file(artifact) as fpath:
+                            content = self._extract_text_from_file(fpath, mime)
+                    except StorageObjectNotFound:
+                        logger.warning(f"Context source file not found in storage: {artifact.id}")
+                        continue
+                    if content:
+                        loaded_parts.append(f"### {label}\n{content}")
                     else:
-                        logger.warning(f"Context source file not found on disk: {fpath}")
+                        logger.warning(f"Could not extract text from artifact {artifact.id}")
 
             except Exception as e:
                 logger.warning(f"Failed to load context source {src_type}:{ref_id}: {e}")

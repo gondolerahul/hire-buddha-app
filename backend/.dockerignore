@@ -22,9 +22,11 @@ env
 htmlcov
 node_modules
 
-# Runtime data and local state. main.py creates artifact/ and uploads/ at startup.
+# Runtime data and local state. artifact/ is local-disk storage; main.py
+# creates it and uploads/ at startup; var/ holds sandbox workspaces.
 artifact
 uploads
+var
 logs
 *.log
 *.pid

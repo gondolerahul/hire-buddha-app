@@ -46,9 +46,8 @@ async def meter_sandbox_usage(
         from src.ai.services.cost_attribution import CostAttribution
         from src.ai.usage_service import UsageService
         from src.common.config import settings
-        from src.common.database import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as db:
+        from src.common.tenancy.session import control_session
+        async with control_session() as db:
             await UsageService(db).log_usage(
                 company_id=UUID(str(company_id)),
                 service_sku=getattr(settings, "SANDBOX_COST_SKU", "sandbox-runtime"),

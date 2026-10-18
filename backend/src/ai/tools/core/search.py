@@ -80,10 +80,10 @@ class WebSearchTool(Tool):
         if context and context.get("company_id"):
             try:
                 from uuid import UUID as _UUID
-                from src.common.database import AsyncSessionLocal
+                from src.common.tenancy.session import control_session
                 from src.config.service import ConfigService
 
-                async with AsyncSessionLocal() as db:
+                async with control_session() as db:
                     config_service = ConfigService(db)
                     company_uuid = _UUID(str(context["company_id"]))
                     logger.info(f"[WebSearch] Resolving API keys for company {company_uuid}")

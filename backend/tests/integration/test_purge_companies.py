@@ -59,3 +59,36 @@ async def test_a_purge_deletes_the_companies_and_what_is_under_them(db) -> None:
 
 async def test_no_companies_is_a_no_op(db) -> None:
     await purge_companies(db, [])
+
+
+# Phase 14 WS2 2.3: control ↔ tenant references are not keys any more; the purge
+# follows them and does their ON DELETE action itself.
+
+async def test_a_purge_sets_a_reference_to_null_as_its_key_did(db) -> None:
+    from src.gateway.models import WebhookEndpoint
+
+    mine, my_entity = await _tenant_with_a_run(db)
+    other, _ = await _tenant_with_a_run(db)
+    endpoint = WebhookEndpoint(company_id=other, source="generic", name="purge-probe",
+                               secret_encrypted="x", entity_id=my_entity)
+    db.add(endpoint)
+    await db.flush()
+
+    await purge_companies(db, [mine])
+
+    await db.refresh(endpoint)
+    assert endpoint.entity_id is None  # webhook_endpoints.entity_id: ON DELETE SET NULL
+
+
+async def test_a_purge_is_refused_while_another_company_references_its_rows(db) -> None:
+    from src.voice.phone_pool_models import PhoneNumber
+
+    mine, my_entity = await _tenant_with_a_run(db)
+    other, _ = await _tenant_with_a_run(db)
+    db.add(PhoneNumber(phone_number=f"+1555{uuid.uuid4().int % 10_000_000:07d}", provider="twilio",
+                       country_code="+1", status="assigned", is_active=True, company_id=other,
+                       agent_id=my_entity))
+    await db.flush()
+
+    with pytest.raises(RuntimeError, match="phone_numbers"):
+        await purge_companies(db, [mine])

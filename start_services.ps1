@@ -10,8 +10,9 @@
       1. PostgreSQL (host port 5433) and Redis (6379) with docker compose
       2. The API on port 8000 (uvicorn --reload): REST, webhooks, internal events
          and the media-stream WebSockets
-      3. The two Arq workers: the main worker (default queue and the crons) and
-         the child-run worker (queue "children")
+      3. The Arq workers: the main worker (default queue and the crons), the
+         child-run worker (queue "children") and the event worker (queue
+         "events"), and the tenant scheduler (schedules and timers)
       4. The Vite frontend on port 3000
 
     A service that is already running is left alone, so the script is safe to run
@@ -19,7 +20,7 @@
     started process's PID to logs\<service>.pid - the same files start_services.sh
     uses. stop_services.ps1 stops everything again.
 
-    The Arq workers do not reload on code changes. After a backend change run:
+    The Arq workers and the scheduler do not reload on code changes. After a backend change run:
         .\stop_services.ps1 -Only workers; .\start_services.ps1 -Only workers
 
 .PARAMETER Only
@@ -164,7 +165,9 @@ if ($Services -contains "workers") {
     $workers = @(
         @{ Name = "Arq worker"; Settings = "WorkerSettings"; Log = "arq_worker" },
         # Child runs have their own queue and worker (SA-07); without it they never run.
-        @{ Name = "Arq child-run worker"; Settings = "ChildWorkerSettings"; Log = "arq_child_worker" }
+        @{ Name = "Arq child-run worker"; Settings = "ChildWorkerSettings"; Log = "arq_child_worker" },
+        # Automation events have their own queue and worker (Phase 14 WS3).
+        @{ Name = "Arq event worker"; Settings = "EventWorkerSettings"; Log = "arq_event_worker" }
     )
     foreach ($w in $workers) {
         if (Get-ArqWorker $w.Settings) {
@@ -172,6 +175,14 @@ if ($Services -contains "workers") {
         } else {
             $null = Start-Hidden $w.Name $BackendDir "$Python -m arq src.ai.worker.$($w.Settings)" $w.Log
         }
+    }
+    # The tenant scheduler fires schedules and timers (Phase 14 WS3).
+    $scheduler = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
+        Where-Object { $_.CommandLine -match "-m src\.automation\.scheduler(\s|$)" }
+    if ($scheduler) {
+        Write-Skip "Scheduler is already running"
+    } else {
+        $null = Start-Hidden "Scheduler" $BackendDir "$Python -m src.automation.scheduler" "scheduler"
     }
 }
 

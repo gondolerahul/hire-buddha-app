@@ -10,16 +10,15 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, ORMExecuteState, Session, mapped_column, relationship, with_loader_criteria
 
 from src.ai.schemas.enums import EntityType
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 
 if TYPE_CHECKING:
-    from src.auth.models import Company, User
     from src.ai.orm.execution import ExecutionRun
 
 __all__ = ["HierarchicalEntity", "INCLUDE_DELETED"]
 
 
-class HierarchicalEntity(Base):
+class HierarchicalEntity(TenantBase):
     __tablename__ = "hierarchical_entities"
     # The six levels (R1). Added NOT VALID by its migration and validated when
     # the table held no other value; see migrations/versions/r1_entity_levels.py.
@@ -31,7 +30,7 @@ class HierarchicalEntity(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
     parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
     version: Mapped[str] = mapped_column(String, nullable=False, default="1.0.0")  # a label; versions are entity_versions
     # The published version this row's content matches — the head (EP-10).
@@ -50,7 +49,8 @@ class HierarchicalEntity(Base):
     # Template fields
     is_template: Mapped[bool | None] = mapped_column(Boolean, default=False)  # True = blueprint, not executable
     template_source_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, info=refers_to("users.id", ondelete="SET NULL"))
 
     # Unified structure fields
     identity: Mapped[Any] = mapped_column(JSONB, nullable=True)
@@ -69,7 +69,6 @@ class HierarchicalEntity(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # Soft-delete timestamp; NULL = active
 
-    company: Mapped["Company"] = relationship("Company")
     parent: Mapped["HierarchicalEntity | None"] = relationship(
         "HierarchicalEntity",
         remote_side=[id],
@@ -81,7 +80,6 @@ class HierarchicalEntity(Base):
         remote_side=[id],
         foreign_keys=[template_source_id],
     )
-    creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
     execution_runs: Mapped[list["ExecutionRun"]] = relationship("ExecutionRun", back_populates="entity")
 
 

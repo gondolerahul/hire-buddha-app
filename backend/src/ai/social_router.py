@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from src.auth.dependencies import get_current_user_and_company
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import tenant_session
 from src.common.security import encrypt_api_key, decrypt_api_key
 from src.ai.social_models import SocialConnection
 from src.ai.social_connection_service import PLATFORM_REFRESH_CONFIG, seal_oauth_metadata
@@ -93,7 +93,7 @@ async def create_social_connection(
             detail=f"Invalid platform '{body.platform}'. Must be one of: {sorted(VALID_PLATFORMS)}"
         )
 
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company.id) as db:
         # Check for existing connection
         existing = await db.execute(
             select(SocialConnection).where(
@@ -166,7 +166,7 @@ async def delete_social_connection(
     """Delete a social media connection."""
     user, company = auth
 
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company.id) as db:
         result = await db.execute(
             select(SocialConnection).where(
                 SocialConnection.id == connection_id,
@@ -195,7 +195,7 @@ async def refresh_social_connection(
     """Manually trigger an OAuth token refresh for a connection."""
     user, company = auth
 
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company.id) as db:
         result = await db.execute(
             select(SocialConnection).where(
                 SocialConnection.id == connection_id,

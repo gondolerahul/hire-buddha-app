@@ -188,12 +188,13 @@ class KnowledgeBaseService:
             )
 
     async def _enqueue_ingestion(self, document: Document, file_content: bytes) -> None:
-        from src.common.job_queue import enqueue_job
+        from src.common.job_queue import enqueue_job, tenant_arg
 
         try:
             await enqueue_job(
                 "process_document", str(document.id), file_content,
                 document.file_type, document.filename,
+                company_id=tenant_arg(document.company_id),
             )
         except Exception as exc:
             logger.error(f"Could not enqueue ingestion for document {document.id}: {exc}")

@@ -16,6 +16,9 @@ controller at a handful of hooks:
 
 The handler keeps the model muted (zeros in, audio out dropped) until merged,
 except for a pre-rolled greeting, which is held and played the moment the lead joins.
+
+Sessions open on the call's tenant database (the voice session's company,
+Phase 14 WS2 2.4); the rep's device rows on the control database.
 """
 import asyncio
 import json
@@ -28,7 +31,7 @@ from uuid import UUID
 from sqlalchemy import and_, select, update
 
 from src.common.config import settings
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import control_session, tenant_session
 from src.mobile import realtime
 from src.mobile.dtmf import (
     KIND_ATTEMPT_TOKEN, KIND_MERGE_SIGNAL, KIND_VERIFICATION_CODE, DtmfCollector,
@@ -116,10 +119,14 @@ class MobileCallController:
     def user_id(self) -> Optional[str]:
         return self.meta.get("user_id")
 
+    def _tenant_db(self):
+        """A session on this call's tenant database (``async with self._tenant_db() as db``)."""
+        return tenant_session(self.h.voice_session.company_id)
+
     async def _reload_session(self):
         from src.voice.models import VoiceSession
 
-        async with AsyncSessionLocal() as db:
+        async with self._tenant_db() as db:
             fresh = await db.get(VoiceSession, self.h.session_id)
             if fresh is not None:
                 self.h.voice_session = fresh
@@ -128,7 +135,7 @@ class MobileCallController:
         device_id = self.meta.get("device_id")
         if not device_id:
             return None
-        async with AsyncSessionLocal() as db:
+        async with control_session() as db:
             return (await db.execute(
                 select(UserDevice.fcm_token).where(UserDevice.id == UUID(device_id))
             )).scalar_one_or_none()
@@ -232,7 +239,7 @@ class MobileCallController:
         updates = {"stream_sid": h.stream_sid, "status": "active"}
         if h.call_sid and (h.voice_session.call_sid or "").startswith("pending_"):
             updates["call_sid"] = h.call_sid
-        async with AsyncSessionLocal() as db:
+        async with self._tenant_db() as db:
             from src.voice.session_manager import SessionManager
             await SessionManager(db).update_voice_session(h.session_id, updates)
 
@@ -244,7 +251,7 @@ class MobileCallController:
         if seq.kind == KIND_ATTEMPT_TOKEN:
             await self._apply_token(seq.value, model_connected=False)
         elif seq.kind == KIND_VERIFICATION_CODE and self.meta.get("expects_verification"):
-            async with AsyncSessionLocal() as db:
+            async with self._tenant_db() as db:
                 result = await complete_device_verification(db, self.h.session_id, seq.value)
             if result:
                 await self._announce_verified(result)
@@ -261,7 +268,7 @@ class MobileCallController:
         )
 
     async def _apply_token(self, token: str, model_connected: bool):
-        async with AsyncSessionLocal() as db:
+        async with self._tenant_db() as db:
             result = await bind_session_by_token(db, self.h.session_id, token)
         if result.status == "no_match":
             return
@@ -294,7 +301,7 @@ class MobileCallController:
         # A verification call whose keypad tones never reached us: the caller ID
         # is the thing the call was placed to capture anyway (ADR-001 §1).
         if self.meta.get("expects_verification") and not self.meta.get("expects_attempt"):
-            async with AsyncSessionLocal() as db:
+            async with self._tenant_db() as db:
                 result = await verify_device_by_cli(db, self.h.session_id)
             if result:
                 await self._announce_verified(result)
@@ -305,7 +312,7 @@ class MobileCallController:
             logger.info(f"[Mobile] No mobile code on {self.h.session_id}; continuing as a normal inbound call")
             meta = dict(self.meta)
             meta.update({"mode": None, "mobile_fallback": True})
-            async with AsyncSessionLocal() as db:
+            async with self._tenant_db() as db:
                 from src.voice.session_manager import SessionManager
                 await SessionManager(db).update_voice_session(self.h.session_id, {"session_metadata": meta})
             self.h.voice_session.session_metadata = meta
@@ -313,7 +320,7 @@ class MobileCallController:
         if self.meta.get("expects_attempt"):
             meta = dict(self.meta)
             meta["identification"] = {"method": IDENT_UNIDENTIFIED, "at": datetime.utcnow().isoformat() + "Z"}
-            async with AsyncSessionLocal() as db:
+            async with self._tenant_db() as db:
                 from src.voice.session_manager import SessionManager
                 await SessionManager(db).update_voice_session(self.h.session_id, {"session_metadata": meta})
             self.h.voice_session.session_metadata = meta
@@ -326,7 +333,7 @@ class MobileCallController:
         h = self.h
         h.call_ended_at = datetime.utcnow()
         started = h.voice_session.started_at or h.call_ended_at
-        async with AsyncSessionLocal() as db:
+        async with self._tenant_db() as db:
             from src.voice.session_manager import SessionManager
             meta = dict(self.meta)
             meta["end_reason"] = reason
@@ -346,7 +353,7 @@ class MobileCallController:
         caller = self.meta.get("caller")
         if not caller:
             return None
-        async with AsyncSessionLocal() as db:
+        async with control_session() as db:
             return (await db.execute(
                 select(UserDevice.user_id).where(and_(
                     UserDevice.company_id == self.h.voice_session.company_id,
@@ -363,7 +370,7 @@ class MobileCallController:
             return
         identified = self.bound
         now = datetime.utcnow()
-        async with AsyncSessionLocal() as db:
+        async with self._tenant_db() as db:
             attempt = (await db.execute(
                 update(MobileCallAttempt)
                 .where(and_(MobileCallAttempt.id == attempt_id,
@@ -409,7 +416,7 @@ class MobileCallController:
     async def _check_db_merged(self):
         if self.merged or self.attempt_id is None:
             return
-        async with AsyncSessionLocal() as db:
+        async with self._tenant_db() as db:
             status = (await db.execute(
                 select(MobileCallAttempt.status).where(MobileCallAttempt.id == self.attempt_id)
             )).scalar_one_or_none()
@@ -493,7 +500,7 @@ class MobileCallController:
         if attempt_id is None:
             return
         now = datetime.utcnow()
-        async with AsyncSessionLocal() as db:
+        async with self._tenant_db() as db:
             attempt = (await db.execute(
                 update(MobileCallAttempt)
                 .where(and_(MobileCallAttempt.id == attempt_id,
@@ -604,7 +611,7 @@ class MobileCallController:
         attempt_id = self.attempt_id
         now = datetime.utcnow()
         if attempt_id is not None:
-            async with AsyncSessionLocal() as db:
+            async with self._tenant_db() as db:
                 attempt = await db.get(MobileCallAttempt, attempt_id, with_for_update=True)
                 if attempt is not None and attempt.voice_session_id == h.session_id:
                     if attempt.status == ATTEMPT_MERGED or (self.merged and attempt.status in OPEN_ATTEMPT_STATUSES):

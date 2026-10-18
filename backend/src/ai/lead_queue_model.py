@@ -14,15 +14,15 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 
 
-class LeadQueueEntry(Base):
+class LeadQueueEntry(TenantBase):
     """Persistent queue entry for CRM leads awaiting outbound calls."""
     __tablename__ = "lead_queue"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
 
     # CRM lead identification
@@ -67,7 +67,6 @@ class LeadQueueEntry(Base):
     processed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    company = relationship("Company")
     agent = relationship("HierarchicalEntity")
 
     __table_args__ = (

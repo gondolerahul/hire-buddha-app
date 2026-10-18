@@ -2,7 +2,7 @@
 CRM Integration Tools for Real Estate Tenant Voice Agents.
 
 Four tools that enable a voice agent to:
-  1. Check the current date/time (IST)
+  1. Check the current date/time (the business's time zone)
   2. Send WhatsApp messages via tenant's own WhatsApp system
   3. Schedule Google Calendar events for property visits
   4. Update lead status in tenant's CRM after a call
@@ -13,9 +13,8 @@ invite or update is a subject of the run (``ai.governance.subjects``), never
 a number, address or lead id the model chose (TL-09).
 """
 import logging
-import json
 import httpx
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from urllib.parse import quote
 from uuid import UUID as _UUID
@@ -27,8 +26,12 @@ from src.ai.tools.base import Tool, ToolOutput, ToolParams
 
 logger = logging.getLogger(__name__)
 
-# IST timezone offset
-IST = timezone(timedelta(hours=5, minutes=30))
+
+async def _business_now(company_id: Optional[str]) -> datetime:
+    """Now in the company's time zone (Phase 14 WS1 1.10; was fixed IST)."""
+    from src.common.timezones import company_timezone
+
+    return datetime.now(await company_timezone(company_id))
 
 
 # ---------------------------------------------------------------------------
@@ -49,12 +52,12 @@ async def _resolve_integration(
         return {}
 
     try:
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import control_session
         from sqlalchemy import select
         from src.config.models import IntegrationRegistry
         from src.common.security import decrypt_api_key
 
-        async with AsyncSessionLocal() as db:
+        async with control_session() as db:
             result = await db.execute(
                 select(IntegrationRegistry).where(
                     IntegrationRegistry.company_id == _UUID(str(company_id)),
@@ -84,38 +87,34 @@ async def _resolve_integration(
 # Tool 1: Get Current Date/Time
 # ===========================================================================
 
+class GetCurrentDateTimeParams(ToolParams):
+    pass
+
+
 class GetCurrentDateTimeTool(Tool):
     """
-    Returns the current date, time, and day of the week in IST.
+    Returns the current date, time, and day of the week in the business's
+    time zone (the company's setting; Asia/Kolkata unless changed).
 
     Enables the voice agent to suggest visit dates, know business hours,
     and avoid scheduling on past dates.
     """
     name = "get_current_datetime"
     description = (
-        "Get the current date, time, and day of the week in Indian Standard Time (IST). "
+        "Get the current date, time, and day of the week in the business's time zone. "
         "Use this before suggesting dates for site visits or appointments."
     )
+    Params = GetCurrentDateTimeParams
 
-    def get_function_schema(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        }
-
-    async def run(self, input_data: str) -> str:
-        now_ist = datetime.now(IST)
-        return json.dumps({
-            "datetime": now_ist.strftime("%A, %B %d, %Y %I:%M %p IST"),
-            "date": now_ist.strftime("%Y-%m-%d"),
-            "time": now_ist.strftime("%I:%M %p"),
-            "day": now_ist.strftime("%A"),
-            "iso": now_ist.isoformat(),
+    async def execute(self, params: GetCurrentDateTimeParams, ctx: Dict[str, Any]) -> ToolOutput:
+        now = await _business_now(ctx.get("company_id"))
+        return ToolOutput(output={
+            "datetime": f"{now.strftime('%A, %B %d, %Y %I:%M %p')} {now.tzname()}",
+            "date": now.strftime("%Y-%m-%d"),
+            "time": now.strftime("%I:%M %p"),
+            "day": now.strftime("%A"),
+            "timezone": now.tzinfo.key,
+            "iso": now.isoformat(),
         })
 
 
@@ -418,7 +417,7 @@ class CRMUpdateLeadTool(Tool):
             "next_action": params.next_action or "",
             "next_action_date": params.next_action_date or "",
             "lead_temperature": params.lead_temperature or "",
-            "updated_at": datetime.now(IST).isoformat(),
+            "updated_at": (await _business_now(company_id)).isoformat(),
             "updated_by": "hirebuddha_agent",
         }
         # The id is one path segment: a '/' or '..' in it no longer reaches

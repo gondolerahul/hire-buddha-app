@@ -21,7 +21,7 @@ class _RowsDB:
     def __init__(self, rows):
         self.rows = rows
 
-    async def execute(self, statement, params):
+    async def execute(self, statement, params, **kwargs):
         sql = str(statement)
         if "entity_id = :e" in sql:
             key = (params["c"], params["e"])

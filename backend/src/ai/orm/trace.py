@@ -36,7 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase
 
 __all__ = ["ExecutionTraceEvent"]
 
@@ -48,7 +48,7 @@ TRACE_KINDS = ("iteration", "executor", "step", "child", "tool", "llm", "critic"
 TRACE_STATUSES = ("running", "success", "error")
 
 
-class ExecutionTraceEvent(Base):
+class ExecutionTraceEvent(TenantBase):
     """One span in a run's execution trace."""
 
     __tablename__ = "execution_trace_events"

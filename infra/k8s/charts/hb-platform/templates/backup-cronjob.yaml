@@ -1,0 +1,46 @@
+{{- if .Values.backups.enabled }}
+{{- $c := dict "root" $ "component" "backup" }}
+# Weekly database exports (decision D45, backend/scripts/backup_databases.py):
+# the control database and every ready tenant database, pg_dump'ed to
+# storage under <namespace>/backups/<ISO week>/, last BACKUP_KEEP_WEEKS kept.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hb-backup
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: backup
+spec:
+  schedule: {{ .Values.backups.schedule | quote }}
+  timeZone: {{ .Values.backups.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.backups.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "hb.podLabels" $c | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ .Values.serviceAccounts.worker.name }}
+          {{- include "hb.podSpecCommon" . | nindent 10 }}
+          containers:
+            - name: backup
+              image: {{ include "hb.image" (dict "root" $ "image" "backup") }}
+              imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+              {{- include "hb.backendEnv" . | nindent 14 }}
+                - name: BACKUP_KEEP_WEEKS
+                  value: {{ .Values.backups.keepWeeks | quote }}
+              {{- include "hb.databaseUrlEnv" (dict "root" $ "user" "worker") | nindent 16 }}
+              {{- include "hb.backendVolumeMounts" . | nindent 14 }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              resources:
+                {{- toYaml .Values.backups.resources | nindent 16 }}
+          {{- include "hb.backendVolumes" (dict "root" $ "identity" "worker") | nindent 10 }}
+{{- end }}

@@ -5,19 +5,46 @@ Contains all arq-registered functions: execution, gateway event processing,
 document processing, dreaming, graph maintenance, and CORTEX scheduling.
 
 Extracted from worker.py during Phase 10A restructuring.
+
+Each job opens the database of the tenant it works for (Phase 14 WS2 2.4):
+a job about one company's data takes ``company_id`` (``job_queue.tenant_arg``;
+``None`` for a job queued before jobs carried it, which only single mode can
+serve), and a cron that sweeps every company runs once per tenant database
+(``_each_tenant``) — once, over the shared database, while
+``TENANCY_MODE=single``.
 """
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Sequence, cast
+from typing import Any, Awaitable, Callable, Optional, Sequence, cast
 from uuid import UUID
 
 from sqlalchemy import select
 
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import tenant_scopes, tenant_session
 from src.ai.orm import ExecutionRun, HierarchicalEntity, RunStatus
 
 logger = logging.getLogger(__name__)
+
+
+async def _each_tenant(sweep: Callable[[Optional[UUID]], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
+    """Run a cron's ``sweep(scope)`` over each tenant database and add up its counts.
+
+    Single mode has one scope (``None``: the shared database) and returns that
+    pass's result as it is. In split mode a tenant whose pass fails does not
+    stop the others; its error is listed under ``errors``.
+    """
+    results = [await sweep(scope) for scope in await tenant_scopes()]
+    if len(results) == 1:
+        return results[0]
+    total: dict[str, Any] = {}
+    for result in results:
+        for key, value in result.items():
+            if key == "error":
+                total.setdefault("errors", []).append(value)
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                total[key] = total.get(key, 0) + value
+    return total
 
 
 async def _company_flag_on(
@@ -35,12 +62,14 @@ async def _company_flag_on(
 
 # --- Arq Jobs ---
 
-async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str) -> Any:
+async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str,
+                                  company_id: Optional[str] = None) -> Any:
     """Entry point for an execution run.
 
     The ``AgentLoop`` orchestrator is the sole run engine (C4). The
     ``agent_loop.enabled`` flag is stamped onto the run for the SPA but no
-    longer gates engine choice.
+    longer gates engine choice. ``company_id`` names the tenant database the
+    run is in.
     """
     run_id = UUID(run_id_str)
     import redis.asyncio as redis
@@ -48,18 +77,18 @@ async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str) -> Any:
 
     redis_pool = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")  # type: ignore[no-untyped-call]
 
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company_id) as db:
         # Resolve feature flag scope first; needs the run's company_id +
         # any entity-level override.
         from src.ai.core.feature_flags import FeatureFlags
 
         flags = FeatureFlags(db, redis=redis_pool)
-        company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
+        run_company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
 
         # The AgentLoop is the sole run engine (C4). ``agent_loop.enabled`` no
         # longer gates engine choice; it is stamped onto the run below only so
         # the SPA's ExecutionDetail page renders the loop timeline.
-        logger.info("[dispatch] run=%s engine=agent_loop company=%s", run_id, company_id)
+        logger.info("[dispatch] run=%s engine=agent_loop company=%s", run_id, run_company_id)
 
         # ── Guard against ghost jobs ──────────────────────────────────────
         # If the run (or its owning entity) was deleted after the job was
@@ -80,6 +109,14 @@ async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str) -> Any:
         if guard_run is None:
             logger.warning(
                 "[dispatch] run %s no longer exists — abandoning ghost job", run_id
+            )
+            await redis_pool.close()
+            return
+        if company_id is not None and str(guard_run.company_id) != str(company_id):
+            # Defence in depth: the job named another tenant than the run's.
+            logger.error(
+                "[dispatch] run %s belongs to company %s, not the job's %s — not run",
+                run_id, guard_run.company_id, company_id,
             )
             await redis_pool.close()
             return
@@ -137,7 +174,7 @@ async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str) -> Any:
         _obs = (getattr(_pinned, "observability", None) or {}) if _pinned else {}
         _capture = bool(_obs.get("log_thoughts", True))
         recorder = TraceRecorder(
-            run_id, company_id=company_id, redis=redis_pool,
+            run_id, company_id=run_company_id, redis=redis_pool,
             capture_payloads=_capture,
         )
 
@@ -146,7 +183,7 @@ async def run_execution_recursive(ctx: dict[str, Any], run_id_str: str) -> Any:
 
             loop = AgentLoop(
                 db, redis_pool,
-                company_id=company_id,
+                company_id=run_company_id,
                 feature_flags=flags,
             )
             await loop.run(run_id)
@@ -209,7 +246,7 @@ async def process_gateway_event(ctx: dict[str, Any], envelope_dict: dict[str, An
     redis_pool = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")  # type: ignore[no-untyped-call]
 
     try:
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(client_id) as db:
             # ── Which agent runs it (GW-17): the webhook endpoint's binding,
             # then the event's own entity_id, else the company's only agent.
             from src.gateway.agent_choice import choose_agent
@@ -447,6 +484,7 @@ async def _handle_sheet_row_campaign(
     try:
         from src.common.job_queue import enqueue_job
 
+        # Campaign tasks gain their tenant argument with the campaigns module (WS2 2.4).
         job = await enqueue_job("execute_campaign_task", str(campaign.id))
 
         job_id = job.job_id if job else "queued"
@@ -472,7 +510,8 @@ async def _handle_sheet_row_campaign(
             )
 
 
-async def process_document(ctx: dict[str, Any], document_id_str: str, file_content: bytes, file_type: str, filename: str) -> Any:
+async def process_document(ctx: dict[str, Any], document_id_str: str, file_content: bytes, file_type: str,
+                           filename: str, company_id: Optional[str] = None) -> Any:
     """Extract an uploaded document's text and ingest it into a Knowledge Tree.
 
     Documents attached to an entity go into that entity's Knowledge Tree; the
@@ -484,7 +523,7 @@ async def process_document(ctx: dict[str, Any], document_id_str: str, file_conte
     import io
 
     document_id = UUID(document_id_str)
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company_id) as db:
         result = await db.execute(select(Document).where(Document.id == document_id))
         document = result.scalar_one_or_none()
         if not document:
@@ -563,9 +602,7 @@ async def dreaming_worker(ctx: dict[str, Any], entity_id_str: str, company_id_st
 
     Scheduled to run after execution completion or on a timer.
     """
-    from src.common.database import AsyncSessionLocal
-
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company_id_str) as db:
         try:
             from src.ai.memory.dreaming_engine import DreamingEngine
             engine = DreamingEngine(db, UUID(company_id_str))
@@ -589,39 +626,41 @@ async def dreaming_cron_trigger(ctx: dict[str, Any]) -> dict[str, Any]:
     rules Dreaming distils. ``DreamingEngine.dream`` applies the
     CONSOLIDATION_INTERVAL_HOURS gate per entity.
     """
-    from src.common.database import AsyncSessionLocal
     from sqlalchemy import text as _text
 
-    enqueued = 0
     redis = ctx.get('redis')  # the worker's ArqRedis pool
     if redis is None:
         logger.error("Dreaming cron: no redis in worker context; nothing enqueued")
         return {"enqueued": 0}
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(_text(
-                "SELECT id, company_id FROM hierarchical_entities "
-                "WHERE status NOT IN ('ARCHIVED', 'DELETED') "
-                "AND capabilities->'memory'->>'enabled' = 'true'"
-            ))
-            entities = result.fetchall()
 
-            for row in entities:
-                entity_id, company_id = str(row[0]), str(row[1])
-                try:
-                    await redis.enqueue_job(
-                        "dreaming_worker", entity_id, company_id, False
-                    )
-                    enqueued += 1
-                    logger.info(f"Dreaming cron: enqueued for entity {entity_id}")
-                except Exception as e:
-                    logger.warning(f"Dreaming cron: failed to enqueue entity {entity_id}: {e}")
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        enqueued = 0
+        try:
+            async with tenant_session(scope) as db:
+                result = await db.execute(_text(
+                    "SELECT id, company_id FROM hierarchical_entities "
+                    "WHERE status NOT IN ('ARCHIVED', 'DELETED') "
+                    "AND capabilities->'memory'->>'enabled' = 'true'"
+                ))
+                entities = result.fetchall()
 
-            logger.info(f"Dreaming cron: enqueued {enqueued}/{len(entities)} entities")
-    except Exception as e:
-        logger.error(f"Dreaming cron trigger failed: {e}")
+                for row in entities:
+                    entity_id, company_id = str(row[0]), str(row[1])
+                    try:
+                        await redis.enqueue_job(
+                            "dreaming_worker", entity_id, company_id, False
+                        )
+                        enqueued += 1
+                        logger.info(f"Dreaming cron: enqueued for entity {entity_id}")
+                    except Exception as e:
+                        logger.warning(f"Dreaming cron: failed to enqueue entity {entity_id}: {e}")
 
-    return {"enqueued": enqueued}
+                logger.info(f"Dreaming cron: enqueued {enqueued}/{len(entities)} entities")
+        except Exception as e:
+            logger.error(f"Dreaming cron trigger failed: {e}")
+        return {"enqueued": enqueued}
+
+    return await _each_tenant(sweep)
 
 
 # ---------------------------------------------------------------------------
@@ -636,42 +675,44 @@ async def graph_maintenance_worker(ctx: dict[str, Any]) -> dict[str, Any]:
     are not company-scoped, so looping per company would decay every edge once
     per company.
     """
-    from src.common.database import AsyncSessionLocal
     from cortex_memory.graph import SemanticGraphService
 
-    async with AsyncSessionLocal() as db:
-        try:
-            # decay/prune never read company_id — maintenance spans all tenants.
-            graph = SemanticGraphService(db, company_id=cast(UUID, None))
-            decayed = await graph.decay_weights(days_inactive=30)
-            pruned = await graph.prune_weak_edges()
-            await db.commit()
-            logger.info(f"Graph maintenance: {decayed} edges decayed, {pruned} pruned")
-            return {"decayed": decayed, "pruned": pruned}
-        except Exception as e:
-            logger.error(f"Graph maintenance worker failed: {e}")
-            return {"error": str(e)}
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        async with tenant_session(scope) as db:
+            try:
+                # decay/prune never read company_id — maintenance spans the database's tenants.
+                graph = SemanticGraphService(db, company_id=cast(UUID, None))
+                decayed = await graph.decay_weights(days_inactive=30)
+                pruned = await graph.prune_weak_edges()
+                await db.commit()
+                logger.info(f"Graph maintenance: {decayed} edges decayed, {pruned} pruned")
+                return {"decayed": decayed, "pruned": pruned}
+            except Exception as e:
+                logger.error(f"Graph maintenance worker failed: {e}")
+                return {"error": str(e)}
+
+    return await _each_tenant(sweep)
 
 # ---------------------------------------------------------------------------
 # Resume_execution — Arq job to resume a checkpointed run
 # ---------------------------------------------------------------------------
-async def resume_execution(ctx: dict[str, Any], run_id_str: str) -> dict[str, Any]:
+async def resume_execution(ctx: dict[str, Any], run_id_str: str,
+                           company_id: Optional[str] = None) -> dict[str, Any]:
     """
     Resume a previously checkpointed execution run.
     Reloads `run.context_state` and skips steps that are already completed.
     """
-    from src.common.database import AsyncSessionLocal
-
     run_id = UUID(run_id_str)
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company_id) as db:
         redis = ctx.get('redis')
         from src.ai.core.agent_loop import AgentLoop
-        company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
+        run_company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
         logger.info(f"Resuming ExecutionRun: {run_id}")
-        return await AgentLoop(db, redis, company_id=company_id).run(run_id)
+        return await AgentLoop(db, redis, company_id=run_company_id).run(run_id)
 
 
-async def resume_parent_run(ctx: dict[str, Any], parent_run_id_str: str) -> dict[str, Any]:
+async def resume_parent_run(ctx: dict[str, Any], parent_run_id_str: str,
+                            company_id: Optional[str] = None) -> dict[str, Any]:
     """Resume a parent run suspended on async child dispatch.
 
     Enqueued by ``AgentLoop._maybe_resume_parent`` when a child run finalizes.
@@ -685,24 +726,25 @@ async def resume_parent_run(ctx: dict[str, Any], parent_run_id_str: str) -> dict
 
     redis_pool = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")  # type: ignore[no-untyped-call]
     try:
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db:
             from src.ai.core.agent_loop import AgentLoop
             from src.ai.core.feature_flags import FeatureFlags
             from src.ai.core.trace import TraceRecorder, set_recorder
 
             flags = FeatureFlags(db, redis=redis_pool)
-            company_id, _entity_extras = await _resolve_run_flag_scope(db, parent_run_id)
-            recorder = TraceRecorder(parent_run_id, company_id=company_id, redis=redis_pool)
+            run_company_id, _entity_extras = await _resolve_run_flag_scope(db, parent_run_id)
+            recorder = TraceRecorder(parent_run_id, company_id=run_company_id, redis=redis_pool)
             with set_recorder(recorder):
                 loop = AgentLoop(
-                    db, redis_pool, company_id=company_id, feature_flags=flags,
+                    db, redis_pool, company_id=run_company_id, feature_flags=flags,
                 )
                 return await loop.resume(parent_run_id)
     finally:
         await redis_pool.close()
 
 
-async def resume_paused_run(ctx: dict[str, Any], run_id_str: str) -> dict[str, Any]:
+async def resume_paused_run(ctx: dict[str, Any], run_id_str: str,
+                            company_id: Optional[str] = None) -> dict[str, Any]:
     """Resume a run parked on a HITL approval (GH-07, ``core/approval_pause``).
 
     Enqueued when the reviewer answers, at the approval's deadline, and by the
@@ -715,15 +757,15 @@ async def resume_paused_run(ctx: dict[str, Any], run_id_str: str) -> dict[str, A
 
     redis_pool = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")  # type: ignore[no-untyped-call]
     try:
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db:
             from src.ai.core.agent_loop import AgentLoop
             from src.ai.core.feature_flags import FeatureFlags
             from src.ai.core.trace import TraceRecorder, set_recorder
 
-            company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
-            recorder = TraceRecorder(run_id, company_id=company_id, redis=redis_pool)
+            run_company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
+            recorder = TraceRecorder(run_id, company_id=run_company_id, redis=redis_pool)
             with set_recorder(recorder):
-                loop = AgentLoop(db, redis_pool, company_id=company_id,
+                loop = AgentLoop(db, redis_pool, company_id=run_company_id,
                                  feature_flags=FeatureFlags(db, redis=redis_pool))
                 return await loop.resume_after_approval(run_id)
     finally:
@@ -737,15 +779,18 @@ async def sweep_stuck_runs(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.ai.core.stuck_runs import sweep_waiting_runs
     from src.common.config import settings
 
-    async with AsyncSessionLocal() as db:
-        swept = await sweep_waiting_runs(
-            db, ctx.get("redis"),
-            grace_s=settings.WAITING_RESUME_GRACE_SECONDS,
-            timeout_s=settings.WAITING_ON_CHILDREN_TIMEOUT_SECONDS,
-        )
-        swept["paused_resumed"] = await sweep_paused_runs(
-            db, grace_s=settings.WAITING_RESUME_GRACE_SECONDS)
-        return swept
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        async with tenant_session(scope) as db:
+            swept = await sweep_waiting_runs(
+                db, ctx.get("redis"),
+                grace_s=settings.WAITING_RESUME_GRACE_SECONDS,
+                timeout_s=settings.WAITING_ON_CHILDREN_TIMEOUT_SECONDS,
+            )
+            swept["paused_resumed"] = await sweep_paused_runs(
+                db, grace_s=settings.WAITING_RESUME_GRACE_SECONDS)
+            return swept
+
+    return await _each_tenant(sweep)
 
 
 # ---------------------------------------------------------------------------
@@ -773,35 +818,43 @@ async def cortex_resume_scheduled(ctx: dict[str, Any]) -> dict[str, Any]:
         return {"resumed": 0, "failed": 0}
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)  # next_resume_at is naive UTC
-    async with AsyncSessionLocal() as db:
-        due = (await db.execute(
-            select(CortexTree.id).where(
-                CortexTree.status == CortexTreeStatus.SUSPENDED,
-                CortexTree.next_resume_at.is_not(None),
-                CortexTree.next_resume_at <= now,
-            )
-        )).scalars().all()
 
-    counts = {"resumed": 0, "failed": 0}
-    for tree_id in due:
-        try:
-            outcome = await _wake_scheduled_tree(redis, tree_id, now)
-        except Exception:
-            logger.exception("CORTEX scheduled resume failed for tree %s", tree_id)
-            outcome = "failed"
-        if outcome in counts:
-            counts[outcome] += 1
-    return counts
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        async with tenant_session(scope) as db:
+            due = (await db.execute(
+                select(CortexTree.id).where(
+                    CortexTree.status == CortexTreeStatus.SUSPENDED,
+                    CortexTree.next_resume_at.is_not(None),
+                    CortexTree.next_resume_at <= now,
+                )
+            )).scalars().all()
+
+        counts = {"resumed": 0, "failed": 0}
+        for tree_id in due:
+            try:
+                outcome = await _wake_scheduled_tree(redis, tree_id, now, scope)
+            except Exception:
+                logger.exception("CORTEX scheduled resume failed for tree %s", tree_id)
+                outcome = "failed"
+            if outcome in counts:
+                counts[outcome] += 1
+        return counts
+
+    return await _each_tenant(sweep)
 
 
-async def _wake_scheduled_tree(redis: Any, tree_id: UUID, now: datetime) -> str:
-    """Wake one tree: ``resumed``, ``failed`` (it keeps its schedule) or ``skipped``."""
+async def _wake_scheduled_tree(redis: Any, tree_id: UUID, now: datetime,
+                               scope: Optional[UUID] = None) -> str:
+    """Wake one tree: ``resumed``, ``failed`` (it keeps its schedule) or ``skipped``.
+
+    ``scope``: the tenant database the tree is in (``None``: the shared one).
+    """
     from sqlalchemy import update
 
     from src.ai.memory.cortex_models import CortexTree, CortexTreeStatus
-    from src.common.job_queue import enqueue_on
+    from src.common.job_queue import enqueue_on, tenant_arg
 
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(scope) as db:
         tree = await db.get(CortexTree, tree_id)
         # Resumed, rescheduled or deleted since the scan.
         if (tree is None or tree.status != CortexTreeStatus.SUSPENDED
@@ -817,15 +870,15 @@ async def _wake_scheduled_tree(redis: Any, tree_id: UUID, now: datetime) -> str:
         )
         db.add(run)
         await db.flush()
-        run_id = run.id
+        run_id, company_id = run.id, run.company_id
         await db.commit()
 
     try:
-        await enqueue_on(redis, "run_execution_recursive", str(run_id))
+        await enqueue_on(redis, "run_execution_recursive", str(run_id), company_id=tenant_arg(company_id))
     except Exception as exc:
         logger.error("CORTEX scheduled resume: run %s for tree %s was not queued (%s); "
                      "the tree keeps its schedule", run_id, tree_id, exc)
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(scope) as db:
             failed_run = await db.get(ExecutionRun, run_id)
             if failed_run is not None:
                 failed_run.status = RunStatus.FAILED.value
@@ -834,7 +887,7 @@ async def _wake_scheduled_tree(redis: Any, tree_id: UUID, now: datetime) -> str:
                 await db.commit()
         return "failed"
 
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(scope) as db:
         # Only the schedule this run answered: a tree rescheduled meanwhile keeps the new time.
         await db.execute(
             update(CortexTree)
@@ -858,29 +911,33 @@ async def kpi_rollup_refresh(ctx: dict[str, Any]) -> dict[str, Any]:
     if the unique index is missing (e.g. fresh database without the
     Track 9 migration applied yet).
     """
-    try:
-        from sqlalchemy import text
-        async with AsyncSessionLocal() as db:
-            try:
-                await db.execute(text(
-                    "REFRESH MATERIALIZED VIEW CONCURRENTLY kpi_daily_rollup"
-                ))
-                await db.commit()
-                return {"refreshed": True, "mode": "concurrent"}
-            except Exception as concurrent_err:
-                logger.warning(
-                    "CONCURRENTLY refresh failed (%s); falling back to plain refresh",
-                    concurrent_err,
-                )
-                await db.rollback()
-                await db.execute(text(
-                    "REFRESH MATERIALIZED VIEW kpi_daily_rollup"
-                ))
-                await db.commit()
-                return {"refreshed": True, "mode": "plain"}
-    except Exception as e:                                                  # noqa: BLE001
-        logger.error(f"kpi_rollup_refresh error: {e}")
-        return {"error": str(e)}
+    from sqlalchemy import text
+
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        try:
+            async with tenant_session(scope) as db:
+                try:
+                    await db.execute(text(
+                        "REFRESH MATERIALIZED VIEW CONCURRENTLY kpi_daily_rollup"
+                    ))
+                    await db.commit()
+                    return {"refreshed": True, "mode": "concurrent"}
+                except Exception as concurrent_err:
+                    logger.warning(
+                        "CONCURRENTLY refresh failed (%s); falling back to plain refresh",
+                        concurrent_err,
+                    )
+                    await db.rollback()
+                    await db.execute(text(
+                        "REFRESH MATERIALIZED VIEW kpi_daily_rollup"
+                    ))
+                    await db.commit()
+                    return {"refreshed": True, "mode": "plain"}
+        except Exception as e:                                              # noqa: BLE001
+            logger.error(f"kpi_rollup_refresh error: {e}")
+            return {"error": str(e)}
+
+    return await _each_tenant(sweep)
 
 
 async def dreaming_outcome_trigger(
@@ -897,7 +954,7 @@ async def dreaming_outcome_trigger(
     """
     try:
         from src.ai.memory.dreaming_engine import DreamingEngine
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id_str) as db:
             entity_id = UUID(entity_id_str)
             company_id = UUID(company_id_str) if company_id_str else None
             if company_id is None:
@@ -937,42 +994,45 @@ async def critic_calibration_job(ctx: dict[str, Any]) -> dict[str, Any]:
     See ``ai.planning.critic_calibration.CriticCalibrator`` for the
     calibration logic.
     """
-    try:
-        async with AsyncSessionLocal() as db:
-            # Lazy-import to avoid worker-boot side effects.
-            from sqlalchemy import distinct, select
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        try:
+            async with tenant_session(scope) as db:
+                # Lazy-import to avoid worker-boot side effects.
+                from sqlalchemy import distinct, select
 
-            from src.ai.orm.execution import ExecutionRun
-            from src.ai.planning.critic_calibration import CriticCalibrator
+                from src.ai.orm.execution import ExecutionRun
+                from src.ai.planning.critic_calibration import CriticCalibrator
 
-            # The calibrator persists into a company-scoped Intelligence Tree,
-            # so run one per company that has recent activity.
-            company_ids = (await db.execute(
-                select(distinct(ExecutionRun.company_id))
-                .where(ExecutionRun.company_id.is_not(None))
-                .limit(500)
-            )).scalars().all()
+                # The calibrator persists into a company-scoped Intelligence Tree,
+                # so run one per company that has recent activity.
+                company_ids = (await db.execute(
+                    select(distinct(ExecutionRun.company_id))
+                    .where(ExecutionRun.company_id.is_not(None))
+                    .limit(500)
+                )).scalars().all()
 
-            entities_scored = 0
-            samples_total = 0
-            enabled: dict[Any, bool] = {}
-            for company_id in company_ids:
-                if not await _company_flag_on(
-                    db, "critic_pipeline.calibration_enabled", company_id, enabled,
-                ):
-                    continue
-                results = await CriticCalibrator(db, company_id).run()
-                entities_scored += len(results)
-                samples_total += sum(r.samples for r in results)
-            await db.commit()
-            return {
-                "companies_scored": len(company_ids),
-                "entities_scored": entities_scored,
-                "samples_total": samples_total,
-            }
-    except Exception as e:                                                  # noqa: BLE001
-        logger.error(f"critic_calibration_job error: {e}")
-        return {"error": str(e)}
+                entities_scored = 0
+                samples_total = 0
+                enabled: dict[Any, bool] = {}
+                for company_id in company_ids:
+                    if not await _company_flag_on(
+                        db, "critic_pipeline.calibration_enabled", company_id, enabled,
+                    ):
+                        continue
+                    results = await CriticCalibrator(db, company_id).run()
+                    entities_scored += len(results)
+                    samples_total += sum(r.samples for r in results)
+                await db.commit()
+                return {
+                    "companies_scored": len(company_ids),
+                    "entities_scored": entities_scored,
+                    "samples_total": samples_total,
+                }
+        except Exception as e:                                              # noqa: BLE001
+            logger.error(f"critic_calibration_job error: {e}")
+            return {"error": str(e)}
+
+    return await _each_tenant(sweep)
 
 
 # ---------------------------------------------------------------------------
@@ -988,6 +1048,14 @@ async def skill_promotion_scan(ctx: dict[str, Any]) -> dict[str, Any]:
     :class:`MetaIntelligenceTree`. Humans approve the candidates via
     the admin API.
     """
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        return await _skill_promotion_scan_one(scope)
+
+    return await _each_tenant(sweep)
+
+
+async def _skill_promotion_scan_one(scope: Optional[UUID]) -> dict[str, Any]:
+    """``skill_promotion_scan`` over one tenant database."""
     try:
         from sqlalchemy import distinct, select
         from src.ai.meta.skill_library import SkillLibrary
@@ -995,7 +1063,7 @@ async def skill_promotion_scan(ctx: dict[str, Any]) -> dict[str, Any]:
         from src.ai.orm.execution import ExecutionRun
 
         proposed_per_entity: dict[str, int] = {}
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(scope) as db:
             entity_rows = (await db.execute(
                 select(distinct(ExecutionRun.entity_id))
                 .where(ExecutionRun.entity_id.is_not(None))
@@ -1073,6 +1141,14 @@ async def meta_agent_prompt_evolution(ctx: dict[str, Any]) -> dict[str, Any]:
     MetaIntelligenceTree. Until an admin POSTs the approve endpoint
     nothing changes about the Meta-Agent prompt.
     """
+    async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
+        return await _meta_agent_prompt_evolution_one(scope)
+
+    return await _each_tenant(sweep)
+
+
+async def _meta_agent_prompt_evolution_one(scope: Optional[UUID]) -> dict[str, Any]:
+    """``meta_agent_prompt_evolution`` over one tenant database."""
     try:
         from sqlalchemy import select
         from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
@@ -1080,7 +1156,7 @@ async def meta_agent_prompt_evolution(ctx: dict[str, Any]) -> dict[str, Any]:
         from src.ai.orm.execution import ExecutionRun
 
         proposed = 0
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(scope) as db:
             # Find Meta-Agent entities (flagged via metadata_extensions.is_meta_agent).
             ents = (await db.execute(select(HierarchicalEntity).limit(500))).scalars().all()
             meta_entities = [

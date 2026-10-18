@@ -59,7 +59,7 @@ async def test_a_browser_session_settles_its_live_audio_on_one_run(db, monkeypat
         return Decimal(str(run.total_cost_usd))
 
     from src.ai.governance.governance_service import GovernanceService
-    monkeypatch.setattr(web_audio_adapter, "AsyncSessionLocal", _same_session)
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", _same_session)  # through tenant_session
     monkeypatch.setattr(web_audio_adapter, "SessionManager", _Sessions)
     monkeypatch.setattr(GovernanceService, "settle_billing", _settle)
 

@@ -1,0 +1,60 @@
+{{- if .Values.networkPolicy.enabled }}
+# Inbound to the platform pods (tech spec §13.2): the API and frontend from the
+# gateway namespaces and from each other; workers and the scheduler take no
+# inbound traffic except metrics scrapes. Outbound is not restricted here:
+# the platform calls Postgres, Redis, model providers and telephony.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hb-platform-default-deny
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hb-edge-to-web
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [api, frontend]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.ingressNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+        # The frontend's nginx forwards to the API; Pragya (D41) calls the API too.
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hb-pragya
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hb-metrics-scrape
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [{{ range $i, $w := .Values.workers }}{{ if $i }}, {{ end }}{{ $w.name }}{{ end }}]
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        {{- range .Values.workers }}
+        - port: {{ .metricsPort }}
+        {{- end }}
+{{- end }}

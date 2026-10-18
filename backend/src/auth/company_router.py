@@ -104,9 +104,9 @@ async def update_company(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Rename a company or change its status (AU-03, AU-15).
+    """Rename a company, set its time zone, or change its status (AU-03, AU-15).
 
-    Rename: ``app_admin`` any company, ``partner_admin`` its own company and its
+    Rename and time zone: ``app_admin`` any company, ``partner_admin`` its own company and its
     tenants, ``tenant_admin`` its own company. Status (suspend / reactivate):
     ``app_admin`` any company and ``partner_admin`` its own tenants — never the
     caller's own company, which would lock the caller out with it.
@@ -134,10 +134,32 @@ async def update_company(
         raise HTTPException(status_code=403, detail="Not authorized to update this company")
     if "status" in update_data and not can_set_status:
         raise HTTPException(status_code=403, detail="Not authorized to change this company's status")
+    if "timezone" in update_data and update_data["timezone"] is None:
+        del update_data["timezone"]  # a company always has a time zone
 
     for field, value in update_data.items():
         setattr(company, field, value)
 
+    from src.common.tenancy.session import is_split
+    if "timezone" in update_data and is_split():
+        # Split mode reads the zone from the tenant directory (Phase 14 WS2).
+        from sqlalchemy import update as sql_update
+        from src.common.tenancy.models import TenantDirectoryEntry
+        await db.execute(sql_update(TenantDirectoryEntry)
+                         .where(TenantDirectoryEntry.company_id == company.id)
+                         .values(timezone=update_data["timezone"]))
     await db.commit()
     await db.refresh(company)
+    if "timezone" in update_data:
+        from src.common.timezones import forget_company_timezone
+        forget_company_timezone(company.id)
+        if is_split():
+            import redis.asyncio as redis_lib
+            from src.common.tenancy.directory import publish_change
+            from src.common.config import settings
+            client = redis_lib.from_url(settings.REDIS_URL)  # type: ignore[no-untyped-call]
+            try:
+                await publish_change(client, company.id)
+            finally:
+                await client.aclose()
     return company

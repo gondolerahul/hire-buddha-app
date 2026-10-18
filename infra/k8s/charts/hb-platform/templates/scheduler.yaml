@@ -1,0 +1,38 @@
+{{- if .Values.scheduler.enabled }}
+{{- $c := dict "root" $ "component" "scheduler" }}
+# The tenant scheduler (WS3, tech spec §7.7): two replicas that share due work
+# through SKIP LOCKED leases on the control DB's time index.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hb-scheduler
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $c.component }}
+spec:
+  replicas: {{ .Values.scheduler.replicas }}
+  selector:
+    matchLabels:
+      {{- include "hb.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hb.podLabels" $c | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccounts.worker.name }}
+      {{- include "hb.podSpecCommon" . | nindent 6 }}
+      containers:
+        - name: scheduler
+          image: {{ include "hb.image" (dict "root" $ "image" "scheduler") }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          {{- include "hb.backendEnv" . | nindent 10 }}
+          {{- include "hb.databaseUrlEnv" (dict "root" $ "user" "worker") | nindent 12 }}
+          {{- include "hb.backendVolumeMounts" . | nindent 10 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+      {{- include "hb.backendVolumes" (dict "root" $ "identity" "worker") | nindent 6 }}
+{{- end }}

@@ -1,0 +1,12 @@
+# hb-bootstrap on AKS. Per-environment values (client ids, hostnames, the
+# vault) are passed by install.sh from infra/azure/env/<env>.env.
+
+otelCollector:
+  enabled: true
+  exporter: azuremonitor
+  podLabels:
+    azure.workload.identity/use: "true"
+  nodeSelector:
+    hb/pool: platform
+  keyVault:
+    enabled: true

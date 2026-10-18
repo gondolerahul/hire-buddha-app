@@ -61,8 +61,7 @@ class MetaRegistrySearchTool(Tool):
         try:
             from uuid import UUID
             from src.ai.meta.registry_search_service import RegistrySearchService, SearchRequest
-            from src.common.database import AsyncSessionLocal
-
+            from src.common.tenancy.session import tenant_session
             company_uuid = UUID(str(company_id)) if not isinstance(company_id, UUID) else company_id
 
             request = SearchRequest(
@@ -75,7 +74,7 @@ class MetaRegistrySearchTool(Tool):
             )
 
             # Use isolated session to avoid poisoning caller's session on SQL errors
-            async with AsyncSessionLocal() as isolated_db:
+            async with tenant_session(company_uuid) as isolated_db:
                 service = RegistrySearchService(db=isolated_db, company_id=company_uuid)
                 result = await service.recommend(request)
 

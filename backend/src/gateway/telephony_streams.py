@@ -7,12 +7,18 @@ here for bidirectional audio:
 
   WS /stream/twilio/{session_id}      Twilio Media Streams (TwiML <Stream>)
   WS /stream/tata/{session_id}        Tata Tele (Twilio-compatible wire format)
+  WS /stream/twilio|tata/{company_id}/{session_id}
+                                      the same, naming the session's tenant: what
+                                      the webhooks hand out with split tenancy
+                                      (Phase 14 WS2; ``voice.call_tenancy``)
   WS /webhooks/voice/tata/incoming    Tata Tele direct stream after click-to-call
+                                      (its tenant: the call's numbers)
 
 These served on the gateway (:8001), and before that on the retired voice
 service (:8002). They are now mounted by the API on port 8000.
 """
 import logging
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, WebSocket
@@ -62,6 +68,18 @@ async def twilio_stream_websocket(websocket: WebSocket, session_id: str):
     await _twilio_compatible_stream(websocket, session_id, "Twilio")
 
 
+@router.websocket("/stream/twilio/{company_id}/{session_id}")
+async def twilio_tenant_stream_websocket(websocket: WebSocket, company_id: str, session_id: str):
+    """Twilio Media Stream for a session of ``company_id``'s (split tenancy)."""
+    await _twilio_compatible_stream(websocket, session_id, "Twilio", company_id)
+
+
+@router.websocket("/stream/tata/{company_id}/{session_id}")
+async def tata_tenant_stream_websocket(websocket: WebSocket, company_id: str, session_id: str):
+    """Tata Tele Media Stream for a session of ``company_id``'s (split tenancy)."""
+    await _twilio_compatible_stream(websocket, session_id, "Tata Tele", company_id)
+
+
 @router.websocket("/stream/tata/{session_id}")
 async def tata_stream_websocket(websocket: WebSocket, session_id: str):
     """
@@ -74,8 +92,10 @@ async def tata_stream_websocket(websocket: WebSocket, session_id: str):
     await _twilio_compatible_stream(websocket, session_id, "Tata Tele")
 
 
-async def _twilio_compatible_stream(websocket: WebSocket, session_id: str, provider: str) -> None:
+async def _twilio_compatible_stream(websocket: WebSocket, session_id: str, provider: str,
+                                    company_id: Optional[str] = None) -> None:
     from src.common.database import get_db
+    from src.common.tenancy.session import tenant_db_for
     from src.voice.websocket_handler import TwilioStreamHandler
 
     await websocket.accept()
@@ -83,13 +103,17 @@ async def _twilio_compatible_stream(websocket: WebSocket, session_id: str, provi
 
     try:
         session_uuid = UUID(session_id)
+        company_uuid = UUID(company_id) if company_id else None
         async for db in get_db():
-            handler = TwilioStreamHandler(
-                websocket=websocket,
-                session_id=session_uuid,
-                db=db,
-            )
-            await handler.handle()
+            # The session's tenant database (split mode; a path without the
+            # company is refused there). Single mode: the request's session.
+            async with tenant_db_for(db, company_uuid) as call_db:
+                handler = TwilioStreamHandler(
+                    websocket=websocket,
+                    session_id=session_uuid,
+                    db=call_db,
+                )
+                await handler.handle()
             break
     except ValueError:
         logger.error(f"[Streams] Invalid {provider} session ID: {session_id}")

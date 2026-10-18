@@ -42,8 +42,13 @@ async def lifespan(app: FastAPI):
     await dispatcher.start()
     agent_changes = asyncio.create_task(agent_cache_bus.listen(settings.REDIS_URL))
     flag_changes = asyncio.create_task(listen_for_invalidations(settings.REDIS_URL))
+    listeners = [agent_changes, flag_changes]
+    from src.common.tenancy.session import is_split
+    if is_split():  # a moved or suspended tenant is seen at once (Phase 14 WS2)
+        from src.common.tenancy.directory import listen_for_changes
+        listeners.append(asyncio.create_task(listen_for_changes(settings.REDIS_URL)))
     yield
-    for listener in (agent_changes, flag_changes):
+    for listener in listeners:
         listener.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await listener
@@ -92,27 +97,32 @@ mount_optional(app, "src.auth.partner_router", prefix="/api/v1")
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-# Ensure reports directory exists
-reports_dir = Path("/tmp/research_reports")
-reports_dir.mkdir(parents=True, exist_ok=True)
+from src.common.platform import adapter_name
 
-# ── Unified artifact directory ──────────────────────────────────────────────────
-# All platform-managed files live under backend/artifact/
-#   user-uploads/      — files uploaded by human users
-#   system-generated/  — files produced by AI agents / tools
-# Derive from this file's location so it works regardless of CWD.
-_backend_dir = Path(__file__).resolve().parents[1]   # …/backend/src -> …/backend
-artifact_dir = _backend_dir / "artifact"
-(artifact_dir / "user-uploads").mkdir(parents=True, exist_ok=True)
-(artifact_dir / "system-generated").mkdir(parents=True, exist_ok=True)
+# ── Static file mounts: local-disk storage only (Phase 14 WS1 1.3) ─────────────
+# Files are opened through GET /api/v1/files/{id} (authorised; a signed storage
+# URL on Azure). These mounts only keep links stored before it working on a
+# local-disk deployment; with Blob storage there is no local directory to serve.
+if adapter_name("storage") == "local_disk":
+    reports_dir = Path("/tmp/research_reports")
+    reports_dir.mkdir(parents=True, exist_ok=True)
 
-# Legacy uploads dir (profile pictures stored here until migrated)
-uploads_dir = _backend_dir / "uploads"
-uploads_dir.mkdir(parents=True, exist_ok=True)
+    # backend/artifact/ — local-disk storage's root; before storage keys:
+    #   user-uploads/      — files uploaded by human users
+    #   system-generated/  — files produced by AI agents / tools
+    # Derive from this file's location so it works regardless of CWD.
+    _backend_dir = Path(__file__).resolve().parents[1]   # …/backend/src -> …/backend
+    artifact_dir = _backend_dir / "artifact"
+    (artifact_dir / "user-uploads").mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "system-generated").mkdir(parents=True, exist_ok=True)
 
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
-app.mount("/reports", StaticFiles(directory=str(reports_dir)), name="reports")
-app.mount("/artifact", StaticFiles(directory=str(artifact_dir)), name="artifact")
+    # Legacy uploads dir (profile pictures stored here until migrated)
+    uploads_dir = _backend_dir / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+    app.mount("/reports", StaticFiles(directory=str(reports_dir)), name="reports")
+    app.mount("/artifact", StaticFiles(directory=str(artifact_dir)), name="artifact")
 
 from src.config.router import router as config_router
 app.include_router(config_router, prefix="/api/v1")
@@ -138,8 +148,9 @@ from src.ai.memory.cortex_router import router as cortex_router
 app.include_router(cortex_router)
 
 # Artifact management (the legacy /assets routes and their redirects are gone, API-11)
-from src.ai.artifact_router import router as artifact_router
+from src.ai.artifact_router import files_router, router as artifact_router
 app.include_router(artifact_router)
+app.include_router(files_router)  # GET /api/v1/files/{id} — signed file links
 
 # Billing, reports, credits, and cron jobs
 mount_optional(app, "src.billing.billing_router")
@@ -173,6 +184,9 @@ mount_optional(app, "src.gateway.telephony_streams")    # WS /stream/twilio|tata
 mount_optional(app, "src.gateway.audio_gateway")        # WS /stream/audio
 mount_optional(app, "src.gateway.video_gateway")        # WS /stream/video
 mount_optional(app, "src.gateway.status")               # GET /metrics/gateway
+
+# Event-driven automation (Phase 14 WS3): settings, and the control room as it grows
+mount_optional(app, "src.automation.api")                # /api/v1/automation/*, /api/v1/admin/automation/*
 
 
 @app.get("/")

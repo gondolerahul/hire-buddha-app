@@ -25,7 +25,7 @@ if config.config_file_name is not None:
 target_metadata = import_all_models()
 
 # Override sqlalchemy.url with the one from settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", settings.CONTROL_DATABASE_URL)
 
 
 def run_migrations_offline() -> None:
@@ -70,6 +70,10 @@ async def run_async_migrations() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    # On Azure the migrator signs in with its Entra identity (DB_AUTH, Phase 14).
+    from src.common.platform.dbauth import install as install_db_auth
+
+    install_db_auth(connectable)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

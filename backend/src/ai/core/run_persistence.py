@@ -211,8 +211,11 @@ class RunPersistence:
             return
         try:
             from arq.connections import ArqRedis
+            from src.common.job_queue import tenant_arg
             arq_redis = ArqRedis(self.redis.connection_pool)
-            await arq_redis.enqueue_job("resume_parent_run", str(parent_id))
+            # A parent and its children are one company's (child tenancy).
+            await arq_redis.enqueue_job("resume_parent_run", str(parent_id),
+                                        company_id=tenant_arg(run.company_id))
             logger.info("Enqueued resume_parent_run for parent %s", parent_id)
         except Exception as exc:                                            # noqa: BLE001
             logger.warning(

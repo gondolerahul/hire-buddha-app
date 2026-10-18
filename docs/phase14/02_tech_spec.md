@@ -943,11 +943,14 @@ Agent-synthesised tools (`ai/tools/meta/tool_synthesis.py`, `ai/tools/sandbox/sy
 
 ### 11.6 Templates and app users
 
-| Template | Stack (proposal, confirm in WS6 kickoff) | Notes |
-|----------|------------------------------------------|-------|
-| Static website | Astro or plain HTML, served by nginx | No server code |
-| Website + forms | Static site + form posts to the Data API (public key with `create` on one object) | Spam protection (rate limit + honeypot) |
+One technology set (decision D48): React + TypeScript for frontends and websites, Python FastAPI for backends, React Native (Expo) for mobile apps.
+
+| Template | Stack (D48) | Notes |
+|----------|-------------|-------|
+| Static website | React (Vite, TypeScript) built to static files, served by nginx | No server code |
+| Website + forms | The same + form posts to the Data API (public key with `create` on one object) | Spam protection (rate limit + honeypot) |
 | Mobile app backend | FastAPI service using the Data API SDK + app-user auth | Push notifications via a provider connection |
+| Mobile app | React Native (Expo, TypeScript) talking to its FastAPI backend | Store builds and submission outside Phase 14 |
 | CRM / admin tool | React (Vite) SPA generated from the blueprint + app-user auth | Role-based screens |
 
 App users (`platform.app_users`, `platform.app_roles`, `platform.app_user_roles`) are per tenant and per app; passwords Argon2id; magic link via the tenant's mail connection or platform SMTP; JWTs signed with a per-tenant app-auth key (wrapped by the tenant DEK). Row policies from the blueprint apply to app-user tokens.
@@ -1082,13 +1085,17 @@ New or changed settings in `common/config.py` (all have local-dev defaults):
 | `TRUSTED_PROXY_HEADERS`, `TRUSTED_PROXY_CIDRS` | Which edge (Front Door, Cloudflare, on-premise WAF) may set client-address headers (P-10) |
 | `CONTROL_DATABASE_URL` | Replaces `DATABASE_URL` (alias kept one release) |
 | `TENANT_DB_AUTH` | `password` (dev) \| `entra_token` \| `vault_dynamic` |
+| `DB_AUTH` | Built in WS1: how the platform signs in to its own database — `password` \| `entra_token` (a fresh Entra token per connection; the URL names the workload's principal) |
+| `WORKLOAD_IDENTITY_BACKEND` | Built in WS1: `azure_workload_identity` \| `none` — Entra tokens for Azure OpenAI, Foundry, Key Vault, PostgreSQL |
+| `SETTINGS_SECRETS_DIR` | Built in WS1: the Key Vault CSI mount; each file fills the setting it is named after |
+| `STORAGE_LOCAL_ROOT`, `AZURE_STORAGE_CONNECTION_STRING`, `STORAGE_SIGNED_URL_TTL_SECONDS` | Built in WS1: local-disk root (default `backend/artifact`); Azurite/tests only; download-link lifetime (600 s) |
 | `TENANT_DB_PORT` | 6432 (PgBouncer) |
 | `TENANT_ENGINE_CACHE_SIZE` | Default 200 |
 | `AZURE_KEYVAULT_URL`, `AZURE_TENANT_KEYS_VAULT_URL` | Platform secrets / tenant KEKs |
 | `AZURE_STORAGE_ACCOUNT_URL`, `STORAGE_BACKEND` | `local_disk` \| `azure_blob` \| `s3` |
 | `REDIS_URL` | Azure Managed Redis (TLS) |
 | `SCHEDULER_TICK_SECONDS`, `SCHEDULER_GRACE_SECONDS` | 5, 600 |
-| `AUTOMATION_MAX_CHAIN_DEPTH`, `AUTOMATION_TENANT_MAX_ACTIVE_RUNS`, `AUTOMATION_AGENT_MAX_SCHEDULES` | 5, 20, 50 |
+| `AUTOMATION_MAX_CHAIN_DEPTH`, `AUTOMATION_TENANT_MAX_ACTIVE_RUNS`, `AUTOMATION_AGENT_MAX_SCHEDULES` | Replaced by D47: every automation limit is a value in the control table `automation_settings` (platform defaults and per business), edited on screen and through `/api/v1/automation/limits`; no limit by default |
 | `DATA_API_URL_TEMPLATE` | `http://data-api.t-{key}.svc.cluster.local:8080` |
 | `DATA_API_JWT_ISSUER`, `DATA_API_SIGNING_KEY_ID` | Run/scratch/user tokens |
 | `CONNECTION_SERVICE_URL`, `CONNECT_PUBLIC_BASE_URL` | Internal / OAuth callback base |
@@ -1137,7 +1144,7 @@ Removed after cutover: `ENCRYPTION_MASTER_KEY` (kept read-only for the migration
 | TD-10 | Files through `StorageBackend`; Blob + SAS on Azure |
 | TD-11 | Operational tables (campaigns, calls, leads, conversations) move to the tenant `platform` schema unchanged in Phase 14; remodelling into GTM business objects is E13–E18 work |
 | TD-12 | PostgreSQL 16 for all new servers and local dev |
-| TD-13 | Azure resources as code with Bicep (Azure Verified Modules); in-cluster components with Helm. (Terraform is acceptable if the team prefers it; decide at WS0 kickoff.) |
+| TD-13 | Azure resources as code with Bicep; in-cluster components with Helm. **Confirmed by the owner (D44, 18 Oct 2026).** |
 | TD-14 | Application code is cloud-neutral: cloud SDKs live only in adapter modules behind interfaces, so the same code and charts can run on Azure, on-premise, or split between the two (§19) |
 | TD-15 | Everything Phase 14 builds is drivable by Pragya (D41) through public, annotated APIs, on-behalf-of tokens and a tenant event stream; Phase 14 reserves Pragya's runtime slot and tenant state schema but does not build Pragya (§20) |
 
@@ -1338,7 +1345,7 @@ Small, mostly additive work: the `x-hb-*` annotations and the capabilities endpo
 | `voice_sessions`, `whatsapp_sessions`, `conversation_history` | Tenant `platform` | Inbound call routing uses `phone_numbers` (control) to find the tenant first |
 | `mobile_call_attempts`, `mobile_call_events`, `mobile_campaign_runs`, `mobile_client_logs` | Tenant `platform` | |
 | `email_connections`, `social_connections` | Replaced by `platform.connections` | Dropped after cutover |
-| **New control:** `tenant_db_servers`, `tenant_directory`, `tenant_provisioning_log`, `time_index`, `connector_catalog`, `external_account_routes`, `unrouted_events`, `custom_domains` | Control | |
+| **New control:** `tenant_db_servers`, `tenant_directory`, `tenant_provisioning_log`, `time_index`, `automation_settings` (D47), `connector_catalog`, `external_account_routes`, `unrouted_events`, `custom_domains` | Control | |
 | **New tenant:** `events`, `triggers`, `trigger_firings`, `waits`, `schema_blueprints`, `schema_changes`, `audit_log`, `api_keys`, `app_users`, `app_roles`, `app_user_roles`, `connections`, `connection_secrets`, `connection_grants`, `connection_audit`, `tenant_keys`, `code_items`, `git_repos`, `apps`, `app_builds`, `app_deployments` | Tenant `platform` | |
 | **New tenant business:** `account`, `contact`, `activity`, `consent` (+ `custom.*`) | Tenant `business` / `custom` | |
 

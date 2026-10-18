@@ -84,7 +84,7 @@ def _make_run(status: str):
 
 
 def _patch(monkeypatch, run, engine_cls=_ExplodingEngine):
-    monkeypatch.setattr(arq_jobs, "AsyncSessionLocal", lambda: _FakeSession(run))
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", lambda: _FakeSession(run))
     monkeypatch.setattr("src.ai.core.agent_loop.AgentLoop", engine_cls)
     monkeypatch.setattr(feature_flags_mod, "FeatureFlags", _FakeFlags)
     fake_redis = _FakeRedis()

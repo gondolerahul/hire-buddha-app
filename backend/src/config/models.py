@@ -4,7 +4,7 @@ from enum import StrEnum
 from sqlalchemy import CheckConstraint, Column, String, Boolean, DateTime, Text, Numeric, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase
 
 # ---------------------------------------------------------------------------
 # Supported AI task types — drives model routing decisions. The one list: the
@@ -54,14 +54,22 @@ class ServiceCategory(StrEnum):
 ADC_PROVIDERS = frozenset({"google", "gemini", "google_vertex", "anthropic", "anthropic_vertex"})
 
 
-def needs_api_key(provider_name: str | None) -> bool:
+# service_metadata.auth values meaning "the workload's own identity": an Azure
+# OpenAI or Foundry integration with no key gets an Entra token (Phase 14 WS1 1.7).
+IDENTITY_AUTH = frozenset({"managed_identity", "entra"})
+
+
+def needs_api_key(provider_name: str | None, service_metadata: dict | None = None) -> bool:
     """Whether an integration of this provider must store a key (LP-12). An
     ADC provider used to need a placeholder (``vertex-ai-service-account``)
-    because the create schema and the router both refused an empty key."""
+    because the create schema and the router both refused an empty key. One
+    whose ``service_metadata.auth`` is ``managed_identity`` needs none either."""
+    if str((service_metadata or {}).get("auth") or "").lower() in IDENTITY_AUTH:
+        return False
     return (provider_name or "").lower() not in ADC_PROVIDERS
 
 
-class IntegrationRegistry(Base):
+class IntegrationRegistry(ControlBase):
     __tablename__ = "integration_registry"
     # The category CHECK is added NOT VALID by its migration and validated when
     # the table held no other value; see migrations/versions/p9_service_category.py.
@@ -99,7 +107,7 @@ class IntegrationRegistry(Base):
     company = relationship("src.auth.models.Company")
 
 
-class ModelTaskDefault(Base):
+class ModelTaskDefault(ControlBase):
     """
     Maps AI task types to specific model integrations (per company).
 

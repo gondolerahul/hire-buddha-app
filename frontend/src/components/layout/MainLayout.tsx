@@ -41,6 +41,7 @@ import {
     Receipt,
     Flag,
     ShieldAlert,
+    Timer,
 } from 'lucide-react';
 import { UserRole } from '@/types';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -86,6 +87,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 { path: '/ai/templates', label: 'Template Marketplace', icon: Layers },
                 { path: '/ai/approvals', label: 'Guardian Oversight', icon: ShieldCheck },
                 { path: '/ai/executions', label: 'Executions', icon: TerminalSquare },
+                { path: '/automation', label: 'Control Room', icon: Timer },
                 { path: '/cortex', label: 'Memory Trees', icon: Brain },
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/ai/tool-registry', label: 'Tool Registry', icon: Wrench }] : []),
             ]
@@ -126,6 +128,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             icon: CreditCard,
             items: [
                 { path: '/wallet', label: 'Wallet & Credits', icon: Wallet },
+                { path: '/settings/automation', label: 'Automation Settings', icon: Timer },
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/automation', label: 'Platform Automation', icon: Timer }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/reports/costing', label: 'Costing Report', icon: PiggyBank }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/settings/billing', label: 'Billing Settings', icon: Settings }] : []),
             ]

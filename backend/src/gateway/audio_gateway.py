@@ -168,12 +168,13 @@ async def _run_audio_adapter(
     Twilio, Tata Tele, Exotel all share the same wire format (base64 mulaw JSON events).
     Web adapter handles raw PCM16 from browser clients.
     """
-    from src.common.database import get_db
+    from src.common.tenancy.session import tenant_session
     from src.voice.session_manager import SessionManager
     from uuid import UUID
 
     # ── Acknowledge the connection ────────────────────────────────────────────
-    async for db in get_db():
+    # The agent's tenant database (Phase 14 WS2); single mode: the shared one.
+    async with tenant_session(UUID(agent_info["company_id"])) as db:
         session_manager = SessionManager(db)
 
         # Resolve or create VoiceSession
@@ -238,8 +239,6 @@ async def _run_audio_adapter(
                 db=db,
             )
             await adapter.handle()
-
-        break
 
 
 

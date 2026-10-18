@@ -1,0 +1,66 @@
+# hb-bootstrap — cloud-neutral defaults; Azure specifics in values-azure.yaml,
+# per environment in infra/k8s/env/<env>/hb-bootstrap.yaml (tech spec §19, P-08).
+
+env: dev
+
+namespaces:
+  platform: hb-platform   # shared services (tech spec §4.3), Pod Security "baseline"
+  system: hb-system       # gateways, collector config; created by install.sh
+  pragya: hb-pragya       # reserved, empty until Pragya (D41, PR-8)
+
+# Service accounts sa-<id> in the platform namespace, one per platform
+# service. annotations: e.g. the Azure workload identity client id.
+serviceAccounts:
+  api: {}
+  worker: {}
+  connsvc: {}
+  provisioner: {}
+  migrator: {}
+  appcontroller: {}
+
+gateway:
+  enabled: true
+  name: platform-gateway
+  className: hb-platform
+  # Annotations of the gateway's LoadBalancer Service (Azure: the static ingress IP).
+  serviceAnnotations: {}
+  # HTTPS listeners: one per hostname; empty hostnames are skipped.
+  hostnames:
+    app: ""
+    api: ""
+    gateway: ""
+    connect: ""
+  # cert-manager issues each listener's certificate (gateway-shim annotation).
+  clusterIssuer: letsencrypt
+
+certManager:
+  issuer:
+    enabled: true
+    name: letsencrypt
+    email: ""
+    # Let's Encrypt staging first; switch to production once a certificate works.
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+
+otelCollector:
+  enabled: false
+  image: otel/opentelemetry-collector-contrib:0.115.0
+  # Runs in the platform namespace as sa-worker, the identity that may read Key Vault.
+  serviceAccount: sa-worker
+  # Where traces go: "azuremonitor" (Application Insights) or "debug" (logs only).
+  exporter: debug
+  # A Kubernetes Secret with the Application Insights connection string, and its key.
+  connectionStringSecret:
+    name: hb-appinsights
+    key: connection-string
+  # On Azure the Secret is synced from Key Vault by the CSI driver (values-azure.yaml).
+  keyVault:
+    enabled: false
+    name: ""
+    tenantId: ""
+    clientId: ""
+    secretName: appinsights-connection-string
+  podLabels: {}
+  nodeSelector: {}
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }

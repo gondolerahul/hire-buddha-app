@@ -3,6 +3,11 @@ Mobile dialer business logic behind /api/v1/mobile (docs 06 §2).
 
 Every public method takes the authenticated ``User`` and scopes by its
 company. Errors are raised as ``MobileError`` and mapped to HTTP by the router.
+
+Phase 14 WS2 2.4: ``db`` is the company's tenant session (devices and reps:
+the control session). Users, devices and phone numbers are control-plane rows,
+so they are read in queries of their own, never joined onto campaigns, runs or
+attempts: a split-mode tenant session sends each query to one database.
 """
 import logging
 import secrets
@@ -17,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ai.campaign_models import Campaign, CampaignCall
 from src.auth.models import User
 from src.common.config import settings
+from src.common.tenancy.session import is_split
 from src.mobile import realtime
 from src.mobile.identification import hash_verification_code
 from src.mobile.models import (
@@ -34,6 +40,9 @@ logger = logging.getLogger(__name__)
 
 ADMIN_ROLES = {"tenant_admin"}
 MOBILE_ROLES = {"tenant_admin", "tenant_user"}
+# India time on purpose, not the business time zone (Phase 14 WS1 1.10): the
+# mobile dialer's calling window and daily cap are TRAI rules for calls from
+# Indian SIMs (docs/mobile-dialer-app 08 §1.1), whatever the company's own zone.
 IST = timezone(timedelta(hours=5, minutes=30))
 
 LEAD_FAILURE_CAUSES = {"busy", "no_answer", "rejected", "unreachable", "invalid", "failed"}
@@ -69,11 +78,26 @@ async def _resolve_company_did(db: AsyncSession, company_id: UUID, agent_id: Opt
     return None
 
 
+async def _check_routable(db: AsyncSession, number, company_id: UUID) -> None:
+    """Split mode: the AI leg finds its tenant by the number it dials, as every
+    voice webhook does (``voice/call_tenancy.py``); hand the app a number only
+    when that lookup names this company, or the call would be refused."""
+    if not is_split():
+        return
+    from src.voice.call_tenancy import company_for_numbers
+    from src.voice.number_router import NumberRouter
+
+    if await company_for_numbers(NumberRouter(db), to_e164(number.phone_number)) != company_id:
+        raise MobileError(409, "did_not_routable",
+                          "The agent's phone number cannot receive calls yet. Ask your admin to check its assignment.")
+
+
 async def issue_device_verification(db: AsyncSession, device: UserDevice) -> Dict[str, Any]:
     number = await _resolve_company_did(db, device.company_id)
     if not number:
         raise MobileError(409, "no_company_did",
                           "Your company has no phone number assigned to a voice agent. Ask your admin to assign one.")
+    await _check_routable(db, number, device.company_id)
     code = f"{secrets.randbelow(1_000_000):06d}"
     device.verification_code_hash = hash_verification_code(device.id, code)
     device.verification_did = to_e164(number.phone_number)
@@ -230,17 +254,27 @@ async def list_mobile_campaigns(db: AsyncSession, user: User, status: Optional[s
     ]
 
 
+async def user_names(db: AsyncSession, user_ids) -> Dict[UUID, Optional[str]]:
+    """Full names of these users (control plane), by id; unknown ids are left out."""
+    ids = {uid for uid in user_ids if uid}
+    if not ids:
+        return {}
+    rows = await db.execute(select(User.id, User.full_name).where(User.id.in_(ids)))
+    return {uid: name for uid, name in rows}
+
+
 async def _assignees(db: AsyncSession, campaign_ids: List[UUID]) -> Dict[UUID, List[Dict[str, Any]]]:
     if not campaign_ids:
         return {}
-    rows = await db.execute(
-        select(CampaignAssignee.campaign_id, User.id, User.full_name)
-        .join(User, User.id == CampaignAssignee.user_id)
+    rows = (await db.execute(
+        select(CampaignAssignee.campaign_id, CampaignAssignee.user_id)
         .where(CampaignAssignee.campaign_id.in_(campaign_ids))
-    )
+    )).all()
+    names = await user_names(db, [uid for _, uid in rows])
     out: Dict[UUID, List[Dict[str, Any]]] = {}
-    for cid, uid, name in rows:
-        out.setdefault(cid, []).append({"user_id": uid, "name": name})
+    for cid, uid in rows:
+        if uid in names:
+            out.setdefault(cid, []).append({"user_id": uid, "name": names[uid]})
     return out
 
 
@@ -269,30 +303,34 @@ def campaign_view(c: Campaign, counts: Dict[str, int], agent_name: Optional[str]
 
 
 async def list_voice_agents(db: AsyncSession, user: User) -> List[Dict[str, Any]]:
-    """ACTIVE agents of the company that have an assigned active DID."""
+    """ACTIVE agents of the company that have an assigned active DID.
+
+    The agents (tenant plane) and their numbers (control plane) are two queries."""
     from src.ai.orm import HierarchicalEntity
     from src.voice.phone_pool_models import PhoneNumber
 
-    rows = (await db.execute(
-        select(HierarchicalEntity.id, HierarchicalEntity.display_name, HierarchicalEntity.name,
-               PhoneNumber.phone_number, PhoneNumber.provider)
-        .join(PhoneNumber, PhoneNumber.agent_id == HierarchicalEntity.id)
+    agents = (await db.execute(
+        select(HierarchicalEntity.id, HierarchicalEntity.display_name, HierarchicalEntity.name)
         .where(
             HierarchicalEntity.company_id == user.company_id,
             HierarchicalEntity.status == "ACTIVE",
             HierarchicalEntity.deleted_at.is_(None),
-            PhoneNumber.status == "assigned",
-            PhoneNumber.is_active == True,  # noqa: E712
         )
         .order_by(HierarchicalEntity.name)
     )).all()
-    seen, out = set(), []
-    for aid, dn, n, number, provider in rows:
-        if aid in seen:
-            continue
-        seen.add(aid)
-        out.append({"agent_id": aid, "name": dn or n, "did": to_e164(number), "provider": provider})
-    return out
+    if not agents:
+        return []
+    numbers: Dict[UUID, Tuple[str, str]] = {}
+    for aid, number, provider in await db.execute(
+        select(PhoneNumber.agent_id, PhoneNumber.phone_number, PhoneNumber.provider).where(
+            PhoneNumber.agent_id.in_([a.id for a in agents]),
+            PhoneNumber.status == "assigned",
+            PhoneNumber.is_active == True,  # noqa: E712
+        )
+    ):
+        numbers.setdefault(aid, (number, provider))
+    return [{"agent_id": aid, "name": dn or n, "did": to_e164(numbers[aid][0]), "provider": numbers[aid][1]}
+            for aid, dn, n in agents if aid in numbers]
 
 
 async def list_company_reps(db: AsyncSession, user: User) -> List[Dict[str, Any]]:
@@ -613,6 +651,7 @@ async def create_attempt(db: AsyncSession, user: User, *, run_id: UUID, campaign
                                         provider=campaign.provider)
     if not number:
         raise MobileError(409, "no_company_did", "The campaign's agent has no assigned phone number")
+    await _check_routable(db, number, campaign.company_id)
 
     superseded = (await db.execute(
         update(MobileCallAttempt)

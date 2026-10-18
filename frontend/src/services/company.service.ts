@@ -13,6 +13,8 @@ export interface CompanyUpdate {
     name?: string;
     status?: 'active' | 'suspended';
     monthly_spend_cap_usd?: number | null;
+    // An IANA time zone (Phase 14); the API refuses anything else.
+    timezone?: string;
 }
 
 export const companyService = {

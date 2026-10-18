@@ -81,7 +81,7 @@ async def sweep_waiting_runs(
     """Re-enqueue lost resumes and expire parents waiting past the timeout."""
     from src.ai.core.agent_loop import AgentLoop
     from src.ai.core.feature_flags import FeatureFlags
-    from src.common.job_queue import enqueue_job
+    from src.common.job_queue import enqueue_job, tenant_arg
 
     now = now or datetime.now(timezone.utc)
     rows = (await db.execute(
@@ -106,7 +106,7 @@ async def sweep_waiting_runs(
         )
         try:
             if children_done and waited >= grace_s:
-                await enqueue_job("resume_parent_run", str(run_id))
+                await enqueue_job("resume_parent_run", str(run_id), company_id=tenant_arg(company_id))
                 resumed += 1
             elif waited >= timeout_s:
                 loop = AgentLoop(db, redis, company_id=company_id,

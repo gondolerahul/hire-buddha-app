@@ -435,6 +435,16 @@ class PDFGeneratorTool(Tool):
             logger.warning("pdf_generator: image %r is not one of this company's files; left out", path)
             return f'*[{alt or "image"} unavailable]*'
 
+        # An image named by the company's storage key (what an image tool returns
+        # on Blob storage) is fetched to a local file first (Phase 14 WS1 1.2).
+        from src.ai.tools.sandbox.workspace import company_storage_key, fetch_storage_keys
+        keyed = {p: p for p in _re.findall(r'!\[[^\]]*\]\(([^)]+)\)', content)
+                 if company_id and company_storage_key(company_id, p)}
+        if keyed:
+            await fetch_storage_keys(keyed, company_id, tuple(keyed))
+            content = _re.sub(r'(!\[[^\]]*\]\()([^)]+)(\))',
+                              lambda m: m.group(1) + keyed.get(m.group(2), m.group(2)) + m.group(3), content)
+
         processed_content = _re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', _fix_img_path, content)
 
         # Convert markdown to HTML

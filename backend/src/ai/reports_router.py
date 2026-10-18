@@ -1,6 +1,12 @@
 """
 Analytics & Reports Router
 Provides endpoints for all 6-role analytics reports.
+
+Databases (Phase 14 WS2): wallet, subscription, partner and usage reports read
+the control database; run, LLM, tool, approval, campaign and agent reports the
+caller's tenant database (one entity's versions: the acting company's). With
+split tenancy an app admin's ``global_view`` covers the tenant database it is
+in, not every tenant's, until reports fan out over the tenants.
 """
 from __future__ import annotations
 from typing import Optional
@@ -9,7 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_acting_tenant_db, get_control_db, get_tenant_db
 from src.auth.dependencies import RoleChecker, get_current_user
 from src.auth.roles import Role
 from src.auth.models import User
@@ -29,7 +35,7 @@ async def get_execution_health(
     days: int = Query(30, ge=1, le=365),
     global_view: bool = Query(False, description="App admin only: view all companies"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
@@ -43,7 +49,7 @@ async def get_llm_performance(
     days: int = Query(30, ge=1, le=365),
     global_view: bool = Query(False),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
@@ -57,7 +63,7 @@ async def get_tool_efficacy(
     days: int = Query(30, ge=1, le=365),
     global_view: bool = Query(False),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
@@ -71,7 +77,7 @@ async def get_hitl_report(
     days: int = Query(30, ge=1, le=365),
     global_view: bool = Query(False),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
@@ -83,7 +89,7 @@ async def get_hitl_report(
 @router.get("/wallet-liability", summary="Global credit wallet balances (app_admin)")
 async def get_wallet_liability(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     svc = ReportsService(db)
     return await svc.get_wallet_liability()
@@ -95,7 +101,7 @@ async def get_wallet_liability(
 async def get_usage_breakdown(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     svc = ReportsService(db)
     return await svc.get_usage_breakdown(company_id=current_user.company_id, days=days)
@@ -106,7 +112,7 @@ async def get_usage_breakdown(
 @router.get("/tenant-health", summary="Per-tenant health scorecards (partner roles)")
 async def get_tenant_health(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN, Role.PARTNER_ADMIN, Role.PARTNER_USER])),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     return await svc.get_tenant_health_scores(partner_company_id=current_user.company_id)
@@ -118,7 +124,7 @@ async def get_tenant_health(
 async def get_campaign_analytics(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     return await svc.get_campaign_analytics(company_id=current_user.company_id, days=days)
@@ -131,7 +137,7 @@ async def get_personal_tasks(
     limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     return await svc.get_personal_tasks(
@@ -148,7 +154,7 @@ async def get_personal_tasks(
 async def get_agent_errors(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     return await svc.get_agent_error_rates(company_id=current_user.company_id, days=days)
@@ -160,7 +166,7 @@ async def get_agent_errors(
 async def get_entity_version_economics(
     entity_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
 ):
     from src.ai.service import AIService
     await AIService(db).get_entity(entity_id, current_user.company_id, current_user.role)  # 404 outside scope
@@ -172,7 +178,7 @@ async def get_entity_version_economics(
 @router.get("/credit-forecast", summary="Credit burn rate and depletion forecast")
 async def get_credit_forecast(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     svc = ReportsService(db)
     return await svc.get_credit_forecast(company_id=current_user.company_id)
@@ -183,7 +189,7 @@ async def get_credit_forecast(
 @router.get("/subscription-mrr", summary="MRR, subscription tiers, churn (app_admin)")
 async def get_subscription_mrr(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     svc = ReportsService(db)
     return await svc.get_subscription_mrr()
@@ -194,7 +200,7 @@ async def get_subscription_mrr(
 @router.get("/partner-performance", summary="Per-partner revenue contribution (app_admin)")
 async def get_partner_performance(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     svc = ReportsService(db)
     return await svc.get_partner_performance()
@@ -205,7 +211,7 @@ async def get_partner_performance(
 @router.get("/data-growth", summary="Table row counts and archival readiness (app_user)")
 async def get_data_growth(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN, Role.APP_USER])),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ReportsService(db)
     return await svc.get_data_growth()

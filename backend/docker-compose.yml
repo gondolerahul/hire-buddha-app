@@ -4,7 +4,9 @@ services:
   # ── API (Port 8000) — every endpoint: REST, webhooks, internal events, ────
   #    and the audio / video / telephony WebSockets.
   app:
-    build: .
+    build:
+      context: .
+      target: dev   # backend/Dockerfile: api | worker | child-worker | scheduler | dev
     container_name: hirebuddha-backend
     ports:
       - "8000:8000"
@@ -32,8 +34,12 @@ services:
       - db
       - redis
 
+  # PostgreSQL 16, as on Azure Flexible Server (Phase 14 TD-12, WS1 1.11). A
+  # pg15 data directory does not open in 16, so this is a new volume
+  # (postgres16_data); the old postgres_data volume is left as it was — dump it
+  # with pg15 first if it holds data you need.
   db:
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:pg16
     container_name: hirebuddha-db
     ports:
       - "5433:5432"
@@ -42,7 +48,7 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=hirebuddha
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres16_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
@@ -52,6 +58,22 @@ services:
     volumes:
       - redis_data:/data
 
+  # Azure Blob Storage emulator, for the azure_blob storage adapter (Phase 14
+  # WS1 1.2): STORAGE_BACKEND=azure_blob with
+  # AZURE_STORAGE_CONNECTION_STRING=UseDevelopmentStorage=true. Optional —
+  # `docker compose up -d azurite`; tests/integration/test_storage_azurite.py.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    container_name: hirebuddha-azurite
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --skipApiVersionCheck --loose
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite_data:/data
+    profiles: ["azure"]
+
 volumes:
-  postgres_data:
+  postgres_data:     # PostgreSQL 15 data from before Phase 14; no longer mounted
+  postgres16_data:
   redis_data:
+  azurite_data:

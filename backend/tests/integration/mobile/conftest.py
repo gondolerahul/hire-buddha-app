@@ -61,8 +61,8 @@ def _build_schema():
                 pass
         # Only the pre-existing tables this flow touches (the full metadata
         # references CORTEX tables owned by another package's metadata).
-        needed = ["companies", "users", "hierarchical_entities", "phone_numbers", "voice_sessions",
-                  "conversation_history", "campaigns", "campaign_calls"]
+        needed = ["companies", "users", "hierarchical_entities", "entity_versions", "phone_numbers",
+                  "voice_sessions", "conversation_history", "campaigns", "campaign_calls"]
         async with eng.begin() as conn:
             await conn.run_sync(lambda c: Base.metadata.create_all(
                 c, tables=[Base.metadata.tables[t] for t in needed]))

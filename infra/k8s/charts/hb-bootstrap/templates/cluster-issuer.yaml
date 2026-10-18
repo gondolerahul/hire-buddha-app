@@ -1,0 +1,25 @@
+{{- $i := .Values.certManager.issuer }}
+{{- if $i.enabled }}
+# Certificates for the platform hostnames from Let's Encrypt, proven over
+# HTTP-01 through the platform gateway's port-80 listener.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ $i.name }}
+  labels:
+    {{- include "hbb.labels" . | nindent 4 }}
+spec:
+  acme:
+    email: {{ required "certManager.issuer.email is required" $i.email | quote }}
+    server: {{ $i.server | quote }}
+    privateKeySecretRef:
+      name: {{ $i.name }}-account-key
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: {{ .Values.gateway.name }}
+                namespace: {{ .Release.Namespace }}
+                kind: Gateway
+                sectionName: http
+{{- end }}

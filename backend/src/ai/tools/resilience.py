@@ -48,6 +48,8 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "document_save", "file_writer", "docx_tool", "excel_tool", "pptx_tool",
     # the platform itself
     "agent_reflect", "meta_entity_creator", "meta_entity_executor", "tool_synthesis",
+    # automation: a schedule made, cancelled, a signal sent
+    "schedule_agent", "cancel_schedule", "emit_event",
 })
 
 # Names that read like a write but only produce output the run keeps.

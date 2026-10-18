@@ -46,6 +46,10 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
         3. **Serverless model** (``*.models.ai.azure.com``)
            → ``AsyncOpenAI(base_url={endpoint}/v1)``
            Plain OpenAI-compatible endpoint, no api-version needed.
+
+        With no stored key the client authenticates with an Entra token from
+        the workload's identity — the pod's managed identity in AKS (Phase 14
+        WS1 1.7); ``service_metadata.entra_scope`` overrides the scope.
         """
         try:
             from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -58,6 +62,8 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
             raise ValueError("service_metadata.azure_endpoint is required for azure_openai provider")
 
         lower = azure_endpoint.lower().rstrip("/")
+        # A key, or an async callable the SDK asks for a token per request.
+        credential = self.api_key or self._token_provider()
 
         # ── Case 3: Serverless model endpoints (*.models.ai.azure.com) ──
         # OpenAI-compatible /v1 API, rejects api-version.
@@ -70,7 +76,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
                 base_url,
             )
             return AsyncOpenAI(
-                api_key=self.api_key,
+                api_key=credential,
                 base_url=base_url,
                 max_retries=0,  # retries are ai/llm/retry.py's (LP-03)
             )
@@ -92,7 +98,7 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
                 azure_endpoint,
             )
             return AsyncOpenAI(
-                api_key=self.api_key,
+                api_key=credential,
                 base_url=base_url,
                 max_retries=0,  # retries are ai/llm/retry.py's (LP-03)
             )
@@ -110,12 +116,18 @@ class AzureOpenAIAdapter(BaseLLMAdapter):
                 cleaned,
             )
 
+        auth = {"api_key": self.api_key} if self.api_key else {"azure_ad_token_provider": credential}
         return AsyncAzureOpenAI(
-            api_key=self.api_key,
             azure_endpoint=cleaned,
             api_version=api_version,
             max_retries=0,  # retries are ai/llm/retry.py's (LP-03)
+            **auth,
         )
+
+    def _token_provider(self):
+        from src.common.platform.identity import COGNITIVE_SERVICES_SCOPE, token_provider
+
+        return token_provider(str(self.service_metadata.get("entra_scope") or COGNITIVE_SERVICES_SCOPE))
 
     def _get_deployment(self) -> str:
         """Get deployment name from metadata or fall back to model_name."""

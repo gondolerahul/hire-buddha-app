@@ -5,7 +5,6 @@ All routes are at /api/v1/artifacts.
 import logging
 import mimetypes
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, List
 from urllib.parse import urlparse, quote
 from uuid import UUID
@@ -19,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db, get_tenant_db, is_split, tenant_db_for
 from src.common.pagination import CursorParam, LimitParam, keyset, page_of
 from src.auth.router import get_current_user
 from src.auth.models import User
@@ -89,7 +88,7 @@ async def list_artifacts(
     limit: int = LimitParam(),
     cursor: Optional[str] = CursorParam(),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     """One page of the company's files, newest first: ``items``,
     ``next_cursor``, ``limit`` (API-16; it was ``limit`` / ``offset`` and
@@ -142,7 +141,7 @@ async def upload_artifact(
     agent_id: Optional[UUID] = Form(None),
     purpose: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     valid_categories = ("recordings", "images", "videos", "documents", "text")
     if file_category not in valid_categories:
@@ -168,7 +167,7 @@ async def upload_artifact(
 async def get_artifact(
     artifact_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ArtifactService(db)
     artifact = await svc.get_artifact(artifact_id, current_user.company_id)
@@ -177,37 +176,40 @@ async def get_artifact(
     return _to_response(artifact)
 
 
-@router.get("/{artifact_id}/download", summary="Download/stream artifact file")
-async def download_artifact(
-    artifact_id: UUID,
-    request: Request,
-    token: Optional[str] = Query(None, description="A URL token from POST /api/v1/auth/url-token, for media the browser loads itself (FE-28)"),
-    db: AsyncSession = Depends(get_db),
-    header_token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)),
-):
-    # A login token in the Authorization header; else a URL token for this
-    # path in ?token= — never a login token in the URL (FE-28).
+_TOKEN_QUERY = Query(None, description="A URL token from POST /api/v1/auth/url-token, for media the browser loads itself (FE-28)")
+_HEADER_TOKEN = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
+
+
+async def _file_reader(request: Request, token: Optional[str], header_token: Optional[str],
+                       db: AsyncSession) -> User:
+    """A login token in the Authorization header; else a URL token for this
+    path in ?token= — never a login token in the URL (FE-28)."""
     from src.auth.dependencies import _authenticate_user
     from src.common.security import URL_TOKEN_TYPE
     if header_token:
-        current_user = await _authenticate_user(header_token, db)
-    elif token:
-        current_user = await _authenticate_user(token, db, token_type=URL_TOKEN_TYPE,
-                                                path=request.url.path)
-    else:
-        raise HTTPException(status_code=401, detail="Could not validate credentials")
+        return await _authenticate_user(header_token, db)
+    if token:
+        return await _authenticate_user(token, db, token_type=URL_TOKEN_TYPE, path=request.url.path)
+    raise HTTPException(status_code=401, detail="Could not validate credentials")
 
-    svc = ArtifactService(db)
-    artifact = await svc.get_artifact(artifact_id, current_user.company_id)
-    if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
 
-    media_type = artifact.mime_type or mimetypes.guess_type(artifact.file_name)[0] or "application/octet-stream"
+def _media_type(artifact) -> str:
+    return artifact.mime_type or mimetypes.guess_type(artifact.file_name)[0] or "application/octet-stream"
+
+
+async def _file_response(artifact, request: Request, *, inline: bool = False):
+    """The artifact's bytes from this API: the file itself on local disk, a
+    stream from storage otherwise, or a proxied provider URL."""
+    from src.ai.artifact_service import _legacy_local_file
+    from src.common.platform.storage import StorageObjectNotFound, get_storage
+
+    media_type = _media_type(artifact)
+    disposition = "inline" if inline else "attachment"
 
     # Some artifacts (e.g. call recordings) are stored as remote provider-hosted
     # URLs (Tata Tele / Twilio) rather than local files. Detect and proxy-stream
     # those so the client downloads through us without exposing the upstream URL.
-    if _is_remote_url(artifact.file_path):
+    if not artifact.storage_key and _is_remote_url(artifact.file_path):
         return await _proxy_remote_file(
             url=artifact.file_path,
             filename=artifact.file_name,
@@ -215,15 +217,132 @@ async def download_artifact(
             range_header=request.headers.get("range"),
         )
 
-    file_path = Path(artifact.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Artifact file not found on disk")
+    storage = get_storage()
+    local = storage.local_path(artifact.storage_key) if artifact.storage_key else _legacy_local_file(artifact)
+    if local is not None:
+        if not local.is_file():
+            raise HTTPException(status_code=404, detail="Artifact file not found in storage")
+        return FileResponse(path=str(local), filename=artifact.file_name, media_type=media_type,
+                            content_disposition_type=disposition)
+    if not artifact.storage_key:
+        raise HTTPException(status_code=404, detail="Artifact file not found in storage")
 
-    return FileResponse(
-        path=str(file_path),
-        filename=artifact.file_name,
-        media_type=media_type,
-    )
+    size = await storage.size(artifact.storage_key)
+    if size is None:
+        raise HTTPException(status_code=404, detail="Artifact file not found in storage")
+    stream = storage.open_stream(artifact.storage_key)
+    try:
+        first = await stream.__anext__()
+    except StopAsyncIteration:
+        first = b""
+    except StorageObjectNotFound:
+        raise HTTPException(status_code=404, detail="Artifact file not found in storage")
+
+    async def _body():
+        if first:
+            yield first
+        async for chunk in stream:
+            yield chunk
+
+    headers = {"Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(artifact.file_name)}",
+               "Content-Length": str(size)}
+    return StreamingResponse(_body(), media_type=media_type, headers=headers)
+
+
+@router.get("/{artifact_id}/download", summary="Download/stream artifact file")
+async def download_artifact(
+    artifact_id: UUID,
+    request: Request,
+    token: Optional[str] = _TOKEN_QUERY,
+    db: AsyncSession = Depends(get_control_db),
+    header_token: Optional[str] = Depends(_HEADER_TOKEN),
+):
+    """The bytes through the API whatever the storage — what the app's
+    authenticated XHR downloads use (no cross-origin redirect)."""
+    current_user = await _file_reader(request, token, header_token, db)
+    async with tenant_db_for(db, current_user.company_id) as tenant_db:
+        artifact = await ArtifactService(tenant_db).get_artifact(artifact_id, current_user.company_id)
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        return await _file_response(artifact, request)
+
+
+# ─── Signed file links (Phase 14 WS1 1.3) ───────────────────────────────────────
+# GET /api/v1/files/{id}: the caller is authorised for the artifact, then sent to
+# a short-lived signed URL at the storage (Blob SAS), so the bytes never pass
+# through the API; on local disk the API serves them. It replaces the static
+# /artifact, /uploads and /reports mounts for anything the browser loads itself.
+
+files_router = APIRouter(prefix="/api/v1/files", tags=["Files"])
+
+
+@files_router.get("/{artifact_id}", summary="Open an artifact's file: a signed link, or the bytes")
+async def open_file(
+    artifact_id: UUID,
+    request: Request,
+    inline: bool = Query(False, description="Display in the browser instead of downloading"),
+    token: Optional[str] = _TOKEN_QUERY,
+    db: AsyncSession = Depends(get_control_db),
+    header_token: Optional[str] = Depends(_HEADER_TOKEN),
+):
+    current_user = await _file_reader(request, token, header_token, db)
+    async with tenant_db_for(db, current_user.company_id) as tenant_db:
+        artifact = await ArtifactService(tenant_db).get_artifact(artifact_id, current_user.company_id)
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        return await _signed_or_served(artifact, request, inline=inline)
+
+
+@files_router.get("/{artifact_id}/public", summary="A public image (an agent avatar)")
+async def open_public_file(artifact_id: UUID, request: Request,
+                           company: Optional[UUID] = Query(None, description=(
+                               "The company that owns the file; with split tenancy the URL "
+                               "names it (public_file_url)")),
+                           db: AsyncSession = Depends(get_control_db)):
+    """Files marked public when saved — avatars shown wherever an agent is.
+    Anything else is 404, as if it did not exist."""
+    from sqlalchemy import select
+
+    from src.ai.artifact_models import Artifact
+    from src.common.tenancy.directory import TenantNotFound, TenantNotReady
+
+    if is_split() and company is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        async with tenant_db_for(db, company) as tenant_db:
+            artifact = (await tenant_db.execute(
+                select(Artifact).where(Artifact.id == artifact_id))).scalar_one_or_none()
+    except (TenantNotFound, TenantNotReady):
+        artifact = None
+    if artifact is None or not (artifact.artifact_metadata or {}).get("public"):
+        raise HTTPException(status_code=404, detail="Not found")
+    response = await _signed_or_served(artifact, request, inline=True)
+    # Served from the API's own origin (local disk): an SVG avatar must not run script there.
+    response.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def public_file_url(artifact_id: UUID, company_id: UUID) -> str:
+    """Where a public file is served. With split tenancy the URL names the
+    company, whose database holds the file's row."""
+    url = f"/api/v1/files/{artifact_id}/public"
+    return f"{url}?company={company_id}" if is_split() else url
+
+
+async def _signed_or_served(artifact, request: Request, *, inline: bool):
+    from fastapi.responses import RedirectResponse
+
+    from src.common.config import settings
+    from src.common.platform.storage import get_storage
+
+    if artifact.storage_key:
+        url = await get_storage().signed_url(
+            artifact.storage_key, ttl_seconds=settings.STORAGE_SIGNED_URL_TTL_SECONDS,
+            file_name=None if inline else artifact.file_name, content_type=_media_type(artifact))
+        if url:
+            return RedirectResponse(url, status_code=302, headers={"Cache-Control": "private, no-store"})
+    return await _file_response(artifact, request, inline=inline)
 
 
 def _is_remote_url(path: Optional[str]) -> bool:
@@ -290,7 +409,7 @@ async def _proxy_remote_file(
 async def delete_artifact(
     artifact_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
 ):
     svc = ArtifactService(db)
     deleted = await svc.delete_artifact(artifact_id, current_user.company_id)

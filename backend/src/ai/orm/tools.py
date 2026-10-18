@@ -9,7 +9,7 @@ from sqlalchemy import UniqueConstraint, Boolean, DateTime, ForeignKey, JSON, St
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase
 
 if TYPE_CHECKING:
     from src.auth.models import Company, User
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 __all__ = ["ToolRegistryEntry"]
 
 
-class ToolRegistryEntry(Base):
+class ToolRegistryEntry(ControlBase):
     """Persistent registry of both built-in and custom tools.
 
     Built-in tools are seeded at startup. Custom tools are created/managed

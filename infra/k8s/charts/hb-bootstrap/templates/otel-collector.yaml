@@ -1,0 +1,189 @@
+{{- if .Values.otelCollector.enabled }}
+{{- $o := .Values.otelCollector }}
+{{- $ns := .Values.namespaces.platform }}
+# Traces leave the platform through this collector (WS1 1.9, P-11): the
+# services export OTLP to hb-otel-collector:4317 (OTEL_EXPORTER_OTLP_ENDPOINT)
+# and the collector's exporter — Application Insights on Azure — is
+# configuration, not application code.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hb-otel-collector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "hbb.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      batch: {}
+    exporters:
+      {{- if eq $o.exporter "azuremonitor" }}
+      azuremonitor:
+        connection_string: ${env:APPLICATIONINSIGHTS_CONNECTION_STRING}
+      {{- else }}
+      debug:
+        verbosity: basic
+      {{- end }}
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [{{ $o.exporter }}]
+---
+{{- if $o.keyVault.enabled }}
+# The connection string from Key Vault, synced into a Secret the collector reads.
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: hb-otel-collector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "hbb.labels" . | nindent 4 }}
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    clientID: {{ required "otelCollector.keyVault.clientId is required" $o.keyVault.clientId | quote }}
+    keyvaultName: {{ required "otelCollector.keyVault.name is required" $o.keyVault.name | quote }}
+    tenantId: {{ required "otelCollector.keyVault.tenantId is required" $o.keyVault.tenantId | quote }}
+    objects: |
+      array:
+        - |
+          objectName: {{ $o.keyVault.secretName }}
+          objectType: secret
+  secretObjects:
+    - secretName: {{ $o.connectionStringSecret.name }}
+      type: Opaque
+      data:
+        - objectName: {{ $o.keyVault.secretName }}
+          key: {{ $o.connectionStringSecret.key }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hb-otel-collector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "hbb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+        {{- with $o.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ $o | toJson | sha256sum }}
+    spec:
+      serviceAccountName: {{ $o.serviceAccount }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      {{- with $o.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: collector
+          image: {{ $o.image }}
+          args: ["--config=/conf/config.yaml"]
+          {{- if eq $o.exporter "azuremonitor" }}
+          env:
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $o.connectionStringSecret.name }}
+                  key: {{ $o.connectionStringSecret.key }}
+          {{- end }}
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: health, containerPort: 13133 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          readinessProbe:
+            httpGet: { path: /, port: health }
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            periodSeconds: 30
+          resources:
+            {{- toYaml $o.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /conf }
+            {{- if $o.keyVault.enabled }}
+            - { name: secrets-store, mountPath: /mnt/secrets-store, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: hb-otel-collector
+        {{- if $o.keyVault.enabled }}
+        # Mounted so the CSI driver syncs the Secret above.
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: hb-otel-collector
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hb-otel-collector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "hbb.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: otel-collector
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }
+---
+# hb-platform denies inbound traffic by default; its own pods may send traces here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hb-otel-collector
+  namespace: {{ $ns }}
+  labels:
+    {{- include "hbb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 4317
+        - port: 4318
+{{- end }}

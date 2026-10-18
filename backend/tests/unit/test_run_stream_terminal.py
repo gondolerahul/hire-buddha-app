@@ -27,9 +27,9 @@ async def _relay(monkeypatch, frames) -> list[dict]:
             pass
 
         async def get_execution(self, *args, **kwargs):
-            return None
+            return SimpleNamespace(company_id=uuid4())  # the run; its company names its database
 
-    async def _running(_run_id):
+    async def _running(_run_id, _company_id=None):
         return "RUNNING"
 
     run_id = uuid4()

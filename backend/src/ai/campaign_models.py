@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 
 # Report ordering: positive responses first, then descending usefulness.
 # Applied to both the campaign detail API and the Excel export.
@@ -47,13 +47,13 @@ def campaign_call_sort_order():
     )
 
 
-class Campaign(Base):
+class Campaign(TenantBase):
     """Voice calling campaign model."""
     __tablename__ = "campaigns"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
+    created_by = Column(UUID(as_uuid=True), nullable=False, info=refers_to("users.id"))
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
     
     # Campaign details
@@ -102,12 +102,10 @@ class Campaign(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    company = relationship("Company")
-    created_by_user = relationship("User")
     agent = relationship("HierarchicalEntity")
 
 
-class CampaignCall(Base):
+class CampaignCall(TenantBase):
     """Individual call within a campaign."""
     __tablename__ = "campaign_calls"
 

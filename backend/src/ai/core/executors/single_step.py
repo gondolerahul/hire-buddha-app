@@ -60,7 +60,7 @@ class SingleStepExecutor:
         db: Any,
     ) -> ActionResult:
         from src.ai.core.step_engine import StepEngine
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
 
         ctx = await state.materialise_context_dict()
         cost = Decimal("0")
@@ -79,7 +79,7 @@ class SingleStepExecutor:
         # that on the AgentLoop's shared session corrupts it — the next loop DB
         # access then raises PendingRollbackError / "greenlet_spawn has not been
         # called". Isolating the engine session keeps the loop's session clean.
-        async with AsyncSessionLocal() as inner_db:
+        async with tenant_session(state.company_id) as inner_db:
             engine = StepEngine(inner_db, _resolve_redis(state), state.company_id)
             engine._ensure_services(cast(UUID, state.company_id))
 

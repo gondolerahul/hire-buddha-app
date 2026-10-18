@@ -76,8 +76,8 @@ class MetaSchemaValidatorTool(Tool):
 
         # 4. CHILD_ENTITY_INVOCATION references (uses isolated session)
         try:
-            from src.common.database import AsyncSessionLocal
-            async with AsyncSessionLocal() as isolated_db:
+            from src.common.tenancy.session import tenant_session
+            async with tenant_session(company_id) as isolated_db:
                 await self._validate_child_refs(payload, errors, warnings, isolated_db, company_id)
         except Exception as e:
             warnings.append(f"Child ref validation skipped: {e}")

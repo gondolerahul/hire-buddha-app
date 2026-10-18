@@ -43,7 +43,8 @@ class IntegrationRegistryCreate(IntegrationRegistryBase):
 
     @model_validator(mode="after")
     def _key_when_needed(self):
-        if not self.api_key and needs_api_key(self.provider_name) and self.provider_name != "tata_tele":
+        if (not self.api_key and needs_api_key(self.provider_name, self.service_metadata)
+                and self.provider_name != "tata_tele"):
             raise ValueError(f"api_key is required for provider '{self.provider_name}'")
         return self
 

@@ -91,7 +91,7 @@ def _utc_session(dbapi_connection: Any, connection_record: Any) -> None:
 # pool_recycle=1800: recycle connections every 30min to avoid stale TCP
 # pool_pre_ping=True: test connection health before use (prevents dead-conn errors)
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.CONTROL_DATABASE_URL,
     echo=False,           # Was True — disabled to stop logging every SQL statement
     pool_size=20,
     max_overflow=40,
@@ -100,6 +100,10 @@ engine = create_async_engine(
     pool_pre_ping=True,
     json_serializer=json_serializer,
 )
+# A password in the URL, or an Entra token per connection on Azure (DB_AUTH, Phase 14).
+from src.common.platform.dbauth import install as _install_db_auth  # noqa: E402
+
+_install_db_auth(engine)
 
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 

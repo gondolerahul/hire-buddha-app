@@ -1,13 +1,15 @@
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { JellyButton } from '@/components/ui';
-import { Info, Brain, Settings, Route, Wrench, Shield, Plus, Trash2, Volume2, VolumeX, ChevronDown, ChevronRight, AlertTriangle, Sliders, Database, Upload, User, GitBranch, Search, CheckSquare, Square, File, X, FolderOpen, Lock, FileText, Image, Music, Video, FileSpreadsheet } from 'lucide-react';
+import { Info, Brain, Settings, Route, Wrench, Shield, Timer, Plus, Trash2, Volume2, VolumeX, ChevronDown, ChevronRight, AlertTriangle, Sliders, Database, Upload, User, GitBranch, Search, CheckSquare, Square, File, X, FolderOpen, Lock, FileText, Image, Music, Video, FileSpreadsheet } from 'lucide-react';
 import { EntityType, EntityStatus, HierarchicalEntity, HITLCheckpoint, HITLTriggerType, ToolUsage } from '@/types';
 import { EntityFlow } from './EntityFlow';
 import { Node, Edge } from 'reactflow';
 import { apiClient } from '@/services/api.client';
+import { apiUrl } from '@/config/api';
 import { MAX_PAGE_SIZE, type Page } from '@/services/pagination';
 import './EntityConfigurationTabs.css';
+import { AgentAutomationTab, automationOf } from '@/components/automation/AgentAutomationTab';
 import { overlayConfig } from '@/utils/entityConfig';
 
 const GEMINI_VOICES = [
@@ -369,6 +371,18 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
             (t.display_name || '').toLowerCase().includes(q)
         );
     }, [availableTools, toolSearchQuery]);
+    // ═══════════════════════════════════════════════════════════════════════════
+    // TAB: AUTOMATION — "May triggers run it; may it schedule work or send signals?" (Phase 14 WS3)
+    // ═══════════════════════════════════════════════════════════════════════════
+    const [automation, setAutomation] = useState(() => automationOf(entity?.capabilities));
+    const setAutomationTools = useCallback((ids: string[], granted: boolean) => {
+        setToolAssignments(prev => granted
+            ? [...prev, ...ids.filter(id => !prev.some(t => t.tool_id === id))
+                .map(id => ({ tool_id: id, usage: 'AUTONOMOUS' as ToolUsage }))]
+            : prev.filter(t => !ids.includes(t.tool_id)));
+    }, []);
+    const grantedToolIds = useMemo(() => toolAssignments.map(t => t.tool_id), [toolAssignments]);
+
     const toolUsageCounts = useMemo(() => ({
         autonomous: toolAssignments.filter(t => t.usage === 'AUTONOMOUS' || t.usage === 'BOTH').length,
         planned: toolAssignments.filter(t => t.usage === 'PLANNED' || t.usage === 'BOTH').length,
@@ -785,6 +799,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                     inject_episodic_memory: injectEpisodicMemory, inject_semantic_context: injectSemanticContext,
                     inject_cortex_viewport: injectCortexViewport, no_truncation: noTruncation,
                 },
+                automation,
             },
 
             governance: {
@@ -821,6 +836,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
         { id: 'brain', label: 'Brain', icon: Brain },
         { id: 'planning', label: 'Planning', icon: Route },
         { id: 'capabilities', label: 'Capabilities', icon: Wrench },
+        { id: 'automation', label: 'Automation', icon: Timer },
         { id: 'safeguards', label: 'Safeguards', icon: Shield },
     ];
 
@@ -917,7 +933,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                                 <div className="avatar-upload-row">
                                     <div className="avatar-preview">
                                         {profileImageUrl ? (
-                                            <img src={profileImageUrl} alt="Avatar" />
+                                            <img src={apiUrl(profileImageUrl)} alt="Avatar" />
                                         ) : (
                                             <User size={32} />
                                         )}
@@ -1724,6 +1740,12 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                             </div>
                         )}
                     </div>
+                )}
+
+                {/* ═══════════════════════════════ AUTOMATION (Phase 14 WS3) ══════════════════ */}
+                {activeTab === 'automation' && (
+                    <AgentAutomationTab entityId={entity?.id} value={automation} onChange={setAutomation}
+                                        grantedTools={grantedToolIds} onToolsChange={setAutomationTools} />
                 )}
 
                 {/* ═══════════════════════════════ TAB 5: SAFEGUARDS ═══════════════════════════ */}

@@ -2,7 +2,8 @@
 /api/v1/mobile — REST API for the Android dialer app (docs 06 §2).
 
 Only tenant_admin and tenant_user may call these endpoints; everything is
-scoped to the caller's company.
+scoped to the caller's company: its devices and reps on the control database,
+its campaigns, runs, attempts and logs on its tenant database (Phase 14 WS2 2.4).
 """
 import logging
 from datetime import datetime, timedelta
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db, get_tenant_db
 from src.mobile import campaign_setup, service
 from src.mobile.service import MobileError
 
@@ -137,7 +138,7 @@ async def me(user: User = Depends(mobile_user)):
 # ── Devices ──────────────────────────────────────────────────────────────
 
 @router.post("/devices")
-async def register_device(body: DeviceRegister, db: AsyncSession = Depends(get_db),
+async def register_device(body: DeviceRegister, db: AsyncSession = Depends(get_control_db),
                           user: User = Depends(mobile_user)):
     try:
         return await service.register_device(db, user, body.model_dump())
@@ -146,7 +147,7 @@ async def register_device(body: DeviceRegister, db: AsyncSession = Depends(get_d
 
 
 @router.get("/devices/{device_id}")
-async def get_device(device_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def get_device(device_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(mobile_user)):
     try:
         return service.device_view(await service.get_owned_device(db, user, device_id))
     except MobileError as e:
@@ -154,7 +155,7 @@ async def get_device(device_id: UUID, db: AsyncSession = Depends(get_db), user: 
 
 
 @router.post("/devices/{device_id}/verification")
-async def reissue_verification(device_id: UUID, db: AsyncSession = Depends(get_db),
+async def reissue_verification(device_id: UUID, db: AsyncSession = Depends(get_control_db),
                                user: User = Depends(mobile_user)):
     try:
         device = await service.get_owned_device(db, user, device_id)
@@ -166,7 +167,7 @@ async def reissue_verification(device_id: UUID, db: AsyncSession = Depends(get_d
 
 @router.post("/devices/{device_id}/verification/dialing")
 async def verification_dialing(device_id: UUID, body: VerificationDialing,
-                               db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+                               db: AsyncSession = Depends(get_control_db), user: User = Depends(mobile_user)):
     """The app is placing the verification call now (lets the server fall back to
     caller ID if the provider drops the keypad tones)."""
     try:
@@ -179,7 +180,7 @@ async def verification_dialing(device_id: UUID, body: VerificationDialing,
 # ── Campaign helpers ─────────────────────────────────────────────────────
 
 @router.get("/campaigns")
-async def list_campaigns(status: Optional[str] = None, db: AsyncSession = Depends(get_db),
+async def list_campaigns(status: Optional[str] = None, db: AsyncSession = Depends(get_tenant_db),
                          user: User = Depends(mobile_user)):
     campaigns = await service.list_mobile_campaigns(db, user, status)
     # The same DID lookup as GET /campaigns/{id}. Without it the app cannot tell a
@@ -193,7 +194,7 @@ async def list_campaigns(status: Optional[str] = None, db: AsyncSession = Depend
 
 
 @router.get("/campaigns/{campaign_id}")
-async def get_campaign(campaign_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def get_campaign(campaign_id: UUID, db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     try:
         campaign = await service.get_accessible_campaign(db, user, campaign_id)
     except MobileError as e:
@@ -213,7 +214,7 @@ class AssigneesUpdate(BaseModel):
 
 
 @router.put("/campaigns/{campaign_id}/assignees")
-async def set_assignees(campaign_id: UUID, body: AssigneesUpdate, db: AsyncSession = Depends(get_db),
+async def set_assignees(campaign_id: UUID, body: AssigneesUpdate, db: AsyncSession = Depends(get_tenant_db),
                         user: User = Depends(mobile_user)):
     """Replace the reps working a campaign (admins only). Returns the new assignee list."""
     try:
@@ -223,13 +224,13 @@ async def set_assignees(campaign_id: UUID, body: AssigneesUpdate, db: AsyncSessi
 
 
 @router.get("/agents")
-async def list_agents(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def list_agents(db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     """Voice agents that can run a mobile campaign (ACTIVE + assigned DID)."""
     return {"agents": await service.list_voice_agents(db, user)}
 
 
 @router.get("/reps")
-async def list_reps(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def list_reps(db: AsyncSession = Depends(get_control_db), user: User = Depends(mobile_user)):
     """Assignable reps (admin campaign creation)."""
     if not service.is_admin(user):
         raise HTTPException(status_code=403, detail={"code": "admin_only", "message": "Only tenant admins can assign reps"})
@@ -245,7 +246,7 @@ def _run_view(run) -> Dict[str, Any]:
 
 
 @router.post("/campaigns/{campaign_id}/runs", status_code=201)
-async def start_run(campaign_id: UUID, body: RunStart, db: AsyncSession = Depends(get_db),
+async def start_run(campaign_id: UUID, body: RunStart, db: AsyncSession = Depends(get_tenant_db),
                     user: User = Depends(mobile_user)):
     if body.dial_order != "ai_first":
         raise HTTPException(status_code=422, detail={"code": "dial_order_not_supported",
@@ -257,7 +258,7 @@ async def start_run(campaign_id: UUID, body: RunStart, db: AsyncSession = Depend
 
 
 @router.patch("/runs/{run_id}")
-async def update_run(run_id: UUID, body: RunUpdate, db: AsyncSession = Depends(get_db),
+async def update_run(run_id: UUID, body: RunUpdate, db: AsyncSession = Depends(get_tenant_db),
                      user: User = Depends(mobile_user)):
     try:
         return _run_view(await service.update_run(db, user, run_id, body.status))
@@ -266,7 +267,7 @@ async def update_run(run_id: UUID, body: RunUpdate, db: AsyncSession = Depends(g
 
 
 @router.post("/runs/{run_id}/next")
-async def next_lead(run_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def next_lead(run_id: UUID, db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     try:
         lease = await service.next_lead(db, user, run_id)
     except MobileError as e:
@@ -279,7 +280,7 @@ async def next_lead(run_id: UUID, db: AsyncSession = Depends(get_db), user: User
 # ── Attempts & events ────────────────────────────────────────────────────
 
 @router.post("/call-attempts", status_code=201)
-async def create_attempt(body: AttemptCreate, db: AsyncSession = Depends(get_db),
+async def create_attempt(body: AttemptCreate, db: AsyncSession = Depends(get_tenant_db),
                          user: User = Depends(mobile_user)):
     try:
         attempt = await service.create_attempt(
@@ -292,7 +293,7 @@ async def create_attempt(body: AttemptCreate, db: AsyncSession = Depends(get_db)
 
 
 @router.get("/call-attempts/{attempt_id}")
-async def get_attempt(attempt_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def get_attempt(attempt_id: UUID, db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     try:
         return await service.attempt_detail(db, user, attempt_id)
     except MobileError as e:
@@ -300,7 +301,7 @@ async def get_attempt(attempt_id: UUID, db: AsyncSession = Depends(get_db), user
 
 
 @router.post("/logs")
-async def post_logs(body: LogBatch, db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def post_logs(body: LogBatch, db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     """App diagnostics (docs 10 §6). Stored permanently so field-only failures —
     carrier merge behaviour above all — can be debugged after the fact."""
     try:
@@ -319,7 +320,7 @@ async def get_logs(
     search: Optional[str] = None,
     since_minutes: Optional[int] = Query(default=None, ge=1, le=20160),
     limit: int = Query(default=200, ge=1, le=1000),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(mobile_user),
 ):
     """Read the logs back (newest first). Reps see their own; tenant admins see the company."""
@@ -332,7 +333,7 @@ async def get_logs(
 
 
 @router.post("/call-attempts/{attempt_id}/events")
-async def post_events(attempt_id: UUID, body: EventBatch, db: AsyncSession = Depends(get_db),
+async def post_events(attempt_id: UUID, body: EventBatch, db: AsyncSession = Depends(get_tenant_db),
                       user: User = Depends(mobile_user)):
     try:
         return await service.ingest_events(db, user, attempt_id, [e.model_dump() for e in body.events])
@@ -344,7 +345,7 @@ async def post_events(attempt_id: UUID, body: EventBatch, db: AsyncSession = Dep
 
 @router.patch("/campaign-calls/{campaign_call_id}/disposition")
 async def set_disposition(campaign_call_id: UUID, body: RepDisposition,
-                          db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+                          db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     """What the rep heard. Wins over the model's guess; see service.set_rep_disposition."""
     try:
         return await service.set_rep_disposition(
@@ -359,7 +360,7 @@ async def set_disposition(campaign_call_id: UUID, body: RepDisposition,
 async def get_callbacks(
     within_hours: int = Query(default=24, ge=1, le=720),
     limit: int = Query(default=50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(mobile_user),
 ):
     """Leads this rep promised to call back, soonest first."""
@@ -368,7 +369,7 @@ async def get_callbacks(
 
 
 @router.get("/uploads/recent")
-async def recent_uploads(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def recent_uploads(db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     """Contact uploads this user can still turn into a campaign (unused, unexpired)."""
     return {"uploads": await campaign_setup.recent_uploads(db, user)}
 
@@ -376,7 +377,7 @@ async def recent_uploads(db: AsyncSession = Depends(get_db), user: User = Depend
 @router.get("/leads/lookup")
 async def lookup_lead(
     phone: str = Query(..., min_length=4, max_length=32),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(mobile_user),
 ):
     """The lead behind an incoming caller ID, or null. Read-only."""
@@ -384,7 +385,7 @@ async def lookup_lead(
 
 
 @router.get("/runs/active")
-async def get_active_runs(db: AsyncSession = Depends(get_db), user: User = Depends(mobile_user)):
+async def get_active_runs(db: AsyncSession = Depends(get_tenant_db), user: User = Depends(mobile_user)):
     """Runs of this user's that are still open.
 
     The app holds the live run in memory only; after a crash, a force-stop or a
@@ -398,7 +399,7 @@ async def get_active_runs(db: AsyncSession = Depends(get_db), user: User = Depen
 async def get_preflight(
     campaign_id: Optional[UUID] = None,
     device_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(mobile_user),
 ):
     """Everything that decides whether a run can start, in one call (docs 11 §3, screen 13).

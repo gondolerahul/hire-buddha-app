@@ -1,0 +1,27 @@
+{{- if .Values.googleFederation.enabled }}
+{{- $g := .Values.googleFederation }}
+{{- $config := dict
+      "type" "external_account"
+      "audience" $g.audience
+      "subject_token_type" "urn:ietf:params:oauth:token-type:jwt"
+      "token_url" "https://sts.googleapis.com/v1/token"
+      "credential_source" (dict "file" "/var/run/secrets/google/token" "format" (dict "type" "text")) }}
+{{- if $g.serviceAccountEmail }}
+{{- $_ := set $config "service_account_impersonation_url" (printf "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/%s:generateAccessToken" $g.serviceAccountEmail) }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-google-federation
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+  annotations:
+    # Created before the migration hook, which mounts it; recreated each release.
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  # An external_account credential configuration (not a key): it tells the
+  # Google client to trade the projected token for Google credentials.
+  credential-config.json: {{ toJson $config | quote }}
+{{- end }}

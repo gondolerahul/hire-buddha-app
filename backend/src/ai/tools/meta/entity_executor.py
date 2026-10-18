@@ -82,14 +82,13 @@ class MetaEntityExecutorTool(Tool):
             return json.dumps({"success": False, "error": "entity_id required"})
 
         try:
-            from src.common.database import AsyncSessionLocal
-
+            from src.common.tenancy.session import tenant_session
             company_uuid = UUID(str(company_id))
             entity_uuid = UUID(str(entity_id))
             user_uuid = UUID(str(user_id)) if user_id else None
 
             # Use isolated session to avoid poisoning caller's session
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_uuid) as db:
                 # Temporarily inject a cost cap into the entity's governance
                 await self._inject_cost_cap(db, entity_uuid, max_cost)
 

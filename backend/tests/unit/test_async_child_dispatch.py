@@ -206,6 +206,7 @@ def _dispatch_fakes(monkeypatch, *, fail_on=None):
     class _FakeChild:
         def __init__(self):
             self.id = uuid4()
+            self.company_id = uuid4()
 
     class _FakeStepExec:
         async def create_child_run(self, run, entity, step_obj, ctx):

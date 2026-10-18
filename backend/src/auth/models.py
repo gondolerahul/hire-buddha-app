@@ -4,9 +4,9 @@ from sqlalchemy import CheckConstraint, Column, Index, text, String, Boolean, Fo
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase
 
-class Company(Base):
+class Company(ControlBase):
     __tablename__ = "companies"
     # At most one APP (platform) company; see src/auth/platform.py (LP-21).
     __table_args__ = (
@@ -24,13 +24,17 @@ class Company(Base):
     default_daily_credits = Column(Numeric(10, 4), nullable=True)  # override daily credit amount for this tenant (was text, DM-11)
     # What the company may be billed in a calendar month; NULL = no cap (GH-18).
     monthly_spend_cap_usd = Column(Numeric(14, 4), nullable=True)
+    # The business's IANA time zone: schedules, reports, an agent's "today"
+    # (Phase 14 WS1 1.10; src/common/timezones.py). With TENANCY_MODE=split the tenant
+    # directory's copy is read (WS2); a change is written to both.
+    timezone = Column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     parent = relationship("Company", remote_side=[id], backref="children")
     users = relationship("User", back_populates="company")
 
-class User(Base):
+class User(ControlBase):
     __tablename__ = "users"
     # One account per address whatever its case (AU-26); inputs are lower-cased.
     __table_args__ = (CheckConstraint("email = lower(email)", name="ck_users_email_lowercase"),)
@@ -53,7 +57,7 @@ class User(Base):
     company = relationship("Company", back_populates="users")
     refresh_tokens = relationship("RefreshToken", back_populates="user")
 
-class RefreshToken(Base):
+class RefreshToken(ControlBase):
     __tablename__ = "refresh_tokens"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

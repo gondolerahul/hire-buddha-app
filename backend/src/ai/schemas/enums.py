@@ -50,6 +50,7 @@ class RunStatus(str, Enum):
     REFINING = "REFINING"                  # Selective re-execution with user feedback
     CANCELLED = "CANCELLED"                # Operator-cancelled mid-flight (terminal)
     WAITING_ON_CHILDREN = "WAITING_ON_CHILDREN"  # Suspended; child runs in flight
+    WAITING_ON_EVENT = "WAITING_ON_EVENT"        # Suspended until an event or a deadline (Phase 14 WS3)
 
 
 # Execution state machine — valid transitions. Enforced (DM-17): every write to
@@ -63,13 +64,15 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
     # A run can fail or be cancelled before it starts (a guard, a user).
     "PENDING": {"RUNNING", "REFINING", "FAILED", "CANCELLED"},
     "RUNNING": {"PAUSED", "COMPLETED", "FAILED", "PARTIAL_COMPLETE",
-                "CANCELLED", "WAITING_ON_CHILDREN"},
+                "CANCELLED", "WAITING_ON_CHILDREN", "WAITING_ON_EVENT"},
     "PAUSED": {"RUNNING", "RESUMING", "FAILED", "CANCELLED"},
     "RESUMING": {"RUNNING", "FAILED", "CANCELLED"},
     "REFINING": {"RUNNING", "COMPLETED", "FAILED"},
     # Async child dispatch: a suspended parent resumes (RESUMING → RUNNING) once
     # its children are terminal, or fails/cancels out of the wait.
     "WAITING_ON_CHILDREN": {"RESUMING", "RUNNING", "FAILED", "CANCELLED"},
+    # wait_for_event (§7.9): resumed by the matching event or the deadline.
+    "WAITING_ON_EVENT": {"RESUMING", "RUNNING", "FAILED", "CANCELLED"},
     **{status: set() for status in TERMINAL_RUN_STATUSES},
 }
 

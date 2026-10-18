@@ -164,6 +164,15 @@ class _Resolution:
     flag_key: str
 
 
+def _on_control_plane() -> dict[str, Any]:
+    """``bind_arguments`` that send a ``feature_flags`` statement to the control
+    database whichever session runs it — often a run's tenant session (Phase 14
+    WS2). With one database they change nothing."""
+    from src.ai.orm.feature_flags import FeatureFlag
+
+    return {"mapper": FeatureFlag}
+
+
 _REDIS_INVALIDATION_CHANNEL = "feature_flag_invalidations"
 _PROCESS_CACHE_TTL_SECONDS = 60
 
@@ -483,6 +492,7 @@ class FeatureFlags:
                 "enabled": enabled,
                 "value_json": _json.dumps(value_json) if value_json is not None else None,
             },
+            bind_arguments=_on_control_plane(),
         )
         invalidate_process_cache(flag_key)
         await self._announce_after_commit(flag_key, company_id, entity_id)
@@ -513,6 +523,7 @@ class FeatureFlags:
                 "c": str(company_id) if company_id else None,
                 "e": str(entity_id) if entity_id else None,
             },
+            bind_arguments=_on_control_plane(),
         )
         affected = (result.rowcount or 0) > 0
         if affected:
@@ -637,6 +648,7 @@ class FeatureFlags:
                     "c": str(company_id) if company_id else None,
                     "e": str(entity_id) if entity_id else None,
                 },
+                bind_arguments=_on_control_plane(),
             )).first()
             return row[0] if row is not None else None
         except Exception:                                                     # pragma: no cover
@@ -687,6 +699,7 @@ class FeatureFlags:
                         "WHERE flag_key = :k AND entity_id = :e"
                     ),
                     {"k": flag_key, "e": str(entity_id)},
+                    bind_arguments=_on_control_plane(),
                 )).first()
                 if row is not None:
                     return _Resolution(
@@ -704,6 +717,7 @@ class FeatureFlags:
                         "AND entity_id IS NULL"
                     ),
                     {"k": flag_key, "c": str(company_id)},
+                    bind_arguments=_on_control_plane(),
                 )).first()
                 if row is not None:
                     return _Resolution(
@@ -719,6 +733,7 @@ class FeatureFlags:
                     "AND company_id IS NULL AND entity_id IS NULL"
                 ),
                 {"k": flag_key},
+                bind_arguments=_on_control_plane(),
             )).first()
             if row is not None:
                 return _Resolution(
@@ -749,10 +764,10 @@ async def warn_if_table_missing() -> bool:
     """
     from sqlalchemy import text
 
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import control_session
 
     try:
-        async with AsyncSessionLocal() as db:
+        async with control_session() as db:
             present = bool((await db.execute(text("SELECT to_regclass('public.feature_flags') IS NOT NULL"))).scalar())
     except Exception as exc:
         logger.warning("feature_flags: could not check for the table (%s)", type(exc).__name__)

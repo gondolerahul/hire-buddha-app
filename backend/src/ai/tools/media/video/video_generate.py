@@ -16,7 +16,7 @@ import uuid
 from typing import Any, Dict, Optional, cast
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, ToolStatus, context_company_id
-from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params_async
 from src.ai.tools.media.video._support import (
     MAX_SEGMENT_SECONDS,
     company_video_dir,
@@ -48,10 +48,9 @@ async def person_generation(company_id: Any) -> str:
     from uuid import UUID
 
     from src.ai.core.feature_flags import FeatureFlags
-    from src.common.database import AsyncSessionLocal
-
+    from src.common.tenancy.session import control_session
     try:
-        async with AsyncSessionLocal() as db:
+        async with control_session() as db:
             on = await FeatureFlags(db).is_on("tools.video.people_of_all_ages", company_id=UUID(str(company_id)))
     except Exception:  # noqa: BLE001 - the stricter policy when the flag cannot be read
         on = False
@@ -130,7 +129,7 @@ class VideoGenerateTool(Tool):
             return json.dumps({"error": NO_CONTEXT_ERROR})
         # Paths the model gives resolve inside this company's files (TL-54).
         try:
-            confine_params(params, company_id, ('start_frame_path', 'end_frame_path'))
+            await confine_params_async(params, company_id, ('start_frame_path', 'end_frame_path'))
         except PathOutsideWorkspace as exc:
             return json.dumps({"error": str(exc)})
         start_frame_path = params.get('start_frame_path')
@@ -287,11 +286,11 @@ class VideoGenerateTool(Tool):
 
             from sqlalchemy import select
 
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import control_session
             from src.config.models import IntegrationRegistry, ServiceCategory
             from src.config.service import ConfigService
 
-            async with AsyncSessionLocal() as db:
+            async with control_session() as db:
                 config_service = ConfigService(db)
                 company_uuid = UUID(str(company_id))
                 result = await db.execute(

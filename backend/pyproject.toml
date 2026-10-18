@@ -60,7 +60,14 @@ weasyprint = "^70.0"
 markdown = "^3.11"
 ddgs = "^9.16.0"
 playwright = "^1.63.0"
-anthropic = "^0.69"  # Claude through Vertex (AnthropicAdapter, LP-07)
+anthropic = "^0.125"  # Claude: Vertex, Microsoft Foundry or the Anthropic API (AnthropicAdapter)
+tzdata = ">=2024.1"           # IANA zones for zoneinfo where the OS has none (Windows)
+# Azure adapters (Phase 14, tech spec §19): imported only under src/common/platform/
+azure-identity = ">=1.19"
+azure-storage-blob = ">=12.23"
+azure-keyvault-secrets = ">=4.9"
+croniter = "^6.0"            # trigger schedules in IANA time zones (Phase 14 WS3)
+jinja2 = "^3.1"              # sandboxed trigger input templates (Phase 14 WS3)
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

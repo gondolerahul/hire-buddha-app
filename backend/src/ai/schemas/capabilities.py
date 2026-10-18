@@ -19,6 +19,7 @@ __all__ = [
     "ContextSource",
     "ContextEngineering",
     "MetaCognitionConfig",
+    "AutomationCapability",
     "Capabilities",
 ]
 
@@ -132,8 +133,27 @@ class MetaCognitionConfig(BaseModel):
     max_registry_searches: int = 5      # Tier 2: max searches per execution run
 
 
+class AutomationCapability(BaseModel):
+    """What the agent does with automation (Phase 14 WS3; functional spec §3.3,
+    tech spec §7.8 and §7.10) — its **Automation** tab.
+
+    * ``triggerable`` — triggers may start it (schedules, events, "run now");
+      off, the router records every firing as refused.
+    * ``can_schedule`` — the agents (ids) it may schedule with
+      ``schedule_agent``, besides itself and the agents of its own process.
+
+    Using the tools at all is a tool grant like any other
+    (``schedule_agent`` / ``cancel_schedule`` / ``list_schedules``,
+    ``emit_event``); how much an agent may do is the business's automation
+    limits (decision D47).
+    """
+    triggerable: bool = True
+    can_schedule: List[str] = []
+
+
 class Capabilities(BaseModel):
     tools: List[ToolGrant] = []
     memory: MemoryConfig = MemoryConfig()
     context_engineering: ContextEngineering = ContextEngineering()
     meta_cognition: MetaCognitionConfig = MetaCognitionConfig()
+    automation: Optional[AutomationCapability] = None

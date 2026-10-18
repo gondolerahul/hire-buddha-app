@@ -5,13 +5,12 @@ Stores encrypted credentials for AI agent email integration.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, ForeignKey
+from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 
 
-class EmailConnection(Base):
+class EmailConnection(TenantBase):
     """
     Email connection configuration for AI agent IMAP/SMTP integration.
     
@@ -21,7 +20,7 @@ class EmailConnection(Base):
     __tablename__ = "email_connections"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
     email_address = Column(String, nullable=False)
     encrypted_app_password = Column(Text, nullable=False)
     imap_host = Column(String, nullable=False, default="imap.gmail.com")
@@ -35,5 +34,3 @@ class EmailConnection(Base):
     status = Column(String, nullable=False, default="active")  # active, auth_failed, disconnected
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    company = relationship("Company")

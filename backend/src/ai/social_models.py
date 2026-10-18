@@ -6,13 +6,12 @@ Each company can connect multiple social media accounts across platforms.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, DateTime, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 
 
-class SocialConnection(Base):
+class SocialConnection(TenantBase):
     """
     Social media connection configuration for AI agent integrations.
 
@@ -31,7 +30,7 @@ class SocialConnection(Base):
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
     platform = Column(String(50), nullable=False)  # linkedin, twitter, facebook, instagram, google_ads
     account_name = Column(String(255), nullable=True)  # human-readable label
 
@@ -54,5 +53,3 @@ class SocialConnection(Base):
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    company = relationship("Company")

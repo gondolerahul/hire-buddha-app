@@ -92,11 +92,10 @@ class AgentIntrospectTool(Tool):
             from sqlalchemy import select
 
             from src.ai.orm.execution import ExecutionRun
-            from src.common.database import AsyncSessionLocal
-
+            from src.common.tenancy.session import tenant_session
             # ExecutionRun.created_at is naive UTC (datetime.utcnow default).
             cutoff = datetime.utcnow() - timedelta(days=days)
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(context.get("company_id")) as db:
                 rows = await db.execute(
                     select(ExecutionRun.id, ExecutionRun.status, ExecutionRun.created_at)
                     .where(

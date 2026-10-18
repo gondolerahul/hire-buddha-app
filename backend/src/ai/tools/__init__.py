@@ -109,6 +109,15 @@ ToolRegistry.register(ToolSynthesisTool())
 # Spec critic (TX-04) — EXPERIMENTAL; the Board's critic calls it directly.
 ToolRegistry.register(MetaSpecCriticTool())
 
+# Automation (Phase 14 WS3, tech spec §7.10): an agent schedules work and sends
+# signals; what it may is its tool grants, its Automation tab and the
+# business's automation limits.
+from src.ai.tools.automation import CancelScheduleTool, EmitEventTool, ListSchedulesTool, ScheduleAgentTool
+ToolRegistry.register(ScheduleAgentTool())
+ToolRegistry.register(CancelScheduleTool())
+ToolRegistry.register(ListSchedulesTool())
+ToolRegistry.register(EmitEventTool())
+
 __all__ = [
     "Tool", "ToolRegistry",
     "CalculatorTool", "WebSearchTool", "BatchWebSearchTool", "ExcelTool", "ScraperTool",
@@ -120,6 +129,7 @@ __all__ = [
     "HeadlessBrowserTool",
     "DocxTool", "PptxTool", "DocumentSaveTool",
     "SocialAPITool",
+    "ScheduleAgentTool", "CancelScheduleTool", "ListSchedulesTool", "EmitEventTool",
     # CRM integration tools
     "GetCurrentDateTimeTool", "WhatsAppSendTenantTool",
     "GoogleCalendarCreateEventTool", "CRMUpdateLeadTool",

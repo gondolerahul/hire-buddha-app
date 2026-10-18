@@ -280,9 +280,8 @@ async def _resolve_company_flag(
         from uuid import UUID
 
         from src.ai.core.feature_flags import FeatureFlags
-        from src.common.database import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as db:
+        from src.common.tenancy.session import control_session
+        async with control_session() as db:
             res = await FeatureFlags(db).resolve(
                 flag_key, company_id=UUID(str(company_id))
             )
@@ -300,11 +299,10 @@ async def container_runtime_enabled(company_id: Optional[str]) -> bool:
     from uuid import UUID
 
     from src.ai.core.feature_flags import DEFAULTS, FeatureFlags
-    from src.common.database import AsyncSessionLocal
-
+    from src.common.tenancy.session import control_session
     key = "sandbox.container_runtime_enabled"
     try:
-        async with AsyncSessionLocal() as db:
+        async with control_session() as db:
             return await FeatureFlags(db).is_on(
                 key, company_id=UUID(str(company_id)) if company_id else None)
     except Exception as exc:  # noqa: BLE001 - no DB: the deployment default decides

@@ -51,7 +51,7 @@ from src.voice.call_guards import (
 from src.billing.credit_service import CreditService
 from src.billing.billing_service import BillingService
 from src.common.config import settings
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import control_session, is_split, tenant_session
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,7 @@ class BaseStreamHandler:
 
         self.session_manager = SessionManager(db)
         self.agent_loader = AgentContextLoader(db)
+        self._tenant_stack = None  # the tenant session _use_tenant opened
         self.audio_processor = AudioProcessor()
         self.conversation_logger = ConversationLogger(db)
 
@@ -152,6 +153,26 @@ class BaseStreamHandler:
     # ------------------------------------------------------------------
     # Recording helpers (P0.4)
     # ------------------------------------------------------------------
+
+    async def _use_tenant(self, company_id) -> None:
+        """Work in ``company_id``'s tenant database from here on (split mode):
+        a stream that learns its call's tenant from the call itself."""
+        if not is_split() or self._tenant_stack is not None:
+            return
+        from contextlib import AsyncExitStack
+
+        stack = AsyncExitStack()
+        db = await stack.enter_async_context(tenant_session(company_id))
+        self._tenant_stack = stack
+        self.db = db
+        self.session_manager = SessionManager(db, getattr(self.session_manager, "_redis", None))
+        self.agent_loader = AgentContextLoader(db)
+        self.conversation_logger = ConversationLogger(db)
+
+    async def _close_tenant(self) -> None:
+        if self._tenant_stack is not None:
+            stack, self._tenant_stack = self._tenant_stack, None
+            await stack.aclose()
 
     def _open_recording_file(self):
         """Open a temp file that receives mixed PCM16 (8KHz mono) chunks."""
@@ -246,7 +267,7 @@ class BaseStreamHandler:
         # its own DB session because self.db can't serve parallel queries.
         async def _credit_gate():
             from src.voice.call_admission import call_refusal
-            async with AsyncSessionLocal() as _credit_db:
+            async with tenant_session(self.voice_session.company_id) as _credit_db:
                 return await call_refusal(
                     _credit_db, self.voice_session.company_id,
                     direction=getattr(self.voice_session, "direction", "unknown") or "unknown",
@@ -1498,7 +1519,7 @@ class BaseStreamHandler:
         self.turn_number += 1
         turn = self.turn_number
         try:
-            async with AsyncSessionLocal() as _session:
+            async with tenant_session(self.voice_session.company_id) as _session:
                 _logger = ConversationLogger(_session)
                 await _logger.log_turn(
                     company_id=self.voice_session.company_id,
@@ -1528,7 +1549,7 @@ class BaseStreamHandler:
             duration = int((end_time - self.started_at).total_seconds())
 
             try:
-                async with AsyncSessionLocal() as session:
+                async with tenant_session(self.voice_session.company_id) as session:
                     # Export transcript
                     try:
                         convo_log = await ConversationLogger(session).export_transcript_json(
@@ -1854,7 +1875,7 @@ class TwilioStreamHandler(BaseStreamHandler):
             try:
                 from src.voice.twilio_api import hangup_twilio_call
 
-                async with AsyncSessionLocal() as db_session:
+                async with control_session() as db_session:  # Twilio credentials
                     await hangup_twilio_call(
                         db_session, self.voice_session.company_id, self.call_sid
                     )
@@ -1882,6 +1903,7 @@ class TwilioStreamHandler(BaseStreamHandler):
         finally:
             self.is_running = False
             await self._cleanup()
+            await self._close_tenant()
 
 
 # ---------------------------------------------------------------------------
@@ -1936,6 +1958,7 @@ class TataStreamHandler(BaseStreamHandler):
         finally:
             self.is_running = False
             await self._cleanup()
+            await self._close_tenant()
 
     async def _handle_tata_start_event(self, event: Dict[str, Any]):
         """
@@ -1962,6 +1985,17 @@ class TataStreamHandler(BaseStreamHandler):
             f"Tata start event: call_sid={self.call_sid}, from={from_number}, "
             f"to={to_number}, custom_id={custom_identifier}"
         )
+
+        # Split tenancy: our DID on the call (dialled inbound, calling outbound)
+        # names the tenant whose database holds its sessions (Phase 14 WS2 2.12).
+        if is_split():
+            from src.voice.call_tenancy import company_for_numbers
+            company_id = await company_for_numbers(self.number_router, to_number, from_number)
+            if company_id is None:
+                logger.error(f"No tenant for Tata call: from={from_number}, to={to_number}")
+                return
+            await self._use_tenant(company_id)
+            self.number_router = NumberRouter(self.db)
 
         # ── Strategy 1: Resume via custom_identifier (campaign flow) ─────────
         if custom_identifier:
@@ -2077,14 +2111,13 @@ class TataStreamHandler(BaseStreamHandler):
         # the call over — hangup then just 422s with "Invalid Call ID")
         if self.call_sid and self.voice_session and not self._provider_stopped:
             try:
-                from src.common.database import AsyncSessionLocal
                 from src.voice.tata_auth import (
                     get_smartflo_auth_token,
                     SMARTFLO_BASE_URL,
                 )
                 import httpx
 
-                async with AsyncSessionLocal() as db_session:
+                async with control_session() as db_session:  # Smartflo credentials
                     auth_token = await get_smartflo_auth_token(
                         db_session, self.voice_session.company_id
                     )

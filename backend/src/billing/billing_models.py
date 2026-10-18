@@ -9,10 +9,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase, refers_to
 
 
-class BillingConfig(Base):
+class BillingConfig(ControlBase):
     """
     Configurable billing formula parameters.
     TB = (c * mf) + (c * mf * pf) + (c * mf * spf) - (c * mf * d)
@@ -43,7 +43,7 @@ class BillingConfig(Base):
     company = relationship("Company")
 
 
-class CreditWallet(Base):
+class CreditWallet(ControlBase):
     """
     Per-company credit buckets consumed in priority order.
     Priority: daily_credits → wallet_balance (PAYG) or subscription_credits (Subscription)
@@ -78,7 +78,7 @@ class CreditWallet(Base):
     )
 
 
-class SubscriptionTier(Base):
+class SubscriptionTier(ControlBase):
     """
     App Admin configurable subscription tiers.
     """
@@ -98,7 +98,7 @@ class SubscriptionTier(Base):
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
-class Subscription(Base):
+class Subscription(ControlBase):
     """
     Subscription plan with Razorpay mandate for auto-debit billing.
     Tier bonus: Tier 1=20%, Tier 2=30%, Tier 3=40%
@@ -124,7 +124,7 @@ class Subscription(Base):
     company = relationship("Company")
 
 
-class PaymentTransaction(Base):
+class PaymentTransaction(ControlBase):
     """
     Records every Razorpay payment, both one-time top-ups and subscription charges.
     """
@@ -166,7 +166,7 @@ class PaymentTransaction(Base):
 BILLING_EVENT_UNIQUE_KEY = "uq_billing_events_period_grouping"
 
 
-class BillingEvent(Base):
+class BillingEvent(ControlBase):
     """
     Monthly aggregated billing records for costing and billing reports.
     Populated by cron job on the 1st of each month and on task completion.
@@ -218,7 +218,7 @@ class BillingEvent(Base):
     company = relationship("Company")
 
 
-class CreditHold(Base):
+class CreditHold(ControlBase):
     """
     Credit reserved for a running top-level execution (BC-06).
 
@@ -232,8 +232,10 @@ class CreditHold(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
-    run_id = Column(UUID(as_uuid=True), ForeignKey("execution_runs.id", ondelete="CASCADE"),
-                    nullable=False, unique=True)
+    # The run is in its tenant's database (WS2 2.3): whatever deletes a run
+    # deletes its hold.
+    run_id = Column(UUID(as_uuid=True), nullable=False, unique=True,
+                    info=refers_to("execution_runs.id", ondelete="CASCADE"))
     amount = Column(Numeric(14, 6), nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     released_at = Column(DateTime(timezone=True), nullable=True)

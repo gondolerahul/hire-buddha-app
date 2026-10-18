@@ -20,13 +20,13 @@ import redis.asyncio as redis
 from arq.constants import default_queue_name
 
 from src.common.config import settings
-from src.common.job_queue import CHILD_RUN_QUEUE
+from src.common.job_queue import CHILD_RUN_QUEUE, EVENT_QUEUE
 
 logger = logging.getLogger(__name__)
 
 # The queues a worker must be consuming for the platform to work: top-level
-# jobs, and child runs (SA-07), each with its own worker.
-EXPECTED_QUEUES = (default_queue_name, CHILD_RUN_QUEUE)
+# jobs, child runs (SA-07) and automation events (Phase 14 WS3), each with its own worker.
+EXPECTED_QUEUES = (default_queue_name, CHILD_RUN_QUEUE, EVENT_QUEUE)
 
 HEARTBEAT_KEY_PREFIX = "hb:workers:"
 

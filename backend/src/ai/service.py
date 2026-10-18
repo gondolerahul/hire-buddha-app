@@ -5,7 +5,7 @@ from typing import Any, Collection, Optional
 from uuid import UUID, uuid4
 import re
 import logging
-from src.common.job_queue import enqueue_job
+from src.common.job_queue import enqueue_job, tenant_arg
 from src.ai.orm import (
     HierarchicalEntity, ExecutionRun, LLMInteractionLog, 
     ToolInteractionLog, HumanApproval, Document, EntityType
@@ -194,6 +194,12 @@ class AIService:
             self._require_template_writer(user_role)
 
         update_data = entity_in.model_dump(mode='json', exclude_unset=True)
+        # An edit that does not mention the agent's automation settings keeps
+        # them (Phase 14 WS3): they are set on its Automation tab.
+        caps = update_data.get("capabilities")
+        stored = entity.capabilities if isinstance(entity.capabilities, dict) else {}
+        if isinstance(caps, dict) and "automation" not in caps and stored.get("automation") is not None:
+            caps["automation"] = stored["automation"]
         # Whether an entity is a template is not an edit: convert-to-template
         # copies one into the platform's library (PO-23).
         for field in ("is_template", "template_source_id"):
@@ -371,7 +377,10 @@ class AIService:
         return {"entity_id": entity_id, "status": "DELETED", "deleted_at": now, "deleted_ids": all_entity_ids}
 
     # Execution
-    async def trigger_execution(self, execution_in: ExecutionRunCreate, company_id: UUID, user_id: UUID = None, user_role: str = None, entity_version_id: UUID = None) -> ExecutionRun:
+    async def trigger_execution(self, execution_in: ExecutionRunCreate, company_id: UUID, user_id: UUID = None, user_role: str = None, entity_version_id: UUID = None, automation: dict = None) -> ExecutionRun:
+        """Create a run and queue it. ``automation`` — the trigger, event,
+        correlation and chain depth that started it (Phase 14 WS3) — is
+        written on the run as it is created; a manual run has none."""
         # Pre-flight: validate entity exists and belongs to this company
         entity = await self.get_entity(execution_in.entity_id, company_id, user_role=user_role)
         if entity_version_id is not None:
@@ -435,7 +444,8 @@ class AIService:
             entity_version_id=entity_version_id,  # None: the head, pinned on insert
             input_data=execution_in.input_data,
             status="PENDING",
-            trace_id=uuid4() # Initialize root trace
+            trace_id=uuid4(), # Initialize root trace
+            **(automation or {}),
         )
         self.db.add(execution)
         await self.db.commit()
@@ -456,7 +466,8 @@ class AIService:
         execution = result.scalar_one()
 
         # Enqueue Job to Arq
-        await enqueue_job("run_execution_recursive", str(execution.id))
+        await enqueue_job("run_execution_recursive", str(execution.id),
+                          company_id=tenant_arg(execution.company_id))
 
         return execution
 
@@ -698,7 +709,8 @@ class AIService:
         retry_run = result.scalar_one()
 
         # 5. Enqueue to arq
-        await enqueue_job("run_execution_recursive", str(retry_run.id))
+        await enqueue_job("run_execution_recursive", str(retry_run.id),
+                          company_id=tenant_arg(retry_run.company_id))
 
         return retry_run
 
@@ -833,7 +845,8 @@ class AIService:
         refine_run = result.scalar_one()
 
         # 8. Enqueue to arq
-        await enqueue_job("run_execution_recursive", str(refine_run.id))
+        await enqueue_job("run_execution_recursive", str(refine_run.id),
+                          company_id=tenant_arg(refine_run.company_id))
 
         return refine_run
 
@@ -1007,8 +1020,9 @@ class AIService:
 
     # ── Template Management ────────────────────────────────────────────────
 
-    async def _collect_tree(self, root: HierarchicalEntity, scope) -> list[HierarchicalEntity]:
-        """Every descendant of ``root`` within ``scope``, parents before children.
+    async def _collect_tree(self, root: HierarchicalEntity, scope, db: Any = None) -> list[HierarchicalEntity]:
+        """Every descendant of ``root`` within ``scope``, parents before children
+        (read from ``db``, default this service's session).
 
         A child is found the three ways an entity names one: a row whose
         ``parent_id`` is the entity, ``hierarchy.children``, and the target of a
@@ -1018,18 +1032,19 @@ class AIService:
         """
         from src.ai.governance.composition import child_references
 
+        db = db if db is not None else self.db
         visited: set[UUID] = {root.id}
         ordered: list[HierarchicalEntity] = []
         queue = [root]
         while queue:
             entity = queue.pop(0)
-            found = list((await self.db.execute(
+            found = list((await db.execute(
                 select(HierarchicalEntity).where(HierarchicalEntity.parent_id == entity.id, scope)
             )).scalars().all())
             for ref in child_references(entity.hierarchy, entity.planning):
                 if ref.entity_id is None or ref.entity_id in visited:
                     continue
-                child = (await self.db.execute(
+                child = (await db.execute(
                     select(HierarchicalEntity).where(HierarchicalEntity.id == ref.entity_id, scope)
                 )).scalar_one_or_none()
                 if child is not None:
@@ -1041,12 +1056,17 @@ class AIService:
                     queue.append(child)
         return ordered
 
-    async def convert_to_template(self, entity_id: UUID, company_id: UUID, user_id: UUID) -> HierarchicalEntity:
+    async def convert_to_template(self, entity_id: UUID, company_id: UUID, user_id: UUID,
+                                  library_db: Any = None) -> HierarchicalEntity:
         """
         Deep-clone an existing entity (and all its children) into a parallel
         template hierarchy (is_template=True).  The originals are left untouched.
+        ``library_db``: the template library's session, when it is not this
+        service's (split tenancy: the platform company's database).
         """
         from sqlalchemy.orm import selectinload
+
+        library = library_db if library_db is not None else self.db
 
         # 1. Load the source entity
         result = await self.db.execute(
@@ -1082,8 +1102,8 @@ class AIService:
             template_source_id=source.id,
             parent_id=None,
         )
-        self.db.add(root_template)
-        await self.db.flush()
+        library.add(root_template)
+        await library.flush()
         old_to_new_id[source.id] = root_template.id
 
         # 5. Clone children in topological order
@@ -1097,8 +1117,8 @@ class AIService:
                 template_source_id=child.id,
                 parent_id=new_parent_id,
             )
-            self.db.add(clone)
-            await self.db.flush()
+            library.add(clone)
+            await library.flush()
             old_to_new_id[child.id] = clone.id
 
         # 6. Remap internal entity_id references (same logic as clone_template)
@@ -1106,34 +1126,38 @@ class AIService:
             return remap_entity_refs(entity, old_to_new_id)
 
         all_cloned = [root_template] + [
-            (await self.db.execute(
+            (await library.execute(
                 select(HierarchicalEntity).where(HierarchicalEntity.id == new_id)
             )).scalar_one()
             for new_id in list(old_to_new_id.values())[1:]
         ]
         for cloned_entity in all_cloned:
             if _remap_entity_refs_wrapper(cloned_entity):
-                self.db.add(cloned_entity)
+                library.add(cloned_entity)
 
-        await self.db.commit()
+        await library.commit()
 
         # 7. Reload with relationships
-        result = await self.db.execute(
+        result = await library.execute(
             select(HierarchicalEntity)
             .options(selectinload(HierarchicalEntity.execution_runs))
             .where(HierarchicalEntity.id == root_template.id)
         )
         return result.scalar_one()
 
-    async def clone_template(self, template_id: UUID, company_id: UUID, user_id: UUID) -> HierarchicalEntity:
+    async def clone_template(self, template_id: UUID, company_id: UUID, user_id: UUID,
+                             library_db: Any = None) -> HierarchicalEntity:
         """
         Deep-clone a template entity (and all its children) into executable
-        entities owned by the requesting company/user.
+        entities owned by the requesting company/user. ``library_db``: the
+        template library's session, when it is not this service's (split
+        tenancy: the platform company's database).
         """
         from sqlalchemy.orm import selectinload
 
+        library = library_db if library_db is not None else self.db
         # 1. Load the template
-        result = await self.db.execute(
+        result = await library.execute(
             select(HierarchicalEntity)
             .options(selectinload(HierarchicalEntity.execution_runs))
             .where(
@@ -1146,7 +1170,7 @@ class AIService:
             raise HTTPException(status_code=404, detail="Template not found")
 
         # 2. Every descendant template, found the three ways an entity names a child.
-        all_children = await self._collect_tree(template, HierarchicalEntity.is_template == True)
+        all_children = await self._collect_tree(template, HierarchicalEntity.is_template == True, db=library)
         logger.info(
             f"clone_template: discovered {len(all_children)} child entities "
             f"for template '{template.name}' (id={template.id})"

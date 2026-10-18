@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update as sa_update
 from uuid import UUID
 import os
+from typing import Optional
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db, is_split, tenant_db_for
+from src.voice.call_tenancy import call_company, media_stream_path, tenant_session_manager
 from src.voice.session_manager import SessionManager
 from src.voice.number_router import NumberRouter
 from src.voice.public_urls import stream_url
@@ -21,13 +23,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhooks/voice", tags=["Voice Webhooks"])
 
+# The providers sign in to nothing: every route here names the request's tenant
+# first — ``company=`` on a URL we handed out, else our phone number on the call
+# (``voice/call_tenancy.py``) — and works in that tenant's database (Phase 14
+# WS2 2.12). With TENANCY_MODE=single that is the request's one session.
 
-async def get_session_manager(db: AsyncSession = Depends(get_db)) -> SessionManager:
+_NOT_CONFIGURED_TWIML = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="alice">Sorry, this number is not configured. Please contact support.</Say>
+    <Hangup/>
+</Response>"""
+
+
+async def get_session_manager(db: AsyncSession = Depends(get_control_db)) -> SessionManager:
     """Dependency to get SessionManager instance."""
     return SessionManager(db)
 
 
-async def get_number_router(db: AsyncSession = Depends(get_db)) -> NumberRouter:
+async def get_number_router(db: AsyncSession = Depends(get_control_db)) -> NumberRouter:
     """Dependency to get NumberRouter instance."""
     return NumberRouter(db)
 
@@ -53,9 +66,24 @@ async def twilio_incoming_call(
     call_sid = form_data.get("CallSid")
     from_number = form_data.get("From")
     to_number = form_data.get("To")
-    call_status = form_data.get("CallStatus")
     
     logger.info(f"Twilio incoming call: {call_sid} from {from_number} to {to_number}")
+
+    # The dialled number names the tenant (split mode).
+    company_id = await call_company(number_router, None, to_number)
+    if is_split() and company_id is None:
+        logger.warning(f"No tenant for number {to_number}")
+        return Response(content=_NOT_CONFIGURED_TWIML, media_type="application/xml")
+    async with tenant_session_manager(session_manager, company_id) as session_manager:
+        return await _twilio_incoming(form_data, session_manager, number_router)
+
+
+async def _twilio_incoming(form_data, session_manager: SessionManager, number_router: NumberRouter):
+    """The inbound call, in its tenant's database."""
+    call_sid = form_data.get("CallSid")
+    from_number = form_data.get("From")
+    to_number = form_data.get("To")
+    call_status = form_data.get("CallStatus")
 
     # 0. Mobile dialer AI leg (rep's phone calling the agent DID)
     from src.mobile.identification import resolve_mobile_inbound
@@ -67,7 +95,7 @@ async def twilio_incoming_call(
         twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{stream_url(f"/stream/twilio/{mobile_session.id}")}" />
+        <Stream url="{stream_url(media_stream_path("twilio", mobile_session))}" />
     </Connect>
 </Response>"""
         return Response(content=twiml, media_type="application/xml")
@@ -131,7 +159,7 @@ async def twilio_incoming_call(
                 greeting_xml = f'<Say voice="alice">{greeting_text}</Say>'
 
     # 4. Generate WebSocket URL for streaming
-    ws_url = stream_url(f"/stream/twilio/{session.id}")
+    ws_url = stream_url(media_stream_path("twilio", session))
 
     logger.info(f"Created session {session.id}, streaming to {ws_url}")
     
@@ -146,7 +174,6 @@ async def twilio_incoming_call(
 </Response>"""
     
     return Response(content=twiml, media_type="application/xml")
-
 
 @router.post("/twilio/status")
 async def twilio_status_callback(
@@ -182,6 +209,24 @@ async def twilio_status_callback(
         f"duration={call_duration} recording={bool(recording_url)} "
         f"answered_by={answered_by}"
     )
+
+    # company= on the callback URL, else our number (To inbound, From outbound).
+    company_id = await call_company(NumberRouter(session_manager.db), request.query_params.get("company"),
+                                    form_data.get("To"), form_data.get("From"))
+    if is_split() and company_id is None:
+        logger.warning(f"No tenant for Twilio status callback: call_sid={call_sid}")
+        return {"status": "ok", "message": "No matching session found"}
+    async with tenant_session_manager(session_manager, company_id) as session_manager:
+        return await _twilio_status(form_data, session_manager)
+
+
+async def _twilio_status(form_data, session_manager: SessionManager):
+    """The status callback, in the call's tenant database."""
+    call_sid = form_data.get("CallSid")
+    call_status = form_data.get("CallStatus")
+    call_duration = form_data.get("CallDuration")
+    recording_url = form_data.get("RecordingUrl")
+    answered_by = form_data.get("AnsweredBy")  # Async AMD result
 
     # ── Step 1: Find session (status-agnostic to handle race with cleanup) ──
     session = await session_manager.get_voice_session_by_call_sid_any_status(call_sid)
@@ -382,7 +427,6 @@ async def twilio_status_callback(
 
     return {"status": "ok", "session_id": str(session.id), "outcome": call_outcome}
 
-
 @router.post("/twilio/outbound-twiml")
 async def twilio_outbound_twiml(
     request: Request,
@@ -420,6 +464,23 @@ async def twilio_outbound_twiml(
     
     logger.info(f"Twilio outbound TwiML: session_id={session_id}, call_sid={call_sid}, from={from_number}, to={to_number}")
     
+    # company= on the TwiML URL, else our calling number.
+    company_id = await call_company(NumberRouter(session_manager.db), request.query_params.get("company"),
+                                    from_number)
+    if is_split() and company_id is None:
+        logger.error(f"No tenant for outbound TwiML: session_id={session_id}")
+        twiml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="alice">Sorry, this session is no longer available.</Say>
+    <Hangup/>
+</Response>"""
+        return Response(content=twiml, media_type="application/xml")
+    async with tenant_session_manager(session_manager, company_id) as session_manager:
+        return await _twilio_outbound(session_id, call_sid, session_manager)
+
+
+async def _twilio_outbound(session_id: str, call_sid, session_manager: SessionManager):
+    """The outbound call's TwiML, from its tenant database."""
     try:
         session_uuid = UUID(session_id)
         session = await session_manager.get_voice_session(session_uuid)
@@ -438,7 +499,7 @@ async def twilio_outbound_twiml(
             await session_manager.update_session_call_sid(session.id, call_sid)
         
         # Generate WebSocket URL for streaming
-        ws_url = stream_url(f"/stream/twilio/{session.id}")
+        ws_url = stream_url(media_stream_path("twilio", session))
 
         logger.info(f"Outbound call connected, streaming to {ws_url}")
         
@@ -483,7 +544,6 @@ async def twilio_outbound_twiml(
     <Hangup/>
 </Response>"""
         return Response(content=twiml, media_type="application/xml")
-
 
 def _tata_stream_response(ws_url: str) -> dict:
     """Smartflo dynamic-endpoint reply.
@@ -588,6 +648,19 @@ async def tata_incoming_call(
     
     logger.info(f"Tata Tele incoming call: {call_id} from {from_number} to {to_number}, custom_id={custom_identifier}")
     
+    # Our DID names the tenant: the dialled number, or the calling one.
+    company_id = await call_company(number_router, request.query_params.get("company"), to_number, from_number)
+    if is_split() and company_id is None:
+        logger.warning(f"No tenant for Tata call {from_number} -> {to_number}")
+        return _tata_refusal("Number not configured")
+    async with tenant_session_manager(session_manager, company_id) as session_manager:
+        return await _tata_incoming(data, call_id, from_number, to_number, custom_identifier,
+                                    session_manager, number_router)
+
+
+async def _tata_incoming(data: dict, call_id, from_number, to_number, custom_identifier,
+                         session_manager: SessionManager, number_router: NumberRouter):
+    """The Tata call, in its tenant database."""
     # 1. Try to resume existing session (Outbound Campaign)
     if custom_identifier and custom_identifier != "null":
         try:
@@ -600,7 +673,7 @@ async def tata_incoming_call(
                 if session.call_sid and session.call_sid.startswith("pending_"):
                     await session_manager.update_session_call_sid(session.id, call_id)
                 
-                return _tata_stream_response(stream_url(f"/stream/tata/{session.id}"))
+                return _tata_stream_response(stream_url(media_stream_path("tata", session)))
         except ValueError:
             logger.warning(f"Invalid custom_identifier format: {custom_identifier}")
         except Exception as e:
@@ -614,7 +687,7 @@ async def tata_incoming_call(
         provider="tata_tele", raw_metadata=data,
     )
     if mobile_session:
-        return _tata_stream_response(stream_url(f"/stream/tata/{mobile_session.id}"))
+        return _tata_stream_response(stream_url(media_stream_path("tata", mobile_session)))
 
     # 2. Find context by phone number (Inbound)
     # Check both numbers to see which one is our DID
@@ -646,17 +719,16 @@ async def tata_incoming_call(
     )
     
     # 4. Generate WebSocket URL
-    ws_url = stream_url(f"/stream/tata/{session.id}")
+    ws_url = stream_url(media_stream_path("tata", session))
 
     logger.info(f"Created new Tata session {session.id}, streaming to {ws_url}")
     
     return _tata_stream_response(ws_url)
 
-
 @router.get("/tata/status")
 async def tata_status_callback_get(
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     GET handler for Tata Tele status webhook.
@@ -667,13 +739,13 @@ async def tata_status_callback_get(
     """
     data = dict(request.query_params)
     logger.info(f"Tata Tele status GET callback: {len(data)} params")
-    return await _process_tata_status(data, db)
+    return await _process_tata_status(data, db, request.query_params.get("company"))
 
 
 @router.post("/tata/status")
 async def tata_status_callback(
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     POST handler for Tata Tele call status webhooks.
@@ -703,10 +775,26 @@ async def tata_status_callback(
         logger.error(f"Failed to parse Tata status POST body: {e}")
         data = {}
 
-    return await _process_tata_status(data, db)
+    return await _process_tata_status(data, db, request.query_params.get("company"))
 
 
-async def _process_tata_status(data: dict, db: AsyncSession):
+# Fields of a Tata status callback that may carry our DID.
+_TATA_DID_FIELDS = ("did_number", "$did_number", "caller_id_number", "$caller_id_number",
+                    "did", "$did", "from", "$from", "to", "$to")
+
+
+async def _process_tata_status(data: dict, db: AsyncSession, company: Optional[str] = None):
+    """Name the call's tenant (``company=``, else our DID in the payload), then apply it there."""
+    numbers = [data.get(field) for field in _TATA_DID_FIELDS]
+    company_id = await call_company(NumberRouter(db), company or data.get("company"), *numbers)
+    if is_split() and company_id is None:
+        logger.warning(f"No tenant for Tata status callback: keys={list(data.keys())}")
+        return {"status": "ok", "message": "No matching session found"}
+    async with tenant_db_for(db, company_id) as tenant_db:
+        return await _apply_tata_status(data, tenant_db)
+
+
+async def _apply_tata_status(data: dict, db: AsyncSession):
     """
     Shared Tata Tele status processing logic used by both GET and POST handlers.
 
@@ -1007,7 +1095,7 @@ async def _process_tata_status(data: dict, db: AsyncSession):
 @router.post("/whatsapp/incoming")
 async def whatsapp_incoming_message(
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     Webhook called by Twilio when WhatsApp message arrives.
@@ -1015,82 +1103,87 @@ async def whatsapp_incoming_message(
     """
     from src.voice.whatsapp_handler import WhatsAppHandler
     from twilio.twiml.messaging_response import MessagingResponse
-    
+
     logger.info("Processing Twilio webhook request")
     try:
         form_data = await request.form()
     except Exception as e:
         logger.error(f"Error parsing form data: {e}")
         return Response(content="Error parsing form data", status_code=400)
-    
+
     from_number = form_data.get("From", "")
     to_number = form_data.get("To", "")
     message_body = form_data.get("Body", "")
     media_url = form_data.get("MediaUrl0")
     media_type = form_data.get("MediaContentType0")
     message_sid = form_data.get("MessageSid")
-    
+
     logger.info(f"WhatsApp message (Twilio): {message_sid} from {from_number}")
-    
-    # Create handler
-    handler = WhatsAppHandler(db)
-    
-    # Process message and get response
-    response_text = await handler.handle_incoming_message(
-        from_number=from_number,
-        to_number=to_number,
-        message_body=message_body,
-        media_url=media_url,
-        media_type=media_type,
-        message_sid=message_sid,
-        provider="twilio"
-    )
-    
+
+    # Our business number names the tenant (split mode).
+    company_id = await call_company(NumberRouter(db), None, to_number)
+    if is_split() and company_id is None:
+        logger.error(f"No tenant for WhatsApp business number {to_number}")
+        response_text = "Sorry, we're experiencing technical difficulties. Please try again later."
+    else:
+        async with tenant_db_for(db, company_id) as tenant_db:
+            handler = WhatsAppHandler(tenant_db)
+            # Process message and get response
+            response_text = await handler.handle_incoming_message(
+                from_number=from_number,
+                to_number=to_number,
+                message_body=message_body,
+                media_url=media_url,
+                media_type=media_type,
+                message_sid=message_sid,
+                provider="twilio"
+            )
+
     # Create TwiML response
     resp = MessagingResponse()
     resp.message(response_text)
-    
+
     return Response(content=str(resp), media_type="application/xml")
 
 
 @router.post("/tata/whatsapp/incoming")
 async def tata_whatsapp_incoming(
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     Webhook called by Tata Tele for WhatsApp messages.
     """
     from src.voice.whatsapp_handler import WhatsAppHandler
-    
+
     data = await request.json()
     logger.debug(f"Tata Tele WhatsApp payload: {data}")
-    
+
     try:
         entry = data.get("entry", [])[0]
         changes = entry.get("changes", [])[0]
         value = changes.get("value", {})
         messages = value.get("messages", [])
-        
+
         if not messages:
             return {"status": "ok"} # Just a status notification
-            
+
         message = messages[0]
         from_number = message.get("from") # E.g., "919876543210"
-        
+
         # Tata sends metadata with display_phone_number which is our business number
         # Need to make sure we parse it correctly
         metadata = value.get("metadata", {})
         to_number = metadata.get("display_phone_number") or metadata.get("phone_number_id")
-        
+
         message_id = message.get("id")
         msg_type = message.get("type")
-        
+
         # Extract body based on type
         message_body = ""
         media_url = None
         media_type = None
-        
+
         if msg_type == "text":
             message_body = message.get("text", {}).get("body", "")
         elif msg_type in ["image", "document", "audio", "video"]:
@@ -1100,24 +1193,29 @@ async def tata_whatsapp_incoming(
             message_body = media_obj.get("caption", "[Media Message]")
             media_type = media_obj.get("mime_type")
             # media_url = ... (requires extra API call to get URL)
-        
+
         logger.info(f"WhatsApp message (Tata): {message_id} from {from_number}")
-        
-        handler = WhatsAppHandler(db)
-        
-        # Tata handler sends response asynchronously via Messaging Service
-        await handler.handle_incoming_message(
-            from_number=from_number,
-            to_number=to_number,
-            message_body=message_body,
-            media_url=media_url,
-            media_type=media_type,
-            message_sid=message_id,
-            provider="tata_tele"
-        )
-        
+
+        # Our business number names the tenant (split mode).
+        company_id = await call_company(NumberRouter(db), None, to_number)
+        if is_split() and company_id is None:
+            logger.error(f"No tenant for WhatsApp business number {to_number}")
+            return {"status": "ok", "message": "Number not configured"}
+        async with tenant_db_for(db, company_id) as tenant_db:
+            handler = WhatsAppHandler(tenant_db)
+            # Tata handler sends response asynchronously via Messaging Service
+            await handler.handle_incoming_message(
+                from_number=from_number,
+                to_number=to_number,
+                message_body=message_body,
+                media_url=media_url,
+                media_type=media_type,
+                message_sid=message_id,
+                provider="tata_tele"
+            )
+
         return {"status": "ok"}
-        
+
     except Exception as e:
         logger.error(f"Error processing Tata webhook: {e}", exc_info=True)
         # Always return 200 to Tata/Meta so they don't retry indefinitely on logic errors

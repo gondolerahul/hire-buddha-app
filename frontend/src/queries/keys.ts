@@ -30,6 +30,16 @@ export const queryKeys = {
         list: ['users', 'list'] as const,
         me: ['users', 'me'] as const,
     },
+    automation: {
+        all: ['automation'] as const,
+        settings: ['automation', 'settings'] as const,
+        platform: ['automation', 'platform'] as const,
+        triggers: ['automation', 'triggers'] as const,
+        firings: (id: string) => ['automation', 'firings', id] as const,
+        events: (query: object) => ['automation', 'events', query] as const,
+        event: (id: string) => ['automation', 'event', id] as const,
+        health: ['automation', 'health'] as const,
+    },
     reports: {
         all: ['reports'] as const,
         one: (name: string, ...params: unknown[]) => ['reports', name, ...params] as const,

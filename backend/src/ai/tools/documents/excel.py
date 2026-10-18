@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from src.ai.tools.documents._keep import keep_document
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
-from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params, safe_filename
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_params_async, safe_filename
 
 try:
     import openpyxl
@@ -48,7 +48,7 @@ class ExcelTool(Tool):
             if not company_id:
                 return json.dumps({"error": NO_CONTEXT_ERROR})
             try:
-                confine_params(params, company_id, ("file_path", "save_as"))
+                await confine_params_async(params, company_id, ("file_path", "save_as"))
             except PathOutsideWorkspace as exc:
                 return json.dumps({"error": str(exc)})
             if "filename" in params:

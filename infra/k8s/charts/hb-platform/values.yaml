@@ -1,0 +1,236 @@
+# hb-platform — cloud-neutral defaults (Phase 14 WS1 1.1, tech spec §3.2, §19).
+#
+# Layering:  values.yaml  <-  values-azure.yaml | values-onprem.yaml  <-  values-<env>.yaml
+#   helm upgrade --install hb-platform infra/k8s/charts/hb-platform -n hb-platform \
+#     -f infra/k8s/charts/hb-platform/values-azure.yaml -f infra/k8s/env/dev/hb-platform.yaml \
+#     --set global.imageTag=<git sha>
+#
+# Nothing here is a secret. Secrets reach pods from secrets.existingSecret
+# (a Kubernetes Secret) or, on Azure, from Key Vault through the Secrets Store
+# CSI driver (secrets.csi), mounted as files the settings loader reads.
+
+global:
+  env: dev
+  # Registry host; images are <registry>/<repository>:<tag> (P-09).
+  imageRegistry: ""
+  imageTag: latest
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+images:
+  api: hb-api
+  worker: hb-worker
+  childWorker: hb-child-worker
+  eventWorker: hb-event-worker
+  scheduler: hb-scheduler
+  frontend: hb-frontend
+  backup: hb-backup
+
+# Non-secret settings (backend/src/common/config.py), as environment variables.
+config:
+  PLATFORM_PROFILE: local
+  STORAGE_BACKEND: ""
+  SECRETS_BACKEND: ""
+  WORKLOAD_IDENTITY_BACKEND: ""
+  ANTHROPIC_PROVIDER: vertex
+  STREAMING_PROTOCOL: wss
+  STREAMING_HOST: ""
+  FRONTEND_URL: ""
+  CORS_ORIGINS: ""
+  # Workers serve /metrics on all interfaces inside the pod network.
+  WORKER_METRICS_ADDR: "0.0.0.0"
+  # The arq container sandbox needs a Docker daemon, which pods do not have:
+  # sandbox tools refuse until the Kubernetes sandbox runtime (WS6) exists.
+  SANDBOX_CONTAINER_RUNTIME_ENABLED: "true"
+  SANDBOX_WORKSPACE_ROOT: /app/var/sandbox
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  PYTHONUTF8: "1"
+
+# Extra environment for every backend pod (name/value pairs), per environment.
+extraEnv: []
+
+# The platform database. With url set, each workload's DATABASE_URL is built
+# from it with "{user}" replaced by that workload's database principal (on
+# Azure: its managed identity's name, signing in with Entra tokens). Empty:
+# DATABASE_URL comes from the secrets like any other setting.
+database:
+  url: ""   # postgresql+asyncpg://{user}@psql-hb-dev-control.postgres.database.azure.com:5432/hb_control?ssl=require
+  users:
+    api: ""
+    worker: ""
+    migrations: ""
+
+secrets:
+  # A Kubernetes Secret whose keys are setting names (DATABASE_URL, SECRET_KEY, ...).
+  existingSecret: ""
+  # Azure Key Vault through the Secrets Store CSI driver: each object is
+  # mounted as a file named after its setting (alias); SETTINGS_SECRETS_DIR
+  # points the settings loader at the mount.
+  csi:
+    enabled: false
+    driver: secrets-store.csi.k8s.io
+    mountPath: /mnt/secrets-store
+    keyVaultName: ""
+    tenantId: ""
+    # Client id of each workload's managed identity: its pods read the vault as it.
+    clientIds:
+      api: ""
+      worker: ""
+      migrations: ""
+    objects: []
+    #  - name: secret-key            # Key Vault secret name
+    #    alias: SECRET_KEY           # setting it fills
+
+# Gemini / Vertex AI from outside Google Cloud without key files (WS1 1.5,
+# Azure setup guide §14): a Google workload identity pool trusts this cluster's
+# OIDC issuer; pods present their service-account token for `audience`.
+googleFederation:
+  enabled: false
+  # //iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+  audience: ""
+  # Service account to impersonate, e.g. hb-vertex@<project>.iam.gserviceaccount.com ("" = none).
+  serviceAccountEmail: ""
+
+# On Azure the bootstrap creates the service accounts with their workload
+# identity (Azure setup guide §9.4), so the chart does not (values-azure.yaml).
+serviceAccountsCreate: true
+serviceAccounts:
+  api:
+    name: hb-api
+    annotations: {}
+  worker:
+    name: hb-worker
+    annotations: {}
+
+# Labels added to every backend pod (Azure: azure.workload.identity/use).
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+api:
+  enabled: true
+  # One instance by decision HD12 (GW-21): a call's live sockets and the
+  # per-company live-session count are in-process. A second replica needs
+  # sticky sessions and the count in Redis first.
+  replicas: 1
+  port: 8000
+  # Addresses whose X-Forwarded-* headers uvicorn trusts (the ingress; P-10).
+  forwardedAllowIps: "*"
+  terminationGracePeriodSeconds: 120
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { memory: 3Gi }
+  service:
+    type: ClusterIP
+    port: 8000
+
+workers:
+  - name: worker
+    image: worker
+    metricsPort: 9101
+    metricsPortSetting: WORKER_METRICS_PORT
+    queue: "arq:queue"
+    replicas: 1
+    terminationGracePeriodSeconds: 600
+    resources:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits: { memory: 4Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 4, dueJobs: "10" }
+  - name: child-worker
+    image: childWorker
+    metricsPort: 9102
+    metricsPortSetting: CHILD_WORKER_METRICS_PORT
+    queue: "children"
+    replicas: 1
+    terminationGracePeriodSeconds: 600
+    resources:
+      requests: { cpu: 500m, memory: 1Gi }
+      limits: { memory: 4Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 6, dueJobs: "10" }
+  # Automation events (WS3, tech spec §7.8): routing is short — it creates
+  # runs, the worker above runs them.
+  - name: event-worker
+    image: eventWorker
+    metricsPort: 9103
+    metricsPortSetting: EVENT_WORKER_METRICS_PORT
+    queue: "events"
+    replicas: 1
+    terminationGracePeriodSeconds: 120
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { memory: 1Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 4, dueJobs: "50" }
+
+# KEDA scales workers on the backlog the workers themselves export
+# (hb_worker_queue_due_jobs, IN-20): arq queues are sorted sets, which the
+# KEDA Redis scaler cannot read.
+keda:
+  prometheusServerAddress: ""
+
+# The tenant scheduler (WS3, tech spec §7.7): two replicas share the due rows.
+scheduler:
+  enabled: true
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+frontend:
+  enabled: true
+  replicas: 2
+  port: 8080
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# Weekly database exports (decision D45): Sunday 02:00 in Asia/Kolkata, the
+# last keepWeeks weeks kept. Runs as the worker identity (reads every
+# database, writes storage). /tmp holds one database's dump at a time.
+backups:
+  enabled: false
+  schedule: "0 2 * * 0"
+  timeZone: Asia/Kolkata
+  keepWeeks: 5
+  activeDeadlineSeconds: 14400
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 2Gi }
+
+# alembic upgrade head before the release's pods start (Helm hook).
+migrations:
+  enabled: true
+  activeDeadlineSeconds: 900
+  # Must exist before the release (a hook runs first): "" = "default".
+  serviceAccountName: ""
+
+# Routes from the platform gateway (Gateway API) to the API and frontend.
+gateway:
+  enabled: false
+  parentRefs:
+    - name: platform-gateway
+      namespace: hb-system
+  hostnames:
+    app: ""        # SPA (+ /api through its nginx)
+    api: ""        # REST API
+    gateway: ""    # webhooks and telephony media streams
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the API and frontend (the gateway's).
+  ingressNamespaces: ["hb-system"]
+

@@ -36,10 +36,10 @@ IDLE_TIMEOUT_SECONDS = 60
 
 async def _authenticate(token: str):
     from src.auth.dependencies import _authenticate_user
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import control_session
     from src.mobile.service import MOBILE_ROLES
 
-    async with AsyncSessionLocal() as db:
+    async with control_session() as db:
         user = await _authenticate_user(token, db)
     if user.role not in MOBILE_ROLES:
         raise PermissionError("role_not_supported")
@@ -50,7 +50,7 @@ async def _relay_signal(user, msg: dict) -> None:
     """Forward an app signal to the AI leg of one of this user's own attempts."""
     from sqlalchemy import select
 
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import tenant_session
     from src.mobile.models import MobileCallAttempt
 
     signal = msg.get("signal")
@@ -60,7 +60,7 @@ async def _relay_signal(user, msg: dict) -> None:
         attempt_id = UUID(str(msg.get("attempt_id")))
     except ValueError:
         return
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(user.company_id) as db:
         session_id = (await db.execute(
             select(MobileCallAttempt.voice_session_id).where(
                 MobileCallAttempt.id == attempt_id,

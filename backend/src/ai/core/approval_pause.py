@@ -67,25 +67,26 @@ def park(state: AgentState, move: Any, completed: list[str], failed: dict[str, s
     state.suspend_requested = True
 
 
-async def schedule_deadline(run_id: Any, marker: dict[str, Any]) -> None:
+async def schedule_deadline(run_id: Any, marker: dict[str, Any], company_id: Any = None) -> None:
     """A resume at the approval's deadline. Best-effort: the sweeper expires
     a parked run whose deadline job was lost."""
-    from src.common.job_queue import enqueue_job
+    from src.common.job_queue import enqueue_job, tenant_arg
 
     delay = max((_deadline(marker) - datetime.now(timezone.utc)).total_seconds(), 0.0) + 1.0
     try:
-        await enqueue_job(RESUME_JOB, str(run_id), _job_id=f"hitl-deadline:{marker['approval_id']}",
-                          _defer_by=delay)
+        await enqueue_job(RESUME_JOB, str(run_id), company_id=tenant_arg(company_id),
+                          _job_id=f"hitl-deadline:{marker['approval_id']}", _defer_by=delay)
     except Exception as exc:                                                # noqa: BLE001
         logger.warning("Deadline resume not enqueued for run %s: %s", run_id, exc)
 
 
-async def enqueue_resume(run_id: Any, *, job_id: Optional[str] = None) -> None:
+async def enqueue_resume(run_id: Any, *, job_id: Optional[str] = None, company_id: Any = None) -> None:
     """Resume a parked run now (the reviewer answered). Best-effort, as above."""
-    from src.common.job_queue import enqueue_job
+    from src.common.job_queue import enqueue_job, tenant_arg
 
     try:
-        await enqueue_job(RESUME_JOB, str(run_id), **({"_job_id": job_id} if job_id else {}))
+        await enqueue_job(RESUME_JOB, str(run_id), company_id=tenant_arg(company_id),
+                          **({"_job_id": job_id} if job_id else {}))
     except Exception as exc:                                                # noqa: BLE001
         logger.warning("Resume not enqueued for parked run %s: %s", run_id, exc)
 
@@ -146,11 +147,11 @@ async def sweep_paused_runs(db: Any, *, grace_s: int,
 
     now = now or datetime.now(timezone.utc)
     rows = (await db.execute(
-        select(ExecutionRun.id, ExecutionRun.context_state)
+        select(ExecutionRun.id, ExecutionRun.context_state, ExecutionRun.company_id)
         .where(ExecutionRun.status == RunStatus.PAUSED.value)
     )).all()
     resumed = 0
-    for run_id, cs in rows:
+    for run_id, cs, company_id in rows:
         cs = cs or {}
         marker = (cs.get(SNAPSHOT_KEY) or {}).get("awaiting_approval")
         if not marker:
@@ -161,7 +162,7 @@ async def sweep_paused_runs(db: Any, *, grace_s: int,
             decided_long_ago = status != "PENDING" and (now - parked_at).total_seconds() >= grace_s
             expired = (now - _deadline(marker)).total_seconds() >= grace_s
             if decided_long_ago or expired:
-                await enqueue_resume(run_id)
+                await enqueue_resume(run_id, company_id=company_id)
                 resumed += 1
         except Exception:                                                  # noqa: BLE001
             logger.exception("Paused-run sweep failed for run %s", run_id)

@@ -8,6 +8,11 @@ Webhook path (HTTP, <2 s budget):   resolve_mobile_inbound()
   3. nothing mobile-related -> None (caller continues the normal inbound flow)
 
 Stream path (gateway):  bind_session_by_token(), complete_device_verification()
+
+Every function runs in the call's tenant session (Phase 14 WS2 2.4): the
+webhooks open the dialled number's (``voice/call_tenancy.py``), the stream
+controller the voice session's company's. Devices are control-plane rows, read
+with the company named, so a call only ever matches its own tenant's.
 """
 import hashlib
 import logging
@@ -20,6 +25,7 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.config import settings
+from src.common.tenancy.session import is_split
 from src.mobile import realtime
 from src.mobile.models import (
     ATTEMPT_AI_CONNECTED, ATTEMPT_PENDING, BINDABLE_ATTEMPT_STATUSES,
@@ -95,13 +101,29 @@ async def resolve_mobile_inbound(
     provider: str,
     raw_metadata: Optional[Dict[str, Any]] = None,
 ) -> Optional[VoiceSession]:
-    """Create a voice session for a mobile AI leg, or return None."""
+    """Create a voice session for a mobile AI leg, or return None.
+
+    ``db`` is the dialled number's tenant session. In split mode the number's
+    company is found first and every read is narrowed to it: the attempts are
+    in its database anyway, the device rows (control plane) are filtered by it.
+    Single mode reads as it always did.
+    """
+    from src.voice.number_router import NumberRouter
+
     from_e164, did = to_e164(from_number), to_e164(to_number)
     if not did:
         return None
     now = datetime.utcnow()
     base_meta = {"provider_payload": raw_metadata or {}, "did": did, "caller": from_e164,
                  "presented_from": from_number}
+
+    assignment = None
+    tenant: list = []  # split mode: the number's company, as extra WHERE terms
+    if is_split():
+        assignment = await NumberRouter(db).find_customer_by_number(did)
+        if not assignment:
+            return None
+        tenant = [MobileCallAttempt.company_id == assignment.company_id]
 
     # 1. Caller-ID match — claim the newest open attempt atomically.
     if from_e164:
@@ -114,6 +136,7 @@ async def resolve_mobile_inbound(
                     MobileCallAttempt.did == did,
                     MobileCallAttempt.status == ATTEMPT_PENDING,
                     MobileCallAttempt.expires_at > now,
+                    *tenant,
                 ))
                 .order_by(MobileCallAttempt.created_at.desc())
                 .limit(1)
@@ -152,6 +175,7 @@ async def resolve_mobile_inbound(
             MobileCallAttempt.did == did,
             MobileCallAttempt.status == ATTEMPT_PENDING,
             MobileCallAttempt.expires_at > now,
+            *tenant,
         ))
     )).scalar_one()
     open_verifications = (await db.execute(
@@ -159,13 +183,13 @@ async def resolve_mobile_inbound(
             UserDevice.verification_did == did,
             UserDevice.verification_expires_at > now,
             UserDevice.verification_code_hash.isnot(None),
+            *([UserDevice.company_id == assignment.company_id] if assignment else []),
         ))
     )).scalar_one()
     if not open_attempts and not open_verifications:
         return None
 
-    from src.voice.number_router import NumberRouter
-    assignment = await NumberRouter(db).find_customer_by_number(did)
+    assignment = assignment or await NumberRouter(db).find_customer_by_number(did)
     if not assignment:
         logger.warning(f"[Mobile] DID {did} has open attempts but no active assignment")
         return None

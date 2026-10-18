@@ -347,7 +347,7 @@ class CortexBridge:
                 if child_run_id:
                     try:
                         from src.common.job_queue import enqueue_child_run
-                        await enqueue_child_run(self.redis, child_run_id)
+                        await enqueue_child_run(self.redis, child_run_id, self.company_id)
                         logger.info(f"Enqueued child run {child_run_id} for RECURSE")
                     except Exception as enqueue_err:
                         logger.warning(

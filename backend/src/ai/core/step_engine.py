@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import tenant_session
 from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.schemas import PlanStep
 from src.config.service import ConfigService
@@ -183,7 +183,7 @@ class StepEngine:
                 # Pass run_id instead of ORM object; reload in
                 # isolated session. Use atomic DB increments for cost/tokens.
                 async def _isolated_step(step_dict: dict[str, Any], frozen_ctx: dict[str, Any]) -> dict[str, Any]:
-                    async with AsyncSessionLocal() as isolated_db:
+                    async with tenant_session(self.company_id) as isolated_db:
                         isolated_engine = StepEngine(isolated_db, self.redis, company_id=self.company_id)
                         step_obj = PlanStep(**step_dict)
                         # Reload run in isolated session to avoid DetachedInstanceError

@@ -49,6 +49,8 @@ It ends with HireBuddha running fully on Azure.
 
 ## 2. Branching and release strategy
 
+> **Owner decision, 18 Oct 2026 (D46):** for now Phase 14 continues on `roadmap-development-defect-fixes`; steps 1–2 (merge to `main`, cut `release/gcp`) are not done. `deploy-azure.yml` therefore also deploys Azure dev from that branch.
+
 | Step | Action |
 |------|--------|
 | 1 | Merge the current `roadmap-development-defect-fixes` branch to `main` (per its merge-readiness notes). |
@@ -261,7 +263,7 @@ A single Azure VM as the development platform is not recommended: it would not e
 | 6.3 | Code lanes: `code_items`, scratch registration from sandbox tools, retention cleanup via `time_index`, promotion endpoint + checks Job + PR status | `code_lanes/` (new), `ai/tools/sandbox/*`, `ai/tools/meta/tool_synthesis.py` |
 | 6.4 | Built-in Git (Gitea) deployment; `git_repos`; repo create/import; push history to GitHub later | chart, `code_lanes/git.py` |
 | 6.5 | GitHub flows on top of WS5's GitHub App connection: branch + PR per agent change, review status, merge by approval, webhooks → events | `code_lanes/github.py` |
-| 6.6 | Templates (static site, site + forms, mobile backend, CRM/admin) with Dockerfiles and Data API SDK use | `backend/app_templates/` (new) |
+| 6.6 | Templates on the D48 stack (React sites and frontends, FastAPI backends, React Native/Expo mobile apps): static site, site + forms, mobile backend, mobile app, CRM/admin — with Dockerfiles and Data API SDK use | `backend/app_templates/` (new) |
 | 6.7 | Builds with ACR Tasks; SBOM + scan; `app_builds` | `apps/build.py` (new) |
 | 6.8 | **App Controller** (kopf operator, `TenantApp` CRD) → Deployment/Service/route/NetworkPolicy/SA/PDB/KEDA | `backend/services/app_controller/` (new), CRD in chart |
 | 6.9 | Tenant app edge (SP-3 outcome), preview and published hostnames, custom domains with verification | chart, `apps/domains.py`, control table `custom_domains` |
@@ -359,13 +361,13 @@ Tracks can run in parallel after M2; WS2 is the critical path.
 
 | ID | Decision | Needed by |
 |----|----------|-----------|
-| O10 | Tenant DB placement: pool servers (recommended) or server per tenant; tiers, HA, backup retention | WS2 start |
-| O11 | Azure regions (prod, DR), paired Google region, service availability | WS0 start |
-| O06 | Backup retention, RPO/RTO, support targets (affects Flexible Server settings) | WS2 |
-| TD-13 | Bicep or Terraform | WS0 kickoff |
+| O10 | ~~Tenant DB placement~~ — pool servers (D42, 18 Oct 2026) | WS2 start |
+| O11 | ~~Azure region~~ — Central India (D43); DR region and paired Google region still open | WS0 start |
+| O06 | ~~Backup retention~~ — weekly exports (D45); RPO/RTO and support targets still open | WS2 |
+| TD-13 | ~~Bicep or Terraform~~ — Bicep (D44) | WS0 kickoff |
 | SP-1…SP-10 | Spike outcomes (sandbox runtime, Redis mode, app edge, federation, Foundry, PgBouncer/Entra, WebSockets, latency, sleep mode, built-in Git) | Before the dependent tasks |
-| — | App template stacks (two or three) | WS6 kickoff |
-| — | Default limits (chain depth, schedules per tenant, rates) confirmed by the product owner (O05) | WS3 |
+| — | ~~App template stacks~~ — React, FastAPI, React Native/Expo (D48) | WS6 kickoff |
+| — | ~~Default limits~~ — configurable on screen, none by default (D47) | WS3 |
 
 ---
 

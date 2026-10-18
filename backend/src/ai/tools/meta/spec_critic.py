@@ -201,9 +201,8 @@ class MetaSpecCriticTool(Tool):
         from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
         from src.ai.planning.critic_pipeline import resolve_critic_model
         from src.ai.shared.json_utils import parse_json_object
-        from src.common.database import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as db:
+        from src.common.tenancy.session import tenant_session
+        async with tenant_session(company_id) as db:
             meta_tree = MetaIntelligenceTree(
                 db=db,
                 company_id=UUID(str(company_id)) if not isinstance(company_id, UUID) else company_id,

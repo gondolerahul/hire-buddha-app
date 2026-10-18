@@ -344,11 +344,11 @@ class EmbeddingService:
 
             phase = "retrieval" if task_type == "RETRIEVAL_QUERY" else "ingestion"
 
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import control_session
             from src.ai.usage_service import UsageService
             from src.ai.services.cost_attribution import CostAttribution
 
-            async with AsyncSessionLocal() as sess:
+            async with control_session() as sess:  # usage_logs: control plane
                 svc = UsageService(sess)
                 await svc.log_usage(
                     company_id=self.company_id,

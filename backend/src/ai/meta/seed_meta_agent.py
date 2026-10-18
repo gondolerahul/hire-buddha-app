@@ -25,10 +25,16 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
     Traversal order (leaf → root):
       1. cortex_nodes → cortex_trees (via tree_id)
       2. cortex_trees (entity_id)
-      3. llm_interaction_logs, tool_interaction_logs, usage_logs, human_approvals (run_id)
+      3. llm_interaction_logs, tool_interaction_logs, usage_logs, human_approvals,
+         credit_holds (run_id)
       4. execution_runs (child runs first, then parents)
       5. documents (entity_id)
-      6. hierarchical_entities (children/clones first, then roots)
+      6. webhook_endpoints.entity_id set to NULL
+      7. hierarchical_entities (children/clones first, then roots)
+
+    Refused while a phone number is assigned to one of them. Those three
+    control tables have no foreign keys to the entities and runs any more
+    (Phase 14 WS2 2.3): this does what the keys' ON DELETE did.
     """
     from sqlalchemy import text
 
@@ -44,6 +50,12 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
     all_eids = [str(row[0]) for row in r.fetchall()]
     all_id_list = ",".join(f"'{eid}'" for eid in all_eids)
     print(f"  Found {len(all_eids)} total entities (incl. children/clones)")
+
+    numbers = (await db.execute(text(
+        f"SELECT phone_number FROM phone_numbers WHERE agent_id IN ({all_id_list})"
+    ))).scalars().all()
+    if numbers:
+        raise RuntimeError(f"phone numbers {sorted(numbers)} are assigned to these entities; unassign them first")
 
     # ── Cortex trees for these entities ──
     r = await db.execute(text(
@@ -77,6 +89,7 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
             "tool_interaction_logs",
             "usage_logs",
             "human_approvals",
+            "credit_holds",
         ]:
             await db.execute(text(f"DELETE FROM {tbl} WHERE run_id IN ({run_id_list})"))
 
@@ -93,6 +106,10 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
     if doc_ids:
         doc_id_list = ",".join(f"'{did}'" for did in doc_ids)
         await db.execute(text(f"DELETE FROM documents WHERE id IN ({doc_id_list})"))
+
+    await db.execute(text(
+        f"UPDATE webhook_endpoints SET entity_id = NULL WHERE entity_id IN ({all_id_list})"
+    ))
 
     # ── Finally, the entities themselves (children/clones first, then roots) ──
     await db.execute(text(

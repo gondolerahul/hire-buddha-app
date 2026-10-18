@@ -27,11 +27,11 @@ async def _open(monkeypatch, redis, run_id, *, header=None, query=None, status="
             pass
 
         async def get_execution(self, *args, **kwargs):
-            return None
+            return SimpleNamespace(company_id=uuid4())  # the run; its company names its database
 
     statuses = iter(status if isinstance(status, list) else [status] * 100)
 
-    async def _stored(_run_id):
+    async def _stored(_run_id, _company_id=None):
         return next(statuses)
 
     monkeypatch.setattr(ai_router, "AIService", _Service)

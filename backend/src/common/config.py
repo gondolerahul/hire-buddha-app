@@ -1,4 +1,7 @@
-from pydantic import field_validator
+import os
+from pathlib import Path
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Values shipped in code, .env.example or docker-compose that must never guard anything.
@@ -12,7 +15,12 @@ PLACEHOLDER_SECRETS = frozenset({
 MIN_ENCRYPTION_KEY_LENGTH = 32
 
 class Settings(BaseSettings):
-    DATABASE_URL: str
+    # The control database (Phase 14 WS2, tech spec §5.1, §16): identity,
+    # companies, billing, the tenant directory — today, every table.
+    # DATABASE_URL is its old name, kept as an alias for one release: set
+    # either; both read the same value.
+    CONTROL_DATABASE_URL: str = ""
+    DATABASE_URL: str = ""
     REDIS_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
@@ -95,6 +103,7 @@ class Settings(BaseSettings):
     # needs an address it can reach, and the host's firewall in front (IN-08).
     WORKER_METRICS_PORT: int = 9101
     CHILD_WORKER_METRICS_PORT: int = 9102
+    EVENT_WORKER_METRICS_PORT: int = 9103
     WORKER_METRICS_ADDR: str = "127.0.0.1"
     # A parent suspended on its children (AK-03): when every child is done but
     # its resume never arrived, the sweeper re-enqueues the resume after the
@@ -255,6 +264,90 @@ class Settings(BaseSettings):
     MOBILE_APP_MIN_SUPPORTED_VERSION_CODE: int = 1
     MOBILE_APP_DOWNLOAD_URL: str = ""
 
+    # ── Phase 14: cloud-neutral platform adapters (tech spec §16, §19) ────
+    # local | azure | onprem — the default adapter of every capability in
+    # src/common/platform; each *_BACKEND setting below overrides one.
+    PLATFORM_PROFILE: str = "local"
+    # Files (§12.1): local_disk | azure_blob. Empty = the profile's default.
+    STORAGE_BACKEND: str = ""
+    # local_disk root; empty = backend/artifact.
+    STORAGE_LOCAL_ROOT: str = ""
+    # azure_blob: the account's blob endpoint, reached with the pod's workload
+    # identity (no keys). A connection string is for Azurite and tests only.
+    AZURE_STORAGE_ACCOUNT_URL: str = ""
+    AZURE_STORAGE_CONNECTION_STRING: str = ""
+    # A download link (GET /api/v1/files/{id}) is valid this long.
+    STORAGE_SIGNED_URL_TTL_SECONDS: int = 600
+    # Runtime secret lookups: env | azure_keyvault. Settings themselves come
+    # from the environment (Key Vault CSI driver in AKS, .env locally).
+    SECRETS_BACKEND: str = ""
+    AZURE_KEYVAULT_URL: str = ""
+    # Tokens for Azure services from the workload's identity (no stored keys):
+    # azure_workload_identity | none. A laptop can opt in and use `az login`.
+    WORKLOAD_IDENTITY_BACKEND: str = ""
+    # ── Automation (Phase 14 WS3, tech spec §7) ───────────────────────────
+    # The business limits (chain depth, rates, agent limits, retention…) are
+    # not settings: each business sets them on screen, none by default
+    # (decision D47; src/automation/limits.py, table automation_settings).
+    # The scheduler's loop, and how late a due time may be before catch-up rules apply.
+    SCHEDULER_TICK_SECONDS: int = 5
+    SCHEDULER_GRACE_SECONDS: int = 600
+    # Events routed at once by one event worker (queue "events"). Routing is
+    # short (it creates runs, it does not run them).
+    EVENT_WORKER_MAX_JOBS: int = 20
+
+    # Weekly database exports (decision D45, scripts/backup_databases.py): how
+    # many weeks are kept, and the pg_dump binary (its major version must be
+    # the server's or newer).
+    BACKUP_KEEP_WEEKS: int = 5
+    PG_DUMP_PATH: str = "pg_dump"
+    # How the platform signs in to PostgreSQL: password (in DATABASE_URL) |
+    # entra_token (Azure Flexible Server: the URL names the workload's Entra
+    # principal, the password is a fresh token). Empty = the profile's default.
+    DB_AUTH: str = ""
+
+    # ── Phase 14 WS2: tenant data plane (tech spec §5.3, §16) ─────────────
+    # single: one database holds every table (today) and tenant sessions open
+    # on it. split: each tenant's tables live in its own database, found
+    # through the tenant directory (src/common/tenancy).
+    TENANCY_MODE: str = "single"
+    # Port of the tenant database servers: 6432 is Flexible Server's built-in
+    # PgBouncer; 0 = the control database URL's port (local Docker).
+    TENANT_DB_PORT: int = 0
+    # Tenant database engines kept open per process (least recently used go).
+    TENANT_ENGINE_CACHE_SIZE: int = 200
+
+    @field_validator("TENANCY_MODE")
+    @classmethod
+    def _known_tenancy_mode(cls, value: str) -> str:
+        mode = value.strip().lower()
+        if mode not in ("single", "split"):
+            raise ValueError(f"TENANCY_MODE must be single or split, not {value!r}")
+        return mode
+
+    @model_validator(mode="after")
+    def _control_database_alias(self) -> "Settings":
+        control, legacy = self.CONTROL_DATABASE_URL.strip(), self.DATABASE_URL.strip()
+        if not (control or legacy):
+            raise ValueError("CONTROL_DATABASE_URL (or its old name, DATABASE_URL) must be set")
+        if control and legacy and control != legacy:
+            raise ValueError("CONTROL_DATABASE_URL and DATABASE_URL are both set and differ; "
+                             "set only CONTROL_DATABASE_URL")
+        self.CONTROL_DATABASE_URL = self.DATABASE_URL = control or legacy
+        return self
+
+    # ── Model credentials on Azure (Phase 14 WS1 1.5–1.7, §12.4) ──────────
+    # Google (Gemini, Live, Imagen/Veo, embeddings) from AKS without key files:
+    # an external_account credential file for workload identity federation.
+    # Empty = Application Default Credentials (gcloud login, a VM's account).
+    GOOGLE_WIF_CREDENTIAL_FILE: str = ""
+    # Where Claude runs when an integration's service_metadata names no
+    # provider: vertex | foundry | anthropic. FOUNDRY_ENDPOINT is the Foundry
+    # resource's Anthropic endpoint (https://<resource>.services.ai.azure.com/anthropic/)
+    # when the integration names neither a resource nor an endpoint.
+    ANTHROPIC_PROVIDER: str = "vertex"
+    FOUNDRY_ENDPOINT: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
@@ -271,4 +364,21 @@ class Settings(BaseSettings):
     def stun_servers_list(self) -> list[str]:
         return [s.strip() for s in self.STUN_SERVERS.split(",") if s.strip()]
 
-settings = Settings()
+
+def _load_settings() -> Settings:
+    """The settings, plus any secret files mounted at ``SETTINGS_SECRETS_DIR``.
+
+    In AKS the Key Vault CSI driver mounts each platform secret as a file named
+    after its setting (``SECRET_KEY``, ``INTERNAL_TOKEN``, …; the chart's
+    SecretProviderClass sets the aliases), so no secret is baked into an image
+    or written into a manifest (Phase 14 WS1 1.4). A file fills a setting the
+    environment does not set. The directory is named in the process
+    environment, not in ``.env``.
+    """
+    secrets_dir = os.environ.get("SETTINGS_SECRETS_DIR", "").strip()
+    if secrets_dir and Path(secrets_dir).is_dir():
+        return Settings(_secrets_dir=secrets_dir)
+    return Settings()
+
+
+settings = _load_settings()

@@ -1,6 +1,10 @@
 """
 Analytics endpoints for mobile campaigns, used by both the web frontend and
 the Android app (docs 07 §3). Mounted under /api/v1.
+
+A campaign's analytics, its calls and an attempt's timeline are open to app and
+partner admins for any company, so they read the acting company's tenant
+database (``X-Company-Id``, Phase 14 WS2 2.4); the summary is the caller's own.
 """
 from datetime import date
 from typing import Optional
@@ -13,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ai.campaign_models import Campaign
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.common.database import get_db
+from src.common.tenancy.session import get_acting_tenant_db, get_tenant_db
 from src.mobile import analytics
 from src.mobile.models import EXECUTION_MODE_MOBILE, CampaignAssignee, MobileCallAttempt
 
@@ -41,7 +45,7 @@ async def _campaign_for(db: AsyncSession, user: User, campaign_id: UUID) -> Camp
 async def campaign_mobile_analytics(
     campaign_id: UUID,
     user_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     user: User = Depends(get_current_user),
 ):
     campaign = await _campaign_for(db, user, campaign_id)
@@ -65,7 +69,7 @@ async def campaign_calls(
     include_pending: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     user: User = Depends(get_current_user),
 ):
     campaign = await _campaign_for(db, user, campaign_id)
@@ -90,24 +94,27 @@ async def mobile_summary(
     date_from: Optional[date] = Query(default=None, alias="from"),
     date_to: Optional[date] = Query(default=None, alias="to"),
     user_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(get_current_user),
 ):
-    start, end = analytics.parse_range(date_from, date_to)
+    from src.common.timezones import company_timezone_name
+
+    tz_name = await company_timezone_name(user.company_id, db)
+    start, end = analytics.parse_range(date_from, date_to, tz_name=tz_name)
     scope_user = user_id if _is_admin(user) else user.id
     data = await analytics.compute_analytics(db, company_id=user.company_id, user_id=scope_user,
                                              date_from=start, date_to=end)
     data["from"] = start
     data["to"] = end
     data["daily"] = await analytics.daily(db, company_id=user.company_id, user_id=scope_user,
-                                          date_from=start, date_to=end)
+                                          date_from=start, date_to=end, tz_name=tz_name)
     data["by_rep"] = await analytics.by_rep(db, company_id=user.company_id, campaign_id=None,
                                             date_from=start, date_to=end, only_user=scope_user)
     return data
 
 
 @router.get("/mobile/call-attempts/{attempt_id}/timeline")
-async def attempt_timeline(attempt_id: UUID, db: AsyncSession = Depends(get_db),
+async def attempt_timeline(attempt_id: UUID, db: AsyncSession = Depends(get_acting_tenant_db),
                            user: User = Depends(get_current_user)):
     attempt = await db.get(MobileCallAttempt, attempt_id)
     allowed = attempt is not None and (

@@ -1,18 +1,24 @@
 """
 Artifact Service — manages file storage and metadata for all platform files.
 
-Storage path convention:
-  artifact/{origin}/{company_id}/{YYYY-MM-DD}/{file_name}
+The bytes go through the storage adapter (``src/common/platform/storage``,
+Phase 14 WS1 1.2) under a neutral key:
 
-  origin:
-    • user-uploads      — files manually uploaded by humans
-    • system-generated  — files created by AI agents / tools
+  c-<company>/<area>/<YYYY-MM-DD>/<uuid>_<file_name>
+
+  area:
+    • uploads     — files manually uploaded by humans (origin user-uploads)
+    • artifacts   — files created by AI agents / tools (origin system-generated)
+    • recordings  — call recordings
+
+Read an artifact's bytes with :func:`read_artifact_bytes` or
+:func:`artifact_local_file`, never by opening ``file_path``.
 """
-import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, List
+from typing import Any, AsyncIterator, Optional, List
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -20,9 +26,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
 from src.ai.artifact_models import Artifact
+from src.common.platform.storage import (
+    StorageObjectNotFound,
+    company_namespace,
+    get_storage,
+    materialized,
+)
 
-# ── Storage root ────────────────────────────────────────────────────────────────
-# Absolute path so every caller gets a consistent root regardless of CWD.
+# ── Local-disk storage root ─────────────────────────────────────────────────────
+# Where local_disk storage keeps files by default, and where every file lived
+# before storage keys (src/common/platform/storage.default_local_root).
 _BACKEND_DIR = Path(__file__).resolve().parents[2]   # …/backend
 ARTIFACT_BASE_DIR = _BACKEND_DIR / "artifact"
 
@@ -30,16 +43,89 @@ ORIGIN_USER = "user-uploads"
 ORIGIN_SYSTEM = "system-generated"
 
 
-def get_storage_path(
-    origin: str,
-    company_id: UUID,
-) -> Path:
-    """
-    Build the daily storage directory for an artifact.
-    Format: artifact/{origin}/{company_id}/{YYYY-MM-DD}/
-    """
+def storage_area(origin: str, file_category: str) -> str:
+    if file_category == "recordings":
+        return "recordings"
+    return "uploads" if origin == ORIGIN_USER else "artifacts"
+
+
+def _key_safe_name(file_name: str) -> str:
+    """The file name as one key segment: no directories, NUL or dot-only names."""
+    name = (file_name or "").replace("\\", "/").split("/")[-1].replace("\x00", "").strip()
+    return name if name.strip(".") else "file"
+
+
+def new_storage_key(origin: str, file_category: str, company_id: UUID, file_name: str) -> str:
+    """A fresh key for a file of the company: ``c-<company>/<area>/<date>/<uuid>_<name>``."""
     date_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-    return ARTIFACT_BASE_DIR / origin / str(company_id) / date_str
+    return (f"{company_namespace(company_id)}/{storage_area(origin, file_category)}/{date_str}/"
+            f"{uuid.uuid4().hex}_{_key_safe_name(file_name)}")
+
+
+def company_storage_dirs(company_id: Any) -> List[Path]:
+    """The company's directories on local-disk storage (for path confinement):
+    its namespace, and its folders from before storage keys."""
+    roots = []
+    try:
+        namespace_dir = get_storage().local_path(f"{company_namespace(company_id)}/x")
+    except ValueError:  # not a company id: it has no namespace
+        namespace_dir = None
+    if namespace_dir is not None:
+        roots.append(namespace_dir.parent)
+    cid = str(company_id)
+    roots += [ARTIFACT_BASE_DIR / ORIGIN_SYSTEM / cid, ARTIFACT_BASE_DIR / ORIGIN_USER / cid]
+    return roots
+
+
+# ── Reading an artifact's bytes ─────────────────────────────────────────────────
+
+def _legacy_local_file(artifact: Artifact) -> Optional[Path]:
+    """A row with no key whose ``file_path`` is a file on this machine."""
+    path = artifact.file_path or ""
+    if artifact.storage_key or not path or path.startswith(("http://", "https://")):
+        return None
+    candidate = Path(path)
+    return candidate if candidate.is_file() else None
+
+
+async def artifact_exists(artifact: Artifact) -> bool:
+    if artifact.storage_key:
+        return await get_storage().exists(artifact.storage_key)
+    return _legacy_local_file(artifact) is not None
+
+
+async def artifact_size(artifact: Artifact) -> Optional[int]:
+    """Bytes stored for the artifact, or ``None`` when its file is missing."""
+    if artifact.storage_key:
+        return await get_storage().size(artifact.storage_key)
+    legacy = _legacy_local_file(artifact)
+    return legacy.stat().st_size if legacy else None
+
+
+async def read_artifact_bytes(artifact: Artifact) -> bytes:
+    """The artifact's bytes, or :class:`StorageObjectNotFound`."""
+    if artifact.storage_key:
+        return await get_storage().get(artifact.storage_key)
+    legacy = _legacy_local_file(artifact)
+    if legacy is None:
+        raise StorageObjectNotFound(artifact.file_path or str(artifact.id))
+    return legacy.read_bytes()
+
+
+@asynccontextmanager
+async def artifact_local_file(artifact: Artifact) -> AsyncIterator[Path]:
+    """A local file with the artifact's bytes, for code that needs a path.
+
+    Read it, never change it: on local disk it is the stored file itself.
+    """
+    if artifact.storage_key:
+        async with materialized(artifact.storage_key, suffix=Path(artifact.file_name or "").suffix) as path:
+            yield path
+        return
+    legacy = _legacy_local_file(artifact)
+    if legacy is None:
+        raise StorageObjectNotFound(artifact.file_path or str(artifact.id))
+    yield legacy
 
 
 class ArtifactService:
@@ -63,22 +149,14 @@ class ArtifactService:
         extra_metadata: Optional[dict] = None,
     ) -> Artifact:
         """
-        Write file to disk under artifact/{origin}/{company_id}/{date}/ and create DB record.
-        Returns the created Artifact ORM object.
+        Store the bytes under a new key (``new_storage_key``) and create the DB
+        record. Returns the created Artifact ORM object.
         """
-        # Build and ensure directory
-        storage_dir = get_storage_path(origin, company_id)
-        storage_dir.mkdir(parents=True, exist_ok=True)
+        storage = get_storage()
+        key = new_storage_key(origin, file_category, company_id, file_name)
+        await storage.put(key, file_bytes, content_type=mime_type)
+        local = storage.local_path(key)
 
-        # Ensure unique filename
-        unique_name = f"{uuid.uuid4().hex}_{file_name}"
-        file_path = storage_dir / unique_name
-
-        # Write to disk
-        with open(file_path, "wb") as f:
-            f.write(file_bytes)
-
-        # Create DB record
         artifact = Artifact(
             company_id=company_id,
             campaign_id=campaign_id,
@@ -87,7 +165,8 @@ class ArtifactService:
             origin=origin,
             file_category=file_category,
             file_name=file_name,
-            file_path=str(file_path),
+            file_path=str(local) if local is not None else key,
+            storage_key=key,
             file_size=len(file_bytes),
             mime_type=mime_type,
             duration_seconds=duration_seconds,
@@ -96,7 +175,12 @@ class ArtifactService:
             artifact_metadata=extra_metadata or {},
         )
         self.db.add(artifact)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except Exception:
+            # No row, so no stored object either: nothing could ever find it.
+            await storage.delete(key)
+            raise
         await self.db.refresh(artifact)
         return artifact
 
@@ -192,17 +276,21 @@ class ArtifactService:
         return result.scalar_one_or_none()
 
     async def delete_artifact(self, artifact_id: UUID, company_id: UUID) -> bool:
-        """Delete artifact record and its physical file."""
+        """Delete artifact record, then its stored file (a left-over file is
+        harmless; a row pointing at nothing is not)."""
         artifact = await self.get_artifact(artifact_id, company_id)
         if not artifact:
             return False
-        # Remove file from disk
-        try:
-            Path(artifact.file_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        key, legacy = artifact.storage_key, _legacy_local_file(artifact)
         await self.db.delete(artifact)
         await self.db.commit()
+        try:
+            if key:
+                await get_storage().delete(key)
+            elif legacy is not None:
+                legacy.unlink(missing_ok=True)
+        except Exception:
+            pass
         return True
 
 
@@ -232,13 +320,13 @@ async def save_tool_output(
     copy under ``backend/src/artifact`` and register a second one here, often
     with no run, returning the unregistered path.
     """
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import tenant_session
 
     ctx = context or {}
     company_id = _as_uuid(ctx.get("company_id"))
     if company_id is None:
         raise ValueError("a tool output needs the call's company (no execution context)")
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company_id) as db:
         return await ArtifactService(db).save_artifact(
             file_bytes=file_bytes,
             file_name=file_name,

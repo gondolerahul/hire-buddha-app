@@ -108,13 +108,12 @@ class MetaEntityCreatorTool(Tool):
         # ───────────────────────────────────────────────────────────────
 
         try:
-            from src.common.database import AsyncSessionLocal
-
+            from src.common.tenancy.session import tenant_session
             company_uuid = UUID(str(company_id))
             user_uuid = UUID(str(user_id)) if user_id else None
 
             # Use isolated session to avoid poisoning caller's session on SQL errors
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_uuid) as db:
                 if mode == "CREATE":
                     result = await self._create_entity(params, db, company_uuid, user_uuid)
                 elif mode == "VERSION":

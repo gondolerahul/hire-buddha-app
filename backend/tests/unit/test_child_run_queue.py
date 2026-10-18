@@ -91,7 +91,9 @@ async def test_the_child_worker_beats_for_the_child_queue(monkeypatch):
 
 
 async def test_health_is_down_without_a_child_worker(monkeypatch):
-    live = {default_queue_name: 1, CHILD_RUN_QUEUE: 0}
+    from src.common.job_queue import EVENT_QUEUE
+
+    live = {default_queue_name: 1, CHILD_RUN_QUEUE: 0, EVENT_QUEUE: 1}
 
     async def queue_status(client, queue, now=None):
         return {"workers": live[queue], "due_jobs": 0, "oldest_due_seconds": 0}
@@ -99,7 +101,7 @@ async def test_health_is_down_without_a_child_worker(monkeypatch):
     monkeypatch.setattr(worker_health, "queue_status", queue_status)
     monkeypatch.setattr(worker_health.redis, "from_url", lambda *a, **k: SimpleNamespace(aclose=AsyncMock()))
     status = await worker_health.worker_status()
-    assert (status["status"], set(status["queues"])) == ("down", {default_queue_name, CHILD_RUN_QUEUE})
+    assert (status["status"], set(status["queues"])) == ("down", {default_queue_name, CHILD_RUN_QUEUE, EVENT_QUEUE})
 
 
 def test_the_service_scripts_start_and_stop_the_child_worker():

@@ -15,7 +15,7 @@ from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, St
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase, refers_to
 
 __all__ = ["WEBHOOK_SOURCES", "WebhookEndpoint"]
 
@@ -27,7 +27,7 @@ WEBHOOK_SOURCES: tuple[str, ...] = (
 )
 
 
-class WebhookEndpoint(Base):
+class WebhookEndpoint(ControlBase):
     __tablename__ = "webhook_endpoints"
     __table_args__ = (
         CheckConstraint(
@@ -45,8 +45,9 @@ class WebhookEndpoint(Base):
     # ``common.security.encrypt_api_key``; shown to the caller once, at creation.
     secret_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     # The agent this endpoint's events run; NULL leaves the choice to the worker.
+    # The agent is in the company's tenant database (WS2 2.3): no foreign key.
     entity_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("hierarchical_entities.id", ondelete="SET NULL"), nullable=True)
+        UUID(as_uuid=True), nullable=True, info=refers_to("hierarchical_entities.id", ondelete="SET NULL"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

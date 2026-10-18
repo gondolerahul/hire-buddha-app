@@ -34,8 +34,7 @@ async def test_a_client_secret_is_stored_encrypted_and_resolves(db, monkeypatch)
     async def _session():
         yield db
 
-    monkeypatch.setattr(database, "AsyncSessionLocal", _session)
-    monkeypatch.setattr(social_router, "AsyncSessionLocal", _session)
+    monkeypatch.setattr(database, "AsyncSessionLocal", _session)  # the routes' tenant sessions too
 
     company = Company(name=f"au25-{uuid.uuid4().hex[:6]}", type="TENANT", status="active")
     db.add(company)

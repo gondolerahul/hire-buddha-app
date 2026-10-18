@@ -65,6 +65,10 @@ stop_service "Arq Worker" "$LOG_DIR/arq_worker.pid"
 pkill -f "arq src.ai.worker.WorkerSettings" 2>/dev/null && echo -e "${GREEN}✓ Arq processes terminated${NC}"
 stop_service "Arq child-run worker" "$LOG_DIR/arq_child_worker.pid"
 pkill -f "arq src.ai.worker.ChildWorkerSettings" 2>/dev/null && echo -e "${GREEN}✓ Arq child-run processes terminated${NC}"
+stop_service "Arq event worker" "$LOG_DIR/arq_event_worker.pid"
+pkill -f "arq src.ai.worker.EventWorkerSettings" 2>/dev/null && echo -e "${GREEN}✓ Arq event worker processes terminated${NC}"
+stop_service "Scheduler" "$LOG_DIR/scheduler.pid"
+pkill -f "python -m src.automation.scheduler" 2>/dev/null && echo -e "${GREEN}✓ Scheduler processes terminated${NC}"
 
 # Step 3: Stop the API (Port 8000)
 echo -e "${BLUE}[3/4] Stopping API...${NC}"

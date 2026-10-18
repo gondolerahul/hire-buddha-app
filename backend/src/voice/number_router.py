@@ -102,6 +102,8 @@ class NumberRouter:
         """
         from datetime import datetime
 
+        await self._require_agent_of_company(company_id, agent_id)
+
         # Auto-detect provider based on country code if not specified
         if provider is None:
             provider = self._detect_provider(phone_number)
@@ -156,6 +158,24 @@ class NumberRouter:
         )
 
         return entry
+
+    async def _require_agent_of_company(self, company_id: UUID, agent_id: UUID) -> None:
+        """Refuse an agent that is not ``company_id``'s.
+
+        ``phone_numbers.agent_id`` has no foreign key (Phase 14 WS2 2.3): the
+        agent is in the company's tenant database, which is where the number's
+        calls look for it.
+        """
+        from src.ai.orm.entity import HierarchicalEntity
+        from src.common.tenancy.session import tenant_db_for
+
+        async with tenant_db_for(self.db, company_id) as agent_db:
+            found = (await agent_db.execute(
+                select(HierarchicalEntity.id).where(HierarchicalEntity.id == agent_id,
+                                                    HierarchicalEntity.company_id == company_id)
+            )).first()
+        if found is None:
+            raise ValueError(f"agent {agent_id} is not an agent of company {company_id}")
 
     def _detect_provider(self, phone_number: str) -> str:
         """

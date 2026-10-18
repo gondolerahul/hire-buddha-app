@@ -129,12 +129,12 @@ async def _resolve_connection(company_id: Optional[str], email_address: Optional
         
     try:
         from uuid import UUID as _UUID
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
         from sqlalchemy import select
         from src.ai.email_models import EmailConnection
         from src.common.security import decrypt_api_key
 
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db:
             company_uuid = _UUID(str(company_id))
             query = select(EmailConnection).where(EmailConnection.company_id == company_uuid)
             
@@ -564,9 +564,11 @@ class EmailSendTool(Tool):
                 return ToolOutput.failed(
                     f"'{params.attachment_ref}' is not a file of this run: attach one this run made "
                     f"(its artifact_id) or one in its Subjects list", code="attachment_not_in_scope")
-            if not attachment.file_path or not os.path.exists(attachment.file_path):
+            from src.ai.artifact_service import artifact_size
+
+            size = await artifact_size(attachment)
+            if size is None:
                 return ToolOutput.failed(f"the file of {params.attachment_ref} is missing from storage")
-            size = os.path.getsize(attachment.file_path)
             if size > MAX_ATTACHMENT_BYTES:
                 return ToolOutput.failed(
                     f"Attachment '{attachment.file_name}' is {size / (1024 * 1024):.1f}MB which exceeds "
@@ -591,16 +593,22 @@ class EmailSendTool(Tool):
             from email import encoders as email_encoders
             import mimetypes
 
+            from src.ai.artifact_service import read_artifact_bytes
+            from src.common.platform.storage import StorageObjectNotFound
+
+            try:
+                content = await read_artifact_bytes(attachment)
+            except StorageObjectNotFound:
+                return ToolOutput.failed(f"the file of {params.attachment_ref} is missing from storage")
             msg = MIMEMultipart("mixed")
             msg.attach(_body_parts(params.body))
-            mime_type = attachment.mime_type or mimetypes.guess_type(attachment.file_path)[0]
+            file_name = attachment.file_name or os.path.basename(attachment.file_path)
+            mime_type = attachment.mime_type or mimetypes.guess_type(file_name)[0]
             maintype, subtype = (mime_type or "application/octet-stream").split("/", 1)
-            with open(attachment.file_path, "rb") as f:
-                file_part = MIMEBase(maintype, subtype)
-                file_part.set_payload(f.read())
+            file_part = MIMEBase(maintype, subtype)
+            file_part.set_payload(content)
             email_encoders.encode_base64(file_part)
-            file_part.add_header("Content-Disposition", "attachment",
-                                 filename=attachment.file_name or os.path.basename(attachment.file_path))
+            file_part.add_header("Content-Disposition", "attachment", filename=file_name)
             msg.attach(file_part)
         else:
             msg = _body_parts(params.body)

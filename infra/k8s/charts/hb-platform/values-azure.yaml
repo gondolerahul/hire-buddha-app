@@ -1,0 +1,49 @@
+# hb-platform on AKS (tech spec §4, §12; Azure setup guide §9). Everything
+# Azure-specific about the platform pods is here, not in the templates (P-08).
+# Per-environment names (vault, identities, hosts) go in infra/k8s/env/<env>/.
+
+config:
+  PLATFORM_PROFILE: azure
+  # Adapters the profile picks: azure_blob storage, azure_keyvault secrets,
+  # azure_workload_identity tokens, entra_token database sign-in.
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+
+# The bootstrap (guide §9.4) creates sa-<id> with each managed identity's
+# client id and federated credential; the chart only refers to them.
+serviceAccountsCreate: false
+serviceAccounts:
+  api:
+    name: sa-api
+  worker:
+    name: sa-worker
+
+migrations:
+  serviceAccountName: sa-migrator
+
+backups:
+  enabled: true
+
+podLabels:
+  azure.workload.identity/use: "true"
+
+nodeSelector:
+  hb/pool: platform
+
+secrets:
+  csi:
+    enabled: true
+    # Key Vault secret (guide §7) -> the setting it fills.
+    objects:
+      - { name: secret-key, alias: SECRET_KEY }
+      - { name: internal-token, alias: INTERNAL_TOKEN }
+      - { name: encryption-master-key, alias: ENCRYPTION_MASTER_KEY }
+      - { name: redis-url, alias: REDIS_URL }
+
+networkPolicy:
+  ingressNamespaces: ["hb-system", "envoy-gateway-system"]
+
+gateway:
+  enabled: true
+  parentRefs:
+    - name: platform-gateway
+      namespace: hb-system

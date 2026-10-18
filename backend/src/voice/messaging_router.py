@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.voice.whatsapp_messaging import (
@@ -46,7 +46,7 @@ async def send_whatsapp_message(
     request: SendMessageRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     Send an outbound WhatsApp message.
@@ -101,7 +101,7 @@ async def send_whatsapp_message(
 async def send_whatsapp_template(
     request: SendTemplateRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     Send a WhatsApp template message (HSM).

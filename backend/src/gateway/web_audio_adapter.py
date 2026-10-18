@@ -37,7 +37,7 @@ from src.voice.conversation_logger import ConversationLogger
 from src.voice.models import VoiceSession
 from src.voice.live_usage import LiveUsage
 from src.gateway.call_spend import CallSpend
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import tenant_session
 
 logger = logging.getLogger(__name__)
 
@@ -278,7 +278,7 @@ class WebAudioAdapter:
     async def _log_turn(self, speaker: str, content: str) -> None:
         self.turn_number += 1
         try:
-            async with AsyncSessionLocal() as session:
+            async with tenant_session(self.voice_session.company_id) as session:
                 _logger = ConversationLogger(session)
                 await _logger.log_turn(
                     company_id=self.voice_session.company_id,
@@ -296,7 +296,7 @@ class WebAudioAdapter:
 
     async def _cleanup(self) -> None:
         try:
-            async with AsyncSessionLocal() as session:
+            async with tenant_session(self.voice_session.company_id) as session:
                 await SessionManager(session).end_voice_session(self.session_id)
         except Exception:
             pass
@@ -308,7 +308,7 @@ class WebAudioAdapter:
         if getattr(self, "spend", None) is None:
             return
         try:
-            async with AsyncSessionLocal() as session:
+            async with tenant_session(self.voice_session.company_id) as session:
                 await self.spend.record_live_audio(session, self.usage)
                 await self.spend.finish(session)
         except Exception as exc:  # noqa: BLE001 - a billing hiccup must not break teardown

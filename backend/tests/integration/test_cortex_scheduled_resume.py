@@ -54,7 +54,7 @@ def events(db, monkeypatch) -> list[str]:
         yield db
 
     monkeypatch.setattr(db, "commit", _commit)
-    monkeypatch.setattr(arq_jobs, "AsyncSessionLocal", _session)
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", _session)
     return seen
 
 

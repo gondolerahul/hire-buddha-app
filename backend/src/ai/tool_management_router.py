@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from typing import List
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.auth.dependencies import get_current_user, RoleChecker
 from src.auth.models import User
 from src.ai.schemas import (
@@ -39,7 +39,7 @@ app_admin_only = RoleChecker(["app_admin"])
 
 @router.get("", response_model=List[dict], summary="The tools you may see — the one tool list")
 async def list_all_tools(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Every tool the caller may see: the built-in tools, and the custom and
@@ -54,7 +54,7 @@ async def list_all_tools(
             summary="One tool's registry entry (configuration: app_admin only)")
 async def get_tool(
     tool_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get a single tool by ID (404 for another tenant's tool).
@@ -79,7 +79,7 @@ async def get_tool(
              summary="Create a custom tool (app_admin)")
 async def create_tool(
     tool_in: ToolRegistryEntryCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only),
 ):
     """Create a new custom tool (app_admin only)."""
@@ -91,7 +91,7 @@ async def create_tool(
 async def update_tool(
     tool_id: UUID,
     tool_in: ToolRegistryEntryUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only),
 ):
     """Update a tool (app_admin only)."""
@@ -102,7 +102,7 @@ async def update_tool(
 @router.delete("/{tool_id}", summary="Delete a custom tool (app_admin)")
 async def delete_tool(
     tool_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only),
 ):
     """Delete a custom tool (app_admin only). Built-in tools cannot be deleted."""
@@ -115,7 +115,7 @@ async def delete_tool(
              summary="Enable or disable a tool (app_admin)")
 async def toggle_tool(
     tool_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only),
 ):
     """Toggle enabled/disabled state for a tool (app_admin only)."""
@@ -125,7 +125,7 @@ async def toggle_tool(
 
 @router.post("/sync-built-in", summary="Write the built-in tools into the registry (app_admin)")
 async def sync_built_in_tools(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only),
 ):
     """Seed/update DB entries for all built-in tools (app_admin only)."""

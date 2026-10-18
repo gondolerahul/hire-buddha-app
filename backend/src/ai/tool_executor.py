@@ -131,7 +131,8 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
     key = write_key((context or {}).get("run_id"), name, args)
     if key:
         try:
-            prior = await earlier_result((context or {}).get("run_id"), key)
+            prior = await earlier_result((context or {}).get("run_id"), key,
+                                         (context or {}).get("company_id"))
         except Exception:  # noqa: BLE001 - the lookup never blocks a call
             prior = None
         if prior is not None:

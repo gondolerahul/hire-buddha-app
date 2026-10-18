@@ -19,6 +19,7 @@ from uuid import uuid4
 import pytest
 
 from src.ai.artifact_service import ARTIFACT_BASE_DIR, ORIGIN_SYSTEM
+from src.common.platform.storage import company_namespace, get_storage
 from src.ai.tools.sandbox.workspace import (
     PathOutsideWorkspace, confine_path, safe_filename, tenant_workspace,
 )
@@ -35,6 +36,7 @@ def company():
     yield cid
     shutil.rmtree(ws, ignore_errors=True)
     shutil.rmtree(ARTIFACT_BASE_DIR / ORIGIN_SYSTEM / cid, ignore_errors=True)
+    shutil.rmtree(ARTIFACT_BASE_DIR / company_namespace(cid), ignore_errors=True)
 
 
 def _ctx(cid):
@@ -120,11 +122,10 @@ async def test_docx_create_keeps_its_file_in_the_companys_artifacts(company, mon
     import src.ai.artifact_service as artifact_service
 
     async def _keep(context, *, file_name, file_bytes, **_kw):
-        # save_artifact's own path, without the database row.
-        d = artifact_service.get_storage_path(ORIGIN_SYSTEM, context["company_id"])
-        d.mkdir(parents=True, exist_ok=True)
-        (d / f"abc_{file_name}").write_bytes(file_bytes)
-        return type("A", (), {"id": "a-1", "file_path": str(d / f"abc_{file_name}")})()
+        # save_artifact's own storage, without the database row.
+        key = artifact_service.new_storage_key(ORIGIN_SYSTEM, "documents", context["company_id"], file_name)
+        await get_storage().put(key, file_bytes)
+        return type("A", (), {"id": "a-1", "file_path": str(get_storage().local_path(key))})()
 
     monkeypatch.setattr(artifact_service, "save_tool_output", _keep)
     out = json.loads(await DocxTool().run_with_context(json.dumps({

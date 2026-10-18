@@ -225,6 +225,7 @@ class Tool(ABC):
 _PACKAGE_CATEGORIES = {
     "core": "core", "documents": "document", "email": "email", "media": "media",
     "social": "social", "crm": "crm", "sandbox": "execution", "meta": "meta",
+    "automation": "automation",
 }
 
 

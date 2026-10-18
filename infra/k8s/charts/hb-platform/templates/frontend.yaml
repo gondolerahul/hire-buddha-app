@@ -1,0 +1,77 @@
+{{- if .Values.frontend.enabled }}
+{{- $c := dict "root" $ "component" "frontend" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hb-frontend
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ $c.component }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "hb.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hb.selectorLabels" $c | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile: { type: RuntimeDefault }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: frontend
+          image: {{ include "hb.image" (dict "root" $ "image" "frontend") }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: API_UPSTREAM
+              value: "http://hb-api.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.api.service.port }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.port }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            # nginx writes its config from the template, its pid and caches here.
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d }
+            - { name: nginx-cache, mountPath: /var/cache/nginx }
+            - { name: tmp, mountPath: /tmp }
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+      volumes:
+        - { name: nginx-conf, emptyDir: {} }
+        - { name: nginx-cache, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hb-frontend
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "hb.selectorLabels" $c | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- end }}

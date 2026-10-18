@@ -17,7 +17,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_tenant_db
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.voice.models import VoiceSession, WhatsAppSession, ConversationHistory
@@ -43,7 +43,7 @@ async def list_voice_sessions(
     provider: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -121,7 +121,7 @@ async def list_voice_sessions(
 @router.get("/voice-sessions/{session_id}")
 async def get_voice_session(
     session_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get detailed voice session information including transcript."""
@@ -398,7 +398,7 @@ class NextActionUpdate(BaseModel):
 async def update_next_action(
     session_id: UUID,
     body: NextActionUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -442,7 +442,7 @@ async def list_whatsapp_sessions(
     provider: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """List WhatsApp conversation sessions."""
@@ -508,7 +508,7 @@ async def list_whatsapp_sessions(
 @router.get("/whatsapp-sessions/{session_id}")
 async def get_whatsapp_session(
     session_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get detailed WhatsApp session information."""
@@ -571,7 +571,7 @@ async def list_conversation_history(
     channel: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """List conversation history across voice and WhatsApp."""
@@ -624,7 +624,7 @@ async def list_conversation_history(
 @router.get("/stats")
 async def get_streaming_stats(
     days: int = 7,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get streaming statistics for the company."""

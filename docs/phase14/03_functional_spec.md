@@ -98,9 +98,9 @@ When the owner allows it on the agent's settings (**Automation** tab):
 
 | Agent ability | Example | Limits |
 |---------------|---------|--------|
-| Schedule work | "Follow up with this lead in 3 days" | At most 50 active agent-made schedules per business; at most 5 per run; repeating ones no more often than every 15 minutes; only agents the owner listed |
-| Send a signal | "lead qualified" → wakes the Sales agent's trigger | Only *custom* signals; at most 20 per run |
-| Wait for something | "Wait until the customer replies, up to 48 hours" | Up to 30 days; the run uses no resources while waiting |
+| Schedule work | "Follow up with this lead in 3 days" | Only agents the owner listed. Optional limits (none unless set, §3.5): active agent-made schedules per business, per run, shortest repeat |
+| Send a signal | "lead qualified" → wakes the Sales agent's trigger | Only *custom* signals. Optional limit: signals per run |
+| Wait for something | "Wait until the customer replies, up to 48 hours" | The run uses no resources while waiting. Optional limit: longest wait |
 | Cancel its schedules | | Only schedules it (or its process) created |
 
 Everything an agent schedules appears in the trigger list marked **"created by agent: <name>"**, and the owner can pause or delete it.
@@ -134,19 +134,23 @@ Everything an agent schedules appears in the trigger list marked **"created by a
 
 ### 3.5 Rules
 
+Every limit below is a setting on the **Automation settings** screen (owner and admin; platform staff set platform-wide defaults the same way) and in the API; **none applies unless someone sets it** (decision D47, 18 Oct 2026). A business's own value wins over the platform's.
+
 | Rule | Default | Changeable by |
 |------|---------|---------------|
 | A duplicate event (same source id) starts nothing new | always | — |
 | One trigger decides at most once per event | always | — |
-| Loop limit: a chain of agent-caused events stops after 5 steps, with a visible "loop stopped" item | 5 | Platform setting (product decision O05) |
-| Runs at the same time per business | 20 (depends on plan) | Plan |
-| Runs per trigger per hour | 60 | Admin |
-| If the previous run is still going | Skip | Admin: skip / queue / allow |
-| Missed times (pause or outage) | Run once | Admin: skip / run once / run all (max 24) |
+| Loop limit: a chain of agent-caused events stops after *N* steps, with a visible "loop stopped" item | no limit | Owner, Admin (platform default: platform staff) |
+| Runs at the same time per business | no limit | Owner, Admin |
+| Runs per trigger per hour | no limit | Owner, Admin (per business and per trigger) |
+| If the previous run is still going | Allow | Owner, Admin: skip / queue / allow (per business and per trigger) |
+| Missed times (pause or outage) | Run all | Owner, Admin: skip / run once / run all, optionally at most *N* (per business and per trigger) |
+| Agent-made schedules: per business, per run, shortest repeat | no limit | Owner, Admin |
+| Agent signals per run; longest wait | no limit | Owner, Admin |
 | Money: a triggered run starts only if the wallet can reserve its cost | always (D06) | — |
 | Pausing automation | Holds new events; running work finishes; schedules do not fire | Owner, Admin, Operator |
 | Time zone | Business time zone, set in settings (replaces the fixed India time) | Owner, Admin |
-| Event history kept | 30 days (final value per O06) | Platform |
+| Event history kept | forever unless set | Owner, Admin (platform default: platform staff) |
 
 ### 3.6 Notifications
 
@@ -372,7 +376,7 @@ Preview link to try it  →  Owner clicks "Publish"  →  live at crm-acme.apps.
 
 ### 7.5 Templates in Phase 14
 
-Static website · website with forms (form posts go into a table) · mobile app **backend** (the phone app itself and app-store submission are not part of Phase 14) · CRM / admin tool.
+Static website · website with forms (form posts go into a table) · mobile app backend · mobile app · CRM / admin tool — all on one technology set (decision D48): **React** (TypeScript) for frontends and websites, **Python FastAPI** for backends, **React Native (Expo)** for mobile apps. App-store submission is not part of Phase 14.
 
 ### 7.6 Rules
 

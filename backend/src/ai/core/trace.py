@@ -16,7 +16,7 @@ Each span does two things:
     run's Redis stream (``run_events:{run_id}``) the SSE endpoint relays to the SPA
     (same envelope contract as ``agent_loop.event_async``).
   * **Historical sink** — persists one ``execution_trace_events`` row on close
-    (full payload), on a *dedicated* short-lived ``AsyncSessionLocal`` so a
+    (full payload), on a *dedicated* short-lived tenant session so a
     trace write can never corrupt the run's own session. Best-effort: any
     failure is swallowed.
 
@@ -259,7 +259,7 @@ class TraceRecorder:
             return
         try:
             from src.ai.orm.trace import ExecutionTraceEvent
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import tenant_session
 
             row = ExecutionTraceEvent(
                 run_id=self.run_id,
@@ -281,7 +281,7 @@ class TraceRecorder:
                 payload=_cap_payload(handle.payload) if self.capture_payloads else None,
                 error_message=handle.error_message,
             )
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(self.company_id) as db:
                 db.add(row)
                 await db.commit()
         except Exception as exc:                                            # pragma: no cover

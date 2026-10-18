@@ -17,7 +17,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_tenant_db_with_company
 from src.auth.dependencies import get_current_user_and_company
 from src.ai.email_models import EmailConnection
 from src.common.security import encrypt_api_key, decrypt_api_key
@@ -98,7 +98,7 @@ async def get_provider_defaults(auth=Depends(get_current_user_and_company)):
 @router.post("/connections", response_model=EmailConnectionResponse)
 async def create_email_connection(
     data: EmailConnectionCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db_with_company),
     auth=Depends(get_current_user_and_company),
 ):
     """Create a new email connection with encrypted credentials, in the caller's company."""
@@ -154,7 +154,7 @@ async def create_email_connection(
 
 @router.get("/connections")
 async def list_email_connections(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db_with_company),
     auth=Depends(get_current_user_and_company),
 ):
     """List the caller's company's email connections."""
@@ -171,7 +171,7 @@ async def list_email_connections(
 @router.delete("/connections/{connection_id}")
 async def delete_email_connection(
     connection_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db_with_company),
     auth=Depends(get_current_user_and_company),
 ):
     """Delete one of the caller's company's email connections."""
@@ -187,7 +187,7 @@ async def delete_email_connection(
 @router.post("/connections/{connection_id}/validate", response_model=EmailValidateResponse)
 async def validate_email_connection(
     connection_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db_with_company),
     auth=Depends(get_current_user_and_company),
 ):
     """

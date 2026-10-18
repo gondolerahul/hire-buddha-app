@@ -82,11 +82,14 @@ async def explain_flags(db: Any, company_id: Optional[UUID] = None,
     """Every declared flag for this company (and entity): value and tier, from one query."""
     from sqlalchemy import text
 
+    from src.ai.orm.feature_flags import FeatureFlag
+
     rows = (await db.execute(text(
         "SELECT flag_key, company_id, entity_id, enabled, value_json FROM feature_flags "
         "WHERE (company_id IS NULL AND entity_id IS NULL) "
         "   OR (CAST(:c AS uuid) IS NOT NULL AND company_id = CAST(:c AS uuid) AND entity_id IS NULL) "
         "   OR (CAST(:e AS uuid) IS NOT NULL AND entity_id = CAST(:e AS uuid))"
     ), {"c": str(company_id) if company_id else None,
-        "e": str(entity_id) if entity_id else None})).mappings().all()
+        "e": str(entity_id) if entity_id else None},
+        bind_arguments={"mapper": FeatureFlag})).mappings().all()  # control plane
     return explain_rows([dict(r) for r in rows], company_id, entity_id)

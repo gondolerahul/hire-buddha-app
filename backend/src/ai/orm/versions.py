@@ -14,12 +14,12 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, Stri
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 
 __all__ = ["EntityAsset", "EntityVersion"]
 
 
-class EntityVersion(Base):
+class EntityVersion(TenantBase):
     __tablename__ = "entity_versions"
     __table_args__ = (
         UniqueConstraint("entity_id", "version_number", name="uq_entity_versions_number"),
@@ -33,7 +33,7 @@ class EntityVersion(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
     # The entity's company — the APP company for a template's versions (PO-23).
-    company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
+    company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, info=refers_to("companies.id"))
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str | None] = mapped_column(String, nullable=True)  # the entity's ``version`` string then
     # Name, type, goal and the nine blocks (``SNAPSHOT_FIELDS``). JSON, not
@@ -43,12 +43,12 @@ class EntityVersion(Base):
     # A draft is authored and test-run; publishing makes it the head.
     published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    published_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    published_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, info=refers_to("users.id"))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, info=refers_to("users.id"))
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
-class EntityAsset(Base):
+class EntityAsset(TenantBase):
     """A script or small text file belonging to one version (R2 §7)."""
     __tablename__ = "entity_assets"
     __table_args__ = (

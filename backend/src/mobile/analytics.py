@@ -6,20 +6,21 @@ facts), campaign_calls (dispositions) and voice_sessions/usage (cost), so
 both clients render identical figures. Tenant users only ever see their own
 attempts; tenant admins may filter by rep.
 """
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, literal, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.campaign_models import Campaign, CampaignCall
-from src.auth.models import User
 from src.mobile.models import (
     ATTEMPT_SUPERSEDED, EXECUTION_MODE_MOBILE, IDENT_CLI, IDENT_CLI_DTMF, IDENT_DTMF,
     MobileCallAttempt,
 )
+from src.common.timezones import DEFAULT_TIMEZONE, zone
 from src.mobile.phone import mask_phone
+from src.mobile.service import user_names
 
 CONVERSATION_MIN_SECONDS = 30
 
@@ -170,7 +171,7 @@ async def by_rep(db: AsyncSession, *, company_id: UUID, campaign_id: Optional[UU
         conds.append(A.created_at < date_to)
     rows = (await db.execute(
         select(
-            A.user_id, User.full_name,
+            A.user_id,
             func.count().label("attempts"),
             func.count().filter(A.lead_dialed_at.isnot(None)).label("dialed"),
             func.count().filter(A.lead_answered_at.isnot(None)).label("answered"),
@@ -178,24 +179,25 @@ async def by_rep(db: AsyncSession, *, company_id: UUID, campaign_id: Optional[UU
             func.coalesce(func.sum(A.conversation_seconds), 0).label("talk_seconds"),
             func.count(func.distinct(case((CampaignCall.disposition == "interested", A.campaign_call_id)))).label("interested"),
         )
-        .join(User, User.id == A.user_id)
         .join(CampaignCall, CampaignCall.id == A.campaign_call_id)
         .where(and_(*conds))
-        .group_by(A.user_id, User.full_name)
+        .group_by(A.user_id)
         .order_by(func.count().desc())
     )).all()
+    names = await user_names(db, [r.user_id for r in rows])
     return [{
-        "user_id": r.user_id, "name": r.full_name, "attempts": r.attempts,
+        "user_id": r.user_id, "name": names[r.user_id], "attempts": r.attempts,
         "answer_rate": _rate(r.answered, r.dialed), "merge_success": _rate(r.merged, r.answered),
         "interested": r.interested, "talk_minutes": round(float(r.talk_seconds) / 60, 1),
-    } for r in rows]
+    } for r in rows if r.user_id in names]
 
 
 async def daily(db: AsyncSession, *, company_id: UUID, user_id: Optional[UUID],
-                date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+                date_from: datetime, date_to: datetime,
+                tz_name: str = DEFAULT_TIMEZONE) -> List[Dict[str, Any]]:
     A = MobileCallAttempt
-    # Bucket by IST calendar day.
-    day = func.date(A.created_at + literal(timedelta(hours=5, minutes=30)))
+    # Bucket by calendar day in the business's time zone (Phase 14 WS1 1.10; was fixed IST).
+    day = func.date(func.timezone(tz_name, A.created_at))
     conds = [A.company_id == company_id, A.status != ATTEMPT_SUPERSEDED,
              A.created_at >= date_from, A.created_at < date_to]
     if user_id:
@@ -226,12 +228,11 @@ async def call_list(db: AsyncSession, *, company_id: UUID, campaign_id: UUID, us
         .group_by(A.campaign_call_id).subquery()
     )
     q = (
-        select(CampaignCall, A, User.full_name)
+        select(CampaignCall, A)
         .select_from(CampaignCall)
         .join(Campaign, Campaign.id == CampaignCall.campaign_id)
         .outerjoin(latest, latest.c.campaign_call_id == CampaignCall.id)
         .outerjoin(A, and_(A.campaign_call_id == CampaignCall.id, A.created_at == latest.c.latest_at))
-        .outerjoin(User, User.id == A.user_id)
         .where(Campaign.id == campaign_id, Campaign.company_id == company_id)
     )
     if user_id:
@@ -244,8 +245,9 @@ async def call_list(db: AsyncSession, *, company_id: UUID, campaign_id: UUID, us
     rows = (await db.execute(
         q.order_by(func.coalesce(A.created_at, CampaignCall.created_at).desc()).limit(limit).offset(offset)
     )).all()
+    names = await user_names(db, [attempt.user_id for _, attempt in rows if attempt])
     items = []
-    for call, attempt, rep_name in rows:
+    for call, attempt in rows:
         contact = call.contact_data or {}
         items.append({
             "campaign_call_id": call.id,
@@ -254,7 +256,7 @@ async def call_list(db: AsyncSession, *, company_id: UUID, campaign_id: UUID, us
             "call_status": call.status,
             "disposition": call.disposition,
             "disposition_reason": call.disposition_reason,
-            "rep_name": rep_name,
+            "rep_name": names.get(attempt.user_id) if attempt else None,
             "attempt_id": attempt.id if attempt else None,
             "attempt_status": attempt.status if attempt else None,
             "identification_method": attempt.identification_method if attempt else None,
@@ -283,13 +285,18 @@ async def attempt_timeline(db: AsyncSession, attempt: MobileCallAttempt) -> List
     return sorted(timeline, key=lambda x: x["at"])
 
 
-def parse_range(date_from: Optional[date], date_to: Optional[date], default_days: int = 7):
-    """IST calendar dates -> naive UTC bounds [from, to)."""
-    ist = timedelta(hours=5, minutes=30)
-    today = (datetime.utcnow() + ist).date()
+def parse_range(date_from: Optional[date], date_to: Optional[date], default_days: int = 7,
+                tz_name: str = DEFAULT_TIMEZONE):
+    """Calendar dates in the business's time zone -> naive UTC bounds [from, to)."""
+    tz = zone(tz_name)
+
+    def utc_midnight(day: date) -> datetime:
+        return datetime.combine(day, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)
+
+    today = datetime.now(tz).date()
     end = (date_to or today) + timedelta(days=1)
     start = date_from or (end - timedelta(days=default_days))
-    return datetime.combine(start, datetime.min.time()) - ist, datetime.combine(end, datetime.min.time()) - ist
+    return utc_midnight(start), utc_midnight(end)
 
 
 __all__ = ["compute_analytics", "by_rep", "daily", "call_list", "attempt_timeline", "parse_range",

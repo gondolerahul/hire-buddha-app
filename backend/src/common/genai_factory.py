@@ -19,12 +19,63 @@ Usage:
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Dict, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+_CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_credentials_lock = threading.Lock()
+_credentials_cache: Dict[str, Any] = {}
+
+
+def google_credentials() -> Any:
+    """Credentials for Vertex AI, or ``None`` for Application Default Credentials.
+
+    On Azure the pods hold no Google key file: ``GOOGLE_WIF_CREDENTIAL_FILE``
+    names an ``external_account`` configuration that trades the pod's
+    Kubernetes service-account token for Google credentials through workload
+    identity federation (Phase 14 WS1 1.5, tech spec §12.4). Every Vertex
+    client — Gemini, Gemini Live, Imagen/Veo, embeddings, Claude on Vertex —
+    gets them here. The credentials refresh themselves; one object per file.
+    """
+    from src.common.config import settings
+
+    path = (settings.GOOGLE_WIF_CREDENTIAL_FILE or "").strip()
+    if not path:
+        return None
+    with _credentials_lock:
+        credentials = _credentials_cache.get(path)
+        if credentials is None:
+            credentials = _load_credentials(path)
+            _credentials_cache[path] = credentials
+        return credentials
+
+
+def _load_credentials(path: str) -> Any:
+    """The file's credentials, without a network call.
+
+    ``google.auth.load_credentials_from_file`` exchanges an external-account
+    token at load time only to learn a project id, which Vertex calls name
+    anyway; an identity-pool file (a projected token file, the AKS case) is
+    built directly and exchanges its token on first use.
+    """
+    import json
+
+    with open(path, encoding="utf-8") as file:
+        info = json.load(file)
+    source = info.get("credential_source") or {}
+    if info.get("type") == "external_account" and ("file" in source or "url" in source):
+        from google.auth import identity_pool
+
+        return identity_pool.Credentials.from_info(info, scopes=[_CLOUD_PLATFORM_SCOPE])
+    import google.auth
+
+    credentials, _project = google.auth.load_credentials_from_file(path, scopes=[_CLOUD_PLATFORM_SCOPE])
+    return credentials
 
 
 def build_vertex_genai_client_sync(
@@ -71,6 +122,9 @@ def build_vertex_genai_client_sync(
         "project": project_id,
         "location": region,
     }
+    credentials = google_credentials()
+    if credentials is not None:
+        kwargs["credentials"] = credentials
     if http_options:
         kwargs["http_options"] = http_options
 

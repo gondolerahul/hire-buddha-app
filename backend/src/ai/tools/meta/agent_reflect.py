@@ -98,9 +98,8 @@ class AgentReflectTool(Tool):
             from uuid import UUID
 
             from src.ai.memory.cortex_service import CortexService
-            from src.common.database import AsyncSessionLocal
-
-            async with AsyncSessionLocal() as db:
+            from src.common.tenancy.session import tenant_session
+            async with tenant_session(company_id) as db:
                 cortex = CortexService(db, company_id=UUID(str(company_id)))
                 # The node status must be a valid CortexNodeStatus; the
                 # *candidate* lifecycle lives in metadata, which Dreaming reads

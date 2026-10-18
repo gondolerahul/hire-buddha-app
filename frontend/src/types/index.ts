@@ -8,6 +8,8 @@ export interface Company {
     onboarding_status?: 'pending' | 'in_progress' | 'completed';
     // What the company may be billed in a calendar month; null = no cap (GH-18).
     monthly_spend_cap_usd?: number | null;
+    // The business time zone schedules and reports use (Phase 14).
+    timezone?: string;
     created_at: string;
     updated_at: string;
 }
@@ -300,6 +302,11 @@ export interface Capabilities {
         inject_semantic_context?: boolean;
         inject_cortex_viewport?: boolean;
         no_truncation?: boolean;
+    };
+    /** The agent's Automation tab (Phase 14 WS3): may triggers run it; whom it may schedule. */
+    automation?: {
+        triggerable?: boolean;
+        can_schedule?: string[];
     };
 }
 

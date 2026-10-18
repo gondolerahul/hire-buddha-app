@@ -70,6 +70,7 @@ async def test_twilio_hangs_up_without_a_session(refused):
 
 class _JsonRequest:
     headers = {"content-type": "application/json"}
+    query_params: dict = {}
 
     def __init__(self, payload):
         self.payload = payload

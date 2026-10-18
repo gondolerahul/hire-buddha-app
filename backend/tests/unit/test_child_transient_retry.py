@@ -72,7 +72,7 @@ async def test_a_queue_outage_says_so_and_leaves_the_step_ready(monkeypatch):
 
     engine, redis, created, _enqueued = _dispatch_fakes(monkeypatch)
 
-    async def _down(_redis, _run_id):
+    async def _down(_redis, _run_id, _company_id=None):
         raise ConnectionError("Error 10061 connecting to localhost:6379")
 
     monkeypatch.setattr("src.common.job_queue.enqueue_child_run", _down)

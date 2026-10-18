@@ -202,7 +202,7 @@ class LLMRouter:
                 )
             effective_model = integration.model_name or ""
         from src.config.models import needs_api_key
-        if not api_key and needs_api_key(integration.provider_name):
+        if not api_key and needs_api_key(integration.provider_name, integration.service_metadata):
             raise RuntimeError(
                 f"No API key found for integration '{integration.provider_name}/{effective_model}'. "
                 f"Please check the Service Integration configuration."
@@ -229,7 +229,7 @@ class LLMRouter:
         integration, api_key = await ConfigService(self.db).resolve_fallback_for_task(self.company_id, task_type)
         adapter: Optional[BaseLLMAdapter] = None
         if integration is not None:
-            if not api_key and needs_api_key(integration.provider_name):
+            if not api_key and needs_api_key(integration.provider_name, integration.service_metadata):
                 logger.warning("Fallback %s/%s for %s has no API key; not used",
                                integration.provider_name, integration.model_name, task_type)
             else:

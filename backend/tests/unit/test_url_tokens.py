@@ -116,4 +116,6 @@ async def test_ending_sessions_ends_url_tokens() -> None:
 
 
 def test_the_scopes_are_the_routes_that_read_a_query_token() -> None:
-    assert set(URL_TOKEN_SCOPES) == {"/api/v1/artifacts/", "/api/v1/ai/executions/", "/stream/"}
+    # /api/v1/files/: signed file links for media the browser loads (Phase 14 WS1 1.3).
+    assert set(URL_TOKEN_SCOPES) == {"/api/v1/artifacts/", "/api/v1/files/", "/api/v1/ai/executions/",
+                                     "/stream/"}

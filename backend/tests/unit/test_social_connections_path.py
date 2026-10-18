@@ -55,7 +55,7 @@ class _Session:
 @pytest.mark.parametrize("path, deprecated", [("/api/v1/social-connections", False),
                                               ("/api/social-connections", True)])
 async def test_both_paths_answer_and_the_old_one_says_it_is_deprecated(monkeypatch, caplog, path, deprecated):
-    monkeypatch.setattr(social_router, "AsyncSessionLocal", _Session)
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", _Session)  # through tenant_session
     app = FastAPI()
     app.include_router(social_router.router)
     app.dependency_overrides[get_current_user_and_company] = lambda: (

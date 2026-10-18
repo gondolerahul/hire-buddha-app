@@ -321,7 +321,9 @@ async def test_answering_an_approval_resumes_its_run(db, test_company_id, enqueu
     reviewer = await _user(db, test_company_id)
     res = await _post(_app(db, test_company_id, reviewer), approval_id, {"status": "APPROVED"})
     assert res.status_code == 200, res.text
-    assert ("resume_paused_run", (str(run.id),), {"_job_id": f"hitl-decided:{approval_id}"}) in enqueued
+    # The job names the run's tenant (Phase 14 WS2 2.5).
+    assert ("resume_paused_run", (str(run.id),),
+            {"company_id": str(test_company_id), "_job_id": f"hitl-decided:{approval_id}"}) in enqueued
 
 
 # ── COST_THRESHOLD asks before the step that would cross it (GH-08) ─────────

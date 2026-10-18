@@ -26,7 +26,7 @@ CTX = {"company_id": "c-1", "run_id": "r-1"}
 UNCONVERTED = {
     "agent_introspect", "agent_reflect",
     "document_save", "docx_tool", "email_classify", "email_ingest",
-    "excel_tool", "file_writer", "get_current_datetime",
+    "excel_tool", "file_writer",
     "image_generation", "meta_entity_creator", "meta_entity_executor",
     "meta_platform_introspect", "meta_registry_search", "meta_schema_validator", "meta_spec_critic",
     "pdf_generator", "pptx_tool", "terminal", "tool_synthesis", "video_add_sound",

@@ -128,6 +128,28 @@ else
     echo -e "${GREEN}✓ Arq child-run worker started (PID: $CHILD_PID)${NC}"
 fi
 
+# Automation events have their own queue and worker (Phase 14 WS3).
+if pgrep -f "arq src.ai.worker.EventWorkerSettings" > /dev/null; then
+    echo -e "${YELLOW}Arq event worker already running. Skipping.${NC}"
+else
+    cd "$BACKEND_DIR"
+    nohup "$BACKEND_DIR/.venv/bin/python" -m arq src.ai.worker.EventWorkerSettings > "$LOG_DIR/arq_event_worker.log" 2>&1 &
+    EVENT_PID=$!
+    echo $EVENT_PID > "$LOG_DIR/arq_event_worker.pid"
+    echo -e "${GREEN}✓ Arq event worker started (PID: $EVENT_PID)${NC}"
+fi
+
+# The tenant scheduler fires schedules and timers (Phase 14 WS3).
+if pgrep -f "python -m src.automation.scheduler" > /dev/null; then
+    echo -e "${YELLOW}Scheduler already running. Skipping.${NC}"
+else
+    cd "$BACKEND_DIR"
+    nohup "$BACKEND_DIR/.venv/bin/python" -m src.automation.scheduler > "$LOG_DIR/scheduler.log" 2>&1 &
+    SCHEDULER_PID=$!
+    echo $SCHEDULER_PID > "$LOG_DIR/scheduler.pid"
+    echo -e "${GREEN}✓ Scheduler started (PID: $SCHEDULER_PID)${NC}"
+fi
+
 # Step 4: Start Frontend
 echo -e "${BLUE}[4/4] Starting Frontend (Port 3000)...${NC}"
 

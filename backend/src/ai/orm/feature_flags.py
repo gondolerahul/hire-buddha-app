@@ -20,12 +20,12 @@ from sqlalchemy import Boolean, DateTime, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase
 
 __all__ = ["FeatureFlag"]
 
 
-class FeatureFlag(Base):
+class FeatureFlag(ControlBase):
     __tablename__ = "feature_flags"
     __table_args__ = (
         Index("ix_feature_flags_global", "flag_key", unique=True,

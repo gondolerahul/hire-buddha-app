@@ -100,7 +100,7 @@ def gateway(monkeypatch):
     async def _full(_company):
         raise RunQuotaExceeded("This company may start 60 runs a minute")
 
-    monkeypatch.setattr(arq_jobs, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", lambda: session)
     monkeypatch.setattr(agent_choice, "choose_agent", _choose)
     monkeypatch.setattr(run_quota, "require_run_slot", _full)
     envelope = {"client_id": str(uuid.uuid4()), "event_type": "lead.created", "source": "crm",

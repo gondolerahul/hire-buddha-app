@@ -10,23 +10,24 @@ from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase, refers_to
 
 if TYPE_CHECKING:
     from src.auth.models import Company
     from src.config.models import IntegrationRegistry
-    from src.ai.orm.execution import ExecutionRun
 
 __all__ = ["UsageLog"]
 
 
-class UsageLog(Base):
+class UsageLog(ControlBase):
     __tablename__ = "usage_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
-    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("execution_runs.id"), nullable=True, index=True)  # DM-06
+    # The run is in its tenant's database: no foreign key (WS2 2.3).
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True, info=refers_to("execution_runs.id"))  # DM-06
     # NULL for a charge with no registry row — a fixed-cost tool (BC-07).
     sku_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("integration_registry.id"), nullable=True)
     raw_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
@@ -36,7 +37,6 @@ class UsageLog(Base):
     attribution: Mapped[str] = mapped_column(String(40), nullable=False, server_default="tool")
 
     company: Mapped["Company"] = relationship("Company")
-    run: Mapped["ExecutionRun | None"] = relationship("ExecutionRun", back_populates="usage_logs")
     sku: Mapped["IntegrationRegistry | None"] = relationship("IntegrationRegistry")
 
     __table_args__ = (

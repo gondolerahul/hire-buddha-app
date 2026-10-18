@@ -23,7 +23,7 @@ URL_TOKEN_TYPE = "url"
 URL_TOKEN_TTL_SECONDS = 600
 # The prefixes a URL token may be minted for — the routes that read ``?token=``.
 # "/stream/" is the live audio and video sockets' handshake (GW-04).
-URL_TOKEN_SCOPES = ("/api/v1/artifacts/", "/api/v1/ai/executions/", "/stream/")
+URL_TOKEN_SCOPES = ("/api/v1/artifacts/", "/api/v1/files/", "/api/v1/ai/executions/", "/stream/")
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)

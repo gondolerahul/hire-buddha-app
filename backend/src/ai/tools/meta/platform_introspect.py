@@ -53,12 +53,11 @@ class MetaPlatformIntrospectTool(Tool):
         try:
             from uuid import UUID
             from src.ai.meta.platform_schema_compiler import PlatformSchemaCompiler
-            from src.common.database import AsyncSessionLocal
-
+            from src.common.tenancy.session import tenant_session
             company_uuid = UUID(str(company_id)) if company_id else None
 
             # Use isolated session to avoid poisoning caller's session
-            async with AsyncSessionLocal() as isolated_db:
+            async with tenant_session(company_uuid) as isolated_db:
                 compiler = PlatformSchemaCompiler(db=isolated_db, company_id=company_uuid)
 
                 if mode == "refresh":

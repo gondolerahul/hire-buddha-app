@@ -114,7 +114,7 @@ async def _process(document, *, total: int, embedded: int):
     kt.get_or_create_company_knowledge_tree = AsyncMock(return_value=tree)
     kt.ingest_document = AsyncMock(return_value=5)
     kt.chunk_embedding_counts = AsyncMock(return_value=(total, embedded))
-    with patch.object(arq_jobs, "AsyncSessionLocal", return_value=session_cm), \
+    with patch("src.common.database.AsyncSessionLocal", return_value=session_cm), \
          patch("src.ai.memory.knowledge_tree_service.KnowledgeTreeService", return_value=kt):
         await arq_jobs.process_document({}, str(document.id), b"# Title\nbody", "txt", "notes.txt")
     return kt

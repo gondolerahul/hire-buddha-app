@@ -1,0 +1,11 @@
+apiVersion: v2
+name: hb-bootstrap
+description: >-
+  What a new HireBuddha cluster needs before hb-platform (Phase 14 WS0 0.4):
+  namespaces, workload-identity service accounts, the platform Gateway (Envoy
+  Gateway) with TLS from cert-manager, and the OpenTelemetry Collector that
+  forwards traces to Application Insights. Third-party controllers are
+  installed by infra/k8s/bootstrap/install.sh.
+type: application
+version: 0.1.0
+appVersion: "phase14"

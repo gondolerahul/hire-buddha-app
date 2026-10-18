@@ -262,7 +262,8 @@ class AgentLoop(RunPersistence, LoopLearning):
         if state.suspend_requested and not last_error:
             await self._persist_suspended(run, state)
             if state.awaiting_approval:
-                await approval_pause.schedule_deadline(run_id, state.awaiting_approval)
+                await approval_pause.schedule_deadline(run_id, state.awaiting_approval,
+                                                       company_id=run.company_id)
             return AgentLoopOutcome(
                 run_id=str(run_id),
                 status=outcome_status,
@@ -634,8 +635,8 @@ class AgentLoop(RunPersistence, LoopLearning):
             try:
                 # Every executor on its own session (AK-18): a step that commits
                 # (a child run, a plan, a bill) cannot corrupt the loop's session.
-                from src.common.database import AsyncSessionLocal
-                async with AsyncSessionLocal() as exec_db:
+                from src.common.tenancy.session import tenant_session
+                async with tenant_session(state.company_id or self.company_id) as exec_db:
                     with step_signals(signals_from_state(state)):   # typed, not dict keys (AK-21)
                         action_result: ActionResult = await executor.execute(move, state, exec_db)
             except HITLPending as pending:

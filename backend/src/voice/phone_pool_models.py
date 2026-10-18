@@ -15,10 +15,10 @@ from datetime import datetime
 from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, Numeric, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase, refers_to
 
 
-class PhoneNumber(Base):
+class PhoneNumber(ControlBase):
     """
     Unified phone number table replacing both `phone_number_pool`
     and `customer_phone_numbers`.
@@ -38,8 +38,10 @@ class PhoneNumber(Base):
     claimed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     claimed_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Agent assignment (set when assigned)
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
+    # Agent assignment (set when assigned). The agent is in the number's
+    # company's tenant database (WS2 2.3): no foreign key; the routes that set
+    # it read the agent there first.
+    agent_id = Column(UUID(as_uuid=True), nullable=True, info=refers_to("hierarchical_entities.id"))
     customer_id = Column(UUID(as_uuid=True), nullable=True)
     customer_name = Column(String(255), nullable=True)
     customer_metadata = Column(JSONB, nullable=True)
@@ -61,7 +63,6 @@ class PhoneNumber(Base):
 
     # Relationships
     company = relationship("Company", foreign_keys=[company_id])
-    agent = relationship("HierarchicalEntity", foreign_keys=[agent_id])
     added_by_user = relationship("User", foreign_keys=[added_by_user_id])
 
     __table_args__ = (

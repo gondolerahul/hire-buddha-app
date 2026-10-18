@@ -23,6 +23,7 @@ from src.ai.artifact_models import Artifact
 from src.ai.artifact_service import ARTIFACT_BASE_DIR, ORIGIN_SYSTEM, ArtifactService, save_tool_output
 from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.common.orm_models import import_all_models
+from src.common.platform.storage import company_namespace
 
 import_all_models()  # the artifact row references campaigns
 
@@ -58,6 +59,7 @@ async def tree(db, monkeypatch):
     yield type("T", (), {"company": c.id, "entity": ent.id, "parent": parent.id, "child": child.id,
                          "other": other.id})
     shutil.rmtree(ARTIFACT_BASE_DIR / ORIGIN_SYSTEM / str(c.id), ignore_errors=True)
+    shutil.rmtree(ARTIFACT_BASE_DIR / company_namespace(c.id), ignore_errors=True)
 
 
 def _ctx(t, run):

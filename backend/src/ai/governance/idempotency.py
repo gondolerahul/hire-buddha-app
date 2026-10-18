@@ -33,14 +33,15 @@ def write_key(run_id: Any, tool: str, args: Any) -> Optional[str]:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-async def earlier_result(run_id: Any, key: str) -> Optional[Any]:
-    """The output of the run's earlier successful call with ``key``, if any."""
+async def earlier_result(run_id: Any, key: str, company_id: Any = None) -> Optional[Any]:
+    """The output of the run's earlier successful call with ``key``, if any
+    (``company_id``: the run's tenant database)."""
     from sqlalchemy import select
 
     from src.ai.orm.execution import ToolInteractionLog
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import tenant_session
 
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(company_id) as db:
         return (await db.execute(
             select(ToolInteractionLog.output_result).where(
                 ToolInteractionLog.run_id == run_id,

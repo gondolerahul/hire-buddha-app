@@ -81,12 +81,11 @@ class ToolSynthesisTool(Tool):
 
         from src.ai.llm.router import LLMRouter
         from src.ai.meta.tool_synthesis_pipeline import ToolSynthesisPipeline
-        from src.common.database import AsyncSessionLocal
-
+        from src.common.tenancy.session import tenant_session
         user_id = context.get("user_id")
         created_by = UUID(str(user_id)) if user_id else None
         try:
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_uuid) as db:
                 llm = LLMRouter(db=db, company_id=company_uuid)
                 pipeline = ToolSynthesisPipeline()
                 report = await pipeline.run(

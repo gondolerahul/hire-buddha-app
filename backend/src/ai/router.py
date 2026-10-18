@@ -1,10 +1,14 @@
+from contextlib import asynccontextmanager, nullcontext
 from fastapi import APIRouter, Depends, HTTPException, File, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
-from typing import List, Optional
-from src.common.database import get_db
+from typing import Any, AsyncIterator, List, Optional
 from src.auth.dependencies import get_current_user, get_current_user_from_query, RoleChecker
+from src.common.tenancy.session import (
+    get_acting_tenant_db, get_acting_tenant_db_from_query, get_control_db, get_tenant_db,
+    is_split, tenant_db_for, tenant_session,
+)
 from src.auth.visibility import in_scope, visible_company_ids
 from src.auth.models import User
 from src.auth.roles import ADMIN_ROLES
@@ -17,8 +21,30 @@ from src.ai.schemas import (
 from src.ai.service import AIService
 from src.common.pagination import CursorParam, LimitParam, Page, keyset, page_of
 from src.ai.services.knowledge_base import KnowledgeBaseService, file_type_of
+from src.ai.artifact_router import public_file_url
 
 router = APIRouter(prefix="/ai", tags=["AI Hierarchical Agent Platform"])
+
+# Which database each route works in (Phase 14 WS2 2.4): the caller's own
+# company's (``get_tenant_db``); for the routes that read or change another
+# company's agents or runs, the acting company's (``get_acting_tenant_db``,
+# the ``X-Company-Id`` header); a company the route names, or the template
+# library, through ``tenant_db_for``. With TENANCY_MODE=single every one of
+# them is the request's one session, as ``get_db`` was.
+
+
+@asynccontextmanager
+async def _template_library(db: AsyncSession) -> AsyncIterator[AsyncSession]:
+    """The session holding the template library: the platform (APP) company's (PO-23)."""
+    owner = None
+    if is_split():
+        from src.auth.platform import platform_company_id
+
+        owner = await platform_company_id(db)
+        if owner is None:
+            raise HTTPException(status_code=409, detail="There is no platform (APP) company to own templates")
+    async with tenant_db_for(db, owner) as library:
+        yield library
 
 
 def _shown(entity) -> HierarchicalEntityResponse:
@@ -44,7 +70,7 @@ def _shown(entity) -> HierarchicalEntityResponse:
 async def create_entity(
     entity_in: HierarchicalEntityCreateRequest,
     target_company_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user)
 ):
     # Determine the effective company for this entity: any company the caller
@@ -55,9 +81,12 @@ async def create_entity(
             raise HTTPException(status_code=403, detail="Not authorized to create entities for this company")
         effective_company_id = target_company_id
 
-    service = AIService(db)
-    return await service.create_entity(entity_in, effective_company_id, current_user.id,
-                                       user_role=current_user.role)
+    # The entity lives in its company's database; a template in the library's.
+    target = _template_library(db) if entity_in.is_template else tenant_db_for(db, effective_company_id)
+    async with target as entity_db:
+        service = AIService(entity_db)
+        return await service.create_entity(entity_in, effective_company_id, current_user.id,
+                                           user_role=current_user.role)
 
 @router.get("/entities", response_model=Page[HierarchicalEntityResponse])
 async def list_entities(
@@ -69,7 +98,8 @@ async def list_entities(
         "Admins only: include soft-deleted entities (status DELETED, deleted_at set) — API-18")),
     limit: int = LimitParam(),
     cursor: Optional[str] = CursorParam(),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
+    control_db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user)
 ):
     """One page of the entities the caller may see, newest first (API-16:
@@ -79,23 +109,25 @@ async def list_entities(
     # with ?company_id=.
     if include_deleted and current_user.role not in ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="include_deleted is for admins")
-    scope = await visible_company_ids(db, current_user)
-    if company_id and current_user.role == "app_admin":
+    scope = await visible_company_ids(control_db, current_user)
+    named = company_id and current_user.role == "app_admin"
+    if named:
         scope = frozenset({company_id})
 
     from src.ai.orm import HierarchicalEntity
 
-    query = AIService(db).entities_query(
-        scope, type, is_template=False, voice_enabled=voice_enabled, status_filter=status,
-        include_deleted=include_deleted,
-    )
-    query = keyset(query, HierarchicalEntity.created_at, HierarchicalEntity.id, cursor, limit)
-    return page_of((await db.execute(query)).scalars().all(), limit)
+    async with (tenant_db_for(control_db, company_id) if named else nullcontext(db)) as list_db:
+        query = AIService(list_db).entities_query(
+            scope, type, is_template=False, voice_enabled=voice_enabled, status_filter=status,
+            include_deleted=include_deleted,
+        )
+        query = keyset(query, HierarchicalEntity.created_at, HierarchicalEntity.id, cursor, limit)
+        return page_of((await list_db.execute(query)).scalars().all(), limit)
 
 @router.get("/entities/{entity_id}", response_model=HierarchicalEntityResponse)
 async def get_entity(
     entity_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -105,7 +137,7 @@ async def get_entity(
 async def update_entity(
     entity_id: UUID,
     entity_in: HierarchicalEntityUpdateRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -124,7 +156,7 @@ _SOFT_DELETE = (
                summary="Soft-delete an entity and its descendants", description=_SOFT_DELETE)
 async def delete_entity(
     entity_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -133,7 +165,8 @@ async def delete_entity(
 @router.post("/entities/{entity_id}/convert-to-template", response_model=HierarchicalEntityResponse)
 async def convert_entity_to_template(
     entity_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
+    control_db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(RoleChecker(["app_admin"]))
 ):
     """
@@ -141,13 +174,15 @@ async def convert_entity_to_template(
     template hierarchy.  The original entities are left untouched.
     Requires app_admin role.
     """
-    service = AIService(db)
-    return await service.convert_to_template(entity_id, current_user.company_id, current_user.id)
+    async with _template_library(control_db) as library:
+        service = AIService(db)
+        return await service.convert_to_template(entity_id, current_user.company_id, current_user.id,
+                                                 library_db=library)
 
 # --- Dashboard ---
 @router.get("/stats", response_model=dict)
 async def get_dashboard_stats(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -157,7 +192,7 @@ async def get_dashboard_stats(
 @router.post("/execute", response_model=ExecutionRunResponse)
 async def trigger_execution(
     execution_in: ExecutionRunCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -167,7 +202,7 @@ async def trigger_execution(
 async def list_executions(
     limit: int = LimitParam(),
     cursor: Optional[str] = CursorParam(),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """One page of the caller's top-level runs, newest first (API-16)."""
@@ -180,7 +215,7 @@ async def list_executions(
 @router.get("/executions/{execution_id}", response_model=ExecutionRunResponse)
 async def get_execution(
     execution_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -191,7 +226,7 @@ async def get_execution(
 async def record_execution_csat(
     execution_id: UUID,
     payload: CSATRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user),
 ):
     """Capture a +1/-1 CSAT rating on a completed run (Phase 12 `07` §6)."""
@@ -204,7 +239,7 @@ async def record_execution_csat(
 @router.get("/executions/{execution_id}/agent_state")
 async def get_agent_state(
     execution_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user),
 ):
     """Phase 11 Track 2 — read the latest AgentState snapshot for a run.
@@ -265,7 +300,7 @@ async def get_agent_state(
 async def get_execution_trace(
     execution_id: UUID,
     iteration: Optional[int] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user),
 ):
     """Per-iteration transparency trace for a run.
@@ -332,13 +367,12 @@ SSE_HEADERS = {"Cache-Control": "no-cache, no-transform"}
 SSE_IDLE_SECONDS = 15
 
 
-async def _stored_run_status(run_id: UUID) -> Optional[str]:
+async def _stored_run_status(run_id: UUID, company_id: Any = None) -> Optional[str]:
     """The run's status as stored now, read on a session of its own (the
-    request's session is not the stream's to use)."""
+    request's session is not the stream's to use), in the run's tenant database."""
     from src.ai.orm import ExecutionRun
-    from src.common.database import AsyncSessionLocal
 
-    async with AsyncSessionLocal() as session:
+    async with tenant_session(company_id) as session:
         status = (await session.execute(
             select(ExecutionRun.status).where(ExecutionRun.id == run_id)
         )).scalar_one_or_none()
@@ -350,7 +384,7 @@ async def stream_execution(
     execution_id: UUID,
     request: Request,
     last_event_id: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db_from_query),
     current_user: User = Depends(get_current_user_from_query)
 ):
     """The run's live frames as server-sent events (GW-18, GW-19).
@@ -366,7 +400,8 @@ async def stream_execution(
     with a terminal ``run_end`` of the stored status.
     """
     service = AIService(db)
-    await service.get_execution(execution_id, current_user.company_id, current_user.role)
+    run = await service.get_execution(execution_id, current_user.company_id, current_user.role)
+    run_company_id = run.company_id
 
     import json
     import logging
@@ -392,7 +427,7 @@ async def stream_execution(
                     if is_terminal(data):
                         return
                 if not frames:
-                    status = await _stored_run_status(execution_id)
+                    status = await _stored_run_status(execution_id, run_company_id)
                     if status is None or is_terminal_status(status):
                         last = {"type": "run_end", "outcome": status, "terminal": True}
                         yield f"data: {json.dumps(last)}\n\n"
@@ -418,7 +453,7 @@ async def stream_execution(
 @router.post("/executions/{execution_id}/cancel", response_model=ExecutionRunResponse)
 async def cancel_execution(
     execution_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user),
 ):
     """Cancel an in-flight execution run.
@@ -437,7 +472,7 @@ async def cancel_execution(
 @router.post("/executions/{execution_id}/retry", response_model=ExecutionRunResponse)
 async def retry_execution(
     execution_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -453,7 +488,7 @@ async def retry_execution(
 async def refine_execution(
     execution_id: UUID,
     refine_in: ExecutionRefineRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -471,7 +506,7 @@ async def refine_execution(
 # --- HITL (Human-In-The-Loop) ---
 @router.get("/approvals/pending", response_model=List[dict])
 async def list_pending_approvals(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -494,7 +529,7 @@ async def list_pending_approvals(
 async def respond_to_approval(
     approval_id: UUID,
     decision: ApprovalDecision,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Answer one of your company's pending approvals: ``{"status": "APPROVED" | "REJECTED", "notes"?}``."""
@@ -508,7 +543,8 @@ async def respond_to_approval(
     # resume it now. Best-effort — the stuck-run sweep resumes a run whose
     # approval was decided and nobody picked it up.
     from src.ai.core.approval_pause import enqueue_resume
-    await enqueue_resume(approval.run_id, job_id=f"hitl-decided:{approval_id}")
+    await enqueue_resume(approval.run_id, job_id=f"hitl-decided:{approval_id}",
+                         company_id=current_user.company_id)
 
     return {"status": "success", "decision": decision.status}
 
@@ -518,7 +554,7 @@ async def respond_to_approval(
 async def upload_context_source(
     file: UploadFile = File(...),
     entity_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -640,7 +676,7 @@ async def upload_context_source(
 async def upload_document(
     file: UploadFile = File(...),
     entity_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Upload a document; omit ``entity_id`` to share it with every agent in the company."""
@@ -653,36 +689,43 @@ async def upload_document(
 @router.post("/avatar/upload", response_model=dict)
 async def upload_avatar(
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Upload an avatar image for an entity. Returns the public URL."""
+    """Upload an avatar image for an entity. Returns the public URL.
+
+    Kept as a public artifact of the company and served by
+    ``GET /api/v1/files/{id}/public`` — a signed storage link on Azure — instead
+    of a file under the static ``/artifact`` mount (Phase 14 WS1 1.3).
+    """
+    import mimetypes
     import uuid as _uuid
-    from pathlib import Path
+
+    from src.ai.artifact_service import ArtifactService, ORIGIN_USER
 
     allowed = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     if ext not in allowed:
         raise HTTPException(400, f"File type '.{ext}' not allowed. Use: {', '.join(allowed)}")
 
-    if file.size and file.size > 5 * 1024 * 1024:
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
         raise HTTPException(400, "Avatar must be under 5 MB")
 
-    avatar_dir = Path(__file__).resolve().parents[2] / "artifact" / "user-uploads" / "avatars"
-    avatar_dir.mkdir(parents=True, exist_ok=True)
-
     filename = f"{_uuid.uuid4().hex[:12]}.{ext}"
-    filepath = avatar_dir / filename
-
-    content = await file.read()
-    filepath.write_bytes(content)
-
-    url = f"/artifact/user-uploads/avatars/{filename}"
-    return {"url": url, "filename": filename}
+    artifact = await ArtifactService(db).save_artifact(
+        file_bytes=content, file_name=filename,
+        mime_type=mimetypes.guess_type(filename)[0] or "application/octet-stream",
+        file_category="images", origin=ORIGIN_USER, company_id=current_user.company_id,
+        purpose="Agent avatar", generated_by="user-upload:entity-avatar",
+        extra_metadata={"public": True},
+    )
+    return {"url": public_file_url(artifact.id, current_user.company_id), "filename": filename}
 
 @router.get("/documents", response_model=List[DocumentResponse])
 async def list_documents(
     entity_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     return await KnowledgeBaseService(db, current_user.company_id).list(entity_id)
@@ -690,7 +733,7 @@ async def list_documents(
 @router.get("/documents/{document_id}", response_model=DocumentDetail)
 async def get_document(
     document_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """One document with its ingestion outline and a text preview."""
@@ -700,7 +743,7 @@ async def get_document(
 async def update_document(
     document_id: UUID,
     body: DocumentUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Rename and/or re-scope a document (``entity_id: null`` = company-wide)."""
@@ -713,7 +756,7 @@ async def update_document(
 async def replace_document_file(
     document_id: UUID,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Replace a document's content; it is re-ingested under the same id."""
@@ -726,7 +769,7 @@ async def replace_document_file(
 @router.delete("/documents/{document_id}", response_model=dict)
 async def delete_document(
     document_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """Delete a document and every Knowledge Tree node ingested from it."""
@@ -738,7 +781,7 @@ async def search_documents(
     query: str,
     entity_id: Optional[UUID] = None,
     top_k: int = 5,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
@@ -756,60 +799,68 @@ app_admin_only = RoleChecker(["app_admin"])
 @router.get("/templates", response_model=List[HierarchicalEntityResponse])
 async def list_templates(
     type: Optional[EntityType] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user)
 ):
-    service = AIService(db)
-    # Templates are public — no company_id scoping
-    return await service.get_entities(None, type, is_template=True)
+    async with _template_library(db) as library:
+        service = AIService(library)
+        # Templates are public — no company_id scoping
+        return await service.get_entities(None, type, is_template=True)
 
 @router.get("/templates/{template_id}", response_model=HierarchicalEntityResponse)
 async def get_template(
     template_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user)
 ):
-    service = AIService(db)
-    return _shown(await service.get_entity(template_id, current_user.company_id, current_user.role))
+    async with _template_library(db) as library:
+        service = AIService(library)
+        return _shown(await service.get_entity(template_id, current_user.company_id, current_user.role))
 
 @router.post("/templates", response_model=HierarchicalEntityResponse)
 async def create_template(
     entity_in: HierarchicalEntityCreateRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only)
 ):
     entity_in.is_template = True
-    service = AIService(db)
-    # A template belongs to the platform (APP) company; create_entity sets it (PO-23)
-    return await service.create_entity(entity_in, current_user.company_id, current_user.id,
-                                       user_role=current_user.role)
+    async with _template_library(db) as library:
+        service = AIService(library)
+        # A template belongs to the platform (APP) company; create_entity sets it (PO-23)
+        return await service.create_entity(entity_in, current_user.company_id, current_user.id,
+                                           user_role=current_user.role)
 
 @router.put("/templates/{template_id}", response_model=HierarchicalEntityResponse)
 async def update_template(
     template_id: UUID,
     entity_in: HierarchicalEntityUpdateRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only)
 ):
-    service = AIService(db)
-    return _shown(await service.update_entity(template_id, entity_in, current_user.company_id, user_role=current_user.role, user_id=current_user.id))
+    async with _template_library(db) as library:
+        service = AIService(library)
+        return _shown(await service.update_entity(template_id, entity_in, current_user.company_id, user_role=current_user.role, user_id=current_user.id))
 
 @router.delete("/templates/{template_id}", response_model=EntityDeleted,
                summary="Soft-delete a template and its descendants", description=_SOFT_DELETE)
 async def delete_template(
     template_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(app_admin_only)
 ):
-    service = AIService(db)
-    return await service.delete_entity(template_id, current_user.company_id, user_role=current_user.role)
+    async with _template_library(db) as library:
+        service = AIService(library)
+        return await service.delete_entity(template_id, current_user.company_id, user_role=current_user.role)
 
 @router.post("/templates/{template_id}/clone", response_model=HierarchicalEntityResponse)
 async def clone_template(
     template_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
+    control_db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user)
 ):
-    service = AIService(db)
-    return await service.clone_template(template_id, current_user.company_id, current_user.id)
+    async with _template_library(control_db) as library:
+        service = AIService(db)
+        return await service.clone_template(template_id, current_user.company_id, current_user.id,
+                                            library_db=library)
 

@@ -16,6 +16,7 @@ from typing import Any
 __all__ = [
     "workspace_root", "tenant_workspace", "company_roots", "skills_root", "drop_box_root",
     "PathOutsideWorkspace", "confine_path", "confine_params", "safe_filename",
+    "confine_params_async", "confine_path_async", "fetch_storage_keys", "company_storage_key",
 ]
 
 logger = logging.getLogger(__name__)
@@ -80,15 +81,85 @@ class PathOutsideWorkspace(ValueError):
 
 
 def company_roots(company_id: Any) -> list[str]:
-    """The directories one company's tools may read and write."""
-    from src.ai.artifact_service import ARTIFACT_BASE_DIR, ORIGIN_SYSTEM, ORIGIN_USER
+    """The directories one company's tools may read and write: its workspace
+    and its artifact folders on local-disk storage."""
+    from src.ai.artifact_service import company_storage_dirs
 
     cid = str(company_id)
-    return [
-        tenant_workspace(cid),
-        str(ARTIFACT_BASE_DIR / ORIGIN_SYSTEM / cid),
-        str(ARTIFACT_BASE_DIR / ORIGIN_USER / cid),
-    ]
+    return [tenant_workspace(cid)] + [str(path) for path in company_storage_dirs(cid)]
+
+
+# A tool may also be handed one of the company's storage keys — what
+# ``file_path`` is when files are on Blob storage (Phase 14 WS1 1.2). Before a
+# path is confined, such a key becomes a local copy under the workspace.
+STORAGE_CACHE_DIR = ".storage"
+
+
+def company_storage_key(company_id: Any, value: str) -> str | None:
+    """``value`` when it is a storage key of the company's own files, else ``None``."""
+    from src.ai.artifact_service import ORIGIN_SYSTEM, ORIGIN_USER
+    from src.common.platform.storage import InvalidStorageKey, company_namespace, validate_key
+
+    try:
+        validate_key(value)
+        own = company_namespace(company_id)
+    except (InvalidStorageKey, ValueError):
+        return None
+    namespace, _, rest = value.partition("/")
+    if namespace == own:
+        return value
+    if namespace in (ORIGIN_SYSTEM, ORIGIN_USER) and rest.startswith(f"{company_id}/"):
+        return value
+    return None
+
+
+async def fetch_storage_keys(params: dict[str, Any], company_id: Any, keys: tuple[str, ...]) -> None:
+    """Replace each of the company's storage keys among ``params[keys]`` with a
+    local file holding it: the stored file on local disk, else a copy cached in
+    the workspace (a key names immutable bytes, so a cached copy stays right)."""
+    if not company_id:
+        return
+    from src.common.platform.storage import StorageObjectNotFound, get_storage
+
+    storage = get_storage()
+
+    async def local(value: Any) -> Any:
+        key = company_storage_key(company_id, value) if isinstance(value, str) and value else None
+        if key is None:
+            return value
+        path = storage.local_path(key)
+        if path is not None:
+            return str(path)
+        target = os.path.join(tenant_workspace(company_id), STORAGE_CACHE_DIR, *key.split("/"))
+        if not os.path.isfile(target):
+            try:
+                data = await storage.get(key)
+            except StorageObjectNotFound:
+                return value  # the tool reports the missing file as for any path
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "wb") as file:
+                file.write(data)
+        return target
+
+    for name in keys:
+        value = params.get(name)
+        if isinstance(value, list):
+            params[name] = [await local(v) for v in value]
+        elif value:
+            params[name] = await local(value)
+
+
+async def confine_params_async(params: dict[str, Any], company_id: Any, keys: tuple[str, ...]) -> None:
+    """:func:`confine_params`, after the company's storage keys became local files."""
+    await fetch_storage_keys(params, company_id, keys)
+    confine_params(params, company_id, keys)
+
+
+async def confine_path_async(company_id: Any, path: Any) -> str:
+    """:func:`confine_path`, accepting one of the company's storage keys too."""
+    holder = {"path": path}
+    await fetch_storage_keys(holder, company_id, ("path",))
+    return confine_path(company_id, holder["path"])
 
 
 def _inside(path: str, root: str) -> bool:

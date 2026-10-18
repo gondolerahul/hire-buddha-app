@@ -1,0 +1,134 @@
+name: deploy-azure
+
+# Phase 14 WS0 0.5: build the platform images, push them to the environment's
+# registry and roll out the hb-platform chart. A push to main — or, while
+# Phase 14 stays off main (decision D46), to roadmap-development-defect-fixes —
+# deploys Azure dev; a tag v* deploys staging (its GitHub environment can
+# require approval).
+# No Azure secret is stored: azure/login exchanges the workflow's OIDC token
+# for the id-hb-<env>-ci identity (Azure setup guide §15.1).
+#
+# Each GitHub environment (azure-dev, azure-staging) holds the variables
+# AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, ACR_NAME, AKS_NAME,
+# AKS_RESOURCE_GROUP. The repository variable AZURE_DEPLOY_ENABLED=true turns
+# the workflow on once azure-dev exists; until then it is skipped, not failed.
+
+on:
+  push:
+    branches: [main, roadmap-development-defect-fixes]
+    tags: ["v*"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "infra/k8s/**"
+      - ".github/workflows/deploy-azure.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [dev, staging]
+        default: dev
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    # Environment variables are not visible to a job's `if`; this one is the repository's.
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
+    outputs:
+      env: ${{ steps.pick.outputs.env }}
+    steps:
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          CHOSEN: ${{ inputs.environment }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then target="$CHOSEN"
+          elif [[ "$REF" == refs/tags/v* ]]; then target=staging
+          else target=dev; fi
+          echo "env=$target" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: target
+    runs-on: ubuntu-latest
+    environment: azure-${{ needs.target.outputs.env }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { image: hb-api, context: backend, target: api }
+          - { image: hb-worker, context: backend, target: worker }
+          - { image: hb-child-worker, context: backend, target: child-worker }
+          - { image: hb-event-worker, context: backend, target: event-worker }
+          - { image: hb-scheduler, context: backend, target: scheduler }
+          - { image: hb-backup, context: backend, target: backup }
+          - { image: hb-frontend, context: frontend, target: runtime }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Registry login
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          target: ${{ matrix.target }}
+          push: true
+          tags: |
+            ${{ vars.ACR_NAME }}.azurecr.io/${{ matrix.image }}:${{ github.sha }}
+          # The backend targets share every layer up to "runtime".
+          cache-from: type=gha,scope=${{ matrix.context }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.context }}
+          provenance: true
+          sbom: true
+
+  rollout:
+    needs: [target, images]
+    runs-on: ubuntu-latest
+    environment: azure-${{ needs.target.outputs.env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - uses: azure/setup-kubectl@v4
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.1.6
+      - name: Cluster credentials (Entra ID, workload login)
+        run: |
+          az aks get-credentials -g "${{ vars.AKS_RESOURCE_GROUP }}" -n "${{ vars.AKS_NAME }}" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+      - name: helm upgrade hb-platform
+        run: |
+          ENV="${{ needs.target.outputs.env }}"
+          helm upgrade --install hb-platform infra/k8s/charts/hb-platform -n hb-platform \
+            -f infra/k8s/charts/hb-platform/values-azure.yaml \
+            -f "infra/k8s/env/${ENV}/hb-platform.yaml" \
+            --set global.imageRegistry="${{ vars.ACR_NAME }}.azurecr.io" \
+            --set global.imageTag="${{ github.sha }}" \
+            --atomic --wait --timeout 20m
+      - name: Smoke test
+        run: |
+          kubectl -n hb-platform rollout status deploy/hb-api --timeout=5m
+          kubectl -n hb-platform run smoke-${{ github.run_id }} --rm -i --restart=Never \
+            --image=curlimages/curl:8.10.1 --command -- \
+            curl -fsS --max-time 20 http://hb-api:8000/api/v1/health

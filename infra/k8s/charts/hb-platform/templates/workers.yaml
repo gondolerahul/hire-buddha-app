@@ -1,0 +1,82 @@
+{{- range $w := .Values.workers }}
+{{- $c := dict "root" $ "component" $w.name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hb-{{ $w.name }}
+  labels:
+    {{- include "hb.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $c.component }}
+spec:
+  {{- if not $w.autoscaling.enabled }}
+  replicas: {{ $w.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hb.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hb.podLabels" $c | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $w.metricsPort | quote }}
+        prometheus.io/path: /metrics
+        {{- with $.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $.Values.serviceAccounts.worker.name }}
+      # A running agent step is given time to finish; arq re-queues what is cut off.
+      terminationGracePeriodSeconds: {{ $w.terminationGracePeriodSeconds }}
+      {{- include "hb.podSpecCommon" $ | nindent 6 }}
+      containers:
+        - name: {{ $w.name }}
+          image: {{ include "hb.image" (dict "root" $ "image" $w.image) }}
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ $w.metricsPort }}
+          {{- include "hb.backendEnv" $ | nindent 10 }}
+          {{- include "hb.databaseUrlEnv" (dict "root" $ "user" "worker") | nindent 12 }}
+            - name: {{ $w.metricsPortSetting }}
+              value: {{ $w.metricsPort | quote }}
+          {{- include "hb.backendVolumeMounts" $ | nindent 10 }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+          # The metrics server runs in the worker's process: it answering means
+          # the process is alive. Readiness is not needed — a worker takes no traffic.
+          livenessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+      {{- include "hb.backendVolumes" (dict "root" $ "identity" "worker") | nindent 6 }}
+{{- if $w.autoscaling.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: hb-{{ $w.name }}
+  labels:
+    {{- include "hb.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: hb-{{ $w.name }}
+  minReplicaCount: {{ $w.autoscaling.minReplicas }}
+  maxReplicaCount: {{ $w.autoscaling.maxReplicas }}
+  # Long agent runs: scale in slowly.
+  cooldownPeriod: 600
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: {{ required "keda.prometheusServerAddress is required for worker autoscaling" $.Values.keda.prometheusServerAddress | quote }}
+        query: max(hb_worker_queue_due_jobs{queue="{{ $w.queue }}"})
+        threshold: {{ $w.autoscaling.dueJobs | quote }}
+{{- end }}
+{{- end }}

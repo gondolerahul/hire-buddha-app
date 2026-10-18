@@ -73,10 +73,10 @@ class ScraperTool(Tool):
                 return {"error": NO_CONTEXT_ERROR}
 
             from src.ai.artifact_service import ORIGIN_SYSTEM, ArtifactService
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import tenant_session
             from src.config.service import ConfigService
 
-            async with AsyncSessionLocal() as db_session:
+            async with tenant_session(company_id) as db_session:
                 # The Firecrawl key: the company's, else the platform's.
                 key = await ConfigService(db_session).get_api_key_by_provider(company_id, "firecrawl")
                 if not key:

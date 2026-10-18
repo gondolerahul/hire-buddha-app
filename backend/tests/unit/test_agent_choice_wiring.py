@@ -37,7 +37,7 @@ def asked(monkeypatch):
 async def test_the_endpoints_binding_comes_before_the_events_entity_id(monkeypatch, asked):
     from src.ai.core import arq_jobs
 
-    monkeypatch.setattr(arq_jobs, "AsyncSessionLocal", lambda: _Session())
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", lambda: _Session())
     bound, sent = str(uuid.uuid4()), str(uuid.uuid4())
     await arq_jobs.process_gateway_event({}, {
         "client_id": str(uuid.uuid4()), "event_type": "lead.created", "source": "crm",

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: hb-platform
+description: >-
+  HireBuddha shared platform services in the hb-platform namespace: API, arq
+  workers, scheduler (WS3), frontend, migrations. Cloud-neutral templates;
+  cloud specifics come from values-azure.yaml / values-onprem.yaml (tech spec §19, P-08).
+type: application
+version: 0.1.0
+appVersion: "phase14"

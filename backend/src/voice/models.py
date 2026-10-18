@@ -9,16 +9,16 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from src.common.database import Base
+from src.common.tenancy.bases import TenantBase, refers_to
 from src.ai.orm import HierarchicalEntity
 
 
-class VoiceSession(Base):
+class VoiceSession(TenantBase):
     """Voice call session model."""
     __tablename__ = "voice_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
     customer_id = Column(UUID(as_uuid=True), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
     phone_number = Column(String(20), nullable=False)
@@ -37,7 +37,6 @@ class VoiceSession(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    company = relationship("Company")
     agent = relationship("HierarchicalEntity")
 
     __table_args__ = (
@@ -49,12 +48,12 @@ class VoiceSession(Base):
     )
 
 
-class WhatsAppSession(Base):
+class WhatsAppSession(TenantBase):
     """WhatsApp conversation session model."""
     __tablename__ = "whatsapp_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
     customer_id = Column(UUID(as_uuid=True), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
     phone_number = Column(String(20), nullable=False)
@@ -71,7 +70,6 @@ class WhatsAppSession(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # Relationships
-    company = relationship("Company")
     agent = relationship("HierarchicalEntity")
 
     __table_args__ = (
@@ -82,12 +80,12 @@ class WhatsAppSession(Base):
     )
 
 
-class ConversationHistory(Base):
+class ConversationHistory(TenantBase):
     """Unified conversation history across voice and WhatsApp."""
     __tablename__ = "conversation_history"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
     customer_id = Column(UUID(as_uuid=True), nullable=False)
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
     session_id = Column(UUID(as_uuid=True), nullable=True)  # voice_sessions.id or whatsapp_sessions.id
@@ -101,7 +99,6 @@ class ConversationHistory(Base):
     message_metadata = Column(JSONB, nullable=True)
 
     # Relationships
-    company = relationship("Company")
     agent = relationship("HierarchicalEntity")
 
     __table_args__ = (

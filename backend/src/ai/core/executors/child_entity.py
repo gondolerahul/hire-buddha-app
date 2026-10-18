@@ -130,7 +130,7 @@ class ChildEntityExecutor:
                 # Its own isolated run job (same entry point a top-level run
                 # uses → own session, budget and AgentLoop), on the child-run
                 # queue and its own worker (SA-07).
-                await enqueue_child_run(redis, child_run.id)
+                await enqueue_child_run(redis, child_run.id, child_run.company_id)
             except Exception as exc:                                       # noqa: BLE001
                 if _is_queue_outage(exc):
                     # An outage, not a configuration problem (AK-20): the step

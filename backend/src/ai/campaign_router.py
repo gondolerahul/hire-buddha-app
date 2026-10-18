@@ -19,7 +19,7 @@ from uuid import UUID
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_tenant_db
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.ai.campaign_service import CampaignService
@@ -68,7 +68,7 @@ class CampaignResponse(BaseModel):
 @router.post("")
 async def create_campaign(
     campaign_data: CampaignCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -168,7 +168,7 @@ async def create_campaign(
 @router.post("/upload-csv")
 async def upload_csv(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -206,7 +206,7 @@ async def upload_csv(
 @router.post("/upload-contacts")
 async def upload_contacts(
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -230,7 +230,7 @@ async def list_campaigns(
     status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -311,7 +311,7 @@ async def list_campaigns(
 
 @router.get("/interested/download")
 async def download_interested_leads(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -380,7 +380,7 @@ async def download_interested_leads(
 
 @router.post("/retry-failed")
 async def retry_failed_calls(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -462,7 +462,7 @@ async def retry_failed_calls(
 @router.get("/{campaign_id}")
 async def get_campaign(
     campaign_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -564,7 +564,7 @@ async def get_campaign(
 @router.get("/{campaign_id}/status")
 async def get_campaign_status(
     campaign_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -596,7 +596,7 @@ async def get_campaign_status(
 @router.get("/{campaign_id}/active-calls")
 async def get_active_calls(
     campaign_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -627,7 +627,7 @@ async def get_active_calls(
 async def update_campaign_status(
     campaign_id: UUID,
     status: str = Query(..., description="New campaign status"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -683,7 +683,7 @@ async def update_campaign_status(
 @router.get("/{campaign_id}/download")
 async def download_campaign_report(
     campaign_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     """

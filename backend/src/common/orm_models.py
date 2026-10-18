@@ -34,6 +34,8 @@ MODEL_MODULES: tuple[str, ...] = (
     "src.mobile.models",
     "src.voice.models",
     "src.voice.phone_pool_models",
+    "src.common.tenancy.models",
+    "src.automation.models",
     "cortex_memory.models",
 )
 

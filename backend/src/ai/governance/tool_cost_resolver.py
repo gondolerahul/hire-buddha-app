@@ -76,10 +76,13 @@ _TENANT = "uses the company's own connected account"
 _MODEL = "its model calls are billed as LLM usage"
 _SANDBOX = "metered as sandbox time"
 _RUN = "starts a run, which is billed itself"
+_AUTOMATION = "saves a schedule or a signal; the runs it starts are billed themselves"
 FREE_TOOLS: dict[str, str] = {
     "agent_introspect": _LOCAL,
     "agent_reflect": _LOCAL,
     "calculator": _LOCAL,
+    "cancel_schedule": _LOCAL,
+    "emit_event": _AUTOMATION,
     "crm_update_lead": _TENANT,
     "document_save": _LOCAL,
     "docx_tool": _LOCAL,
@@ -90,6 +93,7 @@ FREE_TOOLS: dict[str, str] = {
     "excel_tool": _LOCAL,
     "file_writer": _LOCAL,
     "get_current_datetime": _LOCAL,
+    "list_schedules": _LOCAL,
     "google_calendar_create_event": _TENANT,
     "meta_entity_creator": _LOCAL,
     "meta_entity_executor": _RUN,
@@ -98,6 +102,7 @@ FREE_TOOLS: dict[str, str] = {
     "meta_schema_validator": _LOCAL,
     "meta_spec_critic": _MODEL,
     "pptx_tool": _LOCAL,
+    "schedule_agent": _AUTOMATION,
     "sandbox_code": _SANDBOX,
     "social_api": _TENANT,
     "terminal": _SANDBOX,

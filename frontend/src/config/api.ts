@@ -27,5 +27,12 @@ export const API_BASE_URL: string = configured || LOCAL_API;
 /** The API's origin (no `/api/v1`), for URLs built outside apiClient — downloads, previews. */
 export const API_ORIGIN: string = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
+/**
+ * A URL the API returned for the browser to load (`/api/v1/files/{id}/public`
+ * for an avatar), made absolute when the API is on another origin. Anything
+ * else — a full URL, a data: URL, an old `/artifact/...` link — is unchanged.
+ */
+export const apiUrl = (url: string): string => (url.startsWith('/api/') ? `${API_ORIGIN}${url}` : url);
+
 // URLs the browser loads itself (previews, downloads, EventSource) carry a
 // short-lived URL token, never the login token: see services/urlToken.ts (FE-28).

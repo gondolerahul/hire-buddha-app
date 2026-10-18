@@ -274,7 +274,7 @@ async def test_a_phone_call_at_the_cap_is_not_connected(monkeypatch, no_live_ses
         return SimpleNamespace()
 
     monkeypatch.setattr("src.voice.call_admission.call_refusal", _admitted)
-    monkeypatch.setattr(websocket_handler, "AsyncSessionLocal", _NoSession)
+    monkeypatch.setattr("src.common.database.AsyncSessionLocal", _NoSession)  # through tenant_session
     handler = websocket_handler.BaseStreamHandler.__new__(websocket_handler.BaseStreamHandler)
     handler.websocket, handler.session_id = _Socket(), uuid.uuid4()
     handler.voice_session = SimpleNamespace(company_id=company, direction="inbound", agent_id=uuid.uuid4(),

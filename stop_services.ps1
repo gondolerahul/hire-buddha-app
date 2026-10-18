@@ -71,6 +71,8 @@ $Gateway = @{ Label = "retired Unified Gateway"; Names = @("cmd.exe", "python.ex
 $Frontend = @{ Label = "Frontend"; Names = @("cmd.exe", "node.exe"); Pattern = "vite|npm" }
 $Worker = @{ Label = "Arq worker"; Names = @("cmd.exe", "python.exe"); Pattern = "-m arq src\.ai\.worker\.WorkerSettings(\s|$)" }
 $ChildWorker = @{ Label = "Arq child-run worker"; Names = @("cmd.exe", "python.exe"); Pattern = "-m arq src\.ai\.worker\.ChildWorkerSettings(\s|$)" }
+$EventWorker = @{ Label = "Arq event worker"; Names = @("cmd.exe", "python.exe"); Pattern = "-m arq src\.ai\.worker\.EventWorkerSettings(\s|$)" }
+$Scheduler = @{ Label = "Scheduler"; Names = @("cmd.exe", "python.exe"); Pattern = "-m src\.automation\.scheduler(\s|$)" }
 
 function Write-Step([string]$Text) { Write-Host $Text -ForegroundColor Cyan }
 function Write-Ok([string]$Text) { Write-Host "  [ok]   $Text" -ForegroundColor Green }
@@ -164,7 +166,8 @@ if ($Services -contains "frontend") {
 # -- 2. Arq workers ----------------------------------------------------------------
 if ($Services -contains "workers") {
     Write-Step "[2/4] Arq workers"
-    foreach ($pair in @(@($Worker, "arq_worker"), @($ChildWorker, "arq_child_worker"))) {
+    foreach ($pair in @(@($Worker, "arq_worker"), @($ChildWorker, "arq_child_worker"),
+                        @($EventWorker, "arq_event_worker"), @($Scheduler, "scheduler"))) {
         $stopped = (Stop-FromPidFile $pair[0] $pair[1]) + (Stop-Matching $pair[0])
         if ($stopped -eq 0) { Write-Skip "no $($pair[0].Label) running" }
     }

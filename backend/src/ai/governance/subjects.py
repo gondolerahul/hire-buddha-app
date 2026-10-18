@@ -129,7 +129,7 @@ class SubjectScope:
     async def artifact(self, ref: Optional[str]) -> Optional[Any]:
         """The file ``ref`` names, if the tree may use it (4); else None."""
         from src.ai.artifact_models import Artifact
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
         art_id, company = _as_uuid(ref), _as_uuid(self.company_id)
         if art_id is None or company is None:
             return None
@@ -141,7 +141,7 @@ class SubjectScope:
             in_scope.append(Artifact.id == art_id)
         if not in_scope:
             return None
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company) as db:
             return (await db.execute(select(Artifact).where(
                 Artifact.id == art_id, Artifact.company_id == company, or_(*in_scope),
             ))).scalar_one_or_none()
@@ -276,10 +276,10 @@ async def subject_scope(db: Any, run_id: Any, company_id: Any) -> SubjectScope:
 
 async def scope_for(ctx: Mapping[str, Any]) -> SubjectScope:
     """The scope of a tool call's run, from its execution context."""
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import tenant_session
     if not ctx.get("run_id") or not ctx.get("company_id"):
         return SubjectScope(company_id=ctx.get("company_id"))
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(ctx["company_id"]) as db:
         return await subject_scope(db, ctx["run_id"], ctx["company_id"])
 
 
@@ -289,11 +289,11 @@ async def record_subjects(ctx: Mapping[str, Any], found: Sequence[tuple[str, str
     returns the scope with them."""
     from sqlalchemy.dialects.postgresql import insert
     from src.ai.orm.execution import RunSubject
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import tenant_session
 
     if not ctx.get("run_id") or not ctx.get("company_id"):
         return SubjectScope(company_id=ctx.get("company_id"))
-    async with AsyncSessionLocal() as db:
+    async with tenant_session(ctx["company_id"]) as db:
         scope = await subject_scope(db, ctx["run_id"], ctx["company_id"])
         rows = []
         for kind, value, label in found:

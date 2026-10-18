@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_tenant_db
 from src.auth.dependencies import get_current_user
 from src.ai.memory.cortex_service import CortexService
 from src.ai.memory.cortex_ingestion import CortexIngestionPipeline
@@ -36,7 +36,7 @@ def _cortex_service(db: AsyncSession, company_id: UUID) -> CortexService:
 @router.post("/trees", response_model=CortexTreeResponse, status_code=201)
 async def create_tree(
     body: CortexTreeCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Create a new CORTEX cognitive tree for an entity."""
@@ -58,7 +58,7 @@ async def create_tree(
 async def list_trees(
     entity_id: Optional[UUID] = Query(None),
     status: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """List CORTEX trees for the current company."""
@@ -69,7 +69,7 @@ async def list_trees(
 @router.get("/trees/{tree_id}")
 async def get_tree(
     tree_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Get tree status and metadata."""
@@ -83,7 +83,7 @@ async def get_tree(
 @router.post("/trees/{tree_id}/resume")
 async def resume_tree(
     tree_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Resume a suspended CORTEX tree."""
@@ -103,7 +103,7 @@ async def resume_tree(
 @router.post("/trees/{tree_id}/suspend")
 async def suspend_tree(
     tree_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Suspend a CORTEX tree with automatic checkpoint."""
@@ -124,7 +124,7 @@ async def suspend_tree(
 async def navigate_node(
     tree_id: UUID,
     node_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Navigate to a node and return the viewport."""
@@ -146,7 +146,7 @@ async def read_node(
     tree_id: UUID,
     node_id: UUID,
     page: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Read paged content from a node."""
@@ -163,7 +163,7 @@ async def read_node(
 async def get_node_detail(
     tree_id: UUID,
     node_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Get full node metadata."""
@@ -178,7 +178,7 @@ async def get_node_detail(
 async def write_node(
     tree_id: UUID,
     body: CortexNodeCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Write a new child node."""
@@ -208,7 +208,7 @@ async def write_node(
 async def create_checkpoint(
     tree_id: UUID,
     body: CortexCheckpointCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Create a checkpoint at the current cursor."""
@@ -230,7 +230,7 @@ async def create_checkpoint(
 async def assemble_output(
     tree_id: UUID,
     coherence_pass: bool = Query(True),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Assemble complete output from the output subtree."""
@@ -250,7 +250,7 @@ async def assemble_output(
 async def recurse_node(
     tree_id: UUID,
     body: CortexRecurseRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Spawn a recursive child execution scoped to a subtree."""
@@ -284,7 +284,7 @@ class IngestDocumentRequest(BaseModel):
 async def ingest_document(
     tree_id: UUID,
     body: IngestDocumentRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     current_user: Any = Depends(get_current_user),
 ) -> Any:
     """Ingest a document into the CORTEX tree as hierarchical knowledge nodes."""

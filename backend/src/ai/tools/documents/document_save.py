@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.ai.tools.base import NO_CONTEXT_ERROR, Tool, context_company_id
-from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_path, safe_filename
+from src.ai.tools.sandbox.workspace import PathOutsideWorkspace, confine_path_async, safe_filename
 
 # Artifact root for system-generated files
 
@@ -83,7 +83,7 @@ class DocumentSaveTool(Tool):
         # company's artifact — is refused: this tool copies the file into the
         # company's downloadable artifacts.
         try:
-            source_path = confine_path(company_id, source_path)
+            source_path = await confine_path_async(company_id, source_path)
         except PathOutsideWorkspace as exc:
             return json.dumps({"error": str(exc)})
         filename = safe_filename(filename, "document")

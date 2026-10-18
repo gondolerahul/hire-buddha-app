@@ -47,6 +47,11 @@ const MetaIntelligencePage = lazy(() => import('@/pages/admin/MetaIntelligencePa
 const CostAttributionDashboard = lazy(() => import('@/pages/admin/CostAttributionDashboard'));
 const FeatureFlagsPage = lazy(() => import('@/pages/admin/FeatureFlagsPage'));
 const RiskAndExitPage = lazy(() => import('@/pages/admin/RiskAndExitPage'));
+// Phase 14 automation settings (decision D47).
+const AutomationSettings = lazy(() => import('@/pages/automation/AutomationSettings'));
+const AutomationPlatformPage = lazy(() => import('@/pages/admin/AutomationPlatformPage'));
+// Phase 14 WS3: the automation control room (triggers, event log).
+const ControlRoom = lazy(() => import('@/pages/automation/ControlRoom'));
 
 // CORTEX Memory Architecture
 const CortexExplorer = lazy(() => import('@/pages/ai/CortexExplorer').then(m => ({ default: m.CortexExplorer })));
@@ -572,6 +577,30 @@ export const AppRouter: React.FC = () => {
                         element={
                             <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN, UserRole.PARTNER_ADMIN, UserRole.TENANT_ADMIN]}>
                                 <MainLayout><CostAttributionDashboard /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/automation"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><ControlRoom /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/settings/automation"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><AutomationSettings /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/automation"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><AutomationPlatformPage /></MainLayout>
                             </ProtectedRoute>
                         }
                     />

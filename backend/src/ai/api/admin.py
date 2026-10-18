@@ -36,6 +36,13 @@ Endpoints (all under ``/api/v1/ai/admin/``):
 
     Feature flags
       GET  /feature_flags/me
+
+Databases (Phase 14 WS2): a run's or an entity's routes work in the acting
+company's tenant database (``X-Company-Id``; a platform admin reaches any);
+the Meta-Agent routes in the caller's own; usage, feature flags and the exit
+checklist in the control database; a KPI that reads both planes reads each
+from its own (the named company's tenant database, or the caller's). With
+TENANCY_MODE=single all of them are the request's one session.
 """
 from __future__ import annotations
 
@@ -54,7 +61,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import RoleChecker, get_current_user
 from src.auth.roles import ADMIN_ROLES
 from src.auth.models import User
-from src.common.database import get_db
+from src.common.tenancy.session import get_acting_tenant_db, get_control_db, get_tenant_db, tenant_db_for
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +117,7 @@ async def _execution_company_check(
 @router.get("/executions/{run_id}/health_records")
 async def get_health_records(
     run_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List `StepHealthRecord` JSON payloads written by the CriticPipeline."""
@@ -157,7 +164,7 @@ async def get_health_records(
 @router.get("/executions/{run_id}/plan_candidates")
 async def get_plan_candidates(
     run_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     """Return the `_plan_meta` block from the run's dynamic_plan (if any)."""
@@ -185,12 +192,13 @@ async def get_plan_candidates(
 @router.get("/executions/{run_id}/cost_attribution")
 async def get_run_cost_attribution(
     run_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
+    control_db: AsyncSession = Depends(get_control_db),
     user: User = Depends(get_current_user),
 ) -> list[dict]:
     """Cost-by-attribution breakdown for one run."""
     await _execution_company_check(db, run_id, user)
-    rows = (await db.execute(
+    rows = (await control_db.execute(  # usage_logs: control plane
         text(
             """
             SELECT attribution,
@@ -223,7 +231,7 @@ async def get_run_cost_attribution(
 async def get_bandit_state(
     entity_id: UUID,
     task_class: str = Query("general"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     """Current arm table for the (entity, task_class) bandit."""
@@ -253,7 +261,7 @@ async def get_bandit_state(
 
 @router.get("/meta/review_queue")
 async def review_queue(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """What waits for a person in this company (MI-17): prompt candidates to
@@ -284,7 +292,7 @@ async def review_queue(
 @router.get("/meta/skill_candidates")
 async def list_skill_candidates(
     limit: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
@@ -296,7 +304,7 @@ async def list_anti_patterns(
     entity_type: Optional[str] = None,
     tags: Optional[str] = Query(None, description="comma-separated tag filter"),
     top_k: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()] or None
@@ -321,7 +329,7 @@ async def list_anti_patterns(
 async def list_prompt_candidates(
     only_pending: bool = Query(True),
     limit: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
@@ -333,7 +341,7 @@ async def list_prompt_candidates(
 @router.post("/meta/intelligence/prompt_candidates/{node_id}/approve")
 async def approve_prompt_candidate(
     node_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     from src.ai.meta.meta_intelligence_tree import MetaIntelligenceTree
@@ -348,7 +356,7 @@ async def approve_prompt_candidate(
 async def promote_skill_candidate(
     node_id: UUID,
     name: Optional[str] = Query(None, description="Optional override for the new SKILL name"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Create a DRAFT SKILL from a skill_candidate node (R2 §11).
@@ -423,7 +431,7 @@ async def promote_skill_candidate(
 @router.post("/meta/entities/{entity_id}/promote")
 async def promote_draft_entity(
     entity_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Flip a DRAFT entity to ACTIVE once it passes the publication checks (D27)."""
@@ -460,7 +468,7 @@ async def promote_draft_entity(
 @router.post("/meta/spec_critic")
 async def run_spec_critic(
     payload: dict,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Ad-hoc invocation of the meta_spec_critic tool against a spec.
@@ -505,7 +513,7 @@ async def run_spec_critic(
 async def toggle_experimental_tool(
     tool_id: str,
     enabled: bool = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Flip the per-company ``tools.experimental.{tool_id}`` flag.
@@ -537,7 +545,7 @@ async def toggle_experimental_tool(
 async def get_company_cost_attribution(
     company_id: UUID,
     since: str = Query("7d"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     if user.role != "app_admin" and company_id != user.company_id:
@@ -584,13 +592,14 @@ def _company_scope(user: User, requested_company: Optional[UUID]) -> Optional[UU
 async def kpi_runs(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     scope = _company_scope(user, company_id)
     delta = _parse_since(since)
-    rows = (await db.execute(
-        text(
+    async with tenant_db_for(db, scope or user.company_id) as tenant_db:  # kpi_daily_rollup
+        rows = (await tenant_db.execute(
+            text(
             """
             SELECT day,
                    SUM(runs_total)     AS runs_total,
@@ -607,10 +616,10 @@ async def kpi_runs(
             GROUP BY day
             ORDER BY day
             """
-        ),
-        {"since": datetime.utcnow() - delta,
-         "scope": str(scope) if scope else None},
-    )).all()
+            ),
+            {"since": datetime.utcnow() - delta,
+             "scope": str(scope) if scope else None},
+        )).all()
     return [
         {
             "day": r.day.isoformat() if r.day else None,
@@ -628,7 +637,7 @@ async def kpi_runs(
 async def kpi_cost(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     scope = _company_scope(user, company_id)
@@ -661,13 +670,14 @@ async def kpi_cost(
 async def kpi_critic(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     delta = _parse_since(since)
-    # Verdict distribution from health_record CORTEX nodes.
-    verdicts = (await db.execute(
-        text(
+    # Verdict distribution from health_record CORTEX nodes (tenant plane).
+    async with tenant_db_for(db, _company_scope(user, company_id) or user.company_id) as tenant_db:
+        verdicts = (await tenant_db.execute(
+            text(
             """
             SELECT COALESCE((content::jsonb)->>'post_critic_verdict', '-')
                        AS verdict,
@@ -678,10 +688,10 @@ async def kpi_critic(
             GROUP BY verdict
             ORDER BY occurrences DESC
             """
-        ),
-        {"since": datetime.utcnow() - delta},
-    )).all()
-    cost_share = (await db.execute(
+            ),
+            {"since": datetime.utcnow() - delta},
+        )).all()
+    cost_share = (await db.execute(  # usage_logs: control plane
         text(
             """
             SELECT COALESCE(
@@ -712,7 +722,7 @@ async def kpi_critic(
 @router.get("/admin/kpi/meta_agent")
 async def kpi_meta_agent(
     since: str = Query("30d"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     delta = _parse_since(since, default_days=30)
@@ -754,7 +764,7 @@ async def kpi_meta_agent(
 async def kpi_risk_indicators(
     since: str = Query("7d"),
     company_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Computed live signal for each programme-level risk in §1 of the
@@ -776,10 +786,17 @@ async def kpi_risk_indicators(
     since_dt = datetime.utcnow() - delta
 
     indicators: list[dict[str, Any]] = []
+    # CORTEX nodes are tenant data (the named company's database); usage is control.
+    async with tenant_db_for(db, scope or user.company_id) as tenant_db:
+        return await _risk_indicators(db, tenant_db, since, since_dt, scope_str, indicators)
+
+
+async def _risk_indicators(db: AsyncSession, tenant_db: AsyncSession, since: str, since_dt: datetime,
+                           scope_str: Optional[str], indicators: list[dict[str, Any]]) -> dict:
 
     # R-PRG-3 — LLM provider variance: false-pass rate from critic calibration.
     try:
-        row = (await db.execute(
+        row = (await tenant_db.execute(
             text(
                 """
                 SELECT COALESCE(
@@ -845,7 +862,7 @@ async def kpi_risk_indicators(
 
     # R-PRG-8 — Meta-Agent quality regression: promotion REJECT rate.
     try:
-        row = (await db.execute(
+        row = (await tenant_db.execute(
             text(
                 """
                 SELECT
@@ -890,7 +907,7 @@ async def kpi_risk_indicators(
 
     # R-PRG-10 — Telemetry cost: event volume per run.
     try:
-        events_per_run = (await db.execute(
+        events_per_run = (await tenant_db.execute(
             text(
                 """
                 SELECT COALESCE(AVG(per_run), 0) AS avg_events
@@ -920,7 +937,7 @@ async def kpi_risk_indicators(
 
     # R-FE-3 / infra — iteration count p95 (proxy for long-run UI strain).
     try:
-        row = (await db.execute(
+        row = (await tenant_db.execute(
             text(
                 """
                 SELECT COALESCE(
@@ -969,7 +986,7 @@ async def kpi_risk_indicators(
 
 @router.get("/admin/exit_checklist")
 async def programme_exit_checklist(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Compute each item of the Phase 11 exit checklist (Track 15 §5)
@@ -1244,7 +1261,7 @@ async def append_decision(
 @router.get("/feature_flags/admin")
 async def list_feature_flags_admin(
     scope: str = Query("all", description="all | global | company"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> list[dict]:
     """Return every ``feature_flags`` row visible to the caller.
@@ -1308,7 +1325,7 @@ async def list_feature_flags_admin(
 async def set_feature_flag(
     flag_key: str,
     payload: dict,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Upsert a feature flag at the requested scope.
@@ -1392,7 +1409,7 @@ async def delete_feature_flag(
     scope: str = Query("company"),
     company_id: Optional[UUID] = Query(None),
     entity_id: Optional[UUID] = Query(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     if scope == "global" and user.role != "app_admin":
@@ -1423,7 +1440,7 @@ async def delete_feature_flag(
 @router.get("/feature_flags/explain")
 async def explain_feature_flags(
     company_id: Optional[UUID] = Query(None, description="app_admin: another company's; default your own"),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(RoleChecker(ADMIN_ROLES)),
 ) -> dict:
     """Every declared flag for a company: its value and the tier that set it (GH-20).
@@ -1459,7 +1476,7 @@ async def invalidate_feature_flags(
 
 @router.get("/feature_flags/me")
 async def get_my_feature_flags(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     user: User = Depends(get_current_user),
 ) -> dict:
     """Return the resolved bool defaults + per-company overrides.

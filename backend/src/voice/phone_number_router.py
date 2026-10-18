@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_, and_
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db, is_split, tenant_db_for
 from src.auth.models import User
 from src.auth.dependencies import get_current_user, RoleChecker
 from src.auth.visibility import PARTNER_ROLES, in_scope, visible_company_ids
@@ -43,6 +43,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/phone-numbers", tags=["Phone Numbers"])
 
 admin_only = RoleChecker(["app_admin"])
+
+
+# Phone numbers are control rows (Phase 14 WS2). The agent that answers a
+# number lives in the number's company's tenant database, which is where an
+# inbound call looks for it — so an agent is read there.
+
+async def _agent_names(db: AsyncSession, numbers: list) -> dict:
+    """``{agent_id: name}`` for the agents of ``numbers``."""
+    agent_ids = [n.agent_id for n in numbers if n.agent_id]
+    if not agent_ids:
+        return {}
+    if not is_split():
+        rows = await db.execute(select(HierarchicalEntity).where(HierarchicalEntity.id.in_(agent_ids)))
+        return {a.id: a.name for a in rows.scalars().all()}
+    by_company: dict = {}
+    for n in numbers:
+        if n.agent_id and n.company_id:
+            by_company.setdefault(n.company_id, []).append(n.agent_id)
+    names: dict = {}
+    for company_id, ids in by_company.items():
+        async with tenant_db_for(db, company_id) as tenant_db:
+            rows = await tenant_db.execute(select(HierarchicalEntity).where(HierarchicalEntity.id.in_(ids)))
+            names.update({a.id: a.name for a in rows.scalars().all()})
+    return names
+
+
+def _agent_company(company_id) -> None:
+    """Split mode: an agent can only be read for a number that has a company."""
+    if is_split() and company_id is None:
+        raise HTTPException(status_code=400, detail="Claim the number for a company before giving it an agent")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────
@@ -103,7 +133,7 @@ class ClaimRequest(BaseModel):
 @router.post("")
 async def create_phone_number(
     data: PhoneNumberCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -120,11 +150,15 @@ async def create_phone_number(
 
     # Determine initial status
     if data.agent_id:
-        # Verify agent exists
-        agent_result = await db.execute(
-            select(HierarchicalEntity).where(HierarchicalEntity.id == data.agent_id)
-        )
-        if not agent_result.scalar_one_or_none():
+        # Verify agent exists (in the company the number goes to)
+        agent_company = (data.company_id if data.company_id and current_user.role == "app_admin"
+                         else current_user.company_id)
+        async with tenant_db_for(db, agent_company) as agent_db:
+            agent_result = await agent_db.execute(
+                select(HierarchicalEntity).where(HierarchicalEntity.id == data.agent_id)
+            )
+            agent_found = agent_result.scalar_one_or_none()
+        if not agent_found:
             raise HTTPException(status_code=404, detail="Agent not found")
 
         status = "assigned"
@@ -173,7 +207,7 @@ async def create_phone_number(
 @router.post("/bulk")
 async def bulk_add(
     body: PhoneNumberBulk,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(admin_only),
 ):
     """Bulk add phone numbers to the inventory (app_admin only)."""
@@ -208,7 +242,7 @@ async def bulk_add(
 @router.post("/sync")
 async def sync_numbers(
     body: SyncRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(admin_only),
 ):
     """Sync phone numbers from configured Twilio / Tata Tele accounts."""
@@ -438,7 +472,7 @@ async def list_phone_numbers(
     is_active: Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -469,13 +503,7 @@ async def list_phone_numbers(
     numbers = result.scalars().all()
 
     # Resolve agent names
-    agent_ids = [n.agent_id for n in numbers if n.agent_id]
-    agents = {}
-    if agent_ids:
-        agents_result = await db.execute(
-            select(HierarchicalEntity).where(HierarchicalEntity.id.in_(agent_ids))
-        )
-        agents = {a.id: a.name for a in agents_result.scalars().all()}
+    agents = await _agent_names(db, numbers)
 
     # Resolve company names
     company_ids = [n.company_id for n in numbers if n.company_id]
@@ -496,7 +524,7 @@ async def list_phone_numbers(
 @router.get("/{number_id}")
 async def get_phone_number(
     number_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get a single phone number."""
@@ -512,11 +540,12 @@ async def get_phone_number(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     agents = {}
-    if entry.agent_id:
-        agent_result = await db.execute(
-            select(HierarchicalEntity).where(HierarchicalEntity.id == entry.agent_id)
-        )
-        agent = agent_result.scalar_one_or_none()
+    if entry.agent_id and (entry.company_id or not is_split()):
+        async with tenant_db_for(db, entry.company_id) as agent_db:
+            agent_result = await agent_db.execute(
+                select(HierarchicalEntity).where(HierarchicalEntity.id == entry.agent_id)
+            )
+            agent = agent_result.scalar_one_or_none()
         if agent:
             agents[agent.id] = agent.name
 
@@ -527,7 +556,7 @@ async def get_phone_number(
 async def update_phone_number(
     number_id: UUID,
     data: PhoneNumberUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Update phone number details."""
@@ -572,22 +601,26 @@ async def update_phone_number(
 
     if data.agent_id is not None:
         # Verify agent exists — app_admin can assign agents from any company
-        if current_user.role == "app_admin":
-            agent_result = await db.execute(
-                select(HierarchicalEntity).where(
-                    HierarchicalEntity.id == data.agent_id
-                )
-            )
-        else:
-            agent_result = await db.execute(
-                select(HierarchicalEntity).where(
-                    and_(
-                        HierarchicalEntity.id == data.agent_id,
-                        HierarchicalEntity.company_id == current_user.company_id,
+        # (with split tenancy: from the number's company's database)
+        _agent_company(entry.company_id)
+        async with tenant_db_for(db, entry.company_id) as agent_db:
+            if current_user.role == "app_admin":
+                agent_result = await agent_db.execute(
+                    select(HierarchicalEntity).where(
+                        HierarchicalEntity.id == data.agent_id
                     )
                 )
-            )
-        if not agent_result.scalar_one_or_none():
+            else:
+                agent_result = await agent_db.execute(
+                    select(HierarchicalEntity).where(
+                        and_(
+                            HierarchicalEntity.id == data.agent_id,
+                            HierarchicalEntity.company_id == current_user.company_id,
+                        )
+                    )
+                )
+            agent_found = agent_result.scalar_one_or_none()
+        if not agent_found:
             raise HTTPException(status_code=404, detail="Agent not found")
         entry.agent_id = data.agent_id
         if entry.status == "claimed":
@@ -609,7 +642,7 @@ async def update_phone_number(
 async def claim_number(
     number_id: UUID,
     body: Optional[ClaimRequest] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Claim an available number. App admin can specify target_company_id."""
@@ -650,7 +683,7 @@ async def claim_number(
 @router.post("/{number_id}/release")
 async def release_number(
     number_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Release a claimed/assigned number back to the pool."""
@@ -686,7 +719,7 @@ async def release_number(
 async def assign_agent(
     number_id: UUID,
     data: AssignRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Assign an agent to a claimed number (transitions to 'assigned')."""
@@ -703,11 +736,14 @@ async def assign_agent(
     if entry.status not in ("claimed", "assigned"):
         raise HTTPException(status_code=400, detail=f"Number must be claimed first (current status: {entry.status})")
 
-    # Verify agent exists and belongs to the same company
-    agent_result = await db.execute(
-        select(HierarchicalEntity).where(HierarchicalEntity.id == data.agent_id)
-    )
-    agent = agent_result.scalar_one_or_none()
+    # Verify agent exists and belongs to the same company (with split tenancy,
+    # read in the number's company's database: where its calls look for it)
+    _agent_company(entry.company_id)
+    async with tenant_db_for(db, entry.company_id) as agent_db:
+        agent_result = await agent_db.execute(
+            select(HierarchicalEntity).where(HierarchicalEntity.id == data.agent_id)
+        )
+        agent = agent_result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
@@ -770,7 +806,7 @@ async def assign_agent(
 @router.delete("/{number_id}")
 async def delete_phone_number(
     number_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Delete a phone number from the inventory."""

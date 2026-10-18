@@ -15,7 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-from src.common.database import Base
+from src.common.tenancy.bases import ControlBase, TenantBase, refers_to
 
 # Attempt statuses (docs 04 §6.1)
 ATTEMPT_PENDING = "pending"
@@ -67,7 +67,7 @@ def _open_status_sql(statuses) -> str:
     return "status IN (" + ", ".join(f"'{s}'" for s in statuses) + ")"
 
 
-class UserDevice(Base):
+class UserDevice(ControlBase):
     __tablename__ = "user_devices"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -100,12 +100,12 @@ class UserDevice(Base):
     )
 
 
-class ContactUpload(Base):
+class ContactUpload(TenantBase):
     __tablename__ = "contact_uploads"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
-    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, index=True, info=refers_to("companies.id"))
+    uploaded_by = Column(UUID(as_uuid=True), nullable=False, info=refers_to("users.id"))
     filename = Column(String(255), nullable=False)
     file_type = Column(String(10), nullable=False)
     total_rows = Column(Integer, nullable=False, default=0)
@@ -121,24 +121,25 @@ class ContactUpload(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
-class CampaignAssignee(Base):
+class CampaignAssignee(TenantBase):
     __tablename__ = "campaign_assignees"
 
     campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True,
+                     info=refers_to("users.id", ondelete="CASCADE"))
     assigned_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     __table_args__ = (PrimaryKeyConstraint("campaign_id", "user_id"),)
 
 
-class MobileCampaignRun(Base):
+class MobileCampaignRun(TenantBase):
     __tablename__ = "mobile_campaign_runs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    company_id = Column(UUID(as_uuid=True), nullable=False, index=True, info=refers_to("companies.id"))
     campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id"), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    device_id = Column(UUID(as_uuid=True), ForeignKey("user_devices.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("users.id"))
+    device_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("user_devices.id"))
     status = Column(String(20), nullable=False, default=RUN_RUNNING)
     dial_order = Column(String(20), nullable=False, default="ai_first")
     started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
@@ -152,16 +153,16 @@ class MobileCampaignRun(Base):
     )
 
 
-class MobileCallAttempt(Base):
+class MobileCallAttempt(TenantBase):
     __tablename__ = "mobile_call_attempts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    company_id = Column(UUID(as_uuid=True), nullable=False, index=True, info=refers_to("companies.id"))
     campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id"), nullable=False, index=True)
     campaign_call_id = Column(UUID(as_uuid=True), ForeignKey("campaign_calls.id"), nullable=False, index=True)
     run_id = Column(UUID(as_uuid=True), ForeignKey("mobile_campaign_runs.id"), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    device_id = Column(UUID(as_uuid=True), ForeignKey("user_devices.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True, info=refers_to("users.id"))
+    device_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("user_devices.id"))
     agent_id = Column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=False)
 
     device_cli = Column(String(20), nullable=True)
@@ -205,7 +206,7 @@ class MobileCallAttempt(Base):
     )
 
 
-class MobileClientLog(Base):
+class MobileClientLog(TenantBase):
     """Structured logs shipped by the Android app (no adb access on a rep's phone).
 
     Kept indefinitely on purpose: merge failures are carrier- and device-specific and
@@ -214,8 +215,8 @@ class MobileClientLog(Base):
     __tablename__ = "mobile_client_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), nullable=False, index=True, info=refers_to("companies.id"))
+    user_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("users.id"))
     device_id = Column(UUID(as_uuid=True), nullable=True)
     run_id = Column(UUID(as_uuid=True), nullable=True)
     attempt_id = Column(UUID(as_uuid=True), nullable=True, index=True)
@@ -235,7 +236,7 @@ class MobileClientLog(Base):
     )
 
 
-class MobileCallEvent(Base):
+class MobileCallEvent(TenantBase):
     __tablename__ = "mobile_call_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
