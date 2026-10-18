@@ -72,6 +72,8 @@ APPENDIX_A_CONTROL = {
     "tenant_db_servers", "tenant_directory", "tenant_provisioning_log",
     # Automation (WS3): what is due when, and each business's settings (D47).
     "time_index", "automation_settings",
+    # Notifications (WS3 3.11): one row per person told.
+    "notifications",
 }
 APPENDIX_A_TENANT = {
     "hierarchical_entities", "entity_versions", "entity_assets",

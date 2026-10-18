@@ -294,3 +294,10 @@ async def test_a_phone_call_at_the_cap_is_not_connected(monkeypatch, no_live_ses
         assert connected == [] and handler.websocket.closed == (4429, "Too many live sessions")
     else:
         assert connected == [1] and live_sessions.open_count(company) == 0
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)

@@ -70,3 +70,10 @@ async def test_a_real_token_is_required_and_checked(monkeypatch):
                         headers={"X-Internal-Token": "3hX9-real-secret"})
     assert right.status_code == 202
     assert (await _call("GET", "/api/v1/health")).json()["internal_events"] == "enabled"
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)

@@ -183,3 +183,10 @@ async def test_a_retried_delivery_runs_once(db, world):
         assert first.status_code == 202, first.text
         assert again.status_code == 200 and again.json()["status"] == "duplicate"
         assert len(world.queued) == 1
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)

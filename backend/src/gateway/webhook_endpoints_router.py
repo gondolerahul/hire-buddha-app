@@ -91,7 +91,25 @@ async def create_endpoint(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    await _endpoint_triggers(db, row, current_user, bind=True)
     return {**_out(row), "secret": secret}
+
+
+async def _endpoint_triggers(db: AsyncSession, row: WebhookEndpoint, user: User, *, bind: bool) -> None:
+    """An endpoint bound to an agent runs it through a trigger (Phase 14 WS3): made
+    with the endpoint, turned off when the endpoint is revoked."""
+    from src.automation import gateway
+    from src.common.tenancy.session import tenant_session
+
+    if not gateway.enabled() or (bind and row.entity_id is None):
+        return
+    async with tenant_session(row.company_id) as tenant_db:
+        if bind:
+            await gateway.add_endpoint_trigger(tenant_db, db, row, user.id)
+        else:
+            await gateway.remove_endpoint_triggers(tenant_db, db, row.company_id, row.id)
+        await tenant_db.commit()
+    await db.commit()
 
 
 @router.get("", response_model=list[EndpointOut])
@@ -120,4 +138,5 @@ async def revoke_endpoint(
         raise HTTPException(status_code=404, detail="Webhook endpoint not found")
     row.is_active = False
     await db.commit()
+    await _endpoint_triggers(db, row, current_user, bind=False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

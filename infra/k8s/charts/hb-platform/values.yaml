@@ -186,6 +186,7 @@ keda:
 scheduler:
   enabled: true
   replicas: 2
+  metricsPort: 9104
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 512Mi }

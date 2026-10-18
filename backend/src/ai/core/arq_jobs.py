@@ -360,6 +360,9 @@ async def _handle_sheet_row_campaign(
 
     Pipeline: Campaign → CampaignExecutor._place_tata_call() → Tata Tele webhook
     → TataStreamHandler → GeminiLiveClient (speech-to-speech conversation)
+
+    Returns the campaign's id, or None when the row could not become one (the
+    automation router records which, Phase 14 WS3).
     """
     from src.ai.campaign_models import Campaign, CampaignCall
     from src.auth.models import User
@@ -508,6 +511,7 @@ async def _handle_sheet_row_campaign(
                 f"[sheet_campaign] In-process fallback also failed: {exec_err}",
                 exc_info=True,
             )
+    return campaign.id
 
 
 async def process_document(ctx: dict[str, Any], document_id_str: str, file_content: bytes, file_type: str,
@@ -768,6 +772,36 @@ async def resume_paused_run(ctx: dict[str, Any], run_id_str: str,
                 loop = AgentLoop(db, redis_pool, company_id=run_company_id,
                                  feature_flags=FeatureFlags(db, redis=redis_pool))
                 return await loop.resume_after_approval(run_id)
+    finally:
+        await redis_pool.close()
+
+
+async def resume_waiting_run(ctx: dict[str, Any], run_id_str: str,
+                             company_id: Optional[str] = None) -> dict[str, Any]:
+    """Resume a run parked on ``wait_for_event`` (Phase 14 WS3, ``automation.waits``).
+
+    Enqueued by the router when an event answers the wait, by the scheduler at
+    its deadline, when an operator cancels it, and by the event worker's sweep
+    for a resume that was lost. Idempotent: ``AgentLoop.resume_after_wait``
+    does nothing while the wait is open, and only one resume claims the run.
+    """
+    run_id = UUID(run_id_str)
+    import redis.asyncio as redis
+    from src.common.config import settings
+
+    redis_pool = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")  # type: ignore[no-untyped-call]
+    try:
+        async with tenant_session(company_id) as db:
+            from src.ai.core.agent_loop import AgentLoop
+            from src.ai.core.feature_flags import FeatureFlags
+            from src.ai.core.trace import TraceRecorder, set_recorder
+
+            run_company_id, _entity_extras = await _resolve_run_flag_scope(db, run_id)
+            recorder = TraceRecorder(run_id, company_id=run_company_id, redis=redis_pool)
+            with set_recorder(recorder):
+                loop = AgentLoop(db, redis_pool, company_id=run_company_id,
+                                 feature_flags=FeatureFlags(db, redis=redis_pool))
+                return await loop.resume_after_wait(run_id)
     finally:
         await redis_pool.close()
 

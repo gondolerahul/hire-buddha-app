@@ -227,6 +227,7 @@ class AgentLoop(RunPersistence, LoopLearning):
             await self._loop(state)
             if state.suspend_requested:
                 outcome_status = (RunStatus.PAUSED if state.awaiting_approval
+                                  else RunStatus.WAITING_ON_EVENT if state.awaiting_event
                                   else RunStatus.WAITING_ON_CHILDREN).value
                 total_cost = float(state.budget.usd_used)
             else:
@@ -255,10 +256,11 @@ class AgentLoop(RunPersistence, LoopLearning):
                 total_cost_usd=total_cost,
             )
 
-        # Suspended — on children (WAITING_ON_CHILDREN) or on a person's
-        # decision (PAUSED, GH-07). Persist the resumable snapshot and return
-        # WITHOUT finalizing or settling billing; the hold stays. Children
-        # re-enter via ``resume``, a decision via ``resume_after_approval``.
+        # Suspended — on children (WAITING_ON_CHILDREN), on a person's
+        # decision (PAUSED, GH-07) or on an event (WAITING_ON_EVENT, §7.9).
+        # Persist the resumable snapshot and return WITHOUT finalizing or
+        # settling billing; the hold stays. Children re-enter via ``resume``,
+        # a decision via ``resume_after_approval``, an event via ``resume_after_wait``.
         if state.suspend_requested and not last_error:
             await self._persist_suspended(run, state)
             if state.awaiting_approval:
@@ -397,6 +399,42 @@ class AgentLoop(RunPersistence, LoopLearning):
                           step_id=marker.get("step_id"))
         if blocked:
             await self._end_on_human_decision(state, blocked)
+        return await self._drive(run, state, run_id)
+
+    async def resume_after_wait(self, run_id: UUID) -> dict[str, Any]:
+        """Resume a run parked on ``wait_for_event`` (Phase 14 WS3, ``automation.waits``).
+
+        A no-op while the wait is open and for a run that is not waiting. Otherwise
+        the run is claimed (WAITING_ON_EVENT → RUNNING, once), the event — or the
+        timeout, or an operator's cancellation — becomes the waiting step's result,
+        and the loop carries on. The step is not dispatched again.
+        """
+        from src.automation import waits as waits_mod
+
+        self._run_id = run_id
+        set_sse_redis(self.redis)
+        run = await self._reload_run(run_id)
+        if not run:
+            raise LookupError(f"Run {run_id} not found")
+        snapshot = (run.context_state or {}).get(approval_pause.SNAPSHOT_KEY) or {}
+        marker = snapshot.get("awaiting_event")
+        if str(run.status) != RunStatus.WAITING_ON_EVENT.value or not marker:
+            return {"run_id": str(run_id), "status": str(run.status), "resumed": False}
+        outcome = await waits_mod.outcome_for(self.db, marker)
+        if outcome is None or not await waits_mod.claim_run(self.db, run_id):
+            return {"run_id": str(run_id), "status": RunStatus.WAITING_ON_EVENT.value, "resumed": False}
+
+        run = await self._reload_run(run_id)
+        assert run is not None
+        state = AgentState.restore(snapshot)
+        state.redis_client = self.redis
+        entity = await run_entity(self.db, run)
+        self._entity = entity
+        self.credits = CreditGuard(self.db, self.redis, run, entity)  # the hold persists
+        await self._compose(state, resumed=True)
+        waits_mod.fold(state, marker, outcome)
+        await event_async("agent.loop.resumed_after_wait", run_id=str(run_id), iteration=state.iteration,
+                          wait_id=marker.get("wait_id"), outcome=outcome["status"])
         return await self._drive(run, state, run_id)
 
     async def _fold_children(self, state: AgentState) -> tuple[bool, bool]:
@@ -703,6 +741,20 @@ class AgentLoop(RunPersistence, LoopLearning):
         for sid, err in action_result.failed_steps.items():
             state.mark_step_failed(sid, err)
             record_step_result(state, move, sid, action_result, error=err)
+
+        # A step asked to wait for an event (wait_for_event, §7.9): park the run
+        # WAITING_ON_EVENT and give the worker back. The event, its deadline or an
+        # operator resumes it (``resume_after_wait``).
+        from src.automation import waits as waits_mod
+        if not action_result.awaiting_approval and waits_mod.may_wait(self._entity):
+            waiting = await waits_mod.pending_for_run(self.db, state.run_id)
+            if waiting is not None:
+                waits_mod.park(state, move, action_result.completed_step_ids,
+                               action_result.failed_steps, waiting)
+                await event_async("agent.loop.waiting_on_event", run_id=str(state.run_id),
+                                  iteration=state.iteration, wait_id=str(waiting.id),
+                                  event_type=waiting.event_type)
+                return
 
         # A checkpoint waits for a person (GH-07): park the run PAUSED and give
         # the worker back. The decision resumes it (``resume_after_approval``).

@@ -108,6 +108,12 @@ async def purge_companies(
     params = {"company_ids": ids, "pattern": user_email_pattern}
     if user_email_pattern:
         await _delete_rows(conn, foreign_keys, company_scoped, "users", "email LIKE :pattern", params)
+    # Tenant rows that keep their company as a plain id with no reference marker
+    # (the automation tables: events, triggers, waits, the time index) go too.
+    covered = {child for child, cols, *_ in foreign_keys.get("companies", ()) if list(cols) == ["company_id"]}
+    for table in sorted(company_scoped - covered):
+        await _delete_rows(conn, foreign_keys, company_scoped, table,
+                           "company_id = ANY(CAST(:company_ids AS uuid[]))", params)
     await _delete_rows(
         conn, foreign_keys, company_scoped, "companies", "id = ANY(CAST(:company_ids AS uuid[]))", params,
     )

@@ -117,3 +117,10 @@ def test_the_dispatcher_no_longer_runs_agent_loops():
 
     for name in ("dispatch", "_dispatch_async", "_execute_in_process", "_consume_event_bus"):
         assert not hasattr(CentralDispatcher, name), name
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)

@@ -2,6 +2,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import {
     Menu,
     X,
@@ -262,6 +263,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                         })}
                     </div>
                     <div className="sidebar-footer pt-4 border-t border-white/5 mt-4 space-y-2">
+                        <NotificationBell expanded={sidebarOpen} />
                         <button
                             className="theme-toggle-button w-full"
                             onClick={toggleTheme}

@@ -5,7 +5,8 @@
  *   - Running / paused, with pause all and resume (the kill switch)
  *   - Today: runs started, waiting, failed events, missed schedules
  *   - Needs attention: failed events, triggers that keep being refused
- *   - Upcoming runs, then every trigger with its last and next run
+ *   - Upcoming runs, runs waiting for an event (with cancel), then every
+ *     trigger with its last and next run
  *   - The event log: what arrived, what each trigger decided and why
  *
  * Owners and admins create and change triggers; anyone running the business
@@ -64,6 +65,8 @@ export const ControlRoom: React.FC = () => {
                               refetchInterval: 30_000 });
     const triggers = useQuery({ queryKey: queryKeys.automation.triggers, queryFn: automationService.listTriggers,
                                 refetchInterval: 30_000 });
+    const waits = useQuery({ queryKey: queryKeys.automation.waits, queryFn: automationService.listWaits,
+                             refetchInterval: 30_000 });
 
     const { data: entities = [] } = useEntityList<HierarchicalEntity>();
     const names = useMemo(() => Object.fromEntries(entities.map(e => [e.id, e.display_name || e.name])), [entities]);
@@ -119,6 +122,7 @@ export const ControlRoom: React.FC = () => {
                 <section className="ar-today" aria-label="Today">
                     <span><strong>{h.started_24h}</strong> runs started</span>
                     <span><strong>{h.queued_firings}</strong> waiting their turn</span>
+                    <span><strong>{h.waiting_runs ?? 0}</strong> waiting for an event</span>
                     <span className={h.dead_events ? 'ar-tone--bad' : ''}><strong>{h.dead_events}</strong> failed events</span>
                     <span><strong>{h.missed_schedules_24h}</strong> missed schedules</span>
                     {h.parked_events > 0 && <span><strong>{h.parked_events}</strong> held while paused</span>}
@@ -154,6 +158,27 @@ export const ControlRoom: React.FC = () => {
                             <li key={u.trigger_id}>
                                 <span className="ar-mono">{formatTime(u.next_fire_at, timezone)}</span>
                                 {u.name} <span className="ar-note">({u.kind}{u.created_by_kind === 'agent' ? ', created by an agent' : ''})</span>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+
+            {(waits.data ?? []).length > 0 && (
+                <section className="ar-section" aria-label="Waiting runs">
+                    <h2>Waiting for an event</h2>
+                    <ul className="ar-upcoming">
+                        {(waits.data ?? []).map(w => (
+                            <li key={w.id}>
+                                <span>{w.entity_name ?? 'A run'} waits for <span className="ar-mono">{w.event_type}</span></span>
+                                <span className="ar-note">until {formatTime(w.deadline_at, timezone)}</span>
+                                <Link to={`/ai/executions/${w.run_id}`} className="ar-link">run</Link>
+                                <JellyButton size="sm" variant="ghost" disabled={busy}
+                                             onClick={() => act(() => automationService.cancelWait(w.id),
+                                                                'Wait cancelled; the run goes on without the event.',
+                                                                'Could not cancel the wait.')}>
+                                    Cancel wait
+                                </JellyButton>
                             </li>
                         ))}
                     </ul>

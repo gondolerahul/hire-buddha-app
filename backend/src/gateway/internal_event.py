@@ -140,7 +140,7 @@ async def unified_internal_event(
     )
 
     try:
-        await queue_event(envelope)
+        await _deliver(envelope)
     except Exception:
         logger.exception(f"[InternalEvent] Could not queue event {correlation_id}")
         return JSONResponse(status_code=503, content={
@@ -196,5 +196,16 @@ async def emit_internal_event(
         metadata={"correlation_id": correlation_id},
         id=correlation_id,
     )
-    await queue_event(envelope)
+    await _deliver(envelope)
     return correlation_id
+
+
+async def _deliver(envelope: EventEnvelope) -> None:
+    """An event for the company's triggers (Phase 14 WS3), or the old direct job
+    with ``AUTOMATION_GATEWAY_EVENTS`` off. Raises if it cannot be taken."""
+    from src.automation import gateway
+
+    if gateway.enabled():
+        await gateway.ingest(envelope, dedupe_key=f"internal:{envelope.id}", trust="internal")
+    else:
+        await queue_event(envelope)

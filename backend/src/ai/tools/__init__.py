@@ -112,11 +112,13 @@ ToolRegistry.register(MetaSpecCriticTool())
 # Automation (Phase 14 WS3, tech spec §7.10): an agent schedules work and sends
 # signals; what it may is its tool grants, its Automation tab and the
 # business's automation limits.
-from src.ai.tools.automation import CancelScheduleTool, EmitEventTool, ListSchedulesTool, ScheduleAgentTool
+from src.ai.tools.automation import (CancelScheduleTool, EmitEventTool, ListSchedulesTool, ScheduleAgentTool,
+                                    WaitForEventTool)
 ToolRegistry.register(ScheduleAgentTool())
 ToolRegistry.register(CancelScheduleTool())
 ToolRegistry.register(ListSchedulesTool())
 ToolRegistry.register(EmitEventTool())
+ToolRegistry.register(WaitForEventTool())
 
 __all__ = [
     "Tool", "ToolRegistry",
@@ -129,7 +131,7 @@ __all__ = [
     "HeadlessBrowserTool",
     "DocxTool", "PptxTool", "DocumentSaveTool",
     "SocialAPITool",
-    "ScheduleAgentTool", "CancelScheduleTool", "ListSchedulesTool", "EmitEventTool",
+    "ScheduleAgentTool", "CancelScheduleTool", "ListSchedulesTool", "EmitEventTool", "WaitForEventTool",
     # CRM integration tools
     "GetCurrentDateTimeTool", "WhatsAppSendTenantTool",
     "GoogleCalendarCreateEventTool", "CRMUpdateLeadTool",

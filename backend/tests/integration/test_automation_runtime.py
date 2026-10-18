@@ -491,3 +491,30 @@ async def test_a_trigger_does_not_answer_events_from_before_it_existed(biz):
     trigger_id = await _trigger(biz, kind="event", event_type="custom.order.paid")
     assert (await _route(biz, old))["decisions"] == []
     assert await _firings(biz, trigger_id) == []
+
+
+async def test_an_approval_is_an_event_when_requested_and_when_decided(biz):
+    from src.ai.orm import ExecutionRun, HumanApproval
+    from src.automation import run_events
+
+    trigger_id = await _trigger(biz, kind="event", event_type="approval.requested")
+    async with _session() as db:
+        run = ExecutionRun(company_id=biz.company, entity_id=biz.agent, status="PAUSED", input_data={})
+        db.add(run)
+        await db.flush()
+        approval = HumanApproval(run_id=run.id, company_id=biz.company, checkpoint_trigger="BEFORE_STEP: Send",
+                                 status="PENDING", requested_at=datetime.utcnow())
+        db.add(approval)
+        await db.commit()
+        assert await run_events.relay_all(db) == 1
+        approval.status, approval.responded_at = "APPROVED", datetime.utcnow()
+        await db.commit()
+        assert await run_events.relay_all(db) == 1        # decided — and requested is not made twice
+        assert await run_events.relay_all(db) == 0
+        rows = (await db.execute(select(Event).where(Event.company_id == biz.company,
+                                                     Event.type.like("approval.%"))
+                                 .order_by(Event.time))).scalars().all()
+    assert [(e.type, e.data["status"]) for e in rows] == [("approval.requested", "PENDING"),
+                                                          ("approval.decided", "APPROVED")]
+    [decision] = (await _route(biz, rows[0].id))["decisions"]
+    assert decision["trigger"] == str(trigger_id) and decision["outcome"] == "started"

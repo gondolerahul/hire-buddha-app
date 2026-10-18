@@ -6,6 +6,7 @@
  *   - May schedule work: grants schedule_agent, cancel_schedule, list_schedules;
  *     it may schedule itself, its own process's agents, and the agents listed here
  *   - May send signals: grants emit_event (custom.* events that wake other agents)
+ *   - May wait for events: grants wait_for_event (the run pauses until an event or a deadline)
  *
  * How much an agent may do — schedules per run, shortest repeat, signals per
  * run — is the business's automation limits (Automation Settings), none unless set.
@@ -24,6 +25,7 @@ export interface AgentAutomation {
 
 export const SCHEDULE_TOOLS = ['schedule_agent', 'cancel_schedule', 'list_schedules'];
 export const SIGNAL_TOOLS = ['emit_event'];
+export const WAIT_TOOLS = ['wait_for_event'];
 
 export const automationOf = (capabilities: unknown): AgentAutomation => {
     const raw = (capabilities as { automation?: Partial<AgentAutomation> } | undefined)?.automation;
@@ -50,6 +52,7 @@ export const AgentAutomationTab: React.FC<Props> = ({ entityId, value, onChange,
 
     const schedules = SCHEDULE_TOOLS.every(t => grantedTools.includes(t));
     const signals = SIGNAL_TOOLS.every(t => grantedTools.includes(t));
+    const waiting = WAIT_TOOLS.every(t => grantedTools.includes(t));
 
     const toggleTarget = (id: string, on: boolean) =>
         onChange({ ...value, can_schedule: on ? [...value.can_schedule, id] : value.can_schedule.filter(x => x !== id) });
@@ -103,8 +106,17 @@ export const AgentAutomationTab: React.FC<Props> = ({ entityId, value, onChange,
                             triggers listen for them.</small>
                     </span>
                 </label>
+                <label className="ar-check">
+                    <input type="checkbox" checked={waiting} aria-label="May wait for events"
+                           onChange={e => onToolsChange(WAIT_TOOLS, e.target.checked)} />
+                    <span>
+                        <strong>May wait for events</strong>
+                        <small>"Wait until the customer replies, up to 48 hours." The run pauses, using nothing,
+                            and continues when the event arrives or the time is up.</small>
+                    </span>
+                </label>
                 <p className="ar-note">Limits on how much agents may do (schedules per run, shortest repeat, signals
-                    per run) are in Automation Settings; none applies unless set.</p>
+                    per run, longest wait) are in Automation Settings; none applies unless set.</p>
             </div>
         </div>
     );

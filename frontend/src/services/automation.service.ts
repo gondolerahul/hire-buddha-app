@@ -160,9 +160,22 @@ export interface AutomationHealth {
     parked_events: number;
     oldest_parked_at: string | null;
     queued_firings: number;
+    waiting_runs: number;
     missed_schedules_24h: number;
     failing_triggers: { trigger_id: string; name: string; problems: number; last_outcome: string; last_reason: string | null }[];
     upcoming: { trigger_id: string; name: string; kind: TriggerKind; next_fire_at: string; created_by_kind: string }[];
+}
+
+export interface RunWait {
+    id: string;
+    run_id: string;
+    event_type: string | null;
+    match: TriggerFilter | null;
+    deadline_at: string | null;
+    status: 'waiting' | 'satisfied' | 'expired' | 'cancelled';
+    created_at: string | null;
+    entity_id: string | null;
+    entity_name: string | null;
 }
 
 export interface EventQuery {
@@ -244,6 +257,12 @@ export const automationService = {
 
     replayEvent: async (id: string): Promise<AutomationEvent> =>
         (await apiClient.post<AutomationEvent>(`/automation/events/${id}/replay`)).data,
+
+    listWaits: async (): Promise<RunWait[]> =>
+        (await apiClient.get<RunWait[]>('/automation/waits')).data,
+
+    cancelWait: async (id: string): Promise<RunWait> =>
+        (await apiClient.post<RunWait>(`/automation/waits/${id}/cancel`)).data,
 
     health: async (): Promise<AutomationHealth> =>
         (await apiClient.get<AutomationHealth>('/automation/health')).data,

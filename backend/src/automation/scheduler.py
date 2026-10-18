@@ -176,6 +176,7 @@ async def fire_trigger(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
         tz_name = trigger.timezone or await company_timezone_name(due.company_id, cdb)
         result: Dict[str, Any] = {"trigger": str(trigger.id), "fired": 0}
         created: List[UUID] = []
+        missed = None
         if trigger.next_fire_at is not None and trigger.next_fire_at > now:
             pass  # an edit moved the trigger later than its index row: the row only follows
         elif trigger.enabled and trigger.kind in triggers_mod.TIMED:
@@ -190,6 +191,7 @@ async def fire_trigger(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
                     created.append(row.id)
             if decided.skipped:
                 start, end = decided.skipped
+                missed = (start, end)  # the owner is told after the commit
                 db.add(TriggerFiring(trigger_id=trigger.id, event_id=None, decided_at=now,
                                      outcome=guards.SKIPPED_MISSED,
                                      reason=f"missed while automation was not running: {start:%Y-%m-%d %H:%M} to "
@@ -209,14 +211,44 @@ async def fire_trigger(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
 
     for event_id in created:
         await store.nudge(due.company_id, event_id)
+    if missed is not None:
+        from src.automation import notify
+
+        await notify.missed_schedule(due.company_id, trigger, *missed)
     return result
 
 
+async def fire_wait(due: Due) -> Dict[str, Any]:
+    """A wait's deadline: expire it if still open and resume its run with the timeout."""
+    from src.automation import waits as waits_mod
+    from src.automation.models import Wait
+    from src.common.tenancy.session import control_session, tenant_session
+
+    async with tenant_session(due.company_id) as db, control_session() as cdb:
+        wait = await db.get(Wait, due.ref_id)
+        expired = wait is not None and wait.status == "waiting"
+        if wait is None:
+            await cdb.execute(delete(TimeIndexEntry).filter_by(**_key(due)))
+        else:
+            await waits_mod.close(db, cdb, due.company_id, wait.id, "expired")
+        await db.commit()
+        await cdb.commit()
+        run_id = wait.run_id if wait is not None else None
+    if expired:
+        await waits_mod.enqueue_resume(due.company_id, run_id, due.ref_id)
+    return {"wait": str(due.ref_id), "expired": expired}
+
+
 async def fire(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
+    from src.automation import metrics
+
+    metrics.lag((now - due.due_at).total_seconds())
     if due.ref_kind == "trigger":
         return await fire_trigger(due, owner, now)
-    # Waits (WS3 3.6), connection refreshes (WS5) and scratch clean-up (WS6)
-    # arrive with their workstreams.
+    if due.ref_kind == "wait":
+        return await fire_wait(due)
+    # Connection refreshes (WS5) and scratch clean-up (WS6) arrive with their
+    # workstreams.
     from src.common.tenancy.session import control_session
 
     async with control_session() as cdb:
@@ -243,6 +275,8 @@ async def tick(owner: Optional[str] = None, now: Optional[datetime] = None) -> L
 async def run_forever(stop: asyncio.Event) -> None:
     from src.common.config import settings
 
+    from src.automation import metrics
+
     owner = owner_id()
     logger.info("scheduler %s: tick every %ss", owner, settings.SCHEDULER_TICK_SECONDS)
     while not stop.is_set():
@@ -250,7 +284,9 @@ async def run_forever(stop: asyncio.Event) -> None:
             fired = [r for r in await tick(owner) if r.get("fired")]
             if fired:
                 logger.info("scheduler: fired %s", fired)
+            metrics.SCHEDULER_TICKS.labels("ok").inc()
         except Exception:  # the database or Redis away: try again next tick
+            metrics.SCHEDULER_TICKS.labels("error").inc()
             logger.exception("scheduler tick failed")
         try:
             await asyncio.wait_for(stop.wait(), timeout=settings.SCHEDULER_TICK_SECONDS)
@@ -264,6 +300,10 @@ async def _main() -> None:
 
     import_all_models()  # every mapper, as the API and workers have (a trigger refers to its agent)
     setup_tracing("hirebuddha-scheduler")
+    from src.common.config import settings
+    from src.common.worker_metrics import serve_metrics
+
+    serve_metrics(settings.SCHEDULER_METRICS_PORT, settings.WORKER_METRICS_ADDR)  # also its liveness probe
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in ("SIGINT", "SIGTERM"):

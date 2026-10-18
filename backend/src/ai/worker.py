@@ -36,6 +36,7 @@ from src.ai.core.arq_jobs import (
     resume_execution,
     resume_parent_run,
     resume_paused_run,
+    resume_waiting_run,
     cortex_resume_scheduled,
     sweep_stuck_runs,
     critic_calibration_job,
@@ -125,6 +126,8 @@ class WorkerSettings:
         resume_parent_run,
         # A run parked on a HITL approval (GH-07).
         resume_paused_run,
+        # A run parked on wait_for_event (Phase 14 WS3).
+        resume_waiting_run,
         # Outcome-triggered Dreaming.
         dreaming_outcome_trigger,
         # Enqueued by dreaming_cron_trigger (must be registered to run).

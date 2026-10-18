@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+
 from src.gateway import internal_event
 from src.gateway.internal_event import InternalEvent, emit_internal_event
 
@@ -31,3 +33,10 @@ async def test_the_queued_envelope_carries_no_priority(monkeypatch):
     monkeypatch.setattr(internal_event, "queue_event", _queue)
     await emit_internal_event("agent.signal", "c", "agent:x", {})
     assert "priority" not in queued[0].metadata
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)

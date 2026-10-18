@@ -16,9 +16,12 @@ the secret, so:
      ``duplicate`` and not run again (GW-03);
   3. the source's normaliser turns the body into a standard EventEnvelope for the
      endpoint's company — never one named in the request;
-  4. it is queued as a process_gateway_event arq job (src/gateway/envelope.py),
-     and the answer is 202 only once Redis has the job — 503 otherwise, so the
-     provider retries (SA-09).
+  4. it is stored as an event in the company's database and routed by its
+     triggers (``automation.gateway``, Phase 14 WS3; the delivery is the event's
+     dedupe key) — or, with ``AUTOMATION_GATEWAY_EVENTS`` off, queued as a
+     process_gateway_event arq job (src/gateway/envelope.py). The answer is 202
+     only once the event is stored or queued — 503 otherwise, so the provider
+     retries (SA-09).
 
 The bare ``POST /webhook/inbound`` (tenant from ``?client_id=``, scheme sniffed
 from the request's own headers, every check returning True) answers 401.
@@ -502,7 +505,12 @@ async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession =
     )
 
     try:
-        await queue_event(envelope)
+        from src.automation import gateway
+        if gateway.enabled():
+            await gateway.ingest(envelope, dedupe_key=f"webhook:{endpoint.id}:{delivery}", trust="verified",
+                                 endpoint_id=endpoint.id, bound=endpoint.entity_id is not None)
+        else:
+            await queue_event(envelope)
     except Exception:
         logger.exception(f"[WebhookRouter] Could not queue event {correlation_id}")
         await release_delivery(endpoint.id, delivery)

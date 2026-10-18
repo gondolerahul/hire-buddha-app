@@ -214,6 +214,11 @@ class AgentState:
     # Snapshotted; ``resume_after_approval`` reads the decision and clears it.
     awaiting_approval: Optional[dict[str, Any]] = None
 
+    # A wait for an event the run is parked on (wait_for_event, Phase 14 WS3
+    # §7.9): wait_id, event_type, step_id, deadline. Snapshotted;
+    # ``resume_after_wait`` folds the event (or the timeout) in and clears it.
+    awaiting_event: Optional[dict[str, Any]] = None
+
     # Transient: set during an iteration when the executor dispatched children
     # asynchronously, signalling the loop to SUSPEND (snapshot + WAITING) rather
     # than finalize. NOT snapshotted — recomputed each run from awaiting_children.
@@ -452,6 +457,7 @@ class AgentState:
             "step_results": list(self.step_results),
             "awaiting_children": list(self.awaiting_children),
             "awaiting_approval": dict(self.awaiting_approval) if self.awaiting_approval else None,
+            "awaiting_event": dict(self.awaiting_event) if self.awaiting_event else None,
             "context_state": dict(self.context_state),
             "done": self.done,
             "next_decision": self.next_decision,
@@ -490,6 +496,7 @@ class AgentState:
             step_results=list(snapshot.get("step_results", [])),
             awaiting_children=list(snapshot.get("awaiting_children", [])),
             awaiting_approval=dict(snapshot["awaiting_approval"]) if snapshot.get("awaiting_approval") else None,
+            awaiting_event=dict(snapshot["awaiting_event"]) if snapshot.get("awaiting_event") else None,
             context_state=dict(snapshot.get("context_state", {})),
             done=bool(snapshot.get("done", False)),
             next_decision=snapshot.get("next_decision", "CONTINUE"),

@@ -117,3 +117,10 @@ def test_delivery_id_prefers_the_providers_header() -> None:
     assert delivery_id("generic", {}, body) == "body:" + hashlib.sha256(body).hexdigest()
     # Another provider's header name does not count for this source.
     assert delivery_id("crm", {"x-github-delivery": "g1"}, body).startswith("body:")
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)

@@ -187,3 +187,10 @@ async def test_rest_is_rate_limited_and_webhooks_are_not(monkeypatch):
         body, headers = signed_json({"type": "x", "n": n})   # three deliveries, not one retried
         resp = await _request("POST", f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
         assert resp.status_code == 202
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)

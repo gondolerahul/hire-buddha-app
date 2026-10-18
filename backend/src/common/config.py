@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     WORKER_METRICS_PORT: int = 9101
     CHILD_WORKER_METRICS_PORT: int = 9102
     EVENT_WORKER_METRICS_PORT: int = 9103
+    SCHEDULER_METRICS_PORT: int = 9104
     WORKER_METRICS_ADDR: str = "127.0.0.1"
     # A parent suspended on its children (AK-03): when every child is done but
     # its resume never arrived, the sweeper re-enqueues the resume after the
@@ -292,6 +293,9 @@ class Settings(BaseSettings):
     # The scheduler's loop, and how late a due time may be before catch-up rules apply.
     SCHEDULER_TICK_SECONDS: int = 5
     SCHEDULER_GRACE_SECONDS: int = 600
+    # Inbound webhooks and internal events become events routed by triggers
+    # (WS3 3.5/3.9). Off: the old direct path (process_gateway_event), for rollback.
+    AUTOMATION_GATEWAY_EVENTS: bool = True
     # Events routed at once by one event worker (queue "events"). Routing is
     # short (it creates runs, it does not run them).
     EVENT_WORKER_MAX_JOBS: int = 20

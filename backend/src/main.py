@@ -187,6 +187,7 @@ mount_optional(app, "src.gateway.status")               # GET /metrics/gateway
 
 # Event-driven automation (Phase 14 WS3): settings, and the control room as it grows
 mount_optional(app, "src.automation.api")                # /api/v1/automation/*, /api/v1/admin/automation/*
+mount_optional(app, "src.notifications.router")         # /api/v1/notifications
 
 
 @app.get("/")

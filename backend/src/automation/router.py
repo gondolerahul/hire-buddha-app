@@ -26,8 +26,9 @@ no run yet; ``drain_queued`` starts the oldest when there is room. (The spec
 sketches a PENDING run with a ``not_before``; a firing keeps the kernel's run
 states as they are, and the run is created only when it can start.)
 
-Waiting runs (``wait_for_event``) are matched here once the kernel can
-suspend on events (WS3 3.6).
+Waiting runs come first (§7.8 step 3): an event that answers a run's
+``wait_for_event`` marks the wait satisfied and resumes the run
+(``automation.waits``), whether or not a trigger also listens for it.
 """
 from __future__ import annotations
 
@@ -148,9 +149,18 @@ async def decide(db: Any, company_id: Any, trigger: Trigger, event: Event, limit
 
 
 def _render_input(trigger: Trigger, event: Event) -> Dict[str, Any]:
-    rendered = templates.render(trigger.input_template or {}, event_view(event),
-                                {"id": str(trigger.id), "name": trigger.name})
-    return rendered if isinstance(rendered, dict) else {"input": rendered}
+    from src.automation import gateway
+
+    if not trigger.input_template and trigger.kind in triggers_mod.EVENT_KINDS:
+        input_data = gateway.default_input(event)  # the event itself, as the old inbound path gave runs
+    else:
+        rendered = templates.render(trigger.input_template or {}, event_view(event),
+                                    {"id": str(trigger.id), "name": trigger.name})
+        input_data = rendered if isinstance(rendered, dict) else {"input": rendered}
+    subjects = gateway.subjects_for(event)
+    if subjects is not None:  # an inbound event's lead or sender: the platform's, not a template's (TL-09)
+        input_data["subjects"] = subjects
+    return input_data
 
 
 def _refusal(error: Exception) -> guards.Decision:
@@ -181,6 +191,10 @@ async def start(db: Any, company_id: Any, trigger: Trigger, event: Event, firing
     from src.ai.service import AIService
 
     run_id, trigger_id, event_id = uuid.uuid4(), trigger.id, event.id  # a rollback expires the objects
+    from src.automation import gateway
+
+    if event.type == gateway.SHEET_ROW:
+        return await _start_sheet_campaign(db, company_id, trigger, event, firing)
     firing.run_id, firing.outcome = run_id, guards.STARTED
     try:
         await AIService(db).trigger_execution(
@@ -200,6 +214,26 @@ async def start(db: Any, company_id: Any, trigger: Trigger, event: Event, firing
             return guards.Decision(guards.STARTED)
         return _refusal(error)
     return guards.Decision(guards.STARTED)
+
+
+async def _start_sheet_campaign(db: Any, company_id: Any, trigger: Trigger, event: Event,
+                                firing: TriggerFiring) -> guards.Decision:
+    """A sheet row starts a one-contact voice campaign for the trigger's agent, not an agent run."""
+    from src.automation import gateway
+
+    trigger_id, event_id = trigger.id, event.id
+    try:
+        campaign_id = await gateway.sheet_campaign(db, company_id, trigger.entity_id, event)
+    except Exception as error:  # noqa: BLE001
+        logger.exception("sheet row %s: campaign not created", event_id)
+        await db.rollback()
+        return guards.Decision(guards.FAILED, f"voice campaign not created: {error}")
+    if not campaign_id:
+        await db.rollback()
+        return guards.Decision(guards.FAILED, "not started: the row has no phone number")
+    firing.outcome, firing.reason = guards.STARTED, f"voice campaign {campaign_id} created for the row"
+    await db.flush()
+    return guards.Decision(guards.STARTED, firing.reason)
 
 
 async def _loop_blocked(db: Any, trigger: Trigger, event: Event, decision: guards.Decision) -> None:
@@ -241,6 +275,10 @@ async def decide_and_start(db: Any, company_id: Any, trigger: Trigger, event: Ev
         if decision.outcome == guards.SKIPPED_CHAIN_DEPTH:
             await _loop_blocked(db, trigger, await db.get(Event, event_id), decision)
     await db.commit()
+    from src.automation import metrics, notify
+
+    metrics.firing(decision.outcome)
+    await notify.after_decision(db, company_id, await db.get(Trigger, trigger_id), decision)
     return {"trigger": str(trigger_id), "outcome": decision.outcome, "reason": decision.reason or None,
             "run": str(firing.run_id) if firing.run_id else None}
 
@@ -260,6 +298,21 @@ async def route(db: Any, company_id: Any, event_id: Any, *, now: Optional[dateti
         await db.commit()
         return {"event": str(event_id), "parked": True}
 
+    from src.automation import waits as waits_mod
+
+    answered = await waits_mod.satisfy(db, company_id, event)
+    if answered:
+        await db.commit()
+        for wait in answered:
+            await waits_mod.enqueue_resume(company_id, wait.run_id, wait.id)
+        event = await db.get(Event, event_id)
+
+    # An inbound event that names an agent gets that agent's (visible) trigger first.
+    from src.automation import gateway
+
+    if await gateway.ensure_named_trigger(db, company_id, event) is not None:
+        event = await db.get(Event, event_id)
+
     limits = await limits_for(company_id, _control(db))
     decided: List[Dict[str, Any]] = []
     # By id: a refused run rolls the session back, which expires loaded objects.
@@ -277,7 +330,8 @@ async def route(db: Any, company_id: Any, event_id: Any, *, now: Optional[dateti
     event = await db.get(Event, event_id)
     event.status, event.routed_at, event.last_error = "routed", now, None
     await db.commit()
-    return {"event": str(event_id), "decisions": decided}
+    return {"event": str(event_id), "decisions": decided,
+            "resumed_waits": [str(w.id) for w in answered]}
 
 
 async def drain_queued(db: Any, company_id: Any, *, now: Optional[datetime] = None, limit: int = 100) -> int:
@@ -360,6 +414,10 @@ async def _note_failure(company_id: Any, event_id: str, error: Exception, *, dea
                     dedupe_key=f"dead:{event_id}:{event.attempts}", subject=f"event:{event_id}",
                     data={"event_id": event_id, "event_type": event.type, "error": event.last_error}))
             await db.commit()
+            if dead:
+                from src.automation import notify
+
+                await notify.event_dead(event.company_id, event_id, event.type, event.last_error or "")
     except Exception:
         logger.exception("could not record the failure of event %s", event_id)
 

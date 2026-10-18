@@ -97,10 +97,13 @@ def validate(fields: Dict[str, Any], *, now: datetime, new_run_at: bool = True) 
     if kind in EVENT_KINDS:
         try:
             pattern = str(data.get("event_type") or "")
-            events_mod.validate_type(pattern[:-2] + ".x" if pattern.endswith(".*") else pattern)
+            if pattern != "*":
+                events_mod.validate_type(pattern[:-2] + ".x" if pattern.endswith(".*") else pattern)
         except events_mod.EventError:
             raise TriggerError("event_type must be an event type like social.comment.created, "
                                "or a prefix like record.order.*") from None
+        if pattern == "*" and (kind != "event" or not data.get("filter")):
+            raise TriggerError("event_type * (every event) is for event triggers with a filter that says which")
         if kind == "data" and not str(data["event_type"]).startswith("record."):
             raise TriggerError("a data trigger listens to record.<object>.* events")
     try:

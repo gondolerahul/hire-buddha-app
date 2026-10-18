@@ -108,6 +108,7 @@ FREE_TOOLS: dict[str, str] = {
     "terminal": _SANDBOX,
     "tool_synthesis": _MODEL,
     "video_add_sound": _SANDBOX,
+    "wait_for_event": _LOCAL,
     "video_edit": _SANDBOX,
     "whatsapp_send_tenant": _TENANT,
 }

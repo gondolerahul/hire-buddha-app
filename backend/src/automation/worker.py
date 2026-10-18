@@ -10,7 +10,8 @@ never takes the slots runs need, nor runs the slots events need:
 * ``automation_sweep`` — every 30 seconds, per tenant database: re-nudge
   events whose nudge was lost (the relay of the outbox), release parked
   events of businesses running again, start queued firings that have room,
-  and record ``run.*`` events for runs that ended (``run_events``).
+  record ``run.*`` events for runs that ended (``run_events``), and re-send
+  the resume of a waiting run whose wait was answered (``waits``).
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from src.automation import guards, router, run_events, store
+from src.automation import guards, router, run_events, store, waits
 from src.automation.limits import forget_state
 from src.automation.models import Trigger, TriggerFiring
 from src.automation.router import route_event  # noqa: F401 — registered by EventWorkerSettings
@@ -53,7 +54,7 @@ async def automation_sweep(ctx: Dict[str, Any]) -> Dict[str, Any]:
     """arq cron: the relay sweep, parked events of running businesses, queued firings."""
     from src.common.tenancy.session import tenant_scopes, tenant_session
 
-    totals = {"renudged": 0, "released": 0, "started": 0, "run_events": 0}
+    totals = {"renudged": 0, "released": 0, "started": 0, "run_events": 0, "resumes_resent": 0}
     for scope in await tenant_scopes():
         try:
             async with tenant_session(scope) as db:
@@ -65,8 +66,16 @@ async def automation_sweep(ctx: Dict[str, Any]) -> Dict[str, Any]:
                     totals["released"] += await router.release_parked(db, company_id)
                     totals["started"] += await router.drain_queued(db, company_id)
                 totals["run_events"] += await run_events.relay_all(db)
+                totals["resumes_resent"] += await waits.sweep_lost_resumes(db)
         except Exception:  # one tenant database away must not stop the others
             logger.exception("automation sweep of tenant %s failed", scope)
     if any(totals.values()):
         logger.info("automation sweep: %s", totals)
+    try:
+        from src.automation import metrics
+
+        totals["sampled"] = await metrics.sample([lambda scope=scope: tenant_session(scope)
+                                                  for scope in await tenant_scopes()])
+    except Exception:  # noqa: BLE001 - metrics never stop the sweep
+        logger.warning("automation metrics not sampled", exc_info=True)
     return totals

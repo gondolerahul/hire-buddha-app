@@ -39,6 +39,10 @@ export const queryKeys = {
         events: (query: object) => ['automation', 'events', query] as const,
         event: (id: string) => ['automation', 'event', id] as const,
         health: ['automation', 'health'] as const,
+        waits: ['automation', 'waits'] as const,
+    },
+    notifications: {
+        mine: ['notifications', 'mine'] as const,
     },
     reports: {
         all: ['reports'] as const,

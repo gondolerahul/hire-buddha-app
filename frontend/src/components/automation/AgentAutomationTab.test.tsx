@@ -48,6 +48,8 @@ describe('AgentAutomationTab', () => {
         expect(onToolsChange).toHaveBeenLastCalledWith(SCHEDULE_TOOLS, true);
         fireEvent.click(screen.getByLabelText('May send signals'));
         expect(onToolsChange).toHaveBeenLastCalledWith(['emit_event'], true);
+        fireEvent.click(screen.getByLabelText('May wait for events'));
+        expect(onToolsChange).toHaveBeenLastCalledWith(['wait_for_event'], true);
     });
 
     it('lists the other agents it may schedule once scheduling is granted', () => {

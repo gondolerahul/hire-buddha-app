@@ -8,6 +8,8 @@
   now" (an ordinary run of the trigger, through the same rules);
 * events — the log (by type, status, time), one event with its decisions and
   runs, replay of a dead or held event;
+* waits — runs waiting for an event, and cancelling a wait (the run goes on
+  without the event);
 * scopes — pause and resume every trigger of one department or process;
 * health — dead and held events, missed schedules, triggers that keep failing.
 
@@ -34,7 +36,7 @@ from src.automation import events as events_mod
 from src.automation import guards, router as router_mod, schedules, store, triggers as triggers_mod
 from src.automation.api import EDIT_ROLES, PAUSE_ROLES, capability
 from src.automation.limits import automation_state_for
-from src.automation.models import Event, Trigger, TriggerFiring
+from src.automation.models import Event, Trigger, TriggerFiring, Wait
 from src.common.tenancy.session import acting_company_id, get_acting_tenant_db, get_control_db
 
 control_router = APIRouter(prefix="/api/v1/automation", tags=["Automation"])
@@ -206,9 +208,24 @@ class HealthOut(BaseModel):
     parked_events: int
     oldest_parked_at: Optional[datetime] = None
     queued_firings: int
+    waiting_runs: int = 0
     missed_schedules_24h: int
     failing_triggers: List[FailingTrigger] = []
     upcoming: List[UpcomingRun] = []
+
+
+class WaitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    run_id: UUID
+    event_type: Optional[str] = None
+    match: Optional[Dict[str, Any]] = None
+    deadline_at: Optional[datetime] = None
+    status: str
+    created_at: Optional[datetime] = None
+    entity_id: Optional[UUID] = None
+    entity_name: Optional[str] = None
 
 
 class ScopeResult(BaseModel):
@@ -473,6 +490,53 @@ async def replay_event(event_id: UUID, request: Request, user: User = Depends(ge
     return EventOut.model_validate(await db.get(Event, event_id))
 
 
+# ── Waiting runs ───────────────────────────────────────────────────────────
+
+@control_router.get("/waits", response_model=List[WaitOut],
+                    openapi_extra=capability("Runs waiting for an event, soonest deadline first", "read",
+                                             "automation.read"))
+async def list_waits(request: Request, user: User = Depends(get_current_user),
+                     control_db: AsyncSession = Depends(get_control_db),
+                     db: AsyncSession = Depends(get_acting_tenant_db)) -> List[WaitOut]:
+    from src.ai.orm import ExecutionRun, HierarchicalEntity
+    from src.automation import waits as waits_mod
+
+    company_id = await acting_company_id(request, user, control_db)
+    rows = await waits_mod.list_waiting(db, company_id)
+    runs = dict((await db.execute(select(ExecutionRun.id, ExecutionRun.entity_id).where(
+        ExecutionRun.id.in_([w.run_id for w in rows])))).all()) if rows else {}
+    names = dict((await db.execute(select(HierarchicalEntity.id, HierarchicalEntity.name).where(
+        HierarchicalEntity.id.in_(set(runs.values()))))).all()) if runs else {}
+    out = []
+    for wait in rows:
+        item = WaitOut.model_validate(wait)
+        item.entity_id = runs.get(wait.run_id)
+        item.entity_name = names.get(item.entity_id)
+        out.append(item)
+    return out
+
+
+@control_router.post("/waits/{wait_id}/cancel", response_model=WaitOut,
+                     openapi_extra=capability("Stop a run's wait: the run goes on without the event", "spend",
+                                              "automation.operate"))
+async def cancel_wait(wait_id: UUID, request: Request, user: User = Depends(get_current_user),
+                      control_db: AsyncSession = Depends(get_control_db),
+                      db: AsyncSession = Depends(get_acting_tenant_db)) -> WaitOut:
+    from src.automation import waits as waits_mod
+
+    _require(user, OPERATE_ROLES, "cancel waits")
+    company_id = await acting_company_id(request, user, control_db)
+    wait = await db.get(Wait, wait_id)
+    if wait is None or wait.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Wait not found")
+    if wait.status != "waiting":
+        raise HTTPException(status_code=409, detail=f"This wait is already {wait.status}")
+    await waits_mod.close(db, control_db, company_id, wait.id, "cancelled")
+    await _commit(db, control_db)
+    await waits_mod.enqueue_resume(company_id, wait.run_id, f"{wait.id}:cancel")
+    return WaitOut.model_validate(wait)
+
+
 # ── Scopes and health ──────────────────────────────────────────────────────
 
 async def _set_scope(db: AsyncSession, control_db: AsyncSession, company_id: UUID, scope: str,
@@ -555,6 +619,8 @@ async def automation_health(request: Request, user: User = Depends(get_current_u
         parked_events=await count(events.where(Event.status == "parked")),
         oldest_parked_at=(await db.execute(select(func.min(Event.received_at)).where(
             Event.company_id == company_id, Event.status == "parked"))).scalar(),
+        waiting_runs=await count(select(func.count()).select_from(Wait).where(
+            Wait.company_id == company_id, Wait.status == "waiting")),
         queued_firings=await count(firings.where(TriggerFiring.outcome == guards.QUEUED,
                                                  TriggerFiring.run_id.is_(None))),
         missed_schedules_24h=await count(firings.where(TriggerFiring.outcome == guards.SKIPPED_MISSED,

@@ -20,6 +20,9 @@ spec:
         {{- include "hb.podLabels" $c | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.scheduler.metricsPort | quote }}
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: {{ .Values.serviceAccounts.worker.name }}
       {{- include "hb.podSpecCommon" . | nindent 6 }}
@@ -27,12 +30,24 @@ spec:
         - name: scheduler
           image: {{ include "hb.image" (dict "root" $ "image" "scheduler") }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.scheduler.metricsPort }}
           {{- include "hb.backendEnv" . | nindent 10 }}
           {{- include "hb.databaseUrlEnv" (dict "root" $ "user" "worker") | nindent 12 }}
+            - name: SCHEDULER_METRICS_PORT
+              value: {{ .Values.scheduler.metricsPort | quote }}
           {{- include "hb.backendVolumeMounts" . | nindent 10 }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.scheduler.resources | nindent 12 }}
+          # Its metrics server runs in the scheduler's process: answering means alive.
+          livenessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
       {{- include "hb.backendVolumes" (dict "root" $ "identity" "worker") | nindent 6 }}
 {{- end }}

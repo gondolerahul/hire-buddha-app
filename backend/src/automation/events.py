@@ -65,7 +65,9 @@ def validate_custom_type(event_type: Any) -> str:
 
 
 def type_matches(pattern: str, event_type: str) -> bool:
-    """A trigger's ``event_type`` against an event's: exact, or ``prefix.*``."""
+    """A trigger's ``event_type`` against an event's: exact, ``prefix.*``, or ``*`` (any)."""
+    if pattern == "*":
+        return True
     if pattern.endswith(".*"):
         return event_type.startswith(pattern[:-1])
     return pattern == event_type

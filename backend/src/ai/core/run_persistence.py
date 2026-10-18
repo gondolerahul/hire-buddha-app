@@ -163,8 +163,9 @@ class RunPersistence:
             await self.credits.settle(fresh)
 
     async def _persist_suspended(self, run: ExecutionRun, state: AgentState) -> None:
-        """Persist a resumable snapshot + WAITING_ON_CHILDREN status, or PAUSED
-        when the run waits on a person's decision (GH-07).
+        """Persist a resumable snapshot + WAITING_ON_CHILDREN status, PAUSED
+        when the run waits on a person's decision (GH-07), or WAITING_ON_EVENT
+        when it waits for an event (wait_for_event, Phase 14 WS3).
 
         Stores ``state.snapshot()`` under ``run.context_state`` so ``resume``
         can rehydrate. Does NOT settle billing — the run hasn't finished.
@@ -184,6 +185,7 @@ class RunPersistence:
             cs[SUSPENDED_AT_KEY] = utc_now_iso()
             fresh.context_state = cs
             fresh.status = (RunStatus.PAUSED if state.awaiting_approval
+                            else RunStatus.WAITING_ON_EVENT if state.awaiting_event
                             else RunStatus.WAITING_ON_CHILDREN).value
             spend = await self._spend_for_persist(state, run_id)
             fresh.total_cost_usd = spend.cost_usd
@@ -194,6 +196,7 @@ class RunPersistence:
                 run_id=str(run_id),
                 awaiting=len(state.awaiting_children),
                 approval_id=(state.awaiting_approval or {}).get("approval_id"),
+                wait_id=(state.awaiting_event or {}).get("wait_id"),
             )
         except Exception:
             await self.db.rollback()

@@ -128,3 +128,10 @@ async def test_a_signed_form_post_is_accepted(queued, monkeypatch):
     resp = await _post(f"/webhook/inbound/{endpoint.id}", content=body, headers=headers)
     assert resp.status_code == 202, resp.text
     assert queued[0]["raw_data"]["raw"] == {"EventType": "status_update", "CallSid": "CA1"}
+
+
+@pytest.fixture(autouse=True)
+def _direct_queue_path(monkeypatch):
+    """These check the direct queue path (AUTOMATION_GATEWAY_EVENTS off, the rollback
+    setting); the event path is tests/integration/test_automation_gateway.py."""
+    monkeypatch.setattr("src.common.config.settings.AUTOMATION_GATEWAY_EVENTS", False)
