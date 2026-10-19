@@ -7,9 +7,12 @@
 #                              a host resolves to must be public, and the proxy
 #                              connects to the address it checked. The browser's
 #                              way out.
+#   MODE=cluster             - web_proxy.py for every tenant on AKS (Phase 14
+#                              WS6 6.2): callers authenticate per tenant and
+#                              pod or app; allow-lists from $POLICY_FILE.
 set -eu
 
-if [ "${MODE:-allowlist}" = "web" ]; then
+if [ "${MODE:-allowlist}" = "web" ] || [ "${MODE:-allowlist}" = "cluster" ]; then
     exec python3 /usr/local/bin/web_proxy.py
 fi
 

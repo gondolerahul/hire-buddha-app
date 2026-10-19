@@ -145,6 +145,12 @@ async def rotate_dek(db: Any, company_id: Any) -> Dict[str, int]:
     )).scalars().all()
     opened = [(row, await open_secret(db, company_id, row.connection_id, row.dek_version, row.nonce,
                                       row.ciphertext)) for row in rows]
+    # The app-auth keys app users' tokens are signed with (WS6 6.10) are sealed the same way.
+    from src.apps.models import AppAuthKey
+
+    app_keys = (await db.execute(select(AppAuthKey).where(AppAuthKey.company_id == company_id))).scalars().all()
+    app_opened = [(row, await open_secret(db, company_id, _app_key_aad(company_id, row.version), row.dek_version,
+                                          row.nonce, row.ciphertext)) for row in app_keys]
     await db.execute(update(TenantKey).where(TenantKey.company_id == company_id, TenantKey.retired_at.is_(None))
                      .values(retired_at=datetime.utcnow()))
     await db.flush()
@@ -152,8 +158,16 @@ async def rotate_dek(db: Any, company_id: Any) -> Dict[str, int]:
     for row, secret in opened:
         row.dek_version, row.nonce, row.ciphertext = await seal_secret(db, company_id, row.connection_id, secret)
         row.updated_at = datetime.utcnow()
+    for row, secret in app_opened:
+        row.dek_version, row.nonce, row.ciphertext = await seal_secret(
+            db, company_id, _app_key_aad(company_id, row.version), secret)
     await db.flush()
-    return {"version": version, "resealed": len(opened)}
+    return {"version": version, "resealed": len(opened) + len(app_opened)}
+
+
+def _app_key_aad(company_id: Any, version: int) -> str:
+    """What an app-auth key is sealed against (``data_api.app_users``)."""
+    return f"app-auth:{company_id}:{version}"
 
 
 async def shred(company_id: Any) -> None:

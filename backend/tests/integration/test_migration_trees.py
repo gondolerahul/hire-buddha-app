@@ -153,11 +153,18 @@ async def _model_built(url) -> uuid.UUID:
     at_the_cut = set(re.findall(r"op\.create_table\('([a-z_]+)'", baseline.read_text(encoding="utf-8")))
     for table in [t for t in metadata.tables.values() if t.name not in at_the_cut]:
         metadata.remove(table)
+    # ... and without the columns later revisions add to those tables.
+    later = [p for p in baseline.parent.glob("tenant_platform_*.py") if p != baseline]
+    added = {pair for p in later for pair in re.findall(r"op\.add_column\('([a-z_]+)', sa\.Column\('([a-z_]+)'",
+                                                        p.read_text(encoding="utf-8"))}
     agent_id = uuid.uuid4()
     engine = create_async_engine(url)
     try:
         async with engine.begin() as conn:
             await conn.run_sync(metadata.create_all)
+            for table, column in sorted(added):
+                if table in at_the_cut:
+                    await conn.exec_driver_sql(f'ALTER TABLE platform."{table}" DROP COLUMN IF EXISTS "{column}"')
             await conn.execute(metadata.tables["platform.hierarchical_entities"].insert().values(
                 id=agent_id, company_id=uuid.uuid4(), type="AGENT", name="kept through adoption"))
     finally:

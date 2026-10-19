@@ -126,6 +126,12 @@ from src.ai.tools.records import RECORD_TOOLS
 for _record_tool in RECORD_TOOLS:
     ToolRegistry.register(_record_tool())
 
+# Code lanes (Phase 14 WS6 6.3, 6.5): scratch code, promotion and app changes are
+# pull requests a person merges.
+from src.ai.tools.code import CODE_TOOLS
+for _code_tool in CODE_TOOLS:
+    ToolRegistry.register(_code_tool())
+
 __all__ = [
     "Tool", "ToolRegistry",
     "CalculatorTool", "WebSearchTool", "BatchWebSearchTool", "ExcelTool", "ScraperTool",

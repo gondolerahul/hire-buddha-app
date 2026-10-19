@@ -4,6 +4,13 @@
 
 config:
   PLATFORM_PROFILE: azure
+  # Tenant runtime (WS6): sandbox pods on the Kata pool, Gitea for built-in Git,
+  # ACR Tasks builds, TenantApp objects for the App Controller.
+  SANDBOX_RUNTIME: kubernetes
+  GIT_BACKEND: gitea
+  GITEA_URL: http://gitea.hb-platform.svc.cluster.local:3000
+  APP_BUILDER: acr_tasks
+  APP_RUNTIME: kubernetes
   # Adapters the profile picks: azure_blob storage, azure_keyvault secrets,
   # azure_workload_identity tokens, entra_token database sign-in.
   OTEL_EXPORTER_OTLP_ENDPOINT: ""
@@ -47,3 +54,8 @@ gateway:
   parentRefs:
     - name: platform-gateway
       namespace: hb-system
+
+tenantRuntime:
+  enabled: true
+  gitea:
+    enabled: true

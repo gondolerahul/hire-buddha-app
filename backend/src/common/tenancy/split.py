@@ -46,6 +46,10 @@ logger = logging.getLogger(__name__)
 BATCH_ROWS = 5000
 # What provisioning writes into a new tenant database itself (base pack v1).
 PROVISIONED_TABLES = frozenset({"schema_blueprints", "schema_changes", "events", "audit_log"})
+# Provisioning makes the business's first DEK (WS6 keys_ready); a business that
+# sealed secrets in the shared database brings its own versions, which win: the
+# provisioned one has sealed nothing yet. Without any, the provisioned one stays.
+SOURCE_WINS_TABLES = frozenset({"tenant_keys"})
 
 
 class SplitRefused(RuntimeError):
@@ -241,7 +245,7 @@ async def split_tenant(company_id: Any, *, server_name: Optional[str] = None, re
         present = {}
         for p in plans:
             count = await target.fetchval(f"SELECT count(*) FROM {_q(p.name)} t WHERE {p.scope_sql}", company_id)
-            if count and p.name not in PROVISIONED_TABLES:
+            if count and p.name not in PROVISIONED_TABLES | SOURCE_WINS_TABLES:
                 present[p.name] = count
         if present and not replace:
             raise SplitRefused(f"the tenant database already holds this business's rows: {present} "
@@ -256,6 +260,10 @@ async def split_tenant(company_id: Any, *, server_name: Optional[str] = None, re
                 for p in reversed(plans):
                     if p.name not in PROVISIONED_TABLES:
                         await target.execute(f"DELETE FROM {_q(p.name)} t WHERE {p.scope_sql}", company_id)
+            for p in plans:
+                if p.name in SOURCE_WINS_TABLES and await source.fetchval(
+                        f"SELECT count(*) FROM {_q(p.name)} t WHERE {p.scope_sql}", company_id):
+                    await target.execute(f"DELETE FROM {_q(p.name)} t WHERE {p.scope_sql}", company_id)
             for p in plans:
                 if p.name in PROVISIONED_TABLES:
                     # Provisioning wrote the base pack's rows; the shared database has none for a
@@ -310,6 +318,9 @@ async def split_tenant(company_id: Any, *, server_name: Optional[str] = None, re
                 where = " AND ".join(f"{_q(k)} = ${i + 1}" for i, k in enumerate(p.key))
                 await target.executemany(f"UPDATE {_q(p.name)} SET {sets} WHERE {where}", [tuple(r) for r in rows])
         timings["copy_s"] = round(time.monotonic() - copy_started, 2)
+        from src.connections.crypto import forget_cached
+
+        forget_cached(company_id)   # a DEK provisioning cached here may have been replaced by the business's own
         verify_started = time.monotonic()
         mismatches = 0
         for p in plans:
@@ -318,6 +329,8 @@ async def split_tenant(company_id: Any, *, server_name: Optional[str] = None, re
             match = (source_count, source_sum) == (target_count, target_sum)
             if p.name in PROVISIONED_TABLES and not match:
                 match = target_count >= source_count   # plus what provisioning wrote
+            if p.name in SOURCE_WINS_TABLES and not match:
+                match = source_count == 0              # the provisioned DEK, the business having none
             mismatches += 0 if match else 1
             manifest["tables"].append({"table": p.name, "source_count": source_count, "target_count": target_count,
                                        "source_checksum": source_sum, "target_checksum": target_sum,

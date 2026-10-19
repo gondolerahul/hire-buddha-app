@@ -41,13 +41,17 @@ class Unauthorized(Exception):
 class Caller:
     company_id: uuid.UUID
     tenant_key: str
-    actor: str                       # user:<id> | run:<id> | key:<id>
-    kind: str                        # user | run | key
+    actor: str                       # user:<id> | run:<id> | key:<id> | app_user:<id>
+    kind: str                        # user | run | key | app_user
     objects: Dict[str, FrozenSet[str]] = field(default_factory=dict)  # object (or *) → operations
     reports: bool = False
     schema: str = "none"             # none | propose | apply
     entity_id: Optional[uuid.UUID] = None
     external: bool = False           # an outside system's key (its own, lower rate)
+    # An app user (WS6 6.10): the objects its roles limit to its own rows, who it is, its app.
+    own_rows: FrozenSet[str] = frozenset()
+    owner: Optional[Dict[str, str]] = None
+    app: Optional[str] = None
 
     def may(self, object_name: str, operation: str) -> bool:
         allowed = self.objects.get(object_name) or self.objects.get("*") or frozenset()
@@ -168,6 +172,12 @@ async def caller_for_key(db: Any, key: str, tenant_key: str, company_id: Any) ->
     row = (await db.execute(select(ApiKey).where(ApiKey.key_hash == key_hash(key)))).scalar_one_or_none()
     if row is None or row.revoked_at is not None or row.company_id != company_id:
         raise Unauthorized("unknown or revoked key")
+    if (row.scopes or {}).get("public"):
+        from src.schema_engine.models import RecordsSettings
+
+        policy = await db.get(RecordsSettings, company_id)
+        if not (policy and policy.public_api_access):
+            raise Unauthorized("public API access is off for this business (its owner turns it on in settings)")
     row.last_used_at = datetime.utcnow()
     await db.commit()
     scopes = row.scopes or {}

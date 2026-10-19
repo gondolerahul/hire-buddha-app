@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "{{display_name}}",
+    "slug": "{{app_name}}",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "extra": {
+      "backendUrl": "{{backend_url}}",
+      "dataApiUrl": "{{data_api_url}}",
+      "tenant": "{{tenant_key}}",
+      "app": "{{app_name}}"
+    }
+  }
+}

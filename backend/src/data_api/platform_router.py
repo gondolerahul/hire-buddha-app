@@ -138,9 +138,13 @@ async def revoke_key(key_id: UUID, request: Request, user: User = Depends(get_cu
 
 
 class RecordsSettingsIn(BaseModel):
-    agents_auto_approve_additive: bool = Field(
-        ..., description="An agent's change that only adds (an object, an optional field, an index) applies "
-                         "without a person; anything else an agent proposes still waits")
+    agents_auto_approve_additive: Optional[bool] = Field(
+        None, description="An agent's change that only adds (an object, an optional field, an index) applies "
+                          "without a person; anything else an agent proposes still waits")
+    scratch_retention_days: Optional[int] = Field(
+        None, ge=1, le=30, description="Days scratch code is kept unless promoted (null: the platform's default)")
+    public_api_access: Optional[bool] = Field(
+        None, description="Keys made for the public (a website's form) work only while this is on")
 
 
 @router.get("/api/v1/records/settings", openapi_extra=capability(
@@ -164,6 +168,8 @@ async def save_records_settings(body: RecordsSettingsIn, request: Request, user:
     _admin(user)
     company_id, _ = await _location(request, user, db)
     engine, _ = await schema.business_engine(company_id)
-    return await approvals.save_settings(engine, company_id,
-                                         agents_auto_approve_additive=body.agents_auto_approve_additive,
-                                         updated_by=f"user:{user.id}")
+    try:
+        return await approvals.save_settings(engine, company_id, **body.model_dump(exclude_unset=True),
+                                             updated_by=f"user:{user.id}")
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None

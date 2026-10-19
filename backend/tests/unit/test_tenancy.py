@@ -77,6 +77,8 @@ APPENDIX_A_CONTROL = {
     # Connections (WS5, tech spec §10.2): what can be connected, who owns which
     # outside account, provider deliveries nobody owns.
     "connector_catalog", "external_account_routes", "unrouted_events",
+    # Tenant apps (WS6, tech spec §11.5): every hostname the tenant edge serves.
+    "custom_domains",
 }
 APPENDIX_A_TENANT = {
     "hierarchical_entities", "entity_versions", "entity_assets",
@@ -95,6 +97,9 @@ APPENDIX_A_TENANT = {
     "schema_blueprints", "schema_changes", "audit_log", "api_keys", "records_settings",
     # Connections (WS5, tech spec §10.3): accounts, sealed secrets, grants, use, the DEK.
     "connections", "connection_secrets", "connection_grants", "connection_audit", "tenant_keys",
+    # Code lanes and apps (WS6, tech spec §11.2–§11.7).
+    "git_repos", "code_items", "code_reviews", "apps", "app_builds", "app_deployments", "app_users",
+    "app_roles", "app_user_roles", "app_user_sessions", "app_auth_keys", "app_usage",
 }
 
 # What the foreign keys between the planes were: a tenant database cannot hold

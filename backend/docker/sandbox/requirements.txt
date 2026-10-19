@@ -18,3 +18,5 @@ requests>=2.31,<3
 # Python package; this must be the base image's Playwright version exactly
 # (its browser builds, /ms-playwright, belong to that version).
 playwright==1.58.0
+# Checks of a promotion (Phase 14 WS6 6.3): the tests the check suite runs in the sandbox.
+pytest>=8,<9

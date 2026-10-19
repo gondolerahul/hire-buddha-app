@@ -239,6 +239,13 @@ async def github_webhook(request: Request):
             "repository": (payload.get("repository") or {}).get("full_name"),
             "sender": (payload.get("sender") or {}).get("login"), "payload": payload}
     delivered = await _deliver(route, github_event_type(event, payload), f"github:{delivery}", data)
+    if delivered and event == "pull_request":
+        try:  # a review merged or closed in GitHub (WS6 code lanes)
+            from src.code_lanes.github import sync_from_webhook
+
+            await sync_from_webhook(route.company_id, event, payload)
+        except Exception:  # noqa: BLE001 - the event is stored; the review catches up on approval
+            logger.warning("code review not synced from GitHub", exc_info=True)
     return {"status": "ok" if delivered else "unrouted"}
 
 

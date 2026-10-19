@@ -237,6 +237,18 @@ async def fire_wait(due: Due) -> Dict[str, Any]:
     return {"wait": str(due.ref_id), "expired": expired}
 
 
+async def fire_scratch_cleanup(due: Due) -> Dict[str, Any]:
+    """Scratch code reached its clean-up date (WS6, D35): delete it unless it was promoted."""
+    from src.code_lanes.service import expire_scratch
+    from src.common.tenancy.session import control_session
+
+    result = await expire_scratch(due.company_id, due.ref_id)
+    async with control_session() as cdb:
+        await cdb.execute(delete(TimeIndexEntry).filter_by(**_key(due)))
+        await cdb.commit()
+    return result
+
+
 async def fire(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
     from src.automation import metrics
 
@@ -245,8 +257,9 @@ async def fire(due: Due, owner: str, now: datetime) -> Dict[str, Any]:
         return await fire_trigger(due, owner, now)
     if due.ref_kind == "wait":
         return await fire_wait(due)
-    # Connection refreshes (WS5) and scratch clean-up (WS6) arrive with their
-    # workstreams.
+    if due.ref_kind == "scratch_cleanup":
+        return await fire_scratch_cleanup(due)
+    # Connection refreshes run on their own cron (WS5 connection_refresh).
     from src.common.tenancy.session import control_session
 
     async with control_session() as cdb:

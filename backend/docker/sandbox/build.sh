@@ -29,7 +29,7 @@ fi
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT
 
-cp "${HERE}/Dockerfile" "${HERE}/requirements.txt" "${STAGE}/"
+cp "${HERE}/Dockerfile" "${HERE}/requirements.txt" "${HERE}/agent.py" "${STAGE}/"
 mkdir -p "${STAGE}/docfactory"
 cp -R "${DOCFACTORY_SRC}" "${STAGE}/docfactory/scripts"
 

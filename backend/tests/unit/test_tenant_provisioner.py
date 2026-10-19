@@ -29,10 +29,40 @@ def test_slugs_are_lower_case_words(name, slug):
     assert provisioner.slugify(name) == slug
 
 
-@pytest.mark.parametrize("step", ["identity_ready", "keys_ready", "namespace_ready", "data_api_ready"])
+async def test_the_namespace_step_makes_a_locked_down_namespace_on_a_cluster(monkeypatch):
+    """Skipped without a cluster; on Azure the tenant's namespace with restricted pods,
+    default-deny networking, a quota and default limits (WS6)."""
+    from src.common.config import settings
+    from src.common.platform import kube as kube_mod
+
+    monkeypatch.setattr(settings, "PLATFORM_PROFILE", "local")
+    monkeypatch.setattr(settings, "KUBE_API_URL", "")
+    assert (await provisioner.STEP_FUNCTIONS["namespace_ready"](TENANT)).outcome == "skipped"
+
+    applied = []
+
+    class FakeKube:
+        async def apply(self, body):
+            applied.append(body)
+            return body
+
+    monkeypatch.setattr(settings, "PLATFORM_PROFILE", "azure")
+    monkeypatch.setattr(kube_mod, "_client", FakeKube())
+    result = await provisioner.STEP_FUNCTIONS["namespace_ready"](TENANT)
+    assert result.outcome == "succeeded" and result.detail["namespace"] == f"t-{TENANT.key}"
+    kinds = {m["kind"]: m for m in applied}
+    assert set(kinds) == {"Namespace", "NetworkPolicy", "ResourceQuota", "LimitRange"}
+    labels = kinds["Namespace"]["metadata"]["labels"]
+    assert labels["pod-security.kubernetes.io/enforce"] == "restricted"
+    assert labels["hirebuddha.com/tenant"] == TENANT.key
+    assert kinds["NetworkPolicy"]["spec"] == {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]}
+    assert all(m["metadata"].get("namespace", f"t-{TENANT.key}") == f"t-{TENANT.key}" for m in applied)
+
+
+@pytest.mark.parametrize("step", ["identity_ready", "data_api_ready"])
 async def test_a_step_not_built_for_azure_fails_instead_of_passing(monkeypatch, step):
     """Locally skipped with a reason; on Azure refused, so a tenant is never
-    ``active`` without its identity, keys, namespace or Data API."""
+    ``active`` without its identity or Data API."""
     from src.common.config import settings
 
     monkeypatch.setattr(settings, "PLATFORM_PROFILE", "local")

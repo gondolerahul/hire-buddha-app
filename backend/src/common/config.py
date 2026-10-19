@@ -338,6 +338,69 @@ class Settings(BaseSettings):
     DATA_API_KEY_BURST: int = 100
     DATA_API_EXTERNAL_RATE: int = 5
     DATA_API_EXTERNAL_BURST: int = 25
+    # App users (WS6 6.10, tech spec §11.6): access tokens live 15 minutes,
+    # refresh tokens 30 days, magic links 15 minutes.
+    APP_USER_ACCESS_MINUTES: int = 15
+    APP_USER_REFRESH_DAYS: int = 30
+    APP_USER_MAGIC_LINK_MINUTES: int = 15
+
+    # ── Tenant runtime and apps (Phase 14 WS6, tech spec §11) ─────────────
+    # Kubernetes API (sandbox pods, TenantApp objects, edge routes): in a pod
+    # the service account's token and CA; elsewhere KUBE_API_URL + KUBE_TOKEN.
+    KUBE_API_URL: str = ""
+    KUBE_TOKEN: str = ""
+    KUBE_CA_FILE: str = ""
+    # The sandbox on AKS (§11.1): kubernetes = KubernetesSandboxRuntime when
+    # the container switch is on; empty = the Docker container runtime.
+    SANDBOX_RUNTIME: str = ""
+    SANDBOX_K8S_IMAGE: str = "hb-sandbox:local"
+    SANDBOX_K8S_RUNTIME_CLASS: str = "kata-vm-isolation"
+    SANDBOX_K8S_NODE_POOL: str = "sandbox"
+    SANDBOX_K8S_WORKSPACE_LIMIT: str = "2Gi"
+    SANDBOX_AGENT_PORT: int = 7070
+    SANDBOX_IDLE_DELETE_SECONDS: int = 900
+    SANDBOX_SCRATCH_RETENTION_DAYS: int = 7
+    # Files synced between the platform's workspace and a sandbox pod per call.
+    SANDBOX_SYNC_MAX_BYTES: int = 50 * 1024 * 1024
+    # The cluster egress proxy (§11.1, 6.2): its address, and the secret its
+    # per-tenant proxy credentials are derived from.
+    EGRESS_PROXY_URL: str = "http://egress-proxy.hb-system.svc.cluster.local:8888"
+    EGRESS_PROXY_SECRET: str = ""
+    # Code lanes (D35): scratch code is kept this many days unless promoted;
+    # a promotion's checks Job runs this image on AKS (backend/docker/checks).
+    CODE_SCRATCH_RETENTION_DAYS: int = 7
+    CHECKS_IMAGE: str = "hb-checks:local"
+    # Built-in Git (D36): local_git (bare repositories under LOCAL_GIT_DIR,
+    # empty = backend/.local-git) | gitea (GITEA_URL with GITEA_ADMIN_TOKEN).
+    GIT_BACKEND: str = ""
+    LOCAL_GIT_DIR: str = ""
+    GITEA_URL: str = ""
+    GITEA_ADMIN_TOKEN: str = ""
+    # Builds (§11.4): docker (local CLI) | acr_tasks (ACR_* below).
+    APP_BUILDER: str = ""
+    ACR_SUBSCRIPTION_ID: str = ""
+    ACR_RESOURCE_GROUP: str = ""
+    ACR_REGISTRY_NAME: str = ""
+    ACR_LOGIN_SERVER: str = ""
+    APP_BUILD_TIMEOUT_SECONDS: int = 1800
+    APP_BUILD_COST_PER_SECOND: float = 0.0001
+    # Where apps run (§11.5): docker (local containers) | kubernetes (TenantApp
+    # objects for the App Controller).
+    APP_RUNTIME: str = ""
+    # Hostnames: <app>-<slug>.apps.<APPS_DOMAIN>; previews expire after this many days.
+    APPS_DOMAIN: str = "apps.localhost"
+    APP_PREVIEW_DAYS: int = 7
+    # Custom domains: the CNAME target (the edge's name) and, for an apex
+    # domain that cannot have a CNAME, the edge's static IP.
+    APP_EDGE_TARGET: str = ""
+    APP_EDGE_IP: str = ""
+    # Where an app reaches the Data API: from browsers (web apps) and from
+    # its own pods (backends). Empty: this API's /data (local development).
+    APP_DATA_API_PUBLIC_URL: str = ""
+    APP_DATA_API_INTERNAL_URL: str = ""
+    # Container Insights / managed Prometheus query endpoints (logs, metrics, metering).
+    PROMETHEUS_QUERY_URL: str = ""
+    LOG_ANALYTICS_WORKSPACE_ID: str = ""
 
     # Weekly database exports (decision D45, scripts/backup_databases.py): how
     # many weeks are kept, and the pg_dump binary (its major version must be

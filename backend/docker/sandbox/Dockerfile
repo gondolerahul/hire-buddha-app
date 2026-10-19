@@ -54,6 +54,10 @@ RUN mkdir -p /opt/sandbox \
 # the tools at this path instead).
 COPY docfactory/scripts /opt/docfactory/scripts
 
+# The sandbox agent (Phase 14 WS6 6.1): on AKS the pod runs it instead of
+# sleeping, and the platform execs and moves files through it (port 7070).
+COPY agent.py /opt/hb/agent.py
+
 # Non-root tenant user. /workspace is where the ContainerRuntime bind-mounts the
 # tenant's durable directory; both it and the user's HOME must be writable.
 RUN groupadd --gid 10001 sandbox \

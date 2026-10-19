@@ -25,6 +25,9 @@ images:
   scheduler: hb-scheduler
   frontend: hb-frontend
   backup: hb-backup
+  # Tenant runtime (Phase 14 WS6).
+  appController: hb-app-controller
+  egressProxy: hb-egress-proxy
 
 # Non-secret settings (backend/src/common/config.py), as environment variables.
 config:
@@ -236,3 +239,46 @@ networkPolicy:
   # Namespaces allowed to reach the API and frontend (the gateway's).
   ingressNamespaces: ["hb-system"]
 
+# Tenant runtime (Phase 14 WS6, tech spec §11): sandbox pods, apps, the tenant
+# app edge, the cluster egress proxy and the built-in Git. On with Kubernetes
+# tenant namespaces (values-azure.yaml); off for a single-machine install.
+tenantRuntime:
+  enabled: false
+  # Where the shared pieces run (the edge and the egress proxy).
+  systemNamespace: hb-system
+  appController:
+    enabled: true
+    resources:
+      requests: { cpu: 50m, memory: 256Mi }
+      limits: { memory: 512Mi }
+  tenantEdge:
+    enabled: true
+    # Caddy with the caddy-storage-redis module (certificates shared by replicas).
+    image: ghcr.io/hirebuddha/caddy-redis:2.8.4
+    replicas: 2
+    loadBalancerIP: ""
+    serviceAnnotations: {}
+    acmeEmail: ""
+    redisAddress: ""
+    redisSecret: tenant-edge-redis
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { memory: 512Mi }
+  egressProxy:
+    enabled: true
+    replicas: 2
+    # A Secret in the system namespace with EGRESS_PROXY_SECRET (the same value the platform has).
+    secretName: egress-proxy
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 256Mi }
+  gitea:
+    enabled: false
+    image: gitea/gitea:1.22.6-rootless
+    databaseHost: ""
+    secretName: gitea
+    storageClass: azurefile-csi-premium
+    storage: 100Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 1Gi }

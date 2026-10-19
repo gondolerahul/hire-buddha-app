@@ -62,6 +62,8 @@ from src.automation.retention import prune_event_history
 from src.automation.worker import automation_sweep, release_parked, route_event
 from src.connections.jobs import connection_refresh, prune_unrouted_events
 from src.automation.pollers import run_pollers
+from src.apps.jobs import (app_hosting_metering, build_app, expire_app_previews, run_review_checks,
+                           sandbox_idle_reaper, tenant_db_metering)
 from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
 from src.common.worker_health import start_heartbeat, stop_heartbeat
 from src.common.worker_metrics import serve_metrics
@@ -138,6 +140,13 @@ class WorkerSettings:
         graph_maintenance_worker,
         # A new tenant's database and resources (Phase 14 WS2 2.8).
         provision_tenant,
+        # Tenant runtime (Phase 14 WS6): promotion checks, app builds, metering, previews, idle sandboxes.
+        run_review_checks,
+        build_app,
+        app_hosting_metering,
+        tenant_db_metering,
+        expire_app_previews,
+        sandbox_idle_reaper,
     )]
     # Register CORTEX scheduled wake-up cron
     cron_jobs = [
@@ -182,6 +191,12 @@ try:
         # checkouts at midnight UTC; reconcile subscriptions with Razorpay.
         cron(traced_job(billing_daily_credits), hour={0}, minute={0}),
         cron(traced_job(billing_subscription_reconciliation), hour={1}, minute={30}),
+        # Tenant runtime (Phase 14 WS6): hosting use of the last hour, database shares of
+        # yesterday, expired previews, idle sandbox pods (AKS only).
+        cron(traced_job(app_hosting_metering), minute={4}),
+        cron(traced_job(tenant_db_metering), hour={0}, minute={20}),
+        cron(traced_job(expire_app_previews), minute={34}),
+        cron(traced_job(sandbox_idle_reaper), minute=set(range(1, 60, 5))),
     ]
 except ImportError:
     pass  # arq.cron may not be available in all versions

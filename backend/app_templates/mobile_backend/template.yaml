@@ -1,0 +1,18 @@
+id: mobile_backend
+name: Mobile app backend
+version: "1.0.0"
+stack: Python FastAPI with the Data API SDK and app-user sign-in
+kind: api
+deployable: true
+port: 8080
+health_path: /healthz
+description: The server a mobile app talks to — its own endpoints over your records, for signed-in app users.
+uses_blueprint: true
+shared:
+  python/hb_data.py: app/hb_data.py
+roles:
+  - name: member
+    description: Their own records
+    objects: "*"
+    operations: [read, create, update]
+    own_rows: true

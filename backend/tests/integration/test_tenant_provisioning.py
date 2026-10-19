@@ -126,12 +126,18 @@ async def _log(company_id):
     return [tuple(r) for r in rows]
 
 
-async def test_a_company_is_provisioned_to_active_and_its_database_has_its_tables(company, control, monkeypatch):
+async def test_a_company_is_provisioned_to_active_and_its_database_has_its_tables(company, control, monkeypatch,
+                                                                                  tmp_path):
+    from src.common.platform.kek import set_kek
+    from src.common.platform.kek.local import LocalKeyEncryption
     from src.common.tenancy import provisioner
     from src.common.tenancy.directory import directory
     from src.common.tenancy.migrate import tenant_schema_version
     from src.common.tenancy.session import tenant_session
+    from src.connections import crypto
 
+    set_kek(LocalKeyEncryption(tmp_path / "keys"))
+    crypto.forget_cached()
     entry = await provisioner.request_tenant(company["id"], server_name=company["server"])
     assert entry.status == "requested" and entry.slug == "provisioned-co" and entry.db_name == f"t_{entry.tenant_key}"
     assert (await provisioner.request_tenant(company["id"])).tenant_key == entry.tenant_key  # idempotent
@@ -140,8 +146,11 @@ async def test_a_company_is_provisioned_to_active_and_its_database_has_its_table
     assert result["status"] == "active", result
     outcomes = {s["step"]: s["outcome"] for s in result["steps"]}
     assert outcomes == {"db_created": "succeeded", "migrated": "succeeded", "identity_ready": "skipped",
-                        "keys_ready": "skipped", "namespace_ready": "skipped", "storage_ready": "succeeded",
+                        "keys_ready": "succeeded", "namespace_ready": "skipped", "storage_ready": "succeeded",
                         "data_api_ready": "skipped", "active": "succeeded"}
+    keys = next(s for s in result["steps"] if s["step"] == "keys_ready")["detail"]
+    assert keys["kek"] == f"t-{entry.tenant_key}" and keys["dek_version"] == 1   # the KEK, and its first DEK
+    assert (tmp_path / "keys").is_dir()
     migrated = next(s for s in result["steps"] if s["step"] == "migrated")["detail"]
     assert migrated["platform_schema_version"] == tenant_schema_version()
     assert {"account", "contact", "activity", "consent"} <= set(migrated["objects"])
@@ -162,6 +171,8 @@ async def test_a_company_is_provisioned_to_active_and_its_database_has_its_table
     log = await _log(company["id"])
     assert log[0] == ("requested", "succeeded")
     assert log.count(("db_created", "started")) == 1
+    set_kek(None)
+    crypto.forget_cached()
 
 
 async def test_a_failed_step_is_resumed_without_redoing_the_earlier_ones(company, control, monkeypatch):

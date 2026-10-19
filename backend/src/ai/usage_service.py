@@ -30,6 +30,9 @@ _UNIT_NOUNS: dict[str, str] = {
     "page": "page", "pages": "page", "email": "email", "emails": "email",
     "message": "message", "messages": "message",
     "transaction pct": "transaction pct",
+    # App hosting and databases (Phase 14 WS6 6.12): vCPU-hours, GB-hours, GB, days.
+    "hour": "hour", "hours": "hour", "vcpu hour": "hour", "gb hour": "hour",
+    "gb": "gb", "gigabyte": "gb", "gigabytes": "gb", "day": "day", "days": "day",
 }
 _SCALE = {"": Decimal(1), "k": Decimal(1000), "m": Decimal(1_000_000),
           "thousand": Decimal(1000), "million": Decimal(1_000_000)}

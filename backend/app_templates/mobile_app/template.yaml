@@ -1,0 +1,10 @@
+id: mobile_app
+name: Mobile app
+version: "1.0.0"
+stack: React Native (Expo) + TypeScript, talking to its FastAPI backend
+kind: mobile
+deployable: false
+description: An iOS and Android app for your app users. Store builds and submission happen outside HireBuddha (Expo EAS).
+params:
+  backend_url: ""
+roles: []

@@ -1,0 +1,77 @@
+# TenantApp — one running instance of a tenant app (Phase 14 WS6 6.8, tech
+# spec §11.5). The platform writes it (src/apps/runtime.py); the App Controller
+# (backend/services/app_controller) makes its Deployment, Service, routes,
+# NetworkPolicy, ServiceAccount, PodDisruptionBudget and KEDA scaler.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tenantapps.hirebuddha.com
+spec:
+  group: hirebuddha.com
+  scope: Namespaced
+  names:
+    kind: TenantApp
+    plural: tenantapps
+    singular: tenantapp
+    shortNames: [tapp]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - { name: App, type: string, jsonPath: .spec.app }
+        - { name: Mode, type: string, jsonPath: .spec.mode }
+        - { name: Phase, type: string, jsonPath: .status.phase }
+        - { name: Ready, type: integer, jsonPath: .status.readyReplicas }
+        - { name: Age, type: date, jsonPath: .metadata.creationTimestamp }
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [tenantKey, app, image]
+              properties:
+                tenantKey: { type: string, pattern: "^[0-9a-hjkmnp-tv-z]{3,10}$" }
+                app: { type: string, pattern: "^[a-z][a-z0-9-]{1,28}[a-z0-9]$" }
+                image: { type: string, maxLength: 512 }
+                healthPath: { type: string, default: /healthz }
+                env:
+                  type: object
+                  additionalProperties: { type: string }
+                appKeySecret: { type: string, nullable: true }
+                secretRefs:
+                  type: array
+                  items:
+                    type: object
+                    required: [env, secret, key]
+                    properties:
+                      env: { type: string }
+                      secret: { type: string }
+                      key: { type: string }
+                resources:
+                  type: object
+                  properties:
+                    cpu: { type: string }
+                    cpuLimit: { type: string }
+                    memory: { type: string }
+                    replicas: { type: integer, minimum: 1, maximum: 5 }
+                    maxReplicas: { type: integer, minimum: 1, maximum: 10 }
+                mode: { type: string, enum: [always_on, sleep], default: always_on }
+                routes:
+                  type: array
+                  items: { type: string }
+                egress:
+                  type: array
+                  items: { type: string }
+                previousImages:
+                  type: array
+                  maxItems: 5
+                  items: { type: string }
+                stopped: { type: boolean, default: false }
+                restartedAt: { type: string }
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

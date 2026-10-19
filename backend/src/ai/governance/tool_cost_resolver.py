@@ -78,6 +78,7 @@ _SANDBOX = "metered as sandbox time"
 _RUN = "starts a run, which is billed itself"
 _AUTOMATION = "saves a schedule or a signal; the runs it starts are billed themselves"
 _RECORDS = "reads or writes the business's own records (Data API); no paid service"
+_CODE = "keeps code or opens a pull request; checks and builds are billed themselves"
 FREE_TOOLS: dict[str, str] = {
     "agent_introspect": _LOCAL,
     "agent_reflect": _LOCAL,
@@ -119,6 +120,9 @@ FREE_TOOLS: dict[str, str] = {
     "tool_synthesis": _MODEL,
     "video_add_sound": _SANDBOX,
     "wait_for_event": _LOCAL,
+    "save_code": _CODE,
+    "propose_code_promotion": _CODE,
+    "propose_app_change": _CODE,
     "video_edit": _SANDBOX,
     "whatsapp_send_tenant": _TENANT,
 }

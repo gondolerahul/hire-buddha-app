@@ -254,6 +254,13 @@ def get_sandbox_runtime(
         cid = context.get("company_id")
         company_id = str(cid) if cid else None
     if container:
+        from src.common.config import settings
+
+        if (settings.SANDBOX_RUNTIME or "").strip().lower() == "kubernetes":
+            # A pod on AKS (Phase 14 WS6 6.1), never the platform's own Docker.
+            from src.ai.tools.sandbox.k8s_runtime import KubernetesSandboxRuntime
+
+            return KubernetesSandboxRuntime(company_id=company_id, network=network)
         from src.ai.tools.sandbox.container_runtime import ContainerRuntime
 
         return ContainerRuntime(company_id=company_id, network=network)

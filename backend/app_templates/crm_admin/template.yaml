@@ -1,0 +1,32 @@
+id: crm_admin
+name: CRM / admin tool
+version: "1.0.0"
+stack: React + TypeScript (Vite) single-page app, served by nginx; app users sign in
+kind: web
+deployable: true
+port: 8080
+health_path: /healthz
+description: Screens generated from your records (the blueprint) — lists, forms, search — for the people you invite, each seeing what their role allows.
+uses_blueprint: true
+shared:
+  web/Dockerfile: Dockerfile
+  web/nginx.conf: nginx.conf
+  web/40-hb-config.sh: 40-hb-config.sh
+  web/package.json: package.json
+  web/tsconfig.json: tsconfig.json
+  web/vite.config.ts: vite.config.ts
+  web/index.html: index.html
+  web/main.tsx: src/main.tsx
+  web/styles.css: src/styles.css
+  web/hb-data.ts: src/lib/hb-data.ts
+# Default roles; "{{objects}}" is every object the app was generated for.
+roles:
+  - name: admin
+    description: Everything in the app
+    objects: "*"
+    operations: [read, create, update, delete]
+  - name: staff
+    description: Their own records (the owner field is theirs)
+    objects: "*"
+    operations: [read, create, update]
+    own_rows: true

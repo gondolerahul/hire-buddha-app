@@ -123,6 +123,12 @@ class RecordsSettings(TenantBase):
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     agents_auto_approve_additive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
                                                                server_default=text("false"))
+    # Tenant settings (functional spec §8, WS6): how long scratch code is kept (1–30
+    # days; empty = the platform's CODE_SCRATCH_RETENTION_DAYS), and whether keys
+    # made for the public — a website's form — work at all (off by default).
+    scratch_retention_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    public_api_access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                                    server_default=text("false"))
     updated_by: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow,
                                                  server_default=_now())

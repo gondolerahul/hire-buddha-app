@@ -93,6 +93,16 @@ async def register_draft_tool(
     await db.commit()
 
     ToolRegistry.register_tenant_tool(company_id, SandboxedSynthesizedTool(spec, source))
+    # Code lanes (Phase 14 WS6 6.3, D35): the tool's code is scratch until a person promotes it.
+    try:
+        from src.code_lanes.service import register_scratch
+
+        await register_scratch(company_id, kind="tool", name=spec.name, files={f"{spec.name}.py": source},
+                               description=spec.description, user_id=created_by, tool_registry_id=entry_id)
+    except Exception:  # noqa: BLE001 - the draft tool stands; its code can be registered again
+        import logging
+
+        logging.getLogger(__name__).warning("synthesized tool %s not kept as scratch code", spec.name, exc_info=True)
     return str(entry_id)
 
 

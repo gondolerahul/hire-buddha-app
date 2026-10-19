@@ -28,8 +28,8 @@ What each step does depends on the platform profile (``PLATFORM_PROFILE``):
 | db_created | ``CREATE DATABASE`` on the tenant's server, extensions, schema ``platform``, ``search_path`` | the same, as the provisioner identity |
 | migrated | the platform schema (``migrate.upgrade_tenant``), then base pack v1 (``schema_engine``) | the same |
 | identity_ready | skipped: one database role | not built yet: the tenant's managed identity, federated credential and ``hb_dataapi`` grant (WS0 slice 2) |
-| keys_ready | skipped: no per-tenant key yet | not built yet: the tenant KEK and DEK (WS5) |
-| namespace_ready | skipped: no Kubernetes | not built yet: the ``tenant-env`` chart (WS6) |
+| keys_ready | the tenant KEK (a local key file) and its first DEK | the KEK in the tenant-keys vault, and the DEK |
+| namespace_ready | skipped: no Kubernetes (unless ``KUBE_API_URL``) | namespace ``t-<key>``: restricted pods, default-deny, quota, limits |
 | storage_ready | the ``t-<key>`` namespace in storage | the ``t-<key>`` Blob container |
 | data_api_ready | skipped: served in-process at ``/data`` | not built yet: the tenant's Data API Deployment |
 
@@ -282,6 +282,62 @@ async def _storage_ready(tenant: Tenant) -> StepResult:
     return StepResult("succeeded", {"namespace": f"t-{tenant.key}", "created": True})
 
 
+async def _keys_ready(tenant: Tenant) -> StepResult:
+    """The tenant's KEK (a local key file, or an RSA key in the tenant-keys vault) and its first DEK (WS5)."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from src.common.platform.kek import get_kek, tenant_kek_name
+    from src.common.tenancy.engines import create_tenant_engine, tenant_url
+    from src.connections import crypto
+
+    name = tenant_kek_name(tenant.key)
+    key_id = await get_kek().ensure_key(name)
+    engine = create_tenant_engine(tenant_url(await _location(tenant, status="identity_ready")))
+    try:
+        async with AsyncSession(engine) as db:
+            version, _ = await crypto._current_dek(db, tenant.company_id)  # noqa: SLF001 - made on first use
+            await db.commit()
+    finally:
+        await engine.dispose()
+    return StepResult("succeeded", {"kek": name, "key_id": key_id, "dek_version": version})
+
+
+def namespace_manifests(tenant_key: str, *, quota: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    """The tenant's Kubernetes namespace ``t-<key>`` (tech spec §13.1): Pod Security
+    ``restricted``, a default-deny network policy (the App Controller and the
+    sandbox runtime open what each pod needs), a quota by tier and default limits."""
+    namespace = f"t-{tenant_key}"
+    labels = {"hirebuddha.com/tenant": tenant_key, "pod-security.kubernetes.io/enforce": "restricted",
+              "pod-security.kubernetes.io/enforce-version": "latest"}
+    quota = quota or {"requests.cpu": "8", "requests.memory": "16Gi", "limits.memory": "32Gi", "pods": "60",
+                      "services.loadbalancers": "0", "services.nodeports": "0"}
+    return [
+        {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace, "labels": labels}},
+        {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+         "metadata": {"name": "default-deny", "namespace": namespace},
+         "spec": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]}},
+        {"apiVersion": "v1", "kind": "ResourceQuota", "metadata": {"name": "tenant-quota", "namespace": namespace},
+         "spec": {"hard": quota}},
+        {"apiVersion": "v1", "kind": "LimitRange", "metadata": {"name": "tenant-defaults", "namespace": namespace},
+         "spec": {"limits": [{"type": "Container", "default": {"cpu": "500m", "memory": "512Mi"},
+                              "defaultRequest": {"cpu": "100m", "memory": "128Mi"}}]}},
+    ]
+
+
+async def _namespace_ready(tenant: Tenant) -> StepResult:
+    """The tenant's namespace on the cluster (WS6); skipped where there is no cluster."""
+    from src.common.config import settings
+
+    if _profile() == "local" and not settings.KUBE_API_URL:
+        return StepResult("skipped", {"reason": "no Kubernetes on this machine"})
+    from src.common.platform.kube import get_kube
+
+    kube = get_kube()
+    for manifest in namespace_manifests(tenant.key):
+        await kube.apply(manifest)
+    return StepResult("succeeded", {"namespace": f"t-{tenant.key}"})
+
+
 async def _active(tenant: Tenant) -> StepResult:
     return StepResult("succeeded", {})
 
@@ -291,9 +347,8 @@ STEP_FUNCTIONS: Dict[str, Callable[[Tenant], Awaitable[StepResult]]] = {
     "migrated": _migrated,
     "identity_ready": _local_skip("one database role for every database on this machine", "identity_ready",
                                   "the tenant's managed identity and its database grant, WS0 slice 2"),
-    "keys_ready": _local_skip("no per-tenant encryption key yet", "keys_ready", "the tenant KEK and DEK, WS5"),
-    "namespace_ready": _local_skip("no Kubernetes on this machine", "namespace_ready",
-                                   "the tenant-env chart, WS6"),
+    "keys_ready": _keys_ready,
+    "namespace_ready": _namespace_ready,
     "storage_ready": _storage_ready,
     "data_api_ready": _local_skip("the Data API is served in-process at /data", "data_api_ready",
                                   "the tenant's Data API Deployment, WS4"),

@@ -52,6 +52,8 @@ WRITE_TOOLS: frozenset[str] = frozenset({
     "schedule_agent", "cancel_schedule", "emit_event",
     # the business's records and their structure (WS4)
     "create_record", "update_record", "link_records", "archive_record", "propose_schema_change",
+    # code lanes (WS6): scratch code kept, pull requests opened
+    "save_code", "propose_code_promotion", "propose_app_change",
 })
 
 # Names that read like a write but only produce output the run keeps.

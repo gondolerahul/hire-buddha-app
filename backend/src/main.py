@@ -209,9 +209,14 @@ mount_optional(app, "src.connections.api")              # /api/v1/connect*, /oau
 
 # The Data API (WS4, tech spec §9): a business's records at /data/v1/…; it also
 # runs on its own (src.data_api.main), one per business in Kubernetes.
-from src.data_api.app import create_app as _create_data_api  # noqa: E402
+from src.data_api.app import DataApiPreflight, create_app as _create_data_api  # noqa: E402
 
 app.mount("/data", _create_data_api())
+# Tenant apps' preflights to /data/* are answered before the platform's CORS list refuses them.
+app.add_middleware(DataApiPreflight)
+
+# Code lanes, Git and tenant apps (Phase 14 WS6): /api/v1/code-items, /api/v1/apps, the edge's ask
+mount_optional(app, "src.apps.api")
 
 
 @app.get("/")

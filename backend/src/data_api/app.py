@@ -25,7 +25,9 @@ Every error is one problem-details shape: ``{type, title, status, detail, code}`
 App keys are rate limited (``DATA_API_KEY_*``, ``DATA_API_EXTERNAL_*``; 429
 with ``Retry-After``). Links are ``ref`` fields, one level: a record's link
 field, or the records of another object linking to it (an order's shipments).
-Later: app end-user auth (§11.6), row policies.
+App users sign in at ``/v1/auth/*`` (``app_users.py``, §11.6) and their roles'
+row policies limit them to their own records where the blueprint names an
+owner field (``row_policy``).
 """
 from __future__ import annotations
 
@@ -92,6 +94,48 @@ class Context:
             raise records.RecordError(403, "forbidden", f"not allowed to {operation} {name}")
         return name
 
+    # Row policies (WS6 6.10): an app user whose role sees only its own rows.
+    def scope(self, name: str) -> Optional[Tuple[str, str]]:
+        from src.data_api.app_users import row_scope
+
+        return row_scope(self.caller, self.blueprint, name)
+
+    def own(self, name: str, record: Dict[str, Any]) -> None:
+        """404 for a record outside the caller's rows (as if it did not exist)."""
+        from src.data_api.app_users import DENY
+
+        scope = self.scope(name)
+        if scope is not None and (scope == DENY or str(record.get(scope[0]) or "") != scope[1]):
+            raise records.RecordError(404, "not_found", f"no {name} {record.get('id')}")
+
+    def owned_values(self, name: str, body: Any) -> Any:
+        """The body with the owner field set to the caller (a limited app user creates and keeps its own)."""
+        from src.data_api.app_users import DENY
+
+        scope = self.scope(name)
+        if scope is None:
+            return body
+        if scope == DENY:
+            raise records.RecordError(403, "forbidden", f"{name} has no owner field, so your role cannot change it")
+        values = dict(body or {}) if isinstance(body, dict) else body
+        if isinstance(values, dict):
+            values[scope[0]] = scope[1]
+        return values
+
+    def unscoped(self, *names: str) -> None:
+        """Refuse what row policies cannot follow (batches, reverse links) for a limited app user."""
+        if any(self.scope(n) is not None for n in names):
+            raise records.RecordError(403, "forbidden", "not available to a role limited to its own records")
+
+
+def _token_type(credential: str) -> Optional[str]:
+    from jose import JWTError, jwt
+
+    try:
+        return jwt.get_unverified_claims(credential).get("typ")
+    except JWTError:
+        return None
+
 
 async def context(request: Request) -> Context:
     header = request.headers.get("authorization", "")
@@ -108,7 +152,15 @@ async def context(request: Request) -> Context:
         async with schema.session(engine) as db:
             caller = await tokens.caller_for_key(db, credential, tenant_key, company_id)
     else:
-        caller = tokens.decode(credential, tenant_key=pinned)
+        if _token_type(credential) == "app_user":
+            from src.data_api import app_users
+
+            try:
+                caller = await app_users.caller_for(credential)
+            except app_users.AuthProblem as error:
+                raise tokens.Unauthorized(str(error)) from None
+        else:
+            caller = tokens.decode(credential, tenant_key=pinned)
         engine, location = await schema.business_engine(caller.company_id)
         if location.key != caller.tenant_key:
             raise tokens.Unauthorized("the token is for another business")
@@ -260,8 +312,37 @@ def _openapi(ctx: Context) -> Dict[str, Any]:
             "paths": paths, "components": {"schemas": components}}
 
 
+CORS_HEADERS = [(b"access-control-allow-origin", b"*"),
+                 (b"access-control-allow-methods", b"GET, POST, PATCH, DELETE, OPTIONS"),
+                 (b"access-control-allow-headers", b"authorization, content-type, if-match, idempotency-key"),
+                 (b"access-control-max-age", b"600")]
+
+
+class DataApiPreflight:
+    """Answers CORS preflights for the Data API mounted at ``prefix`` before the platform's
+    own CORS middleware (whose origin list knows no tenant app) can refuse them. Apps call
+    the Data API from their own origins with bearer tokens, never cookies, so any origin may."""
+
+    def __init__(self, app: Any, prefix: str = "/data/") -> None:
+        self.app, self.prefix = app, prefix
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http" and scope["method"] == "OPTIONS" and scope["path"].startswith(self.prefix):
+            headers = dict(scope.get("headers") or [])
+            if b"access-control-request-method" in headers:
+                await send({"type": "http.response.start", "status": 204, "headers": CORS_HEADERS})
+                await send({"type": "http.response.body", "body": b""})
+                return
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
+    from fastapi.middleware.cors import CORSMiddleware
+
     app = FastAPI(title="HireBuddha Data API", docs_url=None, redoc_url=None, openapi_url=None)
+    # Tenant apps call from their own origins with bearer tokens (no cookies): any origin.
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"],
+                       allow_headers=["*"], expose_headers=["ETag", "Retry-After"])
 
     @app.exception_handler(records.RecordError)
     async def _record_error(request: Request, error: records.RecordError) -> JSONResponse:
@@ -306,6 +387,46 @@ def create_app() -> FastAPI:
             return problem(503, "not_ready", str(error))
         return {"status": "ok", "tenant": pinned, "blueprint_version": version}
 
+    # ── App users (WS6 6.10): registered before /v1/{object} so "auth" is never an object.
+    from src.data_api import app_users
+
+    @app.exception_handler(app_users.AuthProblem)
+    async def _auth_problem(request: Request, error: app_users.AuthProblem) -> JSONResponse:
+        code = {400: "invalid_request", 403: "forbidden"}.get(error.status, "unauthorized")
+        return problem(error.status, code, str(error))
+
+    @app.post("/v1/auth/login")
+    async def auth_login(request: Request) -> Dict[str, Any]:
+        body = await _body(request)
+        return await app_users.login(body.get("tenant"), str(body.get("app") or ""), str(body.get("email") or ""),
+                                     str(body.get("password") or ""))
+
+    @app.post("/v1/auth/magic-link", status_code=202)
+    async def auth_magic_link(request: Request) -> Dict[str, Any]:
+        body = await _body(request)
+        await app_users.request_magic_link(body.get("tenant"), str(body.get("app") or ""),
+                                           str(body.get("email") or ""), str(body.get("return_url") or ""))
+        return {"status": "sent_if_allowed"}
+
+    @app.post("/v1/auth/magic-link/verify")
+    async def auth_magic_verify(request: Request) -> Dict[str, Any]:
+        return await app_users.verify_magic_link(str((await _body(request)).get("token") or ""))
+
+    @app.post("/v1/auth/refresh")
+    async def auth_refresh(request: Request) -> Dict[str, Any]:
+        return await app_users.refresh(str((await _body(request)).get("refresh_token") or ""))
+
+    @app.post("/v1/auth/logout", status_code=204, response_class=Response)
+    async def auth_logout(request: Request) -> Response:
+        await app_users.logout(str((await _body(request)).get("refresh_token") or ""))
+        return Response(status_code=204)
+
+    @app.get("/v1/auth/me")
+    async def auth_me(ctx: Context = Depends(context)) -> Dict[str, Any]:
+        if ctx.caller.kind != "app_user":
+            raise records.RecordError(400, "not_an_app_user", "/v1/auth/me is for app users' tokens")
+        return await app_users.me(ctx.caller)
+
     @app.get("/v1/schema")
     async def get_schema(ctx: Context = Depends(context)) -> Dict[str, Any]:
         visible = ctx.caller.readable(bp.objects(ctx.blueprint))
@@ -338,6 +459,15 @@ def create_app() -> FastAPI:
                                     run_id=ctx.caller.actor[4:] if ctx.caller.kind == "run" else None,
                                     dry_run=bool(body.get("dry_run")))
 
+    @app.get("/v1/schema/changes")
+    async def list_changes(request: Request, ctx: Context = Depends(context)) -> Dict[str, Any]:
+        """The business's schema changes, newest first (``?status=proposed`` for the review queue)."""
+        may_see = ctx.caller.kind == "user" or (ctx.caller.kind == "run" and ctx.caller.schema != "none")
+        if not may_see:
+            raise records.RecordError(403, "forbidden", "people of the business see its schema changes")
+        status = request.query_params.get("status")
+        return {"items": await schema.list_changes(ctx.engine, ctx.caller.company_id, status=status)}
+
     @app.get("/v1/schema/changes/{change_id}")
     async def get_change(change_id: str, ctx: Context = Depends(context)) -> Dict[str, Any]:
         try:
@@ -368,6 +498,11 @@ def create_app() -> FastAPI:
         params = request.query_params
         conditions = records.filters_from_query(list(params.multi_items()))
         await _check_filters(ctx, name, conditions)
+        scope = ctx.scope(name)
+        if scope == app_users.DENY:
+            return {"object": name, "items": [], "next": None}
+        if scope is not None:
+            conditions = [*conditions, (scope[0], "eq", scope[1])]
         fields = [f for f in (params.get("fields") or "").split(",") if f] or None
         includes = _includes(ctx, name, params.get("include"))
         async with ctx.engine.connect() as conn:
@@ -387,9 +522,27 @@ def create_app() -> FastAPI:
         includes = _includes(ctx, name, request.query_params.get("include"))
         async with ctx.engine.connect() as conn:
             record, version = await records.get_record(conn, ctx.model, name, record_id)
+            ctx.own(name, record)
             if includes:
                 await records.include(conn, ctx.model, name, [record], includes)
         return JSONResponse(record, headers={"ETag": _etag(version)})
+
+    @app.get("/v1/{object_name}/{record_id}/history")
+    async def history(object_name: str, record_id: str, ctx: Context = Depends(context)) -> Dict[str, Any]:
+        """Who changed the record and which fields — a person, an agent's run, an app key, an app user."""
+        from src.schema_engine.models import AuditLog
+
+        name = ctx.require(object_name, "read")
+        async with ctx.engine.connect() as conn:
+            record, _ = await records.get_record(conn, ctx.model, name, record_id)
+        ctx.own(name, record)
+        async with schema.session(ctx.engine) as db:
+            rows = (await db.execute(select(AuditLog).where(
+                AuditLog.company_id == ctx.caller.company_id, AuditLog.object == name,
+                AuditLog.record_id == record["id"]).order_by(AuditLog.at.desc()).limit(200))).scalars().all()
+        return {"object": name, "id": record["id"], "items": [
+            {"actor": r.actor, "action": r.action, "changed": list(r.changed_fields or []),
+             "at": r.at.isoformat() + "Z" if r.at else None} for r in rows]}
 
     @app.get("/v1/{object_name}/{record_id}/links/{relation}")
     async def linked(object_name: str, record_id: str, relation: str, request: Request,
@@ -397,6 +550,7 @@ def create_app() -> FastAPI:
         """The record a link field points to, or the records of another object linking to this one."""
         name = ctx.require(object_name, "read")
         kind, other, field = records.relation_of(ctx.model, name, relation)
+        ctx.unscoped(name, other)
         params = request.query_params
         async with ctx.engine.connect() as conn:
             await conn.execute(text("SET LOCAL statement_timeout = '5s'"))
@@ -420,6 +574,7 @@ def create_app() -> FastAPI:
         ``{"ids": [...], "unlink": [...]}`` for the records of another object linking to it."""
         name = ctx.require(object_name, "read")
         kind, other, field = records.relation_of(ctx.model, name, relation)
+        ctx.unscoped(name, other)
         body = await _body(request)
         changed, events = [], []
         async with schema.session(ctx.engine) as db:
@@ -463,6 +618,8 @@ def create_app() -> FastAPI:
             raise records.RecordError(422, "invalid_batch", "operations is a non-empty list")
         if len(operations) > MAX_BATCH:
             raise records.RecordError(422, "invalid_batch", f"at most {MAX_BATCH} operations in one batch")
+        if ctx.caller.kind == "app_user" and ctx.caller.own_rows:
+            raise records.RecordError(403, "forbidden", "not available to a role limited to its own records")
         results, events = [], []
         async with schema.session(ctx.engine) as db:
             for index, op in enumerate(operations):
@@ -489,7 +646,7 @@ def create_app() -> FastAPI:
             earlier = await shared_redis().get(redis_key)
             if earlier:
                 return JSONResponse(json.loads(earlier), status_code=201, headers={"Idempotent-Replayed": "true"})
-        body = await _body(request)
+        body = ctx.owned_values(name, await _body(request))
         async with schema.session(ctx.engine) as db:
             record, event_id = await records.create_record(db, ctx.model, ctx.caller.company_id, name, body,
                                                            actor=ctx.caller.actor)
@@ -507,6 +664,10 @@ def create_app() -> FastAPI:
         name = ctx.require(object_name, "update")
         body = await _body(request)
         async with schema.session(ctx.engine) as db:
+            if ctx.scope(name) is not None:
+                current, _ = await records.get_record(db, ctx.model, name, record_id)
+                ctx.own(name, current)
+                body = ctx.owned_values(name, body)
             record, event_id = await records.update_record(db, ctx.model, ctx.caller.company_id, name, record_id,
                                                            body, actor=ctx.caller.actor, if_match=_if_match(request))
             await db.commit()
@@ -517,6 +678,9 @@ def create_app() -> FastAPI:
     async def archive_record(object_name: str, record_id: str, ctx: Context = Depends(context)) -> Response:
         name = ctx.require(object_name, "delete")
         async with schema.session(ctx.engine) as db:
+            if ctx.scope(name) is not None:
+                current, _ = await records.get_record(db, ctx.model, name, record_id)
+                ctx.own(name, current)
             record, event_id = await records.archive_record(db, ctx.model, ctx.caller.company_id, name, record_id,
                                                             actor=ctx.caller.actor)
             await db.commit()

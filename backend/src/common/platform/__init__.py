@@ -26,6 +26,10 @@ DEFAULT_ADAPTERS: Dict[str, Dict[str, str]] = {
     "workload_identity": {"local": "none", "azure": "azure_workload_identity", "onprem": "vault_k8s_auth"},
     "db_auth": {"local": "password", "azure": "entra_token", "onprem": "vault_dynamic"},
     "kek": {"local": "local", "azure": "azure_keyvault", "onprem": "vault_transit"},
+    # Tenant runtime (WS6, tech spec §11).
+    "git": {"local": "local_git", "azure": "gitea", "onprem": "gitea"},
+    "app_builder": {"local": "docker", "azure": "acr_tasks", "onprem": "kaniko"},
+    "app_runtime": {"local": "docker", "azure": "kubernetes", "onprem": "kubernetes"},
 }
 
 # The setting that overrides each capability's profile default.
@@ -35,6 +39,9 @@ OVERRIDE_SETTINGS: Dict[str, str] = {
     "workload_identity": "WORKLOAD_IDENTITY_BACKEND",
     "db_auth": "DB_AUTH",
     "kek": "KEK_BACKEND",
+    "git": "GIT_BACKEND",
+    "app_builder": "APP_BUILDER",
+    "app_runtime": "APP_RUNTIME",
 }
 
 

@@ -183,7 +183,23 @@ def validate_object(name: str, spec: Any, *, known_objects: Iterable[str]) -> Di
     for key in ("archived", "platform", "former_names", "description", "alias_until", "former_until"):
         if spec.get(key):
             out[key] = copy.deepcopy(spec[key])
+    if spec.get("row_policy"):
+        out["row_policy"] = row_policy(spec["row_policy"], out_fields, where)
     return out
+
+
+def row_policy(value: Any, out_fields: Dict[str, Any], where: str) -> Dict[str, str]:
+    """``{"owner_field": <text or email field>, "match": "email" | "id"}``: the field that
+    says whose a record is, for app users limited to their own rows (§11.6)."""
+    if not isinstance(value, dict):
+        raise BlueprintError(f"{where}.row_policy: an object")
+    owner = value.get("owner_field")
+    match = value.get("match", "email")
+    if owner not in out_fields or out_fields[owner]["type"] not in ("text", "email"):
+        raise BlueprintError(f"{where}.row_policy.owner_field: a text or email field of the object")
+    if match not in ("email", "id"):
+        raise BlueprintError(f"{where}.row_policy.match: email or id")
+    return {"owner_field": owner, "match": match}
 
 
 def _column_sets(value: Any, out_fields: Dict[str, Any], where: str) -> List[List[str]]:

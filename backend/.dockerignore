@@ -26,6 +26,7 @@ node_modules
 # creates it and uploads/ at startup; var/ holds sandbox workspaces.
 artifact
 .local-keys
+.local-git
 uploads
 var
 logs

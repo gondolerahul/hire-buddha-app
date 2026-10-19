@@ -1,0 +1,26 @@
+id: site_forms
+name: Website with forms
+version: "1.0.0"
+stack: React + TypeScript (Vite), served by nginx; forms post to the Data API
+kind: web
+deployable: true
+port: 8080
+health_path: /healthz
+description: A website whose forms create records (a lead, an enquiry) through a public key that may only create one kind of record.
+params:
+  form_object: lead
+public_key:
+  object: "{{form_object}}"
+  operations: [create]
+shared:
+  web/Dockerfile: Dockerfile
+  web/nginx.conf: nginx.conf
+  web/40-hb-config.sh: 40-hb-config.sh
+  web/package.json: package.json
+  web/tsconfig.json: tsconfig.json
+  web/vite.config.ts: vite.config.ts
+  web/index.html: index.html
+  web/main.tsx: src/main.tsx
+  web/styles.css: src/styles.css
+  web/hb-data.ts: src/lib/hb-data.ts
+roles: []

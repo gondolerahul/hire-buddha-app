@@ -289,6 +289,17 @@ async def change_view(engine: AsyncEngine, company_id: Any, change_id: Any) -> D
                 "created_at": _iso(change.created_at), "applied_at": _iso(change.applied_at)}
 
 
+async def list_changes(engine: AsyncEngine, company_id: Any, *, status: Optional[str] = None,
+                       limit: int = 100) -> List[Dict[str, Any]]:
+    """The business's schema changes, newest first (the change review screen, WS8 8.2)."""
+    query = select(SchemaChange.id).where(SchemaChange.company_id == company_id)
+    if status:
+        query = query.where(SchemaChange.status == status)
+    async with session(engine) as db:
+        ids = (await db.execute(query.order_by(SchemaChange.created_at.desc()).limit(min(limit, 500)))).scalars().all()
+    return [await change_view(engine, company_id, change_id) for change_id in ids]
+
+
 def _iso(moment: Optional[datetime]) -> Optional[str]:
     if moment is None:
         return None

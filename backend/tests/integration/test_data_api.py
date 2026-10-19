@@ -217,6 +217,25 @@ async def test_an_agent_proposes_a_new_object_and_a_person_approves_it(biz):
         assert approved.json()["status"] == "applied" and approved.json()["result_version"] == 2
         made = await client.post("/data/v1/shipment", headers=_user(biz), json={"carrier": "DHL"})
         assert made.status_code == 201 and made.json()["carrier"] == "DHL"
+        # The change review list (WS8 8.2): people of the business see it; keys do not.
+        listed = (await client.get("/data/v1/schema/changes", headers=_user(biz, "staff"))).json()["items"]
+        assert listed[0]["id"] == change_id and listed[0]["status"] == "applied"
+        assert (await client.get("/data/v1/schema/changes?status=awaiting_approval",
+                                 headers=_user(biz))).json()["items"] == []
+
+
+async def test_a_records_history_says_who_changed_what(biz):
+    async with _client() as client:
+        made = (await client.post("/data/v1/contact", headers=_user(biz, "staff"),
+                                  json={"first_name": "Asha", "email": "asha@example.com"})).json()
+        url = f"/data/v1/contact/{made['id']}"
+        await client.patch(url, headers={**_user(biz), "If-Match": '"1"'}, json={"lifecycle_stage": "customer"})
+        history = (await client.get(f"{url}/history", headers=_user(biz))).json()["items"]
+        assert [h["action"] for h in history] == ["updated", "created"]
+        assert history[0]["actor"] == f"user:{biz.owner.id}" and history[0]["changed"] == ["lifecycle_stage"]
+        assert history[1]["actor"] == f"user:{biz.staff.id}"
+        missing = await client.get(f"/data/v1/contact/{uuid.uuid4()}/history", headers=_user(biz))
+        assert missing.status_code == 404
 
 
 async def test_a_record_change_starts_the_data_trigger(biz, monkeypatch):

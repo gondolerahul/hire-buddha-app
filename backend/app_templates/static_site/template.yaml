@@ -1,0 +1,20 @@
+id: static_site
+name: Static website
+version: "1.0.0"
+stack: React + TypeScript (Vite), served by nginx
+kind: web
+deployable: true
+port: 8080
+health_path: /healthz
+description: A website with no server code — pages built to static files.
+shared:
+  web/Dockerfile: Dockerfile
+  web/nginx.conf: nginx.conf
+  web/40-hb-config.sh: 40-hb-config.sh
+  web/package.json: package.json
+  web/tsconfig.json: tsconfig.json
+  web/vite.config.ts: vite.config.ts
+  web/index.html: index.html
+  web/main.tsx: src/main.tsx
+  web/styles.css: src/styles.css
+roles: []

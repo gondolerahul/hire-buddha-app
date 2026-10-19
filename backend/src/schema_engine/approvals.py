@@ -35,21 +35,38 @@ async def settings_for(engine: Any, company_id: Any) -> Dict[str, Any]:
 
     async with session(engine) as db:
         row = await db.get(RecordsSettings, company_id)
+    from src.common.config import settings
+
     return {"agents_auto_approve_additive": bool(row and row.agents_auto_approve_additive),
+            "scratch_retention_days": row.scratch_retention_days if row else None,
+            "scratch_retention_default": settings.CODE_SCRATCH_RETENTION_DAYS,
+            "public_api_access": bool(row and row.public_api_access),
             "updated_by": row.updated_by if row else None, "updated_at": row.updated_at if row else None}
 
 
-async def save_settings(engine: Any, company_id: Any, *, agents_auto_approve_additive: bool,
+_UNSET: Any = object()
+
+
+async def save_settings(engine: Any, company_id: Any, *, agents_auto_approve_additive: Any = _UNSET,
+                        scratch_retention_days: Any = _UNSET, public_api_access: Any = _UNSET,
                         updated_by: str) -> Dict[str, Any]:
+    """Change what is given; ``scratch_retention_days`` None = the platform's default (1–30 otherwise)."""
     from src.schema_engine.engine import session
     from src.schema_engine.models import RecordsSettings
 
+    if scratch_retention_days is not _UNSET and scratch_retention_days is not None and             not 1 <= int(scratch_retention_days) <= 30:
+        raise ValueError("scratch code is kept 1 to 30 days")
     async with session(engine) as db:
         row = await db.get(RecordsSettings, company_id)
         if row is None:
             row = RecordsSettings(company_id=company_id)
             db.add(row)
-        row.agents_auto_approve_additive = bool(agents_auto_approve_additive)
+        if agents_auto_approve_additive is not _UNSET:
+            row.agents_auto_approve_additive = bool(agents_auto_approve_additive)
+        if scratch_retention_days is not _UNSET:
+            row.scratch_retention_days = int(scratch_retention_days) if scratch_retention_days is not None else None
+        if public_api_access is not _UNSET:
+            row.public_api_access = bool(public_api_access)
         row.updated_by, row.updated_at = updated_by, datetime.utcnow()
         await db.commit()
     return await settings_for(engine, company_id)

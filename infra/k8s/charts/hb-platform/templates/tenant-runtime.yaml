@@ -1,0 +1,427 @@
+{{- /*
+Tenant runtime (Phase 14 WS6, tech spec §11): what the platform may do in
+tenant namespaces, the App Controller, the tenant app edge (Caddy, on-demand
+TLS), the cluster egress proxy and the built-in Git (Gitea). Off by default;
+values-azure.yaml turns it on.
+*/ -}}
+{{- if .Values.tenantRuntime.enabled }}
+{{- $rt := .Values.tenantRuntime }}
+{{- $sys := $rt.systemNamespace }}
+---
+# The API and workers: sandbox pods, their secrets and network policy, TenantApp
+# objects and app secrets in t-* namespaces; pod logs; checks Jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hb-platform-tenant-runtime
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, create, update, patch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, create, delete]
+  - apiGroups: [hirebuddha.com]
+    resources: [tenantapps]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hb-platform-tenant-runtime
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hb-platform-tenant-runtime
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccounts.api.name }}
+    namespace: {{ .Release.Namespace }}
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccounts.worker.name }}
+    namespace: {{ .Release.Namespace }}
+{{- if $rt.appController.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hb-app-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hb-app-controller
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [hirebuddha.com]
+    resources: [tenantapps, tenantapps/status]
+    verbs: [get, list, watch, patch, update]
+  - apiGroups: [""]
+    resources: [services, serviceaccounts, configmaps, events]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, create, update, patch, delete]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, create, update, patch, delete]
+  - apiGroups: [http.keda.sh]
+    resources: [httpscaledobjects]
+    verbs: [get, list, create, update, patch, delete]
+  # kopf's own bookkeeping
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [list, watch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hb-app-controller
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hb-app-controller
+subjects:
+  - kind: ServiceAccount
+    name: hb-app-controller
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hb-app-controller
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: app-controller
+spec:
+  replicas: 1   # kopf peering keeps one active; a second waits
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: app-controller
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: hb-app-controller
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: app-controller
+          image: {{ include "hb.image" (dict "root" . "image" "appController") }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          {{- include "hb.backendEnv" . | nindent 10 }}
+            - name: EDGE_ASK_URL
+              value: "http://hb-api.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.api.service.port }}/internal/v1/edge/ask"
+            - name: ACME_EMAIL
+              value: {{ $rt.tenantEdge.acmeEmail | quote }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $rt.appController.resources | nindent 12 }}
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
+{{- if $rt.tenantEdge.enabled }}
+---
+# The tenant app edge (SP-3): Caddy with on-demand TLS behind a static IP. Its
+# Caddyfile is the ConfigMap the App Controller writes; --watch reloads it.
+# Certificates live in Redis (the image adds the caddy-storage-redis module).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant-edge
+  namespace: {{ $sys }}
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: tenant-edge
+spec:
+  replicas: {{ $rt.tenantEdge.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tenant-edge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tenant-edge
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: caddy
+          image: {{ $rt.tenantEdge.image }}
+          args: [run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile, --watch]
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: https, containerPort: 8443 }
+          env:
+            - { name: REDIS_ADDRESS, value: {{ $rt.tenantEdge.redisAddress | quote }} }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $rt.tenantEdge.redisSecret }}, key: password } }
+            - { name: XDG_DATA_HOME, value: /data }
+            - { name: XDG_CONFIG_HOME, value: /config }
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $rt.tenantEdge.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/caddy }
+            - { name: data, mountPath: /data }
+            - { name: xdg-config, mountPath: /config }
+      volumes:
+        - name: config
+          configMap:
+            name: tenant-edge-config
+            optional: true
+        - { name: data, emptyDir: {} }
+        - { name: xdg-config, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant-edge
+  namespace: {{ $sys }}
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml $rt.tenantEdge.serviceAnnotations | nindent 4 }}
+spec:
+  type: LoadBalancer
+  {{- with $rt.tenantEdge.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: tenant-edge
+  ports:
+    - { name: http, port: 80, targetPort: 8080 }
+    - { name: https, port: 443, targetPort: 8443 }
+{{- end }}
+{{- if $rt.egressProxy.enabled }}
+---
+# One egress proxy for every tenant (6.2): callers authenticate per tenant and
+# pod or app; allow-lists come from the App Controller's ConfigMap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egress-proxy
+  namespace: {{ $sys }}
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: egress-proxy
+spec:
+  replicas: {{ $rt.egressProxy.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: egress-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: egress-proxy
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: proxy
+          image: {{ include "hb.image" (dict "root" . "image" "egressProxy") }}
+          env:
+            - { name: MODE, value: cluster }
+            - { name: PORT, value: "8888" }
+            - { name: POLICY_FILE, value: /etc/egress/policy.json }
+            - name: PROXY_SECRET
+              valueFrom: { secretKeyRef: { name: {{ $rt.egressProxy.secretName }}, key: EGRESS_PROXY_SECRET } }
+          ports:
+            - { name: proxy, containerPort: 8888 }
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $rt.egressProxy.resources | nindent 12 }}
+          volumeMounts:
+            - { name: policy, mountPath: /etc/egress }
+      volumes:
+        - name: policy
+          configMap:
+            name: egress-policy
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: {{ $sys }}
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: egress-proxy
+  ports:
+    - { name: proxy, port: 8888, targetPort: 8888 }
+---
+# In: tenant sandbox and app pods only. Out: the internet, never private ranges
+# or the metadata service (the proxy also checks every address it connects to).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy
+  namespace: {{ $sys }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: egress-proxy
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - { key: hirebuddha.com/tenant, operator: Exists }
+      ports:
+        - { protocol: TCP, port: 8888 }
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 80 }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+{{- end }}
+{{- if $rt.gitea.enabled }}
+---
+# The built-in Git (D36): one Gitea, no public UI (reached by the platform only),
+# Postgres database hb_gitea, repositories on Azure Files premium.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea-repositories
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: {{ $rt.gitea.storageClass }}
+  resources:
+    requests:
+      storage: {{ $rt.gitea.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+    app.kubernetes.io/name: gitea
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitea
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitea
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: gitea
+          image: {{ $rt.gitea.image }}
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            - { name: GITEA__database__DB_TYPE, value: postgres }
+            - { name: GITEA__database__HOST, value: {{ $rt.gitea.databaseHost | quote }} }
+            - { name: GITEA__database__NAME, value: hb_gitea }
+            - { name: GITEA__database__SSL_MODE, value: require }
+            - name: GITEA__database__USER
+              valueFrom: { secretKeyRef: { name: {{ $rt.gitea.secretName }}, key: db-user } }
+            - name: GITEA__database__PASSWD
+              valueFrom: { secretKeyRef: { name: {{ $rt.gitea.secretName }}, key: db-password } }
+            - { name: GITEA__security__INSTALL_LOCK, value: "true" }
+            - { name: GITEA__service__DISABLE_REGISTRATION, value: "true" }
+            - { name: GITEA__service__REQUIRE_SIGNIN_VIEW, value: "true" }
+            - { name: GITEA__server__ROOT_URL, value: "http://gitea.{{ .Release.Namespace }}.svc.cluster.local:3000/" }
+            - { name: GITEA__repository__ROOT, value: /data/git/repositories }
+            - { name: GITEA__mirror__ENABLED, value: "true" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            {{- toYaml $rt.gitea.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /api/healthz, port: 3000 }
+          volumeMounts:
+            - { name: repositories, mountPath: /data }
+      volumes:
+        - name: repositories
+          persistentVolumeClaim:
+            claimName: gitea-repositories
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: gitea
+  ports:
+    - { name: http, port: 3000, targetPort: 3000 }
+{{- end }}
+{{- end }}

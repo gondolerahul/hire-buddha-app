@@ -27,7 +27,9 @@ ADDITIVE = ("add_object", "add_field", "add_relation", "add_index", "widen_field
 CHECKED = ("make_required", "add_unique")
 RENAMES = ("rename_field", "rename_object")
 ARCHIVES = ("archive_field", "archive_object")
-OPERATIONS = ADDITIVE + CHECKED + RENAMES + ARCHIVES + ("change_type",)
+# Who sees which rows (app users' row policies, WS6 6.10): no DDL, never additive.
+POLICIES = ("set_row_policy",)
+OPERATIONS = ADDITIVE + CHECKED + RENAMES + ARCHIVES + POLICIES + ("change_type",)
 BIG_TABLE_ROWS = 100_000
 ALIAS_VERSIONS = 2
 
@@ -231,6 +233,17 @@ def _apply(out: Plan, operation: Dict[str, Any], *, actor: str, rows: Dict[str, 
     obj = _object(next_bp, str(operation.get("object") or ""))
     table = obj["storage"]["table"]
     count = rows.get(table, 0)
+
+    if op == "set_row_policy":
+        policy = operation.get("row_policy")
+        if policy:
+            obj["row_policy"] = bp.row_policy(policy, obj["fields"], f"object {operation.get('object')}")
+            out.summary.append(f"limit app users with own-row roles to rows whose "
+                               f"{obj['row_policy']['owner_field']} is theirs ({obj['row_policy']['match']})")
+        else:
+            obj.pop("row_policy", None)
+            out.summary.append("remove the row policy: roles limited to their own rows see none of these")
+        return
 
     if op in ("add_field", "add_relation"):
         name = bp.check_name(operation.get("field"), "field")

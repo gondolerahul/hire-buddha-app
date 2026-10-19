@@ -63,3 +63,4 @@ backend/var/
 
 # Local tenant key-encryption keys (src/common/platform/kek/local.py): never committed.
 backend/.local-keys/
+backend/.local-git/
