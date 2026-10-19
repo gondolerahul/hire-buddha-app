@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { WorkspaceGate } from './WorkspaceGate';
 import {
     Menu,
     X,
@@ -43,6 +44,11 @@ import {
     Flag,
     ShieldAlert,
     Timer,
+    Database,
+    Plug,
+    AppWindow,
+    Code2,
+    Building2,
 } from 'lucide-react';
 import { UserRole } from '@/types';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -89,6 +95,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 { path: '/ai/approvals', label: 'Guardian Oversight', icon: ShieldCheck },
                 { path: '/ai/executions', label: 'Executions', icon: TerminalSquare },
                 { path: '/automation', label: 'Control Room', icon: Timer },
+                { path: '/records', label: 'Records', icon: Database },
+                { path: '/apps', label: 'Apps', icon: AppWindow },
+                { path: '/code', label: 'Code', icon: Code2 },
                 { path: '/cortex', label: 'Memory Trees', icon: Brain },
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/ai/tool-registry', label: 'Tool Registry', icon: Wrench }] : []),
             ]
@@ -107,7 +116,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             icon: FolderTree,
             items: [
                 { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
-                { path: '/integrations', label: 'Integrations', icon: Blocks },
+                { path: '/connections', label: 'Connections', icon: Plug },
+                // System integrations are HireBuddha staff's (D40); businesses' own keys move to
+                // Connections with WS7's conversion (REGISTRY_PLATFORM_ONLY), until then they stay here.
+                { path: '/integrations', label: user?.role === UserRole.APP_ADMIN ? 'System Integrations' : 'Integrations',
+                  icon: Blocks },
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/ai-config', label: 'AI Configuration', icon: Route }] : []),
                 { path: '/artifacts', label: 'Artifacts', icon: Archive },
             ]
@@ -129,8 +142,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             icon: CreditCard,
             items: [
                 { path: '/wallet', label: 'Wallet & Credits', icon: Wallet },
+                { path: '/settings/tenant', label: 'Business Settings', icon: Settings },
                 { path: '/settings/automation', label: 'Automation Settings', icon: Timer },
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/automation', label: 'Platform Automation', icon: Timer }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/tenants', label: 'Tenants', icon: Building2 }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/connectors', label: 'Connector Approvals', icon: Plug }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/reports/costing', label: 'Costing Report', icon: PiggyBank }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/settings/billing', label: 'Billing Settings', icon: Settings }] : []),
             ]
@@ -315,7 +331,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 <main>
                     <ErrorBoundary scope="This page" resetKey={location.pathname}>
                         <Suspense fallback={<div className="page-loading">Loading…</div>}>
-                            {children}
+                            <WorkspaceGate>{children}</WorkspaceGate>
                         </Suspense>
                     </ErrorBoundary>
                 </main>

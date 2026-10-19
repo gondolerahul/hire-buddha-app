@@ -64,6 +64,11 @@ def test_the_catalog_yaml_is_valid_and_oauth_connectors_name_their_app():
         if item.auth_type in ("oauth2", "github_app", "meta_embedded_signup"):
             assert item.oauth_app_ref, item.id
     assert [f.name for f in specs["imap_mailbox"].form][:2] == ["email_address", "password"]
+    # Every form parses (an unquoted label with a comma once split into a stray key and broke /connectors).
+    for item in specs.values():
+        assert all(f.name and f.label for f in item.form), item.id
+    assert [f.label for f in specs["provider_api_key"].form if f.name == "provider"] == [
+        "Provider (as in the registry, e.g. serpapi)"]
 
 
 def test_a_catalog_file_whose_id_is_not_its_name_is_refused(tmp_path):

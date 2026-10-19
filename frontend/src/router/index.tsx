@@ -52,6 +52,18 @@ const AutomationSettings = lazy(() => import('@/pages/automation/AutomationSetti
 const AutomationPlatformPage = lazy(() => import('@/pages/admin/AutomationPlatformPage'));
 // Phase 14 WS3: the automation control room (triggers, event log).
 const ControlRoom = lazy(() => import('@/pages/automation/ControlRoom'));
+// Phase 14 WS8: records, connections, apps and code, business settings, platform admin.
+const RecordsPage = lazy(() => import('@/pages/records/RecordsPage'));
+const SchemaPage = lazy(() => import('@/pages/records/SchemaPage'));
+const DataKeysPage = lazy(() => import('@/pages/records/DataKeysPage'));
+const ConnectionsPage = lazy(() => import('@/pages/connections/ConnectionsPage'));
+const ConnectionDetail = lazy(() => import('@/pages/connections/ConnectionDetail'));
+const AppsPage = lazy(() => import('@/pages/apps/AppsPage'));
+const AppDetail = lazy(() => import('@/pages/apps/AppDetail'));
+const CodePage = lazy(() => import('@/pages/apps/CodePage'));
+const TenantSettings = lazy(() => import('@/pages/settings/TenantSettings'));
+const TenantsPage = lazy(() => import('@/pages/admin/TenantsPage'));
+const ConnectorApprovalsPage = lazy(() => import('@/pages/admin/ConnectorApprovalsPage'));
 
 // CORTEX Memory Architecture
 const CortexExplorer = lazy(() => import('@/pages/ai/CortexExplorer').then(m => ({ default: m.CortexExplorer })));
@@ -601,6 +613,94 @@ export const AppRouter: React.FC = () => {
                         element={
                             <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
                                 <MainLayout><AutomationPlatformPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/records"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><RecordsPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/records/schema"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><SchemaPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/records/keys"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><DataKeysPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/connections"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><ConnectionsPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/connections/:id"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><ConnectionDetail /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/apps"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><AppsPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/apps/:id"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><AppDetail /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/code"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><CodePage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/settings/tenant"
+                        element={
+                            <ProtectedRoute>
+                                <MainLayout><TenantSettings /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/tenants"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><TenantsPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/connectors"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><ConnectorApprovalsPage /></MainLayout>
                             </ProtectedRoute>
                         }
                     />

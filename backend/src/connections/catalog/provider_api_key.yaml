@@ -14,7 +14,7 @@ capabilities:
   # search API, an email or social API): used instead of the platform's key.
   # WS7 moves a business's old integration_registry rows here.
   form:
-    - {name: provider, label: Provider (as in the registry, e.g. serpapi), kind: text, required: true}
+    - {name: provider, label: "Provider (as in the registry, e.g. serpapi)", kind: text, required: true}
     - {name: service_sku, label: Service SKU (optional), kind: text, required: false}
     - {name: model_name, label: Model (optional), kind: text, required: false}
     - {name: api_key, label: API key, kind: secret, required: true}
