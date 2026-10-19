@@ -1,0 +1,20 @@
+id: api_key
+provider: generic
+display_name: Other service (API key)
+category: other
+auth_type: api_key
+icon: key
+status: available
+scopes: []
+capabilities:
+  account_kind: service
+  actions: [call_api]
+  events: []
+  form:
+    - {name: service_name, label: Service, kind: text, required: true}
+    - {name: base_url, label: Base URL, kind: url, required: false}
+    - {name: api_key, label: API key, kind: secret, required: true}
+    - {name: header_name, label: Header the key goes in, kind: text, default: Authorization}
+approval:
+  state: not_needed
+version: 1

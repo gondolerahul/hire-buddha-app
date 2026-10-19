@@ -58,6 +58,23 @@ TENANT_ALLOWED_CATEGORIES = {ServiceCategory.EMAIL, ServiceCategory.SOCIAL_MEDIA
                              ServiceCategory.OTHER}
 
 
+async def _system_only(db: AsyncSession, user: User, company_id) -> None:
+    """With ``REGISTRY_PLATFORM_ONLY`` (Phase 14 WS5 5.7, D40): the registry holds
+    system integrations only — staff's, on the platform company. A business's
+    own accounts and keys are connections (``/api/v1/connections``)."""
+    from src.common.config import settings
+
+    if not settings.REGISTRY_PLATFORM_ONLY:
+        return
+    from src.auth.platform import platform_company_id
+
+    if user.role != "app_admin":
+        raise HTTPException(status_code=403, detail="System integrations are managed by HireBuddha staff. "
+                                                    "Connect your own accounts on the Connections screen.")
+    if str(company_id) != str(await platform_company_id(db)):
+        raise HTTPException(status_code=422, detail="System integrations belong to the platform company")
+
+
 @router.post("/integrations", response_model=IntegrationRegistryResponse)
 async def create_integration(
     entry_in: IntegrationRegistryCreate,
@@ -66,6 +83,7 @@ async def create_integration(
 ):
     if current_user.role not in ["app_admin", "partner_admin", "tenant_admin"]:
         raise HTTPException(status_code=403, detail="Not authorized")
+    await _system_only(db, current_user, entry_in.company_id)
 
     if current_user.role != "app_admin" and str(entry_in.company_id) != str(current_user.company_id):
         raise HTTPException(status_code=403, detail="Cannot create integration for another company")
@@ -134,6 +152,7 @@ async def update_integration(
     entry = await service.get_registry_entry(entry_id)
     if current_user.role != "app_admin" and str(entry.company_id) != str(current_user.company_id):
         raise HTTPException(status_code=403, detail="Access denied")
+    await _system_only(db, current_user, entry.company_id)
 
     # Tenant users cannot change category to a restricted one
     if current_user.role in ("tenant_admin", "tenant_user"):
@@ -157,6 +176,7 @@ async def delete_integration(
     entry = await service.get_registry_entry(entry_id)
     if current_user.role != "app_admin" and str(entry.company_id) != str(current_user.company_id):
         raise HTTPException(status_code=403, detail="Access denied")
+    await _system_only(db, current_user, entry.company_id)
 
     await service.delete_registry_entry(entry_id)
     return None

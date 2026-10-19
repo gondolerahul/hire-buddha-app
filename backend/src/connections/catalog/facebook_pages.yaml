@@ -1,0 +1,19 @@
+id: facebook_pages
+provider: meta
+display_name: Facebook Pages
+category: social
+auth_type: oauth2
+icon: facebook
+oauth_app_ref: oauth-app-meta
+status: planned
+scopes: [pages_show_list, pages_manage_posts, pages_read_engagement, pages_manage_engagement, pages_manage_metadata, pages_messaging]
+capabilities:
+  account_kind: page
+  actions: [post, reply_to_comment, read_insights, reply_to_message]
+  events: [social.comment.created, social.post.created, social.mention.created, social.message.received]
+  webhook_object: page
+  webhook_fields: [feed, messages]
+approval:
+  state: not_submitted
+  notes: Meta App Review for pages_manage_posts, pages_manage_engagement and pages_messaging.
+version: 1

@@ -25,6 +25,7 @@ node_modules
 # Runtime data and local state. artifact/ is local-disk storage; main.py
 # creates it and uploads/ at startup; var/ holds sandbox workspaces.
 artifact
+.local-keys
 uploads
 var
 logs

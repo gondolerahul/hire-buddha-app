@@ -1,0 +1,17 @@
+id: outlook_mail
+provider: microsoft
+display_name: Outlook / Microsoft 365 mail
+category: mail
+auth_type: oauth2
+icon: outlook
+oauth_app_ref: oauth-app-microsoft
+status: planned
+scopes: [openid, email, offline_access, Mail.ReadWrite, Mail.Send]
+capabilities:
+  account_kind: user
+  actions: [read_mail, send_mail, draft_mail]
+  events: [email.received]
+approval:
+  state: not_submitted
+  notes: A multi-tenant Entra app registration; publisher verification recommended.
+version: 1

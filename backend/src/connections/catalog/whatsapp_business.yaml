@@ -1,0 +1,19 @@
+id: whatsapp_business
+provider: meta
+display_name: WhatsApp Business
+category: messaging
+auth_type: meta_embedded_signup
+icon: whatsapp
+oauth_app_ref: oauth-app-meta
+status: planned
+scopes: [whatsapp_business_management, whatsapp_business_messaging]
+capabilities:
+  account_kind: phone_number
+  actions: [send_message, send_template]
+  events: [whatsapp.message.received, whatsapp.status.updated]
+  webhook_object: whatsapp_business_account
+  webhook_fields: [messages]
+approval:
+  state: not_submitted
+  notes: Meta Tech Provider onboarding and an Embedded Signup configuration (config_id in the app's metadata).
+version: 1

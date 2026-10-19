@@ -77,10 +77,10 @@ class EmailService:
                 self._smtp_port = int(metadata.get("smtp_port", 587))
                 self._smtp_user = metadata.get("smtp_user", "")
                 self._smtp_from = metadata.get("smtp_from", "noreply@hirebuddha.com")
+                from src.config.registry_secrets import registry_secret
                 self._smtp_password = (
-                    decrypt_api_key(entry.encrypted_api_key)
-                    if entry.encrypted_api_key
-                    else ""
+                    await registry_secret(entry)
+                    or ""
                 )
                 self._credentials_loaded = True
                 logger.info("SMTP credentials loaded from Integration Registry")

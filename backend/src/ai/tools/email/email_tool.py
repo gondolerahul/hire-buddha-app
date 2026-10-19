@@ -107,22 +107,51 @@ def _parse_email_body(msg: email.message.Message) -> str:
 _MAIL_TIMEOUT_S = 30
 
 
+class OAuthBearer(str):
+    """A mailbox's OAuth access token where a password is expected (a Gmail or
+    Outlook connection, Phase 14 WS5): the sign-ins below use XOAUTH2 for it."""
+
+
+def _xoauth2(email_address: str, token: str) -> str:
+    return f"user={email_address}\x01auth=Bearer {token}\x01\x01"
+
+
 def _get_imap_connection(imap_host: str, imap_port: int, email_address: str, password: str) -> imaplib.IMAP4_SSL:
     """Create and authenticate an IMAP connection."""
     conn = imaplib.IMAP4_SSL(imap_host, imap_port, timeout=_MAIL_TIMEOUT_S)
-    conn.login(email_address, password)
+    if isinstance(password, OAuthBearer):
+        conn.authenticate("XOAUTH2", lambda _challenge: _xoauth2(email_address, password).encode())
+    else:
+        conn.login(email_address, password)
     return conn
 
 
 def _get_smtp_connection(smtp_host: str, smtp_port: int, email_address: str, password: str) -> smtplib.SMTP:
     """Create and authenticate an SMTP connection."""
+    import base64
+
     server = smtplib.SMTP(smtp_host, smtp_port, timeout=_MAIL_TIMEOUT_S)
     server.starttls()
-    server.login(email_address, password)
+    if isinstance(password, OAuthBearer):
+        server.ehlo()
+        server.docmd("AUTH", "XOAUTH2 " + base64.b64encode(_xoauth2(email_address, password).encode()).decode())
+    else:
+        server.login(email_address, password)
     return server
 
 
-async def _resolve_connection(company_id: Optional[str], email_address: Optional[str] = None) -> Dict[str, Any]:
+async def _resolve_connection(context: Optional[Dict[str, Any]], email_address: Optional[str] = None) -> Dict[str, Any]:
+    """The run's agent's mailbox: a granted connection through the token broker
+    (Phase 14 WS5), else — until WS7 has moved it — the old EmailConnection row."""
+    from src.connections.client import email_credentials
+
+    resolved = await email_credentials(context, email_address)
+    if resolved.get("oauth_token"):
+        resolved = {**resolved, "password": OAuthBearer(resolved.pop("oauth_token"))}
+    return resolved
+
+
+async def _legacy_email_connection(company_id: Optional[str], email_address: Optional[str] = None) -> Dict[str, Any]:
     """Look up email credentials from EmailConnection table for the company."""
     if not company_id:
         return {}
@@ -200,7 +229,7 @@ class EmailIngestTool(Tool):
         company_id = context_company_id(context)
         if not company_id:
             return json.dumps({"error": NO_CONTEXT_ERROR})
-        resolved = await _resolve_connection(company_id, params.get("email_address"))
+        resolved = await _resolve_connection(context, params.get("email_address"))
         
         # Server, account and password come from the company's connection row
         # only. ``email_address`` may pick which of the company's connections;
@@ -338,7 +367,7 @@ class EmailClassifyTool(Tool):
         company_id = context_company_id(context)
         if not company_id:
             return json.dumps({"error": NO_CONTEXT_ERROR})
-        resolved = await _resolve_connection(company_id, params.get("email_address"))
+        resolved = await _resolve_connection(context, params.get("email_address"))
 
         # Server, account and password come from the company's connection row
         # only. ``email_address`` may pick which of the company's connections;
@@ -470,7 +499,7 @@ class EmailDraftTool(Tool):
         # only. ``email_address`` may pick which of the company's connections;
         # it cannot point the tool at another server or supply a password
         # (TL-04, TL-56).
-        resolved = await _resolve_connection(company_id, params.email_address)
+        resolved = await _resolve_connection(ctx, params.email_address)
         imap_host = resolved.get("imap_host")
         imap_port = resolved.get("imap_port") or 993
         email_address = resolved.get("email_address")
@@ -578,7 +607,7 @@ class EmailSendTool(Tool):
         # only. ``email_address`` may pick which of the company's connections;
         # it cannot point the tool at another server — an open relay from the
         # tenant's identity — or supply a password (TL-04).
-        resolved = await _resolve_connection(company_id, params.email_address)
+        resolved = await _resolve_connection(ctx, params.email_address)
         smtp_host = resolved.get("smtp_host")
         smtp_port = resolved.get("smtp_port") or 587
         email_address = resolved.get("email_address")

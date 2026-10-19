@@ -194,18 +194,17 @@ class SocialMediaTool(Tool):
         except json.JSONDecodeError:
             return json.dumps({"error": "Invalid JSON input"})
 
-        # Resolve credentials from social_connections table
+        # The run's agent's granted connection, through the token broker (Phase 14 WS5).
         company_id = context_company_id(context)
         if not company_id:
             return json.dumps({"error": NO_CONTEXT_ERROR})
 
-        from src.ai.social_connection_service import resolve_connection
+        from src.connections.client import credentials_for
 
-        credentials = await resolve_connection(
-            company_id=company_id,
-            platform=self.platform,
-            account_name=params.get("account_name"),
-            platform_user_id=params.get("platform_user_id"),
+        credentials = await credentials_for(
+            context, self.platform,
+            account=params.get("account_name") or params.get("platform_user_id"),
+            action=getattr(self, "action", None),
         )
 
         page = params.pop(PAGE_PARAM, None) if isinstance(params, dict) else None
@@ -217,7 +216,7 @@ class SocialMediaTool(Tool):
             return json.dumps({
                 "error": (
                     f"No active {self.platform} connection found for this company. "
-                    f"Please configure a social connection first via POST /api/social-connections."
+                    f"Connect one on the Connections screen and share it with this agent."
                 )
             })
 

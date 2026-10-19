@@ -74,6 +74,9 @@ APPENDIX_A_CONTROL = {
     "time_index", "automation_settings",
     # Notifications (WS3 3.11): one row per person told.
     "notifications",
+    # Connections (WS5, tech spec §10.2): what can be connected, who owns which
+    # outside account, provider deliveries nobody owns.
+    "connector_catalog", "external_account_routes", "unrouted_events",
 }
 APPENDIX_A_TENANT = {
     "hierarchical_entities", "entity_versions", "entity_assets",
@@ -90,6 +93,8 @@ APPENDIX_A_TENANT = {
     "events", "triggers", "trigger_firings", "waits",
     # Records (WS4, tech spec §8.4, §9.3): blueprints, changes, audit, keys.
     "schema_blueprints", "schema_changes", "audit_log", "api_keys", "records_settings",
+    # Connections (WS5, tech spec §10.3): accounts, sealed secrets, grants, use, the DEK.
+    "connections", "connection_secrets", "connection_grants", "connection_audit", "tenant_keys",
 }
 
 # What the foreign keys between the planes were: a tenant database cannot hold
@@ -628,8 +633,14 @@ async def test_a_units_control_rows_get_their_own_session_only_from_a_tenant_ses
 def test_each_tree_has_one_head_and_a_tenant_s_version_is_the_tenant_tree_s():
     from src.common.tenancy import migrate
 
-    assert migrate.tree_head(migrate.CONTROL_TREE) == migrate.CONTROL_BASELINE
-    assert migrate.tenant_schema_version() == migrate.tree_head(migrate.TENANT_TREE) == migrate.TENANT_BASELINE
+    from alembic.script import ScriptDirectory
+
+    for tree, baseline in ((migrate.CONTROL_TREE, migrate.CONTROL_BASELINE),
+                           (migrate.TENANT_TREE, migrate.TENANT_BASELINE)):
+        script = ScriptDirectory.from_config(migrate.alembic_config(tree))
+        assert len(script.get_heads()) == 1, tree
+        assert script.get_base() == baseline                    # every revision builds on the cut's baseline
+    assert migrate.tenant_schema_version() == migrate.tree_head(migrate.TENANT_TREE)
 
 
 def test_the_old_chain_is_frozen_at_the_cut():

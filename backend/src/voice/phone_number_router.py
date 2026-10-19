@@ -262,12 +262,13 @@ async def sync_numbers(
             meta = row.service_metadata or {}
             if row.provider_name == "twilio":
                 account_sid = meta.get("account_sid", "")
-                auth_token = decrypt_api_key(row.encrypted_api_key) if row.encrypted_api_key else meta.get("auth_token", "")
+                from src.config.registry_secrets import registry_secret
+                auth_token = await registry_secret(row) or meta.get("auth_token", "")
                 results["twilio"] = await _sync_twilio(db, account_sid, auth_token, current_user.id)
             elif row.provider_name == "tata_tele":
-                from src.voice.tata_credentials import credentials_from_entry
+                from src.voice.tata_credentials import credentials_with_vault_secret
 
-                creds = credentials_from_entry(row)
+                creds = await credentials_with_vault_secret(row)
                 results["tata_tele"] = await _sync_tata_tele(
                     db, creds.api_key or "", current_user.id, {"api_url": creds.api_url},
                 )

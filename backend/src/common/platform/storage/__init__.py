@@ -62,15 +62,30 @@ def split_key(key: str) -> tuple[str, str]:
     return namespace, path
 
 
-def company_namespace(company_id: object) -> str:
-    """A company's storage namespace until the tenant directory exists (WS2).
-
-    ``c-<company uuid hex>``. Tenants provisioned by WS2 use ``t-<tenant key>``;
-    the file mover (WS7 7.4) rewrites keys when a company becomes a tenant.
-    """
+def legacy_namespace(company_id: object) -> str:
+    """``c-<company uuid hex>``: where a company's files went before it had a tenant."""
     import uuid
 
     return f"c-{uuid.UUID(str(company_id)).hex}"
+
+
+def company_namespaces(company_id: object) -> list[str]:
+    """Every namespace that holds the company's files, the one new files go to first:
+    ``t-<tenant key>`` once this process knows the company's tenant (WS2's
+    directory, loaded by any split-mode request for it), then ``c-<company hex>``,
+    where its earlier files stay until the file mover (WS7 7.4) moves them."""
+    from src.common.tenancy.directory import directory
+
+    names = [legacy_namespace(company_id)]
+    location = directory.cached(company_id)
+    if location is not None and location.key:
+        names.insert(0, f"t-{location.key}")
+    return names
+
+
+def company_namespace(company_id: object) -> str:
+    """The namespace a company's new files go to (see ``company_namespaces``)."""
+    return company_namespaces(company_id)[0]
 
 
 @runtime_checkable

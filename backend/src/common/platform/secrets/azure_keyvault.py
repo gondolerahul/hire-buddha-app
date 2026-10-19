@@ -41,3 +41,7 @@ class KeyVaultSecrets:
         except ResourceNotFoundError:
             return None
         return secret.value or None
+
+    async def set(self, name: str, value: str) -> None:
+        """Write a secret (``python -m src.config.move_secrets``; needs Key Vault Secrets Officer)."""
+        await self._client().set_secret(validate_secret_name(name), value, content_type="text/plain")

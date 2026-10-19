@@ -1,0 +1,17 @@
+id: x_account
+provider: x
+display_name: X (Twitter)
+category: social
+auth_type: oauth2
+icon: twitter
+oauth_app_ref: oauth-app-x
+status: planned
+scopes: [tweet.read, tweet.write, users.read, offline.access]
+capabilities:
+  account_kind: user
+  actions: [post, read]
+  events: []
+approval:
+  state: not_submitted
+  notes: An X developer project with OAuth 2.0 (PKCE) and a tier that allows posting.
+version: 1

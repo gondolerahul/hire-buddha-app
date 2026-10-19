@@ -68,9 +68,8 @@ async def _resolve_integration(
             entry = result.scalars().first()
 
             if entry:
-                api_key = None
-                if entry.encrypted_api_key:
-                    api_key = decrypt_api_key(entry.encrypted_api_key)
+                from src.config.registry_secrets import registry_secret
+                api_key = await registry_secret(entry)
 
                 return {
                     "api_key": api_key,

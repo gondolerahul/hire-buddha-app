@@ -1,0 +1,17 @@
+id: linkedin_org
+provider: linkedin
+display_name: LinkedIn Page
+category: social
+auth_type: oauth2
+icon: linkedin
+oauth_app_ref: oauth-app-linkedin
+status: planned
+scopes: [r_organization_social, w_organization_social, rw_organization_admin]
+capabilities:
+  account_kind: organization
+  actions: [post, read_insights]
+  events: []
+approval:
+  state: not_submitted
+  notes: LinkedIn Community Management API access (organisation scopes, programmatic refresh tokens).
+version: 1

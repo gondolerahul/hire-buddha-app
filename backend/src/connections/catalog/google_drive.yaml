@@ -1,0 +1,17 @@
+id: google_drive
+provider: google
+display_name: Google Drive
+category: docs
+auth_type: oauth2
+icon: google-drive
+oauth_app_ref: oauth-app-google
+status: planned
+scopes: [openid, email, "https://www.googleapis.com/auth/drive.file"]
+capabilities:
+  account_kind: user
+  actions: [read_file, create_file, update_file]
+  events: []
+approval:
+  state: not_submitted
+  notes: Google OAuth verification (drive.file is a recommended, non-sensitive scope).
+version: 1

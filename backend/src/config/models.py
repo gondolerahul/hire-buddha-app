@@ -45,6 +45,9 @@ class ServiceCategory(StrEnum):
     EMAIL = "EMAIL"
     SOCIAL_MEDIA = "SOCIAL_MEDIA"
     API_TOOL = "API_TOOL"                  # priced third-party tool APIs
+    # HireBuddha's own app with an outside provider (Meta, LinkedIn, Google, X,
+    # GitHub, Microsoft): what businesses connect through (Phase 14 WS5, D40).
+    OAUTH_APP = "OAUTH_APP"
     OTHER = "OTHER"
 
 
@@ -90,6 +93,10 @@ class IntegrationRegistry(ControlBase):
     component_type = Column(String, nullable=False)
     # Types: input_token, output_token, analysis, minute, character, flat_fee, image, video_second
     encrypted_api_key = Column(Text, nullable=True)
+    # The secret's name in the platform vault (Key Vault on Azure; the
+    # environment locally), read at run time instead of encrypted_api_key
+    # (Phase 14 WS5 5.7, tech spec §10.2). config/registry_secrets.py reads either.
+    secret_ref = Column(Text, nullable=True)
     internal_cost = Column(Numeric(18, 6), nullable=False)
     cost_unit = Column(String, nullable=False)
     service_metadata = Column(JSONB, nullable=True)

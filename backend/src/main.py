@@ -43,6 +43,13 @@ async def lifespan(app: FastAPI):
     agent_changes = asyncio.create_task(agent_cache_bus.listen(settings.REDIS_URL))
     flag_changes = asyncio.create_task(listen_for_invalidations(settings.REDIS_URL))
     listeners = [agent_changes, flag_changes]
+    try:  # the connector catalog follows its YAML (WS5); the migrations Job also syncs it
+        from src.common.tenancy.session import control_session
+        from src.connections.catalog import sync_catalog
+        async with control_session() as db:
+            await sync_catalog(db)
+    except Exception:  # noqa: BLE001 - a missing table before migrations must not stop the API
+        logging.getLogger(__name__).warning("connector catalog not synced", exc_info=True)
     from src.common.tenancy.session import is_split
     if is_split():  # a moved or suspended tenant is seen at once (Phase 14 WS2)
         from src.common.tenancy.directory import listen_for_changes
@@ -197,6 +204,8 @@ mount_optional(app, "src.notifications.router")         # /api/v1/notifications
 mount_optional(app, "src.data_api.platform_router")     # /api/v1/records/token, /api/v1/data-keys
 # Tenant databases (Phase 14 WS2): the caller's workspace, and provisioning for staff
 mount_optional(app, "src.common.tenancy.api")             # /api/v1/workspace, /api/v1/admin/tenants*
+# Connections (Phase 14 WS5): connectors, connect flow, token broker, provider webhooks
+mount_optional(app, "src.connections.api")              # /api/v1/connect*, /oauth/callback/*, /webhook/provider/*
 
 # The Data API (WS4, tech spec §9): a business's records at /data/v1/…; it also
 # runs on its own (src.data_api.main), one per business in Kubernetes.

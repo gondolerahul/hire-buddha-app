@@ -1,0 +1,17 @@
+id: gmail
+provider: google
+display_name: Gmail
+category: mail
+auth_type: oauth2
+icon: gmail
+oauth_app_ref: oauth-app-google
+status: planned
+scopes: [openid, email, "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"]
+capabilities:
+  account_kind: user
+  actions: [read_mail, send_mail, draft_mail]
+  events: [email.received]
+approval:
+  state: not_submitted
+  notes: Restricted Gmail scopes need Google verification and a CASA security assessment.
+version: 1

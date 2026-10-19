@@ -25,6 +25,7 @@ DEFAULT_ADAPTERS: Dict[str, Dict[str, str]] = {
     "secrets": {"local": "env", "azure": "azure_keyvault", "onprem": "vault"},
     "workload_identity": {"local": "none", "azure": "azure_workload_identity", "onprem": "vault_k8s_auth"},
     "db_auth": {"local": "password", "azure": "entra_token", "onprem": "vault_dynamic"},
+    "kek": {"local": "local", "azure": "azure_keyvault", "onprem": "vault_transit"},
 }
 
 # The setting that overrides each capability's profile default.
@@ -33,6 +34,7 @@ OVERRIDE_SETTINGS: Dict[str, str] = {
     "secrets": "SECRETS_BACKEND",
     "workload_identity": "WORKLOAD_IDENTITY_BACKEND",
     "db_auth": "DB_AUTH",
+    "kek": "KEK_BACKEND",
 }
 
 

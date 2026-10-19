@@ -146,6 +146,13 @@ async def _model_built(url) -> uuid.UUID:
 
     await _tenant_database(url)
     metadata = tenant_ddl_metadata()
+    # Only what the models held at the cut: the tenant baseline's tables (later revisions add more).
+    import re
+
+    baseline = (BACKEND / "migrations" / "tenant_platform" / "versions" / "tenant_platform_0001_baseline.py")
+    at_the_cut = set(re.findall(r"op\.create_table\('([a-z_]+)'", baseline.read_text(encoding="utf-8")))
+    for table in [t for t in metadata.tables.values() if t.name not in at_the_cut]:
+        metadata.remove(table)
     agent_id = uuid.uuid4()
     engine = create_async_engine(url)
     try:
@@ -219,7 +226,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "tenant_platform_9999_test"
-down_revision = "tenant_platform_0001_baseline"
+down_revision = "{head}"
 branch_labels = None
 depends_on = None
 
@@ -241,13 +248,21 @@ def tree_with_a_revision(tmp_path, monkeypatch):
     tree = tmp_path / "tenant_platform"
     shutil.copytree(BACKEND / "migrations" / "tenant_platform", tree,
                     ignore=shutil.ignore_patterns("__pycache__"))
-    (tree / "versions" / "tenant_platform_9999_test.py").write_text(ADDED_REVISION, encoding="utf-8")
+    migrate.tree_head.cache_clear()
+    head = migrate.tree_head(migrate.TENANT_TREE)  # the real tree's head, before the copy is used
+    (tree / "versions" / "tenant_platform_9999_test.py").write_text(ADDED_REVISION.replace("{head}", head),
+                                                                    encoding="utf-8")
+    migrate.tree_head.cache_clear()  # the copy's head from here on
     ini = (BACKEND / "alembic.ini").read_text(encoding="utf-8")
     ini = ini.replace("%(here)s/migrations/tenant_platform", tree.as_posix())
     ini = ini.replace("%(here)s/migrations", (BACKEND / "migrations").as_posix())
     (tmp_path / "alembic.ini").write_text(ini, encoding="utf-8")
     migrate.tree_head.cache_clear()
-    yield lambda: monkeypatch.setenv("HB_ALEMBIC_INI", str(tmp_path / "alembic.ini"))
+    def use_the_copy() -> None:
+        monkeypatch.setenv("HB_ALEMBIC_INI", str(tmp_path / "alembic.ini"))
+        migrate.tree_head.cache_clear()
+
+    yield use_the_copy
     monkeypatch.delenv("HB_ALEMBIC_INI", raising=False)
     migrate.tree_head.cache_clear()
 
@@ -285,7 +300,7 @@ async def test_a_revision_reaches_every_tenant_and_a_failed_run_resumes(control,
     from tests.harness.tenant_db import scratch_tenant
 
     async with scratch_tenant("runner-a") as a, scratch_tenant("runner-b") as b:
-        assert a.location.schema_version == b.location.schema_version == migrate.TENANT_BASELINE
+        assert a.location.schema_version == b.location.schema_version == migrate.tenant_schema_version()
         dsn_b = _dsn(_base_url().set(host=b.location.server_host, database=b.db_name))
         conn = await asyncpg.connect(dsn_b)
         try:  # b's migration will fail: the column is there already

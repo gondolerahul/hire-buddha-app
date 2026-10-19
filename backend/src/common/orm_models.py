@@ -38,6 +38,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "src.automation.models",
     "src.notifications.models",
     "src.schema_engine.models",
+    "src.connections.models",
     "cortex_memory.models",
 )
 

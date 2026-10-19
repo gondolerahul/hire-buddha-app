@@ -60,6 +60,8 @@ from src.common.config import settings
 from src.common.job_queue import CHILD_RUN_QUEUE, EVENT_QUEUE, arq_redis_settings
 from src.automation.retention import prune_event_history
 from src.automation.worker import automation_sweep, release_parked, route_event
+from src.connections.jobs import connection_refresh, prune_unrouted_events
+from src.automation.pollers import run_pollers
 from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
 from src.common.worker_health import start_heartbeat, stop_heartbeat
 from src.common.worker_metrics import serve_metrics
@@ -217,7 +219,8 @@ class EventWorkerSettings:
     outbox relay, held events after a resume, queued firings — is its cron.
     """
     queue_name = EVENT_QUEUE
-    functions = [traced_job(job) for job in (route_event, release_parked, automation_sweep, prune_event_history)]
+    functions = [traced_job(job) for job in (route_event, release_parked, automation_sweep, prune_event_history,
+                                             connection_refresh, prune_unrouted_events, run_pollers)]
     max_jobs = settings.EVENT_WORKER_MAX_JOBS
     job_timeout = 600
     redis_settings = WorkerSettings.redis_settings
@@ -232,6 +235,11 @@ try:
         cron(traced_job(automation_sweep), second={0, 30}),
         # Event history kept (D47): only businesses that set a limit lose anything.
         cron(traced_job(prune_event_history), hour={2}, minute={40}),
+        # Connections (WS5): tokens refreshed before they expire; unrouted deliveries kept 7 days.
+        cron(traced_job(connection_refresh), minute=set(range(3, 60, 10))),
+        cron(traced_job(prune_unrouted_events), hour={3}, minute={10}),
+        # Pollers (WS3 3.13): new mail on connected mailboxes, while a trigger listens.
+        cron(traced_job(run_pollers), minute=set(range(0, 60, 2)), second={15}),
     ]
 except ImportError:
     pass

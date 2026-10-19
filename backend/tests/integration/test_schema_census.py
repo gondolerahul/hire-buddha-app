@@ -266,11 +266,43 @@ def _catalog(url: str, schema: str = "public") -> dict:
     return asyncio.run(read())
 
 
-def test_the_trees_build_what_the_old_chain_built(fresh_database_url, legacy_database_url):
-    """Every column, default, constraint, index, enum type and the view, as Postgres prints them."""
+def test_the_trees_build_what_the_old_chain_built(baseline_database_url, legacy_database_url):
+    """Every column, default, constraint, index, enum type and the view, as Postgres prints them:
+    the baselines (the trees as they started) equal the old chain at the cut."""
     from src.common.tenancy.schema_catalog import differences
 
-    assert differences(_catalog(legacy_database_url), _catalog(fresh_database_url)) == []
+    assert differences(_catalog(legacy_database_url), _catalog(baseline_database_url)) == []
+
+
+@pytest.fixture(scope="module")
+def baseline_database_url(fresh_database_url):
+    """A database with both trees at their baselines only (``public``, as the shared database)."""
+    import asyncio
+
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    base = make_url(fresh_database_url)
+    name = f"census_base_{uuid.uuid4().hex[:8]}"
+    admin_dsn = base.set(drivername="postgresql", database="postgres").render_as_string(hide_password=False)
+
+    async def admin(sql: str) -> None:
+        conn = await asyncpg.connect(admin_dsn)
+        try:
+            await conn.execute(sql)
+        finally:
+            await conn.close()
+
+    asyncio.run(admin(f'CREATE DATABASE "{name}"'))
+    url = base.set(database=name).render_as_string(hide_password=False)
+    try:
+        from src.common.tenancy.migrate import CONTROL_BASELINE, TENANT_BASELINE
+
+        _alembic(url, "upgrade", CONTROL_BASELINE)
+        _alembic(url, "-n", "tenant_platform", "-x", "schema=public", "upgrade", TENANT_BASELINE)
+        yield url
+    finally:
+        asyncio.run(admin(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
 
 
 def test_the_cross_plane_keys_come_back_on_downgrade_and_go_again(legacy_database_url):
@@ -349,8 +381,10 @@ def test_an_old_chain_database_is_brought_to_the_cut_and_stamped(fresh_database_
     it must equal what the trees build — one changed by hand is refused, at the cut, unstamped — and
     it is stamped onto the baselines without anything else changing. Last in the module: the old
     chain's database is on the trees after it."""
-    from src.common.tenancy.migrate import CONTROL_BASELINE, LEGACY_CUT, TENANT_BASELINE
+    from src.common.tenancy.migrate import CONTROL_TREE, LEGACY_CUT, TENANT_TREE, tree_head
     from src.common.tenancy.schema_catalog import differences
+
+    heads = (tree_head(CONTROL_TREE), tree_head(TENANT_TREE), None)  # stamped at the cut, then upgraded
 
     env = {**os.environ, "CONTROL_DATABASE_URL": legacy_database_url, "DATABASE_URL": legacy_database_url,
            "TENANCY_MODE": "single", "PYTHONUTF8": "1"}
@@ -364,7 +398,7 @@ def test_an_old_chain_database_is_brought_to_the_cut_and_stamped(fresh_database_
     _sql(legacy_database_url, "ALTER TABLE companies DROP COLUMN kept_by_hand")
     _alembic(legacy_database_url, "-n", "legacy", "downgrade", "-2")
     _run(legacy_database_url, "src.common.tenancy.migrate", "control")
-    assert _versions(legacy_database_url) == (CONTROL_BASELINE, TENANT_BASELINE, None)
+    assert _versions(legacy_database_url) == heads
     assert differences(_catalog(legacy_database_url), _catalog(fresh_database_url)) == []
     _run(legacy_database_url, "src.common.tenancy.migrate", "control")  # on the trees: nothing more to do
-    assert _versions(legacy_database_url) == (CONTROL_BASELINE, TENANT_BASELINE, None)
+    assert _versions(legacy_database_url) == heads

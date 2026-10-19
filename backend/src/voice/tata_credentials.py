@@ -115,7 +115,20 @@ async def resolve_tata_credentials(db: AsyncSession, company_id: UUID) -> Option
     if entry is None:
         logger.warning(f"No active tata_tele integration for company {company_id} or the platform")
         return None
-    return credentials_from_entry(entry)
+    return await credentials_with_vault_secret(entry)
+
+
+async def credentials_with_vault_secret(entry) -> TataCredentials:
+    """``credentials_from_entry``, with the click-to-call key from the platform vault
+    when the row names one (``secret_ref``, Phase 14 WS5 5.7)."""
+    creds = credentials_from_entry(entry)
+    if getattr(entry, "secret_ref", None):
+        from dataclasses import replace
+
+        from src.config.registry_secrets import registry_secret
+
+        creds = replace(creds, api_key=await registry_secret(entry))
+    return creds
 
 
 def normalize_tata_metadata(

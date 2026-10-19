@@ -1,0 +1,23 @@
+id: imap_mailbox
+provider: mailbox
+display_name: Mailbox (IMAP and SMTP)
+category: mail
+auth_type: mailbox
+icon: mail
+status: available
+scopes: []
+capabilities:
+  account_kind: mailbox
+  actions: [read_mail, send_mail, draft_mail]
+  events: [email.received]
+  form:
+    - {name: email_address, label: Email address, kind: email, required: true}
+    - {name: password, label: App password, kind: secret, required: true}
+    - {name: imap_host, label: IMAP server, kind: text, default: imap.gmail.com}
+    - {name: imap_port, label: IMAP port, kind: number, default: 993}
+    - {name: smtp_host, label: SMTP server, kind: text, default: smtp.gmail.com}
+    - {name: smtp_port, label: SMTP port, kind: number, default: 587}
+    - {name: provider_type, label: Provider, kind: text, default: gmail}
+approval:
+  state: not_needed
+version: 1

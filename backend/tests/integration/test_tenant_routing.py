@@ -346,6 +346,47 @@ async def test_a_webhook_endpoint_binds_only_an_agent_of_the_callers_tenant(tena
             await _drop_entity(db, acme_agent)
 
 
+async def test_a_tenants_connection_and_its_key_live_in_its_own_database(tenants, tmp_path):
+    """WS5: a Beta connection, its sealed secret and its DEK are in Beta's
+    database (none in Acme's or the shared one); the broker serves it from there."""
+    from src.common.platform.kek import set_kek
+    from src.common.platform.kek.local import LocalKeyEncryption
+    from src.common.tenancy.session import control_session, tenant_session
+    from src.connections import crypto, service
+    from src.connections.models import Connection, ConnectionSecret, TenantKey
+
+    acme, beta = tenants
+    set_kek(LocalKeyEncryption(tmp_path))
+    crypto.forget_cached()
+    agent = uuid.uuid4()
+    try:
+        made = await service.create_from_form(beta.company_id, None, "api_key", {
+            "service_name": "Courier", "api_key": "beta-key-123"})
+        connection_id = uuid.UUID(made["id"])
+        token = await service.issue_token(beta.company_id, connection_id, principal_kind="entity",
+                                          principal_id=agent)
+        assert token.access_token == "beta-key-123"
+        async with tenant_session(beta.company_id) as db:
+            assert (await db.get(Connection, connection_id)).company_id == beta.company_id
+            assert await db.get(ConnectionSecret, connection_id) is not None
+            assert (await db.execute(select(TenantKey).where(TenantKey.company_id == beta.company_id))).first()
+        async with tenant_session(acme.company_id) as db:
+            assert await db.get(Connection, connection_id) is None
+        async with control_session() as db:  # nothing of it in the shared database
+            assert (await db.execute(text("SELECT count(*) FROM public.connections WHERE id = :c"),
+                                     {"c": connection_id})).scalar() == 0
+    finally:
+        async with tenant_session(beta.company_id) as db:
+            await db.execute(text("DELETE FROM connection_audit WHERE company_id = :c"), {"c": beta.company_id})
+            await db.execute(text("DELETE FROM connections WHERE company_id = :c"), {"c": beta.company_id})
+            await db.execute(text("DELETE FROM tenant_keys WHERE company_id = :c"), {"c": beta.company_id})
+            await db.execute(text("DELETE FROM events WHERE company_id = :c AND source = 'connections'"),
+                             {"c": beta.company_id})
+            await db.commit()
+        set_kek(None)
+        crypto.forget_cached()
+
+
 async def test_a_company_without_a_database_is_refused(tenants):
     from src.common.tenancy.directory import TenantNotFound
     from src.common.tenancy.session import TenantRequired, tenant_session

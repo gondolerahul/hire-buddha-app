@@ -98,15 +98,15 @@ STORAGE_CACHE_DIR = ".storage"
 def company_storage_key(company_id: Any, value: str) -> str | None:
     """``value`` when it is a storage key of the company's own files, else ``None``."""
     from src.ai.artifact_service import ORIGIN_SYSTEM, ORIGIN_USER
-    from src.common.platform.storage import InvalidStorageKey, company_namespace, validate_key
+    from src.common.platform.storage import InvalidStorageKey, company_namespaces, validate_key
 
     try:
         validate_key(value)
-        own = company_namespace(company_id)
+        own = company_namespaces(company_id)
     except (InvalidStorageKey, ValueError):
         return None
     namespace, _, rest = value.partition("/")
-    if namespace == own:
+    if namespace in own:
         return value
     if namespace in (ORIGIN_SYSTEM, ORIGIN_USER) and rest.startswith(f"{company_id}/"):
         return value

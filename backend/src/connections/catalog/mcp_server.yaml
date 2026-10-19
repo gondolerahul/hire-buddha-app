@@ -1,0 +1,19 @@
+id: mcp_server
+provider: mcp
+display_name: MCP server
+category: ai
+auth_type: mcp
+icon: plug
+status: preview
+scopes: []
+capabilities:
+  account_kind: server
+  actions: [list_tools, call_tool]
+  events: []
+  form:
+    - {name: url, label: Server URL (Streamable HTTP), kind: url, required: true}
+    - {name: auth_header, label: Authorization header value, kind: secret, required: false}
+approval:
+  state: not_needed
+  notes: Tools are discovered but not executable until granted (E09-S02).
+version: 1

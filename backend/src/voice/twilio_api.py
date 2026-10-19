@@ -36,9 +36,8 @@ async def get_twilio_credentials(
     account_sid = None
     auth_token = None
     if entry:
-        auth_token = (
-            decrypt_api_key(entry.encrypted_api_key) if entry.encrypted_api_key else None
-        )
+        from src.config.registry_secrets import registry_secret
+        auth_token = await registry_secret(entry)
         if entry.service_metadata:
             account_sid = entry.service_metadata.get("account_sid")
     return account_sid, auth_token

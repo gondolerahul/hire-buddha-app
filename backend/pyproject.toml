@@ -68,6 +68,7 @@ azure-storage-blob = ">=12.23"
 azure-keyvault-secrets = ">=4.9"
 croniter = "^6.0"            # trigger schedules in IANA time zones (Phase 14 WS3)
 jinja2 = "^3.1"              # sandboxed trigger input templates (Phase 14 WS3)
+azure-keyvault-keys = ">=4.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

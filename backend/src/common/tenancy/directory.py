@@ -116,6 +116,15 @@ class TenantDirectory:
             raise TenantNotFound(f"company {company_id} has no tenant database (no tenant_directory row)")
         return location
 
+    def cached(self, company_id: Any) -> Optional[TenantLocation]:
+        """The company's location if this process has read it (expired or not), without any I/O.
+        For decisions that may not await (a new file's storage namespace)."""
+        try:
+            hit = self._cache.get(_uuid(company_id))
+        except (TypeError, ValueError):
+            return None
+        return hit[0] if hit else None
+
     def invalidate(self, company_id: Any = None) -> None:
         """Forget one company's row, or every row."""
         if company_id is None:

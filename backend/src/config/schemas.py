@@ -20,6 +20,16 @@ class IntegrationRegistryBase(BaseModel):
     cost_unit: str
     service_metadata: Optional[dict] = None
     status: str = "active"
+    # A secret's name in the platform vault instead of a stored key (WS5 5.7).
+    secret_ref: Optional[str] = None
+
+
+def _vault_name(value: Optional[str]) -> Optional[str]:
+    if value:
+        from src.common.platform.secrets import validate_secret_name
+        validate_secret_name(value)  # ValueError → 422
+    return value or None
+
 
 def _known_cost_unit(value: Optional[str]) -> Optional[str]:
     """A registry price must name a unit the billing code can divide by;
@@ -40,10 +50,11 @@ class IntegrationRegistryCreate(IntegrationRegistryBase):
     api_key: Optional[str] = Field(None, alias="api_key")
 
     _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
+    _vault_name_valid = field_validator("secret_ref")(_vault_name)
 
     @model_validator(mode="after")
     def _key_when_needed(self):
-        if (not self.api_key and needs_api_key(self.provider_name, self.service_metadata)
+        if (not self.api_key and not self.secret_ref and needs_api_key(self.provider_name, self.service_metadata)
                 and self.provider_name != "tata_tele"):
             raise ValueError(f"api_key is required for provider '{self.provider_name}'")
         return self
@@ -59,8 +70,10 @@ class IntegrationRegistryUpdate(BaseModel):
     service_metadata: Optional[dict] = None
     status: Optional[str] = None
     api_key: Optional[str] = None
+    secret_ref: Optional[str] = None
 
     _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
+    _vault_name_valid = field_validator("secret_ref")(_vault_name)
 
 class IntegrationRegistryResponse(IntegrationRegistryBase):
     id: UUID

@@ -1,0 +1,19 @@
+id: instagram_business
+provider: meta
+display_name: Instagram
+category: social
+auth_type: oauth2
+icon: instagram
+oauth_app_ref: oauth-app-meta
+status: planned
+scopes: [pages_show_list, instagram_basic, instagram_content_publish, instagram_manage_comments, instagram_manage_messages, pages_read_engagement]
+capabilities:
+  account_kind: instagram_business_account
+  actions: [post, reply_to_comment, reply_to_message]
+  events: [social.comment.created, social.mention.created, social.message.received]
+  webhook_object: instagram
+  webhook_fields: [comments, messages]
+approval:
+  state: not_submitted
+  notes: Meta App Review for instagram_content_publish and instagram_manage_messages.
+version: 1

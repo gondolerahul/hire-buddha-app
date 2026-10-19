@@ -1,11 +1,12 @@
 from typing import Optional, Tuple
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, or_
 from fastapi import HTTPException, status
 from src.config.models import IntegrationRegistry, ModelTaskDefault, ServiceCategory
 from src.config.schemas import IntegrationRegistryCreate, IntegrationRegistryUpdate, ModelTaskDefaultCreate
 from src.common.security import encrypt_api_key, decrypt_api_key
+from src.config.registry_secrets import registry_secret
 
 from src.config.resolution_cache import ResolutionCache, bump_generation, current_generation
 
@@ -157,7 +158,14 @@ class ConfigService:
         )
         entry = result.scalar_one_or_none()
         
-        # 2. Try APP company fallback
+        # 2. The business's own key, now a connection (Phase 14 WS5, D40)
+        if not entry:
+            from src.connections.service import business_key
+            own = await business_key(company_id, sku=service_sku)
+            if own:
+                return own
+
+        # 3. Try APP company fallback
         if not entry:
             app_company_id = await self._get_app_company_id()
             if app_company_id and app_company_id != company_id:
@@ -170,9 +178,9 @@ class ConfigService:
                 )
                 entry = result.scalar_one_or_none()
 
-        if not entry or not entry.encrypted_api_key:
+        if not entry:
             return None
-        return decrypt_api_key(entry.encrypted_api_key)
+        return await registry_secret(entry)
 
     async def get_api_key_by_model(self, company_id: UUID, model_name: str) -> str:
         """
@@ -185,12 +193,19 @@ class ConfigService:
                 IntegrationRegistry.company_id == company_id,
                 IntegrationRegistry.model_name == model_name,
                 IntegrationRegistry.status == "active",
-                IntegrationRegistry.encrypted_api_key.isnot(None)
+                or_(IntegrationRegistry.encrypted_api_key.isnot(None), IntegrationRegistry.secret_ref.isnot(None))
             )
         )
         entry = result.scalars().first()
         
-        # 2. Try APP company fallback
+        # 2. The business's own key, now a connection (Phase 14 WS5, D40)
+        if not entry:
+            from src.connections.service import business_key
+            own = await business_key(company_id, model=model_name)
+            if own:
+                return own
+
+        # 3. Try APP company fallback
         if not entry:
             app_company_id = await self._get_app_company_id()
             if app_company_id and app_company_id != company_id:
@@ -200,14 +215,14 @@ class ConfigService:
                         IntegrationRegistry.company_id == app_company_id,
                         IntegrationRegistry.model_name == model_name,
                         IntegrationRegistry.status == "active",
-                        IntegrationRegistry.encrypted_api_key.isnot(None)
+                        or_(IntegrationRegistry.encrypted_api_key.isnot(None), IntegrationRegistry.secret_ref.isnot(None))
                     )
                 )
                 entry = result.scalars().first()
 
-        if not entry or not entry.encrypted_api_key:
+        if not entry:
             return None
-        return decrypt_api_key(entry.encrypted_api_key)
+        return await registry_secret(entry)
 
     async def get_api_key_by_provider(self, company_id: UUID, provider_name: str) -> str:
         """
@@ -220,12 +235,19 @@ class ConfigService:
                 IntegrationRegistry.company_id == company_id,
                 IntegrationRegistry.provider_name == provider_name,
                 IntegrationRegistry.status == "active",
-                IntegrationRegistry.encrypted_api_key.isnot(None)
+                or_(IntegrationRegistry.encrypted_api_key.isnot(None), IntegrationRegistry.secret_ref.isnot(None))
             )
         )
         entry = result.scalars().first()
         
-        # 2. Try APP company fallback
+        # 2. The business's own key, now a connection (Phase 14 WS5, D40)
+        if not entry:
+            from src.connections.service import business_key
+            own = await business_key(company_id, provider=provider_name)
+            if own:
+                return own
+
+        # 3. Try APP company fallback
         if not entry:
             app_company_id = await self._get_app_company_id()
             if app_company_id and app_company_id != company_id:
@@ -234,14 +256,14 @@ class ConfigService:
                         IntegrationRegistry.company_id == app_company_id,
                         IntegrationRegistry.provider_name == provider_name,
                         IntegrationRegistry.status == "active",
-                        IntegrationRegistry.encrypted_api_key.isnot(None)
+                        or_(IntegrationRegistry.encrypted_api_key.isnot(None), IntegrationRegistry.secret_ref.isnot(None))
                     )
                 )
                 entry = result.scalars().first()
 
-        if not entry or not entry.encrypted_api_key:
+        if not entry:
             return None
-        return decrypt_api_key(entry.encrypted_api_key)
+        return await registry_secret(entry)
 
     async def get_integration_by_sku(self, company_id: UUID, service_sku: str) -> Optional[IntegrationRegistry]:
         """Get the full integration entry by SKU with platform fallback."""
@@ -386,7 +408,7 @@ class ConfigService:
         )).scalar_one_or_none()
         if fallback is None:
             return None, None
-        return fallback, decrypt_api_key(fallback.encrypted_api_key) if fallback.encrypted_api_key else None
+        return fallback, await registry_secret(fallback)
 
     async def get_task_default(
         self, company_id: UUID, task_type: str
@@ -493,8 +515,8 @@ class ConfigService:
             skus = {r.service_sku for r in rows}
             if f"{model_name}-in" not in skus or f"{model_name}-out" not in skus:
                 continue
-            row = next((r for r in rows if r.encrypted_api_key), rows[0])
-            return row, decrypt_api_key(row.encrypted_api_key) if row.encrypted_api_key else None
+            row = next((r for r in rows if r.encrypted_api_key or r.secret_ref), rows[0])
+            return row, await registry_secret(row)
         return None, None
 
     async def resolve_model_for_task(
@@ -521,9 +543,7 @@ class ConfigService:
         if not integration:
             return None, None
 
-        api_key = None
-        if integration.encrypted_api_key:
-            api_key = decrypt_api_key(integration.encrypted_api_key)
+        api_key = await registry_secret(integration)
 
         return integration, api_key
 

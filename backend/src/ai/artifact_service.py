@@ -65,13 +65,14 @@ def new_storage_key(origin: str, file_category: str, company_id: UUID, file_name
 def company_storage_dirs(company_id: Any) -> List[Path]:
     """The company's directories on local-disk storage (for path confinement):
     its namespace, and its folders from before storage keys."""
+    from src.common.platform.storage import company_namespaces
+
     roots = []
     try:
-        namespace_dir = get_storage().local_path(f"{company_namespace(company_id)}/x")
+        namespace_dirs = [get_storage().local_path(f"{name}/x") for name in company_namespaces(company_id)]
     except ValueError:  # not a company id: it has no namespace
-        namespace_dir = None
-    if namespace_dir is not None:
-        roots.append(namespace_dir.parent)
+        namespace_dirs = []
+    roots += [d.parent for d in namespace_dirs if d is not None]
     cid = str(company_id)
     roots += [ARTIFACT_BASE_DIR / ORIGIN_SYSTEM / cid, ARTIFACT_BASE_DIR / ORIGIN_USER / cid]
     return roots

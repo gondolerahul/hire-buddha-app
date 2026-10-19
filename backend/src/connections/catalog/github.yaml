@@ -1,0 +1,17 @@
+id: github
+provider: github
+display_name: GitHub
+category: dev
+auth_type: github_app
+icon: github
+oauth_app_ref: oauth-app-github
+status: planned
+scopes: [contents:write, pull_requests:write, issues:write, checks:write, metadata:read]
+capabilities:
+  account_kind: installation
+  actions: [create_repository, push_branch, open_pull_request, comment, set_check]
+  events: [github.push, github.pull_request.opened, github.pull_request.merged, github.pull_request.closed, github.issue.opened, github.check.completed]
+approval:
+  state: not_submitted
+  notes: The HireBuddha GitHub App (one for dev, one for prod); public apps need no review.
+version: 1

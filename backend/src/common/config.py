@@ -286,6 +286,30 @@ class Settings(BaseSettings):
     # Tokens for Azure services from the workload's identity (no stored keys):
     # azure_workload_identity | none. A laptop can opt in and use `az login`.
     WORKLOAD_IDENTITY_BACKEND: str = ""
+    # Tenant key-encryption keys (WS5, §10.4): local | azure_keyvault. local keeps
+    # one key file per tenant under LOCAL_KEK_DIR (empty = backend/.local-keys).
+    KEK_BACKEND: str = ""
+    LOCAL_KEK_DIR: str = ""
+    # azure_keyvault: the tenant-keys vault (separate from platform secrets).
+    AZURE_TENANT_KEYS_VAULT_URL: str = ""
+    TENANT_KEK_HSM: bool = False
+    # ── Connections (Phase 14 WS5, tech spec §10) ─────────────────────────
+    # Where the provider sends the browser back: https://connect.<domain>
+    # (empty = this API's public URL). OAuth state lives 10 minutes in Redis.
+    CONNECTIONS_PUBLIC_URL: str = ""
+    # The screen the browser lands on after a provider's window (the frontend).
+    CONNECTIONS_RETURN_PATH: str = "/connections"
+    # Tools fall back to the old social_connections / email_connections rows
+    # until WS7's conversion has moved them (then switch off; WS9 removes it).
+    CONNECTIONS_LEGACY_FALLBACK: bool = True
+    # The registry holds system integrations only (D40, 5.7): /integrations is
+    # staff's, for the platform company's rows. On once WS7 has moved every
+    # business's own keys into connections (python -m src.connections.migrate).
+    REGISTRY_PLATFORM_ONLY: bool = False
+    # Refresh a token this long before it expires; warn the owner this many
+    # days before an expiry that cannot be refreshed.
+    CONNECTION_REFRESH_WINDOW_SECONDS: int = 1800
+    CONNECTION_EXPIRY_WARNING_DAYS: int = 7
     # ── Automation (Phase 14 WS3, tech spec §7) ───────────────────────────
     # The business limits (chain depth, rates, agent limits, retention…) are
     # not settings: each business sets them on screen, none by default

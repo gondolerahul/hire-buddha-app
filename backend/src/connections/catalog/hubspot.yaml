@@ -1,0 +1,18 @@
+id: hubspot
+provider: hubspot
+display_name: HubSpot (private app token)
+category: crm
+auth_type: api_key
+icon: hubspot
+status: available
+scopes: []
+capabilities:
+  account_kind: portal
+  actions: [read_contacts, write_contacts, read_deals, write_deals]
+  events: []
+  test_url: https://api.hubapi.com/account-info/v3/details
+  form:
+    - {name: api_key, label: Private app access token, kind: secret, required: true}
+approval:
+  state: not_needed
+version: 1

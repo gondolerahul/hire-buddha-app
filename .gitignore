@@ -60,3 +60,6 @@ keystore.properties*
 
 # Durable sandbox workspaces (TL-16): tenant files, never committed
 backend/var/
+
+# Local tenant key-encryption keys (src/common/platform/kek/local.py): never committed.
+backend/.local-keys/
