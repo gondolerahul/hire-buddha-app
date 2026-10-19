@@ -189,7 +189,7 @@ class GovernanceService:
             tb_result = calculate_tb(total_cost, mf, pf, spf, d)
             billed_amount = tb_result["total_billing"]
 
-            # Store billed amount on the run record
+            # Store billed amount on the run record (its tenant database)
             run.billed_amount = billed_amount
             await self.db.commit()
 
@@ -197,10 +197,32 @@ class GovernanceService:
                 f"TB formula: raw=${total_cost} → billed=${billed_amount} "
                 f"(mf={mf}, pf={pf}, spf={spf}, d={d})"
             )
+            return await self._charge(run, entity_name, total_cost, cast(Decimal, billed_amount))
+
+        except Exception as billing_err:
+            logger.warning(
+                f"Billing/credit deduction failed for run {run.id}: {billing_err}"
+            )
+            return Decimal("0")
+
+    async def _charge(self, run: 'ExecutionRun', entity_name: str,
+                      total_cost: Decimal, billed_amount: Decimal) -> Decimal:
+        """The control side of a settlement, in one control transaction (WS2
+        2.6): claim the run's settlement, deduct, record the billing event —
+        or nothing at all when the run was settled before."""
+        from src.common.tenancy.session import control_db_for
+
+        async with control_db_for(self.db) as control:
+            credits, billing = CreditService(control), BillingService(control)
+            if not await credits.claim_settlement(run.company_id, run.id, billed_amount):
+                # The claim changed nothing; with one database ``control`` is
+                # the run's own session, which a rollback would expire.
+                logger.warning(f"Run {run.id} is already settled; not charged again")
+                return Decimal("0")
 
             # Final settlement: deduct whatever remains
-            settlement = await self.credit_service.consume_incremental(
-                run.company_id, billed_amount
+            settlement = await credits.consume_incremental(
+                run.company_id, billed_amount, commit=False
             )
             if settlement["exhausted"]:
                 logger.warning(
@@ -215,24 +237,20 @@ class GovernanceService:
                 )
 
             # Record billing event
-            await self.billing_service.record_billing_event(
+            await billing.record_billing_event(
                 company_id=run.company_id,
                 base_cost=total_cost,
                 grouping_type="process",
                 grouping_value=entity_name,
                 other_ai_cost=total_cost,
+                commit=False,
             )
-            logger.info(
-                f"Billing event recorded for run {run.id}: "
-                f"raw=${total_cost}, billed=${billed_amount}"
-            )
-            return cast(Decimal, billed_amount)
-
-        except Exception as billing_err:
-            logger.warning(
-                f"Billing/credit deduction failed for run {run.id}: {billing_err}"
-            )
-            return Decimal("0")
+            await control.commit()
+        logger.info(
+            f"Billing event recorded for run {run.id}: "
+            f"raw=${total_cost}, billed=${billed_amount}"
+        )
+        return billed_amount
 
     # ------------------------------------------------------------------
     # HITL Checkpoint Evaluation

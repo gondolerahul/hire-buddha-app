@@ -111,10 +111,12 @@ async def next_pass_in(db: Any, campaign_id: UUID, now: datetime) -> Optional[fl
     return min(waits) if waits else None
 
 
-async def schedule_continuation(campaign_id: UUID, delay_seconds: float) -> None:
-    """Run the campaign again in ``delay_seconds`` (only while it is still running)."""
-    from src.common.job_queue import enqueue_job
+async def schedule_continuation(campaign_id: UUID, delay_seconds: float,
+                                company_id: Optional[UUID] = None) -> None:
+    """Run the campaign again in ``delay_seconds`` (only while it is still running),
+    in ``company_id``'s tenant database."""
+    from src.common.job_queue import enqueue_job, tenant_arg
     when = int((datetime.utcnow() + timedelta(seconds=delay_seconds)).timestamp())
-    await enqueue_job("execute_campaign_task", str(campaign_id), True,
+    await enqueue_job("execute_campaign_task", str(campaign_id), True, company_id=tenant_arg(company_id),
                       _job_id=f"campaign-continue:{campaign_id}:{when}", _defer_by=max(delay_seconds, 1.0))
     logger.info("Campaign %s continues in %.0fs", campaign_id, delay_seconds)

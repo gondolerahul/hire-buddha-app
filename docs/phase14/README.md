@@ -1,7 +1,7 @@
 # Phase 14 — Autonomous business on Azure
 
-> **Status:** In development. WS1 code and the WS0 deployment code exist (see 06); nothing is deployed to Azure yet.
-> **Date:** 2026-10-16 (plan) · 2026-10-17 (status)
+> **Status:** In development. WS1 and the WS0 deployment code, WS2 (all but 2.7, the migration trees), WS3 and WS4 exist and are tested locally (see 06); nothing is deployed to Azure yet.
+> **Date:** 2026-10-16 (plan) · 2026-10-19 (status)
 
 Phase 14 turns HireBuddha from "a person clicks Run" into a platform where the business runs itself, and gives every tenant its own private database, connections, code and apps — all on Azure.
 

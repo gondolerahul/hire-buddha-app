@@ -110,9 +110,9 @@ async def authenticate_stream_token(token: Optional[str], path: str):
 
     A WebSocket handler has no dependency-injected session, so it opens its own.
     """
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import control_session  # users are control rows
 
-    async with AsyncSessionLocal() as db:
+    async with control_session() as db:
         return await _authenticate_user(token, db, token_type=URL_TOKEN_TYPE, path=path)
 
 

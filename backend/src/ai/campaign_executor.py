@@ -8,8 +8,12 @@ Handles:
 - Twilio/Tata Tele API integration for outbound calls
 - Call status monitoring
 
-NOTE: All database operations use isolated AsyncSessionLocal sessions
-to avoid cross-session ORM state conflicts in the ARQ worker.
+NOTE: All database operations use isolated sessions to avoid cross-session
+ORM state conflicts in the ARQ worker: the campaign's rows (campaigns, calls,
+voice sessions) in its company's ``tenant_session``; the phone number, the
+provider credentials and the credit gate in a ``control_session`` (Phase 14
+WS2 2.4). The URLs and the Tata identifier handed to a provider name the
+company in split mode, so its callbacks find the tenant (2.12).
 """
 import logging
 import asyncio
@@ -27,8 +31,9 @@ from src.config.service import ConfigService
 from src.config.models import IntegrationRegistry
 from src.common.security import decrypt_api_key
 from src.common.config import settings
-from src.common.database import AsyncSessionLocal
+from src.common.tenancy.session import control_session, tenant_session
 from src.voice.call_admission import call_refusal
+from src.voice.call_tenancy import call_reference, with_tenant
 from src.ai.services import campaign_pacing
 
 logger = logging.getLogger(__name__)
@@ -57,19 +62,24 @@ class CampaignExecutor:
 
     # ── Standalone entry point for ARQ worker ──────────────────────────
     @classmethod
-    async def start_campaign_standalone(cls, campaign_id: UUID, continuation: bool = False):
+    async def start_campaign_standalone(cls, campaign_id: UUID, continuation: bool = False,
+                                        company_id: Optional[UUID] = None):
         """
         Entry point for the ARQ background worker.
 
         Manages its own DB sessions — never accepts an external session.
         This prevents the IllegalStateChangeError caused by cross-session
         ORM object usage between the worker's session and inner call sessions.
+
+        ``company_id`` (the job's tenant) names the database holding the
+        campaign; ``None`` (a job queued before jobs carried it) works only
+        with ``TENANCY_MODE=single``.
         """
         logger.info(f"Starting standalone campaign execution for {campaign_id}")
 
         try:
             # Load campaign + pending calls and extract primitives
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_id) as db:
                 result = await db.execute(
                     select(Campaign).where(Campaign.id == campaign_id)
                 )
@@ -77,6 +87,13 @@ class CampaignExecutor:
 
                 if not campaign:
                     raise ValueError(f"Campaign {campaign_id} not found")
+
+                if company_id is not None and str(campaign.company_id) != str(company_id):
+                    # Defence in depth: the job named another tenant than the campaign's.
+                    logger.error(f"Campaign {campaign_id} belongs to company {campaign.company_id}, "
+                                 f"not the job's {company_id} — not run")
+                    return
+                company_id = campaign.company_id
 
                 if continuation and campaign.status != "running":
                     # Paused or stopped since the continuation was scheduled.
@@ -146,12 +163,12 @@ class CampaignExecutor:
             # ── Pre-campaign credit gate ───────────────────────────────
             # The one call admission rule (VT-01, HD9): short of free credit,
             # over the spend cap, or not checkable → the campaign does not run.
-            async with AsyncSessionLocal() as db:
-                refusal = await call_refusal(db, campaign_data["company_id"],
+            async with control_session() as control:
+                refusal = await call_refusal(control, company_id,
                                              direction="outbound", checkpoint="campaign_start")
             if refusal:
                 logger.warning(f"Campaign {campaign_id} blocked: {refusal}")
-                async with AsyncSessionLocal() as db:
+                async with tenant_session(company_id) as db:
                     await db.execute(
                         update(Campaign)
                         .where(Campaign.id == campaign_id)
@@ -178,7 +195,7 @@ class CampaignExecutor:
             # pay the ~5s cold load during call setup.
             try:
                 from src.voice.agent_loader import AgentContextLoader
-                async with AsyncSessionLocal() as db:
+                async with tenant_session(company_id) as db:
                     await AgentContextLoader(db).load_agent_for_session(
                         agent_id=campaign_data["agent_id"],
                         customer_id=uuid4(),
@@ -196,7 +213,7 @@ class CampaignExecutor:
                 # Honor pause/stop issued while the campaign runs: the status
                 # PATCH only writes the DB row, so the dial loop must re-read
                 # it (previously it dialed the whole list regardless).
-                current_status = await cls._get_campaign_status(campaign_id)
+                current_status = await cls._get_campaign_status(campaign_id, company_id)
                 if current_status != "running":
                     halted_status = current_status
                     logger.info(
@@ -207,11 +224,11 @@ class CampaignExecutor:
 
                 # The hourly cap (VT-09): at it, stop and continue when the
                 # oldest call of the last hour is an hour old.
-                async with AsyncSessionLocal() as db:
+                async with tenant_session(company_id) as db:
                     wait = await campaign_pacing.hourly_wait(
                         db, campaign_id, campaign_data["max_calls_per_hour"], datetime.utcnow())
                 if wait > 0:
-                    await campaign_pacing.schedule_continuation(campaign_id, wait)
+                    await campaign_pacing.schedule_continuation(campaign_id, wait, company_id=company_id)
                     logger.info(f"Campaign {campaign_id} at its hourly cap; continuing in {wait:.0f}s")
                     return
 
@@ -219,7 +236,7 @@ class CampaignExecutor:
                 # simultaneous call setups starving the audio pipeline (5-27s
                 # of dead air per call). Wait until a slot frees up.
                 await cls._wait_for_concurrency_slot(
-                    campaign_data["id"], campaign_data["max_concurrent_calls"]
+                    campaign_data["id"], campaign_data["max_concurrent_calls"], company_id=company_id
                 )
                 try:
                     await cls._place_call_safe(campaign_data, call_info)
@@ -235,7 +252,7 @@ class CampaignExecutor:
                 # Leave the user-set status (paused keeps pending calls for
                 # resume); on stop, mark undialed leads as skipped.
                 if halted_status in ("stopped", "completed", "failed"):
-                    async with AsyncSessionLocal() as db:
+                    async with tenant_session(company_id) as db:
                         await db.execute(
                             update(CampaignCall)
                             .where(
@@ -253,14 +270,14 @@ class CampaignExecutor:
 
             # Calls still in flight, or retries still to come (VT-10): run
             # again then, instead of completing now.
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_id) as db:
                 more_in = await campaign_pacing.next_pass_in(db, campaign_id, datetime.utcnow())
             if more_in is not None:
-                await campaign_pacing.schedule_continuation(campaign_id, more_in)
+                await campaign_pacing.schedule_continuation(campaign_id, more_in, company_id=company_id)
                 return
 
             # Mark campaign as completed
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_id) as db:
                 await db.execute(
                     update(Campaign)
                     .where(Campaign.id == campaign_id)
@@ -278,7 +295,7 @@ class CampaignExecutor:
             logger.error(f"Error executing campaign {campaign_id}: {e}", exc_info=True)
             # Try to mark as failed
             try:
-                async with AsyncSessionLocal() as db:
+                async with tenant_session(company_id) as db:
                     await db.execute(
                         update(Campaign)
                         .where(Campaign.id == campaign_id)
@@ -308,10 +325,10 @@ class CampaignExecutor:
         return f"+{digits}" if digits else ""
 
     @classmethod
-    async def _get_campaign_status(cls, campaign_id: UUID) -> str:
+    async def _get_campaign_status(cls, campaign_id: UUID, company_id: Optional[UUID] = None) -> str:
         """Fresh read of the campaign status in an isolated session."""
         try:
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_id) as db:
                 result = await db.execute(
                     select(Campaign.status).where(Campaign.id == campaign_id)
                 )
@@ -322,7 +339,8 @@ class CampaignExecutor:
 
     @classmethod
     async def _wait_for_concurrency_slot(
-        cls, campaign_id: UUID, max_concurrent: int, max_wait_seconds: int = 180
+        cls, campaign_id: UUID, max_concurrent: int, max_wait_seconds: int = 180,
+        company_id: Optional[UUID] = None,
     ) -> None:
         """Block until fewer than max_concurrent calls are in 'calling' state.
 
@@ -337,7 +355,7 @@ class CampaignExecutor:
 
         waited = 0
         while waited < max_wait_seconds:
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(company_id) as db:
                 result = await db.execute(
                     select(func.count(CampaignCall.id)).where(
                         and_(
@@ -349,7 +367,7 @@ class CampaignExecutor:
                 active = result.scalar() or 0
             if active < max_concurrent:
                 return
-            if await cls._get_campaign_status(campaign_id) != "running":
+            if await cls._get_campaign_status(campaign_id, company_id) != "running":
                 return  # stop/pause during the wait — dial loop re-checks
             if waited == 0:
                 logger.info(
@@ -372,7 +390,9 @@ class CampaignExecutor:
         call_info: Dict[str, Any]
     ):
         """
-        Place an outbound call using a fully isolated DB session.
+        Place an outbound call using fully isolated DB sessions: the call's
+        rows in the company's tenant database, the credit gate, the calling
+        number and the provider credentials in the control database.
 
         Receives only primitive data — no ORM objects cross session boundaries.
 
@@ -393,12 +413,12 @@ class CampaignExecutor:
 
         logger.info(f"Placing call to {phone} for campaign {campaign_id}")
 
-        async with AsyncSessionLocal() as db:
+        async with tenant_session(company_id) as db, control_session() as control:
             try:
                 # ── Per-call credit gate ───────────────────────────────
                 # Re-check before each call — earlier calls may have used the
                 # credit. The one call admission rule (VT-01, HD9).
-                refusal = await call_refusal(db, company_id, direction="outbound",
+                refusal = await call_refusal(control, company_id, direction="outbound",
                                              checkpoint="campaign_call")
                 if refusal:
                     logger.warning(f"Skipping call {call_id}: {refusal}")
@@ -423,7 +443,7 @@ class CampaignExecutor:
                 await db.commit()
 
                 # Resolve the number assigned to the campaign's agent
-                number_router = NumberRouter(db)
+                number_router = NumberRouter(control)
                 assignment = await number_router.get_company_number(
                     company_id=company_id,
                     provider=provider,
@@ -477,7 +497,7 @@ class CampaignExecutor:
                 # Place actual call via provider
                 if provider == "twilio":
                     call_sid = await cls._place_twilio_call_static(
-                        db=db,
+                        db=control,
                         to=phone,
                         from_=from_number,
                         voice_session_id=voice_session.id,
@@ -486,7 +506,7 @@ class CampaignExecutor:
                     )
                 elif provider == "tata_tele":
                     call_sid = await cls._place_tata_call_static(
-                        db=db,
+                        db=control,
                         to=phone,
                         from_=from_number,
                         voice_session_id=voice_session.id,
@@ -576,13 +596,14 @@ class CampaignExecutor:
         # a WebSocket for bidirectional audio with our streaming service.
         from src.voice.public_urls import callback_url
 
-        # The TwiML URL that Twilio will fetch when the call connects
-        twiml_url = callback_url(
-            f"/webhooks/voice/twilio/outbound-twiml?session_id={voice_session_id}"
-        )
+        # The TwiML URL that Twilio will fetch when the call connects; both
+        # URLs name the company in split mode (the session is in its database).
+        twiml_url = callback_url(with_tenant(
+            f"/webhooks/voice/twilio/outbound-twiml?session_id={voice_session_id}", company_id
+        ))
 
         # Status callback URL for call completion events
-        status_callback_url = callback_url("/webhooks/voice/twilio/status")
+        status_callback_url = callback_url(with_tenant("/webhooks/voice/twilio/status", company_id))
 
         # 3. Build request payload for Twilio REST API
         payload = {
@@ -687,7 +708,8 @@ class CampaignExecutor:
             "async": 1,  # Non-blocking, allows concurrent calls
             "customer_ring_timeout": 30,  # Max ring time in seconds
             "caller_id": caller_id,
-            "custom_identifier": str(voice_session_id),  # For correlating callbacks
+            # For correlating callbacks: the session (after its company in split mode)
+            "custom_identifier": call_reference(company_id, voice_session_id),
         }
 
         # 4. Make API call

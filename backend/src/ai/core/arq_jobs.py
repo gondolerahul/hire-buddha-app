@@ -485,10 +485,10 @@ async def _handle_sheet_row_campaign(
 
     # ── 6. Enqueue campaign execution via arq ───────────────────────────
     try:
-        from src.common.job_queue import enqueue_job
+        from src.common.job_queue import enqueue_job, tenant_arg
 
-        # Campaign tasks gain their tenant argument with the campaigns module (WS2 2.4).
-        job = await enqueue_job("execute_campaign_task", str(campaign.id))
+        job = await enqueue_job("execute_campaign_task", str(campaign.id),
+                                company_id=tenant_arg(campaign.company_id))
 
         job_id = job.job_id if job else "queued"
         logger.info(

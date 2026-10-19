@@ -52,6 +52,7 @@ from src.ai.campaign_worker import (
 
 from src.mobile.reconciler import mobile_housekeeping_job
 from src.billing.jobs import billing_daily_credits, billing_subscription_reconciliation
+from src.common.tenancy.provisioner import provision_tenant
 
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
@@ -133,6 +134,8 @@ class WorkerSettings:
         # Enqueued by dreaming_cron_trigger (must be registered to run).
         dreaming_worker,
         graph_maintenance_worker,
+        # A new tenant's database and resources (Phase 14 WS2 2.8).
+        provision_tenant,
     )]
     # Register CORTEX scheduled wake-up cron
     cron_jobs = [

@@ -13,7 +13,8 @@ import os
 from typing import Optional
 
 from src.common.tenancy.session import get_control_db, is_split, tenant_db_for
-from src.voice.call_tenancy import call_company, media_stream_path, tenant_session_manager
+from src.voice.call_tenancy import (call_company, media_stream_path, parse_call_reference,
+                                    tenant_session_manager)
 from src.voice.session_manager import SessionManager
 from src.voice.number_router import NumberRouter
 from src.voice.public_urls import stream_url
@@ -648,8 +649,11 @@ async def tata_incoming_call(
     
     logger.info(f"Tata Tele incoming call: {call_id} from {from_number} to {to_number}, custom_id={custom_identifier}")
     
-    # Our DID names the tenant: the dialled number, or the calling one.
-    company_id = await call_company(number_router, request.query_params.get("company"), to_number, from_number)
+    # The company in our click-to-call reference, else our DID: the dialled
+    # number, or the calling one.
+    referenced_company, _ = parse_call_reference(custom_identifier)
+    company_id = await call_company(number_router, request.query_params.get("company") or referenced_company,
+                                    to_number, from_number)
     if is_split() and company_id is None:
         logger.warning(f"No tenant for Tata call {from_number} -> {to_number}")
         return _tata_refusal("Number not configured")
@@ -664,7 +668,9 @@ async def _tata_incoming(data: dict, call_id, from_number, to_number, custom_ide
     # 1. Try to resume existing session (Outbound Campaign)
     if custom_identifier and custom_identifier != "null":
         try:
-            session_id = UUID(custom_identifier)
+            _, session_id = parse_call_reference(custom_identifier)
+            if session_id is None:
+                raise ValueError(custom_identifier)
             session = await session_manager.get_voice_session(session_id)
             if session:
                 logger.info(f"Resuming existing session {session.id} for outbound campaign")
@@ -784,9 +790,12 @@ _TATA_DID_FIELDS = ("did_number", "$did_number", "caller_id_number", "$caller_id
 
 
 async def _process_tata_status(data: dict, db: AsyncSession, company: Optional[str] = None):
-    """Name the call's tenant (``company=``, else our DID in the payload), then apply it there."""
+    """Name the call's tenant (``company=``, the company in our click-to-call
+    reference, else our DID in the payload), then apply it there."""
     numbers = [data.get(field) for field in _TATA_DID_FIELDS]
-    company_id = await call_company(NumberRouter(db), company or data.get("company"), *numbers)
+    referenced_company, _ = parse_call_reference(data.get("custom_identifier") or data.get("customIdentifier"))
+    company_id = await call_company(NumberRouter(db), company or data.get("company") or referenced_company,
+                                    *numbers)
     if is_split() and company_id is None:
         logger.warning(f"No tenant for Tata status callback: keys={list(data.keys())}")
         return {"status": "ok", "message": "No matching session found"}
@@ -856,9 +865,12 @@ async def _apply_tata_status(data: dict, db: AsyncSession):
     voice_session = None
 
     # Strategy 1: custom_identifier/ref_id matches VoiceSession UUID
+    # (``<company>.<session>`` in split mode)
     if ref_id:
         try:
-            session_uuid = UUID(ref_id)
+            _, session_uuid = parse_call_reference(ref_id)
+            if session_uuid is None:
+                raise ValueError(ref_id)
             result = await db.execute(
                 select(VoiceSession).where(VoiceSession.id == session_uuid)
             )

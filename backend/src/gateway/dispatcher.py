@@ -80,10 +80,11 @@ class CentralDispatcher:
                 return json.loads(cached)
 
         try:
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import tenant_session
             from src.gateway.agent_choice import choose_agent
 
-            async with AsyncSessionLocal() as db:
+            # The company's agents are in its tenant database (Phase 14 WS2).
+            async with tenant_session(UUID(client_id)) as db:
                 choice = await choose_agent(db, UUID(client_id), [agent_id])
             if choice.error == "no_agent":
                 return None

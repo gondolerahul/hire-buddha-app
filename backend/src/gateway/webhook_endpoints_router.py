@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import RoleChecker
 from src.auth.models import User
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db, tenant_db_for
 from src.common.security import encrypt_api_key
 from src.gateway.models import WebhookEndpoint
 from src.voice.public_urls import callback_url
@@ -73,13 +73,15 @@ def _out(row: WebhookEndpoint) -> dict:
 async def create_endpoint(
     body: EndpointCreate,
     current_user: User = Depends(company_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     if body.entity_id is not None:
         from src.ai.orm.entity import HierarchicalEntity
-        owner = (await db.execute(
-            select(HierarchicalEntity.company_id).where(HierarchicalEntity.id == body.entity_id)
-        )).scalar_one_or_none()
+        # Endpoints are control rows; the agent is in the company's tenant database.
+        async with tenant_db_for(db, current_user.company_id) as tenant_db:
+            owner = (await tenant_db.execute(
+                select(HierarchicalEntity.company_id).where(HierarchicalEntity.id == body.entity_id)
+            )).scalar_one_or_none()
         if owner != current_user.company_id:
             raise HTTPException(status_code=404, detail="Agent not found")
     secret = body.secret or secrets.token_urlsafe(32)
@@ -115,7 +117,7 @@ async def _endpoint_triggers(db: AsyncSession, row: WebhookEndpoint, user: User,
 @router.get("", response_model=list[EndpointOut])
 async def list_endpoints(
     current_user: User = Depends(company_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     rows = (await db.execute(
         select(WebhookEndpoint).where(WebhookEndpoint.company_id == current_user.company_id)
@@ -128,7 +130,7 @@ async def list_endpoints(
 async def revoke_endpoint(
     endpoint_id: uuid.UUID,
     current_user: User = Depends(company_admin),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     row = (await db.execute(
         select(WebhookEndpoint).where(WebhookEndpoint.id == endpoint_id,

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.common.pagination import CursorParam, LimitParam, Page, keyset, page_of
 from src.config.schemas import (
     IntegrationRegistryCreate,
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/config", tags=["Integrations"])
 @router.get("/models", response_model=list[ModelResponse])
 async def list_models(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """List all LLM models registered in the integration registry."""
     service = ConfigService(db)
@@ -62,7 +62,7 @@ TENANT_ALLOWED_CATEGORIES = {ServiceCategory.EMAIL, ServiceCategory.SOCIAL_MEDIA
 async def create_integration(
     entry_in: IntegrationRegistryCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     if current_user.role not in ["app_admin", "partner_admin", "tenant_admin"]:
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -89,7 +89,7 @@ async def list_integrations(
     limit: int = LimitParam(),
     cursor: Optional[str] = CursorParam(),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """One page of a company's integrations, newest first (API-16).
 
@@ -112,7 +112,7 @@ async def list_integrations(
 async def get_integration(
     entry_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     service = ConfigService(db)
     entry = await service.get_registry_entry(entry_id)
@@ -128,7 +128,7 @@ async def update_integration(
     entry_id: UUID,
     entry_in: IntegrationRegistryUpdate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     service = ConfigService(db)
     entry = await service.get_registry_entry(entry_id)
@@ -151,7 +151,7 @@ async def update_integration(
 async def delete_integration(
     entry_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     service = ConfigService(db)
     entry = await service.get_registry_entry(entry_id)
@@ -169,7 +169,7 @@ async def delete_integration(
 @router.get("/task-defaults", response_model=list[ModelTaskDefaultResponse])
 async def list_task_defaults(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     List all task-to-model defaults for the App Admin's company.
@@ -204,7 +204,7 @@ async def list_task_defaults(
 async def set_task_default(
     body: ModelTaskDefaultCreate,
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """
     Set (or update) the default model for a specific AI task type.
@@ -252,7 +252,7 @@ async def set_task_default(
 async def delete_task_default(
     task_type: str,
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN])),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     """Remove a task default. Only app_admin can call this."""
     service = ConfigService(db)

@@ -26,10 +26,10 @@ HOW_TO_CONFIGURE = ("An app admin sets it on the AI Model Configuration page (/a
 
 async def _configured() -> set[str]:
     from src.auth.platform import platform_company_id
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import control_session
     from src.config.models import IntegrationRegistry, ModelTaskDefault
 
-    async with AsyncSessionLocal() as db:
+    async with control_session() as db:
         app_id = await platform_company_id(db)
         if app_id is None:
             return set()

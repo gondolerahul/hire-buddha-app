@@ -227,6 +227,12 @@ class CreditHold(ControlBase):
     company may start with, and when a running one is stopped, is the wallet
     minus the holds of the company's other unfinished runs. A hold is not a
     deduction: settlement still charges what the run actually cost.
+
+    It is also the run's settlement record (Phase 14 WS2 2.6): ``settled_at``
+    and ``billed_amount`` are set in the same control transaction as the
+    wallet deduction and the billing event, and only while ``settled_at`` is
+    empty — so settling a run again (a retried finalisation, a second worker)
+    charges nothing. A run admitted without a hold gets a row at settlement.
     """
     __tablename__ = "credit_holds"
 
@@ -239,6 +245,8 @@ class CreditHold(ControlBase):
     amount = Column(Numeric(14, 6), nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     released_at = Column(DateTime(timezone=True), nullable=True)
+    settled_at = Column(DateTime(timezone=True), nullable=True)
+    billed_amount = Column(Numeric(14, 6), nullable=True)
 
     __table_args__ = (
         Index("idx_credit_holds_open", "company_id",

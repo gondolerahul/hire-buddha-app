@@ -210,11 +210,12 @@ class VideoSession:
         """The agent's live model session — the one connect path (VT-02)."""
         from uuid import UUID
 
-        from src.common.database import AsyncSessionLocal
+        from src.common.tenancy.session import tenant_session
         from src.voice.agent_loader import AgentContextLoader
         from src.voice.live_client_factory import LiveClientFactory
 
-        async with AsyncSessionLocal() as db:
+        # The agent is in its company's tenant database (Phase 14 WS2).
+        async with tenant_session(UUID(self.agent_info["company_id"])) as db:
             agent_context = await AgentContextLoader(db).load_agent_for_session(
                 agent_id=UUID(self.agent_info["agent_id"]),
                 customer_id=UUID(self.agent_info["company_id"]),
@@ -330,7 +331,7 @@ class VideoSession:
         Uses the company's configured vision/multimodal model (falls back to Gemini Flash).
         """
         try:
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import tenant_session
             from src.ai.llm.router import LLMRouter
             from src.ai.llm.types import Attachment
             from uuid import UUID
@@ -340,7 +341,8 @@ class VideoSession:
                 "Describe what you see briefly (2-3 sentences): "
                 "who is present, their apparent emotion/mood, and any relevant visual context."
             )
-            async with AsyncSessionLocal() as db:
+            # The call's run is in the company's tenant database.
+            async with tenant_session(UUID(self.agent_info["company_id"])) as db:
                 router = LLMRouter(db=db, company_id=UUID(self.agent_info["company_id"]))
                 # The frame is an image part, not base64 text in the prompt (LP-24).
                 resp = await router.call_llm(
@@ -404,9 +406,9 @@ class VideoSession:
         if self._frame_tasks:
             await asyncio.wait(set(self._frame_tasks), timeout=30)
         try:
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import tenant_session
 
-            async with AsyncSessionLocal() as db:
+            async with tenant_session(self.spend.company_id) as db:
                 await self.spend.record_live_audio(db, self.usage)
                 await self.spend.finish(db)
         except Exception as exc:  # noqa: BLE001 - a billing hiccup must not break teardown
@@ -422,11 +424,11 @@ _active_video_sessions: Dict[str, VideoSession] = {}
 
 async def _admit(websocket: WebSocket, company_id: str) -> Any:
     """The call's admission and its live-session place, or ``None`` once refused."""
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import control_session
     from src.voice import live_sessions
     from src.voice.call_admission import call_refusal
 
-    async with AsyncSessionLocal() as db:
+    async with control_session() as db:  # the wallet is a control row
         refusal = await call_refusal(db, company_id, direction="inbound", checkpoint="video")
     slot = None if refusal else live_sessions.acquire(company_id, kind="video")
     if slot is not None:

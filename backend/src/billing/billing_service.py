@@ -131,10 +131,13 @@ class BillingService:
         video_gen_count: int = 0,
         other_ai_cost: Decimal = Decimal("0"),
         event_category: str = "api",  # "telephony", "llm", "image", "video", "api"
+        *,
+        commit: bool = True,
     ) -> BillingEvent:
         """
         Calculate TB from formula, then upsert a BillingEvent for the current month.
         Divides the final price into category charges based on event_category.
+        ``commit=False`` leaves it to the caller's transaction (a run's settlement).
         """
         config = await self.get_billing_config(company_id)
         if not config:
@@ -191,7 +194,8 @@ class BillingService:
         ).returning(BillingEvent)
         result = await self.db.execute(upsert, execution_options={"populate_existing": True})
         event = result.scalar_one()
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
         return event
 
     async def get_costing_report(

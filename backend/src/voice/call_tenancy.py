@@ -7,7 +7,9 @@ anything reads them:
 
 * a URL we handed the provider says so — a media-stream path
   ``/stream/<provider>/<company>/<session>`` (``media_stream_path``) or
-  ``company=`` on a callback URL (``tenant_query``);
+  ``company=`` on a callback URL (``tenant_query``, ``with_tenant``);
+* the identifier we gave a Tata click-to-call (``call_reference``):
+  ``<company>.<session>``, which Tata hands back on the call's webhooks;
 * else our own phone number on the call — the dialled number inbound, the
   calling number outbound — found in ``phone_numbers``, a control table
   (``company_for_numbers``).
@@ -38,6 +40,31 @@ def company_param(value: Any) -> Optional[UUID]:
 def tenant_query(company_id: Any) -> str:
     """``company=<id>`` for a callback URL we hand a provider (split mode); else empty."""
     return f"{COMPANY_PARAM}={company_id}" if is_split() and company_id else ""
+
+
+def with_tenant(path: str, company_id: Any) -> str:
+    """``path`` with ``company=<id>`` added to its query (split mode); else ``path``."""
+    query = tenant_query(company_id)
+    if not query:
+        return path
+    return f"{path}{'&' if '?' in path else '?'}{query}"
+
+
+def call_reference(company_id: Any, session_id: Any) -> str:
+    """The identifier a Tata click-to-call carries back to us: the session id,
+    after its company in split mode (``<company>.<session>``)."""
+    if is_split() and company_id:
+        return f"{company_id}.{session_id}"
+    return str(session_id)
+
+
+def parse_call_reference(value: Any) -> tuple[Optional[UUID], Optional[UUID]]:
+    """``(company, session)`` from a ``call_reference`` (either form); ``None`` where absent or not an id."""
+    text = str(value or "").strip()
+    if not text or text == "null":
+        return None, None
+    company, _, session = text.rpartition(".")
+    return company_param(company), company_param(session)
 
 
 def media_stream_path(provider: str, session: Any) -> str:

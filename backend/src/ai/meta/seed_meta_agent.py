@@ -18,9 +18,14 @@ from typing import Any, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 
-async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
+async def _purge_entities(db: Any, entity_ids: list[str], control: Any = None) -> None:
     """
     Delete a set of HierarchicalEntity rows and ALL their FK dependents.
+
+    ``db`` is the entities' tenant session, ``control`` the control session
+    (``phone_numbers``, ``usage_logs``, ``credit_holds``, ``webhook_endpoints``);
+    with one database it may be left out and ``db`` does both. The caller
+    commits both.
 
     Traversal order (leaf → root):
       1. cortex_nodes → cortex_trees (via tree_id)
@@ -38,6 +43,7 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
     """
     from sqlalchemy import text
 
+    control = control if control is not None else db
     id_list = ",".join(f"'{eid}'" for eid in entity_ids)
 
     # ── Expand to include children & clones ──
@@ -51,7 +57,7 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
     all_id_list = ",".join(f"'{eid}'" for eid in all_eids)
     print(f"  Found {len(all_eids)} total entities (incl. children/clones)")
 
-    numbers = (await db.execute(text(
+    numbers = (await control.execute(text(
         f"SELECT phone_number FROM phone_numbers WHERE agent_id IN ({all_id_list})"
     ))).scalars().all()
     if numbers:
@@ -87,11 +93,11 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
         for tbl in [
             "llm_interaction_logs",
             "tool_interaction_logs",
-            "usage_logs",
             "human_approvals",
-            "credit_holds",
         ]:
             await db.execute(text(f"DELETE FROM {tbl} WHERE run_id IN ({run_id_list})"))
+        for tbl in ["usage_logs", "credit_holds"]:  # control rows
+            await control.execute(text(f"DELETE FROM {tbl} WHERE run_id IN ({run_id_list})"))
 
         # Delete runs bottom-up: children before parents
         await db.execute(text(f"""
@@ -107,7 +113,7 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
         doc_id_list = ",".join(f"'{did}'" for did in doc_ids)
         await db.execute(text(f"DELETE FROM documents WHERE id IN ({doc_id_list})"))
 
-    await db.execute(text(
+    await control.execute(text(
         f"UPDATE webhook_endpoints SET entity_id = NULL WHERE entity_id IN ({all_id_list})"
     ))
 
@@ -125,21 +131,22 @@ async def _purge_entities(db: Any, entity_ids: list[str]) -> None:
 
 async def seed(force: bool = False, target_company_id: Optional[str] = None) -> None:
     from sqlalchemy import select, text, or_, String
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import control_session, tenant_session
     from src.ai.orm import HierarchicalEntity
     from src.ai.schemas import HierarchicalEntityCreate
     from src.ai.meta.meta_agent_template import generate_meta_agent_template
 
-    async with AsyncSessionLocal() as db:
+    # Users are control rows; the company's agents are in its tenant database.
+    async with control_session() as control:
         # ── 1. Find the primary admin account ──
         if target_company_id:
-            r = await db.execute(text(
+            r = await control.execute(text(
                 f"SELECT id, company_id FROM users WHERE company_id = '{target_company_id}' "
                 f"ORDER BY CASE WHEN role = 'app_admin' THEN 0 "
                 f"WHEN role = 'admin' THEN 1 ELSE 2 END LIMIT 1"
             ))
         else:
-            r = await db.execute(text(
+            r = await control.execute(text(
                 "SELECT id, company_id FROM users WHERE role='app_admin' LIMIT 1"
             ))
         admin = r.fetchone()
@@ -151,51 +158,53 @@ async def seed(force: bool = False, target_company_id: Optional[str] = None) -> 
         companies = [(cid,)]
         print(f"Seeding MetaAgent template for admin: uid={uid}, company={cid}")
 
-        # ── 2. For each company, check and seed ──
-        seeded_count = 0
-        skipped_count = 0
+        async with tenant_session(cid) as db:
+            # ── 2. For each company, check and seed ──
+            seeded_count = 0
+            skipped_count = 0
 
-        for (cid,) in companies:
-            # Check if MetaAgent already exists for this company
-            meta_q = select(HierarchicalEntity).where(
-                HierarchicalEntity.company_id == cid,
-                or_(
-                    HierarchicalEntity.name == "MetaAgent",
-                    HierarchicalEntity.tags.cast(String).contains("meta_agent"),
-                ),
-            )
-            result = await db.execute(meta_q)
-            existing = result.scalars().all()
+            for (cid,) in companies:
+                # Check if MetaAgent already exists for this company
+                meta_q = select(HierarchicalEntity).where(
+                    HierarchicalEntity.company_id == cid,
+                    or_(
+                        HierarchicalEntity.name == "MetaAgent",
+                        HierarchicalEntity.tags.cast(String).contains("meta_agent"),
+                    ),
+                )
+                result = await db.execute(meta_q)
+                existing = result.scalars().all()
 
-            if existing and not force:
-                skipped_count += 1
-                continue
+                if existing and not force:
+                    skipped_count += 1
+                    continue
 
-            if existing and force:
-                entity_ids = [str(e.id) for e in existing]
-                print(f"  Purging {len(entity_ids)} existing MetaAgent entities …")
-                await _purge_entities(db, entity_ids)
+                if existing and force:
+                    entity_ids = [str(e.id) for e in existing]
+                    print(f"  Purging {len(entity_ids)} existing MetaAgent entities …")
+                    await _purge_entities(db, entity_ids, control)
+                    await db.flush()
+
+                # Create the Meta-Agent V3 template
+                template = generate_meta_agent_template()
+                ein = HierarchicalEntityCreate.model_validate(template)
+                data = ein.model_dump(mode="json")
+                ma = HierarchicalEntity(**data, company_id=cid, created_by=uid)
+                db.add(ma)
                 await db.flush()
 
-            # Create the Meta-Agent V3 template
-            template = generate_meta_agent_template()
-            ein = HierarchicalEntityCreate.model_validate(template)
-            data = ein.model_dump(mode="json")
-            ma = HierarchicalEntity(**data, company_id=cid, created_by=uid)
-            db.add(ma)
-            await db.flush()
+                seeded_count += 1
+                print(f"  ✓ Meta-Agent V3 seeded: id={ma.id}")
 
-            seeded_count += 1
-            print(f"  ✓ Meta-Agent V3 seeded: id={ma.id}")
-
-        await db.commit()
-        print(f"\n{'═' * 50}")
-        print(f"Meta-Agent V3 Seeding Complete")
-        print(f"  Seeded: {seeded_count} companies")
-        print(f"  Skipped: {skipped_count} companies (already have MetaAgent)")
-        print(f"  Version: 3.0.0")
-        if skipped_count > 0:
-            print(f"  Run with --force to re-seed skipped companies")
+            await control.commit()
+            await db.commit()
+            print(f"\n{'═' * 50}")
+            print(f"Meta-Agent V3 Seeding Complete")
+            print(f"  Seeded: {seeded_count} companies")
+            print(f"  Skipped: {skipped_count} companies (already have MetaAgent)")
+            print(f"  Version: 3.0.0")
+            if skipped_count > 0:
+                print(f"  Run with --force to re-seed skipped companies")
 
 if __name__ == "__main__":
     force = "--force" in sys.argv

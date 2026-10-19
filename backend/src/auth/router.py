@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Response, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.security import OAuth2PasswordRequestForm
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.auth.schemas import (
     UserCreate, UserResponse, Token, UserLogin, RefreshTokenRequest, LogoutRequest, OAuthRequest,
     EmailRequest, PasswordResetRequest, RegistrationResponse,
@@ -14,7 +14,7 @@ from src.auth import service
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=RegistrationResponse, status_code=status.HTTP_201_CREATED)
-async def register(user: UserCreate, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def register(user: UserCreate, background: BackgroundTasks, db: AsyncSession = Depends(get_control_db)):
     """Create a workspace and its admin, and email a verification link (AU-08).
 
     No tokens: the account cannot sign in until the address is verified.
@@ -25,7 +25,7 @@ async def register(user: UserCreate, background: BackgroundTasks, db: AsyncSessi
 
 
 @router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
-async def resend_verification(request: EmailRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def resend_verification(request: EmailRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_control_db)):
     """Send the verification link again. The same answer whether or not the address has an account."""
     if await service.needs_verification_email(db, request.email):
         background.add_task(account_emails.send_verification_email, request.email)
@@ -33,7 +33,7 @@ async def resend_verification(request: EmailRequest, background: BackgroundTasks
 
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
-async def forgot_password(request: EmailRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def forgot_password(request: EmailRequest, background: BackgroundTasks, db: AsyncSession = Depends(get_control_db)):
     """Email a single-use, 30-minute reset link (AU-06). The same answer for any address."""
     user = await service.password_reset_target(db, request.email)
     if user is not None:
@@ -42,14 +42,14 @@ async def forgot_password(request: EmailRequest, background: BackgroundTasks, db
 
 
 @router.post("/reset-password")
-async def reset_password(request: PasswordResetRequest, db: AsyncSession = Depends(get_db)):
+async def reset_password(request: PasswordResetRequest, db: AsyncSession = Depends(get_control_db)):
     """Set a new password from a reset link. Every existing session ends."""
     await service.reset_password(db, request.token, request.new_password)
     return {"message": "Password updated. Sign in with your new password."}
 
 
 @router.post("/login", response_model=Token)
-async def login(response: Response, login_data: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(response: Response, login_data: UserLogin, db: AsyncSession = Depends(get_control_db)):
     user = await service.authenticate_user(db, login_data)
     if not user:
         raise HTTPException(
@@ -74,7 +74,7 @@ async def login(response: Response, login_data: UserLogin, db: AsyncSession = De
 
 # Support for OAuth2PasswordRequestForm for Swagger UI
 @router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_control_db)):
     user = await service.authenticate_user(db, UserLogin(email=form_data.username, password=form_data.password))
     if not user:
         raise HTTPException(
@@ -118,7 +118,7 @@ async def url_token(body: UrlTokenRequest, current_user: UserResponse = Depends(
 async def refresh_token(
     response: Response,
     request: RefreshTokenRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     user, new_refresh_token = await service.rotate_refresh_token(db, request.refresh_token)
     
@@ -136,7 +136,7 @@ async def refresh_token(
     return {"access_token": access_token, "token_type": "bearer", "refresh_token": new_refresh_token}
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: LogoutRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def logout(request: LogoutRequest, response: Response, db: AsyncSession = Depends(get_control_db)):
     """End this session — or, with ``all_sessions``, every session of its user (AU-12).
 
     The refresh token is the credential: it is revoked, so it can no longer mint
@@ -178,7 +178,7 @@ async def oauth_login(
     provider: str,
     request: OAuthRequest,
     response: Response,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_control_db)
 ):
     if provider == "google":
         token_url = "https://oauth2.googleapis.com/token"
@@ -250,7 +250,7 @@ async def oauth_login(
     return {"access_token": access_token, "token_type": "bearer", "refresh_token": refresh_token}
 
 @router.get("/verify-email")
-async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+async def verify_email(token: str, db: AsyncSession = Depends(get_control_db)):
     """Verify email using the token sent to the user's email"""
     result = await service.verify_email_token(db, token)
     return result

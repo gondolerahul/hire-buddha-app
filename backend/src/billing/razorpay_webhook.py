@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.billing.payment_service import PaymentService, razorpay_signature_valid
 from src.billing.razorpay_gateway import get_razorpay_creds
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/credits", tags=["Credits & Payments"])
@@ -31,7 +31,7 @@ async def razorpay_webhook(
     request: Request,
     x_razorpay_signature: str = Header(default=""),
     x_razorpay_event_id: str = Header(default=""),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     body = await request.body()
     secret = (await get_razorpay_creds(db) or {}).get("webhook_secret")

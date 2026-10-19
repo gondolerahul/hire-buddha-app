@@ -45,7 +45,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.common.rate_limit import limiter
 from src.common.redis_client import shared_redis
 from src.gateway.envelope import EventEnvelope, queue_event
@@ -407,7 +407,7 @@ async def unified_webhook_inbound(request: Request):
 
 @router.post("/webhook/inbound/{endpoint_id}", status_code=202)
 @limiter.exempt
-async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def webhook_inbound(endpoint_id: str, request: Request, db: AsyncSession = Depends(get_control_db)):
     """
     Receive one webhook for one endpoint.
 

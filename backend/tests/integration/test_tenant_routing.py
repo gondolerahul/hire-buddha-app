@@ -131,6 +131,221 @@ async def test_control_classes_come_from_the_control_database(tenants):
         assert (await db.execute(text("SELECT to_regclass('execution_runs')"))).scalar() == "execution_runs"
 
 
+async def test_credit_held_by_a_tenants_runs_is_read_across_both_databases(tenants):
+    """Holds are control rows, runs tenant rows: the wallet counts the hold of
+    Beta's running run, not those of its finished run or of a run that is
+    gone — the same whether the service is on a control session or on Beta's."""
+    from decimal import Decimal
+
+    from sqlalchemy import delete
+
+    from src.ai.orm.execution import ExecutionRun
+    from src.billing.billing_models import CreditHold
+    from src.billing.credit_service import CreditService
+    from src.common.tenancy.session import control_session, tenant_session
+
+    _, beta = tenants
+    async with tenant_session(beta.company_id) as db:
+        entity_id = (await _entity(db, beta.company_id, f"holds-{uuid.uuid4().hex[:8]}")).id
+        running = ExecutionRun(entity_id=entity_id, company_id=beta.company_id, status="RUNNING")
+        finished = ExecutionRun(entity_id=entity_id, company_id=beta.company_id, status="COMPLETED")
+        db.add_all([running, finished])
+        await db.commit()
+        running_id, finished_id = running.id, finished.id
+    gone_id = uuid.uuid4()
+    holds = {running_id: Decimal("1.25"), finished_id: Decimal("4"), gone_id: Decimal("8")}
+    try:
+        async with control_session() as db:
+            db.add_all([CreditHold(company_id=beta.company_id, run_id=run, amount=amount)
+                        for run, amount in holds.items()])
+            await db.commit()
+        async with control_session() as db:
+            assert await CreditService(db).held_by_others(beta.company_id) == Decimal("1.25")
+            assert await CreditService(db).held_by_others(beta.company_id, running_id) == 0
+        async with tenant_session(beta.company_id) as db:
+            assert await CreditService(db).held_by_others(beta.company_id) == Decimal("1.25")
+    finally:
+        async with control_session() as db:
+            await db.execute(delete(CreditHold).where(CreditHold.run_id.in_(list(holds))))
+            await db.commit()
+        async with tenant_session(beta.company_id) as db:
+            await _drop_entity(db, entity_id)
+
+
+async def test_a_tenants_run_is_settled_once_in_the_control_database(tenants):
+    """WS2 2.6: a Beta run finishes in Beta's database; its charge — the
+    settlement claim on its hold, the wallet deduction, the billing event —
+    commits in a control transaction of its own, and settling it again (a
+    retried finalisation) charges nothing."""
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from sqlalchemy import delete
+
+    from src.ai.governance.governance_service import GovernanceService
+    from src.ai.orm.execution import ExecutionRun
+    from src.billing.billing_models import BillingEvent, CreditHold, CreditWallet
+    from src.common.tenancy.session import control_session, tenant_session
+
+    _, beta = tenants
+    name = f"settle-{uuid.uuid4().hex[:8]}"
+    later = datetime.utcnow() + timedelta(days=1)
+    async with control_session() as db:
+        wallet = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == beta.company_id))
+                  ).scalar_one_or_none()
+        made_wallet = wallet is None
+        if made_wallet:
+            db.add(CreditWallet(company_id=beta.company_id, daily_credits=Decimal("0"), daily_expires_at=later,
+                                wallet_balance=Decimal("10"), wallet_expires_at=later))
+            await db.commit()
+        before = (await db.execute(select(CreditWallet.wallet_balance, CreditWallet.daily_credits)
+                                   .where(CreditWallet.company_id == beta.company_id))).one()
+    async with tenant_session(beta.company_id) as db:
+        entity_id = (await _entity(db, beta.company_id, name)).id
+        run = ExecutionRun(entity_id=entity_id, company_id=beta.company_id, status="COMPLETED",
+                           total_cost_usd=Decimal("0.30"), input_data={})
+        db.add(run)
+        await db.commit()
+        run_id = run.id
+    try:
+        async with tenant_session(beta.company_id) as db:
+            run = await db.get(ExecutionRun, run_id)
+            billed = await GovernanceService(db, None).settle_billing(run, name)
+            again = await GovernanceService(db, None).settle_billing(run, name)
+        assert billed > 0 and again == 0
+        async with tenant_session(beta.company_id) as db:
+            assert Decimal(str((await db.get(ExecutionRun, run_id)).billed_amount)) == billed
+        async with control_session() as db:
+            hold = (await db.execute(select(CreditHold).where(CreditHold.run_id == run_id))).scalar_one()
+            assert hold.settled_at is not None and Decimal(str(hold.billed_amount)) == billed
+            [event] = (await db.execute(select(BillingEvent.total_billing).where(
+                BillingEvent.company_id == beta.company_id, BillingEvent.grouping_value == name))).scalars().all()
+            assert Decimal(str(event)) == billed
+            after = (await db.execute(select(CreditWallet.wallet_balance, CreditWallet.daily_credits)
+                                      .where(CreditWallet.company_id == beta.company_id))).one()
+            spent = (Decimal(str(before[0])) + Decimal(str(before[1]))
+                     - Decimal(str(after[0])) - Decimal(str(after[1])))
+            assert spent == billed
+    finally:
+        async with control_session() as db:
+            await db.execute(delete(CreditHold).where(CreditHold.run_id == run_id))
+            await db.execute(delete(BillingEvent).where(BillingEvent.company_id == beta.company_id,
+                                                        BillingEvent.grouping_value == name))
+            if made_wallet:
+                await db.execute(delete(CreditWallet).where(CreditWallet.company_id == beta.company_id))
+            else:
+                await db.execute(CreditWallet.__table__.update()
+                                 .where(CreditWallet.company_id == beta.company_id)
+                                 .values(wallet_balance=before[0], daily_credits=before[1]))
+            await db.commit()
+        async with tenant_session(beta.company_id) as db:
+            await _drop_entity(db, entity_id)
+
+
+async def test_a_partners_tenant_views_read_each_tenants_database(tenants):
+    """The partner screens' companies, users and wallets are control rows; a
+    tenant's agents and runs are read in that tenant's database, and the
+    analytics totals add up one database at a time."""
+    import httpx
+    from fastapi import FastAPI
+    from sqlalchemy import func
+
+    from src.ai.orm.entity import HierarchicalEntity
+    from src.ai.orm.execution import ExecutionRun
+    from src.auth import partner_router
+    from src.auth.dependencies import get_current_user
+    from src.common.tenancy.session import control_session, tenant_session
+
+    acme, beta = tenants
+    name = f"partner-{uuid.uuid4().hex[:8]}"
+    async with tenant_session(beta.company_id) as db:
+        entity_id = (await _entity(db, beta.company_id, name)).id
+        db.add(ExecutionRun(entity_id=entity_id, company_id=beta.company_id, status="COMPLETED"))
+        await db.commit()
+    app = FastAPI()
+    app.include_router(partner_router.router, prefix="/api/v1")
+
+    async def _admin():
+        return _person(acme.company_id, role="app_admin")
+
+    app.dependency_overrides[get_current_user] = _admin
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            detail = await client.get(f"/api/v1/partner/tenants/{beta.company_id}/details")
+        assert detail.status_code == 200, detail.text
+        body = detail.json()
+        assert name in {e["name"] for e in body["entities"]}
+        assert str(entity_id) in {r["entity_id"] for r in body["recent_executions"]}
+        assert body["entity_count"] >= 1 and body["recent_executions_7d"] >= 1
+
+        expected = [0, 0]
+        for tenant in tenants:
+            async with tenant_session(tenant.company_id) as db:
+                expected[0] += (await db.execute(select(func.count(HierarchicalEntity.id)).where(
+                    HierarchicalEntity.company_id == tenant.company_id))).scalar()
+                expected[1] += (await db.execute(select(func.count(ExecutionRun.id)).where(
+                    ExecutionRun.company_id == tenant.company_id))).scalar()
+        async with control_session() as db:
+            entities, runs, _ = await partner_router._tenant_totals(db, [acme.company_id, beta.company_id])
+        assert [entities, runs] == expected and runs >= 1
+    finally:
+        async with tenant_session(beta.company_id) as db:
+            await _drop_entity(db, entity_id)
+
+
+async def test_a_webhook_endpoint_binds_only_an_agent_of_the_callers_tenant(tenants, monkeypatch):
+    """The endpoint is a control row; the agent it runs is looked up in the
+    caller's tenant database — Acme's agent id is unknown to a Beta admin."""
+    import httpx
+    from fastapi import FastAPI
+    from sqlalchemy import delete
+
+    from src.auth.dependencies import get_current_user
+    from src.auth.models import User
+    from src.common.config import settings
+    from src.common.tenancy.session import control_session, tenant_session
+    from src.gateway import webhook_endpoints_router
+    from src.gateway.models import WebhookEndpoint
+
+    monkeypatch.setattr(settings, "AUTOMATION_GATEWAY_EVENTS", False)  # no system trigger here
+    acme, beta = tenants
+    async with tenant_session(beta.company_id) as db:
+        beta_agent = (await _entity(db, beta.company_id, f"hook-{uuid.uuid4().hex[:8]}")).id
+        await db.commit()
+    async with tenant_session(acme.company_id) as db:
+        acme_agent = (await _entity(db, acme.company_id, f"hook-{uuid.uuid4().hex[:8]}")).id
+        await db.commit()
+    app = FastAPI()
+    app.include_router(webhook_endpoints_router.router)
+    admin = _person(beta.company_id)
+
+    async def _admin():
+        return admin
+
+    app.dependency_overrides[get_current_user] = _admin
+    try:
+        async with control_session() as db:
+            db.add(User(id=admin.id, email=f"ws2-hook-{admin.id.hex[:8]}@test.local", full_name="Ws2 Hook",
+                        hashed_password="x", company_id=beta.company_id, role="tenant_admin", is_active=True))
+            await db.commit()
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            ours = await client.post("/api/v1/webhook-endpoints", json={
+                "source": "generic", "name": "ws2-hook", "entity_id": str(beta_agent)})
+            theirs = await client.post("/api/v1/webhook-endpoints", json={
+                "source": "generic", "name": "ws2-hook", "entity_id": str(acme_agent)})
+        assert ours.status_code == 201, ours.text
+        assert theirs.status_code == 404, theirs.text
+    finally:
+        async with control_session() as db:
+            await db.execute(delete(WebhookEndpoint).where(WebhookEndpoint.entity_id.in_([beta_agent, acme_agent])))
+            await db.execute(delete(User).where(User.id == admin.id))
+            await db.commit()
+        async with tenant_session(beta.company_id) as db:
+            await _drop_entity(db, beta_agent)
+        async with tenant_session(acme.company_id) as db:
+            await _drop_entity(db, acme_agent)
+
+
 async def test_a_company_without_a_database_is_refused(tenants):
     from src.common.tenancy.directory import TenantNotFound
     from src.common.tenancy.session import TenantRequired, tenant_session
@@ -517,4 +732,159 @@ async def test_a_mobile_call_attempt_is_served_from_the_reps_tenant_database(ten
             await db.execute(delete(PhoneNumber).where(PhoneNumber.phone_number == number))
             await db.execute(delete(UserDevice).where(UserDevice.id == device_id))
             await db.execute(delete(User).where(User.id == rep_id))
+            await db.commit()
+
+
+# ── campaigns (WS2 2.4 campaigns module, 2.5, 2.12) ────────────────────────
+
+class _Provider:
+    """The provider's REST API: records what it was asked, answers 201."""
+
+    def __init__(self):
+        self.requests = []
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, **kwargs):
+        from types import SimpleNamespace
+
+        self.requests.append((url, kwargs.get("data") or kwargs.get("json")))
+        return SimpleNamespace(status_code=201, json=lambda: {"sid": f"CA{uuid.uuid4().hex}", "ref_id": "TT1"})
+
+
+async def test_a_campaign_job_dials_from_the_campaigns_tenant_database(tenants, monkeypatch):
+    """A Beta campaign's job carries Beta: its calls and voice session are
+    written in Beta's database, the number and the credit gate are read in the
+    control database, the Twilio URLs and the Tata identifier name Beta, the
+    continuation job carries Beta, and Tata's status callback finds the call
+    by that identifier alone. A job naming Acme finds nothing to dial."""
+    import asyncio
+    from types import SimpleNamespace
+
+    import httpx
+    from fastapi import FastAPI
+    from sqlalchemy import delete
+    from sqlalchemy.engine import make_url
+
+    from src.ai import campaign_executor
+    from src.ai.campaign_executor import CampaignExecutor
+    from src.ai.campaign_models import Campaign, CampaignCall
+    from src.ai.campaign_worker import execute_campaign_task
+    from src.ai.services import campaign_pacing
+    from src.common.config import settings
+    from src.common.tenancy.session import control_session, tenant_session
+    from src.voice import webhook_router
+    from src.voice.agent_loader import AgentContextLoader
+    from src.voice.models import VoiceSession
+    from src.voice.phone_pool_models import PhoneNumber
+
+    acme, beta = tenants
+    gate_databases, continued = [], []
+    provider = _Provider()
+
+    async def _admit(db, company_id, **kwargs):
+        gate_databases.append((await db.execute(text("SELECT current_database()"))).scalar())
+        return None
+
+    async def _credentials(db, company_id):
+        return "AC-test", "token"
+
+    async def _tata_credentials(db, company_id):
+        return SimpleNamespace(api_key="tata-key")
+
+    async def _continue(campaign_id, delay, company_id=None):
+        continued.append((campaign_id, company_id))
+
+    async def _no_warm(*args, **kwargs):
+        return None
+
+    real_sleep = asyncio.sleep
+
+    async def _no_sleep(delay, *args, **kwargs):
+        await real_sleep(0)
+
+    monkeypatch.setattr(campaign_executor, "call_refusal", _admit)
+    monkeypatch.setattr(campaign_executor, "httpx", SimpleNamespace(AsyncClient=provider))
+    monkeypatch.setattr("src.voice.twilio_api.get_twilio_credentials", _credentials)
+    monkeypatch.setattr("src.voice.tata_credentials.resolve_tata_credentials", _tata_credentials)
+    monkeypatch.setattr(campaign_pacing, "schedule_continuation", _continue)
+    monkeypatch.setattr(AgentContextLoader, "load_agent_for_session", _no_warm)
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+
+    suffix = uuid.uuid4().hex[:8]
+    number = f"+1555{uuid.uuid4().int % 10_000_000:07d}"
+    campaign_id, call_id = uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(beta.company_id) as db:
+        agent_id = (await _entity(db, beta.company_id, f"dialer-{suffix}")).id
+        db.add(Campaign(id=campaign_id, company_id=beta.company_id, created_by=uuid.uuid4(), agent_id=agent_id,
+                        name=f"dialer-{suffix}", contact_list=[], total_contacts=1, provider="twilio",
+                        status="draft"))
+        await db.flush()
+        db.add(CampaignCall(id=call_id, campaign_id=campaign_id, contact_data={"phone": "+15550009999"},
+                            status="pending"))
+        await db.commit()
+    app = FastAPI()
+    app.include_router(webhook_router.router)
+    try:
+        async with control_session() as db:
+            db.add(PhoneNumber(phone_number=number, provider="twilio", country_code="+1", status="assigned",
+                               is_active=True, company_id=beta.company_id, agent_id=agent_id))
+            await db.commit()
+
+        # A job naming another tenant: Acme's database has no such campaign.
+        await execute_campaign_task({}, str(campaign_id), company_id=str(acme.company_id))
+        assert provider.requests == []
+
+        await execute_campaign_task({}, str(campaign_id), company_id=str(beta.company_id))
+        async with tenant_session(beta.company_id) as db:
+            call = await db.get(CampaignCall, call_id)
+            session = await db.get(VoiceSession, call.voice_session_id)
+            campaign = await db.get(Campaign, campaign_id)
+        assert call.status == "calling" and call.call_sid.startswith("CA")
+        assert session.company_id == beta.company_id and session.phone_number == number
+        assert (campaign.status, campaign.calls_initiated) == ("running", 1)
+        # Both credit gates (the campaign's and the call's) in the control database.
+        assert gate_databases == [make_url(settings.CONTROL_DATABASE_URL).database] * 2
+        [(url, payload)] = provider.requests
+        assert payload["From"] == number
+        assert f"session_id={session.id}&company={beta.company_id}" in payload["Url"]
+        assert payload["StatusCallback"].endswith(f"/webhooks/voice/twilio/status?company={beta.company_id}")
+        assert continued == [(campaign_id, beta.company_id)]          # the call is still in flight
+        async with tenant_session(acme.company_id) as db:
+            assert await db.get(Campaign, campaign_id) is None
+        async with control_session() as db:  # nothing of the campaign in the shared database
+            assert (await db.execute(text("SELECT count(*) FROM public.campaign_calls WHERE id = :c"),
+                                     {"c": call_id})).scalar() == 0
+
+        # Tata: the click-to-call names Beta and the session; its status
+        # callback carries no number we own, only that identifier.
+        async with control_session() as control:
+            await CampaignExecutor._place_tata_call_static(
+                db=control, to="+15550009999", from_=number, voice_session_id=session.id,
+                agent_id=agent_id, company_id=beta.company_id)
+        reference = provider.requests[-1][1]["custom_identifier"]
+        assert reference == f"{beta.company_id}.{session.id}"
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            status = await client.post("/webhooks/voice/tata/status", json={
+                "custom_identifier": reference, "call_status": "answered", "duration": "30",
+                "call_connected": "1"})
+        assert status.json().get("session_id") == str(session.id), status.text
+        async with tenant_session(beta.company_id) as db:
+            assert (await db.get(VoiceSession, session.id)).status == "ended"
+            assert (await db.get(CampaignCall, call_id)).status == "completed"
+    finally:
+        async with tenant_session(beta.company_id) as db:
+            await db.execute(text("DELETE FROM campaign_calls WHERE campaign_id = :c"), {"c": campaign_id})
+            await db.execute(text("DELETE FROM campaigns WHERE id = :c"), {"c": campaign_id})
+            await db.execute(text("DELETE FROM voice_sessions WHERE agent_id = :a"), {"a": agent_id})
+            await _drop_entity(db, agent_id)
+        async with control_session() as db:
+            await db.execute(delete(PhoneNumber).where(PhoneNumber.phone_number == number))
             await db.commit()

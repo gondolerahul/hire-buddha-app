@@ -53,6 +53,21 @@ async def _provision_new_tenant(db: AsyncSession, company: Company):
     except Exception as e:
         logger.warning(f"Failed to provision CreditWallet for company {company.id}: {e}")
 
+async def request_workspace(company_id) -> None:
+    """A new company's own database (Phase 14 WS2 2.9): with ``TENANCY_MODE=split``
+    its tenant is requested and provisioning queued; the person sees "setting up
+    your workspace" (``GET /api/v1/workspace``) until it is ``active``. Nothing
+    with ``single``. Best-effort: sign-up never fails for it — a company left
+    without one is shown as such, and staff provision it
+    (``POST /api/v1/admin/tenants``)."""
+    try:
+        from src.common.tenancy.provisioner import request_and_enqueue
+
+        await request_and_enqueue(company_id)
+    except Exception:
+        logger.exception("Workspace provisioning not requested for company %s", company_id)
+
+
 async def _require_user_admin_over(db: AsyncSession, actor: User, company_id) -> None:
     """403 unless ``actor`` administers users of ``company_id``.
 
@@ -203,6 +218,8 @@ async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
     await db.commit()
     await db.refresh(new_user)
     
+    await request_workspace(new_company.id)
+
     # NOTE: Verification emails are handled by the background worker (arq).
     # Do NOT call email_service here — it opens a new DB session from 
     # _load_credentials(), which deadlocks the asyncpg connection pool.
@@ -466,6 +483,7 @@ async def get_or_create_oauth_user(db: AsyncSession, email: str, full_name: str)
 
     await db.commit()
     await db.refresh(new_user)
+    await request_workspace(new_company.id)
     return new_user
 
 async def verify_email_token(db: AsyncSession, token: str):

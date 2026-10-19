@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.auth.router import get_current_user
 from src.auth.dependencies import RoleChecker
 from src.auth.models import User
@@ -123,7 +123,7 @@ def _config_to_dict(c: BillingConfig) -> dict:
 @router.get("/billing/config", summary="Get billing configuration (app_admin)")
 async def get_billing_config(
     current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     svc = BillingService(db)
     config = await svc.get_billing_config(current_user.company_id)
@@ -136,7 +136,7 @@ async def get_billing_config(
 async def update_billing_config(
     payload: BillingConfigUpdate,
     current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
 
     svc = BillingService(db)
@@ -155,7 +155,7 @@ async def get_costing_report(
     grouping_type: Optional[str] = Query(None, description="partner|tenant|user|process|agent"),
     company_id: Optional[UUID] = Query(None, description="One company; omit for every company"),
     current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     # Events are recorded under the company that ran the work, so the
     # platform view spans every company unless one is asked for.
@@ -191,7 +191,7 @@ async def get_billing_report(
     grouping_type: Optional[str] = Query(None, description="partner|tenant|user|process|agent"),
     company_id: Optional[UUID] = Query(None, description="One company; omit for every company"),
     current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     # Same rows as the costing report (base_cost included), with revenue totals.
     svc = BillingService(db)

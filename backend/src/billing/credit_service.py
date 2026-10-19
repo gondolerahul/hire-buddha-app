@@ -325,20 +325,35 @@ class CreditService:
         """Credit held by the company's unfinished runs other than ``run_id``.
 
         A hold whose run has already finished no longer counts even before it
-        is released, so a worker that died mid-run cannot pin the wallet.
+        is released, so a worker that died mid-run cannot pin the wallet; nor
+        does one whose run is gone. Holds are control rows and runs tenant
+        rows, so this is two reads, not a join (Phase 14 WS2).
         """
-        stmt = (
-            select(func.coalesce(func.sum(CreditHold.amount), 0))
-            .join(ExecutionRun, ExecutionRun.id == CreditHold.run_id)
-            .where(
-                CreditHold.company_id == company_id,
-                CreditHold.released_at.is_(None),
-                ExecutionRun.status.notin_(TERMINAL_RUN_STATUSES),
-            )
+        stmt = select(CreditHold.run_id, CreditHold.amount).where(
+            CreditHold.company_id == company_id,
+            CreditHold.released_at.is_(None),
         )
         if run_id is not None:
             stmt = stmt.where(CreditHold.run_id != run_id)
-        return _dec((await self.db.execute(stmt)).scalar())
+        holds = (await self.db.execute(stmt)).all()
+        if not holds:
+            return Decimal("0")
+        unfinished = await self._unfinished_runs(company_id, [hold.run_id for hold in holds])
+        return sum((_dec(hold.amount) for hold in holds if hold.run_id in unfinished), Decimal("0"))
+
+    async def _unfinished_runs(self, company_id: UUID, run_ids: list[UUID]) -> set[UUID]:
+        """Which of ``run_ids`` are runs that have not finished: read in the
+        company's tenant database (this session, if it is that one)."""
+        from src.common.tenancy.session import is_split, tenant_session
+
+        stmt = select(ExecutionRun.id).where(
+            ExecutionRun.id.in_(run_ids),
+            ExecutionRun.status.notin_(TERMINAL_RUN_STATUSES),
+        )
+        if not is_split() or str(self.db.info.get("company_id")) == str(company_id):
+            return set((await self.db.execute(stmt)).scalars())
+        async with tenant_session(company_id) as tenant:
+            return set((await tenant.execute(stmt)).scalars())
 
     async def place_hold(
         self, company_id: UUID, run_id: UUID, estimate: Decimal, floor: Decimal,
@@ -378,6 +393,30 @@ class CreditService:
             .values(released_at=datetime.utcnow())
         )
         await self.db.commit()
+
+    async def claim_settlement(self, company_id: UUID, run_id: UUID, billed_amount: Decimal) -> bool:
+        """Record ``run_id`` as settled for ``billed_amount`` — on its hold,
+        which this releases, or on a row of its own when it has none — unless
+        it already is (WS2 2.6). True when this call claimed the settlement.
+
+        Not committed: the caller commits it with the deduction and the
+        billing event, so a run is charged at most once.
+        """
+        now = datetime.utcnow()
+        holds = CreditHold.__table__
+        claim = (
+            pg_insert(holds)
+            .values(company_id=company_id, run_id=run_id, amount=0, released_at=now,
+                    settled_at=now, billed_amount=billed_amount)
+            .on_conflict_do_update(
+                index_elements=["run_id"],
+                set_={"settled_at": now, "billed_amount": billed_amount,
+                      "released_at": func.coalesce(holds.c.released_at, now)},
+                where=holds.c.settled_at.is_(None),
+            )
+            .returning(holds.c.run_id)
+        )
+        return (await self.db.execute(claim)).first() is not None
 
     # ── The company's monthly spend cap (GH-18, HD8) ────────────────────
 
@@ -459,6 +498,8 @@ class CreditService:
         self,
         company_id: UUID,
         amount: Decimal,
+        *,
+        commit: bool = True,
     ) -> dict:
         """
         Deduct `amount` from credit buckets, consuming whatever is available.
@@ -466,11 +507,17 @@ class CreditService:
         balance — it deducts as much as possible, so the wallet goes to $0
         rather than allowing the balance to stay untouched while costs pile up.
 
+        ``commit=False`` leaves the deduction (and the wallet lock) to the
+        caller's transaction, as a run's settlement does.
+
         Returns dict with deduction breakdown and a boolean `exhausted` flag.
         """
         wallet = await self._locked_current_wallet(company_id)
         deductions, shortfall = deduct(wallet, amount)
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         return {
             **deductions,
             "shortfall": shortfall,

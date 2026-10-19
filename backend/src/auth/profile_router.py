@@ -4,7 +4,7 @@ from uuid import UUID
 from pathlib import Path
 import shutil
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db, tenant_db_for
 from src.auth.dependencies import get_current_user
 from src.auth.models import User, Company
 from src.auth.schemas import UserResponse, CompanyResponse
@@ -27,26 +27,27 @@ def _get_upload_dir(company_id) -> Path:
 async def upload_avatar(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     """Upload user profile picture — saved in artifact/user-uploads/{company_id}/"""
     from src.ai.artifact_service import ArtifactService, ORIGIN_USER
 
-    svc = ArtifactService(db)
     content = await file.read()
     file_ext = (file.filename or "avatar").rsplit(".", 1)[-1]
     avatar_filename = f"avatar_{current_user.id}.{file_ext}"
 
-    artifact = await svc.save_artifact(
-        file_bytes=content,
-        file_name=avatar_filename,
-        mime_type=file.content_type or "image/jpeg",
-        file_category="images",
-        origin=ORIGIN_USER,
-        company_id=current_user.company_id,
-        purpose="User profile picture",
-        generated_by="user-upload:avatar",
-    )
+    # The file is an artifact in the company's tenant database; the user a control row.
+    async with tenant_db_for(db, current_user.company_id) as tenant_db:
+        artifact = await ArtifactService(tenant_db).save_artifact(
+            file_bytes=content,
+            file_name=avatar_filename,
+            mime_type=file.content_type or "image/jpeg",
+            file_category="images",
+            origin=ORIGIN_USER,
+            company_id=current_user.company_id,
+            purpose="User profile picture",
+            generated_by="user-upload:avatar",
+        )
 
     # Update user profile picture URL to the artifact download endpoint
     current_user.profile_picture_url = f"/api/v1/artifacts/{artifact.id}/download"
@@ -60,7 +61,7 @@ async def upload_avatar(
 async def upload_logo(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     """Upload company logo — saved in artifact/user-uploads/{company_id}/. Admin only."""
     if current_user.role not in ["app_admin", "partner_admin", "tenant_admin"]:
@@ -68,21 +69,22 @@ async def upload_logo(
 
     from src.ai.artifact_service import ArtifactService, ORIGIN_USER
 
-    svc = ArtifactService(db)
     content = await file.read()
     file_ext = (file.filename or "logo").rsplit(".", 1)[-1]
     logo_filename = f"logo_{current_user.company_id}.{file_ext}"
 
-    artifact = await svc.save_artifact(
-        file_bytes=content,
-        file_name=logo_filename,
-        mime_type=file.content_type or "image/png",
-        file_category="images",
-        origin=ORIGIN_USER,
-        company_id=current_user.company_id,
-        purpose="Company logo",
-        generated_by="user-upload:company-logo",
-    )
+    # The file is an artifact in the company's tenant database; the company a control row.
+    async with tenant_db_for(db, current_user.company_id) as tenant_db:
+        artifact = await ArtifactService(tenant_db).save_artifact(
+            file_bytes=content,
+            file_name=logo_filename,
+            mime_type=file.content_type or "image/png",
+            file_category="images",
+            origin=ORIGIN_USER,
+            company_id=current_user.company_id,
+            purpose="Company logo",
+            generated_by="user-upload:company-logo",
+        )
 
     # Update company logo URL to the artifact download endpoint
     from sqlalchemy import select

@@ -437,12 +437,13 @@ async def retry_failed_calls(
         await db.commit()
 
         # Mark campaigns running and enqueue execution tasks
-        from src.common.job_queue import arq_pool, enqueue_on
+        from src.common.job_queue import arq_pool, enqueue_on, tenant_arg
 
         async with arq_pool() as redis:
             for campaign_id in campaign_ids:
                 await service.update_campaign_status(campaign_id, "running")
-                await enqueue_on(redis, 'execute_campaign_task', str(campaign_id))
+                await enqueue_on(redis, 'execute_campaign_task', str(campaign_id),
+                                 company_id=tenant_arg(current_user.company_id))
 
         logger.info(
             f"Retry-failed: reset {len(call_ids)} calls across "
@@ -661,9 +662,10 @@ async def update_campaign_status(
         
         # Enqueue background task if starting campaign
         if status == "running":
-            from src.common.job_queue import enqueue_job
+            from src.common.job_queue import enqueue_job, tenant_arg
 
-            await enqueue_job('execute_campaign_task', str(campaign_id))
+            await enqueue_job('execute_campaign_task', str(campaign_id),
+                              company_id=tenant_arg(target.company_id))
 
             logger.info(f"Enqueued campaign execution task for {campaign_id}")
         

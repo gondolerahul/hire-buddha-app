@@ -36,12 +36,12 @@ class EmailService:
             return
 
         try:
-            from src.common.database import AsyncSessionLocal
+            from src.common.tenancy.session import control_session
             from src.config.models import IntegrationRegistry
             from src.common.security import decrypt_api_key
             from sqlalchemy import select
 
-            async with AsyncSessionLocal() as db:
+            async with control_session() as db:
                 # Get the APP company ID
                 from src.auth.platform import platform_company_id
                 app_company_id = await platform_company_id(db)

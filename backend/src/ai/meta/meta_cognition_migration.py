@@ -87,9 +87,10 @@ async def backfill_meta_cognition(db: AsyncSession) -> int:
 
 
 async def main() -> None:                                                   # pragma: no cover
-    from src.common.database import AsyncSessionLocal
-    async with AsyncSessionLocal() as db:
-        await backfill_meta_cognition(db)
+    from src.common.tenancy.session import tenant_scopes, tenant_session
+    for scope in await tenant_scopes():  # every tenant database (one pass in single mode)
+        async with tenant_session(scope) as db:
+            await backfill_meta_cognition(db)
 
 
 if __name__ == "__main__":                                                  # pragma: no cover

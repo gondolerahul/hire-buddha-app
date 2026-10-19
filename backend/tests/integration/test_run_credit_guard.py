@@ -143,6 +143,55 @@ async def test_other_runs_holds_count_against_the_breaker(db):
 
 
 @pytest.mark.asyncio
+async def test_a_run_settled_twice_is_charged_once(db):
+    """Settlement is keyed by the run (Phase 14 WS2 2.6): the wallet deduction,
+    the billing event and the hold's settlement commit together, and settling
+    the same run again — a retried finalisation — charges nothing."""
+    from src.ai.governance.governance_service import GovernanceService
+    from src.billing.billing_models import BillingEvent
+
+    company = await _company(db, "5")
+    run, ent = await _run(db, company)
+    await _admit(db, run, ent, "1.00")
+    run.total_cost_usd = Decimal("0.40")
+    run.status = "COMPLETED"
+    await db.flush()
+
+    async def _state():
+        wallet = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == company)
+                                   .execution_options(populate_existing=True))).scalar_one()
+        billed = (await db.execute(select(BillingEvent.total_billing)
+                                   .where(BillingEvent.company_id == company)
+                                   .execution_options(populate_existing=True))).scalars().all()
+        return Decimal(str(wallet.wallet_balance)), [Decimal(str(b)) for b in billed]
+
+    first = await GovernanceService(db, None).settle_billing(run, ent.name)
+    after_first = await _state()
+    second = await GovernanceService(db, None).settle_billing(run, ent.name)
+    assert first > 0 and second == 0
+    assert await _state() == after_first
+    assert after_first[0] == Decimal("5") - first and after_first[1] == [first]
+    hold = await _hold(db, run.id)
+    assert hold.settled_at is not None and hold.released_at is not None
+    assert Decimal(str(hold.billed_amount)) == first
+
+
+@pytest.mark.asyncio
+async def test_a_run_admitted_without_a_hold_is_settled_once_too(db):
+    """A call's run (video frames) has no hold: settlement makes its row."""
+    from src.ai.governance.governance_service import GovernanceService
+
+    company = await _company(db, "5")
+    run, ent = await _run(db, company, status="COMPLETED")
+    run.total_cost_usd = Decimal("0.25")
+    await db.flush()
+    assert await GovernanceService(db, None).settle_billing(run, ent.name) > 0
+    assert await GovernanceService(db, None).settle_billing(run, ent.name) == 0
+    hold = await _hold(db, run.id)
+    assert Decimal(str(hold.amount)) == 0 and hold.settled_at is not None
+
+
+@pytest.mark.asyncio
 async def test_child_runs_are_not_gated_separately(db):
     company = await _company(db, "0")
     parent, ent = await _run(db, company)

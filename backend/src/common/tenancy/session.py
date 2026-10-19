@@ -14,6 +14,8 @@ Code opens a session on the plane whose tables it works with:
   caller may see that company, else the caller's own.
 * ``tenant_db_for(db, company_id)`` — a route that names its company itself
   (a ``company_id`` parameter, the template library).
+* ``control_db_for(db)`` — the control rows of a unit of work that started on
+  a tenant session (a run's settlement, WS2 2.6) in a transaction of their own.
 
 ``TENANCY_MODE=single`` (today): both open on the one database, exactly as
 ``AsyncSessionLocal()`` did — the factory is looked up when the session
@@ -150,6 +152,24 @@ get_tenant_db = _tenant_db_dependency(get_current_user, acting=False)
 get_tenant_db_with_company = _tenant_db_dependency(get_current_user_and_company, acting=False)
 get_acting_tenant_db = _tenant_db_dependency(get_current_user, acting=True)
 get_acting_tenant_db_from_query = _tenant_db_dependency(get_current_user_from_query, acting=True)
+
+
+def is_tenant_session(db: Any) -> bool:
+    """Whether ``db`` is a split-mode tenant session (one ``tenant_session`` opened)."""
+    return bool(getattr(db, "info", {}).get("tenant_key"))
+
+
+@asynccontextmanager
+async def control_db_for(db: AsyncSession) -> AsyncIterator[AsyncSession]:
+    """The control database inside a unit of work that started on ``db``
+    (WS2 2.6): ``db`` itself when it is not a tenant session (single mode, or
+    a control session), else a control session of its own — so the control
+    rows of a run's settlement commit in one transaction of their own."""
+    if not is_tenant_session(db):
+        yield db
+        return
+    async with control_session() as session:
+        yield session
 
 
 @asynccontextmanager

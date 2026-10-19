@@ -1986,11 +1986,13 @@ class TataStreamHandler(BaseStreamHandler):
             f"to={to_number}, custom_id={custom_identifier}"
         )
 
-        # Split tenancy: our DID on the call (dialled inbound, calling outbound)
-        # names the tenant whose database holds its sessions (Phase 14 WS2 2.12).
+        # Split tenancy: the company in our click-to-call reference, else our
+        # DID on the call (dialled inbound, calling outbound) names the tenant
+        # whose database holds its sessions (Phase 14 WS2 2.12).
+        from src.voice.call_tenancy import company_for_numbers, parse_call_reference
+        referenced_company, referenced_session = parse_call_reference(custom_identifier)
         if is_split():
-            from src.voice.call_tenancy import company_for_numbers
-            company_id = await company_for_numbers(self.number_router, to_number, from_number)
+            company_id = referenced_company or await company_for_numbers(self.number_router, to_number, from_number)
             if company_id is None:
                 logger.error(f"No tenant for Tata call: from={from_number}, to={to_number}")
                 return
@@ -2000,8 +2002,9 @@ class TataStreamHandler(BaseStreamHandler):
         # ── Strategy 1: Resume via custom_identifier (campaign flow) ─────────
         if custom_identifier:
             try:
-                from uuid import UUID as _UUID
-                session_id = _UUID(custom_identifier)
+                session_id = referenced_session
+                if session_id is None:
+                    raise ValueError(f"not a call reference: {custom_identifier!r}")
                 existing_session = await self.session_manager.get_voice_session(session_id)
                 if existing_session:
                     logger.info(f"Resuming outbound session via custom_identifier: {session_id}")

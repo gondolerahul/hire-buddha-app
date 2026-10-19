@@ -3,6 +3,10 @@ Partner Router — Enhanced management endpoints for partner_admin users.
 
 Provides tenant health scores, detailed tenant overviews,
 aggregated analytics, and tenant integration configuration.
+
+Companies, users, wallets and integrations are control rows; a tenant's agents
+and runs are in its own database (Phase 14 WS2), read through ``tenant_db_for``
+— one tenant at a time, a tenant whose database is not ready counting none.
 """
 
 import logging
@@ -16,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db, is_split, tenant_db_for
 from src.auth.models import Company, User
 from src.auth.dependencies import get_current_user, RoleChecker
 
@@ -29,7 +33,7 @@ partner_only = RoleChecker(["partner_admin", "app_admin"])
 
 @router.get("/tenants")
 async def list_tenants_with_health(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(partner_only),
 ):
     """
@@ -67,7 +71,7 @@ async def list_tenants_with_health(
 @router.get("/tenants/{tenant_id}/details")
 async def get_tenant_details(
     tenant_id: UUID,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(partner_only),
 ):
     """Deep dive into a specific tenant — integrations, entities, recent executions."""
@@ -103,47 +107,43 @@ async def get_tenant_details(
     except Exception:
         pass
 
-    # Fetch entities
+    # Fetch entities and recent executions (the tenant's own database)
     entities = []
-    try:
-        from src.ai.orm import HierarchicalEntity
-        ent_result = await db.execute(
-            select(HierarchicalEntity).where(
-                HierarchicalEntity.company_id == tenant_id,
-                HierarchicalEntity.is_template == False,
-            ).order_by(HierarchicalEntity.created_at.desc()).limit(20)
-        )
-        for entity in ent_result.scalars().all():
-            entities.append({
-                "id": str(entity.id),
-                "name": entity.name,
-                "type": entity.type.value if hasattr(entity.type, 'value') else str(entity.type),
-                "status": entity.status,
-                "created_at": entity.created_at.isoformat() if entity.created_at else None,
-            })
-    except Exception:
-        pass
-
-    # Fetch recent executions
     executions = []
     try:
-        from src.ai.orm import ExecutionRun
-        exec_result = await db.execute(
-            select(ExecutionRun).where(
-                ExecutionRun.company_id == tenant_id,
-                ExecutionRun.parent_run_id.is_(None),
-            ).order_by(ExecutionRun.created_at.desc()).limit(10)
-        )
-        for run in exec_result.scalars().all():
-            executions.append({
-                "id": str(run.id),
-                "entity_id": str(run.entity_id),
-                "status": run.status,
-                "total_cost_usd": float(run.total_cost_usd) if run.total_cost_usd else 0,
-                "created_at": run.created_at.isoformat() if run.created_at else None,
-            })
+        from src.ai.orm import ExecutionRun, HierarchicalEntity
+        async with tenant_db_for(db, tenant_id) as tenant_db:
+            ent_result = await tenant_db.execute(
+                select(HierarchicalEntity).where(
+                    HierarchicalEntity.company_id == tenant_id,
+                    HierarchicalEntity.is_template == False,
+                ).order_by(HierarchicalEntity.created_at.desc()).limit(20)
+            )
+            for entity in ent_result.scalars().all():
+                entities.append({
+                    "id": str(entity.id),
+                    "name": entity.name,
+                    "type": entity.type.value if hasattr(entity.type, 'value') else str(entity.type),
+                    "status": entity.status,
+                    "created_at": entity.created_at.isoformat() if entity.created_at else None,
+                })
+
+            exec_result = await tenant_db.execute(
+                select(ExecutionRun).where(
+                    ExecutionRun.company_id == tenant_id,
+                    ExecutionRun.parent_run_id.is_(None),
+                ).order_by(ExecutionRun.created_at.desc()).limit(10)
+            )
+            for run in exec_result.scalars().all():
+                executions.append({
+                    "id": str(run.id),
+                    "entity_id": str(run.entity_id),
+                    "status": run.status,
+                    "total_cost_usd": float(run.total_cost_usd) if run.total_cost_usd else 0,
+                    "created_at": run.created_at.isoformat() if run.created_at else None,
+                })
     except Exception:
-        pass
+        logger.warning("Partner view: agents and runs of tenant %s not read", tenant_id, exc_info=True)
 
     # Fetch users
     users = []
@@ -169,7 +169,7 @@ async def get_tenant_details(
 
 @router.get("/analytics/summary")
 async def get_partner_analytics(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(partner_only),
 ):
     """Aggregated analytics across all tenants managed by this partner."""
@@ -195,33 +195,8 @@ async def get_partner_analytics(
             "suspended_tenants": 0,
         }
 
-    # Aggregate entity count
-    try:
-        from src.ai.orm import HierarchicalEntity
-        ent_count = await db.execute(
-            select(func.count(HierarchicalEntity.id)).where(
-                HierarchicalEntity.company_id.in_(tenant_ids)
-            )
-        )
-        total_entities = ent_count.scalar() or 0
-    except Exception:
-        total_entities = 0
-
-    # Aggregate execution count and cost
-    try:
-        from src.ai.orm import ExecutionRun
-        exec_result = await db.execute(
-            select(
-                func.count(ExecutionRun.id),
-                func.coalesce(func.sum(ExecutionRun.total_cost_usd), 0),
-            ).where(ExecutionRun.company_id.in_(tenant_ids))
-        )
-        row = exec_result.one()
-        total_executions = row[0] or 0
-        total_cost = float(row[1])
-    except Exception:
-        total_executions = 0
-        total_cost = 0.0
+    # Aggregate entity count, execution count and cost (tenant databases)
+    total_entities, total_executions, total_cost = await _tenant_totals(db, tenant_ids)
 
     # Aggregate wallet balance
     total_wallet = 0.0
@@ -258,6 +233,33 @@ async def get_partner_analytics(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int, int, float]:
+    """Agents, runs and the runs' cost of ``tenant_ids``: one query on the
+    shared database (single mode), one per tenant database (split mode)."""
+    from src.ai.orm import ExecutionRun, HierarchicalEntity
+
+    scopes = [(tid, [tid]) for tid in tenant_ids] if is_split() else [(None, tenant_ids)]
+    entities, executions, cost = 0, 0, 0.0
+    for scope, ids in scopes:
+        try:
+            async with tenant_db_for(db, scope) as tenant_db:
+                entities += (await tenant_db.execute(
+                    select(func.count(HierarchicalEntity.id)).where(HierarchicalEntity.company_id.in_(ids))
+                )).scalar() or 0
+                row = (await tenant_db.execute(
+                    select(
+                        func.count(ExecutionRun.id),
+                        func.coalesce(func.sum(ExecutionRun.total_cost_usd), 0),
+                    ).where(ExecutionRun.company_id.in_(ids))
+                )).one()
+                executions += row[0] or 0
+                cost += float(row[1])
+        except Exception:
+            logger.warning("Partner analytics: agents and runs of %s not read", scope or "the tenants",
+                           exc_info=True)
+    return entities, executions, cost
+
 
 async def _build_tenant_summary(db: AsyncSession, tenant: Company) -> dict:
     """Build a health-scored summary for a single tenant."""
@@ -306,37 +308,36 @@ async def _build_tenant_summary(db: AsyncSession, tenant: Company) -> dict:
     except Exception:
         summary["integration_count"] = 0
 
-    # 3. Active agents (0-25 pts)
+    # 3. Active agents (0-25 pts) and 4. recent executions — last 7 days
+    # (0-25 pts): the tenant's own database
+    summary["entity_count"] = 0
+    summary["recent_executions_7d"] = 0
     try:
-        from src.ai.orm import HierarchicalEntity
-        agent_count = await db.execute(
-            select(func.count(HierarchicalEntity.id)).where(
-                HierarchicalEntity.company_id == tenant.id,
-                HierarchicalEntity.is_template == False,
-            )
-        )
-        count = agent_count.scalar() or 0
-        summary["entity_count"] = count
-        health_score += min(25, count * 5)  # 5+ entities = full score
-    except Exception:
-        summary["entity_count"] = 0
-
-    # 4. Recent executions — last 7 days (0-25 pts)
-    try:
-        from src.ai.orm import ExecutionRun
+        from src.ai.orm import ExecutionRun, HierarchicalEntity
         from datetime import timedelta
         week_ago = datetime.utcnow() - timedelta(days=7)
-        exec_count = await db.execute(
-            select(func.count(ExecutionRun.id)).where(
-                ExecutionRun.company_id == tenant.id,
-                ExecutionRun.created_at >= week_ago,
+        async with tenant_db_for(db, tenant.id) as tenant_db:
+            agent_count = await tenant_db.execute(
+                select(func.count(HierarchicalEntity.id)).where(
+                    HierarchicalEntity.company_id == tenant.id,
+                    HierarchicalEntity.is_template == False,
+                )
             )
-        )
-        count = exec_count.scalar() or 0
-        summary["recent_executions_7d"] = count
-        health_score += min(25, count * 2.5)  # 10+ executions = full score
+            count = agent_count.scalar() or 0
+            summary["entity_count"] = count
+            health_score += min(25, count * 5)  # 5+ entities = full score
+
+            exec_count = await tenant_db.execute(
+                select(func.count(ExecutionRun.id)).where(
+                    ExecutionRun.company_id == tenant.id,
+                    ExecutionRun.created_at >= week_ago,
+                )
+            )
+            count = exec_count.scalar() or 0
+            summary["recent_executions_7d"] = count
+            health_score += min(25, count * 2.5)  # 10+ executions = full score
     except Exception:
-        summary["recent_executions_7d"] = 0
+        logger.warning("Partner view: agents and runs of tenant %s not read", tenant.id, exc_info=True)
 
     # User count
     user_count = await db.execute(

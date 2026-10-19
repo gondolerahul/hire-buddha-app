@@ -84,11 +84,13 @@ async def reseed(target_company_id: Optional[str] = None) -> dict[str, int]:
     from sqlalchemy import String, or_, select
     from src.ai.meta.meta_agent_template import generate_meta_agent_template
     from src.ai.orm import HierarchicalEntity
-    from src.common.database import AsyncSessionLocal
+    from src.common.tenancy.session import tenant_session
 
     template = generate_meta_agent_template()
     updated = skipped = 0
-    async with AsyncSessionLocal() as db:
+    # The company's database (split mode needs ``target_company_id``); single
+    # mode: the one database, every company's MetaAgent.
+    async with tenant_session(target_company_id) as db:
         q = select(HierarchicalEntity).where(
             or_(
                 HierarchicalEntity.name == "MetaAgent",

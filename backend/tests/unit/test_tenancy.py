@@ -599,6 +599,30 @@ async def test_split_mode_a_named_company_opens_its_database(split, opened):
     assert opened == [company]
 
 
+async def test_a_units_control_rows_get_their_own_session_only_from_a_tenant_session(monkeypatch):
+    """WS2 2.6: a settlement started on a tenant session commits its control
+    rows in a control session of its own; on any other session, that one."""
+    from contextlib import asynccontextmanager
+
+    controls = []
+
+    def _control():
+        @asynccontextmanager
+        async def _open():
+            controls.append("control")
+            yield "control-db"
+        return _open()
+
+    monkeypatch.setattr(tsession, "control_session", _control)
+    shared = SimpleNamespace(info={})
+    async with tsession.control_db_for(shared) as session:
+        assert session is shared
+    tenant = SimpleNamespace(info={"company_id": uuid.uuid4(), "tenant_key": "devbeta001"})
+    async with tsession.control_db_for(tenant) as session:
+        assert session == "control-db"
+    assert controls == ["control"]
+
+
 # ── Migration runner ────────────────────────────────────────────────────────
 
 def test_the_models_schema_version_is_the_same_in_every_process():

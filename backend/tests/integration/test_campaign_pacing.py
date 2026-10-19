@@ -34,7 +34,7 @@ def dialer(db, monkeypatch):
     placed, continued = [], []
 
     @asynccontextmanager
-    async def _session():
+    async def _session(*_a):
         yield db
 
     async def _place(cls, campaign_data, call_info):
@@ -47,7 +47,7 @@ def dialer(db, monkeypatch):
     async def _admit(*_a, **_k):
         return None
 
-    async def _continue(campaign_id, delay):
+    async def _continue(campaign_id, delay, company_id=None):
         continued.append((campaign_id, delay))
 
     real_sleep = asyncio.sleep
@@ -55,7 +55,8 @@ def dialer(db, monkeypatch):
     async def _no_sleep(delay, *a, **k):
         await real_sleep(0)
 
-    monkeypatch.setattr(campaign_executor, "AsyncSessionLocal", _session)
+    monkeypatch.setattr(campaign_executor, "tenant_session", _session)
+    monkeypatch.setattr(campaign_executor, "control_session", _session)
     monkeypatch.setattr(campaign_executor, "call_refusal", _admit)
     monkeypatch.setattr(CampaignExecutor, "_place_call_safe", classmethod(_place))
     monkeypatch.setattr(campaign_pacing, "schedule_continuation", _continue)

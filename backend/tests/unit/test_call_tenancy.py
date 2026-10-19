@@ -54,6 +54,29 @@ def test_media_stream_paths_name_the_company_only_in_split_mode(monkeypatch):
     assert call_tenancy.tenant_query(session.company_id) == f"company={session.company_id}"
 
 
+def test_callback_urls_and_tata_references_name_the_company_only_in_split_mode(monkeypatch):
+    from src.common.config import settings
+
+    company, session = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(settings, "TENANCY_MODE", "single")
+    assert call_tenancy.with_tenant("/webhooks/voice/twilio/status", company) == "/webhooks/voice/twilio/status"
+    assert call_tenancy.call_reference(company, session) == str(session)
+    monkeypatch.setattr(settings, "TENANCY_MODE", "split")
+    assert call_tenancy.with_tenant("/status", company) == f"/status?company={company}"
+    assert call_tenancy.with_tenant("/twiml?session_id=1", company) == f"/twiml?session_id=1&company={company}"
+    assert call_tenancy.with_tenant("/status", None) == "/status"
+    assert call_tenancy.call_reference(company, session) == f"{company}.{session}"
+
+
+def test_a_tata_reference_reads_back_in_either_form():
+    company, session = uuid.uuid4(), uuid.uuid4()
+    assert call_tenancy.parse_call_reference(f"{company}.{session}") == (company, session)
+    assert call_tenancy.parse_call_reference(str(session)) == (None, session)  # single mode, or older calls
+    assert call_tenancy.parse_call_reference("null") == (None, None)
+    assert call_tenancy.parse_call_reference(None) == (None, None)
+    assert call_tenancy.parse_call_reference("not.an-id") == (None, None)
+
+
 async def test_single_mode_never_looks_a_tenant_up(single):
     numbers = _Numbers({"+15550001": uuid.uuid4()})
     assert await call_tenancy.call_company(numbers, str(uuid.uuid4()), "+15550001") is None
@@ -159,6 +182,28 @@ async def test_the_tata_stream_moves_to_the_tenant_of_its_did(monkeypatch, split
         await handler._handle_tata_start_event(
             {"start": {"streamSid": "S1", "callSid": "C1", "from": "+15550009", "to": "+15550001"}})
     assert moved == [beta]
+
+
+async def test_the_tata_stream_moves_to_the_tenant_its_reference_names(monkeypatch, split):
+    """A campaign's click-to-call carries ``<company>.<session>``: that company
+    wins over the numbers, which are not even looked up."""
+    from src.voice import websocket_handler
+
+    acme, beta = uuid.uuid4(), uuid.uuid4()
+    moved = []
+    handler = websocket_handler.TataStreamHandler.__new__(websocket_handler.TataStreamHandler)
+    handler.number_router = _Numbers({"+15550001": beta})
+
+    async def _use_tenant(company_id):
+        moved.append(company_id)
+        raise _Stop
+
+    handler._use_tenant = _use_tenant
+    with pytest.raises(_Stop):
+        await handler._handle_tata_start_event({"start": {
+            "from": "+15550009", "to": "+15550001",
+            "customParameters": {"custom_identifier": f"{acme}.{uuid.uuid4()}"}}})
+    assert moved == [acme] and handler.number_router.asked == []
 
 
 async def test_the_tata_stream_gives_up_on_a_call_no_tenant_owns(split):

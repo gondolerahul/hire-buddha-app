@@ -64,6 +64,12 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
+# Split tenancy: a company whose database is not ready yet (being provisioned,
+# or never requested) gets a 503 that says so, not a 500 (Phase 14 WS2 2.9).
+from src.common.tenancy.errors import install_tenancy_error_handlers  # noqa: E402
+
+install_tenancy_error_handlers(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -189,6 +195,8 @@ mount_optional(app, "src.gateway.status")               # GET /metrics/gateway
 mount_optional(app, "src.automation.api")                # /api/v1/automation/*, /api/v1/admin/automation/*
 mount_optional(app, "src.notifications.router")         # /api/v1/notifications
 mount_optional(app, "src.data_api.platform_router")     # /api/v1/records/token, /api/v1/data-keys
+# Tenant databases (Phase 14 WS2): the caller's workspace, and provisioning for staff
+mount_optional(app, "src.common.tenancy.api")             # /api/v1/workspace, /api/v1/admin/tenants*
 
 # The Data API (WS4, tech spec §9): a business's records at /data/v1/…; it also
 # runs on its own (src.data_api.main), one per business in Kubernetes.

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.auth.router import get_current_user
 from src.auth.dependencies import RoleChecker
 from src.auth.models import User
@@ -76,7 +76,7 @@ class SubscriptionTierUpdate(BaseModel):
 @router.get("/balance", summary="Get credit wallet balance")
 async def get_balance(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     svc = CreditService(db)
     return await svc.get_balance(current_user.company_id)
@@ -88,7 +88,7 @@ async def get_balance(
 async def initiate_topup(
     payload: TopUpRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     creds = await _get_razorpay_creds(db)
     if not creds:
@@ -142,7 +142,7 @@ async def initiate_topup(
 async def verify_topup(
     payload: TopUpVerify,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     creds = await _get_razorpay_creds(db)
     if not creds:
@@ -178,7 +178,7 @@ async def verify_topup(
 async def list_subscription_tiers(
     include_inactive: bool = Query(False, description="app_admin only: archived tiers too"),
     current_user: User = Depends(get_current_user),  # BC-20: was open to anyone
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     # The Billing Settings page manages archived tiers too (BC-30); everyone
     # else sees the plans on offer.
@@ -203,7 +203,7 @@ async def list_subscription_tiers(
 async def create_subscription_tier(
     payload: SubscriptionTierCreate,
     current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
 
     tier = SubscriptionTier(
@@ -229,7 +229,7 @@ async def update_subscription_tier(
     tier_id: UUID,
     payload: SubscriptionTierUpdate,
     current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
 
     result = await db.execute(select(SubscriptionTier).where(SubscriptionTier.id == tier_id))
@@ -257,7 +257,7 @@ async def update_subscription_tier(
 async def delete_subscription_tier(
     tier_id: UUID,
     current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
 
     result = await db.execute(select(SubscriptionTier).where(SubscriptionTier.id == tier_id))
@@ -341,7 +341,7 @@ async def _plan_for_tier(db: AsyncSession, client, tier: SubscriptionTier) -> st
 @router.get("/subscriptions", summary="Get current subscription info")
 async def get_subscription(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     sub = await _live_subscription(db, current_user.company_id)
     if not sub:
@@ -353,7 +353,7 @@ async def get_subscription(
 async def create_subscription(
     payload: SubscriptionCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     result = await db.execute(
         select(SubscriptionTier).where(
@@ -420,7 +420,7 @@ class SubscriptionVerify(BaseModel):
 async def verify_subscription(
     payload: SubscriptionVerify,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     creds = await _get_razorpay_creds(db)
     if not creds:
@@ -465,7 +465,7 @@ async def verify_subscription(
 async def cancel_subscription(
     subscription_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
     result = await db.execute(
         select(Subscription).where(

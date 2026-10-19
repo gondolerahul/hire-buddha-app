@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from uuid import UUID
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.auth.models import Company, User
 from src.auth.schemas import OnboardingStatusResponse, OnboardingStepRequest
 from src.auth.dependencies import get_current_user
@@ -37,7 +37,7 @@ ONBOARDING_STEPS = [
 
 @router.get("/status", response_model=OnboardingStatusResponse)
 async def get_onboarding_status(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Return the current onboarding progress for the caller's company."""
@@ -66,7 +66,7 @@ async def get_onboarding_status(
 async def complete_onboarding_step(
     step_name: str,
     body: OnboardingStepRequest = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Mark an onboarding step as completed and persist any step-specific data."""
@@ -119,7 +119,7 @@ async def complete_onboarding_step(
 
 @router.post("/complete", response_model=OnboardingStatusResponse)
 async def finalize_onboarding(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Finalize onboarding — sets status to 'completed'."""
@@ -151,7 +151,7 @@ async def finalize_onboarding(
 
 @router.post("/skip")
 async def skip_onboarding(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user),
 ):
     """Allow a user to skip onboarding entirely — sets status to completed."""

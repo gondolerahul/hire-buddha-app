@@ -38,17 +38,18 @@ async def tata_websocket_incoming(websocket: WebSocket):
     protocol: connected → start → media (loop) → stop. The HTTP webhook on the
     same path is served by voice/webhook_router.py.
     """
-    from src.common.database import get_db
+    from src.common.tenancy.session import control_session
     from src.voice.websocket_handler import TataStreamHandler
 
     await websocket.accept()
     logger.info("[Streams] Tata Tele WebSocket connection accepted")
 
     try:
-        async for db in get_db():
+        # Starts on the control database (our numbers); in split mode the
+        # handler moves to the call's tenant once the start event names it.
+        async with control_session() as db:
             handler = TataStreamHandler(websocket=websocket, db=db)
             await handler.handle_direct()
-            break
     except Exception as e:
         logger.error(f"[Streams] Tata Tele WebSocket error: {e}", exc_info=True)
         try:
@@ -94,8 +95,7 @@ async def tata_stream_websocket(websocket: WebSocket, session_id: str):
 
 async def _twilio_compatible_stream(websocket: WebSocket, session_id: str, provider: str,
                                     company_id: Optional[str] = None) -> None:
-    from src.common.database import get_db
-    from src.common.tenancy.session import tenant_db_for
+    from src.common.tenancy.session import control_session, tenant_db_for
     from src.voice.websocket_handler import TwilioStreamHandler
 
     await websocket.accept()
@@ -104,9 +104,9 @@ async def _twilio_compatible_stream(websocket: WebSocket, session_id: str, provi
     try:
         session_uuid = UUID(session_id)
         company_uuid = UUID(company_id) if company_id else None
-        async for db in get_db():
+        async with control_session() as db:
             # The session's tenant database (split mode; a path without the
-            # company is refused there). Single mode: the request's session.
+            # company is refused there). Single mode: this one session.
             async with tenant_db_for(db, company_uuid) as call_db:
                 handler = TwilioStreamHandler(
                     websocket=websocket,
@@ -114,7 +114,6 @@ async def _twilio_compatible_stream(websocket: WebSocket, session_id: str, provi
                     db=call_db,
                 )
                 await handler.handle()
-            break
     except ValueError:
         logger.error(f"[Streams] Invalid {provider} session ID: {session_id}")
         await websocket.close()

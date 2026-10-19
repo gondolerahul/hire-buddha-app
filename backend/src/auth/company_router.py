@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
 from uuid import UUID
-from src.common.database import get_db
+from src.common.tenancy.session import get_control_db
 from src.auth.models import Company, User
 from src.auth.schemas import CompanyCreate, CompanyResponse, CompanyUpdate
 from src.auth.dependencies import get_current_user, RoleChecker
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/companies", tags=["companies"])
 
 @router.get("", response_model=List[CompanyResponse])
 async def list_companies(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user)
 ):
     """The companies the caller can see: all (app_admin), own + tenants (partners), or own."""
@@ -27,7 +27,7 @@ async def list_companies(
 
 @router.get("/partners", response_model=List[CompanyResponse])
 async def get_partners(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(RoleChecker(["app_admin"]))
 ):
     result = await db.execute(select(Company).filter(Company.type == "PARTNER"))
@@ -35,7 +35,7 @@ async def get_partners(
 
 @router.get("/tenants", response_model=List[CompanyResponse])
 async def get_tenants(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(RoleChecker(["app_admin", "partner_admin"]))
 ):
     if current_user.role == "app_admin":
@@ -51,7 +51,7 @@ async def get_tenants(
 @router.post("", response_model=CompanyResponse)
 async def create_company(
     company: CompanyCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(RoleChecker(["app_admin", "partner_admin"]))
 ):
     # Validation logic
@@ -95,13 +95,15 @@ async def create_company(
 
     await db.commit()
     await db.refresh(new_company)
+    from src.auth.service import request_workspace
+    await request_workspace(new_company.id)  # split tenancy: its own database (WS2 2.9)
     return new_company
 
 @router.patch("/{company_id}", response_model=CompanyResponse)
 async def update_company(
     company_id: UUID,
     company_update: CompanyUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(get_current_user)
 ):
     """Rename a company, set its time zone, or change its status (AU-03, AU-15).
