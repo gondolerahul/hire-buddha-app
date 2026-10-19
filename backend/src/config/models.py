@@ -72,7 +72,7 @@ def needs_api_key(provider_name: str | None, service_metadata: dict | None = Non
 class IntegrationRegistry(ControlBase):
     __tablename__ = "integration_registry"
     # The category CHECK is added NOT VALID by its migration and validated when
-    # the table held no other value; see migrations/versions/p9_service_category.py.
+    # the table held no other value; see migrations/legacy/versions/p9_service_category.py.
     __table_args__ = (
         UniqueConstraint('company_id', 'service_sku', name='uq_integration_company_sku'),
         CheckConstraint(
@@ -123,8 +123,8 @@ class ModelTaskDefault(ControlBase):
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
-    task_type = Column(String(50), nullable=False)       # e.g., "text_generation"
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    task_type = Column(String(50), nullable=False, index=True)       # e.g., "text_generation"
     integration_id = Column(UUID(as_uuid=True), ForeignKey("integration_registry.id"), nullable=False)
     fallback_integration_id = Column(UUID(as_uuid=True), ForeignKey("integration_registry.id", ondelete="SET NULL"),
                                      nullable=True)

@@ -212,7 +212,8 @@ backups:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 2Gi }
 
-# alembic upgrade head before the release's pods start (Helm hook).
+# The migration runner before the release's pods start (Helm hook): the control
+# database, then (TENANCY_MODE=split) every tenant database.
 migrations:
   enabled: true
   activeDeadlineSeconds: 900

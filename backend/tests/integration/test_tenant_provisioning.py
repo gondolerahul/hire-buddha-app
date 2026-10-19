@@ -129,7 +129,7 @@ async def _log(company_id):
 async def test_a_company_is_provisioned_to_active_and_its_database_has_its_tables(company, control, monkeypatch):
     from src.common.tenancy import provisioner
     from src.common.tenancy.directory import directory
-    from src.common.tenancy.migrate import models_schema_version
+    from src.common.tenancy.migrate import tenant_schema_version
     from src.common.tenancy.session import tenant_session
 
     entry = await provisioner.request_tenant(company["id"], server_name=company["server"])
@@ -143,12 +143,12 @@ async def test_a_company_is_provisioned_to_active_and_its_database_has_its_table
                         "keys_ready": "skipped", "namespace_ready": "skipped", "storage_ready": "succeeded",
                         "data_api_ready": "skipped", "active": "succeeded"}
     migrated = next(s for s in result["steps"] if s["step"] == "migrated")["detail"]
-    assert migrated["platform_schema_version"] == models_schema_version()
+    assert migrated["platform_schema_version"] == tenant_schema_version()
     assert {"account", "contact", "activity", "consent"} <= set(migrated["objects"])
     assert f"t-{entry.tenant_key}/workspace.json" in control.objects
 
     location = await directory.get(company["id"])
-    assert location.status == "active" and location.schema_version == models_schema_version()
+    assert location.status == "active" and location.schema_version == tenant_schema_version()
     monkeypatch.setattr("src.common.config.settings.TENANCY_MODE", "split")
     async with tenant_session(company["id"]) as db:
         database_name, schema = (await db.execute(text("SELECT current_database(), current_schema()"))).one()

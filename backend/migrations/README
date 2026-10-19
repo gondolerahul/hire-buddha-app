@@ -1,1 +1,25 @@
-Generic single-database configuration.
+Two Alembic trees, one per plane (Phase 14 WS2 2.7; envlib.py says how they run):
+
+  control/           the control tables            alembic.ini [alembic]          version table alembic_version
+  tenant_platform/   a tenant's tables             alembic.ini [tenant_platform]  alembic_version_tenant_platform
+                     (schema platform of each tenant database; public of the shared database in single mode)
+
+Run them with the runner, from backend/:
+
+  python -m src.common.tenancy.migrate control    # control tree; in TENANCY_MODE=single the tenant tree too
+  python -m src.common.tenancy.migrate tenants    # every tenant database, in parallel batches
+  python -m src.common.tenancy.migrate all        # what a deploy runs
+
+A change to a tenant table is a revision in tenant_platform/versions, to a control
+table one in control/versions (revision ids of at most 32 characters). Autogenerate
+against a database at the tree's head:
+
+  alembic -n tenant_platform -x database=t_devacme01 revision --autogenerate -m "..."
+  alembic revision --autogenerate -m "..."
+
+legacy/ is the old single chain (alembic -n legacy), squashed into the two baselines
+at p14_run_settlement and frozen: nothing new goes there. `migrate control` runs it to
+bring a database still on it (production's) to that revision, checks the database
+equals what the trees build, and stamps the baselines. It is deleted once production
+has crossed. kpi_rollup_view.py and sql_script.py are helpers its revisions (and new
+ones) import.

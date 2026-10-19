@@ -11,7 +11,7 @@ cd hb-proto-3/backend
 poetry install                       # or `python -m venv .venv && pip install -r requirements`
 cp .env.example .env                 # ask the team for dev secrets
 docker compose up -d                 # postgres + redis
-alembic upgrade head
+python -m src.common.tenancy.migrate control
 ```
 
 Smoke-test the worker boots:

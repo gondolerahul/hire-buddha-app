@@ -1,6 +1,6 @@
 """Every ORM module is in the shared model list, and SQL files split cleanly (DM-21).
 
-``migrations/env.py`` kept its own import list and had lost
+``migrations/env.py`` (the old chain's) kept its own import list and had lost
 ``voice.phone_pool_models``, so autogenerate could not see ``phone_numbers``.
 Alembic and the schema census now both use ``src.common.orm_models``; this test
 fails when a module that declares a table is missing from it.
@@ -37,9 +37,11 @@ def test_every_registered_module_declares_a_table():
     assert sorted(set(MODEL_MODULES) - _declaring_modules()) == []
 
 
-def test_env_py_uses_the_registry():
-    env = (BACKEND / "migrations" / "env.py").read_text(encoding="utf-8")
-    assert "target_metadata = import_all_models()" in env
+def test_the_migration_trees_use_the_registry():
+    """Both trees' env compares its plane's tables (``bases.plane_tables`` reads the registry)."""
+    envlib = (BACKEND / "migrations" / "envlib.py").read_text(encoding="utf-8")
+    bases = (BACKEND / "src" / "common" / "tenancy" / "bases.py").read_text(encoding="utf-8")
+    assert "plane_tables(" in envlib and "import_all_models()" in bases
 
 
 def _sql_script():

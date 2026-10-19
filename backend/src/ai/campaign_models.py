@@ -6,7 +6,7 @@ Stores campaign metadata, execution state, and call tracking.
 from datetime import datetime
 from uuid import uuid4
 from sqlalchemy import (
-    Column, String, Integer, Boolean, DateTime, Text, ForeignKey, case
+    Column, String, Integer, Boolean, DateTime, Text, ForeignKey, Index, case
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -50,6 +50,12 @@ def campaign_call_sort_order():
 class Campaign(TenantBase):
     """Voice calling campaign model."""
     __tablename__ = "campaigns"
+    __table_args__ = (
+        Index("idx_campaigns_company", "company_id"),
+        Index("idx_campaigns_agent", "agent_id"),
+        Index("idx_campaigns_status", "status"),
+        Index("idx_campaigns_created_by", "created_by"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
@@ -108,6 +114,14 @@ class Campaign(TenantBase):
 class CampaignCall(TenantBase):
     """Individual call within a campaign."""
     __tablename__ = "campaign_calls"
+    __table_args__ = (
+        Index("idx_campaign_calls_campaign", "campaign_id"),
+        Index("idx_campaign_calls_status", "status"),
+        Index("idx_campaign_calls_disposition", "disposition"),
+        Index("idx_campaign_calls_voice_session", "voice_session_id"),
+        # The lease sweep: claimed calls of a campaign whose lease has run out.
+        Index("ix_campaign_calls_lease", "campaign_id", "status", "lease_expires_at"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id"), nullable=False)

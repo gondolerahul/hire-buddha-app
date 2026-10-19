@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Integer, Boolean, DateTime, ForeignKey,
-    Numeric, BigInteger
+    Numeric, BigInteger, Index
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -32,6 +32,14 @@ class Artifact(TenantBase):
     local file.
     """
     __tablename__ = "artifacts"
+    __table_args__ = (
+        Index("idx_artifacts_company", "company_id"),
+        Index("idx_artifacts_campaign", "campaign_id"),
+        Index("idx_artifacts_agent", "agent_id"),
+        Index("idx_artifacts_origin", "origin"),
+        Index("idx_artifacts_file_category", "file_category"),
+        Index("idx_artifacts_created_at", "created_at"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
@@ -77,6 +85,11 @@ class CallLog(TenantBase):
     Telephony call metadata for call intelligence and reporting.
     """
     __tablename__ = "call_logs"
+    __table_args__ = (
+        Index("idx_call_logs_company", "company_id"),
+        Index("idx_call_logs_agent", "agent_id"),
+        Index("idx_call_logs_created_at", "created_at"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))
@@ -103,6 +116,7 @@ class CallContent(TenantBase):
     Transcript and summary for a call, with a reference to the audio recording artifact.
     """
     __tablename__ = "call_content"
+    __table_args__ = (Index("idx_call_content_call_log", "call_log_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     call_log_id = Column(UUID(as_uuid=True), ForeignKey("call_logs.id"), nullable=False)

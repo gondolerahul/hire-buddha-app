@@ -6,7 +6,7 @@ Each company can connect multiple social media accounts across platforms.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, DateTime, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from src.common.tenancy.bases import TenantBase, refers_to
 
@@ -27,6 +27,7 @@ class SocialConnection(TenantBase):
             "company_id", "platform", "platform_user_id",
             name="uq_social_connection_company_platform_user",
         ),
+        Index("ix_social_connections_company_platform", "company_id", "platform"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

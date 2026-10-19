@@ -1,15 +1,17 @@
-"""A database built by ``alembic upgrade head`` matches the ORM (DM-20, DM-I9, DM-21).
+"""A database built by the migration trees matches the ORM (DM-20, DM-I9, DM-21; Phase 14 WS2 2.7).
 
-Builds a scratch database from the migration chain alone — the way a fresh
-deploy does — and compares it with every table the ORM declares
+Builds a scratch shared database the way a fresh single-mode deploy does —
+``python -m src.common.tenancy.migrate control``: the control tree, then the
+tenant tree in ``public`` — and compares it with every table the ORM declares
 (``src.common.orm_models``): tables, columns, column types, declared indexes and
 unique constraints.
 Before DM-21 the chain stopped at ``m0b1e0d1a100`` (asyncpg rejected its
 multi-statement SQL), and past it the database lacked ``subscription_tiers``,
 ``phone_numbers`` and eleven columns that had only been created by hand.
 
-Slow (the whole chain runs, ~30 s), so it is marked ``slow``. Nullability is not
-compared: six columns differ harmlessly (see ``03-data-model.md`` §17).
+Marked ``slow``. Nullability is not compared: four CORTEX columns differ
+harmlessly (``migrations/envlib.py``); ``alembic check`` in
+``test_migration_trees.py`` compares everything else, both ways.
 """
 from __future__ import annotations
 
@@ -29,7 +31,8 @@ BACKEND = Path(__file__).resolve().parents[2]
 
 # Tables the database may hold without an ORM model, and why.
 DB_ONLY_TABLES: dict[str, str] = {
-    "alembic_version": "Alembic's own bookkeeping",
+    "alembic_version": "Alembic's own bookkeeping (the control tree)",
+    "alembic_version_tenant_platform": "Alembic's own bookkeeping (the tenant tree, in public in single mode)",
 }
 # Columns the database may hold without an ORM attribute, and why.
 DB_ONLY_COLUMNS: dict[tuple[str, str], str] = {}
@@ -48,12 +51,16 @@ def _foreign_keys(insp, table: str) -> set[tuple]:
             for fk in insp.get_foreign_keys(table) if len(fk["constrained_columns"]) == 1}
 
 
-def _alembic(url: str, *args: str) -> None:
-    env = {**os.environ, "CONTROL_DATABASE_URL": url, "DATABASE_URL": url,
+def _run(url: str, *args: str) -> None:
+    env = {**os.environ, "CONTROL_DATABASE_URL": url, "DATABASE_URL": url, "TENANCY_MODE": "single",
            "PYTHONUTF8": "1", "OTEL_SDK_DISABLED": "true"}
-    result = subprocess.run([sys.executable, "-m", "alembic", *args], cwd=BACKEND, env=env,
+    result = subprocess.run([sys.executable, "-m", *args], cwd=BACKEND, env=env,
                             capture_output=True, text=True, timeout=600)
-    assert result.returncode == 0, f"alembic {' '.join(args)} failed:\n{result.stderr[-4000:]}"
+    assert result.returncode == 0, f"{' '.join(args)} failed:\n{result.stderr[-4000:]}"
+
+
+def _alembic(url: str, *args: str) -> None:
+    _run(url, "alembic", *args)
 
 
 @pytest.fixture(scope="module")
@@ -83,7 +90,7 @@ def fresh_database_url():
         infra_unavailable(f"cannot create a scratch database: {exc}")
     url = base.set(database=name).render_as_string(hide_password=False)
     try:
-        _alembic(url, "upgrade", "head")
+        _run(url, "src.common.tenancy.migrate", "control")
         yield url
     finally:
         asyncio.run(admin(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
@@ -192,7 +199,7 @@ def test_every_declared_unique_constraint_exists(census):
 def test_the_reasons_are_not_stale(census):
     """An allow-list entry whose table or column is gone must be removed."""
     _, live, _ = census
-    assert [t for t in DB_ONLY_TABLES if t != "alembic_version" and t not in live] == []
+    assert [t for t in DB_ONLY_TABLES if not t.startswith("alembic_version") and t not in live] == []
     assert [c for c in DB_ONLY_COLUMNS if c[1] not in live.get(c[0], {}).get("columns", {})] == []
 
 
@@ -211,10 +218,65 @@ def test_no_foreign_key_crosses_the_planes(census):
     assert crossing == []
 
 
-def test_the_cross_plane_keys_come_back_on_downgrade_and_go_again(fresh_database_url):
+# ── The old chain (``alembic -n legacy``), squashed into the trees at ``p14_run_settlement`` ──
+
+@pytest.fixture(scope="module")
+def legacy_database_url(fresh_database_url):
+    """A scratch database built by the old chain (``migrations/legacy``, ~50 s)."""
+    import asyncio
+
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    base = make_url(fresh_database_url)
+    name = f"census_old_{uuid.uuid4().hex[:8]}"
+    admin_dsn = base.set(drivername="postgresql", database="postgres").render_as_string(hide_password=False)
+
+    async def admin(sql: str) -> None:
+        conn = await asyncpg.connect(admin_dsn)
+        try:
+            await conn.execute(sql)
+        finally:
+            await conn.close()
+
+    asyncio.run(admin(f'CREATE DATABASE "{name}"'))
+    url = base.set(database=name).render_as_string(hide_password=False)
+    try:
+        _alembic(url, "-n", "legacy", "upgrade", "head")
+        yield url
+    finally:
+        asyncio.run(admin(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+
+
+def _catalog(url: str, schema: str = "public") -> dict:
+    import asyncio
+
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    from src.common.tenancy.schema_catalog import catalog
+
+    async def read():
+        conn = await asyncpg.connect(make_url(url).set(drivername="postgresql").render_as_string(hide_password=False))
+        try:
+            return await catalog(conn, schema)
+        finally:
+            await conn.close()
+
+    return asyncio.run(read())
+
+
+def test_the_trees_build_what_the_old_chain_built(fresh_database_url, legacy_database_url):
+    """Every column, default, constraint, index, enum type and the view, as Postgres prints them."""
+    from src.common.tenancy.schema_catalog import differences
+
+    assert differences(_catalog(legacy_database_url), _catalog(fresh_database_url)) == []
+
+
+def test_the_cross_plane_keys_come_back_on_downgrade_and_go_again(legacy_database_url):
     """``p14_drop_cross_plane_fks`` restores each key the models now record as a
     reference (``bases.refers_to()``), with its ON DELETE action, and drops them
-    again. Last in the module: the database ends at head again."""
+    again. The database ends at the old chain's head again."""
     import asyncio
 
     from sqlalchemy import inspect
@@ -228,7 +290,7 @@ def test_the_cross_plane_keys_come_back_on_downgrade_and_go_again(fresh_database
             return {(name, *fk) for name in insp.get_table_names() for fk in _foreign_keys(insp, name)}
 
         async def run():
-            engine = create_async_engine(fresh_database_url)
+            engine = create_async_engine(legacy_database_url)
             try:
                 async with engine.connect() as conn:
                     return await conn.run_sync(read)
@@ -239,9 +301,70 @@ def test_the_cross_plane_keys_come_back_on_downgrade_and_go_again(fresh_database
 
     references = {(r.table, r.column, r.referred_table, r.ondelete) for r in cross_plane_references()}
     assert len(references) == 38
-    _alembic(fresh_database_url, "downgrade", "p14_tenant_directory")
+    _alembic(legacy_database_url, "-n", "legacy", "downgrade", "p14_tenant_directory")
     try:
         assert references <= live_keys()
     finally:
-        _alembic(fresh_database_url, "upgrade", "head")
+        _alembic(legacy_database_url, "-n", "legacy", "upgrade", "head")
     assert references & live_keys() == set()
+
+
+def _versions(url: str) -> tuple:
+    import asyncio
+
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    async def read():
+        conn = await asyncpg.connect(make_url(url).set(drivername="postgresql").render_as_string(hide_password=False))
+        try:
+            tenant = await conn.fetchval("SELECT to_regclass('alembic_version_tenant_platform')")
+            return (await conn.fetchval("SELECT version_num FROM alembic_version"),
+                    await conn.fetchval("SELECT version_num FROM alembic_version_tenant_platform") if tenant else None,
+                    await conn.fetchval("SELECT 1 FROM pg_namespace WHERE nspname = '_hb_baseline'"))
+        finally:
+            await conn.close()
+
+    return asyncio.run(read())
+
+
+def _sql(url: str, statement: str) -> None:
+    import asyncio
+
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    async def run():
+        conn = await asyncpg.connect(make_url(url).set(drivername="postgresql").render_as_string(hide_password=False))
+        try:
+            await conn.execute(statement)
+        finally:
+            await conn.close()
+
+    asyncio.run(run())
+
+
+def test_an_old_chain_database_is_brought_to_the_cut_and_stamped(fresh_database_url, legacy_database_url):
+    """``migrate control`` on a database two revisions short of the cut: the old chain brings it there,
+    it must equal what the trees build — one changed by hand is refused, at the cut, unstamped — and
+    it is stamped onto the baselines without anything else changing. Last in the module: the old
+    chain's database is on the trees after it."""
+    from src.common.tenancy.migrate import CONTROL_BASELINE, LEGACY_CUT, TENANT_BASELINE
+    from src.common.tenancy.schema_catalog import differences
+
+    env = {**os.environ, "CONTROL_DATABASE_URL": legacy_database_url, "DATABASE_URL": legacy_database_url,
+           "TENANCY_MODE": "single", "PYTHONUTF8": "1"}
+    _alembic(legacy_database_url, "-n", "legacy", "downgrade", "-2")
+    _sql(legacy_database_url, "ALTER TABLE companies ADD COLUMN kept_by_hand text")
+    refused = subprocess.run([sys.executable, "-m", "src.common.tenancy.migrate", "control"], cwd=BACKEND,
+                             env=env, capture_output=True, text=True, timeout=600)
+    assert refused.returncode != 0 and "kept_by_hand" in refused.stderr, refused.stderr[-2000:]
+    assert _versions(legacy_database_url) == (LEGACY_CUT, None, None)  # brought to the cut, not stamped
+
+    _sql(legacy_database_url, "ALTER TABLE companies DROP COLUMN kept_by_hand")
+    _alembic(legacy_database_url, "-n", "legacy", "downgrade", "-2")
+    _run(legacy_database_url, "src.common.tenancy.migrate", "control")
+    assert _versions(legacy_database_url) == (CONTROL_BASELINE, TENANT_BASELINE, None)
+    assert differences(_catalog(legacy_database_url), _catalog(fresh_database_url)) == []
+    _run(legacy_database_url, "src.common.tenancy.migrate", "control")  # on the trees: nothing more to do
+    assert _versions(legacy_database_url) == (CONTROL_BASELINE, TENANT_BASELINE, None)

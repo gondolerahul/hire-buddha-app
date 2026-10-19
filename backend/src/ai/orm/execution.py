@@ -21,6 +21,7 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
     select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -186,6 +187,7 @@ class ToolInteractionLog(TenantBase):
     __table_args__ = (
         run_company_key("tool_interaction_logs"),
         Index("ix_tool_interaction_logs_company_created", "company_id", "created_at"),
+        Index("idx_tool_logs_idemp", "idempotency_key", postgresql_where=text("idempotency_key IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -203,7 +205,7 @@ class ToolInteractionLog(TenantBase):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     log_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)
-    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)  # Step-level dedup
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Step-level dedup
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="tool_logs")

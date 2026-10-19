@@ -95,9 +95,9 @@ async def list_tenants(health: bool = Query(False), _: User = Depends(staff_only
     if health:
         import asyncio
 
-        from src.common.tenancy.migrate import models_schema_version
+        from src.common.tenancy.migrate import tenant_schema_version
 
-        target = models_schema_version()
+        target = tenant_schema_version()
         locations = [await _location(entry.company_id) for entry, _server in rows]
         reports = await asyncio.gather(*(health_mod.tenant_health(loc, target_version=target)
                                          for loc in locations if loc is not None))

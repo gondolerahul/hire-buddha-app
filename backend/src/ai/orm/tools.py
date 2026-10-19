@@ -38,7 +38,7 @@ class ToolRegistryEntry(ControlBase):
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., "browser", "social", "document", "utility"
-    tool_type: Mapped[str] = mapped_column(String, nullable=False, default="BUILT_IN")  # BUILT_IN | CUSTOM
+    tool_type: Mapped[str] = mapped_column(String, nullable=False, default="BUILT_IN", index=True)  # BUILT_IN | CUSTOM
     # Stays JSON (DM-13): an authored JSON Schema, shown back in the editor and
     # sent to the model as written; JSONB would re-sort its properties.
     function_schema: Mapped[Any] = mapped_column(JSON, nullable=True)  # OpenAI-compatible function schema

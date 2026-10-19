@@ -1,3 +1,11 @@
+"""The old single chain (``alembic -n legacy``), frozen (Phase 14 WS2 2.7).
+
+Squashed into ``control/`` and ``tenant_platform/`` at ``p14_run_settlement``.
+``python -m src.common.tenancy.migrate control`` runs it to bring a database
+still on it (production's, on ``main``'s chain) up to that revision before
+stamping the baselines. Nothing new goes in ``versions/``; the directory goes
+once production has crossed.
+"""
 import asyncio
 from logging.config import fileConfig
 
@@ -8,7 +16,6 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from src.common.config import settings
-from src.common.orm_models import import_all_models
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -16,16 +23,15 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+if config.config_file_name is not None and not config.attributes.get("skip_logging"):
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-# Every table the ORM declares: the host's Base and the cortex_memory package's
-# own Base (the CORTEX tables moved onto it in Phase 12 `04`), so autogenerate
-# manages — and never drops — either.
-target_metadata = import_all_models()
+# Frozen: no autogenerate, so no models (they now describe the two trees).
+target_metadata = None
 
-# Override sqlalchemy.url with the one from settings
-config.set_main_option("sqlalchemy.url", settings.CONTROL_DATABASE_URL)
+# The runner's URL (``config.attributes["url"]``), else the one from settings.
+config.set_main_option("sqlalchemy.url",
+                       (config.attributes.get("url") or settings.CONTROL_DATABASE_URL).replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

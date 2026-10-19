@@ -183,7 +183,7 @@ def test_the_migration_drops_and_restores_exactly_the_references():
     import importlib.util
     from pathlib import Path
 
-    path = Path(__file__).resolve().parents[2] / "migrations" / "versions" / "p14_drop_cross_plane_fks.py"
+    path = Path(__file__).resolve().parents[2] / "migrations" / "legacy" / "versions" / "p14_drop_cross_plane_fks.py"
     spec = importlib.util.spec_from_file_location("p14_drop_cross_plane_fks", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
@@ -625,30 +625,62 @@ async def test_a_units_control_rows_get_their_own_session_only_from_a_tenant_ses
 
 # ── Migration runner ────────────────────────────────────────────────────────
 
-def test_the_models_schema_version_is_the_same_in_every_process():
-    """A table's constraints are a set, ordered differently in each process."""
-    import subprocess
-    import sys
+def test_each_tree_has_one_head_and_a_tenant_s_version_is_the_tenant_tree_s():
+    from src.common.tenancy import migrate
+
+    assert migrate.tree_head(migrate.CONTROL_TREE) == migrate.CONTROL_BASELINE
+    assert migrate.tenant_schema_version() == migrate.tree_head(migrate.TENANT_TREE) == migrate.TENANT_BASELINE
+
+
+def test_the_old_chain_is_frozen_at_the_cut():
+    """``migrations/legacy`` only brings a database to ``LEGACY_CUT``; a revision added there would be lost."""
+    from src.common.tenancy import migrate
+
+    assert migrate.tree_head(migrate.LEGACY_TREE) == migrate.LEGACY_CUT
+
+
+def test_every_revision_id_fits_the_version_tables():
+    """Alembic's version tables hold VARCHAR(32); adoption creates the tenant one itself."""
+    from alembic.script import ScriptDirectory
+
+    from src.common.tenancy import migrate
+
+    for tree in (migrate.CONTROL_TREE, migrate.TENANT_TREE):
+        script = ScriptDirectory.from_config(migrate.alembic_config(tree))
+        assert [r.revision for r in script.walk_revisions() if len(r.revision) > 32] == []
+
+
+def test_the_trees_have_their_own_directories_and_the_tenant_tree_its_own_version_table():
+    from alembic.script import ScriptDirectory
+
+    from migrations import envlib
+    from src.common.tenancy import migrate
+
+    control = ScriptDirectory.from_config(migrate.alembic_config(migrate.CONTROL_TREE))
+    tenant = ScriptDirectory.from_config(migrate.alembic_config(migrate.TENANT_TREE))
+    assert control.dir.replace("\\", "/").endswith("migrations/control")
+    assert tenant.dir.replace("\\", "/").endswith("migrations/tenant_platform")
+    assert envlib.TENANT_VERSION_TABLE == migrate.TENANT_VERSION_TABLE != "alembic_version"
+
+
+def test_the_cortex_allow_list_names_only_what_the_tenant_baseline_creates():
+    """Each object the comparison leaves alone is one the baseline makes (an entry for a gone one is stale)."""
     from pathlib import Path
 
-    from src.common.tenancy.migrate import models_schema_version
+    from migrations import envlib
 
-    here = models_schema_version()
-    assert here.startswith("models-") and len(here) == 19 and here == models_schema_version()
-    code = "from src.common.tenancy.migrate import models_schema_version as v; print(v())"
-    backend = Path(__file__).resolve().parents[2]
-    for _ in range(2):
-        out = subprocess.run([sys.executable, "-c", code], cwd=backend, capture_output=True, text=True,
-                             env={**__import__("os").environ, "PYTHONUTF8": "1"}, timeout=120)
-        assert out.stdout.strip().splitlines()[-1] == here, out.stderr[-2000:]
+    baseline = (Path(__file__).resolve().parents[2] / "migrations" / "tenant_platform" / "versions"
+                / "tenant_platform_0001_baseline.py").read_text(encoding="utf-8")
+    for name in envlib.CORTEX_DB_ONLY_INDEXES | envlib.CORTEX_DB_ONLY_FOREIGN_KEYS:
+        assert f"'{name}'" in baseline, name
 
 
 async def test_tenants_already_current_are_skipped_and_a_failed_batch_stops(monkeypatch):
     from src.common.tenancy import migrate
 
-    monkeypatch.setattr(migrate, "models_schema_version", lambda: "models-v2")
+    monkeypatch.setattr(migrate, "tenant_schema_version", lambda: "tenant_platform_0002")
     locations = [_location(key=k) for k in ("aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee")]
-    locations[0] = dataclasses.replace(locations[0], schema_version="models-v2")
+    locations[0] = dataclasses.replace(locations[0], schema_version="tenant_platform_0002")
 
     async def migratable(keys):
         return locations
@@ -656,7 +688,7 @@ async def test_tenants_already_current_are_skipped_and_a_failed_batch_stops(monk
     async def upgrade(location):
         if location.key == "ccccc":
             raise RuntimeError("boom")
-        return "models-v2"
+        return "tenant_platform_0002"
 
     monkeypatch.setattr(migrate, "_migratable", migratable)
     monkeypatch.setattr(migrate, "upgrade_tenant", upgrade)

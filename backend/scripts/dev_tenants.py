@@ -7,7 +7,8 @@ On the local PostgreSQL server of ``CONTROL_DATABASE_URL`` (refused for any
 other host) it makes, idempotently:
 
 * databases ``t_devacme01`` and ``t_devbeta001``: the extensions the tables
-  use, schema ``platform`` with every tenant table (``migrate.build_platform_schema``),
+  use, schema ``platform`` at the tenant tree's head (``migrate.upgrade_tenant``;
+  a database built from the models before the tree is adopted),
   ``search_path`` = ``platform, public``;
 * in the control database: companies "Dev Acme" and "Dev Beta" (fixed ids),
   the server row ``local-dev`` and an ``active`` directory row for each.

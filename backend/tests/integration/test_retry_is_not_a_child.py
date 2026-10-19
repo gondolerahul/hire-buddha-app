@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 pytestmark = pytest.mark.needs_db
 
-MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "versions" / "ep03_retry_of_run_id.py"
+MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "legacy" / "versions" / "ep03_retry_of_run_id.py"
 
 
 async def _entity(db, company_id, type_="AGENT"):

@@ -26,7 +26,7 @@ down_revision: Union[str, Sequence[str], None] = 'z9b0c1d2e3f4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-SQL_FILE = Path(__file__).resolve().parents[2] / "db-scripts" / "mobile_dialer_001.sql"
+SQL_FILE = Path(__file__).resolve().parents[3] / "db-scripts" / "mobile_dialer_001.sql"
 
 
 def upgrade() -> None:

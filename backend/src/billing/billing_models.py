@@ -19,6 +19,7 @@ class BillingConfig(ControlBase):
     company_id=NULL means global default; company-specific rows override the global.
     """
     __tablename__ = "billing_config"
+    __table_args__ = (Index("idx_billing_config_company", "company_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)  # NULL = global default
@@ -49,6 +50,7 @@ class CreditWallet(ControlBase):
     Priority: daily_credits → wallet_balance (PAYG) or subscription_credits (Subscription)
     """
     __tablename__ = "credit_wallets"
+    __table_args__ = (Index("idx_credit_wallets_company", "company_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, unique=True)
@@ -104,6 +106,10 @@ class Subscription(ControlBase):
     Tier bonus: Tier 1=20%, Tier 2=30%, Tier 3=40%
     """
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        Index("idx_subscriptions_company", "company_id"),
+        Index("idx_subscriptions_status", "status"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
@@ -152,6 +158,7 @@ class PaymentTransaction(ControlBase):
               postgresql_where=text("razorpay_order_id IS NOT NULL")),
         Index("uq_payment_transactions_razorpay_payment", "razorpay_payment_id", unique=True,
               postgresql_where=text("razorpay_payment_id IS NOT NULL")),
+        Index("idx_payment_transactions_company", "company_id"),
     )
 
     company = relationship("Company", overlaps="transactions")
@@ -180,6 +187,8 @@ class BillingEvent(ControlBase):
             "company_id", "period_month", "grouping_type", "grouping_value",
             name="uq_billing_events_period_grouping", postgresql_nulls_not_distinct=True,
         ),
+        Index("idx_billing_events_company_month", "company_id", "period_month"),
+        Index("idx_billing_events_grouping", "grouping_type", "grouping_value"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

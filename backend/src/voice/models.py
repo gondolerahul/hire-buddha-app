@@ -102,7 +102,7 @@ class ConversationHistory(TenantBase):
     agent = relationship("HierarchicalEntity")
 
     __table_args__ = (
-        Index('idx_conversation_customer_agent', 'customer_id', 'agent_id', 'timestamp'),
+        Index('idx_conversation_customer_agent', 'customer_id', 'agent_id', timestamp.desc()),
         Index('idx_conversation_session', 'session_id'),
         Index('idx_conversation_company', 'company_id'),
     )

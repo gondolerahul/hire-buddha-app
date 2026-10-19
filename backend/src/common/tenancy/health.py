@@ -27,9 +27,9 @@ async def tenant_health(location: Any, *, target_version: Optional[str] = None) 
     reported as such without being connected to.
     """
     from src.common.tenancy.engines import engines
-    from src.common.tenancy.migrate import models_schema_version
+    from src.common.tenancy.migrate import tenant_schema_version
 
-    target = target_version or models_schema_version()
+    target = target_version or tenant_schema_version()
     report: Dict[str, Any] = {
         "company_id": str(location.company_id), "tenant_key": location.key, "status": location.status,
         "database": location.db_name, "server": location.server_host,

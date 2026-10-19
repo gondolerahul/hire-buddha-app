@@ -67,10 +67,11 @@ run_regression() {
 }
 
 run_migration_roundtrip() {
-    bold "alembic up → down → up roundtrip"
-    .venv/bin/alembic upgrade head
+    bold "migration trees up → down → up roundtrip"
+    .venv/bin/python -m src.common.tenancy.migrate control
+    .venv/bin/alembic -n tenant_platform -x schema=public downgrade -1
     .venv/bin/alembic downgrade -1
-    .venv/bin/alembic upgrade head
+    .venv/bin/python -m src.common.tenancy.migrate control
 }
 
 case "$LANE" in

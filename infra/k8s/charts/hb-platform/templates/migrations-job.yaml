@@ -1,6 +1,8 @@
 {{- if .Values.migrations.enabled }}
 {{- $c := dict "root" $ "component" "migrations" }}
-# alembic upgrade head before the release's pods roll (Helm hook). A failed
+# The migration runner (python -m src.common.tenancy.migrate all: the control
+# database, then in split mode every tenant database) before the release's
+# pods roll (Helm hook). A failed
 # migration fails the release, and the old pods keep running.
 apiVersion: batch/v1
 kind: Job
@@ -29,7 +31,7 @@ spec:
         - name: migrate
           image: {{ include "hb.image" (dict "root" $ "image" "api") }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-          command: ["alembic", "upgrade", "head"]
+          command: ["python", "-m", "src.common.tenancy.migrate", "all"]
           {{- include "hb.backendEnvInline" . | nindent 10 }}
           {{- include "hb.databaseUrlEnv" (dict "root" $ "user" "migrations") | nindent 12 }}
           {{- include "hb.backendVolumeMounts" . | nindent 10 }}

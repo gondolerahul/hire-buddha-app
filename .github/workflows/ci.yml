@@ -72,9 +72,10 @@ jobs:
           poetry install --no-root --no-ansi
       - name: Migrations (up, down one, up) on an empty database
         run: |
-          poetry run alembic upgrade head
+          poetry run python -m src.common.tenancy.migrate control
+          poetry run alembic -n tenant_platform -x schema=public downgrade -1
           poetry run alembic downgrade -1
-          poetry run alembic upgrade head
+          poetry run python -m src.common.tenancy.migrate control
       - name: Seeds
         run: |
           poetry run python db-scripts/seed_admin_user.py

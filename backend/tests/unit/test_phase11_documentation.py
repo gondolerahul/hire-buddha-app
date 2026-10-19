@@ -127,7 +127,7 @@ def test_dashboard_query_exists(filename: str) -> None:
 
 
 def test_kpi_migration_importable() -> None:
-    mig = REPO_ROOT / "backend" / "migrations" / "versions" / "p11t09_kpi_daily_rollup.py"
+    mig = REPO_ROOT / "backend" / "migrations" / "legacy" / "versions" / "p11t09_kpi_daily_rollup.py"
     assert mig.exists()
     spec = importlib.util.spec_from_file_location("p11t09_kpi_daily_rollup", mig)
     assert spec and spec.loader

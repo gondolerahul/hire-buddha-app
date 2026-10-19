@@ -12,12 +12,13 @@ Every ORM table belongs to exactly one plane:
 A model says which by its base: ``class ExecutionRun(TenantBase)``.
 
 Both bases share the one registry and ``MetaData`` the models have always had
-(``src.common.database.Base``). Until the migrations split into a control and a
-tenant tree (2.7), the shared database keeps every table in ``public`` and
-Alembic sees one schema — so ``TENANCY_MODE=single`` is unchanged. The plane is
-recorded on each table (``Table.info["plane"]``): ``tenant_ddl_metadata()``
-derives the ``platform`` schema a tenant database is built from, and a
-split-mode session sends each class to its plane's database (``session.py``).
+(``src.common.database.Base``), and the tables are unqualified: the shared
+database of ``TENANCY_MODE=single`` keeps every table in ``public``, a tenant
+database its tables in ``platform`` (its connections search it first). The
+plane is recorded on each table (``Table.info["plane"]``): each of the two
+migration trees (2.7, ``migrations/envlib.py``) compares its plane's tables,
+and a split-mode session sends each class to its plane's database
+(``session.py``).
 
 No foreign key or ORM relationship crosses the planes (2.3, tech spec §5.3
 rule 2): a column that names a row of the other plane (a run's ``company_id``,
@@ -202,8 +203,9 @@ def tenant_ddl_metadata(schema: str = TENANT_SCHEMA) -> MetaData:
     """The tenant tables as a tenant database holds them.
 
     Copies of the tenant tables in ``schema``, with their foreign keys (all
-    between tenant tables). Until the tenant migration tree exists (2.7) this
-    is what a tenant database is built from (``migrate.py``).
+    between tenant tables). Before 2.7's tenant tree, tenant databases were
+    built from this (``create_all``); the runner adopts such a database
+    (``migrate.adopt``), and the tests build one to show it.
     """
     crossing = cross_plane_foreign_keys()
     if crossing:

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, JSON, String, Text, event
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, JSON, String, Text, event, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, ORMExecuteState, Session, mapped_column, relationship, with_loader_criteria
 
@@ -21,12 +21,13 @@ __all__ = ["HierarchicalEntity", "INCLUDE_DELETED"]
 class HierarchicalEntity(TenantBase):
     __tablename__ = "hierarchical_entities"
     # The six levels (R1). Added NOT VALID by its migration and validated when
-    # the table held no other value; see migrations/versions/r1_entity_levels.py.
+    # the table held no other value; see migrations/legacy/versions/r1_entity_levels.py.
     __table_args__ = (
         CheckConstraint(
             "type IN (" + ", ".join(f"'{t.value}'" for t in EntityType) + ")",
             name="ck_hierarchical_entities_type",
         ),
+        Index("idx_entities_not_deleted", "company_id", "type", postgresql_where=text("status <> 'DELETED'")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -47,8 +48,13 @@ class HierarchicalEntity(TenantBase):
     tags: Mapped[Any] = mapped_column(JSONB, nullable=True)
 
     # Template fields
-    is_template: Mapped[bool | None] = mapped_column(Boolean, default=False)  # True = blueprint, not executable
-    template_source_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("hierarchical_entities.id"), nullable=True)
+    is_template: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=False,
+                                                     index=True)  # True = blueprint, not executable
+    template_source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("hierarchical_entities.id", name="fk_entities_template_source", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True, info=refers_to("users.id", ondelete="SET NULL"))
 

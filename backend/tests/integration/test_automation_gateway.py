@@ -241,7 +241,7 @@ async def test_an_internal_event_is_stored_for_the_companys_triggers(biz):
 
 def _migration():
     spec = importlib.util.spec_from_file_location(
-        "p14_webhook_triggers", BACKEND / "migrations" / "versions" / "p14_webhook_triggers.py")
+        "p14_webhook_triggers", BACKEND / "migrations" / "legacy" / "versions" / "p14_webhook_triggers.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

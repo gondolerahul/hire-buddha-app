@@ -5,7 +5,7 @@ Stores encrypted credentials for AI agent email integration.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from src.common.tenancy.bases import TenantBase, refers_to
 
@@ -18,6 +18,9 @@ class EmailConnection(TenantBase):
     AI-driven email monitoring, classification, drafting, and sending.
     """
     __tablename__ = "email_connections"
+    __table_args__ = (
+        UniqueConstraint("company_id", "email_address", name="uq_email_connection_company_email"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), nullable=False, info=refers_to("companies.id"))

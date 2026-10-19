@@ -12,7 +12,7 @@ import pytest
 
 _MIGRATION_PATH = (
     Path(__file__).resolve().parents[2]
-    / "migrations" / "versions" / "p12_retire_reasoning_modes.py"
+    / "migrations" / "legacy" / "versions" / "p12_retire_reasoning_modes.py"
 )
 
 
