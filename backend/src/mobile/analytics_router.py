@@ -3,8 +3,10 @@ Analytics endpoints for mobile campaigns, used by both the web frontend and
 the Android app (docs 07 §3). Mounted under /api/v1.
 
 A campaign's analytics, its calls and an attempt's timeline are open to app and
-partner admins for any company, so they read the acting company's tenant
-database (``X-Company-Id``, Phase 14 WS2 2.4); the summary is the caller's own.
+partner admins for the companies ``auth.visibility`` gives them (an app admin:
+any; a partner admin: its own and its tenants), so they read the acting
+company's tenant database (``X-Company-Id``, Phase 14 WS2 2.4); the summary is
+the caller's own.
 """
 from datetime import date
 from typing import Optional
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.ai.campaign_models import Campaign
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.auth.visibility import in_scope, visible_company_ids
 from src.common.tenancy.session import get_acting_tenant_db, get_tenant_db
 from src.mobile import analytics
 from src.mobile.models import EXECUTION_MODE_MOBILE, CampaignAssignee, MobileCallAttempt
@@ -31,9 +34,15 @@ def _is_admin(user: User) -> bool:
     return user.role in COMPANY_ADMIN_ROLES or user.role in CROSS_TENANT_ROLES
 
 
+async def _reads_other_company(db: AsyncSession, user: User, company_id: UUID) -> bool:
+    """An app or partner admin reading another company's: only one it may see."""
+    return user.role in CROSS_TENANT_ROLES and in_scope(await visible_company_ids(db, user), company_id)
+
+
 async def _campaign_for(db: AsyncSession, user: User, campaign_id: UUID) -> Campaign:
     campaign = await db.get(Campaign, campaign_id)
-    if campaign is None or (campaign.company_id != user.company_id and user.role not in CROSS_TENANT_ROLES):
+    if campaign is None or (campaign.company_id != user.company_id
+                            and not await _reads_other_company(db, user, campaign.company_id)):
         raise HTTPException(status_code=404, detail="Campaign not found")
     if campaign.execution_mode != EXECUTION_MODE_MOBILE:
         raise HTTPException(status_code=409, detail={"code": "not_mobile_campaign",
@@ -119,7 +128,8 @@ async def attempt_timeline(attempt_id: UUID, db: AsyncSession = Depends(get_acti
     attempt = await db.get(MobileCallAttempt, attempt_id)
     allowed = attempt is not None and (
         attempt.user_id == user.id
-        or (_is_admin(user) and (attempt.company_id == user.company_id or user.role in CROSS_TENANT_ROLES))
+        or (_is_admin(user) and (attempt.company_id == user.company_id
+                                 or await _reads_other_company(db, user, attempt.company_id)))
     )
     if not allowed:
         raise HTTPException(status_code=404, detail="Call attempt not found")

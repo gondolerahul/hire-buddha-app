@@ -91,3 +91,43 @@ async def test_funnel_rates_and_scoping(analytics_api, world, db):
     assert r.status_code == 404
     r = await api.as_user(world.outsider).get(f"/api/v1/campaigns/{campaign_id}/mobile-analytics")
     assert r.status_code == 404
+
+
+async def test_a_partner_admin_reads_only_its_own_tenants_campaigns(analytics_api, world, db):
+    """App and partner admins may read another company's campaign analytics, calls
+    and attempt timelines — a partner admin only its own tenants' (auth.visibility);
+    before, any partner admin read any company's."""
+    import uuid
+
+    from src.auth.models import Company, User
+
+    api = analytics_api
+    campaign_id, _ = await create_campaign(api, world, world.admin, assignees=[world.rep])
+    device = await verified_device(api, db, world, world.rep, REP_CLI)
+    run, lease = await start_and_lease(api, world.rep, campaign_id, device)
+    attempt = await new_attempt(api, world.rep, run, lease, device)
+
+    parent = Company(id=uuid.uuid4(), name="Realty Partners", type="PARTNER", status="active")
+    stranger = Company(id=uuid.uuid4(), name="Other Partners", type="PARTNER", status="active")
+    db.add_all([parent, stranger])
+    await db.flush()
+    await db.execute(update(Company).where(Company.id == world.company.id).values(parent_id=parent.id))
+    admins = {}
+    for company in (parent, stranger):
+        admins[company.id] = User(id=uuid.uuid4(), email=f"pa-{uuid.uuid4().hex[:6]}@example.com",
+                                  full_name="Partner Admin", hashed_password="x", company_id=company.id,
+                                  role="partner_admin", is_active=True)
+    staff = User(id=uuid.uuid4(), email=f"staff-{uuid.uuid4().hex[:6]}@example.com", full_name="Staff",
+                 hashed_password="x", company_id=stranger.id, role="app_admin", is_active=True)
+    db.add_all([*admins.values(), staff])
+    await db.commit()
+
+    paths = (f"/api/v1/campaigns/{campaign_id}/mobile-analytics", f"/api/v1/campaigns/{campaign_id}/calls",
+             f"/api/v1/mobile/call-attempts/{attempt['attempt_id']}/timeline")
+    for path in paths:
+        mine = await api.as_user(admins[parent.id]).get(path)
+        assert mine.status_code == 200, (path, mine.text)
+        theirs = await api.as_user(admins[stranger.id]).get(path)
+        assert theirs.status_code == 404, (path, theirs.text)
+    # An app admin still reads any company's.
+    assert (await api.as_user(staff).get(paths[0])).status_code == 200

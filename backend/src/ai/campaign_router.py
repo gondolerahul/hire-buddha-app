@@ -22,12 +22,25 @@ from datetime import datetime
 from src.common.tenancy.session import get_tenant_db
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
+from src.auth.visibility import in_scope, visible_company_ids
+from src.ai.campaign_models import Campaign
 from src.ai.campaign_service import CampaignService
 from src.ai.orm import HierarchicalEntity
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
+
+
+async def _visible_campaign(db: AsyncSession, campaign_id: UUID, user: User) -> Campaign:
+    """The campaign, when its company is one the caller may see (``auth.visibility``:
+    their own; a partner's tenants too; every company for app_admin); otherwise 404,
+    so an id of another company's campaign is not confirmed. Called before a
+    route's ``try``, whose catch-all would turn the 404 into a 500."""
+    campaign = await db.get(Campaign, campaign_id)
+    if campaign is None or not in_scope(await visible_company_ids(db, user), campaign.company_id):
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return campaign
 
 
 # Pydantic models for request/response
@@ -98,7 +111,10 @@ async def create_campaign(
             )
         )
         agent_entity = agent_result.scalar_one_or_none()
-        if not agent_entity:
+        # Only an agent of a company the caller may see: the campaign dials on
+        # that company's number and spends its credit.
+        if not agent_entity or not in_scope(await visible_company_ids(db, current_user),
+                                            agent_entity.company_id):
             raise HTTPException(status_code=404, detail="Agent not found")
 
         # Use agent's company (tenant) instead of current_user's company (may be APP)
@@ -472,6 +488,7 @@ async def get_campaign(
     from src.ai.campaign_models import CampaignCall, campaign_call_sort_order
     from sqlalchemy import func
 
+    await _visible_campaign(db, campaign_id, current_user)
     service = CampaignService(db)
 
     try:
@@ -577,8 +594,9 @@ async def get_campaign_status(
     Returns:
         Real-time metrics
     """
+    await _visible_campaign(db, campaign_id, current_user)
     service = CampaignService(db)
-    
+
     try:
         status = await service.get_campaign_status(campaign_id)
         
@@ -609,8 +627,9 @@ async def get_active_calls(
     Returns:
         List of active calls
     """
+    await _visible_campaign(db, campaign_id, current_user)
     service = CampaignService(db)
-    
+
     try:
         calls = await service.get_active_calls(campaign_id)
         
@@ -641,13 +660,10 @@ async def update_campaign_status(
     Returns:
         Updated campaign
     """
+    target = await _visible_campaign(db, campaign_id, current_user)
     service = CampaignService(db)
-    
+
     try:
-        from src.ai.campaign_models import Campaign as _Campaign
-        target = await db.get(_Campaign, campaign_id)
-        if target is None:
-            raise HTTPException(status_code=404, detail="Campaign not found")
         if (
             target.execution_mode == "mobile_conference"
             and status == "running"
@@ -707,6 +723,7 @@ async def download_campaign_report(
     from src.billing.billing_service import BillingService, compute_billed_amount
     from sqlalchemy import func
 
+    await _visible_campaign(db, campaign_id, current_user)
     service = CampaignService(db)
 
     # Max chars per Excel cell to prevent oversized files
