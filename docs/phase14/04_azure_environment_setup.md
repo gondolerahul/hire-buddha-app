@@ -528,7 +528,7 @@ Repeat for `devbeta001`.
 
 ```bash
 az redisenterprise create -g $RG_DATA -n $REDIS -l $LOCATION \
-  --sku Balanced_B1 --minimum-tls-version 1.2 --clustering-policy EnterpriseCluster      # (verify) SKU names and policy options
+  --sku Balanced_B1 --minimum-tls-version 1.2 --clustering-policy NoCluster      # (verify) SKU names and policy options
 export REDIS_ID=$(az redisenterprise show -g $RG_DATA -n $REDIS --query id -o tsv)
 
 # Private endpoint + DNS
@@ -547,7 +547,7 @@ az keyvault secret set --vault-name $KV -n redis-url --value "rediss://:$REDIS_K
 unset REDIS_KEY
 ```
 
-Spike SP-2 decides whether Arq works with this clustering policy. If it does not, recreate with the non-clustered option your SKU offers, or (temporary fallback) use Azure Cache for Redis Standard C1: `az redis create -g $RG_DATA -n redis-$PREFIX-$ENV-c -l $LOCATION --sku Standard --vm-size c1`.
+Spike SP-2 (Azure dev, October 2026): Arq's WATCH/MULTI transactions fail with `CROSSSLOT` under `EnterpriseCluster`, so the database is `NoCluster` (caches of 25 GB or less). The policy cannot be changed on an existing database: delete the database, redeploy, and set `redis-url` again with the new key. A key with characters outside letters and digits is percent-encoded in the URL (`=` becomes `%3D`); every client decodes it.
 
 ---
 

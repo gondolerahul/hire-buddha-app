@@ -113,7 +113,12 @@ KPI_DAILY_ROLLUP_INDEX = "CREATE UNIQUE INDEX kpi_daily_rollup_uniq ON kpi_daily
 
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+    # Azure Database for PostgreSQL refuses CREATE EXTENSION (even IF NOT EXISTS) to
+    # non-admins; there the server admin creates it first (infra/azure/sql).
+    op.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') "
+        "THEN CREATE EXTENSION vector WITH SCHEMA public; END IF; END $$"
+    )
     op.create_table('api_keys',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('company_id', sa.UUID(), nullable=False),

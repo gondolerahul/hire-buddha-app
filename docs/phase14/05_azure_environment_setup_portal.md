@@ -455,7 +455,7 @@ Portal search **Azure Managed Redis** → **+ Create**:
 | Basics | Performance tier / Cache size | **Balanced** / **B1** |
 | Networking | Connectivity | **Private endpoint** → **+ Add**: name `pe-redis-hb-dev`, network `vnet-hb-dev`, subnet `snet-pe`, **Integrate with private DNS zone: Yes** (the portal creates the correct zone) |
 | Advanced | Minimum TLS version | 1.2 |
-| Advanced | Clustering policy | Enterprise (default) — spike SP-2 confirms it works with Arq |
+| Advanced | Clustering policy | Non-clustered — spike SP-2: Arq fails with `CROSSSLOT` under Enterprise |
 | Advanced | High availability | Enabled (can be disabled in dev to halve the cost) |
 
 After creation: **Overview** → copy the **Endpoint / host name** and port (10000), then **Settings → Authentication / Access keys** → copy the primary key. Create the Key Vault secret `redis-url` with value `rediss://:<primary-key>@<host-name>:10000/0`.

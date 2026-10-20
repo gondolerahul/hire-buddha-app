@@ -21,6 +21,7 @@ worker opens that tenant's database before it loads anything (Phase 14 WS2
 import json
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
+from urllib.parse import unquote
 from uuid import uuid4
 
 from arq import ArqRedis, create_pool
@@ -41,8 +42,18 @@ def tenant_arg(company_id: Any) -> Optional[str]:
 
 
 def arq_redis_settings() -> RedisSettings:
-    """``REDIS_URL`` as arq settings: host, port, password, TLS and database index."""
-    return RedisSettings.from_dsn(settings.REDIS_URL)
+    """``REDIS_URL`` as arq settings: host, port, password, TLS and database index.
+
+    arq keeps the user and password percent-encoded; redis-py's ``from_url``
+    (every other client) decodes them, so they are decoded here too — an Azure
+    key ending in ``=`` is stored as ``%3D``.
+    """
+    redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+    if redis_settings.username:
+        redis_settings.username = unquote(redis_settings.username)
+    if redis_settings.password:
+        redis_settings.password = unquote(redis_settings.password)
+    return redis_settings
 
 
 @asynccontextmanager

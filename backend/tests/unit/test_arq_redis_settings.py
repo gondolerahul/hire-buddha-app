@@ -32,6 +32,13 @@ def test_helper_keeps_password_tls_and_database(monkeypatch):
     _assert_full_dsn(job_queue.arq_redis_settings())
 
 
+def test_helper_decodes_a_percent_encoded_password(monkeypatch):
+    monkeypatch.setattr(settings, "REDIS_URL", "rediss://:abc%2Bd%2Fe%3D@redis.internal:10000")
+    redis_settings = job_queue.arq_redis_settings()
+    assert redis_settings.password == "abc+d/e="
+    assert redis_settings.port == 10000
+
+
 def test_worker_connects_with_the_whole_url(monkeypatch):
     import src.ai.worker as worker
 

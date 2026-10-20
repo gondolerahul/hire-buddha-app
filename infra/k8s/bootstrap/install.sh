@@ -41,15 +41,23 @@ done
 [ -n "${HB_ACME_EMAIL:-}" ] || die "set HB_ACME_EMAIL (Let's Encrypt account e-mail)"
 
 kubectl version --client >/dev/null || die "kubectl not found"
+# Helm 4 applies server-side by default, which conflicts with fields AKS's
+# admissions enforcer owns (cert-manager's webhook namespaceSelector): apply
+# client-side, as Helm 3 does.
+HELM_APPLY=()
+case "$(helm version --short 2>/dev/null)" in
+  v3.*) ;;
+  v*) HELM_APPLY=(--server-side=false) ;;
+esac
 kubectl get --raw /readyz >/dev/null || die "kubectl cannot reach the cluster"
 
 echo "== 1/3 Envoy Gateway $ENVOY_GATEWAY_VERSION"
-helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
+helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm "${HELM_APPLY[@]}" \
   --version "$ENVOY_GATEWAY_VERSION" -n envoy-gateway-system --create-namespace --wait
 
 echo "== 2/3 cert-manager $CERT_MANAGER_VERSION"
 helm repo add jetstack https://charts.jetstack.io --force-update >/dev/null
-helm upgrade --install cert-manager jetstack/cert-manager \
+helm upgrade --install cert-manager jetstack/cert-manager "${HELM_APPLY[@]}" \
   --version "$CERT_MANAGER_VERSION" -n cert-manager --create-namespace --wait \
   --set crds.enabled=true \
   --set config.apiVersion=controller.config.cert-manager.io/v1alpha1 \
@@ -70,7 +78,7 @@ for id in api worker connsvc provisioner migrator appcontroller; do
   fi
 done
 
-helm upgrade --install hb-bootstrap "$CHART" -n hb-system \
+helm upgrade --install hb-bootstrap "$CHART" -n hb-system "${HELM_APPLY[@]}" \
   -f "$CHART/values-azure.yaml" -f "$VALUES_FILE" \
   --set-string "env=$ENV_NAME" \
   --set-string "certManager.issuer.email=$HB_ACME_EMAIL" \

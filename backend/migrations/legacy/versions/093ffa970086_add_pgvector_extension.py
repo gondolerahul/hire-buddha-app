@@ -20,7 +20,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # Azure Database for PostgreSQL refuses CREATE EXTENSION (even IF NOT EXISTS) to
+    # non-admins; there the server admin creates it first (infra/azure/sql).
+    op.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') "
+        "THEN CREATE EXTENSION vector; END IF; END $$"
+    )
 
 
 def downgrade() -> None:

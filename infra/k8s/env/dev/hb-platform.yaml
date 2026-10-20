@@ -1,0 +1,52 @@
+# Azure dev (Phase 14 WS0 slice 1). Layered over values.yaml + values-azure.yaml.
+# Replace every <...> with the values recorded in infra/azure/env/dev.env when the
+# environment is created (guide §2); none of them is a secret.
+
+global:
+  env: dev
+  imageRegistry: acrhbdevac48.azurecr.io
+  imagePullPolicy: Always
+
+config:
+  STORAGE_BACKEND: azure_blob
+  AZURE_STORAGE_ACCOUNT_URL: https://sthbdevac48.blob.core.windows.net/
+  AZURE_KEYVAULT_URL: https://kv-hb-dev-ac48.vault.azure.net/
+  ANTHROPIC_PROVIDER: vertex
+  STREAMING_HOST: gateway.azdev.hirebuddha.com
+  STREAMING_PROTOCOL: wss
+  FRONTEND_URL: https://app.azdev.hirebuddha.com
+  CORS_ORIGINS: https://app.azdev.hirebuddha.com
+  # Traces to the collector hb-bootstrap installs (WS1 1.9), which forwards them to App Insights.
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://hb-otel-collector.hb-platform.svc.cluster.local:4317
+
+database:
+  url: postgresql+asyncpg://{user}@psql-hb-dev-control.postgres.database.azure.com:5432/hb_control?ssl=require
+  users:
+    api: id-hb-dev-api
+    worker: id-hb-dev-worker
+    migrations: id-hb-dev-migrator
+
+secrets:
+  csi:
+    keyVaultName: kv-hb-dev-ac48
+    tenantId: 7cb9c9f3-27c0-412e-805c-fac9974e9cdc
+    clientIds:                              # az identity show -n id-hb-dev-<id> --query clientId
+      api: fe5fa098-6452-43d9-90df-f585cb5e5b57
+      worker: 215f6ffc-398d-4803-9a10-2e7a7e9af822
+      migrations: 4aeae4d6-29cd-4024-ae73-2a37cb43ecf4
+
+googleFederation:
+  enabled: false   # on once the Google workload identity pool exists (guide §14)
+  audience: //iam.googleapis.com/projects/<gcp-project-number>/locations/global/workloadIdentityPools/<pool>/providers/aks-hb-dev
+  serviceAccountEmail: <vertex-sa>@<gcp-project>.iam.gserviceaccount.com
+
+gateway:
+  hostnames:
+    app: app.azdev.hirebuddha.com
+    api: api.azdev.hirebuddha.com
+    gateway: gateway.azdev.hirebuddha.com
+
+# Off until its images (hb-egress-proxy, caddy-redis) are in the registry and its
+# secrets (tenant-edge-redis, egress-proxy, gitea) and Gitea's database login exist.
+tenantRuntime:
+  enabled: false

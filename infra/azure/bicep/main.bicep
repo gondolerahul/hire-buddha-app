@@ -70,9 +70,9 @@ param controlServerSku object = {
 @description('Azure Managed Redis SKU (dev: no HA).')
 param redisSku string = 'Balanced_B0'
 
-@description('Redis clustering policy. Spike SP-2 decides: arq runs multi-key Lua scripts.')
-@allowed(['EnterpriseCluster', 'OSSCluster'])
-param redisClusteringPolicy string = 'EnterpriseCluster'
+@description('Redis clustering policy. Spike SP-2: arq transactions need NoCluster (a cache of 25 GB or less).')
+@allowed(['NoCluster', 'EnterpriseCluster', 'OSSCluster'])
+param redisClusteringPolicy string = 'NoCluster'
 
 var names = {
   rgCore: 'rg-${prefix}-${env}-core'

@@ -43,7 +43,7 @@ certManager:
 
 otelCollector:
   enabled: false
-  image: otel/opentelemetry-collector-contrib:0.115.0
+  image: otel/opentelemetry-collector-contrib:0.115.1   # 0.115.0 was never published
   # Runs in the platform namespace as sa-worker, the identity that may read Key Vault.
   serviceAccount: sa-worker
   # Where traces go: "azuremonitor" (Application Insights) or "debug" (logs only).
