@@ -54,3 +54,53 @@ gateway:
 # secrets (tenant-edge-redis, egress-proxy, gitea) and Gitea's database login exist.
 tenantRuntime:
   enabled: false
+
+# Dev sizing (20 Oct, budget): reservations close to what dev uses, so the
+# platform pool stays at one node (requests had reached 93% of a D4s_v5's CPU
+# while it used 4%). Memory limits stay the chart's. `workers` is a list:
+# Helm replaces it whole, so all three are restated.
+api:
+  resources:
+    requests: { cpu: 150m, memory: 768Mi }
+    limits: { memory: 3Gi }
+
+workers:
+  - name: worker
+    image: worker
+    metricsPort: 9101
+    metricsPortSetting: WORKER_METRICS_PORT
+    queue: "arq:queue"
+    replicas: 1
+    terminationGracePeriodSeconds: 600
+    resources:
+      requests: { cpu: 150m, memory: 768Mi }
+      limits: { memory: 4Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 4, dueJobs: "10" }
+  - name: child-worker
+    image: childWorker
+    metricsPort: 9102
+    metricsPortSetting: CHILD_WORKER_METRICS_PORT
+    queue: "children"
+    replicas: 1
+    terminationGracePeriodSeconds: 600
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { memory: 4Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 6, dueJobs: "10" }
+  - name: event-worker
+    image: eventWorker
+    metricsPort: 9103
+    metricsPortSetting: EVENT_WORKER_METRICS_PORT
+    queue: "events"
+    replicas: 1
+    terminationGracePeriodSeconds: 120
+    resources:
+      requests: { cpu: 50m, memory: 384Mi }
+      limits: { memory: 1Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 4, dueJobs: "50" }
+
+scheduler:
+  replicas: 1
+
+frontend:
+  replicas: 1

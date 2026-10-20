@@ -41,3 +41,11 @@ param poolServerSku = {
   tier: 'Burstable'
 }
 param tenantKeysVaultSku = 'standard'
+
+// Working hours (owner, 20 Oct): Mon–Sat 09:00–21:00 IST; the cluster and both
+// PostgreSQL servers are stopped nights and Sundays (budget ₹50,000/month).
+param scheduleEnabled = true
+param scheduleWeekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+param scheduleStartHour = 9
+param scheduleStopHour = 21
+param scheduleTimeZone = 'India Standard Time'

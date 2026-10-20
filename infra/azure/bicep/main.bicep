@@ -10,6 +10,9 @@
 //   tenant-keys vault and the resource group of the tenants' own identities,
 //   with the provisioner's rights on each (tech spec §5.1, §5.2, §10.4).
 //
+// * Working hours (scheduleEnabled; dev) — the cluster and the PostgreSQL
+//   servers stop outside them (two Logic Apps; budget).
+//
 // Later slices (public entry, tenant runtime, observability extras) add
 // modules here; each is codified before it is built.
 //
@@ -84,6 +87,17 @@ param poolServerSku object = {
 @description('Tenant-keys vault SKU: premium for HSM-backed KEKs (TENANT_KEK_HSM).')
 @allowed(['standard', 'premium'])
 param tenantKeysVaultSku string = 'standard'
+
+@description('Stop the cluster and the PostgreSQL servers outside working hours (dev).')
+param scheduleEnabled bool = false
+param scheduleWeekDays array = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+@minValue(0)
+@maxValue(23)
+param scheduleStartHour int = 9
+@minValue(0)
+@maxValue(23)
+param scheduleStopHour int = 21
+param scheduleTimeZone string = 'India Standard Time'
 
 @description('Azure Managed Redis SKU (dev: no HA).')
 param redisSku string = 'Balanced_B0'
@@ -363,6 +377,55 @@ module tenantIdentitiesAccess 'modules/tenant-identities-access.bicep' = if (dep
   name: 'tenant-identities-access'
   params: {
     provisionerPrincipalId: identities.outputs.principalIds.provisioner
+  }
+}
+
+// ── Working hours ─────────────────────────────────────────────────────────
+
+var scheduledServers = deployTenancy ? [names.pgControl, names.pgPool] : [names.pgControl]
+
+module scheduleRole 'modules/dev-schedule-role.bicep' = if (scheduleEnabled) {
+  name: 'schedule-role'
+  params: {
+    prefix: prefix
+    env: env
+  }
+}
+
+module schedule 'modules/dev-schedule.bicep' = if (scheduleEnabled) {
+  scope: rgCore
+  name: 'schedule'
+  params: {
+    location: location
+    prefix: prefix
+    env: env
+    aksId: aks.outputs.id
+    postgresServerIds: [for server in scheduledServers: resourceId(subscription().subscriptionId, names.rgData, 'Microsoft.DBforPostgreSQL/flexibleServers', server)]
+    timeZone: scheduleTimeZone
+    weekDays: scheduleWeekDays
+    startHour: scheduleStartHour
+    stopHour: scheduleStopHour
+  }
+  dependsOn: [postgres, postgresPool]
+}
+
+module scheduleAksAccess 'modules/dev-schedule-access.bicep' = if (scheduleEnabled) {
+  scope: rgAks
+  name: 'schedule-access-aks'
+  params: {
+    roleDefinitionId: scheduleRole!.outputs.roleDefinitionId
+    principalIds: schedule!.outputs.principalIds
+    aksName: names.aks
+  }
+}
+
+module scheduleDataAccess 'modules/dev-schedule-access.bicep' = if (scheduleEnabled) {
+  scope: rgData
+  name: 'schedule-access-data'
+  params: {
+    roleDefinitionId: scheduleRole!.outputs.roleDefinitionId
+    principalIds: schedule!.outputs.principalIds
+    postgresServerNames: scheduledServers
   }
 }
 
