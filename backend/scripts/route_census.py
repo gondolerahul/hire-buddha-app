@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 BACKEND = Path(__file__).resolve().parents[1]
-DOC = BACKEND.parent / "docs" / "current" / "17-api-reference.md"
+DOC = BACKEND.parent / "docs" / "reference" / "api-routes.md"
 START = "<!-- route-census:start -->"
 END = "<!-- route-census:end -->"
 

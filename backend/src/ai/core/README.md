@@ -5,7 +5,7 @@ run of every entity goes through `AgentLoop`; there is no other engine (the
 legacy `ExecutionEngine.execute_run` plan-walker and `recursive_engine.py` were
 deleted in C4). Everything else in `backend/src/ai/` is a service the loop calls.
 
-The full design is [`docs/current/05-agent-kernel.md`](../../../../docs/current/05-agent-kernel.md).
+The full design is [`docs/history/phase13/05-agent-kernel.md`](../../../../docs/history/phase13/05-agent-kernel.md).
 
 ## What's in here
 
@@ -50,7 +50,7 @@ The full design is [`docs/current/05-agent-kernel.md`](../../../../docs/current/
 
 ## See also
 
-- [`docs/current/05-agent-kernel.md`](../../../../docs/current/05-agent-kernel.md) — the kernel.
-- [`docs/current/06-execution-pipeline.md`](../../../../docs/current/06-execution-pipeline.md) — entities, steps, child runs.
-- [`docs/current/07-planning-and-critics.md`](../../../../docs/current/07-planning-and-critics.md) — the planner and the critic gates.
-- [`docs/current/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](../../../../docs/current/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md) — what is being fixed in this area, in what order.
+- [`docs/history/phase13/05-agent-kernel.md`](../../../../docs/history/phase13/05-agent-kernel.md) — the kernel.
+- [`docs/history/phase13/06-execution-pipeline.md`](../../../../docs/history/phase13/06-execution-pipeline.md) — entities, steps, child runs.
+- [`docs/history/phase13/07-planning-and-critics.md`](../../../../docs/history/phase13/07-planning-and-critics.md) — the planner and the critic gates.
+- [`docs/history/phase13/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md`](../../../../docs/history/phase13/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md) — what is being fixed in this area, in what order.

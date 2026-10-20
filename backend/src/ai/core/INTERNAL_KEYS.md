@@ -10,7 +10,7 @@ appends to a step's prompt, and out of a tool's fallback input.
 
 Source of truth: `backend/src/ai/constants.py::INTERNAL_CONTEXT_KEYS`. Replacing
 the dict with typed state is AK-21 in the
-[consolidated plan](../../../../docs/current/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
+[consolidated plan](../../../../docs/history/phase13/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md).
 
 ## Inventory
 
@@ -57,4 +57,4 @@ snapshot from before never renders it as a step's output.
 
 - `backend/src/ai/constants.py` — the source of truth.
 - `backend/src/ai/step_executor.py` — where the filtering happens.
-- `docs/current/05-agent-kernel.md` — the typed `AgentState` envelope.
+- `docs/history/phase13/05-agent-kernel.md` — the typed `AgentState` envelope.

@@ -348,7 +348,7 @@ M1 = today's product on Azure dev (plan §4): API, workers, frontend and voice w
 
 ## 4. Open items found while building
 
-* `tests/unit/test_flag_catalogue.py` and `tests/unit/test_route_census.py` point at `docs/current/`, moved by commit `9536599`; they already fail at this branch's HEAD (`6f602ee`), before any Phase 14 change. The route census also needs regenerating for `/api/v1/files/*` once its document has a home.
+* **Fixed 20 Oct:** `test_flag_catalogue.py` and `test_route_census.py` read `docs/current/`, moved by `9536599` before Phase 14. The flag catalogue and the route census now live in `docs/reference/` (`feature-flags.md`, `api-routes.md`, regenerated: 370 routes); other links to `docs/current/` point at `docs/history/phase13/`.
 * The local Docker engine came up empty on 2026-10-17 (no earlier containers, volumes or images); `%LOCALAPPDATA%\Docker\wsl\disk\docker_data.backup-20261008.vhdx` was left untouched. The dev database was rebuilt from migrations and seeds on PostgreSQL 16; `hb-sandbox:local` and `hb-egress-proxy:local` need rebuilding (`backend/docker/*/build.sh`) before sandbox tools work locally.
 * Spike SP-2 is answered: `redisClusteringPolicy` is `NoCluster` (EnterpriseCluster fails arq with `CROSSSLOT`). SP-5 decides `ANTHROPIC_PROVIDER` for Azure.
 * **CORTEX package (WS2 2.2):** `cortex_memory` (a copy of `hb-cortex-memory`) declares its tables on its own base, so this repository assigns that base to the tenant plane (`bases.cortex_base()`). The package should get a tenant base or a plane hook of its own; change it in `hb-cortex-memory` and sync the copy, not here.
@@ -378,7 +378,7 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 |---|------|-----|
 | H1 | Push this status update to GitHub (`git push origin roadmap-development-defect-fixes`) | Owner |
 | H2 | Delete the `pg-forward` pod in namespace `default` (database access used while deploying) once the database work below is done | Eng |
-| H3 | The 3 failing unit tests read `docs/current/…`, moved to `docs/history/phase13/` by `9536599` (before Phase 14): give the flag catalogue and the route census a current home, regenerate the census | Eng |
+| H3 | ~~The 3 failing unit tests (`docs/current/…`)~~ — **done 20 Oct**: `docs/reference/` | Eng |
 | H4 | Run the full integration tier again (20 Oct ran only the suites the media change touches) | Eng |
 
 ### 5.2 Finish M1 on Azure dev

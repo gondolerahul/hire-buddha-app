@@ -1,7 +1,7 @@
-"""ON-16: the flag catalogue in 15-governance-and-hitl.md §13 is the code's.
+"""ON-16: the flag catalogue (docs/reference/feature-flags.md) is the code's.
 
 The onboarding doc's "42 boolean + 5 numeric flags" was a count nothing kept
-true, and the catalogue listed flags deleted months before. This keeps §13's
+true, and the catalogue listed flags deleted months before. This keeps its
 rows and its counts equal to ``DEFAULTS`` and ``NUMERIC_DEFAULTS``.
 """
 from __future__ import annotations
@@ -11,13 +11,12 @@ from pathlib import Path
 
 from src.ai.core.feature_flags import DEFAULTS, NUMERIC_DEFAULTS
 
-DOC = Path(__file__).resolve().parents[3] / "docs" / "current" / "15-governance-and-hitl.md"
+DOC = Path(__file__).resolve().parents[3] / "docs" / "reference" / "feature-flags.md"
 
 
 def _catalogue() -> str:
     text = DOC.read_text(encoding="utf-8")
-    start = text.index("## 13. Feature flags")
-    return text[start:text.index("\n## 14", start)]
+    return text[text.index("## Feature flags"):]
 
 
 def _rows() -> dict[str, str]:

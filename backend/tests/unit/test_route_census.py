@@ -1,7 +1,7 @@
-"""API-17, API-I1: 17-api-reference.md lists every route the app serves, or this fails.
+"""API-17, API-I1: docs/reference/api-routes.md lists every route the app serves, or this fails.
 
 A full path chains three prefixes, so the decorator misleads, and the
-reference's hand-written tables drifted from the code. The census in its §24 is
+reference's hand-written tables drifted from the code. The census there is
 generated from the app (``scripts/route_census.py``); a route added, moved or
 removed without regenerating it fails here.
 """
@@ -23,9 +23,9 @@ def _census():
 def test_the_reference_lists_every_route_the_app_serves():
     census = _census()
     documented = census.doc_block(census.DOC.read_text(encoding="utf-8"))
-    assert documented, "17-api-reference.md has lost its route-census block"
+    assert documented, "api-routes.md has lost its route-census block"
     assert documented == census.table(), (
-        "17-api-reference.md §24 is not the app's route table: "
+        "api-routes.md is not the app's route table: "
         "run `python scripts/route_census.py --write` from backend/")
 
 

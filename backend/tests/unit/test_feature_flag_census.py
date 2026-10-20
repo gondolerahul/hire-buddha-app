@@ -17,7 +17,7 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 FLAGS_MODULE = SRC / "ai" / "core" / "feature_flags.py"
 
 # Declared, not yet read — each waits on a decision recorded in
-# docs/current/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md.
+# docs/history/phase13/defect-register/CONSOLIDATED-KERNEL-TOOLS-PLAN.md.
 # Empty since GH-15/GH-16 (2026-10-09): every declared flag is read.
 KNOWN_UNREAD: dict[str, str] = {}
 
