@@ -50,6 +50,13 @@ TOOL_BASELINE_COST: dict[str, Decimal] = {
 
 _DEFAULT_TOOL_COST: Decimal = Decimal("0.01")
 
+# Units of a typical call for tools priced per unit: an 8-second clip, a
+# minute of speech.
+_TYPICAL_UNITS: dict[str, int] = {
+    "text_to_speech": 60,
+    "video_generate": 8,
+}
+
 
 # Approximate USD-per-1k-output-tokens factor relative to Flash baseline.
 # Used as a multiplier on the model's typical "thinking" step cost.
@@ -85,6 +92,8 @@ _TOOL_LATENCY_S = {
     "scraper_tool":     6,
     "headless_browser": 10,
     "image_generation": 15,
+    "text_to_speech":   5,
+    "music_generation": 30,
     "video_generate":   60,
     "video_edit":       10,
     "video_add_sound":  10,
@@ -116,9 +125,12 @@ def estimate_step_cost(step: Any, entity: Any = None) -> Decimal:
     target = s.get("target") or {}
     if stype == "TOOL_CALL":
         tool_id = str(target.get("tool_id") or s.get("tool_id") or "")
-        # A fixed-cost tool costs exactly what the resolver charges (BC-11);
-        # the rest are estimated from telemetry.
-        return TOOL_FIXED_COST.get(tool_id) or TOOL_BASELINE_COST.get(tool_id, _DEFAULT_TOOL_COST)
+        # A fixed-cost tool costs what the resolver charges (BC-11) for a
+        # typical call's units; the rest are estimated from the baselines.
+        fixed = TOOL_FIXED_COST.get(tool_id)
+        if fixed:
+            return fixed * _TYPICAL_UNITS.get(tool_id, 1)
+        return TOOL_BASELINE_COST.get(tool_id, _DEFAULT_TOOL_COST)
     if stype == "CHILD_ENTITY_INVOCATION":
         return _CHILD_INVOCATION_COST
     if stype in ("THOUGHT", "ACTION", "RECURSE"):

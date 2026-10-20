@@ -23,7 +23,8 @@ const COMPONENT_TYPES = [
     { id: 'character', name: 'Character' },
     { id: 'flat_fee', name: 'Flat Fee' },
     { id: 'image', name: 'Per Image' },
-    { id: 'per_second', name: 'Per Second (Video)' }
+    { id: 'per_second', name: 'Per Second (Video, Speech)' },
+    { id: 'clip', name: 'Per Clip (Music)' }
 ];
 
 // ServiceCategory in backend/src/config/models.py — the API refuses anything else (LP-11).
@@ -35,6 +36,8 @@ const SERVICE_CATEGORIES = [
     { id: 'API_TOOL', name: 'API Tool (Apollo/Clay/Zapier)' },
     { id: 'IMAGE_GENERATION', name: 'Image Generation' },
     { id: 'VIDEO_GENERATION', name: 'Video Generation' },
+    { id: 'SPEECH_GENERATION', name: 'Speech Generation (Text to Speech)' },
+    { id: 'MUSIC_GENERATION', name: 'Music Generation' },
     { id: 'SANDBOX', name: 'Sandbox Time' },
     { id: 'EMAIL', name: 'Email (IMAP/SMTP)' },
     { id: 'SOCIAL_MEDIA', name: 'Social Media (WhatsApp/Instagram)' },

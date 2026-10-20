@@ -40,6 +40,8 @@ class ServiceCategory(StrEnum):
     EMBEDDING = "EMBEDDING"
     IMAGE_GENERATION = "IMAGE_GENERATION"
     VIDEO_GENERATION = "VIDEO_GENERATION"
+    SPEECH_GENERATION = "SPEECH_GENERATION"  # text to speech (Gemini TTS), priced per second
+    MUSIC_GENERATION = "MUSIC_GENERATION"    # music (Lyria), priced per clip
     SANDBOX = "SANDBOX"                    # sandbox seconds
     COMMUNICATION = "COMMUNICATION"        # telephony and messaging providers
     EMAIL = "EMAIL"

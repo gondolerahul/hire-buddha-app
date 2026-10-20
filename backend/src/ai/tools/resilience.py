@@ -59,7 +59,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
 # Names that read like a write but only produce output the run keeps.
 READS_DESPITE_NAME: frozenset[str] = frozenset({
     "image_generation", "video_generate", "video_edit", "video_add_sound",
-    "pdf_generator",
+    "text_to_speech", "music_generation", "pdf_generator",
 })
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Dict, List, Optional, Any
+from typing import TYPE_CHECKING, Dict, List, Optional, Any, Tuple
 from src.ai.tools.base import Tool as _BaseTool, ToolOutput
 from src.ai.core.trace import span as _trace_span
 import json
@@ -96,6 +96,10 @@ class ToolResult:
     # Priced units the call used (``ToolOutput.metadata["billable_units"]``):
     # a batch search's paid sub-queries; 0 when a free backend answered.
     units: float = 1.0
+    # Other tools' prices the call also used (``ToolOutput.metadata["also_bill"]``,
+    # tool id -> units): video_add_sound's generated narration is billed as
+    # text_to_speech seconds, its generated music as a music_generation clip.
+    also_bill: Dict[str, float] = field(default_factory=dict)
     # A call that writes carries its key (TL-39). ``replayed``: the run had
     # already made this exact write, so its earlier result was returned and
     # nothing was written, billed or counted again.
@@ -106,6 +110,10 @@ class ToolResult:
     def to_dict(self) -> Dict[str, Any]:
         """Backward-compatible dict representation."""
         return asdict(self)
+
+    def charges(self) -> List[Tuple[str, float]]:
+        """What the call is billed as: (tool id, units) — itself, then ``also_bill``."""
+        return [(self.tool, self.units), *((tool, float(units)) for tool, units in self.also_bill.items())]
 
 
 def _refused(tool_name: Any, args: Any, denied: Any) -> ToolResult:
@@ -140,6 +148,7 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
                               units=0, idempotency_key=key, replayed=True)
     start = datetime.now(timezone.utc)
     units = 1.0
+    also_bill: Dict[str, float] = {}
     limit = float(timeout_s or tool.timeout_seconds)
     try:
         # One call may not hold the worker past its timeout (EP-08): before,
@@ -148,6 +157,8 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
         error = None if out.success else (out.error or "the tool failed")
         output = out.output
         units = float(out.metadata.get("billable_units", 1))
+        extra = out.metadata.get("also_bill") or {}
+        also_bill = {str(k): float(v) for k, v in extra.items() if float(v) > 0} if isinstance(extra, dict) else {}
     except asyncio.TimeoutError:
         error = f"tool_timeout: '{name}' did not finish within {limit:g}s"
         output = f"Error: {error}"
@@ -155,7 +166,8 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
         error, output = str(exc), f"Error: {exc}"
     latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
     return ToolResult(tool=name, args=logged_args, output=output, success=error is None,
-                      latency_ms=latency, error=error, units=units, idempotency_key=key)
+                      latency_ms=latency, error=error, units=units, also_bill=also_bill,
+                      idempotency_key=key)
 
 
 class ToolExecutor:

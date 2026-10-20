@@ -477,7 +477,8 @@ class StepExecutorService:
             # usage_logs row are committed together below. A failed call is
             # not billed (TL-52).
             if tool_result.success:
-                await self._charge_tool(run, tool_id, latency, tool_result.units)
+                for billed_tool, units in tool_result.charges():
+                    await self._charge_tool(run, billed_tool, latency, units)
 
             await self.db.commit()
             
@@ -811,7 +812,8 @@ class StepExecutorService:
                     results.append({"tool": _tr.tool, "output": _tr.output, "success": _tr.success})
 
                     if _tr.success:  # a failed call is not billed (TL-52)
-                        await self._charge_tool(run, _tr.tool, _tr.latency_ms or 0, _tr.units)
+                        for billed_tool, units in _tr.charges():
+                            await self._charge_tool(run, billed_tool, _tr.latency_ms or 0, units)
 
                     # CORTEX: ingest scraper/browser results as knowledge nodes
                     if _tr.tool in ("scraper_tool", "headless_browser") and _tr.success:

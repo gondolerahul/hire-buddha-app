@@ -11,8 +11,9 @@ Lookup, first hit wins:
 
   0. for ``image_generation``, the company's ``billing_config.base_cost_image_gen``
      when set — the per-image override on the Billing Settings page (BC-13)
-  1. the company's ownactive ``integration_registry`` row for the tool —
-     ``service_sku == tool_id`` or one of :data:`TOOL_SKU_MAP[tool_id]`
+  1. the company's own active ``integration_registry`` row for the tool —
+     ``service_sku == tool_id``, one of :data:`TOOL_SKU_MAP[tool_id]`, or for a
+     media tool the first row of its :data:`TOOL_CATEGORY` (the model it uses)
   2. the platform's (APP company's) row for it — cost-bearing services are
      registered once, at platform level, as the LLM path already assumed
      (BC-10: tenants without their own row were charged nothing)
@@ -60,12 +61,26 @@ TOOL_SKU_MAP: dict[str, list[str]] = {
 }
 
 
-# Per-call costs for tools with no registry row.
+# Media tools priced by the model they use: the first active row of the
+# category (the one audio_models / video_generate resolve), whatever its SKU.
+TOOL_CATEGORY: dict[str, str] = {
+    "video_generate": "VIDEO_GENERATION",
+    "text_to_speech": "SPEECH_GENERATION",
+    "music_generation": "MUSIC_GENERATION",
+}
+
+
+# Per-unit costs for tools with no registry row (a call's units: one, or the
+# tool's ``billable_units``).
 TOOL_FIXED_COST: dict[str, Decimal] = {
     "image_generation": Decimal("0.04"),
-    # video_generate carries the model cost; video_edit / video_add_sound are
-    # compute-only and bill via the sandbox SKU, so they have no fixed cost here.
-    "video_generate": Decimal("0.05"),
+    # Per second of video (Veo 3.1 with audio, list price); video_edit /
+    # video_add_sound are compute-only and bill via the sandbox SKU.
+    "video_generate": Decimal("0.40"),
+    # Per second of speech (Gemini TTS: about 25 audio tokens a second).
+    "text_to_speech": Decimal("0.00045"),
+    # Per clip or song (Lyria 3 Pro).
+    "music_generation": Decimal("0.08"),
 }
 
 
@@ -148,6 +163,7 @@ def _run_price_cache(run_id: UUID) -> dict[str, tuple[Decimal, str, Optional[UUI
 
 __all__ = [
     "TOOL_SKU_MAP",
+    "TOOL_CATEGORY",
     "TOOL_FIXED_COST",
     "ToolCostResolver",
     "ToolChargeResult",
@@ -256,14 +272,17 @@ class ToolCostResolver:
     async def _registry_row(self, tool_id: str, company_id: UUID) -> Any:
         from src.config.models import IntegrationRegistry as _IR, ServiceCategory
         skus = [tool_id, *TOOL_SKU_MAP.get(tool_id, [])]
+        matches = [_IR.service_sku == sku for sku in skus]
+        if tool_id in TOOL_CATEGORY:
+            matches.append(_IR.service_category == TOOL_CATEGORY[tool_id])
         return (await self.db.execute(
             select(_IR).where(
                 _IR.company_id == company_id,
-                or_(*(_IR.service_sku == sku for sku in skus)),
+                or_(*matches),
                 _IR.status == "active",
                 _IR.internal_cost.isnot(None),
                 _IR.service_category != ServiceCategory.LLM,
-            ).limit(1)
+            ).order_by(_IR.created_at).limit(1)
         )).scalar_one_or_none()
 
     async def _lookup_uncached(

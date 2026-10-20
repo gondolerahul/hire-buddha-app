@@ -142,6 +142,30 @@ async def test_the_query_matches_only_the_tools_own_skus() -> None:
     assert "'web_search'" in sql and "'serp-api-key'" in sql
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool, category", [
+    ("video_generate", "VIDEO_GENERATION"),
+    ("text_to_speech", "SPEECH_GENERATION"),
+    ("music_generation", "MUSIC_GENERATION"),
+])
+async def test_a_media_tool_is_priced_by_its_models_category(tool, category) -> None:
+    """The configured model's row prices the call, whatever its SKU is called
+    (a veo-3.1-generate-001 row used to leave video_generate at its fixed cost)."""
+    db = _db_with_registry_row(None)
+    await ToolCostResolver(db, uuid4()).resolve(tool)
+    sql = str(db.execute.call_args_list[0].args[0].compile(compile_kwargs={"literal_binds": True}))
+    assert f"service_category = '{category}'" in sql
+    assert "ORDER BY integration_registry.created_at" in sql
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_tool_is_not_priced_by_category() -> None:
+    db = _db_with_registry_row(None)
+    await ToolCostResolver(db, uuid4()).resolve("web_search")
+    sql = str(db.execute.call_args_list[0].args[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "service_category = '" not in sql
+
+
 # ---------------------------------------------------------------------------
 # charge() — writes the ledger row; the caller adds the amount to the run
 # ---------------------------------------------------------------------------
@@ -200,7 +224,10 @@ def test_canonical_sku_map_present() -> None:
 
 def test_canonical_fixed_costs() -> None:
     assert TOOL_FIXED_COST["image_generation"] == Decimal("0.04")
-    assert TOOL_FIXED_COST["video_generate"] == Decimal("0.05")
+    # Per unit: a second of video or speech, a piece of music.
+    assert TOOL_FIXED_COST["video_generate"] == Decimal("0.40")
+    assert TOOL_FIXED_COST["text_to_speech"] == Decimal("0.00045")
+    assert TOOL_FIXED_COST["music_generation"] == Decimal("0.08")
     assert "video_generation" not in TOOL_FIXED_COST
 
 

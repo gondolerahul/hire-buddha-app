@@ -19,6 +19,8 @@ from src.ai.tools.documents.pdf_generator import PDFGeneratorTool
 from src.ai.tools.core.file_writer import FileWriterTool
 from src.ai.tools.email.email_tool import EmailIngestTool, EmailClassifyTool, EmailDraftTool, EmailSendTool
 from src.ai.tools.media.image_generation import ImageGenerationTool
+from src.ai.tools.media.music_generation import MusicGenerationTool
+from src.ai.tools.media.text_to_speech import TextToSpeechTool
 from src.ai.tools.media.video import (
     VideoGenerateTool,
     VideoEditTool,
@@ -58,6 +60,9 @@ ToolRegistry.register(ImageGenerationTool())
 ToolRegistry.register(VideoGenerateTool())
 ToolRegistry.register(VideoEditTool())
 ToolRegistry.register(VideoAddSoundTool())
+# Speech and music from the configured models (Gemini TTS, Lyria).
+ToolRegistry.register(TextToSpeechTool())
+ToolRegistry.register(MusicGenerationTool())
 
 # Sandbox execution tool (Ph-A: asyncio subprocess tier)
 ToolRegistry.register(SandboxCodeTool())
@@ -139,6 +144,7 @@ __all__ = [
     "EmailIngestTool", "EmailClassifyTool", "EmailDraftTool", "EmailSendTool",
     "ImageGenerationTool",
     "VideoGenerateTool", "VideoEditTool", "VideoAddSoundTool",
+    "TextToSpeechTool", "MusicGenerationTool",
     "SandboxCodeTool", "TerminalTool",
     "HeadlessBrowserTool",
     "DocxTool", "PptxTool", "DocumentSaveTool",

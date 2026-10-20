@@ -151,12 +151,13 @@ class VoiceToolCalls:
             log_tool_call(self.db, self.run.id, self.STEP_NAME, self.access, tr,
                           call.get("args") or {}, tr.latency_ms or 0)
             if tr.success and not tr.skipped:  # a failed or refused call is not billed
-                try:
-                    charge = await self._resolver.charge(
-                        run=self.run, tool_id=tr.tool, latency_ms=tr.latency_ms or 0, units=tr.units)
-                    self.cost += charge.amount
-                except Exception as exc:                            # noqa: BLE001
-                    logger.warning("Could not charge voice tool call %s: %s", tr.tool, exc)
+                for billed_tool, units in tr.charges():
+                    try:
+                        charge = await self._resolver.charge(
+                            run=self.run, tool_id=billed_tool, latency_ms=tr.latency_ms or 0, units=units)
+                        self.cost += charge.amount
+                    except Exception as exc:                            # noqa: BLE001
+                        logger.warning("Could not charge voice tool call %s: %s", billed_tool, exc)
         await self.db.commit()
         return results
 

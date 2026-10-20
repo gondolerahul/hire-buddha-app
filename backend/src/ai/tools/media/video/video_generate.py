@@ -215,6 +215,8 @@ class VideoGenerateTool(Tool):
                     "duration_seconds": duration,
                     "has_audio": is_audio_required,
                     "person_generation": people,
+                    # Veo is priced per second of video (lifted out for billing).
+                    "billable_units": duration,
                 }
             )
         except TimeoutError as exc:

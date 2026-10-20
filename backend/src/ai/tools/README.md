@@ -21,7 +21,7 @@ subpackage:
 |------------|-------|
 | `core/` | `calculator`, `search`, `batch_search`, `scraper`, `file_writer` |
 | `documents/` | `pdf_generator`, `docx_tool`, `pptx_tool`, `excel`, `xlsx_engine`, `document_save` |
-| `media/` | `image_generation`, `video_generate`, `video_edit`, `video_add_sound` |
+| `media/` | `image_generation`, `video_generate`, `video_edit`, `video_add_sound`, `text_to_speech`, `music_generation` |
 | `sandbox/` | `sandbox_executor`, `skill_files`, `terminal_tool`, `browser_tool` (per-tenant container runtime is `docs/history/phase12/plans/02_*`) |
 | `email/` | `email_tool` |
 | `crm/` | `crm_tools` |

@@ -182,7 +182,7 @@ class Tool(ABC):
         a silent fallback to another path.
         """
         if self.Params is None:
-            return ToolOutput(output=await self.run_with_context(_legacy_input(args), context))
+            return _legacy_output(await self.run_with_context(_legacy_input(args), context))
         try:
             params = self.parse_args(args)
         except InvalidArguments as exc:
@@ -280,6 +280,24 @@ def _plain_schema(schema: Dict[str, Any], defs: Optional[Dict[str, Any]] = None)
         else:
             out[key] = value
     return out
+
+
+# Billing keys an unconverted tool may put in its JSON result: lifted into the
+# call's metadata (``ToolResult.units`` / ``also_bill``), not shown to the model.
+_BILLING_KEYS = ("billable_units", "also_bill")
+
+
+def _legacy_output(text: Any) -> ToolOutput:
+    """An unconverted tool's string result, with its billing keys lifted out."""
+    if isinstance(text, str) and text.lstrip().startswith("{") and any(k in text for k in _BILLING_KEYS):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and any(k in data for k in _BILLING_KEYS):
+            metadata = {k: data.pop(k) for k in _BILLING_KEYS if k in data}
+            return ToolOutput(output=json.dumps(data, default=str), metadata=metadata)
+    return ToolOutput(output=text)
 
 
 def _legacy_input(args: Any) -> str:

@@ -6,12 +6,14 @@ ffmpeg muxing/mixing runs in the per-tenant container (metered as compute).
 
 Sources:
 * ``file``     — mux/mix a supplied ``audio_path`` (fully supported, no model cost).
-* ``tts``      — narrate ``text`` via the platform speech provider.
-* ``generated``— synthesize a music bed from ``music_prompt`` via a provider.
+* ``tts``      — narrate ``text`` with the configured speech model (Gemini TTS),
+  billed as ``text_to_speech`` seconds.
+* ``generated``— a music bed from ``music_prompt`` with the configured music
+  model (Lyria), billed as one ``music_generation`` piece.
 
-``tts`` and ``generated`` require a configured provider; without one they return
-a structured, non-fatal error rather than a silent no-op so the planner can
-fall back to a supplied ``file``.
+``tts`` and ``generated`` need a configured model (``audio_models``); without one
+they return a structured, non-fatal error rather than a silent no-op so the
+planner can fall back to a supplied ``file``.
 """
 from __future__ import annotations
 
@@ -108,7 +110,9 @@ class VideoAddSoundTool(Tool):
         if mode not in ("replace", "overlay"):
             return json.dumps({"error": "mode must be 'replace' or 'overlay'"})
 
-        # Resolve the audio track for this call.
+        # Resolve the audio track for this call; generated audio is billed as
+        # the tool that makes it (also_bill).
+        also_bill: Dict[str, float] = {}
         if source == "file":
             audio_path = params.get("audio_path")
             if not audio_path or not os.path.exists(audio_path):
@@ -119,12 +123,14 @@ class VideoAddSoundTool(Tool):
             )
             if isinstance(resolved, dict):  # structured error
                 return json.dumps(resolved)
-            audio_path = resolved
+            audio_path, seconds = resolved
+            also_bill["text_to_speech"] = round(seconds or 1.0, 2)
         else:  # generated
             resolved = await self._generate_music(context, params.get("music_prompt"), company_id)
             if isinstance(resolved, dict):
                 return json.dumps(resolved)
-            audio_path = resolved
+            audio_path, _ = resolved
+            also_bill["music_generation"] = 1
 
         output_path = params.get("output_path") or new_output_path(company_id, prefix="sound")
         try:
@@ -142,10 +148,11 @@ class VideoAddSoundTool(Tool):
             generated_by=f"video_add_sound:{source}",
             extra_metadata={"source": source, "mode": mode},
         )
-        return json.dumps(
-            {"source": source, "mode": mode, "video_path": artifact.file_path,
-             "artifact_id": str(artifact.id), "audio_path": audio_path}
-        )
+        result: Dict[str, Any] = {"source": source, "mode": mode, "video_path": artifact.file_path,
+                                  "artifact_id": str(artifact.id), "audio_path": audio_path}
+        if also_bill:
+            result["also_bill"] = also_bill
+        return json.dumps(result)
 
     async def _mux(
         self,
@@ -217,20 +224,20 @@ class VideoAddSoundTool(Tool):
         voice: Optional[str],
         company_id: Optional[str],
     ) -> Any:
-        """Synthesize narration to an audio file, or return a structured error dict."""
+        """Narration as ``(audio file, seconds)``, or a structured error dict."""
         if not text:
             return {"error": "tts source requires 'text'"}
-        # No host file-TTS provider is wired in this build; surface a structured
-        # error so the planner can fall back to a supplied audio file rather than
-        # silently producing a silent video.
-        return {
-            "error": "tts_provider_unavailable",
-            "message": (
-                "No text-to-speech provider is configured for video_add_sound. "
-                "Supply a pre-rendered narration via source='file' and "
-                "'audio_path', or configure a speech provider."
-            ),
-        }
+        from src.ai.tools.media import audio_models
+
+        try:
+            audio = await audio_models.synthesize_speech(company_id, text, voice=voice)
+        except audio_models.MediaModelUnavailable as exc:
+            return {
+                "error": "tts_provider_unavailable",
+                "message": (f"{exc}. Supply a pre-rendered narration via source='file' and "
+                            "'audio_path', or configure a speech model."),
+            }
+        return _keep_working_audio(company_id, audio, "narration"), audio.seconds
 
     async def _generate_music(
         self,
@@ -238,13 +245,24 @@ class VideoAddSoundTool(Tool):
         music_prompt: Optional[str],
         company_id: Optional[str],
     ) -> Any:
-        """Generate a music bed to an audio file, or return a structured error dict."""
+        """A music bed as ``(audio file, seconds)``, or a structured error dict."""
         if not music_prompt:
             return {"error": "generated source requires 'music_prompt'"}
-        return {
-            "error": "music_provider_unavailable",
-            "message": (
-                "No generated-music provider is configured for video_add_sound. "
-                "Supply a music file via source='file' and 'audio_path'."
-            ),
-        }
+        from src.ai.tools.media import audio_models
+
+        try:
+            audio = await audio_models.generate_music(company_id, music_prompt)
+        except audio_models.MediaModelUnavailable as exc:
+            return {
+                "error": "music_provider_unavailable",
+                "message": f"{exc}. Supply a music file via source='file' and 'audio_path'.",
+            }
+        return _keep_working_audio(company_id, audio, "music"), audio.seconds
+
+
+def _keep_working_audio(company_id: Optional[str], audio: Any, prefix: str) -> str:
+    """Generated audio as a file beside the company's working videos, for ffmpeg."""
+    path = new_output_path(company_id, prefix=prefix, ext=audio.extension)
+    with open(path, "wb") as fh:
+        fh.write(audio.data)
+    return path

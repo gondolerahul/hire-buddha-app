@@ -327,6 +327,38 @@ async def test_add_sound_tts_unavailable_is_structured(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("source, extra, billed", [
+    ("tts", {"text": "Welcome to HireBuddha", "voice": "Kore"}, {"text_to_speech": 3.5}),
+    ("generated", {"music_prompt": "warm folk bed"}, {"music_generation": 1}),
+])
+async def test_add_sound_generates_with_the_configured_model_and_bills_it(
+    fake_ffmpeg: _FakeExec, tmp_path, monkeypatch, source, extra, billed
+) -> None:
+    """tts / generated used to refuse (no provider wired); they now use the
+    configured speech or music model and bill it as that tool (also_bill)."""
+    from src.ai.tools.media import audio_models
+    from src.ai.tools.media.audio_models import Audio
+
+    async def fake_speech(company_id, text, **kwargs):
+        return Audio(data=b"RIFF-wav", mime_type="audio/wav", extension="wav", model="tts", seconds=3.5)
+
+    async def fake_music(company_id, prompt, **kwargs):
+        return Audio(data=b"ID3-mp3", mime_type="audio/mpeg", extension="mp3", model="lyria", seconds=30.0)
+
+    monkeypatch.setattr(audio_models, "synthesize_speech", fake_speech)
+    monkeypatch.setattr(audio_models, "generate_music", fake_music)
+    video = _make_clip(tmp_path, "v.mp4")
+    out = await VideoAddSoundTool().invoke({"video_path": video, "source": source, **extra}, _CTX)
+    result = json.loads(out.output)
+    assert "error" not in result, result
+    assert out.metadata["also_bill"] == billed
+    assert "also_bill" not in result  # lifted out of what the model reads
+    with open(result["audio_path"], "rb") as fh:
+        assert fh.read() in (b"RIFF-wav", b"ID3-mp3")
+    assert result["audio_path"] in fake_ffmpeg.last
+
+
+@pytest.mark.asyncio
 async def test_add_sound_missing_audio_file_errors(tmp_path) -> None:
     tool = VideoAddSoundTool()
     video = _make_clip(tmp_path, "v.mp4")
