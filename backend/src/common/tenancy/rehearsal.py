@@ -143,7 +143,12 @@ async def _businesses() -> List[uuid.UUID]:
 
 async def _cli(args: argparse.Namespace) -> int:
     from src.common import database
+    from src.common.orm_models import import_all_models
     from src.common.tenancy.engines import engines
+
+    # Run on its own, nothing else has imported the models an artifact's keys
+    # name (campaigns …); the ORM refuses to flush without them.
+    import_all_models()
 
     try:
         companies = [uuid.UUID(c) for c in args.company] if args.company else await _businesses()

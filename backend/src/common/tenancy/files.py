@@ -125,7 +125,12 @@ async def move_files(company_id: Any, *, apply: bool, delete_old: bool = False) 
 
 async def _cli(args: argparse.Namespace) -> int:
     from src.common import database
+    from src.common.orm_models import import_all_models
     from src.common.tenancy.engines import engines
+
+    # Run on its own, nothing else has imported the models an artifact's keys
+    # name (campaigns …); the ORM refuses to flush without them.
+    import_all_models()
 
     try:
         report = await move_files(args.company_id, apply=args.apply, delete_old=args.delete_old)

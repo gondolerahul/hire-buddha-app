@@ -22,8 +22,10 @@ config:
   # refuse and the idle reaper skips (with `kubernetes` it failed every 5 minutes).
   SANDBOX_RUNTIME: ""
   # M2 — tenant provisioning (Bicep slice 2): its own worker and identity, the
-  # pool server's roles, each tenant's identity and KEK. Dev itself stays in
-  # single mode; tenants are provisioned on psql-hb-dev-pool-01.
+  # pool server's roles, each tenant's identity and KEK.
+  # M2-3 (20 Oct): every business in its own database on psql-hb-dev-pool-01
+  # (the platform company moved there with the split tool).
+  TENANCY_MODE: split
   PROVISIONING_QUEUE: provisioning
   TENANT_DB_DDL_ROLE: hb_migrator
   TENANT_DB_RUNTIME_PRINCIPALS: id-hb-dev-api,id-hb-dev-worker,id-hb-dev-connsvc
