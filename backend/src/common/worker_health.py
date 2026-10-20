@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 # jobs, child runs (SA-07) and automation events (Phase 14 WS3), each with its own worker.
 EXPECTED_QUEUES = (default_queue_name, CHILD_RUN_QUEUE, EVENT_QUEUE)
 
+
+def expected_queues() -> tuple:
+    """``EXPECTED_QUEUES``, and the provisioning queue where provisioning has its own worker (M2)."""
+    return EXPECTED_QUEUES + ((settings.PROVISIONING_QUEUE,) if settings.PROVISIONING_QUEUE else ())
+
 HEARTBEAT_KEY_PREFIX = "hb:workers:"
 
 
@@ -105,7 +110,7 @@ async def worker_status() -> dict:
     """
     client = redis.from_url(settings.REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
     try:
-        queues = {queue: await queue_status(client, queue) for queue in EXPECTED_QUEUES}
+        queues = {queue: await queue_status(client, queue) for queue in expected_queues()}
     except Exception as exc:
         logger.warning("worker status unavailable: %s", exc)
         return {"status": "unknown", "queues": {}}

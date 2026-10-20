@@ -23,6 +23,8 @@ serviceAccounts:
     name: sa-api
   worker:
     name: sa-worker
+  provisioner:
+    name: sa-provisioner
 
 migrations:
   serviceAccountName: sa-migrator

@@ -25,13 +25,13 @@ What each step does depends on the platform profile (``PLATFORM_PROFILE``):
 
 | Step | ``local`` | ``azure`` |
 |------|-----------|-----------|
-| db_created | ``CREATE DATABASE`` on the tenant's server, extensions, schema ``platform``, ``search_path`` | the same, as the provisioner identity |
+| db_created | ``CREATE DATABASE`` on the tenant's server, extensions, schema ``platform``, ``search_path`` | the same, as the provisioner identity, after the server's roles (once) and before who may use it: ``hb_runtime`` and the DDL role only, objects owned by the DDL role (``db_roles``) |
 | migrated | the platform schema (``migrate.upgrade_tenant``), then base pack v1 (``schema_engine``) | the same |
-| identity_ready | skipped: one database role | not built yet: the tenant's managed identity, federated credential and ``hb_dataapi`` grant (WS0 slice 2) |
+| identity_ready | skipped: one database role | the tenant's managed identity, its federated credential (``t-<key>/data-api``) and its ``hb_dataapi`` sign-in to this database (``azure_identity``, ``db_roles``) |
 | keys_ready | the tenant KEK (a local key file) and its first DEK | the KEK in the tenant-keys vault, and the DEK |
 | namespace_ready | skipped: no Kubernetes (unless ``KUBE_API_URL``) | namespace ``t-<key>``: restricted pods, default-deny, quota, limits |
 | storage_ready | the ``t-<key>`` namespace in storage | the ``t-<key>`` Blob container |
-| data_api_ready | skipped: served in-process at ``/data`` | not built yet: the tenant's Data API Deployment |
+| data_api_ready | skipped: served in-process at ``/data`` | the same with ``DATA_API_MODE=in_process`` (Azure dev); otherwise not built yet: the tenant's Data API Deployment |
 
 A step "not built yet" fails with that reason, so a tenant on Azure stops
 short of ``active`` instead of being marked ready without its resources.
@@ -218,10 +218,14 @@ def _engine(url: Any) -> Any:
 
 
 async def _db_created(tenant: Tenant) -> StepResult:
-    """The database, its extensions, schema ``platform`` and ``search_path``."""
+    """The server's roles (once), the database, its extensions, schema ``platform``,
+    ``search_path`` and who may use it (``db_roles``; local: one user owns everything)."""
+    from src.common.tenancy import db_roles
+
     admin = _engine(_admin_url(tenant))
     try:
         async with admin.connect() as conn:
+            server_roles = await db_roles.ensure_server_roles(conn)
             exists = (await conn.execute(text("SELECT 1 FROM pg_database WHERE datname = :d"),
                                          {"d": tenant.db_name})).first() is not None
             if not exists:
@@ -233,12 +237,15 @@ async def _db_created(tenant: Tenant) -> StepResult:
         async with database.connect() as conn:
             for extension in EXTENSIONS:
                 await conn.execute(text(f'CREATE EXTENSION IF NOT EXISTS "{extension}"'))
-            await conn.execute(text("CREATE SCHEMA IF NOT EXISTS platform"))
+            access = await db_roles.secure_database(conn, tenant.db_name)
+            if db_roles.ddl_role() is None:
+                await conn.execute(text("CREATE SCHEMA IF NOT EXISTS platform"))
             await conn.execute(text(f'ALTER DATABASE "{tenant.db_name}" SET search_path TO platform, public'))
     finally:
         await database.dispose()
     return StepResult("succeeded", {"database": tenant.db_name, "created": not exists,
-                                    "server": tenant.server_host})
+                                    "server": tenant.server_host, "server_roles": server_roles,
+                                    "access": access})
 
 
 async def _migrated(tenant: Tenant) -> StepResult:
@@ -247,9 +254,12 @@ async def _migrated(tenant: Tenant) -> StepResult:
     from src.common.tenancy.migrate import upgrade_tenant
     from src.schema_engine import engine as schema_engine
 
+    from src.common.tenancy.db_roles import ddl_role
+
     location = await _location(tenant, status="db_created")
     version = await upgrade_tenant(location)
-    engine = create_tenant_engine(tenant_url(location))
+    # The base pack's tables belong to the DDL role, like the platform schema's.
+    engine = create_tenant_engine(tenant_url(location), role=ddl_role())
     try:
         blueprint = await schema_engine.active_blueprint(engine, tenant.company_id)
     finally:
@@ -338,6 +348,36 @@ async def _namespace_ready(tenant: Tenant) -> StepResult:
     return StepResult("succeeded", {"namespace": f"t-{tenant.key}"})
 
 
+async def _identity_ready(tenant: Tenant) -> StepResult:
+    """The tenant's own identity for its Data API (Azure): the managed identity, its
+    federated credential, and its sign-in to this database only (``hb_dataapi``)."""
+    if _profile() == "local":
+        return StepResult("skipped", {"reason": "one database role for every database on this machine"})
+    from src.common.tenancy import azure_identity, db_roles
+
+    identity = await azure_identity.ensure_tenant_identity(tenant.key)
+    database = _engine(_admin_url(tenant, tenant.db_name))
+    try:
+        async with database.connect() as conn:
+            grant = await db_roles.grant_tenant_principal(conn, tenant.db_name, identity["name"],
+                                                          identity["principal_id"])
+    finally:
+        await database.dispose()
+    return StepResult("succeeded", {**identity, "database_role": db_roles.DATA_API, "made": grant["made"]})
+
+
+async def _data_api_ready(tenant: Tenant) -> StepResult:
+    """The tenant's Data API: in-process at ``/data`` (local; Azure dev until the
+    per-tenant Deployment, ``DATA_API_MODE=in_process``), else its own Deployment."""
+    from src.common.config import settings
+
+    mode = (settings.DATA_API_MODE or ("in_process" if _profile() == "local" else "deployment")).lower()
+    if mode == "in_process":
+        return StepResult("skipped", {"reason": "the Data API is served in-process at /data"})
+    raise StepNotBuilt("data_api_ready: the per-tenant Data API Deployment is not built yet (WS4); "
+                       "set DATA_API_MODE=in_process to serve it in-process")
+
+
 async def _active(tenant: Tenant) -> StepResult:
     return StepResult("succeeded", {})
 
@@ -345,13 +385,11 @@ async def _active(tenant: Tenant) -> StepResult:
 STEP_FUNCTIONS: Dict[str, Callable[[Tenant], Awaitable[StepResult]]] = {
     "db_created": _db_created,
     "migrated": _migrated,
-    "identity_ready": _local_skip("one database role for every database on this machine", "identity_ready",
-                                  "the tenant's managed identity and its database grant, WS0 slice 2"),
+    "identity_ready": _identity_ready,
     "keys_ready": _keys_ready,
     "namespace_ready": _namespace_ready,
     "storage_ready": _storage_ready,
-    "data_api_ready": _local_skip("the Data API is served in-process at /data", "data_api_ready",
-                                  "the tenant's Data API Deployment, WS4"),
+    "data_api_ready": _data_api_ready,
     "active": _active,
 }
 assert tuple(STEP_FUNCTIONS) == STEPS
@@ -516,16 +554,27 @@ async def provision_tenant(ctx: Dict[str, Any], company_id: str) -> Dict[str, An
     return await provision(company_id)
 
 
+async def enqueue_provisioning(company_id: Any, *, job_id: Optional[str] = None) -> Any:
+    """Queue ``provision_tenant``: on ``PROVISIONING_QUEUE`` when set (its own worker,
+    signed in as the provisioner identity on Azure), else the default queue."""
+    from src.common.config import settings
+    from src.common.job_queue import enqueue_job
+
+    options: Dict[str, Any] = {"_queue_name": settings.PROVISIONING_QUEUE} if settings.PROVISIONING_QUEUE else {}
+    if job_id:
+        options["_job_id"] = job_id
+    return await enqueue_job("provision_tenant", str(company_id), **options)
+
+
 async def request_and_enqueue(company_id: Any, *, server_name: Optional[str] = None) -> Optional[Any]:
     """Sign-up's hook (WS2 2.9): with ``TENANCY_MODE=split`` a new company gets
     its tenant requested and a provisioning job; ``None`` with ``single``."""
-    from src.common.job_queue import enqueue_job
     from src.common.tenancy.session import is_split
 
     if not is_split():
         return None
     entry = await request_tenant(company_id, server_name=server_name)
-    await enqueue_job("provision_tenant", str(company_id), _job_id=f"provision-tenant:{company_id}")
+    await enqueue_provisioning(company_id, job_id=f"provision-tenant:{company_id}")
     return entry
 
 

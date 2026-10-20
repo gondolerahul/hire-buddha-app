@@ -56,10 +56,10 @@ async def _location(company_id: Any) -> Any:
 
 
 async def _enqueue(company_id: UUID) -> None:
-    from src.common.job_queue import enqueue_job
+    from src.common.tenancy.provisioner import enqueue_provisioning
 
     try:
-        await enqueue_job("provision_tenant", str(company_id))
+        await enqueue_provisioning(company_id)
     except Exception as exc:  # noqa: BLE001 - the row is requested; a retry enqueues again
         raise HTTPException(status_code=503, detail=f"Provisioning could not be queued: {exc}")
 

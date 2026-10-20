@@ -201,7 +201,15 @@ async def _run_online(url: Any, tree: str, schema: Optional[str], metadata: Any)
 
     from src.common.platform.dbauth import install as install_db_auth
 
-    connect_args = {"server_settings": {"search_path": _search_path(schema)}} if schema else {}
+    server_settings = {"search_path": _search_path(schema)} if schema else {}
+    if tree == TENANT_TREE and os.environ.get(URL_VARIABLE):
+        # A tenant database's objects belong to the DDL role, whoever migrates
+        # (db_roles). Not the control database in single mode: its tables stay
+        # the migrator identity's, which its default privileges are written for.
+        from src.common.tenancy.db_roles import ddl_role
+        if ddl_role():
+            server_settings["role"] = ddl_role()
+    connect_args = {"server_settings": server_settings} if server_settings else {}
     engine = create_async_engine(url, poolclass=pool.NullPool, connect_args=connect_args)
     # On Azure the migrator signs in with its Entra identity (DB_AUTH, Phase 14).
     install_db_auth(engine)

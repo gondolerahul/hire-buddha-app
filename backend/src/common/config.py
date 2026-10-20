@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     WORKER_METRICS_PORT: int = 9101
     CHILD_WORKER_METRICS_PORT: int = 9102
     EVENT_WORKER_METRICS_PORT: int = 9103
+    PROVISIONER_METRICS_PORT: int = 9105
     SCHEDULER_METRICS_PORT: int = 9104
     WORKER_METRICS_ADDR: str = "127.0.0.1"
     # A parent suspended on its children (AK-03): when every child is done but
@@ -422,6 +423,29 @@ class Settings(BaseSettings):
     TENANT_DB_PORT: int = 0
     # Tenant database engines kept open per process (least recently used go).
     TENANT_ENGINE_CACHE_SIZE: int = 200
+    # Who owns and changes a tenant database (tech spec §5.2): DDL runs as this
+    # group role (`SET ROLE`), so objects have one owner whoever migrates —
+    # the provisioner or the migrator. Empty (local): the connection's user.
+    TENANT_DB_DDL_ROLE: str = ""
+    # The Entra principals a pool server needs (the provisioner makes them on
+    # first use): API, workers and Connection Service (hb_runtime), the
+    # migrator (hb_migrator). Comma-separated; empty (local): none.
+    TENANT_DB_RUNTIME_PRINCIPALS: str = ""
+    TENANT_DB_MIGRATOR_PRINCIPAL: str = ""
+    # Provisioning jobs' queue: its own worker, signed in as the provisioner
+    # identity (Azure). Empty: the default queue (one worker locally).
+    PROVISIONING_QUEUE: str = ""
+    # Each tenant's own identity (identity_ready, Azure): made in this resource
+    # group, federated to `t-<key>/data-api` on the cluster's OIDC issuer.
+    AZURE_SUBSCRIPTION_ID: str = ""
+    AZURE_LOCATION: str = ""
+    TENANT_IDENTITY_RESOURCE_GROUP: str = ""
+    TENANT_IDENTITY_NAME_PREFIX: str = ""   # e.g. id-hb-dev-t- (+ the tenant key)
+    AKS_OIDC_ISSUER: str = ""
+    # in_process: the platform API serves every business's Data API at /data
+    # (local, and Azure dev until the per-tenant Deployment, WS4); deployment:
+    # each tenant gets its own (data_api_ready). Empty: by profile.
+    DATA_API_MODE: str = ""
 
     @field_validator("TENANCY_MODE")
     @classmethod

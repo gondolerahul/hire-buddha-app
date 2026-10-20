@@ -47,13 +47,16 @@ def _search_platform_first(dbapi_connection: Any, connection_record: Any) -> Non
     run_async(lambda conn: conn.execute(f"SET search_path TO {SEARCH_PATH}"))
 
 
-def create_tenant_engine(url: URL) -> AsyncEngine:
+def create_tenant_engine(url: URL, *, role: Optional[str] = None) -> AsyncEngine:
+    """A tenant database's engine; ``role``: every connection acts as that role
+    (``SET ROLE`` at sign-in) — the DDL role, for the provisioner's work (db_roles)."""
     from src.common.database import json_serializer
     from src.common.platform.dbauth import install as install_db_auth
 
     engine = create_async_engine(
         url, pool_size=POOL_SIZE, max_overflow=MAX_OVERFLOW, pool_timeout=60,
         pool_recycle=1800, pool_pre_ping=True, json_serializer=json_serializer,
+        connect_args={"server_settings": {"role": role}} if role else {},
     )
     install_db_auth(engine)
     event.listen(engine.sync_engine, "connect", _search_platform_first)

@@ -24,8 +24,10 @@ BEGIN
 END $$;
 GRANT hb_runtime TO "id-hb-dev-worker", "id-hb-dev-api", "id-hb-dev-connsvc";
 GRANT hb_migrator TO "id-hb-dev-migrator";
--- The provisioner creates tenant databases (WS2 2.8) and roles for them.
+-- The provisioner creates tenant databases (WS2 2.8) and roles for them, and
+-- writes the tenant directory and its provisioning log here (M2).
 ALTER ROLE "id-hb-dev-provisioner" CREATEDB CREATEROLE;
+GRANT hb_runtime TO "id-hb-dev-provisioner";
 -- The admin group may act for the migrator (needed for ALTER DEFAULT PRIVILEGES below).
 GRANT "id-hb-dev-migrator" TO "grp-hb-dev-pg-admins";
 

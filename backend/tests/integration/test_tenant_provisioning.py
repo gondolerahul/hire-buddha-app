@@ -278,3 +278,83 @@ async def test_staff_add_a_tenant_with_one_call_and_people_see_their_workspace(c
 
         refused = await client.get("/api/v1/admin/tenants")
         assert refused.status_code == 403
+
+
+@pytest_asyncio.fixture
+async def ddl_roles(company, monkeypatch):
+    """The pool server's roles switched on (as on Azure), with this test's own names;
+    afterwards the tenant database first (its objects belong to them), then the roles."""
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    from src.common.config import settings
+    from src.common.tenancy.models import TenantDirectoryEntry
+    from src.common.tenancy.session import control_session
+
+    sfx = uuid.uuid4().hex[:8]
+    names = {"ddl": f"hbt_ddl_{sfx}", "api": f"hbt_api_{sfx}", "migrator": f"hbt_mig_{sfx}"}
+    for key, value in (("TENANT_DB_DDL_ROLE", names["ddl"]), ("TENANT_DB_RUNTIME_PRINCIPALS", names["api"]),
+                       ("TENANT_DB_MIGRATOR_PRINCIPAL", names["migrator"])):
+        monkeypatch.setattr(settings, key, value)
+        monkeypatch.setenv(key, value)  # the migration runner's child process reads them too
+    url = make_url(settings.CONTROL_DATABASE_URL).set(drivername="postgresql", database="postgres")
+    admin = await asyncpg.connect(url.render_as_string(hide_password=False))
+    pre = {r["rolname"] for r in await admin.fetch(
+        "SELECT rolname FROM pg_roles WHERE rolname IN ('hb_runtime', 'hb_dataapi')")}
+    try:
+        yield names
+    finally:
+        async with control_session() as db:
+            entry = await db.get(TenantDirectoryEntry, company["id"])
+        if entry is not None:
+            await admin.execute(f'DROP DATABASE IF EXISTS "{entry.db_name}" WITH (FORCE)')
+        for role in [names["api"], names["migrator"], names["ddl"]] + \
+                [r for r in ("hb_runtime", "hb_dataapi") if r not in pre]:
+            if await admin.fetchval("SELECT 1 FROM pg_roles WHERE rolname = $1", role):
+                await admin.execute(f'DROP OWNED BY "{role}"')
+                await admin.execute(f'DROP ROLE "{role}"')
+        await admin.close()
+
+
+async def test_with_the_ddl_role_every_object_belongs_to_it_and_serves_the_runtime(company, control, ddl_roles,
+                                                                                    tmp_path):
+    """M2 (Azure): the provisioner builds the database, its migrations and the base
+    pack as the DDL role (SET ROLE), so one role owns everything whoever migrates
+    later, and the API and workers (hb_runtime) can use every table."""
+    from src.common.platform.kek import set_kek
+    from src.common.platform.kek.local import LocalKeyEncryption
+    from src.common.tenancy import provisioner
+    from src.connections import crypto
+
+    set_kek(LocalKeyEncryption(tmp_path / "keys"))
+    crypto.forget_cached()
+    try:
+        entry = await provisioner.request_tenant(company["id"], server_name=company["server"])
+        result = await provisioner.provision(company["id"])
+    finally:
+        set_kek(None)
+        crypto.forget_cached()
+    assert result["status"] == "active", result
+    created = next(s for s in result["steps"] if s["step"] == "db_created")["detail"]
+    assert created["access"]["owner"] == ddl_roles["ddl"]
+    assert {ddl_roles["api"], ddl_roles["migrator"]} <= set(created["server_roles"]["made"])
+
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    from src.common.config import settings
+    url = make_url(settings.CONTROL_DATABASE_URL).set(drivername="postgresql", database=entry.db_name)
+    conn = await asyncpg.connect(url.render_as_string(hide_password=False))
+    try:
+        owners = {r["tableowner"] for r in await conn.fetch(
+            "SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname IN ('platform', 'business')")}
+        assert owners == {ddl_roles["ddl"]}
+        assert await conn.fetchval("SELECT has_table_privilege($1, 'platform.execution_runs', "
+                                   "'SELECT, INSERT, UPDATE, DELETE')", ddl_roles["api"])
+        assert await conn.fetchval("SELECT has_table_privilege($1, 'business.contact', 'SELECT, INSERT')",
+                                   ddl_roles["api"])
+        assert await conn.fetchval("SELECT has_database_privilege($1, $2, 'CONNECT')", ddl_roles["api"],
+                                   entry.db_name)
+        assert not await conn.fetchval("SELECT has_database_privilege('public', $1, 'CONNECT')", entry.db_name)
+    finally:
+        await conn.close()

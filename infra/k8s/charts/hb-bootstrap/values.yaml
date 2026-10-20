@@ -18,6 +18,11 @@ serviceAccounts:
   migrator: {}
   appcontroller: {}
 
+# The provisioner's ClusterRole: tenant namespaces with their quota, limits and
+# default-deny policy (M2, templates/provisioner-rbac.yaml).
+provisionerRbac:
+  enabled: true
+
 gateway:
   enabled: true
   name: platform-gateway

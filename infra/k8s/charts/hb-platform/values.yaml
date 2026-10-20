@@ -104,6 +104,10 @@ serviceAccounts:
   worker:
     name: hb-worker
     annotations: {}
+  # The provisioning worker's identity (M2; a `workers` entry with identity: provisioner).
+  provisioner:
+    name: hb-provisioner
+    annotations: {}
 
 # Labels added to every backend pod (Azure: azure.workload.identity/use).
 podLabels: {}

@@ -110,6 +110,12 @@ async def event_startup(ctx: dict) -> None:
     _listen_for_flag_changes(ctx)
 
 
+async def provisioner_startup(ctx: dict) -> None:
+    setup_tracing("hirebuddha-provisioner")
+    serve_metrics(settings.PROVISIONER_METRICS_PORT, settings.WORKER_METRICS_ADDR)
+    start_heartbeat(ctx, ProvisionerWorkerSettings.queue_name)
+
+
 async def shutdown(ctx: dict) -> None:
     for name in ("flag_listener", "directory_listener"):
         listener = ctx.pop(name, None)
@@ -241,6 +247,25 @@ class EventWorkerSettings:
     redis_settings = WorkerSettings.redis_settings
 
     on_startup = event_startup
+    on_shutdown = shutdown
+
+
+class ProvisionerWorkerSettings:
+    """Tenant provisioning only (Phase 14 M2): ``python -m arq src.ai.worker.ProvisionerWorkerSettings``.
+
+    Its own worker so provisioning runs as the provisioner identity on Azure
+    (``sa-provisioner``): an admin of the pool servers, the tenant-keys vault's
+    crypto officer, the maker of tenants' identities — rights no other workload
+    holds. Producers queue on ``PROVISIONING_QUEUE`` when it is set; a few at
+    a time, each step long (a database, migrations, Azure calls).
+    """
+    queue_name = settings.PROVISIONING_QUEUE or "provisioning"
+    functions = [traced_job(provision_tenant)]
+    max_jobs = 2
+    job_timeout = 1800
+    redis_settings = WorkerSettings.redis_settings
+
+    on_startup = provisioner_startup
     on_shutdown = shutdown
 
 
