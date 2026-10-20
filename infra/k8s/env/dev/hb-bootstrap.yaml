@@ -15,6 +15,6 @@ gateway:
 certManager:
   issuer:
     # email: from HB_ACME_EMAIL (install.sh) — Let's Encrypt's expiry notices go there.
-    # Staging until a dev certificate has been seen to work, then:
-    # server: https://acme-v02.api.letsencrypt.org/directory
-    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    # Production since staging issued app and gateway (October 2026). A new
+    # environment starts on https://acme-staging-v02.api.letsencrypt.org/directory.
+    server: https://acme-v02.api.letsencrypt.org/directory
