@@ -25,6 +25,9 @@ from src.ai.tools.media.video._support import (
 
 logger = logging.getLogger(__name__)
 
+# The GA Veo when neither the call nor the VIDEO_GENERATION integration names one.
+DEFAULT_VIDEO_MODEL = "veo-3.1-generate-001"
+
 try:
     from google import genai  # noqa: F401
     from google.genai import types
@@ -68,8 +71,9 @@ class VideoGenerateTool(Tool):
         "(Veo 3.1). One model call produces one clip up to the model's native "
         "limit (8s for Veo 3.1). For longer videos, generate multiple segments "
         "and compose them with the 'video_edit' tool. Input is a JSON string "
-        "with: 'model_name' (e.g. 'veo-3.1-generate-preview'), 'prompt' (text), "
-        "'length_seconds' (<= model max), optional 'is_audio_required' (bool, "
+        "with: 'prompt' (text), 'length_seconds' (<= model max), optional "
+        "'model_name' (default: the configured video model, e.g. "
+        "'veo-3.1-generate-001'), optional 'is_audio_required' (bool, "
         "default true), and optional 'start_frame_path' / 'end_frame_path' "
         "(reference image paths)."
     )
@@ -83,7 +87,7 @@ class VideoGenerateTool(Tool):
                 "properties": {
                     "model_name": {
                         "type": "string",
-                        "description": "Video model (e.g. 'veo-3.1-generate-preview')",
+                        "description": "Video model; omit for the configured one (e.g. 'veo-3.1-generate-001')",
                     },
                     "prompt": {"type": "string", "description": "Text description of the clip"},
                     "length_seconds": {
@@ -103,7 +107,7 @@ class VideoGenerateTool(Tool):
                         "description": "Optional image path for the ending frame",
                     },
                 },
-                "required": ["model_name", "prompt", "length_seconds"],
+                "required": ["prompt", "length_seconds"],
             },
         }
 
@@ -118,7 +122,7 @@ class VideoGenerateTool(Tool):
         except json.JSONDecodeError:
             return json.dumps({"error": "Invalid JSON input"})
 
-        model_name = params.get("model_name", "veo-3.1-generate-preview")
+        requested_model = params.get("model_name")
         prompt = params.get("prompt")
         length_seconds = int(params.get("length_seconds", 8))
         is_audio_required = params.get("is_audio_required", True)
@@ -171,6 +175,10 @@ class VideoGenerateTool(Tool):
                         )
                     }
                 )
+
+            # The model asked for, else the VIDEO_GENERATION integration's, else
+            # the current GA Veo (the preview ids were retired 2 April 2026).
+            model_name = requested_model or service_metadata.get("model") or DEFAULT_VIDEO_MODEL
 
             from src.common.genai_factory import build_vertex_genai_client_sync
 

@@ -36,9 +36,11 @@ secrets:
       migrations: 4aeae4d6-29cd-4024-ae73-2a37cb43ecf4
 
 googleFederation:
-  enabled: false   # on once the Google workload identity pool exists (guide §14)
-  audience: //iam.googleapis.com/projects/<gcp-project-number>/locations/global/workloadIdentityPools/<pool>/providers/aks-hb-dev
-  serviceAccountEmail: <vertex-sa>@<gcp-project>.iam.gserviceaccount.com
+  # Pool hb-azure-dev / provider aks-dev in hirebuddha-production (guide §14):
+  # only sa-api and sa-worker of hb-platform may act as hb-vertex-dev.
+  enabled: true
+  audience: //iam.googleapis.com/projects/844891213866/locations/global/workloadIdentityPools/hb-azure-dev/providers/aks-dev
+  serviceAccountEmail: hb-vertex-dev@hirebuddha-production.iam.gserviceaccount.com
 
 gateway:
   hostnames:

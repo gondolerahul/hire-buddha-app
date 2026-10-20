@@ -606,34 +606,49 @@ done
 
 ## 14. Google federation for Gemini (no key files)
 
-Run with `gcloud` against the Vertex AI project (`GCP_PROJECT`, `GCP_PROJECT_NUMBER`):
+Run with `gcloud` (a project Owner) against the Vertex AI project. Azure dev uses
+`hirebuddha-production` (number `844891213866`); `$AKS_OIDC` is the cluster's OIDC issuer.
 
 ```bash
-gcloud iam workload-identity-pools create hb-azure-$ENV --project=$GCP_PROJECT --location=global \
-  --display-name="HireBuddha Azure $ENV"
+GCP_PROJECT=hirebuddha-production; GCP_PROJECT_NUMBER=844891213866
+gcloud services enable sts.googleapis.com --project=$GCP_PROJECT     # the token exchange
 
-gcloud iam workload-identity-pools providers create-oidc aks-$ENV --project=$GCP_PROJECT --location=global \
-  --workload-identity-pool=hb-azure-$ENV --issuer-uri="$AKS_OIDC" \
-  --allowed-audiences="api://AzureADTokenExchange" --attribute-mapping="google.subject=assertion.sub"
+gcloud iam workload-identity-pools create hb-azure-$ENV --project=$GCP_PROJECT --location=global   --display-name="HireBuddha Azure $ENV"
+
+# No --allowed-audiences: the provider then accepts its own resource name, which
+# is the audience the chart puts on the pods' projected token (googleFederation.audience).
+gcloud iam workload-identity-pools providers create-oidc aks-$ENV --project=$GCP_PROJECT --location=global   --workload-identity-pool=hb-azure-$ENV --issuer-uri="$AKS_OIDC"   --attribute-mapping="google.subject=assertion.sub"   --attribute-condition="assertion.sub in ['system:serviceaccount:hb-platform:sa-api', 'system:serviceaccount:hb-platform:sa-worker']"
 
 gcloud iam service-accounts create hb-vertex-$ENV --project=$GCP_PROJECT
-gcloud projects add-iam-policy-binding $GCP_PROJECT \
-  --member="serviceAccount:hb-vertex-$ENV@$GCP_PROJECT.iam.gserviceaccount.com" --role="roles/aiplatform.user"
+gcloud projects add-iam-policy-binding $GCP_PROJECT --condition=None   --member="serviceAccount:hb-vertex-$ENV@$GCP_PROJECT.iam.gserviceaccount.com" --role="roles/aiplatform.user"
 
 for sa in sa-api sa-worker; do
-  gcloud iam service-accounts add-iam-policy-binding hb-vertex-$ENV@$GCP_PROJECT.iam.gserviceaccount.com \
-    --project=$GCP_PROJECT --role="roles/iam.workloadIdentityUser" \
-    --member="principal://iam.googleapis.com/projects/$GCP_PROJECT_NUMBER/locations/global/workloadIdentityPools/hb-azure-$ENV/subject/system:serviceaccount:hb-platform:$sa"
+  gcloud iam service-accounts add-iam-policy-binding hb-vertex-$ENV@$GCP_PROJECT.iam.gserviceaccount.com     --project=$GCP_PROJECT --role="roles/iam.workloadIdentityUser"     --member="principal://iam.googleapis.com/projects/$GCP_PROJECT_NUMBER/locations/global/workloadIdentityPools/hb-azure-$ENV/subject/system:serviceaccount:hb-platform:$sa"
 done
-
-gcloud iam workload-identity-pools create-cred-config \
-  projects/$GCP_PROJECT_NUMBER/locations/global/workloadIdentityPools/hb-azure-$ENV/providers/aks-$ENV \
-  --service-account="hb-vertex-$ENV@$GCP_PROJECT.iam.gserviceaccount.com" \
-  --credential-source-file=/var/run/secrets/azure/tokens/azure-identity-token \
-  --output-file=google-wif-$ENV.json
 ```
 
-`google-wif-dev.json` contains **no secret** (it only says where to find the pod's projected token). Store it as a ConfigMap in `hb-platform` and mount it; set `GOOGLE_WIF_CREDENTIAL_FILE` to its path (tech spec §12.4). Spike SP-4 confirms Gemini, Gemini Live and embeddings all work this way.
+Then in `infra/k8s/env/<env>/hb-platform.yaml`:
+
+```yaml
+googleFederation:
+  enabled: true
+  audience: //iam.googleapis.com/projects/<GCP_PROJECT_NUMBER>/locations/global/workloadIdentityPools/hb-azure-<env>/providers/aks-<env>
+  serviceAccountEmail: hb-vertex-<env>@<GCP_PROJECT>.iam.gserviceaccount.com
+```
+
+The chart writes the `external_account` configuration (no secret: it only names the
+pod's projected token and the service account to impersonate) to a ConfigMap, mounts
+it with the token, and sets `GOOGLE_WIF_CREDENTIAL_FILE` (tech spec §12.4). No
+`create-cred-config` step and no key file.
+
+Verified on Azure dev (October 2026, spike SP-4 for text): Gemini 4 Argon, Gemini 3.x
+Flash and Flash-Lite, `text-embedding-005` (768 dims), Gemini TTS, and model lookups for
+Veo 3.1 and Lyria 3, from both `sa-api` and `sa-worker`. Gemini 3+ models use the
+`global` location; Veo, Lyria and `text-embedding-005` use `us-central1`.
+
+**Claude on Vertex** needs each Claude model enabled in the project's Model Garden
+(console → Vertex AI → Model Garden → the Claude model → Enable, accepting Anthropic's
+terms); until then every Claude call returns 404 "Publisher model … not found".
 
 ---
 

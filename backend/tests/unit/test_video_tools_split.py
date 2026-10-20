@@ -240,6 +240,54 @@ async def test_generate_requires_prompt() -> None:
     assert "error" in res
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("requested, configured, expected", [
+    ("veo-3.1-fast-generate-001", "veo-3.1-generate-001", "veo-3.1-fast-generate-001"),
+    (None, "veo-3.1-lite-generate-001", "veo-3.1-lite-generate-001"),
+    (None, None, "veo-3.1-generate-001"),
+])
+async def test_generate_model_is_the_call_s_then_the_integration_s_then_ga(
+    monkeypatch, tmp_path, requested, configured, expected
+) -> None:
+    """The retired veo-3.1-generate-preview was the default; the configured model is now."""
+    from types import SimpleNamespace
+
+    from src.ai.tools.media.video import video_generate as module
+    from src.common import genai_factory
+
+    seen = {}
+    metadata = {"project_id": "p", "region": "us-central1"}
+    if configured:
+        metadata["model"] = configured
+
+    async def fake_metadata(self, company_id=None):
+        return metadata
+
+    async def fake_people(company_id):
+        return "allow_adult"
+
+    async def fake_generate(self, *, model_name, output_path, **kwargs):
+        seen["model"] = model_name
+        return output_path
+
+    async def fake_register(context, path, **kwargs):
+        return SimpleNamespace(id="a1", file_path=path)
+
+    monkeypatch.setattr(VideoGenerateTool, "_resolve_vertex_metadata", fake_metadata)
+    monkeypatch.setattr(VideoGenerateTool, "_generate_single_video", fake_generate)
+    monkeypatch.setattr(genai_factory, "build_vertex_genai_client_sync", lambda metadata: object())
+    monkeypatch.setattr(module, "person_generation", fake_people)
+    monkeypatch.setattr(module, "company_video_dir", lambda company_id: str(tmp_path))
+    monkeypatch.setattr(module, "register_video_artifact", fake_register)
+
+    payload = {"prompt": "a cat", "length_seconds": 4}
+    if requested:
+        payload["model_name"] = requested
+    res = json.loads(await _run(VideoGenerateTool(), json.dumps(payload)))
+    assert seen["model"] == expected
+    assert res["model"] == expected
+
+
 # --------------------------------------------------------------------------- #
 # video_add_sound — routing + validation + mux argv
 # --------------------------------------------------------------------------- #
