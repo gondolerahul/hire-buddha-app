@@ -31,3 +31,13 @@ param controlServerSku = {
 }
 param redisSku = 'Balanced_B0'
 param redisClusteringPolicy = 'NoCluster'   // arq's WATCH/MULTI fails CROSSSLOT under EnterpriseCluster (SP-2)
+
+// Slice 2, tenancy (owner, 20 Oct): the pool server on Burstable B2s
+// (≈ ₹7,700/month; no built-in PgBouncer). Scale it in place to General
+// Purpose Standard_D2ds_v5 (≈ ₹18,400/month) for spike SP-6. Software KEKs in dev.
+param deployTenancy = true
+param poolServerSku = {
+  name: 'Standard_B2s'
+  tier: 'Burstable'
+}
+param tenantKeysVaultSku = 'standard'

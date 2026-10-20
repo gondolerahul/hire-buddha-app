@@ -2,7 +2,7 @@
 // §10): PostgreSQL 16, private access only (delegated subnet + private DNS),
 // Microsoft Entra ID authentication for every workload, a password admin for
 // break-glass only, the allow-listed extensions. Slice 1 builds the control
-// server; slice 2 adds the tenant pool server with this same module.
+// server; slice 2 the tenant pool server, with this same module.
 
 param location string
 param serverName string
@@ -20,6 +20,8 @@ param backupRetentionDays int
 param geoRedundantBackup bool
 param storageSizeGB int = 64
 param enablePgBouncer bool = false
+@description('Further Entra administrators: [{ objectId, name }] of service principals (the provisioner on a pool server, tech spec §5.2).')
+param additionalAdmins array = []
 
 // Tech spec §5.1 (P-01): the only extensions migrations may rely on.
 var extensions = 'VECTOR,PGCRYPTO,PG_TRGM,UUID-OSSP,BTREE_GIN'
@@ -106,6 +108,20 @@ resource entraAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@20
   dependsOn: [allowedExtensions, pgBouncer]
 }
 
+// A managed identity as administrator: member of azure_pg_admin on this server,
+// so it can create tenant databases, their extensions and roles.
+@batchSize(1)
+resource extraAdmin 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = [for admin in additionalAdmins: {
+  parent: server
+  name: admin.objectId
+  properties: {
+    principalType: 'ServicePrincipal'
+    principalName: admin.name
+    tenantId: tenant().tenantId
+  }
+  dependsOn: [entraAdmin]
+}]
+
 @batchSize(1)
 resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = [for name in databases: {
   parent: server
@@ -114,7 +130,7 @@ resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-0
     charset: 'UTF8'
     collation: 'en_US.utf8'
   }
-  dependsOn: [entraAdmin]
+  dependsOn: [entraAdmin, extraAdmin]
 }]
 
 output fqdn string = server.properties.fullyQualifiedDomainName

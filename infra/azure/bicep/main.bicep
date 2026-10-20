@@ -1,12 +1,17 @@
-// HireBuddha Azure environment — slice 1, Foundation (Phase 14 WS0 0.2).
+// HireBuddha Azure environment (Phase 14 WS0 0.2), built in slices
+// (implementation plan WS0, "Dev environment in slices"):
 //
-// The same environment as the Azure setup guide (docs/phase14/04_*) §4–§11,
-// as code: resource groups, network with a fixed egress IP, monitoring,
-// workload identities, platform Key Vault, platform registry, Blob storage,
-// AKS (system + platform pools), the control-plane Flexible Server and
-// Azure Managed Redis. Later slices (tenancy, public entry, tenant runtime,
-// observability extras) add modules here; each slice is codified before the
-// next one is built (implementation plan WS0, "Dev environment in slices").
+// * Slice 1, Foundation — the Azure setup guide (docs/phase14/04_*) §4–§11 as
+//   code: resource groups, network with a fixed egress IP, monitoring,
+//   workload identities, platform Key Vault, platform registry, Blob storage,
+//   AKS (system + platform pools), the control-plane Flexible Server and
+//   Azure Managed Redis.
+// * Slice 2, Tenancy (deployTenancy) — the tenant pool server, the
+//   tenant-keys vault and the resource group of the tenants' own identities,
+//   with the provisioner's rights on each (tech spec §5.1, §5.2, §10.4).
+//
+// Later slices (public entry, tenant runtime, observability extras) add
+// modules here; each is codified before it is built.
 //
 //   az deployment sub what-if  -l centralindia -f infra/azure/bicep/main.bicep -p infra/azure/env/dev.bicepparam
 //   az deployment sub create   -l centralindia -f infra/azure/bicep/main.bicep -p infra/azure/env/dev.bicepparam
@@ -67,6 +72,19 @@ param controlServerSku object = {
   tier: 'Burstable'
 }
 
+@description('Slice 2: the tenant pool server, tenant-keys vault and tenant identities.')
+param deployTenancy bool = false
+
+@description('Flexible Server SKU of the tenant pool server (General Purpose: built-in PgBouncer, SP-6).')
+param poolServerSku object = {
+  name: 'Standard_D2ds_v5'
+  tier: 'GeneralPurpose'
+}
+
+@description('Tenant-keys vault SKU: premium for HSM-backed KEKs (TENANT_KEK_HSM).')
+@allowed(['standard', 'premium'])
+param tenantKeysVaultSku string = 'standard'
+
 @description('Azure Managed Redis SKU (dev: no HA).')
 param redisSku string = 'Balanced_B0'
 
@@ -86,6 +104,9 @@ var names = {
   pgControl: 'psql-${prefix}-${env}-control'
   pgDnsZone: '${prefix}-${env}.private.postgres.database.azure.com'
   redis: 'redis-${prefix}-${env}-${suffix}'
+  rgTenants: 'rg-${prefix}-${env}-tenants'
+  pgPool: 'psql-${prefix}-${env}-pool-01'
+  kvTenantKeys: 'kv-${prefix}-${env}-tk-${suffix}'
   law: 'log-${prefix}-${env}'
   appi: 'appi-${prefix}-${env}'
 }
@@ -284,6 +305,67 @@ module redis 'modules/redis.bicep' = {
   }
 }
 
+// ── Slice 2: tenancy ───────────────────────────────────────────────────────
+
+resource rgTenants 'Microsoft.Resources/resourceGroups@2024-03-01' = if (deployTenancy) {
+  name: names.rgTenants
+  location: location
+  tags: rgTags
+}
+
+// Tenant databases (t_<key>) live here; the provisioner is an Entra admin of
+// it (create database, extensions, roles). Same subnet and private DNS zone as
+// the control server, which it waits for (the zone is declared by both).
+module postgresPool 'modules/postgres.bicep' = if (deployTenancy) {
+  scope: rgData
+  name: 'postgres-pool-01'
+  params: {
+    location: location
+    serverName: names.pgPool
+    dnsZoneName: names.pgDnsZone
+    vnetId: network.outputs.vnetId
+    delegatedSubnetId: network.outputs.postgresSubnetId
+    sku: poolServerSku
+    entraAdminObjectId: pgAdminsGroupObjectId
+    entraAdminName: pgAdminsGroupName
+    additionalAdmins: [
+      { objectId: identities.outputs.principalIds.provisioner, name: 'id-${prefix}-${env}-provisioner' }
+    ]
+    breakGlassPassword: pgBreakGlassPassword
+    databases: []
+    highAvailability: env == 'prod'
+    backupRetentionDays: env == 'prod' ? 35 : 7
+    geoRedundantBackup: env == 'prod'
+    enablePgBouncer: poolServerSku.tier != 'Burstable'
+  }
+  dependsOn: [postgres]
+}
+
+module tenantKeys 'modules/tenantkeys.bicep' = if (deployTenancy) {
+  scope: rgCore
+  name: 'tenant-keys'
+  params: {
+    location: location
+    name: names.kvTenantKeys
+    skuName: tenantKeysVaultSku
+    adminsGroupObjectId: adminsGroupObjectId
+    cryptoOfficerPrincipalIds: [identities.outputs.principalIds.provisioner]
+    cryptoUserPrincipalIds: [
+      identities.outputs.principalIds.api
+      identities.outputs.principalIds.worker
+      identities.outputs.principalIds.connsvc
+    ]
+  }
+}
+
+module tenantIdentitiesAccess 'modules/tenant-identities-access.bicep' = if (deployTenancy) {
+  scope: rgTenants
+  name: 'tenant-identities-access'
+  params: {
+    provisionerPrincipalId: identities.outputs.principalIds.provisioner
+  }
+}
+
 // Values the next steps need (guide §2: record them in infra/azure/env/<env>.env).
 output resourceGroups object = {
   core: rgCore.name
@@ -301,3 +383,6 @@ output aksOidcIssuerUrl string = aks.outputs.oidcIssuerUrl
 output postgresControlFqdn string = postgres.outputs.fqdn
 output redisHostName string = redis.outputs.hostName
 output identityClientIds object = identities.outputs.clientIds
+output postgresPoolFqdn string = deployTenancy ? postgresPool!.outputs.fqdn : ''
+output tenantKeysVaultUri string = deployTenancy ? tenantKeys!.outputs.uri : ''
+output tenantIdentitiesResourceGroup string = deployTenancy ? names.rgTenants : ''
