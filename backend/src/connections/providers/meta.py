@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 from src.connections.providers.base import Account, AccessToken, Provider, ProviderError, expires_in, http, raise_for
 
-DEFAULT_GRAPH_VERSION = "v22.0"
+DEFAULT_GRAPH_VERSION = "v26.0"
 
 
 class MetaProvider(Provider):
@@ -151,6 +151,12 @@ def embedded_signup_params(app: Any, state: str) -> Dict[str, Any]:
     config_id = app.settings.get("config_id")
     if not config_id:
         raise ProviderError("HireBuddha's Meta app has no Embedded Signup configuration (config_id)")
+    # A Multi-Partner Solution (HireBuddha as Tech Provider with a Solution
+    # Partner, e.g. Tata): its id makes the flow grant the business's WhatsApp
+    # assets to both partners and bill messages on the partner's credit line.
+    setup: Dict[str, Any] = {}
+    if app.settings.get("solution_id"):
+        setup["solutionID"] = str(app.settings["solution_id"])
     return {"app_id": app.client_id, "config_id": config_id, "state": state,
             "graph_version": app.settings.get("graph_version") or DEFAULT_GRAPH_VERSION,
-            "extras": {"setup": {}, "featureType": "", "sessionInfoVersion": "3"}}
+            "extras": {"setup": setup, "featureType": "", "sessionInfoVersion": "3"}}

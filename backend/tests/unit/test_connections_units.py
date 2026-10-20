@@ -173,9 +173,9 @@ async def test_meta_lists_pages_and_instagram_accounts(played):
 
     meta_app = ProviderApp(ref="oauth-app-meta", client_id="111", client_secret="appsecret")
     played({
-        ("GET", "https://graph.facebook.com/v22.0/oauth/access_token"): lambda r: (200, {
+        ("GET", "https://graph.facebook.com/v26.0/oauth/access_token"): lambda r: (200, {
             "access_token": "long" if "fb_exchange_token" in str(r.url) else "short"}),
-        ("GET", "https://graph.facebook.com/v22.0/me/accounts"): (200, {"data": [
+        ("GET", "https://graph.facebook.com/v26.0/me/accounts"): (200, {"data": [
             {"id": "p1", "name": "Acme Store", "access_token": "pt1",
              "instagram_business_account": {"id": "ig1", "username": "acmestore"}},
             {"id": "p2", "name": "Acme Jobs", "access_token": "pt2"}]}),
@@ -194,10 +194,10 @@ async def test_whatsapp_embedded_signup_lists_the_shared_numbers(played):
     meta_app = ProviderApp(ref="oauth-app-meta", client_id="111", client_secret="appsecret",
                            settings={"config_id": "cfg"})
     played({
-        ("GET", "https://graph.facebook.com/v22.0/oauth/access_token"): (200, {"access_token": "biz"}),
-        ("GET", "https://graph.facebook.com/v22.0/debug_token"): (200, {"data": {"granular_scopes": [
+        ("GET", "https://graph.facebook.com/v26.0/oauth/access_token"): (200, {"access_token": "biz"}),
+        ("GET", "https://graph.facebook.com/v26.0/debug_token"): (200, {"data": {"granular_scopes": [
             {"scope": "whatsapp_business_management", "target_ids": ["waba1"]}]}}),
-        ("GET", "https://graph.facebook.com/v22.0/waba1/phone_numbers"): (200, {"data": [
+        ("GET", "https://graph.facebook.com/v26.0/waba1/phone_numbers"): (200, {"data": [
             {"id": "pn1", "display_phone_number": "+91 98000 00010", "verified_name": "Acme"}]}),
     })
     [number] = await MetaProvider().exchange(meta_app, _connector(id="whatsapp_business",
@@ -205,6 +205,39 @@ async def test_whatsapp_embedded_signup_lists_the_shared_numbers(played):
                                              {"code": "c"}, redirect_uri="r", code_verifier=None)
     assert number.external_id == "pn1" and number.settings == {
         "waba_id": "waba1", "phone_number_id": "pn1", "display_phone_number": "+91 98000 00010"}
+
+
+def test_embedded_signup_carries_the_partner_solution():
+    """With Tata as Solution Partner (Multi-Partner Solution), the solution id
+    goes into extras.setup.solutionID; without one, setup stays empty."""
+    from src.connections.providers.meta import embedded_signup_params
+
+    tata = ProviderApp(ref="oauth-app-meta", client_id="111", client_secret="s",
+                       settings={"config_id": "cfg", "solution_id": "795033096057724"})
+    params = embedded_signup_params(tata, "st")
+    assert params["extras"]["setup"] == {"solutionID": "795033096057724"}
+    assert (params["app_id"], params["config_id"], params["graph_version"]) == ("111", "cfg", "v26.0")
+    alone = ProviderApp(ref="oauth-app-meta", client_id="111", client_secret="s", settings={"config_id": "cfg"})
+    assert embedded_signup_params(alone, "st")["extras"]["setup"] == {}
+
+
+def test_register_app_builds_the_row_from_names_only():
+    from src.connections.register_app import row_values
+
+    row = row_values("meta", {"client_id": "111", "config_id": "cfg", "solution_id": "sol"},
+                     {"verify_token": "oauth-meta-verify-token"}, "oauth-meta-app-secret")
+    assert (row["service_sku"], row["service_category"], row["secret_ref"]) == (
+        "oauth-app-meta", "OAUTH_APP", "oauth-meta-app-secret")
+    assert row["service_metadata"] == {"client_id": "111", "config_id": "cfg", "solution_id": "sol",
+                                       "verify_token_ref": "oauth-meta-verify-token"}
+    with pytest.raises(ValueError, match="app_id"):
+        row_values("github", {"client_id": "Iv1"}, {}, None)
+    with pytest.raises(ValueError, match="private_key"):
+        row_values("github", {"client_id": "Iv1", "app_id": "9", "app_slug": "hb"}, {}, None)
+    with pytest.raises(ValueError, match="--ref"):
+        row_values("x", {"client_id": "c", "secret_ref": "oops"}, {}, None)
+    with pytest.raises(ValueError, match="letters, digits and hyphens"):
+        row_values("x", {"client_id": "c"}, {}, "not a/vault name")
 
 
 def _rsa_pem() -> str:
