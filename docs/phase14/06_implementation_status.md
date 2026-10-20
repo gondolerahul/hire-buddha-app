@@ -1,7 +1,7 @@
 # Phase 14 — Implementation Status
 
 > **Updated:** 2026-10-20
-> **Where it stands (20 Oct):** WS0–WS8's code is written and tested on this laptop (WS9 not started). **Azure dev slice 1 is deployed and the platform runs on it** (§1 "Azure dev, 20 Oct"): AKS with the gateway on `20.219.188.83`, `https://app.azdev.hirebuddha.com` and `https://gateway.azdev.hirebuddha.com` with Let's Encrypt production certificates, the API, workers, scheduler and frontend in `hb-platform`, the database signed in by Entra tokens, secrets from Key Vault, files in Blob, Gemini, embeddings, Veo, Gemini TTS and Lyria through Google workload identity federation (no key file), and the platform's health `ok`. New since 19 Oct: speech and music as configurable models and tools (§1 "Models and media"). Commits up to `5447c7c` are pushed. M1 is not fully proved yet: §3 lists what is done and what is left; §5 lists every pending item.
+> **Where it stands (20 Oct):** WS0–WS8's code is written and tested on this laptop (WS9 not started). **Azure dev slice 1 is deployed and the platform runs on it** (§1 "Azure dev, 20 Oct"): AKS with the gateway on `20.219.188.83`, `https://app.azdev.hirebuddha.com` and `https://gateway.azdev.hirebuddha.com` with Let's Encrypt production certificates, the API, workers, scheduler and frontend in `hb-platform`, the database signed in by Entra tokens, secrets from Key Vault, files in Blob, Gemini, embeddings, Veo, Gemini TTS and Lyria through Google workload identity federation (no key file), and the platform's health `ok`. New since 19 Oct: speech and music as configurable models and tools (§1 "Models and media"). Commits up to `5447c7c` are pushed; later ones are local until pushed. **M1 is proved on Azure dev except** Claude, GPT, self sign-up (e-mail) and a Twilio call, which wait on the owner's steps (§3, §5.2); §5 lists every pending item. The provider-app registration guide is `docs/how-to/PROVIDER_APP_REGISTRATION_GUIDE.md`.
 > **Next:** the rest of M1 (§3), then M2 (dev in `split` with slice 2), then slices 3–5 with WS5/WS6 on Azure.
 >
 > **Scope before 20 Oct:** WS1 (cloud-ready platform) code, and the WS0 code that deploys it: images, the `hb-platform` Helm chart, Bicep for dev slice 1, CI/CD workflows. WS2's first slice: the tenancy package, every table on a plane, the tenant directory tables, the agent kernel on control/tenant sessions, two local dev tenants, no foreign keys between the planes (2.3). Since 18 Oct: the owner's decisions D42–D48, weekly database exports, the cluster bootstrap, and WS3's automation runtime — automation settings (every limit on screen, none by default), the event store, triggers, the router, the scheduler, the event worker, the control-room API and screens, the agent automation tools with each agent's Automation tab, run-finished triggers, the event-history clean-up, durable waits, inbound webhooks and internal events on events and triggers, notifications, approval events and automation metrics. WS4 — the schema engine, the Data API with its tokens, keys, links, batch and reports, agents' record tools, data and condition triggers, schema changes in the approvals inbox. Committed and pushed up to `8849004` (18 Oct, WS4). Since then (19 Oct), not committed yet: **WS2 completes 2.4** — the campaigns, billing, gateway, auth and config modules, the partner screens and the Meta-Agent seed scripts on control/tenant sessions; campaign jobs carry their tenant, and the URLs and Tata identifier a campaign hands out name it; **2.6** — a run is settled once, keyed by its id, in a control transaction of its own; **2.8, 2.9, 2.13** — the provisioner, sign-up provisioning with "setting up your workspace", per-tenant health and the staff API (committed as `f3f1e1e`, `ec3e9fc`, not pushed). Then (19 Oct, not committed): **2.7, 2.10** — the old chain squashed into a control tree and a tenant tree, the runner on them (tenant databases migrated, adopted, recorded). Nothing has been deployed to Azure yet.
@@ -341,10 +341,10 @@ M1 = today's product on Azure dev (plan §4): API, workers, frontend and voice w
 | Claude answers | **Blocked**: Claude not enabled in `hirebuddha-production`'s Model Garden (SP-5 open) |
 | GPT answers | **Not done**: Azure OpenAI not wired (an `hirebuddha-openai-resource` exists in East US 2; needs a deployment, a role for the workload identities and a registry row) |
 | Files in Blob | Done (speech and music artifacts written and read back) |
-| Build and run an agent, live trace, upload a document, a PDF in Blob | **Not done** |
+| Build and run an agent, live trace, upload a document, a PDF in Blob | **Done 20 Oct** through the public URLs: an agent with `pdf_generator` ran to COMPLETED (17 s, $0.04) with its live trace (SSE frames) and stored trace; a document uploaded, embedded and found by semantic search; the PDF kept in Blob and served by a 302 to a SAS link (`sthbdevac48.blob.core.windows.net`). Found on the way: the PDF tool failed on Linux with WeasyPrint 70 (fixed, `d9ae86b`) |
 | A Twilio test call | **Not done** (Twilio credentials, a number pointed at `gateway.azdev`) |
-| No key files in any pod | By design (federation, Entra, CSI); **not yet checked pod by pod** |
-| Traces in Application Insights | **Not checked** |
+| No key files in any pod | **Done 20 Oct**: every platform pod checked — no Google or Azure key file, no secret variables; only the Key Vault settings mount (`ENCRYPTION_MASTER_KEY`, `INTERNAL_TOKEN`, `REDIS_URL`, `SECRET_KEY`), the Entra federated token and Google's projected token + federation config; the frontend holds no secret |
+| Traces in Application Insights | **Done 20 Oct**: requests (API, worker, event worker), dependencies and exceptions arrive in `appi-hb-dev` |
 
 ## 4. Open items found while building
 
@@ -377,9 +377,9 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 | # | Item | Who |
 |---|------|-----|
 | H1 | Push this status update to GitHub (`git push origin roadmap-development-defect-fixes`) | Owner |
-| H2 | Delete the `pg-forward` pod in namespace `default` (database access used while deploying) once the database work below is done | Eng |
+| H2 | ~~Delete the `pg-forward` pod~~ — **done 20 Oct** | Eng |
 | H3 | ~~The 3 failing unit tests (`docs/current/…`)~~ — **done 20 Oct**: `docs/reference/` | Eng |
-| H4 | Run the full integration tier again (20 Oct ran only the suites the media change touches) | Eng |
+| H4 | ~~Full integration tier~~ — **done 20 Oct**: 595 passed, 1 skipped (25 slow/Docker deselected) | Eng |
 
 ### 5.2 Finish M1 on Azure dev
 
@@ -389,11 +389,14 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 | M1-2 | GPT: an Azure OpenAI deployment (the existing resource is in East US 2, or one in Central India), the "Cognitive Services OpenAI User" role for the API and worker identities, a registry row with `auth: managed_identity` | Owner decides region, Eng |
 | M1-3 | E-mail: an `smtp-system` integration (provider and sender address), so sign-up verification, password resets and notifications work | Owner (provider account), Eng |
 | M1-4 | Provider test credentials in Key Vault (guide §7): Twilio (and Tata) for a test call; point a test number's webhooks at `https://gateway.azdev.hirebuddha.com` | Owner (accounts), Eng |
-| M1-5 | The rest of the M1 proof: build and run an agent with its live trace, upload a document, a PDF in Blob, a Twilio test call, no key files in any pod | Eng |
-| M1-6 | Check traces reach Application Insights (collector `azuremonitor` exporter) | Eng |
+| M1-5 | ~~The rest of the M1 proof~~ — **done 20 Oct** except the Twilio call (M1-4) | Eng |
+| M1-6 | ~~Traces in Application Insights~~ — **done 20 Oct** | Eng |
 | M1-7 | GitHub environment `azure-dev` (six variables, guide §15.1) and `AZURE_DEPLOY_ENABLED=true`, so a push deploys to dev | Owner |
-| M1-8 | Pipeline: make the deploy wait for CI (today a push to this branch would deploy without running the tests: `ci.yml` runs on pull requests and `main` only); promote one image from dev to staging to production instead of rebuilding per environment; an `azure-prod` environment with required reviewers | Eng |
+| M1-8 | Pipeline: **done 20 Oct** — deploys wait for CI (`ci.yml` called first; pushes to this branch now run the tests). Left: promote one image dev → staging → production instead of rebuilding per environment, and an `azure-prod` environment with required reviewers (with staging) | Eng |
 | M1-9 | Live checks not run on Azure: a Veo video (costs about $0.40 a second), `video_add_sound` / `video_edit` there (their ffmpeg runs in the tenant's sandbox, off until slice 4), Gemini Live voice (SP-8) | Eng |
+| M1-10 | Credits for the platform company on dev: its $2 daily allowance stopped a test run (billed $2.01 for $0.29 of model cost: Gemini 4 Argon at list price × the billing multiplier). $25 added to its wallet by hand on 20 Oct for testing; decide the platform company's own allowance and whether staff runs are billed | Owner decides, Eng |
+| M1-11 | WhatsApp Embedded Signup in the browser: the backend hands out the SDK settings (now with Tata's `solutionID`), but no screen loads Meta's JavaScript SDK yet; update to the v4 configuration when Meta's app exists | Eng |
+| M1-12 | Register provider apps from staff screens: `python -m src.connections.register_app` exists (20 Oct); the integration modal has no `OAUTH_APP` category | Eng |
 
 ### 5.3 M2 — tenants are real (WS2, slice 2)
 
