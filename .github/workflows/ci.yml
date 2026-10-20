@@ -4,14 +4,18 @@ name: ci
 # backend tiers on PostgreSQL 16 (TD-12) with PLATFORM_PROFILE=local — no
 # Azure service is reachable here, so a hidden Azure dependency fails the
 # suite (tech spec §19.7) — plus the frontend gates and the chart checks.
+# deploy-azure.yml calls it first (workflow_call): nothing deploys unless it passes.
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Called from deploy-azure, github.workflow is the caller's name: its run and
+  # a standalone CI run of the same ref do not cancel each other.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

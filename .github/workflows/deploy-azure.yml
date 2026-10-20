@@ -4,7 +4,7 @@ name: deploy-azure
 # registry and roll out the hb-platform chart. A push to main — or, while
 # Phase 14 stays off main (decision D46), to roadmap-development-defect-fixes —
 # deploys Azure dev; a tag v* deploys staging (its GitHub environment can
-# require approval).
+# require approval). ci.yml runs first: nothing deploys unless it passes.
 # No Azure secret is stored: azure/login exchanges the workflow's OIDC token
 # for the id-hb-<env>-ci identity (Azure setup guide §15.1).
 #
@@ -39,7 +39,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The tests gate every deploy: a push that fails them builds and deploys nothing.
+  # They run even while deploys are off, so a push to the Phase 14 branch is tested.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   target:
+    needs: ci
     runs-on: ubuntu-latest
     # Environment variables are not visible to a job's `if`; this one is the repository's.
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
