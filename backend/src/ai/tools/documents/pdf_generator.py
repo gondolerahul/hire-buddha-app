@@ -44,14 +44,27 @@ def _sanitize_filename(raw: str, max_length: int = 80) -> str:
 # missing at call time instead of breaking the import of every tool.
 _WEASYPRINT_ERROR = ""
 try:
-    from weasyprint import HTML, CSS, default_url_fetcher
+    from weasyprint import HTML, CSS
     from weasyprint.text.fonts import FontConfiguration
+    # WeasyPrint 66+ fetches through a URLFetcher object (default_url_fetcher is gone).
+    from weasyprint.urls import URLFetcher
 except (ImportError, OSError) as _exc:
     _WEASYPRINT_ERROR = str(_exc).strip().splitlines()[0] if str(_exc).strip() else type(_exc).__name__
     HTML = None
     CSS = None
     FontConfiguration = None
-    default_url_fetcher = None
+
+    class URLFetcher:  # type: ignore[no-redef]
+        """Stands in when WeasyPrint cannot load (nothing is rendered then)."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def fetch(self, url: str, headers: Any = None) -> Any:
+            raise RuntimeError(_WEASYPRINT_ERROR or "WeasyPrint is not available")
+
+        def __call__(self, url: str) -> Any:
+            return self.fetch(url)
 
 try:
     import markdown
@@ -62,8 +75,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _guarded_fetcher(company_id: str):
-    """WeasyPrint's URL fetcher for one company (TL-55).
+def _check_render_url(company_id: str, url: str) -> None:
+    """Refuse a URL the renderer must not fetch for this company (TL-55).
 
     The rendered HTML comes from the model, and markdown passes raw HTML
     through, so ``<img src="file:///etc/passwd">`` or a ``<link>`` to
@@ -77,17 +90,32 @@ def _guarded_fetcher(company_id: str):
     from src.common.net_guard import check_url_sync
     from src.ai.tools.sandbox.workspace import confine_path
 
-    def fetch(url: str, *args: Any, **kwargs: Any) -> Any:
-        scheme = urlsplit(url).scheme.lower()
-        if scheme == "file":
-            confine_path(company_id, url2pathname(unquote(urlsplit(url).path)))
-        elif scheme in ("http", "https"):
-            check_url_sync(url)
-        elif scheme != "data":
-            raise ValueError(f"pdf_generator does not fetch {scheme or 'unknown'!r} URLs")
-        return default_url_fetcher(url, *args, **kwargs)
+    scheme = urlsplit(url).scheme.lower()
+    if scheme == "file":
+        confine_path(company_id, url2pathname(unquote(urlsplit(url).path)))
+    elif scheme in ("http", "https"):
+        check_url_sync(url)
+    elif scheme != "data":
+        raise ValueError(f"pdf_generator does not fetch {scheme or 'unknown'!r} URLs")
 
-    return fetch
+
+class _GuardedURLFetcher(URLFetcher):
+    """WeasyPrint's fetcher for one company: every URL is checked first,
+    a redirect's target too (WeasyPrint's redirect handler fetches it again
+    through ``fetch``)."""
+
+    def __init__(self, company_id: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._hb_company_id = company_id
+
+    def fetch(self, url: str, headers: Any = None) -> Any:
+        _check_render_url(self._hb_company_id, url)
+        return super().fetch(url, headers)
+
+
+def _guarded_fetcher(company_id: str) -> "_GuardedURLFetcher":
+    """The URL fetcher a render for ``company_id`` uses."""
+    return _GuardedURLFetcher(company_id, timeout=10)
 
 
 class PDFGeneratorTool(Tool):

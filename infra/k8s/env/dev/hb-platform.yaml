@@ -18,6 +18,9 @@ config:
   CORS_ORIGINS: https://app.azdev.hirebuddha.com
   # Traces to the collector hb-bootstrap installs (WS1 1.9), which forwards them to App Insights.
   OTEL_EXPORTER_OTLP_ENDPOINT: http://hb-otel-collector.hb-platform.svc.cluster.local:4317
+  # The tenant runtime is off below: no Kubernetes sandbox yet, so the sandbox tools
+  # refuse and the idle reaper skips (with `kubernetes` it failed every 5 minutes).
+  SANDBOX_RUNTIME: ""
 
 database:
   url: postgresql+asyncpg://{user}@psql-hb-dev-control.postgres.database.azure.com:5432/hb_control?ssl=require

@@ -233,8 +233,10 @@ async def test_browser_navigate_refuses_an_internal_url():
 def test_the_pdf_renderer_fetches_only_company_files_and_public_urls(company, monkeypatch):
     from src.ai.tools.documents import pdf_generator as pg
     fetched = []
-    monkeypatch.setattr(pg, "default_url_fetcher", lambda url, *a, **k: fetched.append(url) or {})
+    # The real fetch (WeasyPrint's URLFetcher.fetch) records instead of fetching.
+    monkeypatch.setattr(pg.URLFetcher, "fetch", lambda self, url, headers=None: fetched.append(url) or {})
     fetch = pg._guarded_fetcher(company)
+    assert isinstance(fetch, pg.URLFetcher)  # WeasyPrint 66+ takes a URLFetcher, not a function
     own = Path(tenant_workspace(company)) / "chart.png"
     own.write_bytes(b"png")
     fetch(own.as_uri())
