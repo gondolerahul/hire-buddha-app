@@ -1,8 +1,11 @@
 # Phase 14 — Implementation Status
 
-> **Updated:** 2026-10-19
-> **Scope so far:** WS1 (cloud-ready platform) code, and the WS0 code that deploys it: images, the `hb-platform` Helm chart, Bicep for dev slice 1, CI/CD workflows. WS2's first slice: the tenancy package, every table on a plane, the tenant directory tables, the agent kernel on control/tenant sessions, two local dev tenants, no foreign keys between the planes (2.3). Since 18 Oct: the owner's decisions D42–D48, weekly database exports, the cluster bootstrap, and WS3's automation runtime — automation settings (every limit on screen, none by default), the event store, triggers, the router, the scheduler, the event worker, the control-room API and screens, the agent automation tools with each agent's Automation tab, run-finished triggers, the event-history clean-up, durable waits, inbound webhooks and internal events on events and triggers, notifications, approval events and automation metrics. WS4 — the schema engine, the Data API with its tokens, keys, links, batch and reports, agents' record tools, data and condition triggers, schema changes in the approvals inbox. Committed and pushed up to `8849004` (18 Oct, WS4). Since then (19 Oct), not committed yet: **WS2 completes 2.4** — the campaigns, billing, gateway, auth and config modules, the partner screens and the Meta-Agent seed scripts on control/tenant sessions; campaign jobs carry their tenant, and the URLs and Tata identifier a campaign hands out name it; **2.6** — a run is settled once, keyed by its id, in a control transaction of its own; **2.8, 2.9, 2.13** — the provisioner, sign-up provisioning with "setting up your workspace", per-tenant health and the staff API (committed as `f3f1e1e`, `ec3e9fc`, not pushed). Then (19 Oct, not committed): **2.7, 2.10** — the old chain squashed into a control tree and a tenant tree, the runner on them (tenant databases migrated, adopted, recorded). Nothing has been deployed to Azure yet.
-> **Next:** build Azure dev slice 1 (below), deploy, prove M1; WS2: switching dev to `split` (§1, WS2 "Left"); WS8 8.2 — the Records and schema screens on the WS4 APIs, and the workspace and tenant screens on the WS2 APIs; WS3's pollers with WS5's connections.
+> **Updated:** 2026-10-20
+> **Where it stands (20 Oct):** WS0–WS8's code is written and tested on this laptop (WS9 not started). **Azure dev slice 1 is deployed and the platform runs on it** (§1 "Azure dev, 20 Oct"): AKS with the gateway on `20.219.188.83`, `https://app.azdev.hirebuddha.com` and `https://gateway.azdev.hirebuddha.com` with Let's Encrypt production certificates, the API, workers, scheduler and frontend in `hb-platform`, the database signed in by Entra tokens, secrets from Key Vault, files in Blob, Gemini, embeddings, Veo, Gemini TTS and Lyria through Google workload identity federation (no key file), and the platform's health `ok`. New since 19 Oct: speech and music as configurable models and tools (§1 "Models and media"). Commits up to `5447c7c` are pushed. M1 is not fully proved yet: §3 lists what is done and what is left; §5 lists every pending item.
+> **Next:** the rest of M1 (§3), then M2 (dev in `split` with slice 2), then slices 3–5 with WS5/WS6 on Azure.
+>
+> **Scope before 20 Oct:** WS1 (cloud-ready platform) code, and the WS0 code that deploys it: images, the `hb-platform` Helm chart, Bicep for dev slice 1, CI/CD workflows. WS2's first slice: the tenancy package, every table on a plane, the tenant directory tables, the agent kernel on control/tenant sessions, two local dev tenants, no foreign keys between the planes (2.3). Since 18 Oct: the owner's decisions D42–D48, weekly database exports, the cluster bootstrap, and WS3's automation runtime — automation settings (every limit on screen, none by default), the event store, triggers, the router, the scheduler, the event worker, the control-room API and screens, the agent automation tools with each agent's Automation tab, run-finished triggers, the event-history clean-up, durable waits, inbound webhooks and internal events on events and triggers, notifications, approval events and automation metrics. WS4 — the schema engine, the Data API with its tokens, keys, links, batch and reports, agents' record tools, data and condition triggers, schema changes in the approvals inbox. Committed and pushed up to `8849004` (18 Oct, WS4). Since then (19 Oct), not committed yet: **WS2 completes 2.4** — the campaigns, billing, gateway, auth and config modules, the partner screens and the Meta-Agent seed scripts on control/tenant sessions; campaign jobs carry their tenant, and the URLs and Tata identifier a campaign hands out name it; **2.6** — a run is settled once, keyed by its id, in a control transaction of its own; **2.8, 2.9, 2.13** — the provisioner, sign-up provisioning with "setting up your workspace", per-tenant health and the staff API (committed as `f3f1e1e`, `ec3e9fc`, not pushed). Then (19 Oct, not committed): **2.7, 2.10** — the old chain squashed into a control tree and a tenant tree, the runner on them (tenant databases migrated, adopted, recorded). Nothing has been deployed to Azure yet.
+> **Next (as of 19 Oct, superseded above):** build Azure dev slice 1, deploy, prove M1; WS2: switching dev to `split`; WS8 8.2; WS3's pollers with WS5's connections.
 
 ---
 
@@ -17,14 +20,14 @@
 | 1.2 | Storage abstraction | Done | `StorageBackend` with `local_disk` and `azure_blob` (workload identity, user-delegation SAS); `artifacts.storage_key` (migration `p14_artifact_storage_key`, backfills existing files); every writer through `ArtifactService`; readers (download, e-mail attachments, voice context sources, tool inputs, PDF images) through `read_artifact_bytes` / `artifact_local_file` / `confine_params_async` | `test_storage_backends.py` (contract on local disk), `tests/integration/test_storage_azurite.py` (same contract + SAS download on Azurite), `test_artifact_storage.py` |
 | 1.3 | Signed download endpoint | Done | `GET /api/v1/files/{id}` (302 to a 10-minute SAS on Blob; served by the API on local disk; URL tokens accepted), `GET /api/v1/files/{id}/public` (avatars only). Static mounts only on `local_disk`. Entity avatars are now artifacts. Frontend `apiUrl()` | `test_artifact_storage.py`, `src/config/api.test.ts` |
 | 1.4 | Secrets from Key Vault | Done | `SETTINGS_SECRETS_DIR`: the CSI driver's mount fills settings (`config._load_settings`); chart `SecretProviderClass` per workload identity; `SecretsProvider` (`env`, `azure_keyvault`) for run-time lookups | `test_platform_adapters.py` |
-| 1.5 | Google federation | Done | `genai_factory.google_credentials()` from `GOOGLE_WIF_CREDENTIAL_FILE` for every Vertex client (Gemini, Live, embeddings, Imagen/Veo, Claude on Vertex); chart `googleFederation` projects the pod token + the `external_account` config | `test_model_credentials_azure.py` |
+| 1.5 | Google federation | Done; **proved on Azure dev (20 Oct)** — pool `hb-azure-dev` in `hirebuddha-production`, only `sa-api` / `sa-worker` may act as `hb-vertex-dev` (Vertex AI User) | `genai_factory.google_credentials()` from `GOOGLE_WIF_CREDENTIAL_FILE` for every Vertex client (Gemini, Live, embeddings, Imagen/Veo, Claude on Vertex); chart `googleFederation` projects the pod token + the `external_account` config | `test_model_credentials_azure.py` |
 | 1.6 | Claude provider switch | Done | `service_metadata.provider` = `vertex` / `foundry` / `anthropic` (default `ANTHROPIC_PROVIDER`); Foundry with key or Entra token (`AsyncAnthropicFoundry`) | `test_model_credentials_azure.py` (real SDK, recorded HTTP) |
 | 1.7 | Azure OpenAI by managed identity | Done | No stored key → Entra token per request; `service_metadata.auth: managed_identity` lets an integration exist without a key | `test_model_credentials_azure.py` |
 | 1.8 | Redis TLS | Done | Every client builds from `REDIS_URL` (`rediss://…:10000`); arq's settings decode a percent-encoded password as redis-py does. SP-2 answered on Azure dev: arq's WATCH/MULTI fails `CROSSSLOT` under EnterpriseCluster, so Redis runs `NoCluster` (a cache of 25 GB or less) | `test_arq_redis_settings.py` |
-| 1.9 | Telemetry to App Insights | Written, not deployed | Workers carry Prometheus scrape annotations. Traces: services export OTLP to `hb-otel-collector` (hb-bootstrap chart), whose `azuremonitor` exporter sends them to Application Insights with the connection string synced from Key Vault (P-11: configured, not coded); dev's `OTEL_EXPORTER_OTLP_ENDPOINT` points at it | chart renders and validates (below) |
+| 1.9 | Telemetry to App Insights | Deployed (collector running on Azure dev); **traces arriving in App Insights not yet checked** | Workers carry Prometheus scrape annotations. Traces: services export OTLP to `hb-otel-collector` (hb-bootstrap chart), whose `azuremonitor` exporter sends them to Application Insights with the connection string synced from Key Vault (P-11: configured, not coded); dev's `OTEL_EXPORTER_OTLP_ENDPOINT` points at it | chart renders and validates (below) |
 | 1.10 | Business time zone | Done | `companies.timezone` (migration `p14_company_timezone`, default Asia/Kolkata), `PATCH /api/v1/companies/{id}` accepts IANA zones, `src/common/timezones.py`; `get_current_datetime` (now typed) and mobile analytics use it. **Kept on India time on purpose:** the mobile dialer's calling window (TRAI rule) | `test_business_timezone.py` |
 | 1.11 | PostgreSQL 16 locally | Done | `docker-compose.yml` → `pgvector/pgvector:pg16`, new volume `postgres16_data` | Unit + integration + parity pass on 16.15 (below) |
-| 1.12 | Public URLs for Azure dev | Config only | `infra/k8s/env/dev/hb-platform.yaml` (`STREAMING_HOST`, `FRONTEND_URL`, `CORS_ORIGINS`); telephony test numbers are configured with the providers | — |
+| 1.12 | Public URLs for Azure dev | Live (20 Oct): two names, `app.azdev` (frontend) and `gateway.azdev` (the API: REST, webhooks, WebSockets, OAuth returns); the `api.` alias and `connect.` dropped for dev | `infra/k8s/env/dev/hb-platform.yaml` (`STREAMING_HOST`, `FRONTEND_URL`, `CORS_ORIGINS`); telephony test numbers still to be pointed at `gateway.azdev` | HTTPS checked with normal certificate verification |
 | — | Database sign-in with Entra tokens (§5.3, P-07) | Done | `DB_AUTH=entra_token`: each new connection gets a token as its password; the app engine and Alembic both use it; chart builds a per-workload `DATABASE_URL` (`id-hb-dev-api`, `-worker`, `-migrator`) | `tests/integration/test_db_entra_auth.py` |
 
 ### WS2 — Tenant data plane (first slice)
@@ -76,12 +79,13 @@
 
 | # | Task | State | Where |
 |---|------|-------|-------|
-| 0.2 | Bicep, slice 1 | Written, compiles (Bicep 0.48.1), **not deployed** | `infra/azure/bicep/main.bicep` + `modules/` (network + NAT, monitoring, identities, Key Vault, ACR, storage, AKS system+platform, AKS role wiring, federated credentials, Flexible Server 16, Managed Redis + private endpoint) |
-| 0.3 | Parameters | dev only | `infra/azure/env/dev.bicepparam` (ids and the break-glass password from environment variables), `infra/azure/env/dev.env` (names to fill in) |
-| 0.4 | Cluster bootstrap | Written, not run | `infra/k8s/bootstrap/install.sh <env>` installs Envoy Gateway v1.2.4 and cert-manager v1.16.2 (Gateway API on), then `infra/k8s/charts/hb-bootstrap`: namespaces `hb-platform` (baseline) and `hb-pragya` (restricted, deny-all — PR-8), `sa-<id>` with each identity's client id, `GatewayClass` + `EnvoyProxy` on the static ingress IP, `Gateway platform-gateway` (HTTPS listener per hostname, certificates by cert-manager over HTTP-01, HTTP→HTTPS redirect), Let's Encrypt `ClusterIssuer` (staging first), the OTel collector. Chart lints; renders pass kubeconform; `install.sh` passes shellcheck; CI renders it. The egress proxy is WS6 (6.2) |
+| 0.2 | Bicep, slice 1 | **Deployed 20 Oct** (subscription Pay-As-You-Go, Central India, suffix `ac48`); Redis redeployed as `NoCluster` (SP-2). Slices 2–5 not written | `infra/azure/bicep/main.bicep` + `modules/` (network + NAT, monitoring, identities, Key Vault, ACR, storage, AKS system+platform, AKS role wiring, federated credentials, Flexible Server 16, Managed Redis + private endpoint) |
+| 0.3 | Parameters | dev, filled in and tracked (20 Oct: the Python `env/` ignore rule had hidden `infra/*/env/`) | `infra/azure/env/dev.bicepparam` (ids and the break-glass password from environment variables; the password is in Key Vault `pg-break-glass-password`), `infra/azure/env/dev.env` (every name and id) |
+| 0.4 | Cluster bootstrap | **Run on aks-hb-dev (20 Oct)**; `install.sh` applies client-side under Helm 4 | `infra/k8s/bootstrap/install.sh <env>` installs Envoy Gateway v1.2.4 and cert-manager v1.16.2 (Gateway API on), then `infra/k8s/charts/hb-bootstrap`: namespaces `hb-platform` (baseline) and `hb-pragya` (restricted, deny-all — PR-8), `sa-<id>` with each identity's client id, `GatewayClass` + `EnvoyProxy` on the static ingress IP, `Gateway platform-gateway` (HTTPS listener per hostname, certificates by cert-manager over HTTP-01, HTTP→HTTPS redirect), Let's Encrypt `ClusterIssuer` (staging first), the OTel collector. Chart lints; renders pass kubeconform; `install.sh` passes shellcheck; CI renders it. The egress proxy is WS6 (6.2) |
 | — | Weekly database exports (D45) | Written; one export proved locally | `backend/scripts/backup_databases.py` (control DB + every ready tenant DB, `pg_dump -Fc` to `platform/backups/<week>/` and `t-<key>/backups/<week>/` with a manifest; last `BACKUP_KEEP_WEEKS`=5 weeks kept; one failure does not stop the others; password or Entra token through `PG*` variables, never argv). Image target `backup` (PostgreSQL 16 client), CronJob `hb-backup` Sundays 02:00 Asia/Kolkata (on in `values-azure.yaml`), image built by `deploy-azure.yml`; Bicep keeps point-in-time restore at 7 days. `StorageBackend.put_file` added (no file in memory) | `tests/unit/test_backup_databases.py`; storage contract incl. `put_file` on local disk and Azurite; the image exported the local DB into Azurite and `pg_restore --list` read it back (409 entries, 52 tables) |
-| 0.5 | GitHub Actions | Written | `.github/workflows/ci.yml` (backend tiers on PG16 + Azurite, frontend gates, chart render/schema/portability checks), `.github/workflows/deploy-azure.yml` (OIDC login, images to ACR, `helm upgrade --atomic`, smoke test; off until `AZURE_DEPLOY_ENABLED=true`); both pass actionlint |
-| 0.6, 0.7 | Budgets/Defender, spikes | Not started | — |
+| 0.5 | GitHub Actions | Written; **automatic dev deploys still off** (no `azure-dev` environment, `AZURE_DEPLOY_ENABLED` unset): every Azure deploy so far was by hand (images built here, `helm upgrade`) | `.github/workflows/ci.yml` (backend tiers on PG16 + Azurite, frontend gates, chart render/schema/portability checks; runs on pull requests and `main` only), `.github/workflows/deploy-azure.yml` (OIDC login, images to ACR, `helm upgrade --atomic`, smoke test; off until `AZURE_DEPLOY_ENABLED=true`); both pass actionlint |
+| 0.6 | Budgets / Defender | Budget done (`budget-hb-dev-monthly`, ₹50,000, alerts at 80 % / 100 % actual and 100 % forecast to gondole.rahul@outlook.com); Defender not started | — |
+| 0.7 | Spikes | SP-2 answered (Redis `NoCluster`); SP-4 answered for Gemini text, embeddings, TTS, Lyria and Veo look-ups (Gemini Live not yet); SP-5 waits on Claude being enabled; SP-1, 3, 6–10 not started | — |
 
 ### WS3 — Event-driven automation
 
@@ -207,14 +211,45 @@ Packages `backend/src/code_lanes/`, `backend/src/apps/` (+ `api.py`: `/api/v1/co
 
 **Left in WS6 (all need Azure):** run the sandbox on the Kata pool and the network-policy tests (sandbox cannot reach DB/IMDS/other tenants); build and push `hb-sandbox` (with the agent), `hb-checks`, `hb-egress-proxy`, `hb-app-controller` and the Caddy-with-Redis image; Gitea's database `hb_gitea` and its admin token; the ACR apps registry and its Tasks; KEDA HTTP add-on; the edge's static IP and `*.apps.<domain>` DNS; managed Prometheus for metering; the M6 end-to-end (owner asks for a CRM → PR in GitHub → merge → image → preview → publish on `crm-acme.apps.<domain>` and `crm.acme.com`). The tenant's Data API Deployment (`data_api_ready`) waits for its identity (WS0 slice 2).
 
+### Azure dev (20 Oct)
+
+Subscription Pay-As-You-Go (`af133a07-…`), tenant `7cb9c9f3-…`, region Central India, suffix `ac48`; every name and id is in `infra/azure/env/dev.env`.
+
+| Piece | State | Detail |
+|-------|-------|--------|
+| Entra groups | Done | `grp-hb-dev-admins`, `-developers`, `-pg-admins` (the owner in admins and pg-admins) |
+| Slice 1 (Bicep) | Deployed | AKS `aks-hb-dev` (pools `system`, `platform`), ACR `acrhbdevac48`, Key Vault `kv-hb-dev-ac48`, Storage `sthbdevac48`, Flexible Server 16 `psql-hb-dev-control` (private; `hb_control`, `hb_gitea`), Managed Redis `redis-hb-dev-ac48` (private, `NoCluster`), NAT egress `52.172.235.125`, ingress `20.219.188.83`, eight managed identities with federated credentials |
+| Key Vault secrets | Done | `secret-key`, `internal-token`, `encryption-master-key`, `redis-url`, `pg-break-glass-password`, `app-admin-password`. Provider test credentials (guide §7: Twilio, Tata, Meta …) **not yet** |
+| Database roles | Done | `infra/azure/sql/control-server-roles.sql` (Entra principals of the workloads, `hb_runtime` / `hb_dataapi` / `hb_migrator`, provisioner `CREATEDB CREATEROLE`) and `control-database-grants.sql` (extensions incl. `vector` 0.8.2, schema grants, default privileges), run as the Entra admin |
+| Cluster bootstrap | Done | Envoy Gateway v1.2.4, cert-manager v1.16.2, hb-bootstrap (namespaces, `sa-<id>`, `platform-gateway` on the static IP, OTel collector, Key Vault CSI) |
+| DNS and certificates | Done | GoDaddy A records `app.azdev` and `gateway.azdev` → `20.219.188.83`; Let's Encrypt **production** certificates (issuer YR1, to 18 Jan 2027); HTTP redirects to HTTPS |
+| Platform release | Running (revision 7, images `5447c7c`) | `hb-platform`: migrations Job (Entra sign-in as `id-hb-dev-migrator`, control tree at `control_0004_media_categories`), API, worker, child worker, event worker, two schedulers, two frontends; **tenant runtime off** (its images, secrets and the slice-4 pools are not there yet) |
+| Google federation | Done | Pool `hb-azure-dev` / provider `aks-dev` in `hirebuddha-production` (STS API enabled), service account `hb-vertex-dev` |
+| Platform admin | Done | Company "HireBuddha" (APP) and `admin@hirebuddha.com` (`app_admin`, verified); its password only in Key Vault `app-admin-password` |
+| Models configured | Done | Task defaults: text, reasoning, vision → **Gemini 4 Argon**; goal checks → **Gemini 3.5 Flash-Lite**; embeddings → `text-embedding-005` (768); video → **Veo 3.1** (`veo-3.1-generate-001`); speech → **Gemini 3.8 Flash TTS**; music → **Lyria 3 Pro** (`lyria-3-pro-preview`). Standard list prices (Argon's promotional price ignored, so billing never undercharges). Health: `ok` |
+| Not configured | — | **Claude** (not enabled in the project's Model Garden: every Claude id answers 404); **GPT** (Azure OpenAI not wired) |
+
+**Found and fixed while deploying** (each committed with a test where it is code): Azure refuses `CREATE EXTENSION IF NOT EXISTS vector` to non-admins even when it exists (the migrations now check first); arq kept a percent-encoded Redis password encoded; arq's transactions fail `CROSSSLOT` under EnterpriseCluster (SP-2 → `NoCluster`, database recreated); Helm 4's server-side apply conflicts with AKS's admissions enforcer (`install.sh` applies client-side); the OTel collector tag `0.115.0` was never published (`0.115.1`); `video_generate` defaulted to `veo-3.1-generate-preview`, retired on 2 April 2026; the `.gitignore` rule `env/` hid `infra/azure/env/` and `infra/k8s/env/` (never tracked; the deploy workflow needs them); guide §14's federation commands did not match the chart (the provider must accept its own resource name as audience).
+
+### Models and media (20 Oct)
+
+| Piece | State | Where | Proof |
+|-------|-------|-------|-------|
+| Speech and music categories | Done | `ServiceCategory.SPEECH_GENERATION`, `MUSIC_GENERATION`; migration `control_0004_media_categories`; the integration modal offers both and "Per Clip" | Migration up / down / up locally; `test_service_category.py` |
+| `audio_models` | Done | `src/ai/tools/media/audio_models.py`: the company's, else the platform's, configured model; Gemini TTS (WAV; raw L16 wrapped), Lyria 3 (`generateContent` with audio **and** text: MP3 + caption), Lyria 2 (`predict`: WAV) | `tests/unit/test_audio_tools.py` (14) |
+| Tools `text_to_speech`, `music_generation` | Done | Typed tools; audio kept as run artifacts (`audio`); billed per second of speech / per piece | Unit tests; **on Azure dev**: 6 s of speech and a 36 s song made, stored in Blob and read back |
+| `video_add_sound` sources `tts`, `generated` | Done | Used to refuse (no provider wired); now the same models, billed as those tools (`also_bill`) | `test_video_tools_split.py` (+2); not yet run on Azure (needs ffmpeg there, see §5) |
+| Media billing | Done | `ToolCostResolver` prices `video_generate`, `text_to_speech`, `music_generation` by their model's category row (a `veo-3.1-generate-001` row had left video at a fixed $0.05 a call); Veo per second (the tool reports its duration); a result can bill another tool's price (`ToolResult.also_bill`, charged at all three charge sites); unconverted tools' billing keys are lifted out of what the model reads; the plan estimator scales per-unit prices by a typical call | `test_tool_cost_resolver.py` (+4), `test_audio_tools.py`; on Azure the three tools resolve to the registry prices |
+| Video model choice | Done | `video_generate`: the call's model, else the integration's `service_metadata.model`, else `veo-3.1-generate-001` | `test_video_tools_split.py` (+3) |
+
 ### Test results on this laptop (PostgreSQL 16.15)
 
 | Tier | Result |
 |------|--------|
-| Unit (`tests/unit tests/ai`) | 19 Oct, after WS6: **2540 passed**, 2 skipped, the same 3 pre-existing failures (+ `test_tenant_runtime_units.py` ×25, the provisioner's namespace step). After WS5 and WS7 (main checkout): 2513 passed, 2 skipped, the same 3 pre-existing failures (+ `test_connections_units.py` ×16). Before, after 2.7 and 2.10 (old chain moved to `migrations/legacy/`): 2497 passed, 2 skipped, the same 3 pre-existing failures (+ `test_schema_catalog.py` ×7, `test_tenancy.py` +4 net: one head per tree, the old chain frozen at the cut, revision ids fit the version tables, the CORTEX allow-list). After WS2 2.3 and the mobile module (on top of the kernel, AI and voice modules): 2285 passed, 2 skipped, 3 failed — the 3 **pre-existing** failures: `test_flag_catalogue` ×2 and `test_route_census` read `docs/current/…`, which commit `9536599` moved to `docs/history/phase13/`. After the backups and WS3's core logic (18 Oct): 2390 passed, 2 skipped, the same 3 failed. After D47 and WS3's runtime (18 Oct, evening): 2424 passed, 2 skipped, the same 3 failed. After the agent tools, run-finished events and retention: 2429 passed, 2 skipped, the same 3 failed. After waits, the gateway on triggers, notifications, approval events and metrics: 2438 passed, 2 skipped, the same 3 failed. After WS4: 2468 passed, 2 skipped, the same 3 failed. 19 Oct, after WS2's remaining modules, 2.6, 2.8, 2.9 and 2.13: **2485 passed**, 2 skipped, the same 3 failed |
-| Integration (`-m "not docker"`, `REQUIRE_DB=1`) | 19 Oct, after WS6: **605 passed**, 1 skipped (+ `test_code_lanes.py` ×4, `test_tenant_apps.py` ×5, `test_sandbox_k8s_runtime.py` ×4 — the real sandbox agent behind a played Kubernetes API; provisioning now makes the KEK and DEK; the split lets the business's own DEK versions win; then `test_data_api.py` +1, the schema-change list and a record's history). After WS5 and WS7 (main checkout): 591 passed, 1 skipped (+ `test_connections.py` ×9 — the connect flow, the broker, refresh, one business per account, revoke, a mailbox form, the Meta webhook, sealing/rotation/shredding, the vault, the mailbox poller, the credential conversion —, `test_tenant_split.py` ×2, a Beta connection in `test_tenant_routing.py`; the census and tree tests compare the old chain with the baselines and expect the trees' heads after crossing; `test_artifact_write_path.py` passes from the main checkout). Before, after 2.7 and 2.10 (run in a worktree): **580 passed**, 1 skipped, 1 failed — `test_artifact_write_path.py::test_docx_returns_the_registered_file_and_an_edit_is_a_new_one`: the DOCX tool's temporary `.part` file path passes Windows' 260 characters under the worktree's deeper directory (`[Errno 2]`); not a 2.7 change, it passes from the main checkout (+ `test_migration_trees.py` ×4, `test_schema_census.py` +2: the old chain's database equals the trees', one two revisions short brought to the cut by the old chain and stamped — refused while it differed). The dev tenant databases were adopted by the run; the local shared database stays on the old chain. 19 Oct, after the campaign ownership fix: **575 passed**, 1 skipped (+ `test_campaign_ownership.py` ×8); the mobile suite on a scratch `hirebuddha_mobile_test`: 34 passed (+1). Before it, after WS2's remaining modules, 2.6, 2.8, 2.9 and 2.13 (local DB at `p14_run_settlement`): 567 passed, 1 skipped (+ `test_tenant_routing.py` ×5 — a Beta campaign job, Beta's holds, a Beta run settled once, a partner's tenant views, a webhook endpoint's agent —, `test_run_credit_guard.py` ×2, `test_tenant_provisioning.py` ×4, each provisioning test making and dropping a `t_<key>` database). 18 Oct, after WS4: 556 passed, 1 skipped (+ `test_data_api.py` ×13, `test_record_tools.py` ×4, `test_schema_engine.py` ×6 — each in a throwaway business database). Before that, after waits, the gateway on triggers and notifications: 532 passed, 1 skipped (+ `test_automation_waits.py` ×6, `test_automation_gateway.py` ×7, `test_notifications.py` ×5); the automation suites again after the approval events and metrics: 39 passed. After the agent tools, run-finished events and retention: 514 passed, 1 skipped (+ `test_automation_agent_tools.py` ×9, 3 more in `test_automation_runtime.py`). After D47 and WS3's runtime: 502 passed, 1 skipped (+ `test_automation_runtime.py` ×17, `test_automation_control_room_api.py` ×11, `test_automation_settings_api.py`). The two dev tenant databases had to be rebuilt first (`python -m scripts.dev_tenants --reset`): their schemas are built from the models and only gain missing tables, so `execution_runs.trigger_id` was absent until 2.7's migration tree. Earlier, 18 Oct: 469 passed, 1 skipped. After WS2's kernel, AI and voice modules: 460 passed, 1 skipped (WS1: 451 + 1 skipped; the 9 new ones are `test_tenant_routing.py`, on `t_devacme01` / `t_devbeta001`). After 2.3 (local DB at `p14_drop_cross_plane_fks`): 469 passed, 1 skipped (+ `test_cross_plane_references.py` ×4, `test_purge_companies.py` ×2, `test_schema_census.py` ×2, and the mobile module's routing test). The 1 skipped is `tests/integration/mobile`, which needs a disposable `*_test` database: run against a scratch `hirebuddha_mobile_test` after the mobile module, 33 passed (its schema builder now creates `entity_versions`) |
+| Unit (`tests/unit tests/ai`) | 20 Oct, after the media models: **2566 passed**, 2 skipped, the same 3 pre-existing failures (`docs/current/` paths). 19 Oct, after WS6: 2540 passed, 2 skipped, the same 3 pre-existing failures (+ `test_tenant_runtime_units.py` ×25, the provisioner's namespace step). After WS5 and WS7 (main checkout): 2513 passed, 2 skipped, the same 3 pre-existing failures (+ `test_connections_units.py` ×16). Before, after 2.7 and 2.10 (old chain moved to `migrations/legacy/`): 2497 passed, 2 skipped, the same 3 pre-existing failures (+ `test_schema_catalog.py` ×7, `test_tenancy.py` +4 net: one head per tree, the old chain frozen at the cut, revision ids fit the version tables, the CORTEX allow-list). After WS2 2.3 and the mobile module (on top of the kernel, AI and voice modules): 2285 passed, 2 skipped, 3 failed — the 3 **pre-existing** failures: `test_flag_catalogue` ×2 and `test_route_census` read `docs/current/…`, which commit `9536599` moved to `docs/history/phase13/`. After the backups and WS3's core logic (18 Oct): 2390 passed, 2 skipped, the same 3 failed. After D47 and WS3's runtime (18 Oct, evening): 2424 passed, 2 skipped, the same 3 failed. After the agent tools, run-finished events and retention: 2429 passed, 2 skipped, the same 3 failed. After waits, the gateway on triggers, notifications, approval events and metrics: 2438 passed, 2 skipped, the same 3 failed. After WS4: 2468 passed, 2 skipped, the same 3 failed. 19 Oct, after WS2's remaining modules, 2.6, 2.8, 2.9 and 2.13: **2485 passed**, 2 skipped, the same 3 failed |
+| Integration (`-m "not docker"`, `REQUIRE_DB=1`) | 20 Oct: only the suites the media change touches were run — `test_service_category.py`, `test_migration_trees.py`, `test_billing_overrides.py`: 15 passed; **the full tier was not re-run**. 19 Oct, after WS6: **605 passed**, 1 skipped (+ `test_code_lanes.py` ×4, `test_tenant_apps.py` ×5, `test_sandbox_k8s_runtime.py` ×4 — the real sandbox agent behind a played Kubernetes API; provisioning now makes the KEK and DEK; the split lets the business's own DEK versions win; then `test_data_api.py` +1, the schema-change list and a record's history). After WS5 and WS7 (main checkout): 591 passed, 1 skipped (+ `test_connections.py` ×9 — the connect flow, the broker, refresh, one business per account, revoke, a mailbox form, the Meta webhook, sealing/rotation/shredding, the vault, the mailbox poller, the credential conversion —, `test_tenant_split.py` ×2, a Beta connection in `test_tenant_routing.py`; the census and tree tests compare the old chain with the baselines and expect the trees' heads after crossing; `test_artifact_write_path.py` passes from the main checkout). Before, after 2.7 and 2.10 (run in a worktree): **580 passed**, 1 skipped, 1 failed — `test_artifact_write_path.py::test_docx_returns_the_registered_file_and_an_edit_is_a_new_one`: the DOCX tool's temporary `.part` file path passes Windows' 260 characters under the worktree's deeper directory (`[Errno 2]`); not a 2.7 change, it passes from the main checkout (+ `test_migration_trees.py` ×4, `test_schema_census.py` +2: the old chain's database equals the trees', one two revisions short brought to the cut by the old chain and stamped — refused while it differed). The dev tenant databases were adopted by the run; the local shared database stays on the old chain. 19 Oct, after the campaign ownership fix: **575 passed**, 1 skipped (+ `test_campaign_ownership.py` ×8); the mobile suite on a scratch `hirebuddha_mobile_test`: 34 passed (+1). Before it, after WS2's remaining modules, 2.6, 2.8, 2.9 and 2.13 (local DB at `p14_run_settlement`): 567 passed, 1 skipped (+ `test_tenant_routing.py` ×5 — a Beta campaign job, Beta's holds, a Beta run settled once, a partner's tenant views, a webhook endpoint's agent —, `test_run_credit_guard.py` ×2, `test_tenant_provisioning.py` ×4, each provisioning test making and dropping a `t_<key>` database). 18 Oct, after WS4: 556 passed, 1 skipped (+ `test_data_api.py` ×13, `test_record_tools.py` ×4, `test_schema_engine.py` ×6 — each in a throwaway business database). Before that, after waits, the gateway on triggers and notifications: 532 passed, 1 skipped (+ `test_automation_waits.py` ×6, `test_automation_gateway.py` ×7, `test_notifications.py` ×5); the automation suites again after the approval events and metrics: 39 passed. After the agent tools, run-finished events and retention: 514 passed, 1 skipped (+ `test_automation_agent_tools.py` ×9, 3 more in `test_automation_runtime.py`). After D47 and WS3's runtime: 502 passed, 1 skipped (+ `test_automation_runtime.py` ×17, `test_automation_control_room_api.py` ×11, `test_automation_settings_api.py`). The two dev tenant databases had to be rebuilt first (`python -m scripts.dev_tenants --reset`): their schemas are built from the models and only gain missing tables, so `execution_runs.trigger_id` was absent until 2.7's migration tree. Earlier, 18 Oct: 469 passed, 1 skipped. After WS2's kernel, AI and voice modules: 460 passed, 1 skipped (WS1: 451 + 1 skipped; the 9 new ones are `test_tenant_routing.py`, on `t_devacme01` / `t_devbeta001`). After 2.3 (local DB at `p14_drop_cross_plane_fks`): 469 passed, 1 skipped (+ `test_cross_plane_references.py` ×4, `test_purge_companies.py` ×2, `test_schema_census.py` ×2, and the mobile module's routing test). The 1 skipped is `tests/integration/mobile`, which needs a disposable `*_test` database: run against a scratch `hirebuddha_mobile_test` after the mobile module, 33 passed (its schema builder now creates `entity_versions`) |
 | Parity | 2 passed (also after WS2's first slice, after WS3's runtime, after WS4, and on 19 Oct after the rest of WS2) |
-| Frontend | 19 Oct, after WS8: `npm run lint` clean, `tsc` clean, vitest **69** passed (+ `ws8.test.ts` ×10), `vite build` passes. Before: `npm run lint` clean, `tsc` clean, vitest 59 passed (after WS4's condition-trigger wording; before it, after waits, notifications and the bell), `vite build` passes |
+| Frontend | 20 Oct (the integration modal's two categories): `tsc` clean; lint and vitest not re-run. 19 Oct, after WS8: `npm run lint` clean, `tsc` clean, vitest **69** passed (+ `ws8.test.ts` ×10), `vite build` passes. Before: `npm run lint` clean, `tsc` clean, vitest 59 passed (after WS4's condition-trigger wording; before it, after waits, notifications and the bell), `vite build` passes |
 | Azurite (`REQUIRE_AZURITE=1`) | 3 passed (WS1) |
 
 Run in one pytest process, unit + integration + parity also show one teardown error between tiers; each tier on its own is clean (CI runs them separately).
@@ -280,30 +315,36 @@ Run in one pytest process, unit + integration + parity also show one teardown er
 | WS2 2.9: a request whose tenant is not ready | 503 `workspace_not_ready` (with `Retry-After`) or `workspace_not_provisioned`, from exception handlers | The screens can show "setting up your workspace" instead of an error; a 500 said nothing |
 | WS2 2.9: sign-up when provisioning cannot be requested | Sign-up succeeds; the error is logged and the company is "not requested" until staff provision it | A missing pool server must not stop people registering |
 
-## 3. To get M1 on Azure dev (what is left, in order)
+## 3. M1 on Azure dev — done and left (20 Oct)
 
-1. **Entra groups** `grp-hb-dev-admins`, `-developers`, `-pg-admins` (guide §5) and their object ids.
-2. **Slice 1**: `az deployment sub what-if` then `create` with `infra/azure/env/dev.bicepparam` (or the CLI/portal guide by hand, as plan 0.1 suggests, then compare with the template's what-if).
-3. **Key Vault secrets**: `secret-key`, `internal-token`, `encryption-master-key` (new: the app requires it; ≥ 32 random characters), `redis-url` (`rediss://:<access key>@<redis host>:10000`), plus the provider test credentials of guide §7.
-4. **Database, once, as the Entra admin** (guide §10.5) on `hb_control`:
-   ```sql
-   CREATE EXTENSION IF NOT EXISTS vector;          -- the migrator is not a server admin
-   CREATE EXTENSION IF NOT EXISTS pgcrypto;
-   CREATE EXTENSION IF NOT EXISTS pg_trgm;
-   CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-   GRANT CREATE, USAGE ON SCHEMA public TO hb_migrator;
-   GRANT USAGE ON SCHEMA public TO hb_runtime;
-   -- tables the migrator creates are usable by the API and workers
-   ALTER DEFAULT PRIVILEGES FOR ROLE "id-hb-dev-migrator" IN SCHEMA public
-     GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO hb_runtime;
-   ALTER DEFAULT PRIVILEGES FOR ROLE "id-hb-dev-migrator" IN SCHEMA public
-     GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO hb_runtime;
-   ```
-   Until WS2 splits the schemas, today's tables stay in `public`.
-5. **Cluster bootstrap**: fill `infra/azure/env/dev.env` from the Bicep outputs, then `HB_ACME_EMAIL=<ops address> bash infra/k8s/bootstrap/install.sh dev`; point the `*.azdev.hirebuddha.com` names at the gateway's address it prints.
-6. **Google federation** (guide §14): a workload identity pool trusting the AKS OIDC issuer; fill `googleFederation` in `infra/k8s/env/dev/hb-platform.yaml`.
-7. **GitHub**: environment `azure-dev` with the variables of guide §15.1, then the repository variable `AZURE_DEPLOY_ENABLED=true`. A push to `roadmap-development-defect-fixes` (D46) or `main` then builds, pushes and rolls out.
-8. **Prove M1** (plan WS1 "Done"): sign up, build and run an agent, live trace, upload a document, generate a PDF (in Blob), a Twilio test call, Gemini + Claude + GPT answers, no key files in any pod.
+M1 = today's product on Azure dev (plan §4): API, workers, frontend and voice webhooks in AKS against one Flexible Server database, files in Blob, secrets from Key Vault, Gemini by federation.
+
+| # | Step | State |
+|---|------|-------|
+| 1 | Entra groups | Done |
+| 2 | Slice 1 (Bicep) | Done |
+| 3 | Key Vault secrets | Platform secrets done; **provider test credentials (guide §7) not yet** |
+| 4 | Database roles and grants (`infra/azure/sql/`) | Done |
+| 5 | Cluster bootstrap, DNS, certificates | Done (production certificates) |
+| 6 | Google federation | Done (Gemini, embeddings, TTS, Lyria, Veo look-ups) |
+| 7 | GitHub environment `azure-dev`, `AZURE_DEPLOY_ENABLED=true` | **Not done** (needs the owner in GitHub's settings) |
+| 8 | Prove M1 | Partly — below |
+
+**The M1 proof (plan WS1 "Done"):**
+
+| Check | State |
+|-------|-------|
+| Platform up, health `ok` (API, workers, scheduler, frontend) | Done |
+| Sign in over HTTPS | Done (`admin@hirebuddha.com`) |
+| Self sign-up | **Blocked**: new accounts must confirm their e-mail and no `smtp-system` integration exists on Azure |
+| Gemini answers | Done (through the platform's router, from the API and the worker) |
+| Claude answers | **Blocked**: Claude not enabled in `hirebuddha-production`'s Model Garden (SP-5 open) |
+| GPT answers | **Not done**: Azure OpenAI not wired (an `hirebuddha-openai-resource` exists in East US 2; needs a deployment, a role for the workload identities and a registry row) |
+| Files in Blob | Done (speech and music artifacts written and read back) |
+| Build and run an agent, live trace, upload a document, a PDF in Blob | **Not done** |
+| A Twilio test call | **Not done** (Twilio credentials, a number pointed at `gateway.azdev`) |
+| No key files in any pod | By design (federation, Entra, CSI); **not yet checked pod by pod** |
+| Traces in Application Insights | **Not checked** |
 
 ## 4. Open items found while building
 
@@ -313,7 +354,7 @@ Run in one pytest process, unit + integration + parity also show one teardown er
 * **CORTEX package (WS2 2.2):** `cortex_memory` (a copy of `hb-cortex-memory`) declares its tables on its own base, so this repository assigns that base to the tenant plane (`bases.cortex_base()`). The package should get a tenant base or a plane hook of its own; change it in `hb-cortex-memory` and sync the copy, not here.
 * **Deploy order (WS2 2.5):** producers now pass `company_id=` to the kernel jobs; a worker still on the old code would reject the keyword. Roll the workers out before the API.
 * **Writing a migration (since 2.7):** a change to a tenant table is a revision in `migrations/tenant_platform/versions`, to a control table one in `migrations/control/versions` — never `migrations/legacy/` (the old chain, frozen; deleted once production has crossed). Revision ids of at most 32 characters (the version tables are `VARCHAR(32)`). Autogenerate against a database at the tree's head: `alembic -n tenant_platform -x database=t_devacme01 revision --autogenerate -m …` / `alembic revision --autogenerate -m …`. `python -m src.common.tenancy.migrate tenants` takes it to every tenant database; in `single`, `migrate control` also runs it on the shared database. `scripts.dev_tenants --reset` is no longer needed after a model change.
-* **The local shared database is still on the old chain** (`p14_run_settlement`): the main checkout runs that chain against it. Once it runs this code, `python -m src.common.tenancy.migrate control` stamps it (it checks first that it equals what the trees build).
+* **The local shared database is on the trees** (20 Oct: `control_0004_media_categories`), no longer on the old chain.
 * **Production's crossing (later):** the first deploy of this code runs the ~45 old-chain revisions `main` lacks inside the Helm migrations Job (`activeDeadlineSeconds: 900`); DM-12/DM-13 convert column types on the largest tables, so time it on a restored copy first and raise the deadline if needed. A revision added to `main`'s chain before then is not in `migrations/legacy/`: carry it there (and into the trees) before that deploy, or the database is refused as on no known revision. Delete `migrations/legacy/` (and its `[legacy]` section, the `cross_the_cut` legacy step, the census's old-chain tests) after production has crossed. The dev tenant databases are on the tenant tree since 19 Oct (adopted); code from before 2.7 still works on them (it only creates missing tables).
 * **Test purge:** `tests/harness/purge.py` now also deletes the purged companies' rows in company-scoped tables that keep `company_id` as a plain id (the automation tables); before, test runs left events behind (514 removed from the dev DB on 18 Oct).
 * **Real e-mail notifications** need the `smtp-system` integration registered in the Integration Registry on each environment (locally none: notifications stay in the app).
@@ -326,3 +367,80 @@ Run in one pytest process, unit + integration + parity also show one teardown er
 * **Migration `p14_run_settlement`** adds `credit_holds.settled_at` / `billed_amount` (control); restart the workers after it (old worker code settles without the claim).
 * **Meta-Agent seed scripts in split mode:** `seed_meta_agent` and `reseed_meta_agent` work in one company's tenant database — pass `--company` (re-seed: its `target_company_id`); with `single` they still cover every company.
 * **Provisioning locally:** `python -m scripts.dev_tenants` registers the `local-dev` server; sign-up in `split` mode then provisions on it. A company created on Azure stops at `identity_ready` (failed, "not built yet") until those steps exist.
+
+## 5. Pending items (20 Oct)
+
+Everything not done, in one list. **Owner** marks a step only the owner can take (an account, a console, a decision); the rest is engineering. Grouped by what it unlocks, most urgent first.
+
+### 5.1 Housekeeping (now)
+
+| # | Item | Who |
+|---|------|-----|
+| H1 | Push this status update to GitHub (`git push origin roadmap-development-defect-fixes`) | Owner |
+| H2 | Delete the `pg-forward` pod in namespace `default` (database access used while deploying) once the database work below is done | Eng |
+| H3 | The 3 failing unit tests read `docs/current/…`, moved to `docs/history/phase13/` by `9536599` (before Phase 14): give the flag catalogue and the route census a current home, regenerate the census | Eng |
+| H4 | Run the full integration tier again (20 Oct ran only the suites the media change touches) | Eng |
+
+### 5.2 Finish M1 on Azure dev
+
+| # | Item | Who |
+|---|------|-----|
+| M1-1 | Enable Claude in Vertex AI Model Garden for `hirebuddha-production` (each model: Enable, accept Anthropic's terms); then register Claude and settle SP-5 (Vertex or Foundry) | Owner, then Eng |
+| M1-2 | GPT: an Azure OpenAI deployment (the existing resource is in East US 2, or one in Central India), the "Cognitive Services OpenAI User" role for the API and worker identities, a registry row with `auth: managed_identity` | Owner decides region, Eng |
+| M1-3 | E-mail: an `smtp-system` integration (provider and sender address), so sign-up verification, password resets and notifications work | Owner (provider account), Eng |
+| M1-4 | Provider test credentials in Key Vault (guide §7): Twilio (and Tata) for a test call; point a test number's webhooks at `https://gateway.azdev.hirebuddha.com` | Owner (accounts), Eng |
+| M1-5 | The rest of the M1 proof: build and run an agent with its live trace, upload a document, a PDF in Blob, a Twilio test call, no key files in any pod | Eng |
+| M1-6 | Check traces reach Application Insights (collector `azuremonitor` exporter) | Eng |
+| M1-7 | GitHub environment `azure-dev` (six variables, guide §15.1) and `AZURE_DEPLOY_ENABLED=true`, so a push deploys to dev | Owner |
+| M1-8 | Pipeline: make the deploy wait for CI (today a push to this branch would deploy without running the tests: `ci.yml` runs on pull requests and `main` only); promote one image from dev to staging to production instead of rebuilding per environment; an `azure-prod` environment with required reviewers | Eng |
+| M1-9 | Live checks not run on Azure: a Veo video (costs about $0.40 a second), `video_add_sound` / `video_edit` there (their ffmpeg runs in the tenant's sandbox, off until slice 4), Gemini Live voice (SP-8) | Eng |
+
+### 5.3 M2 — tenants are real (WS2, slice 2)
+
+| # | Item | Who |
+|---|------|-----|
+| M2-1 | Bicep slice 2: second Flexible Server (pool), tenant-keys vault, provisioner and migrator identities wired for tenant databases | Eng (owner approves cost, ≈ $200/month) |
+| M2-2 | The provisioner's Azure steps, refused today: `identity_ready`, `keys_ready` (Key Vault KEK; `azure_keyvault` adapter never run against Azure), `namespace_ready`, `data_api_ready` | Eng |
+| M2-3 | Switch dev to `TENANCY_MODE=split`, two dev tenants on Azure, the isolation smoke tests | Eng |
+| M2-4 | The split-mode gaps of §1 WS2: report fan-out for app/partner admins, `trigger_execution` for another company's agent (**owner decision**: whose run, whose credits), the frontend's `X-Company-Id`, Twilio/Tata inbound status callbacks naming the tenant, E.164 numbers for the mobile AI leg, old avatar URLs | Eng (one owner decision) |
+| M2-5 | SP-6: Entra tokens + built-in PgBouncer + per-tenant engines at 200 tenant databases | Eng |
+
+### 5.4 M3/M4 leftovers (WS3, WS4)
+
+| # | Item | Who |
+|---|------|-----|
+| W3-1 | The kernel emits `run.*` / `approval.*` itself (the relay then only backs it up) | Eng |
+| W3-2 | CORTEX `next_resume_at` → timers (in `hb-cortex-memory`, the separate repository) | Eng |
+| W3-3 | The voice campaign as an agent tool (the sheet-row trigger still drives the pipeline directly) | Eng |
+| W4-1 | Data API: JWKS with the signing key in Key Vault; the per-business Data API Deployment (`tenant-env` chart); many-to-many links; hard delete where allowed; saved reports in impact analysis; schemathesis against the generated OpenAPI | Eng |
+| W4-2 | Screens: the agent builder's Records tab and the condition-trigger editor | Eng |
+
+### 5.5 M5 — connections (WS5, slice 3)
+
+| # | Item | Who |
+|---|------|-----|
+| M5-1 | **5.9** Register HireBuddha's apps with Meta (Pages, Instagram, WhatsApp Tech Provider + Embedded Signup), LinkedIn (Community Management API), Google (OAuth verification; CASA for Gmail), Microsoft (multi-tenant Entra app), X, GitHub (the App, its key and webhook secret). Long lead time; start early | Owner |
+| M5-2 | Each app as an `OAUTH_APP` registry row with its secrets in the vault (`move_secrets --apply` on Azure) | Eng |
+| M5-3 | Bicep slice 3 (public entry: DNS zone, Front Door) — or keep the Envoy gateway for dev and decide Front Door for staging/production; SP-7 (60-minute call through it) | Owner decision, Eng |
+| M5-4 | Retire the old social/e-mail screens and routes after WS7's conversion; WhatsApp Embedded Signup needs Meta's SDK and app | Eng |
+
+### 5.6 M6 — tenant apps (WS6, slice 4)
+
+| # | Item | Who |
+|---|------|-----|
+| M6-1 | Bicep slice 4: `sandbox` pool with Kata, `apps` pool, apps registry, the tenant edge's static IP, Gitea's storage | Eng (≈ $350/month) |
+| M6-2 | Images: `hb-sandbox` (with the agent), `hb-checks`, `hb-egress-proxy`, `hb-app-controller`, Caddy with Redis | Eng |
+| M6-3 | Secrets and settings the tenant runtime needs: `tenant-edge-redis`, `egress-proxy`, Gitea's database login on `hb_gitea` and its admin token; then `tenantRuntime.enabled: true` in dev | Eng |
+| M6-4 | ACR Tasks builds, KEDA HTTP add-on (SP-9), `*.apps.<domain>` DNS, managed Prometheus for metering | Eng |
+| M6-5 | Sandbox isolation tests on AKS (no database, IMDS or other tenants reachable); SP-1, SP-3, SP-10 | Eng |
+| M6-6 | The M6 end-to-end: a CRM asked for → pull request → merge → image → preview → published on `crm-acme.apps.<domain>` and a custom domain | Eng |
+
+### 5.7 M7/M8 — hardening and move (WS7, WS9; slice 5)
+
+| # | Item | Who |
+|---|------|-----|
+| M7-1 | Staging environment (Bicep parameters for staging; slice 5 observability: managed Prometheus, Grafana) | Eng |
+| M7-2 | Two migration rehearsals on a restored production copy within the agreed window (WS7 tools exist; `azcopy` for large file moves) | Eng, owner sets the window |
+| M7-3 | Production's crossing: time the ~45 old-chain revisions (DM-12/13 type changes) on a restored copy; raise the migrations Job's deadline if needed; carry any new `main` revision into `migrations/legacy/` first | Eng |
+| M7-4 | Hardening: isolation suite, load targets, resilience drills (scheduler/router/worker, Redis, tenant database), DR drill (restore one tenant; export and restore to a clean environment), security review (Connection Service, Data API, sandbox, App Controller), Defender | Eng |
+| M8-1 | Switch-over runbook (plan WS9): DNS TTL, partner IP allow-lists (Tata), maintenance window, cutover, standby, GCP shutdown | Owner, Eng |
