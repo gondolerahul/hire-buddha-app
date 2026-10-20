@@ -197,8 +197,12 @@ async def _connect(url: Any, *, schema: str) -> Any:
 
     from src.common.platform import adapter_name
 
-    dsn = url.set(drivername="postgresql").render_as_string(hide_password=False)
-    extra: Dict[str, Any] = {}
+    # SQLAlchemy turns ?ssl= / ?sslmode= into asyncpg's ssl argument; raw asyncpg
+    # would send them as server settings, which the server refuses (Azure: ssl=require).
+    query = dict(url.query)
+    ssl = query.pop("ssl", None) or query.pop("sslmode", None)
+    dsn = url.set(drivername="postgresql", query=query).render_as_string(hide_password=False)
+    extra: Dict[str, Any] = {"ssl": ssl} if ssl else {}
     if adapter_name("db_auth") == "entra_token":  # the workload's Entra token is the password
         from src.common.platform.dbauth import POSTGRES_ENTRA_SCOPE
         from src.common.platform.identity import sync_token
