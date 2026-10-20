@@ -358,3 +358,103 @@ async def test_with_the_ddl_role_every_object_belongs_to_it_and_serves_the_runti
         assert not await conn.fetchval("SELECT has_database_privilege('public', $1, 'CONNECT')", entry.db_name)
     finally:
         await conn.close()
+
+
+async def test_with_the_ddl_role_schema_changes_and_the_kpi_refresh_need_no_ddl_rights(company, control, ddl_roles,
+                                                                                       tmp_path, monkeypatch):
+    """M2-3: the runtime (hb_runtime, not a member of the DDL role) refreshes the KPI
+    view through its owner's function, and an approved schema change is applied as
+    the DDL role — here by a member, and handed to the provisioning worker when the
+    caller is not one (Azure's API)."""
+    import asyncpg
+    from sqlalchemy.engine import make_url
+
+    from src.common import job_queue
+    from src.common.config import settings
+    from src.common.platform.kek import set_kek
+    from src.common.platform.kek.local import LocalKeyEncryption
+    from src.common.tenancy import provisioner
+    from src.common.tenancy.engines import create_tenant_engine
+    from src.connections import crypto
+    from src.schema_engine import engine as schema
+
+    set_kek(LocalKeyEncryption(tmp_path / "keys"))
+    crypto.forget_cached()
+    try:
+        entry = await provisioner.request_tenant(company["id"], server_name=company["server"])
+        assert (await provisioner.provision(company["id"]))["status"] == "active"
+    finally:
+        set_kek(None)
+        crypto.forget_cached()
+    url = make_url(settings.CONTROL_DATABASE_URL).set(database=entry.db_name)
+
+    async def owner(table):
+        conn = await asyncpg.connect(url.set(drivername="postgresql").render_as_string(hide_password=False))
+        try:
+            return await conn.fetchval("SELECT tableowner FROM pg_tables WHERE schemaname = 'custom' "
+                                       "AND tablename = $1", table)
+        finally:
+            await conn.close()
+
+    # The KPI view: the runtime may not refresh it directly, only through the function.
+    runtime = create_tenant_engine(url, role=ddl_roles["api"])
+    try:
+        async with runtime.connect() as conn:
+            assert (await conn.execute(text("SELECT current_user"))).scalar() == ddl_roles["api"]
+            await conn.execute(text("SELECT refresh_kpi_daily_rollup(false)"))
+            await conn.commit()
+            with pytest.raises(Exception, match="must be owner"):
+                await conn.execute(text("REFRESH MATERIALIZED VIEW kpi_daily_rollup"))
+    finally:
+        await runtime.dispose()
+
+    # A member of the DDL role (here the superuser) applies a change as the role.
+    member = create_tenant_engine(url)
+    try:
+        change = await schema.propose(member, company["id"], [
+            {"op": "add_object", "object": "shipment", "definition": {"fields": {"carrier": {"type": "text"}}}}],
+            actor_kind="user", actor_id="user:owner")
+    finally:
+        await member.dispose()
+    assert change["status"] == "applied"
+    assert await owner("shipment") == ddl_roles["ddl"]
+
+    # The runtime is not a member: with a provisioning queue the change goes to the
+    # provisioning worker (played here in-process) and the caller gets its outcome.
+    monkeypatch.setattr(settings, "PROVISIONING_QUEUE", "provisioning")
+    monkeypatch.setattr(settings, "TENANCY_MODE", "split")
+    queued = []
+
+    class FakePool:
+        pass
+
+    class FakeJob:
+        def __init__(self, args):
+            self.args = args
+
+        async def result(self, timeout=None, poll_delay=None):
+            return await schema.apply_schema_change({}, *self.args)
+
+    class _Pool:
+        async def __aenter__(self):
+            return FakePool()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def fake_enqueue(pool, function, *args, **kwargs):
+        queued.append((function, kwargs.get("_queue_name")))
+        return FakeJob(args)
+
+    monkeypatch.setattr(job_queue, "arq_pool", lambda: _Pool())
+    monkeypatch.setattr(job_queue, "enqueue_on", fake_enqueue)
+    runtime = create_tenant_engine(url, role=ddl_roles["api"])
+    try:
+        change = await schema.propose(runtime, company["id"], [
+            {"op": "add_object", "object": "invoice", "definition": {"fields": {"number": {"type": "text"}}}}],
+            actor_kind="user", actor_id="user:owner")
+    finally:
+        await runtime.dispose()
+    assert queued == [("apply_schema_change", "provisioning")]
+    assert change["status"] == "applied"
+    assert await owner("invoice") == ddl_roles["ddl"]

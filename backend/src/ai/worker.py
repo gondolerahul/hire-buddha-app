@@ -53,6 +53,7 @@ from src.ai.campaign_worker import (
 from src.mobile.reconciler import mobile_housekeeping_job
 from src.billing.jobs import billing_daily_credits, billing_subscription_reconciliation
 from src.common.tenancy.provisioner import provision_tenant
+from src.schema_engine.engine import apply_schema_change
 
 # Model imports needed by arq at module scope
 from src.common.database import AsyncSessionLocal  # noqa: F401
@@ -260,7 +261,9 @@ class ProvisionerWorkerSettings:
     a time, each step long (a database, migrations, Azure calls).
     """
     queue_name = settings.PROVISIONING_QUEUE or "provisioning"
-    functions = [traced_job(provision_tenant)]
+    # Approved schema changes too: their DDL runs as the DDL role, which only
+    # the provisioner (and the migrator) may act as (schema_engine.engine).
+    functions = [traced_job(provision_tenant), traced_job(apply_schema_change)]
     max_jobs = 2
     job_timeout = 1800
     redis_settings = WorkerSettings.redis_settings

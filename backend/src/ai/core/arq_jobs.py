@@ -950,10 +950,10 @@ async def kpi_rollup_refresh(ctx: dict[str, Any]) -> dict[str, Any]:
     async def sweep(scope: Optional[UUID]) -> dict[str, Any]:
         try:
             async with tenant_session(scope) as db:
+                # Through the view owner's function (tenant tree 0004): only the
+                # owner may refresh, and the workers do not own it on Azure.
                 try:
-                    await db.execute(text(
-                        "REFRESH MATERIALIZED VIEW CONCURRENTLY kpi_daily_rollup"
-                    ))
+                    await db.execute(text("SELECT refresh_kpi_daily_rollup(true)"))
                     await db.commit()
                     return {"refreshed": True, "mode": "concurrent"}
                 except Exception as concurrent_err:
@@ -962,9 +962,7 @@ async def kpi_rollup_refresh(ctx: dict[str, Any]) -> dict[str, Any]:
                         concurrent_err,
                     )
                     await db.rollback()
-                    await db.execute(text(
-                        "REFRESH MATERIALIZED VIEW kpi_daily_rollup"
-                    ))
+                    await db.execute(text("SELECT refresh_kpi_daily_rollup(false)"))
                     await db.commit()
                     return {"refreshed": True, "mode": "plain"}
         except Exception as e:                                              # noqa: BLE001

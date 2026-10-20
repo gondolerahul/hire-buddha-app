@@ -16,6 +16,13 @@
   rolls it all back and leaves the active blueprint as it was. An index on a
   big table is built ``CONCURRENTLY`` afterwards, outside the transaction.
 * **First use** applies base pack v1 (``base_pack``) as version 1.
+* **Who runs the DDL** (Phase 14 M2). A tenant database's objects belong to
+  the DDL role (``TENANT_DB_DDL_ROLE``, ``tenancy/db_roles``). A member of it
+  (the provisioner, the migrator, a local superuser) applies the change as that
+  role (``SET LOCAL ROLE``). The API and workers are not members: with a
+  provisioning queue (Azure) the change is applied by the provisioning worker
+  (``apply_schema_change``) and the caller waits for its outcome; without one
+  (local, one user) it is applied here as before.
 """
 from __future__ import annotations
 
@@ -36,6 +43,8 @@ logger = logging.getLogger(__name__)
 
 LOCK_TIMEOUT = "5s"
 STATEMENT_TIMEOUT = "60s"
+# How long a caller waits for the provisioning worker to apply its change.
+DELEGATED_APPLY_TIMEOUT = 180
 _cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
 
 
@@ -189,6 +198,62 @@ async def decide(engine: AsyncEngine, company_id: Any, change_id: Any, *, approv
     return await change_view(engine, company_id, change_id)
 
 
+async def _ddl_mode(engine: AsyncEngine) -> Tuple[str, Optional[str]]:
+    """``("member", role)``: this connection's user may act as the DDL role;
+    ``("delegate", role)``: it may not, and the provisioning worker can;
+    ``("here", None)``: no DDL role (one user owns everything)."""
+    from src.common.config import settings
+    from src.common.tenancy.db_roles import ddl_role
+
+    role = ddl_role()
+    if role is None:
+        return "here", None
+    async with engine.connect() as conn:
+        member = (await conn.execute(text(
+            "SELECT current_user = :r OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :r) "
+            "AND pg_has_role(current_user, :r, 'MEMBER'))"), {"r": role})).scalar()
+    if member:
+        return "member", role
+    return ("delegate", role) if settings.PROVISIONING_QUEUE else ("here", None)
+
+
+async def _apply_elsewhere(company_id: Any, change_id: UUID, base_pack_version: Optional[str]) -> None:
+    """The provisioning worker applies the change as the DDL role; wait for its outcome."""
+    from src.common.config import settings
+    from src.common.job_queue import arq_pool, enqueue_on
+
+    async with arq_pool() as pool:
+        job = await enqueue_on(pool, "apply_schema_change", str(company_id), str(change_id), base_pack_version,
+                               _queue_name=settings.PROVISIONING_QUEUE)
+        if job is None:
+            raise ApplyError("the change could not be queued")
+        try:
+            await job.result(timeout=DELEGATED_APPLY_TIMEOUT, poll_delay=0.3)
+        except ApplyError:
+            raise
+        except Exception as error:  # the worker's error, or no answer in time
+            raise ApplyError(str(error) or type(error).__name__) from None
+    _cache.pop(str(company_id), None)
+
+
+async def apply_schema_change(ctx: Any, company_id: str, change_id: str,
+                              base_pack_version: Optional[str] = None) -> Dict[str, Any]:
+    """arq job on the provisioning queue: apply a change in the tenant's database as the DDL role."""
+    from src.common.tenancy.db_roles import ddl_role
+    from src.common.tenancy.directory import directory
+    from src.common.tenancy.engines import create_tenant_engine, tenant_url
+
+    location = await directory.find(UUID(company_id))
+    if location is None or not location.database_ready:
+        raise ApplyError("the business has no database of its own")
+    engine = create_tenant_engine(tenant_url(location), role=ddl_role())
+    try:
+        await apply(engine, UUID(company_id), change_id, base_pack_version=base_pack_version)
+    finally:
+        await engine.dispose()
+    return {"applied": str(change_id)}
+
+
 async def apply(engine: AsyncEngine, company_id: Any, change_id: Any, *, current: Optional[Dict[str, Any]] = None,
                 base_pack_version: Optional[str] = None) -> None:
     """Apply one change in one transaction; on failure it is ``failed`` and nothing changed."""
@@ -196,6 +261,10 @@ async def apply(engine: AsyncEngine, company_id: Any, change_id: Any, *, current
     from src.automation.events import Envelope
 
     change_id = UUID(str(change_id))
+    mode, role = await _ddl_mode(engine)
+    if mode == "delegate":
+        await _apply_elsewhere(company_id, change_id, base_pack_version)
+        return
     concurrent: List[str] = []
     try:
         async with session(engine) as db:
@@ -212,6 +281,8 @@ async def apply(engine: AsyncEngine, company_id: Any, change_id: Any, *, current
                 result.blueprint["base_pack"] = base_pack_version
             await db.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
             await db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
+            if role:  # its objects belong to the DDL role (tenancy/db_roles)
+                await db.execute(text(f'SET LOCAL ROLE "{role}"'))
             for check in result.checks:
                 if (await db.execute(text(check.sql))).scalar():
                     raise ApplyError(check.message)
@@ -250,7 +321,12 @@ async def apply(engine: AsyncEngine, company_id: Any, change_id: Any, *, current
     for sql in concurrent:  # outside a transaction; the blueprint is already active
         try:
             async with engine.connect() as conn:
-                await (await conn.execution_options(isolation_level="AUTOCOMMIT")).execute(text(sql))
+                autocommit = await conn.execution_options(isolation_level="AUTOCOMMIT")
+                if role:
+                    await autocommit.execute(text(f'SET ROLE "{role}"'))
+                await autocommit.execute(text(sql))
+                if role:
+                    await autocommit.execute(text("RESET ROLE"))
         except Exception as error:  # noqa: BLE001 - recorded; the index can be added again
             logger.warning("concurrent index for change %s not built: %s", change_id, error)
             async with session(engine) as db:
