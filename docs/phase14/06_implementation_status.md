@@ -232,6 +232,23 @@ Subscription Pay-As-You-Go (`af133a07-…`), tenant `7cb9c9f3-…`, region Centr
 
 **Found and fixed while deploying** (each committed with a test where it is code): Azure refuses `CREATE EXTENSION IF NOT EXISTS vector` to non-admins even when it exists (the migrations now check first); arq kept a percent-encoded Redis password encoded; arq's transactions fail `CROSSSLOT` under EnterpriseCluster (SP-2 → `NoCluster`, database recreated); Helm 4's server-side apply conflicts with AKS's admissions enforcer (`install.sh` applies client-side); the OTel collector tag `0.115.0` was never published (`0.115.1`); `video_generate` defaulted to `veo-3.1-generate-preview`, retired on 2 April 2026; the `.gitignore` rule `env/` hid `infra/azure/env/` and `infra/k8s/env/` (never tracked; the deploy workflow needs them); guide §14's federation commands did not match the chart (the provider must accept its own resource name as audience).
 
+### M2 on Azure dev (20 Oct)
+
+| Check (made directly, not from the app's report) | Result |
+|-----------------------------------------|--------|
+| Provisioning worker | `hb-provisioner` runs as `sa-provisioner` (client id of `id-hb-dev-provisioner`), with its Kubernetes token; `/api/v1/health` expects a worker on `provisioning` |
+| Pool server registered | `pool-01` → `psql-hb-dev-pool-01` (pool, capacity 40), from inside the provisioner pod |
+| Server roles (first use) | `hb_runtime`, `hb_dataapi`, `hb_migrator`; sign-ins `id-hb-dev-api`, `-worker`, `-connsvc` (in `hb_runtime`), `-migrator` (in `hb_migrator`) |
+| Tenant database `t_ncnpd9qr1g` | 61 tables in `platform` and `business`, every one owned by `hb_migrator` (schemas too); extensions `vector`, `pgcrypto`, `pg_trgm`, `uuid-ossp`; schema at `tenant_platform_0003_apps`; base pack 1.0; one DEK |
+| Who may connect | API, worker, migrator and the tenant's own identity yes; `public` no. The tenant's identity is in `hb_dataapi`, not `hb_runtime` |
+| Runtime from the API pod | signs in as `id-hb-dev-api` with its Entra token, reads `platform.execution_runs` and `business.contact`; `CREATE TABLE` refused |
+| Tenant identity | `id-hb-dev-t-ncnpd9qr1g` in `rg-hb-dev-tenants` (tags app/tenant/made-by), federated credential `data-api`: subject `system:serviceaccount:t-ncnpd9qr1g:data-api`, the AKS issuer, audience `api://AzureADTokenExchange` |
+| KEK | `t-ncnpd9qr1g` in `kv-hb-dev-tk-ac48`: RSA 3072, operations wrapKey/unwrapKey only, recoverable |
+| Namespace | `t-ncnpd9qr1g`: Pod Security `restricted`, `default-deny` network policy, quota (8 CPU, 16 Gi, 60 pods, no load balancers or node ports), default limits |
+| Storage | Blob container `t-ncnpd9qr1g` with its `workspace.json` |
+
+Dev itself stays in `single` mode (the platform's own data on the control server); the test tenant lives on the pool server until M2-3 switches dev to `split`.
+
 ### Models and media (20 Oct)
 
 | Piece | State | Where | Proof |
@@ -405,9 +422,9 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 
 | # | Item | Who |
 |---|------|-----|
-| M2-1 | ~~Bicep slice 2~~ — **done 20 Oct** (Burstable B2s pool server, tenant-keys vault, tenants' resource group, the provisioner's rights). Left for M2: `AZURE_TENANT_KEYS_VAULT_URL` and the pool server in the platform release and `tenant_db_servers`, and provisioning running as `sa-provisioner` (today the worker runs it, as `id-hb-dev-worker`, which has none of these rights) — with M2-2 | Eng |
-| M2-2 | The provisioner's Azure steps, refused today: `identity_ready`, `keys_ready` (Key Vault KEK; `azure_keyvault` adapter never run against Azure), `namespace_ready`, `data_api_ready` | Eng |
-| M2-3 | Switch dev to `TENANCY_MODE=split`, two dev tenants on Azure, the isolation smoke tests | Eng |
+| M2-1 | ~~Bicep slice 2~~ — **done 20 Oct** (Burstable B2s pool server, tenant-keys vault, tenants' resource group, the provisioner's rights) | Eng |
+| M2-2 | ~~The provisioner's Azure steps~~ — **done 20 Oct** (`47aa9e9`): its own worker and identity (`sa-provisioner`, queue `provisioning`), the pool server's roles made on first use, tenant databases owned by `hb_migrator` (DDL as that role), `identity_ready` (managed identity + federated credential + `hb_dataapi` sign-in), `keys_ready` in `kv-hb-dev-tk-ac48`, `namespace_ready` (ClusterRole `hb-provisioner`). **Proved**: test company *M2 Proof Co* (`a1f5cfd8-…`, tenant `ncnpd9qr1g`) went `requested` → `active` through the staff API in 23 s; checked in Azure, the cluster and the database (below). Left: `data_api_ready` as a per-tenant Deployment (dev serves the Data API in-process, `DATA_API_MODE=in_process`) | Eng |
+| M2-3 | Switch dev to `TENANCY_MODE=split`, two dev tenants on Azure, the isolation smoke tests. **Before it:** (a) the platform company and any other existing company need a tenant database and their rows moved (`python -m src.common.tenancy.split`; owner decision — dev holds only test data); (b) runtime schema changes (WS4 schema engine) run DDL as the API, which tenant databases now refuse — apply approved changes as the DDL role (through the provisioner/migrator path); (c) in single mode with `KEK_BACKEND=azure_keyvault` a company's first connection would try to create its KEK with the API's Crypto User role and fail — moot once every company is provisioned (keys_ready makes it) | Owner decides (a), Eng |
 | M2-4 | The split-mode gaps of §1 WS2: report fan-out for app/partner admins, `trigger_execution` for another company's agent (**owner decision**: whose run, whose credits), the frontend's `X-Company-Id`, Twilio/Tata inbound status callbacks naming the tenant, E.164 numbers for the mobile AI leg, old avatar URLs | Eng (one owner decision) |
 | M2-5 | SP-6: Entra tokens + built-in PgBouncer + per-tenant engines at 200 tenant databases | Eng |
 
