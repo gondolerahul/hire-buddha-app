@@ -43,7 +43,6 @@ googleFederation:
 gateway:
   hostnames:
     app: app.azdev.hirebuddha.com
-    api: api.azdev.hirebuddha.com
     gateway: gateway.azdev.hirebuddha.com
 
 # Off until its images (hb-egress-proxy, caddy-redis) are in the registry and its

@@ -659,7 +659,7 @@ In the GitHub organisation: **Settings → Developer settings → GitHub Apps �
 
 | Setting | Value |
 |---------|-------|
-| Callback / setup URL | `https://connect.azdev.hirebuddha.com/oauth/callback/github` |
+| Callback / setup URL | `https://gateway.azdev.hirebuddha.com/oauth/callback/github` (dev has no separate connect host; OAuth returns use the API name) |
 | Webhook URL | `https://gateway.azdev.hirebuddha.com/webhook/provider/github` |
 | Webhook secret | generate; store as `github-webhook-secret` |
 | Repository permissions | Contents: read & write · Pull requests: read & write · Checks: read & write · Issues: read · Metadata: read |

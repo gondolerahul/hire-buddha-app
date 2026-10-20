@@ -10,9 +10,7 @@ gateway:
     service.beta.kubernetes.io/azure-pip-name: pip-hb-dev-ingress
   hostnames:
     app: app.azdev.hirebuddha.com
-    api: api.azdev.hirebuddha.com
     gateway: gateway.azdev.hirebuddha.com
-    connect: connect.azdev.hirebuddha.com
 
 certManager:
   issuer:
