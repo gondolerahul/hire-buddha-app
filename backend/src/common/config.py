@@ -330,6 +330,10 @@ class Settings(BaseSettings):
     # DATA_API_URL is where agents' record tools reach it (…/data/v1); empty:
     # in this process.
     DATA_API_SIGNING_KEY: str = ""
+    # Who signs Data API tokens (W4-1): hmac (DATA_API_SIGNING_KEY) or azure_keyvault
+    # (RS256 with this key in AZURE_KEYVAULT_URL); empty = PLATFORM_PROFILE's default.
+    TOKEN_SIGNER: str = ""
+    DATA_API_SIGNING_KEY_NAME: str = "data-api-signing"
     DATA_API_TENANT_KEY: str = ""
     DATA_API_KEY_ENV: str = "dev"
     DATA_API_URL: str = ""

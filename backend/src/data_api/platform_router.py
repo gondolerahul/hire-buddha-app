@@ -44,7 +44,7 @@ async def _location(request: Request, user: User, db: AsyncSession) -> Any:
 async def records_token(request: Request, user: User = Depends(get_current_user),
                         db: AsyncSession = Depends(get_control_db)) -> Dict[str, Any]:
     company_id, location = await _location(request, user, db)
-    return {"token": tokens.mint_user_token(user, company_id, location.key),
+    return {"token": await tokens.mint_user_token(user, company_id, location.key),
             "expires_in": int(tokens.USER_TTL.total_seconds()), "base_url": "/data/v1", "tenant": location.key}
 
 

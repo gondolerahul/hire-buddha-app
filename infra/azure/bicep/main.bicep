@@ -218,7 +218,8 @@ module keyVault 'modules/keyvault.bicep' = {
     adminsGroupObjectId: adminsGroupObjectId
     developersGroupObjectId: developersGroupObjectId
     secretReaderPrincipalIds: identities.outputs.platformPrincipalIds
-    cryptoUserPrincipalIds: [identities.outputs.principalIds.api]
+    // The API and the workers sign Data API tokens (user tokens; run tokens per tool call, W4-1).
+    cryptoUserPrincipalIds: [identities.outputs.principalIds.api, identities.outputs.principalIds.worker]
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
   }
 }

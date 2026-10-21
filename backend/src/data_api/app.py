@@ -160,7 +160,7 @@ async def context(request: Request) -> Context:
             except app_users.AuthProblem as error:
                 raise tokens.Unauthorized(str(error)) from None
         else:
-            caller = tokens.decode(credential, tenant_key=pinned)
+            caller = await tokens.decode(credential, tenant_key=pinned)
         engine, location = await schema.business_engine(caller.company_id)
         if location.key != caller.tenant_key:
             raise tokens.Unauthorized("the token is for another business")
@@ -369,6 +369,14 @@ def create_app() -> FastAPI:
         response = problem(429, "rate_limited", str(error))
         response.headers["Retry-After"] = "1"
         return response
+
+    @app.get("/.well-known/jwks.json")
+    async def jwks() -> Dict[str, Any]:
+        """The public keys that check Data API user and run tokens (W4-1, tech spec §9.3);
+        empty where tokens are signed with a shared secret (local)."""
+        from src.common.platform.signing import get_signer
+
+        return await get_signer().jwks()
 
     @app.get("/healthz")
     async def healthz() -> Dict[str, str]:

@@ -126,7 +126,7 @@ async def run_client(ctx: Dict[str, Any]) -> AsyncIterator[Tuple[Optional[RunRec
     if entity is None or entity.company_id != caller.company_id:
         yield None, ToolOutput.failed("the agent of this run was not found", code="no_run")
         return
-    token = tokens.mint_run_token(caller.run_id, entity, caller.company_id, location.key)
+    token = await tokens.mint_run_token(caller.run_id, entity, caller.company_id, location.key)
     async with sdk.DataApi(token) as client:
         yield RunRecords(client, caller, entity), None
 

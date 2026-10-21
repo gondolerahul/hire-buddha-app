@@ -662,8 +662,9 @@ az identity federated-credential create -g $RG_CORE --identity-name id-$PREFIX-$
   --subject "repo:<github-org>/hire-buddha-app:environment:azure-$ENV" --audiences api://AzureADTokenExchange
 az role assignment create --assignee-object-id "$(pid ci)" --assignee-principal-type ServicePrincipal \
   --role "Azure Kubernetes Service Cluster User Role" --scope $AKS_ID
+# Admin, not Writer: Writer does not cover the chart's custom resources (SecretProviderClass, HTTPRoute)
 az role assignment create --assignee-object-id "$(pid ci)" --assignee-principal-type ServicePrincipal \
-  --role "Azure Kubernetes Service RBAC Writer" --scope "$AKS_ID/namespaces/hb-platform"
+  --role "Azure Kubernetes Service RBAC Admin" --scope "$AKS_ID/namespaces/hb-platform"
 ```
 
 In the GitHub repository create the environment **azure-dev** with variables `AZURE_CLIENT_ID` (= `cid ci`), `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `ACR_NAME`, `AKS_NAME`, `AKS_RESOURCE_GROUP`. Workflows use `azure/login` with OIDC, `az acr build` or `docker push`, then `helm upgrade --install`.

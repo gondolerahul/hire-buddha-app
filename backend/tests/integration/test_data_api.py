@@ -75,8 +75,8 @@ def _bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _user(biz, who="owner"):
-    return _bearer(tokens.mint_user_token(getattr(biz, who), biz.company_id, biz.key))
+async def _user(biz, who="owner"):
+    return _bearer(await tokens.mint_user_token(getattr(biz, who), biz.company_id, biz.key))
 
 
 async def test_only_a_valid_credential_for_this_business_gets_in(biz):
@@ -84,21 +84,23 @@ async def test_only_a_valid_credential_for_this_business_gets_in(biz):
         assert (await client.get("/data/v1/contact")).status_code == 401
         bad = await client.get("/data/v1/contact", headers=_bearer("not-a-token"))
         assert bad.status_code == 401 and bad.json()["code"] == "unauthorized"
-        other = tokens.mint_user_token(biz.owner, biz.company_id, "zzzzzzzzzz")
+        other = await tokens.mint_user_token(biz.owner, biz.company_id, "zzzzzzzzzz")
         assert (await client.get("/data/v1/contact", headers=_bearer(other))).status_code == 401
-        schema_view = (await client.get("/data/v1/schema", headers=_user(biz))).json()
+        schema_view = (await client.get("/data/v1/schema", headers=await _user(biz))).json()
+        # The JWKS a checker would use (W4-1): none here, where tokens use a shared secret.
+        assert (await client.get("/data/.well-known/jwks.json")).json() == {"keys": []}
     assert set(schema_view["objects"]) == {"account", "contact", "activity", "consent"}
 
 
 async def test_records_with_etag_and_if_match_and_their_events(biz):
     async with _client() as client:
-        bad = await client.post("/data/v1/contact", headers=_user(biz), json={"email": "not an address"})
+        bad = await client.post("/data/v1/contact", headers=await _user(biz), json={"email": "not an address"})
         assert bad.status_code == 422 and bad.json()["code"] == "invalid_value"
-        assert (await client.post("/data/v1/contact", headers=_user(biz), json={"tier": 1})).json()["code"] \
+        assert (await client.post("/data/v1/contact", headers=await _user(biz), json={"tier": 1})).json()["code"] \
             == "unknown_field"
-        assert (await client.post("/data/v1/account", headers=_user(biz), json={})).json()["code"] == "required"
+        assert (await client.post("/data/v1/account", headers=await _user(biz), json={})).json()["code"] == "required"
 
-        created = await client.post("/data/v1/contact", headers=_user(biz, "staff"), json={
+        created = await client.post("/data/v1/contact", headers=await _user(biz, "staff"), json={
             "first_name": "Priya", "email": "Priya@Example.com", "phone": "+91 98765 43210"})
         assert created.status_code == 201 and created.headers["etag"] == '"1"'
         contact = created.json()
@@ -106,13 +108,13 @@ async def test_records_with_etag_and_if_match_and_their_events(biz):
         assert contact["created_by"] == f"user:{biz.staff.id}"
 
         url = f"/data/v1/contact/{contact['id']}"
-        assert (await client.patch(url, headers=_user(biz), json={"lifecycle_stage": "customer"})).status_code == 428
-        stale = await client.patch(url, headers={**_user(biz), "If-Match": '"7"'}, json={"lifecycle_stage": "customer"})
+        assert (await client.patch(url, headers=await _user(biz), json={"lifecycle_stage": "customer"})).status_code == 428
+        stale = await client.patch(url, headers={**await _user(biz), "If-Match": '"7"'}, json={"lifecycle_stage": "customer"})
         assert stale.status_code == 412 and stale.json()["code"] == "stale"
-        updated = await client.patch(url, headers={**_user(biz), "If-Match": created.headers["etag"]},
+        updated = await client.patch(url, headers={**await _user(biz), "If-Match": created.headers["etag"]},
                                      json={"lifecycle_stage": "customer"})
         assert updated.status_code == 200 and updated.headers["etag"] == '"2"'
-        assert (await client.get(url, headers=_user(biz))).headers["etag"] == '"2"'
+        assert (await client.get(url, headers=await _user(biz))).headers["etag"] == '"2"'
 
     from src.automation.models import Event
     from src.schema_engine.models import AuditLog
@@ -132,36 +134,36 @@ async def test_records_with_etag_and_if_match_and_their_events(biz):
 async def test_filters_sort_paging_fields_and_archive(biz):
     async with _client() as client:
         for n, stage in enumerate(["lead", "customer", "customer", "lead", "customer"]):
-            await client.post("/data/v1/contact", headers=_user(biz),
+            await client.post("/data/v1/contact", headers=await _user(biz),
                               json={"first_name": f"P{n}", "lifecycle_stage": stage})
         page = (await client.get("/data/v1/contact?filter[lifecycle_stage][eq]=customer&sort=first_name"
-                                 "&page[size]=2&fields=first_name", headers=_user(biz))).json()
+                                 "&page[size]=2&fields=first_name", headers=await _user(biz))).json()
         assert [r["first_name"] for r in page["items"]] == ["P1", "P2"] and set(page["items"][0]) == \
             {"id", "row_version", "first_name"}
         rest = (await client.get(f"/data/v1/contact?filter[lifecycle_stage][eq]=customer&sort=first_name"
-                                 f"&page[size]=2&page[after]={page['next']}", headers=_user(biz))).json()
+                                 f"&page[size]=2&page[after]={page['next']}", headers=await _user(biz))).json()
         assert [r["first_name"] for r in rest["items"]] == ["P4"] and rest["next"] is None
         names = (await client.get("/data/v1/contact?filter[first_name][in]=P0,P3&sort=-first_name",
-                                  headers=_user(biz))).json()
+                                  headers=await _user(biz))).json()
         assert [r["first_name"] for r in names["items"]] == ["P3", "P0"]
-        assert (await client.get("/data/v1/contact?filter[first_name][like]=P", headers=_user(biz))).status_code == 422
+        assert (await client.get("/data/v1/contact?filter[first_name][like]=P", headers=await _user(biz))).status_code == 422
 
         target = names["items"][0]
-        archived = await client.delete(f"/data/v1/contact/{target['id']}", headers=_user(biz))
+        archived = await client.delete(f"/data/v1/contact/{target['id']}", headers=await _user(biz))
         assert archived.status_code == 200 and archived.json()["archived_at"]
-        left = (await client.get("/data/v1/contact?filter[first_name][in]=P0,P3", headers=_user(biz))).json()
+        left = (await client.get("/data/v1/contact?filter[first_name][in]=P0,P3", headers=await _user(biz))).json()
         assert [r["first_name"] for r in left["items"]] == ["P0"]
-        again = await client.patch(f"/data/v1/contact/{target['id']}", headers={**_user(biz), "If-Match": '"2"'},
+        again = await client.patch(f"/data/v1/contact/{target['id']}", headers={**await _user(biz), "If-Match": '"2"'},
                                    json={"first_name": "x"})
         assert again.status_code == 409
 
 
 async def test_a_create_with_an_idempotency_key_happens_once(biz):
-    headers = {**_user(biz), "Idempotency-Key": uuid.uuid4().hex}
+    headers = {**await _user(biz), "Idempotency-Key": uuid.uuid4().hex}
     async with _client() as client:
         first = await client.post("/data/v1/account", headers=headers, json={"name": "Acme"})
         again = await client.post("/data/v1/account", headers=headers, json={"name": "Acme"})
-        listed = (await client.get("/data/v1/account", headers=_user(biz))).json()
+        listed = (await client.get("/data/v1/account", headers=await _user(biz))).json()
     assert first.json()["id"] == again.json()["id"] and again.headers.get("idempotent-replayed") == "true"
     assert len(listed["items"]) == 1
 
@@ -169,8 +171,8 @@ async def test_a_create_with_an_idempotency_key_happens_once(biz):
 async def test_reports_group_and_count(biz):
     async with _client() as client:
         for stage in ["lead", "customer", "customer"]:
-            await client.post("/data/v1/contact", headers=_user(biz), json={"lifecycle_stage": stage})
-        r = await client.post("/data/v1/reports", headers=_user(biz), json={
+            await client.post("/data/v1/contact", headers=await _user(biz), json={"lifecycle_stage": stage})
+        r = await client.post("/data/v1/reports", headers=await _user(biz), json={
             "object": "contact", "group_by": ["lifecycle_stage"], "measures": [{"fn": "count"}]})
     assert r.status_code == 200, r.text
     assert {row["lifecycle_stage"]: row["count"] for row in r.json()["rows"]} == {"customer": 2, "lead": 1}
@@ -201,7 +203,7 @@ async def test_an_app_key_may_do_what_its_scopes_say(biz):
 async def test_an_agent_proposes_a_new_object_and_a_person_approves_it(biz):
     agent = SimpleNamespace(id=uuid.uuid4(), capabilities={"records": {
         "objects": {"contact": ["read"]}, "schema_changes": "propose"}})
-    run = _bearer(tokens.mint_run_token(uuid.uuid4(), agent, biz.company_id, biz.key))
+    run = _bearer(await tokens.mint_run_token(uuid.uuid4(), agent, biz.company_id, biz.key))
     async with _client() as client:
         assert (await client.get("/data/v1/contact", headers=run)).status_code == 200
         assert (await client.post("/data/v1/contact", headers=run, json={})).status_code == 403
@@ -212,29 +214,29 @@ async def test_an_agent_proposes_a_new_object_and_a_person_approves_it(biz):
         change_id = proposed.json()["id"]
         assert (await client.post(f"/data/v1/schema/changes/{change_id}/approve", headers=run)).status_code == 403
         assert (await client.post(f"/data/v1/schema/changes/{change_id}/approve",
-                                  headers=_user(biz, "staff"))).status_code == 403
-        approved = await client.post(f"/data/v1/schema/changes/{change_id}/approve", headers=_user(biz))
+                                  headers=await _user(biz, "staff"))).status_code == 403
+        approved = await client.post(f"/data/v1/schema/changes/{change_id}/approve", headers=await _user(biz))
         assert approved.json()["status"] == "applied" and approved.json()["result_version"] == 2
-        made = await client.post("/data/v1/shipment", headers=_user(biz), json={"carrier": "DHL"})
+        made = await client.post("/data/v1/shipment", headers=await _user(biz), json={"carrier": "DHL"})
         assert made.status_code == 201 and made.json()["carrier"] == "DHL"
         # The change review list (WS8 8.2): people of the business see it; keys do not.
-        listed = (await client.get("/data/v1/schema/changes", headers=_user(biz, "staff"))).json()["items"]
+        listed = (await client.get("/data/v1/schema/changes", headers=await _user(biz, "staff"))).json()["items"]
         assert listed[0]["id"] == change_id and listed[0]["status"] == "applied"
         assert (await client.get("/data/v1/schema/changes?status=awaiting_approval",
-                                 headers=_user(biz))).json()["items"] == []
+                                 headers=await _user(biz))).json()["items"] == []
 
 
 async def test_a_records_history_says_who_changed_what(biz):
     async with _client() as client:
-        made = (await client.post("/data/v1/contact", headers=_user(biz, "staff"),
+        made = (await client.post("/data/v1/contact", headers=await _user(biz, "staff"),
                                   json={"first_name": "Asha", "email": "asha@example.com"})).json()
         url = f"/data/v1/contact/{made['id']}"
-        await client.patch(url, headers={**_user(biz), "If-Match": '"1"'}, json={"lifecycle_stage": "customer"})
-        history = (await client.get(f"{url}/history", headers=_user(biz))).json()["items"]
+        await client.patch(url, headers={**await _user(biz), "If-Match": '"1"'}, json={"lifecycle_stage": "customer"})
+        history = (await client.get(f"{url}/history", headers=await _user(biz))).json()["items"]
         assert [h["action"] for h in history] == ["updated", "created"]
         assert history[0]["actor"] == f"user:{biz.owner.id}" and history[0]["changed"] == ["lifecycle_stage"]
         assert history[1]["actor"] == f"user:{biz.staff.id}"
-        missing = await client.get(f"/data/v1/contact/{uuid.uuid4()}/history", headers=_user(biz))
+        missing = await client.get(f"/data/v1/contact/{uuid.uuid4()}/history", headers=await _user(biz))
         assert missing.status_code == 404
 
 
@@ -255,7 +257,7 @@ async def test_a_record_change_starts_the_data_trigger(biz, monkeypatch):
                             wallet_balance=Decimal("100"), wallet_expires_at=later))
         await db.commit()
     async with _client() as client:
-        await client.post("/data/v1/schema/changes", headers=_user(biz), json={"operations": [
+        await client.post("/data/v1/schema/changes", headers=await _user(biz), json={"operations": [
             {"op": "add_object", "object": "order", "definition": {"fields": {
                 "number": {"type": "text"}, "status": {"type": "enum", "values": ["new", "paid"], "default": "new"}}}}]})
         async with tenant_session(biz.company_id) as db:
@@ -269,8 +271,8 @@ async def test_a_record_change_starts_the_data_trigger(biz, monkeypatch):
                 "input_template": {"input": "Invoice order {{ event.data.after.number }}"}},
                 triggers.Actor("user", biz.owner.id))
             await db.commit()
-        order = (await client.post("/data/v1/order", headers=_user(biz), json={"number": "A-7"})).json()
-        await client.patch(f"/data/v1/order/{order['id']}", headers={**_user(biz), "If-Match": '"1"'},
+        order = (await client.post("/data/v1/order", headers=await _user(biz), json={"number": "A-7"})).json()
+        await client.patch(f"/data/v1/order/{order['id']}", headers={**await _user(biz), "If-Match": '"1"'},
                            json={"status": "paid"})
 
     decisions = []
@@ -304,10 +306,10 @@ async def test_a_condition_trigger_runs_its_agent_only_when_the_condition_holds(
                             wallet_balance=Decimal("100"), wallet_expires_at=later))
         await db.commit()
     async with _client() as client:
-        await client.post("/data/v1/schema/changes", headers=_user(biz), json={"operations": [
+        await client.post("/data/v1/schema/changes", headers=await _user(biz), json={"operations": [
             {"op": "add_object", "object": "product", "definition": {"fields": {
                 "sku": {"type": "text"}, "stock": {"type": "integer"}}}}]})
-        await client.post("/data/v1/product", headers=_user(biz), json={"sku": "TEA-1", "stock": 40})
+        await client.post("/data/v1/product", headers=await _user(biz), json={"sku": "TEA-1", "stock": 40})
         async with tenant_session(biz.company_id) as db:
             reorder = HierarchicalEntity(company_id=biz.company_id, type="AGENT", status="ACTIVE", name="Re-order")
             db.add(reorder)
@@ -328,7 +330,7 @@ async def test_a_condition_trigger_runs_its_agent_only_when_the_condition_holds(
                 return (await router.route(db, biz.company_id, row.id))["decisions"]
 
         [quiet] = await hour(datetime(2026, 10, 18, 9))
-        await client.post("/data/v1/product", headers=_user(biz), json={"sku": "TEA-2", "stock": 3})
+        await client.post("/data/v1/product", headers=await _user(biz), json={"sku": "TEA-2", "stock": 3})
         [low] = await hour(datetime(2026, 10, 18, 10))
 
     assert quiet["outcome"] == "skipped_condition_false" and quiet["run"] is None
@@ -347,47 +349,47 @@ async def test_a_condition_trigger_runs_its_agent_only_when_the_condition_holds(
 async def test_links_include_and_batch(biz):
     """An order's account and its shipments; a batch that fails changes nothing."""
     async with _client() as client:
-        await client.post("/data/v1/schema/changes", headers=_user(biz), json={"operations": [
+        await client.post("/data/v1/schema/changes", headers=await _user(biz), json={"operations": [
             {"op": "add_object", "object": "order", "definition": {"fields": {
                 "number": {"type": "text"}, "account": {"type": "ref", "to": "account"}}}},
             {"op": "add_object", "object": "shipment", "definition": {"fields": {
                 "carrier": {"type": "text"}, "order": {"type": "ref", "to": "order"}}}}]})
-        acme = (await client.post("/data/v1/account", headers=_user(biz), json={"name": "Acme"})).json()
-        made = (await client.post("/data/v1/batch", headers=_user(biz), json={"operations": [
+        acme = (await client.post("/data/v1/account", headers=await _user(biz), json={"name": "Acme"})).json()
+        made = (await client.post("/data/v1/batch", headers=await _user(biz), json={"operations": [
             {"op": "create", "object": "order", "values": {"number": "A-1"}},
             {"op": "create", "object": "shipment", "values": {"carrier": "DTDC"}},
             {"op": "create", "object": "shipment", "values": {"carrier": "BlueDart"}}]})).json()["results"]
         order, s1, s2 = made
         base = f"/data/v1/order/{order['id']}/links"
 
-        linked = await client.post(f"{base}/account", headers=_user(biz), json={"id": acme["id"]})
+        linked = await client.post(f"{base}/account", headers=await _user(biz), json={"id": acme["id"]})
         assert linked.status_code == 200 and linked.json()["changed"][0]["account"] == acme["id"]
-        both = (await client.post(f"{base}/shipment", headers=_user(biz), json={"ids": [s1["id"], s2["id"]]})).json()
+        both = (await client.post(f"{base}/shipment", headers=await _user(biz), json={"ids": [s1["id"], s2["id"]]})).json()
         assert {r["order"] for r in both["changed"]} == {order["id"]}
-        shipments = (await client.get(f"{base}/shipment?sort=carrier", headers=_user(biz))).json()
+        shipments = (await client.get(f"{base}/shipment?sort=carrier", headers=await _user(biz))).json()
         assert [r["carrier"] for r in shipments["items"]] == ["BlueDart", "DTDC"]
-        assert (await client.get(f"{base}/account", headers=_user(biz))).json()["items"][0]["name"] == "Acme"
-        await client.post(f"{base}/shipment", headers=_user(biz), json={"unlink": [s2["id"]]})
-        assert len((await client.get(f"{base}/shipment", headers=_user(biz))).json()["items"]) == 1
-        other = (await client.post("/data/v1/order", headers=_user(biz), json={"number": "B-1"})).json()
-        stays = await client.post(f"/data/v1/order/{other['id']}/links/shipment", headers=_user(biz),
+        assert (await client.get(f"{base}/account", headers=await _user(biz))).json()["items"][0]["name"] == "Acme"
+        await client.post(f"{base}/shipment", headers=await _user(biz), json={"unlink": [s2["id"]]})
+        assert len((await client.get(f"{base}/shipment", headers=await _user(biz))).json()["items"]) == 1
+        other = (await client.post("/data/v1/order", headers=await _user(biz), json={"number": "B-1"})).json()
+        stays = await client.post(f"/data/v1/order/{other['id']}/links/shipment", headers=await _user(biz),
                                   json={"unlink": [s1["id"]]})                # s1 is A-1's, not B-1's
         assert stays.json()["changed"] == []
-        assert (await client.get(f"{base}/carrier", headers=_user(biz))).status_code == 404
+        assert (await client.get(f"{base}/carrier", headers=await _user(biz))).status_code == 404
 
-        one = (await client.get(f"/data/v1/order/{order['id']}?include=account", headers=_user(biz))).json()
+        one = (await client.get(f"/data/v1/order/{order['id']}?include=account", headers=await _user(biz))).json()
         assert one["_included"]["account"]["name"] == "Acme"
-        listed = (await client.get("/data/v1/shipment?include=order&sort=carrier", headers=_user(biz))).json()
+        listed = (await client.get("/data/v1/shipment?include=order&sort=carrier", headers=await _user(biz))).json()
         assert [i["_included"]["order"] and i["_included"]["order"]["number"] for i in listed["items"]] ==             [None, "A-1"]
-        assert (await client.get("/data/v1/order?include=shipment", headers=_user(biz))).status_code == 422
+        assert (await client.get("/data/v1/order?include=shipment", headers=await _user(biz))).status_code == 422
 
-        failed = await client.post("/data/v1/batch", headers=_user(biz), json={"operations": [
+        failed = await client.post("/data/v1/batch", headers=await _user(biz), json={"operations": [
             {"op": "create", "object": "order", "values": {"number": "A-2"}},
             {"op": "update", "object": "order", "id": order["id"], "row_version": 99, "values": {"number": "x"}}]})
         assert failed.status_code == 412 and "operation 1" in failed.json()["detail"]
-        numbers = [r["number"] for r in (await client.get("/data/v1/order", headers=_user(biz))).json()["items"]]
+        numbers = [r["number"] for r in (await client.get("/data/v1/order", headers=await _user(biz))).json()["items"]]
         assert sorted(numbers) == ["A-1", "B-1"]                         # the batch changed nothing
-        assert (await client.post("/data/v1/batch", headers=_user(biz), json={"operations": [
+        assert (await client.post("/data/v1/batch", headers=await _user(biz), json={"operations": [
             {"op": "create", "object": "order", "values": {}}] * 101})).status_code == 422
 
 
@@ -442,7 +444,7 @@ async def test_an_agents_change_waits_in_the_approvals_inbox(biz, monkeypatch):
 
     monkeypatch.setattr(settings, "TENANCY_MODE", "split")
     agent, run = await _agent_run(biz, {"objects": {"*": ["read"]}, "schema_changes": "propose"})
-    as_run = _bearer(tokens.mint_run_token(run.id, agent, biz.company_id, biz.key))
+    as_run = _bearer(await tokens.mint_run_token(run.id, agent, biz.company_id, biz.key))
     owner = {"Authorization": f"Bearer {service.issue_access_token(biz.owner)}"}
     staff = {"Authorization": f"Bearer {service.issue_access_token(biz.staff)}"}
     shipment = {"op": "add_object", "object": "shipment", "definition": {"fields": {"carrier": {"type": "text"}}}}
@@ -461,11 +463,11 @@ async def test_an_agents_change_waits_in_the_approvals_inbox(biz, monkeypatch):
         answered = (await client.post(url, headers=owner, json={"status": "APPROVED"})).json()
         assert answered["schema_change"]["status"] == "applied"
         assert answered["schema_change"]["decided_by"] == f"user:{biz.owner.id}"
-        assert (await client.post("/data/v1/shipment", headers=_user(biz), json={"carrier": "DTDC"})).status_code             == 201
+        assert (await client.post("/data/v1/shipment", headers=await _user(biz), json={"carrier": "DTDC"})).status_code             == 201
 
         second = (await client.post("/data/v1/schema/changes", headers=as_run, json={"operations": [
             {"op": "add_field", "object": "shipment", "field": "eta", "definition": {"type": "date"}}]})).json()
-        await client.post(f"/data/v1/schema/changes/{second['id']}/reject", headers=_user(biz))
+        await client.post(f"/data/v1/schema/changes/{second['id']}/reject", headers=await _user(biz))
     closed = [a for a in await _inbox(biz) if a.context_snapshot["change_id"] == second["id"]]
     assert [a.status for a in closed] == ["REJECTED"]
 
@@ -476,7 +478,7 @@ async def test_the_owner_may_let_agents_simple_additions_through(biz, monkeypatc
 
     monkeypatch.setattr(settings, "TENANCY_MODE", "split")
     agent, run = await _agent_run(biz, {"objects": {"*": ["read"]}, "schema_changes": "propose"})
-    as_run = _bearer(tokens.mint_run_token(run.id, agent, biz.company_id, biz.key))
+    as_run = _bearer(await tokens.mint_run_token(run.id, agent, biz.company_id, biz.key))
     owner = {"Authorization": f"Bearer {service.issue_access_token(biz.owner)}"}
     staff = {"Authorization": f"Bearer {service.issue_access_token(biz.staff)}"}
     async with _client() as client:

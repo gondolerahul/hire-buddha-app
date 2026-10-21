@@ -30,6 +30,8 @@ DEFAULT_ADAPTERS: Dict[str, Dict[str, str]] = {
     "git": {"local": "local_git", "azure": "gitea", "onprem": "gitea"},
     "app_builder": {"local": "docker", "azure": "acr_tasks", "onprem": "kaniko"},
     "app_runtime": {"local": "docker", "azure": "kubernetes", "onprem": "kubernetes"},
+    # Data API tokens (W4-1, tech spec §9.3).
+    "token_signing": {"local": "hmac", "azure": "azure_keyvault", "onprem": "hmac"},
 }
 
 # The setting that overrides each capability's profile default.
@@ -42,6 +44,7 @@ OVERRIDE_SETTINGS: Dict[str, str] = {
     "git": "GIT_BACKEND",
     "app_builder": "APP_BUILDER",
     "app_runtime": "APP_RUNTIME",
+    "token_signing": "TOKEN_SIGNER",
 }
 
 

@@ -1,7 +1,11 @@
 // GitHub Actions (id-<prefix>-<env>-ci) may get cluster credentials and deploy
-// (guide §15.1). The guide scopes the writer role to the hb-platform
-// namespace, which ARM cannot express; here it is cluster-wide (dev), and
-// staging/prod narrow it with `az role assignment create --scope <cluster>/namespaces/<ns>`.
+// (guide §15.1). RBAC Writer does not cover custom resources (the chart's
+// SecretProviderClass and HTTPRoute: the first pipeline deploy was refused,
+// 21 Oct 2026), so the CI identity also holds "Azure Kubernetes Service RBAC
+// Admin" on the hb-platform namespace only — a scope ARM cannot express, given
+// by CLI on dev and production:
+//   az role assignment create --assignee-object-id <ci principal> --assignee-principal-type ServicePrincipal \
+//     --role "Azure Kubernetes Service RBAC Admin" --scope <cluster id>/namespaces/hb-platform
 
 param clusterName string
 param ciPrincipalId string

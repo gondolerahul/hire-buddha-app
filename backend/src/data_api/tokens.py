@@ -9,14 +9,17 @@
   ``api_keys``: the objects and operations of its scopes. (The tenant key in
   the key lets one Data API serve several businesses locally.)
 
-Tokens are JWTs signed with ``DATA_API_SIGNING_KEY`` (HS256; derived from
-``SECRET_KEY`` when unset). The spec's asymmetric key in Key Vault with a JWKS
-endpoint follows with the Azure environment.
+Tokens are JWTs signed by the platform's token signer (W4-1,
+``src.common.platform.signing``): HS256 with ``DATA_API_SIGNING_KEY`` locally,
+RS256 with the Key Vault key ``data-api-signing`` on Azure, whose public keys
+the Data API serves at ``/data/.well-known/jwks.json``. A token's header names
+the key that signed it (``kid``); a token signed any other way is refused.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
-import hmac
+import json
 import secrets
 import time
 import uuid
@@ -30,7 +33,6 @@ OPERATIONS = ("read", "create", "update", "delete")
 ADMIN_ROLES = ("tenant_admin", "partner_admin", "app_admin")
 USER_TTL = timedelta(minutes=15)
 RUN_TTL = timedelta(hours=2)
-ALGORITHM = "HS256"
 
 
 class Unauthorized(Exception):
@@ -61,15 +63,6 @@ class Caller:
         return [n for n in names if self.may(n, "read")]
 
 
-def _secret() -> str:
-    from src.common.config import settings
-
-    configured = getattr(settings, "DATA_API_SIGNING_KEY", "") or ""
-    if configured:
-        return configured
-    return hmac.new(settings.SECRET_KEY.encode(), b"data-api", hashlib.sha256).hexdigest()
-
-
 def permissions(objects: Dict[str, Any]) -> Dict[str, FrozenSet[str]]:
     """``{"contact": ["read", "create"], "*": "*"}`` as object → operations."""
     out = {}
@@ -79,16 +72,31 @@ def permissions(objects: Dict[str, Any]) -> Dict[str, FrozenSet[str]]:
     return out
 
 
-def _encode(claims: Dict[str, Any], ttl: timedelta) -> str:
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+async def _encode(claims: Dict[str, Any], ttl: timedelta) -> str:
+    from src.common.platform.signing import get_signer
+
+    signer = get_signer()
     now = int(time.time())  # not utcnow().timestamp(): a naive datetime is read as local time
-    return jwt.encode({**claims, "iat": now, "exp": now + int(ttl.total_seconds())}, _secret(), algorithm=ALGORITHM)
+    payload = {**claims, "iat": now, "exp": now + int(ttl.total_seconds())}
+    kid = await signer.key_id()
+    header = {"alg": signer.algorithm, "typ": "JWT", "kid": kid}
+    signing_input = (_b64url(json.dumps(header, separators=(",", ":")).encode()) + "."
+                     + _b64url(json.dumps(payload, separators=(",", ":"), default=str).encode()))
+    signature, signed_by = await signer.sign(signing_input.encode())
+    if signed_by != kid:  # the key rotated between reading its id and signing: once more, with the new id
+        return await _encode(claims, ttl)
+    return f"{signing_input}.{_b64url(signature)}"
 
 
-def mint_user_token(user: Any, company_id: Any, tenant_key: str) -> str:
+async def mint_user_token(user: Any, company_id: Any, tenant_key: str) -> str:
     admin = getattr(user, "role", None) in ADMIN_ROLES
-    return _encode({"aud": f"data-api:{tenant_key}", "sub": f"user:{user.id}", "typ": "user",
-                    "cid": str(company_id), "tk": tenant_key, "obj": {"*": list(OPERATIONS)},
-                    "rep": True, "sch": "apply" if admin else "none"}, USER_TTL)
+    return await _encode({"aud": f"data-api:{tenant_key}", "sub": f"user:{user.id}", "typ": "user",
+                          "cid": str(company_id), "tk": tenant_key, "obj": {"*": list(OPERATIONS)},
+                          "rep": True, "sch": "apply" if admin else "none"}, USER_TTL)
 
 
 def records_capability(entity: Any) -> Dict[str, Any]:
@@ -99,21 +107,30 @@ def records_capability(entity: Any) -> Dict[str, Any]:
     return records if isinstance(records, dict) else {}
 
 
-def mint_run_token(run_id: Any, entity: Any, company_id: Any, tenant_key: str) -> str:
+async def mint_run_token(run_id: Any, entity: Any, company_id: Any, tenant_key: str) -> str:
     records = records_capability(entity)
     schema = "propose" if records.get("schema_changes") == "propose" else "none"
-    return _encode({"aud": f"data-api:{tenant_key}", "sub": f"run:{run_id}", "typ": "run", "cid": str(company_id),
-                    "tk": tenant_key, "ent": str(getattr(entity, "id", "")), "obj": records.get("objects") or {},
-                    "rep": bool(records.get("reports")), "sch": schema}, RUN_TTL)
+    return await _encode({"aud": f"data-api:{tenant_key}", "sub": f"run:{run_id}", "typ": "run", "cid": str(company_id),
+                          "tk": tenant_key, "ent": str(getattr(entity, "id", "")), "obj": records.get("objects") or {},
+                          "rep": bool(records.get("reports")), "sch": schema}, RUN_TTL)
 
 
-def decode(token: str, *, tenant_key: Optional[str] = None) -> Caller:
+async def decode(token: str, *, tenant_key: Optional[str] = None) -> Caller:
+    from src.common.platform.signing import get_signer
+
+    signer = get_signer()
     try:
+        header = jwt.get_unverified_header(token)
         claims = jwt.get_unverified_claims(token)
         audience = claims.get("aud")
         if tenant_key and audience != f"data-api:{tenant_key}":
             raise Unauthorized("the token is for another business")
-        claims = jwt.decode(token, _secret(), algorithms=[ALGORITHM], audience=audience)
+        if header.get("alg") != signer.algorithm:
+            raise Unauthorized(f"invalid token: signed with {header.get('alg')}, not {signer.algorithm}")
+        key = await signer.verification_key(header.get("kid"))
+        if key is None:
+            raise Unauthorized("invalid token: signed by an unknown key")
+        claims = jwt.decode(token, key, algorithms=[signer.algorithm], audience=audience)
     except JWTError as error:
         raise Unauthorized(f"invalid token: {error}") from None
     if not str(claims.get("aud", "")).startswith("data-api:"):
