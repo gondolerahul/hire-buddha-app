@@ -10,6 +10,7 @@ import { apiUrl } from '@/config/api';
 import { MAX_PAGE_SIZE, type Page } from '@/services/pagination';
 import './EntityConfigurationTabs.css';
 import { AgentAutomationTab, automationOf } from '@/components/automation/AgentAutomationTab';
+import { AgentRecordsTab, recordsOf } from '@/components/records/AgentRecordsTab';
 import { overlayConfig } from '@/utils/entityConfig';
 
 const GEMINI_VOICES = [
@@ -375,6 +376,8 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     // TAB: AUTOMATION — "May triggers run it; may it schedule work or send signals?" (Phase 14 WS3)
     // ═══════════════════════════════════════════════════════════════════════════
     const [automation, setAutomation] = useState(() => automationOf(entity?.capabilities));
+    // TAB: RECORDS — which of the business's tables it may use, and how (Phase 14 W4-2)
+    const [records, setRecords] = useState(() => recordsOf(entity?.capabilities));
     const setAutomationTools = useCallback((ids: string[], granted: boolean) => {
         setToolAssignments(prev => granted
             ? [...prev, ...ids.filter(id => !prev.some(t => t.tool_id === id))
@@ -800,6 +803,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                     inject_cortex_viewport: injectCortexViewport, no_truncation: noTruncation,
                 },
                 automation,
+                records,
             },
 
             governance: {
@@ -837,6 +841,7 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
         { id: 'planning', label: 'Planning', icon: Route },
         { id: 'capabilities', label: 'Capabilities', icon: Wrench },
         { id: 'automation', label: 'Automation', icon: Timer },
+        { id: 'records', label: 'Records', icon: Database },
         { id: 'safeguards', label: 'Safeguards', icon: Shield },
     ];
 
@@ -1746,6 +1751,11 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                 {activeTab === 'automation' && (
                     <AgentAutomationTab entityId={entity?.id} value={automation} onChange={setAutomation}
                                         grantedTools={grantedToolIds} onToolsChange={setAutomationTools} />
+                )}
+
+                {/* ═══════════════════════════════ RECORDS (Phase 14 W4-2) ════════════════════ */}
+                {activeTab === 'records' && (
+                    <AgentRecordsTab value={records} onChange={setRecords} onToolsChange={setAutomationTools} />
                 )}
 
                 {/* ═══════════════════════════════ TAB 5: SAFEGUARDS ═══════════════════════════ */}

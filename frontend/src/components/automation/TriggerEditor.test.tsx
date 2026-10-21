@@ -83,3 +83,64 @@ describe('TriggerEditor: when an agent finishes', () => {
             event_type: 'run.completed', entity_id: 'writer' })));
     });
 });
+
+vi.mock('@/services/records.service', () => ({
+    recordsService: {
+        schema: vi.fn().mockResolvedValue({
+            version: 2,
+            objects: {
+                product: { label: 'Product', plural: 'Products',
+                           fields: { name: { type: 'text' }, stock: { type: 'integer', label: 'Stock' },
+                                     price: { type: 'money', label: 'Price' } } },
+            },
+        }),
+    },
+}));
+
+describe('TriggerEditor: on a schedule, if the records say so (W4-2)', () => {
+    it('saves a condition trigger the router can check', async () => {
+        const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+        const onSaved = vi.fn();
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <TriggerEditor timezone="Asia/Kolkata" onClose={vi.fn()} onSaved={onSaved} />
+            </QueryClientProvider>,
+        );
+        fireEvent.click(screen.getByLabelText('On a schedule, if the records say so'));
+        fill('Name', 'Re-order when stock is low');
+        fill('Cron', '0 * * * *');
+        await screen.findByRole('option', { name: 'Products' });
+        fill('Records', 'product');
+        fireEvent.click(screen.getByText('+ filter'));
+        fill('Filter 1 field', 'stock');
+        fill('Filter 1 test', 'lt');
+        fill('Filter 1 value', '10');
+        fill('Comparison', 'gt');
+        fill('Compared with', '0');
+        fill('Agent', 'writer');
+        fireEvent.click(screen.getByText('Save trigger'));
+        await waitFor(() => expect(onSaved).toHaveBeenCalled());
+        expect(createTrigger).toHaveBeenCalledWith(expect.objectContaining({
+            kind: 'condition', cron: '0 * * * *', event_type: null,
+            condition: { object: 'product', filter: [['stock', 'lt', 10]], measure: { fn: 'count' }, op: 'gt', value: 0 },
+        }));
+    });
+
+    it('asks for the field to add up before saving a total', async () => {
+        const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+        render(
+            <QueryClientProvider client={new QueryClient()}>
+                <TriggerEditor timezone="UTC" onClose={vi.fn()} onSaved={vi.fn()} />
+            </QueryClientProvider>,
+        );
+        fireEvent.click(screen.getByLabelText('On a schedule, if the records say so'));
+        fill('Name', 'Big stock value');
+        await screen.findByRole('option', { name: 'Products' });
+        fill('Records', 'product');
+        fill('Measure', 'sum');
+        fill('Agent', 'writer');
+        fireEvent.click(screen.getByText('Save trigger'));
+        expect(screen.getByRole('alert').textContent).toContain('field to add up');
+        expect(createTrigger).not.toHaveBeenCalled();
+    });
+});

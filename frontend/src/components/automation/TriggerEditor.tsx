@@ -4,7 +4,8 @@
  *
  * Saving never runs anything. A schedule shows its next ten times in the
  * business time zone; an event filter can be tested against the business's
- * recent real events before saving. Every rule left on "business setting"
+ * recent real events before saving. A condition trigger is a schedule with a
+ * check on the business's records (ConditionEditor, Phase 14 W4-2). Every rule left on "business setting"
  * follows the automation settings (decision D47: none unless set).
  */
 import React, { useEffect, useMemo, useState } from 'react';
@@ -17,11 +18,13 @@ import {
     type Trigger,
     type TriggerFields,
     type TriggerFilter,
+    type TriggerCondition,
     type TriggerKind,
 } from '@/services/automation.service';
 import type { HierarchicalEntity } from '@/types';
 import { parseServerDate } from '@/utils/datetime';
 
+import { ConditionEditor, conditionProblem, emptyCondition } from './ConditionEditor';
 import { formatDay, formatTime, runFinishedFields, watchedAgent, type RunOutcome } from './describe';
 import './automation.css';
 
@@ -30,6 +33,7 @@ type EditorKind = TriggerKind | 'finished';
 
 const KINDS: { kind: EditorKind; label: string }[] = [
     { kind: 'schedule', label: 'On a schedule' },
+    { kind: 'condition', label: 'On a schedule, if the records say so' },
     { kind: 'timer', label: 'At a time' },
     { kind: 'event', label: 'When something happens' },
     { kind: 'finished', label: 'When an agent finishes' },
@@ -126,6 +130,8 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
     const [outcome, setOutcome] = useState<RunOutcome>(watched?.outcome ?? 'completed');
     const [entityId, setEntityId] = useState(trigger?.entity_id ?? '');
     const [cron, setCron] = useState(trigger?.cron ?? '0 9 * * 1-5');
+    const [recordCheck, setRecordCheck] = useState<TriggerCondition>(trigger?.condition ?? emptyCondition());
+    const timed = kind === 'schedule' || kind === 'condition';
     const [zone, setZone] = useState(trigger?.timezone ?? '');
     const [runAt, setRunAt] = useState(toLocalInput(trigger?.run_at ?? null));
     const [eventType, setEventType] = useState(trigger?.event_type ?? '');
@@ -147,13 +153,13 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
 
     // The next ten times, as the schedule is typed.
     useEffect(() => {
-        if (kind !== 'schedule' || !cron.trim()) {
+        if (!timed || !cron.trim()) {
             setPreview(null);
             return;
         }
         const handle = window.setTimeout(async () => {
             try {
-                setPreview(await automationService.preview({ kind, cron, timezone: zone || null, count: 10 }));
+                setPreview(await automationService.preview({ kind: 'schedule', cron, timezone: zone || null, count: 10 }));
                 setPreviewError('');
             } catch (err) {
                 setPreview(null);
@@ -161,7 +167,7 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
             }
         }, 400);
         return () => window.clearTimeout(handle);
-    }, [kind, cron, zone]);
+    }, [timed, cron, zone]);
 
     const filter = (): TriggerFilter | null => (filterJson.trim() ? JSON.parse(filterJson) as TriggerFilter : toFilter(conditions));
 
@@ -184,14 +190,20 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
                 : 'Choose the agent whose finishing starts this one.');
             return;
         }
+        const conditionError = kind === 'condition' ? conditionProblem(recordCheck) : null;
+        if (conditionError) {
+            setError(conditionError);
+            return;
+        }
         let fields: TriggerFields;
         try {
             fields = {
                 name: name.trim(),
                 entity_id: entityId,
                 input_template: parseInput(input),
-                cron: kind === 'schedule' ? cron.trim() : null,
-                timezone: kind === 'schedule' ? (zone || null) : null,
+                cron: timed ? cron.trim() : null,
+                timezone: timed ? (zone || null) : null,
+                condition: kind === 'condition' ? { ...recordCheck, value: Number(recordCheck.value) } : null,
                 run_at: kind === 'timer' && runAt ? fromLocalInput(runAt) : null,
                 event_type: kind === 'event' ? eventType.trim() : null,
                 filter: kind === 'event' ? filter() : null,
@@ -246,7 +258,7 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
                         ))}
                     </div>
 
-                    {kind === 'schedule' && (
+                    {timed && (
                         <div className="ar-row">
                             <label className="ar-field">
                                 <span>Repeat (cron)</span>
@@ -260,6 +272,7 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
                             </label>
                         </div>
                     )}
+                    {kind === 'condition' && <ConditionEditor value={recordCheck} onChange={setRecordCheck} />}
                     {kind === 'timer' && (
                         <label className="ar-field">
                             <span>Run at (your time)</span>
@@ -375,7 +388,7 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
                                 <option value="skip">Skip</option>
                             </select>
                         </label>
-                        {(kind === 'schedule' || kind === 'timer') && (
+                        {(timed || kind === 'timer') && (
                             <label className="ar-field">
                                 <span>Missed while paused or down</span>
                                 <select className="ar-input" value={catchUp} onChange={e => setCatchUp(e.target.value)} aria-label="Catch-up">
@@ -406,7 +419,7 @@ export const TriggerEditor: React.FC<Props> = ({ trigger, timezone, onClose, onS
                     </div>
                 </fieldset>
 
-                {kind === 'schedule' && (
+                {timed && (
                     <fieldset className="ar-group">
                         <legend>Preview</legend>
                         {previewError && <p className="ar-note ar-note--bad">{previewError}</p>}
