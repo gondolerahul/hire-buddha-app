@@ -1,5 +1,7 @@
-// A monthly cost budget on the subscription with e-mail alerts (decision D50):
-// 80 % and 100 % of actual spend, 100 % of the forecast.
+// A monthly cost budget with e-mail alerts (decision D50): 80 % and 100 % of
+// actual spend, 100 % of the forecast. Counts only the given resource groups
+// when there are any — production shares its subscription with dev (owner,
+// 21 Oct 2026) — else the whole subscription.
 targetScope = 'subscription'
 
 param name string
@@ -8,6 +10,14 @@ param amount int
 param contactEmails array
 @description('First day of the month the budget starts (yyyy-MM-01).')
 param startDate string
+@description('Resource groups the budget counts; empty for the whole subscription.')
+param resourceGroups array = []
+
+var notify = {
+  actual80: { threshold: 80, thresholdType: 'Actual' }
+  actual100: { threshold: 100, thresholdType: 'Actual' }
+  forecast100: { threshold: 100, thresholdType: 'Forecasted' }
+}
 
 resource budget 'Microsoft.Consumption/budgets@2023-11-01' = {
   name: name
@@ -18,28 +28,19 @@ resource budget 'Microsoft.Consumption/budgets@2023-11-01' = {
     timePeriod: {
       startDate: startDate
     }
-    notifications: {
-      actual80: {
-        enabled: true
-        operator: 'GreaterThanOrEqualTo'
-        threshold: 80
-        thresholdType: 'Actual'
-        contactEmails: contactEmails
-      }
-      actual100: {
-        enabled: true
-        operator: 'GreaterThanOrEqualTo'
-        threshold: 100
-        thresholdType: 'Actual'
-        contactEmails: contactEmails
-      }
-      forecast100: {
-        enabled: true
-        operator: 'GreaterThanOrEqualTo'
-        threshold: 100
-        thresholdType: 'Forecasted'
-        contactEmails: contactEmails
+    filter: empty(resourceGroups) ? null : {
+      dimensions: {
+        name: 'ResourceGroupName'
+        operator: 'In'
+        values: resourceGroups
       }
     }
+    notifications: toObject(items(notify), n => n.key, n => {
+      enabled: true
+      operator: 'GreaterThanOrEqualTo'
+      threshold: n.value.threshold
+      thresholdType: n.value.thresholdType
+      contactEmails: contactEmails
+    })
   }
 }

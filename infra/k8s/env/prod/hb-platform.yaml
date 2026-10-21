@@ -5,13 +5,13 @@
 
 global:
   env: prod
-  imageRegistry: acrhbprod<SUFFIX>.azurecr.io
+  imageRegistry: acrhbprode7b3.azurecr.io
   imagePullPolicy: Always
 
 config:
   STORAGE_BACKEND: azure_blob
-  AZURE_STORAGE_ACCOUNT_URL: https://sthbprod<SUFFIX>.blob.core.windows.net/
-  AZURE_KEYVAULT_URL: https://kv-hb-prod-<SUFFIX>.vault.azure.net/
+  AZURE_STORAGE_ACCOUNT_URL: https://sthbprode7b3.blob.core.windows.net/
+  AZURE_KEYVAULT_URL: https://kv-hb-prod-e7b3.vault.azure.net/
   ANTHROPIC_PROVIDER: vertex
   STREAMING_HOST: gateway.azprod.hirebuddha.com
   STREAMING_PROTOCOL: wss
@@ -31,14 +31,14 @@ config:
   TENANT_DB_DDL_ROLE: hb_migrator
   TENANT_DB_RUNTIME_PRINCIPALS: id-hb-prod-api,id-hb-prod-worker,id-hb-prod-connsvc
   TENANT_DB_MIGRATOR_PRINCIPAL: id-hb-prod-migrator
-  AZURE_SUBSCRIPTION_ID: <production subscription id>
+  AZURE_SUBSCRIPTION_ID: af133a07-d04f-4d5d-928b-d532a3abf0f4
   AZURE_LOCATION: centralindia
   TENANT_IDENTITY_RESOURCE_GROUP: rg-hb-prod-tenants
   TENANT_IDENTITY_NAME_PREFIX: id-hb-prod-t-
   AKS_OIDC_ISSUER: <AKS_OIDC_ISSUER>
   DATA_API_MODE: in_process
   KEK_BACKEND: azure_keyvault
-  AZURE_TENANT_KEYS_VAULT_URL: https://kv-hb-prod-tk-<SUFFIX>.vault.azure.net/
+  AZURE_TENANT_KEYS_VAULT_URL: https://kv-hb-prod-tk-e7b3.vault.azure.net/
 
 database:
   url: postgresql+asyncpg://{user}@psql-hb-prod-control.postgres.database.azure.com:5432/hb_control?ssl=require
@@ -50,7 +50,7 @@ database:
 
 secrets:
   csi:
-    keyVaultName: kv-hb-prod-<SUFFIX>
+    keyVaultName: kv-hb-prod-e7b3
     tenantId: 7cb9c9f3-27c0-412e-805c-fac9974e9cdc
     clientIds:                              # az identity show -n id-hb-prod-<id> --query clientId
       api: <CLIENT_ID_API>

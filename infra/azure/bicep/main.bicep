@@ -123,7 +123,7 @@ param databaseGeoRedundantBackup bool = env == 'prod'
 @description('Redis high availability (a replica).')
 param redisHighAvailability bool = env == 'prod'
 
-@description('Monthly cost budget for the subscription (0: none). D50.')
+@description('Monthly cost budget for this environment\'s resource groups (0: none). D50.')
 param budgetAmount int = 0
 
 @description('Who gets the budget alerts.')
@@ -468,6 +468,8 @@ module budget 'modules/budget.bicep' = if (budgetAmount > 0) {
     amount: budgetAmount
     contactEmails: budgetContactEmails
     startDate: budgetStartDate
+    // Only this environment's spend: production shares the subscription with dev.
+    resourceGroups: [names.rgCore, names.rgData, names.rgAks, 'rg-${prefix}-${env}-aks-nodes', names.rgTenants]
   }
 }
 

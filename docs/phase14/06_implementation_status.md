@@ -486,10 +486,10 @@ Written and validated, not deployed: `infra/azure/env/prod.bicepparam` (dev's si
 
 | # | Item | Who |
 |---|------|-----|
-| P-1 | A subscription for production (guide §20: its own), and its Entra groups `grp-hb-prod-admins`, `-developers`, `-pg-admins` | Owner |
+| P-1 | ~~A subscription for production~~ — **dev's subscription** (owner, 21 Oct): production beside dev in its own resource groups (`rg-hb-prod-*`), VNet `10.42/16` and names (suffix `e7b3`, checked free); its budget counts only its resource groups (`modules/budget.bicep` filter). Left: Entra groups `grp-hb-prod-admins`, `-developers`, `-pg-admins` (or dev's, if the owner prefers). Note: dev's hand-made budget `budget-hb-dev-monthly` (₹50,000) has no filter, so it now counts production too | Owner |
 | P-2 | `az deployment sub create … -p infra/azure/env/prod.bicepparam` (slices 1–2), then fill `prod.env` / `infra/k8s/env/prod/hb-platform.yaml` from its outputs; Key Vault secrets, database roles (`infra/azure/sql/`), cluster bootstrap, Google federation pool `hb-azure-prod` and service account `hb-vertex-prod` (guide §7–§14) | Eng, on the owner's go-ahead |
-| P-3 | DNS: `app.azprod` / `gateway.azprod` (or other names) → production's ingress IP | Owner (GoDaddy) |
-| P-4 | GitHub: environment `azure-prod` with **required reviewers** and its variables (incl. `SOURCE_ACR_NAME=acrhbdevac48`), repository variable `AZURE_PROD_ENABLED=true`; and `azure-dev` + `AZURE_DEPLOY_ENABLED=true` (M1-7), which production's job follows | Owner |
+| P-3 | DNS: A records `app.azprod` and `gateway.azprod` → **4.213.163.10** (`pip-hb-prod-ingress` in `rg-hb-prod-core`, made 21 Oct ahead of the deployment with Bicep's properties, so the deployment keeps it) | Owner (GoDaddy) |
+| P-4 | GitHub: environments `azure-dev` and `azure-prod` **created 21 Oct**; left: `azure-prod`'s **required reviewers** (none yet), each environment's six variables (`azure-prod` also `SOURCE_ACR_NAME=acrhbdevac48`; its `AZURE_CLIENT_ID` exists once P-2 has made `id-hb-prod-ci`), repository variable `AZURE_DEPLOY_ENABLED=true` (every push then deploys dev — a push while dev is stopped fails its deploy), and `AZURE_PROD_ENABLED=true` only after P-2. Production's **first** install is by hand (the chart's CRD needs cluster admin; the CI identity has RBAC Writer); the workflow upgrades it from then on | Owner |
 | P-5 | Buy the 1-year reservations once the resources exist: the two node VMs (D2s_v5, D4s_v5, Central India) and the two PostgreSQL servers if the portal offers Burstable for reservations (not confirmed) | Owner |
 | P-6 | The move from GCP (WS9: runbook, rehearsals on dev per D52, cutover of today's hostnames) | Owner, Eng |
 
