@@ -71,7 +71,8 @@ def execs(monkeypatch, tmp_path) -> List[Dict[str, Any]]:
 
     async def _exec(context, argv, *, cwd=None, timeout=30.0, env=None, network="none"):
         calls.append({"argv": list(argv), "cwd": cwd, "network": network})
-        proc = subprocess.run([sys.executable, *argv[1:]], cwd=cwd, capture_output=True, text=True,
+        # -B: no __pycache__, as the sandbox image (PYTHONDONTWRITEBYTECODE=1); CI's shell does not set it.
+        proc = subprocess.run([sys.executable, "-B", *argv[1:]], cwd=cwd, capture_output=True, text=True,
                               timeout=timeout)
         return ExecResult(returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
 
