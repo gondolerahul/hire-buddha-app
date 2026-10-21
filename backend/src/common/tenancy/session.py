@@ -68,11 +68,28 @@ def control_session() -> AsyncSession:
     return database.AsyncSessionLocal()
 
 
+_control_tables: Optional[tuple] = None
+
+
+def control_tables() -> tuple:
+    """Every control-plane table (once per process): a statement built on the
+    table itself (``pg_insert(CreditHold.__table__)``) names no mapped class, so
+    the class binds alone sent it to the tenant database ("relation credit_holds
+    does not exist", Azure dev in split mode)."""
+    global _control_tables
+    if _control_tables is None:
+        from src.common.tenancy.bases import plane_tables
+
+        _control_tables = tuple(plane_tables(CONTROL))
+    return _control_tables
+
+
 def _tenant_factory(location: TenantLocation) -> Callable[[], AsyncSession]:
     tenant_engine = engines.get(location)
     bases = plane_bases()
     binds: dict[Any, Any] = {base: tenant_engine for base in bases[TENANT]}
     binds.update({base: database.engine for base in bases[CONTROL]})
+    binds.update({table: database.engine for table in control_tables()})
     return async_sessionmaker(
         bind=tenant_engine, binds=binds, expire_on_commit=False,
         info={"company_id": location.company_id, "tenant_key": location.key},
