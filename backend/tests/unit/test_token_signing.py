@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 import uuid
 from types import SimpleNamespace
 
@@ -131,7 +132,9 @@ async def test_a_token_from_the_key_before_a_rotation_still_checks(monkeypatch):
     signer = _play(monkeypatch, vault)
     old = await tokens.mint_user_token(USER, COMPANY, "acme01")
     vault.rotate()
-    signer._read_at = 0.0  # the cache has aged out
+    from src.common.platform.signing.azure_keyvault import PUBLIC_KEYS_TTL
+
+    signer._read_at = time.monotonic() - PUBLIC_KEYS_TTL - 1  # the cache has aged out (not 0: a new machine's clock)
     new = await tokens.mint_user_token(USER, COMPANY, "acme01")
     assert _parts(old)[0]["kid"] != _parts(new)[0]["kid"]
     for token in (old, new):
