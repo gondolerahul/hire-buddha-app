@@ -8,6 +8,8 @@ param env string
 param oidcIssuerUrl string
 param namespace string
 param githubRepository string
+@description('The repository as GitHub\'s OIDC subjects name it with immutable ids (owner@<owner id>/name@<repo id>); empty for none.')
+param githubRepositoryIds string = ''
 
 var workloads = ['api', 'worker', 'connsvc', 'provisioner', 'migrator', 'appcontroller']
 
@@ -38,4 +40,17 @@ resource githubFederation 'Microsoft.ManagedIdentity/userAssignedIdentities/fede
     subject: 'repo:${githubRepository}:environment:azure-${env}'
     audiences: ['api://AzureADTokenExchange']
   }
+}
+
+// GitHub's subjects now carry immutable ids ("repo:owner@123/name@456:environment:…"):
+// a second credential for that form (21 Oct 2026: the plain one was refused, AADSTS700213).
+resource githubFederationIds 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = if (!empty(githubRepositoryIds)) {
+  parent: ci
+  name: 'gh-azure-${env}-ids'
+  properties: {
+    issuer: 'https://token.actions.githubusercontent.com'
+    subject: 'repo:${githubRepositoryIds}:environment:azure-${env}'
+    audiences: ['api://AzureADTokenExchange']
+  }
+  dependsOn: [githubFederation]
 }

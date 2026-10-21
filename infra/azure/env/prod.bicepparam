@@ -21,6 +21,7 @@ param pgAdminsGroupName = 'grp-hb-prod-pg-admins'
 param pgBreakGlassPassword = readEnvironmentVariable('HB_PG_BREAK_GLASS_PASSWORD')
 
 param githubRepository = readEnvironmentVariable('HB_GITHUB_REPOSITORY', 'gondolerahul/hire-buddha-app')
+param githubRepositoryIds = 'gondolerahul@158562688/hire-buddha-app@1332013197'   // GitHub's OIDC subject (ids)
 
 // D49: dev's sizes. AKS Free tier (no uptime SLA), one zone; Burstable databases
 // (no HA, no read replicas, no built-in PgBouncer); no Front Door or Defender.

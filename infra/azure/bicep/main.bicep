@@ -60,6 +60,9 @@ param pgAdminsGroupName string
 @description('GitHub repository (owner/name) whose environment azure-<env> may deploy (guide §15.1).')
 param githubRepository string
 
+@description('The same repository with GitHub\'s immutable ids (owner@<owner id>/name@<repo id>), as its OIDC subjects now name it.')
+param githubRepositoryIds string = ''
+
 @description('Break-glass password of the PostgreSQL administrator; workloads use Entra tokens.')
 @secure()
 param pgBreakGlassPassword string
@@ -309,6 +312,7 @@ module workloadFederation 'modules/federation.bicep' = {
     oidcIssuerUrl: aks.outputs.oidcIssuerUrl
     namespace: 'hb-platform'
     githubRepository: githubRepository
+    githubRepositoryIds: githubRepositoryIds
   }
   // The identities it federates are looked up by name; they exist once the
   // cluster does (its control plane uses one), which oidcIssuerUrl waits for.

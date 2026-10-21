@@ -19,6 +19,7 @@ param pgAdminsGroupName = 'grp-hb-dev-pg-admins'
 param pgBreakGlassPassword = readEnvironmentVariable('HB_PG_BREAK_GLASS_PASSWORD')
 
 param githubRepository = readEnvironmentVariable('HB_GITHUB_REPOSITORY', 'gondolerahul/hire-buddha-app')
+param githubRepositoryIds = 'gondolerahul@158562688/hire-buddha-app@1332013197'   // GitHub's OIDC subject (ids)
 
 // Dev sizes (≈ $550/month for slice 1, implementation plan WS0).
 param systemPoolVmSize = 'Standard_D2s_v5'
