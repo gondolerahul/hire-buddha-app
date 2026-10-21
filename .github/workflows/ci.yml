@@ -126,19 +126,21 @@ jobs:
         run: |
           helm lint infra/k8s/charts/hb-platform -f infra/k8s/charts/hb-platform/values-azure.yaml -f infra/k8s/env/dev/hb-platform.yaml
           helm lint infra/k8s/charts/hb-bootstrap -f infra/k8s/charts/hb-bootstrap/values-azure.yaml -f infra/k8s/env/dev/hb-bootstrap.yaml             --set certManager.issuer.email=ci@example.com --set otelCollector.keyVault.name=kv             --set otelCollector.keyVault.tenantId=t --set otelCollector.keyVault.clientId=c
-      - name: Render default, Azure dev and on-premise
+      - name: Render default, Azure dev and production, and on-premise
         run: |
           mkdir -p rendered
           C=infra/k8s/charts/hb-platform
           helm template hb-platform $C -n hb-platform > rendered/default.yaml
           helm template hb-platform $C -n hb-platform -f $C/values-azure.yaml -f infra/k8s/env/dev/hb-platform.yaml > rendered/azure-dev.yaml
+          helm template hb-platform $C -n hb-platform -f $C/values-azure.yaml -f infra/k8s/env/prod/hb-platform.yaml > rendered/azure-prod.yaml
           helm template hb-platform $C -n hb-platform -f $C/values-onprem.yaml > rendered/onprem.yaml
           B=infra/k8s/charts/hb-bootstrap
           helm template hb-bootstrap $B -n hb-system -f $B/values-azure.yaml -f infra/k8s/env/dev/hb-bootstrap.yaml             --set certManager.issuer.email=ci@example.com --set otelCollector.keyVault.name=kv             --set otelCollector.keyVault.tenantId=t --set otelCollector.keyVault.clientId=c > rendered/bootstrap-azure.yaml
+          helm template hb-bootstrap $B -n hb-system -f $B/values-azure.yaml -f infra/k8s/env/prod/hb-bootstrap.yaml             --set certManager.issuer.email=ci@example.com --set otelCollector.keyVault.name=kv             --set otelCollector.keyVault.tenantId=t --set otelCollector.keyVault.clientId=c > rendered/bootstrap-azure-prod.yaml
       - name: Kubernetes schemas
         run: |
           docker run --rm -v "$PWD/rendered:/r" ghcr.io/yannh/kubeconform:v0.6.7 \
-            -strict -ignore-missing-schemas -summary -kubernetes-version 1.31.0 /r/default.yaml /r/azure-dev.yaml /r/onprem.yaml /r/bootstrap-azure.yaml
+            -strict -ignore-missing-schemas -summary -kubernetes-version 1.31.0 /r/default.yaml /r/azure-dev.yaml /r/azure-prod.yaml /r/onprem.yaml /r/bootstrap-azure.yaml /r/bootstrap-azure-prod.yaml
       - name: Bootstrap script
         run: docker run --rm -v "$PWD:/mnt" koalaman/shellcheck:v0.10.0 /mnt/infra/k8s/bootstrap/install.sh
       - name: The on-premise render carries nothing Azure-only (P-08)

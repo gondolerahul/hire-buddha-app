@@ -1,34 +1,33 @@
 name: deploy-azure
 
-# Phase 14 WS0 0.5: build the platform images, push them to the environment's
-# registry and roll out the hb-platform chart. A push to main — or, while
-# Phase 14 stays off main (decision D46), to roadmap-development-defect-fixes —
-# deploys Azure dev; a tag v* deploys staging (its GitHub environment can
-# require approval). ci.yml runs first: nothing deploys unless it passes.
+# Phase 14 WS0 0.5, decision D51 (owner, 21 Oct 2026): no staging. A push to
+# main — or, while Phase 14 stays off main (D46), to
+# roadmap-development-defect-fixes — runs the tests (ci.yml), builds the
+# platform images once, pushes them to dev's registry and rolls them out on
+# Azure dev. Production then gets the same images: its job waits for a required
+# reviewer in the GitHub environment `azure-prod`, copies the images dev ran
+# (same tag and digest) from dev's registry into production's, and rolls them
+# out. Database migrations run in each release's migrations Job.
 # No Azure secret is stored: azure/login exchanges the workflow's OIDC token
 # for the id-hb-<env>-ci identity (Azure setup guide §15.1).
 #
-# Each GitHub environment (azure-dev, azure-staging) holds the variables
+# GitHub environments azure-dev and azure-prod each hold the variables
 # AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, ACR_NAME, AKS_NAME,
-# AKS_RESOURCE_GROUP. The repository variable AZURE_DEPLOY_ENABLED=true turns
-# the workflow on once azure-dev exists; until then it is skipped, not failed.
+# AKS_RESOURCE_GROUP; azure-prod also SOURCE_ACR_NAME (dev's registry, which
+# production's CI identity may read: Bicep promotionSourceRegistry) and its
+# required reviewers. Repository variables turn the jobs on once the
+# environments exist: AZURE_DEPLOY_ENABLED=true (dev), AZURE_PROD_ENABLED=true
+# (production); until then they are skipped, not failed.
 
 on:
   push:
     branches: [main, roadmap-development-defect-fixes]
-    tags: ["v*"]
     paths:
       - "backend/**"
       - "frontend/**"
       - "infra/k8s/**"
       - ".github/workflows/deploy-azure.yml"
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target environment"
-        type: choice
-        options: [dev, staging]
-        default: dev
 
 permissions:
   contents: read
@@ -38,35 +37,21 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  IMAGES: hb-api hb-worker hb-child-worker hb-event-worker hb-scheduler hb-backup hb-frontend
+
 jobs:
   # The tests gate every deploy: a push that fails them builds and deploys nothing.
   # They run even while deploys are off, so a push to the Phase 14 branch is tested.
   ci:
     uses: ./.github/workflows/ci.yml
 
-  target:
+  images:
     needs: ci
-    runs-on: ubuntu-latest
     # Environment variables are not visible to a job's `if`; this one is the repository's.
     if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' }}
-    outputs:
-      env: ${{ steps.pick.outputs.env }}
-    steps:
-      - id: pick
-        env:
-          EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          CHOSEN: ${{ inputs.environment }}
-        run: |
-          if [ "$EVENT" = "workflow_dispatch" ]; then target="$CHOSEN"
-          elif [[ "$REF" == refs/tags/v* ]]; then target=staging
-          else target=dev; fi
-          echo "env=$target" >> "$GITHUB_OUTPUT"
-
-  images:
-    needs: target
     runs-on: ubuntu-latest
-    environment: azure-${{ needs.target.outputs.env }}
+    environment: azure-dev
     strategy:
       fail-fast: true
       matrix:
@@ -101,10 +86,29 @@ jobs:
           provenance: true
           sbom: true
 
-  rollout:
-    needs: [target, images]
+  dev:
+    needs: images
     runs-on: ubuntu-latest
-    environment: azure-${{ needs.target.outputs.env }}
+    environment: azure-dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rollout
+        with:
+          env-name: dev
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          acr-name: ${{ vars.ACR_NAME }}
+          aks-name: ${{ vars.AKS_NAME }}
+          aks-resource-group: ${{ vars.AKS_RESOURCE_GROUP }}
+          image-tag: ${{ github.sha }}
+
+  # Waits for a required reviewer of azure-prod (D51), then deploys what dev runs.
+  prod:
+    needs: dev
+    if: ${{ vars.AZURE_PROD_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: azure-prod
     steps:
       - uses: actions/checkout@v4
       - uses: azure/login@v2
@@ -112,29 +116,34 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - uses: azure/setup-helm@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Copy dev's images into production's registry (same digests)
+        env:
+          SOURCE: ${{ vars.SOURCE_ACR_NAME }}
+          TARGET: ${{ vars.ACR_NAME }}
+          TAG: ${{ github.sha }}
+          TENANT: ${{ vars.AZURE_TENANT_ID }}
+        run: |
+          set -euo pipefail
+          az acr login --name "$TARGET"
+          # Dev's registry is in another subscription: production's CI identity
+          # holds only AcrPull there, so sign in on its data plane with an Entra token.
+          aad=$(az account get-access-token --query accessToken -o tsv)
+          refresh=$(curl -fsS -X POST "https://$SOURCE.azurecr.io/oauth2/exchange" \
+            -d grant_type=access_token -d "service=$SOURCE.azurecr.io" -d "tenant=$TENANT" \
+            --data-urlencode "access_token=$aad" | jq -r .refresh_token)
+          echo "$refresh" | docker login "$SOURCE.azurecr.io" -u 00000000-0000-0000-0000-000000000000 --password-stdin
+          for image in $IMAGES; do
+            docker buildx imagetools create \
+              --tag "$TARGET.azurecr.io/$image:$TAG" "$SOURCE.azurecr.io/$image:$TAG"
+          done
+      - uses: ./.github/actions/rollout
         with:
-          version: v3.16.3
-      - uses: azure/setup-kubectl@v4
-      - uses: azure/use-kubelogin@v1
-        with:
-          kubelogin-version: v0.1.6
-      - name: Cluster credentials (Entra ID, workload login)
-        run: |
-          az aks get-credentials -g "${{ vars.AKS_RESOURCE_GROUP }}" -n "${{ vars.AKS_NAME }}" --overwrite-existing
-          kubelogin convert-kubeconfig -l azurecli
-      - name: helm upgrade hb-platform
-        run: |
-          ENV="${{ needs.target.outputs.env }}"
-          helm upgrade --install hb-platform infra/k8s/charts/hb-platform -n hb-platform \
-            -f infra/k8s/charts/hb-platform/values-azure.yaml \
-            -f "infra/k8s/env/${ENV}/hb-platform.yaml" \
-            --set global.imageRegistry="${{ vars.ACR_NAME }}.azurecr.io" \
-            --set global.imageTag="${{ github.sha }}" \
-            --atomic --wait --timeout 20m
-      - name: Smoke test
-        run: |
-          kubectl -n hb-platform rollout status deploy/hb-api --timeout=5m
-          kubectl -n hb-platform run smoke-${{ github.run_id }} --rm -i --restart=Never \
-            --image=curlimages/curl:8.10.1 --command -- \
-            curl -fsS --max-time 20 http://hb-api:8000/api/v1/health
+          env-name: prod
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          acr-name: ${{ vars.ACR_NAME }}
+          aks-name: ${{ vars.AKS_NAME }}
+          aks-resource-group: ${{ vars.AKS_RESOURCE_GROUP }}
+          image-tag: ${{ github.sha }}

@@ -12,6 +12,10 @@
 //
 // * Working hours (scheduleEnabled; dev) — the cluster and the PostgreSQL
 //   servers stop outside them (two Logic Apps; budget).
+// * Budget (budgetAmount) — a monthly cost budget with e-mail alerts (D50).
+// * Promotion (promotionSourceRegistry) — this environment's CI identity may
+//   read another environment's registry, so production deploys the images dev
+//   ran (D51).
 //
 // Later slices (public entry, tenant runtime, observability extras) add
 // modules here; each is codified before it is built.
@@ -105,6 +109,31 @@ param redisSku string = 'Balanced_B0'
 @description('Redis clustering policy. Spike SP-2: arq transactions need NoCluster (a cache of 25 GB or less).')
 @allowed(['NoCluster', 'EnterpriseCluster', 'OSSCluster'])
 param redisClusteringPolicy string = 'NoCluster'
+
+@description('AKS tier: Free (no uptime SLA) or Standard. D49: production starts on Free, as dev.')
+@allowed(['Free', 'Standard'])
+param aksTier string = 'Free'
+
+@description('Zone-redundant HA for the PostgreSQL servers. Burstable servers cannot have it (D49: production starts on Burstable).')
+param databaseHighAvailability bool = env == 'prod'
+
+@description('Geo-redundant backups for the PostgreSQL servers.')
+param databaseGeoRedundantBackup bool = env == 'prod'
+
+@description('Redis high availability (a replica).')
+param redisHighAvailability bool = env == 'prod'
+
+@description('Monthly cost budget for the subscription (0: none). D50.')
+param budgetAmount int = 0
+
+@description('Who gets the budget alerts.')
+param budgetContactEmails array = []
+
+@description('First day of the month the budget starts.')
+param budgetStartDate string = utcNow('yyyy-MM-01')
+
+@description('Another environment\'s registry this environment\'s CI identity may read: {subscriptionId, resourceGroup, name}; empty for none. D51: production imports dev\'s images.')
+param promotionSourceRegistry object = {}
 
 var names = {
   rgCore: 'rg-${prefix}-${env}-core'
@@ -246,6 +275,7 @@ module aks 'modules/aks.bicep' = {
     platformPoolVmSize: platformPoolVmSize
     platformPoolMinCount: platformPoolMinCount
     platformPoolMaxCount: platformPoolMaxCount
+    tier: aksTier
   }
 }
 
@@ -298,10 +328,10 @@ module postgres 'modules/postgres.bicep' = {
     entraAdminName: pgAdminsGroupName
     breakGlassPassword: pgBreakGlassPassword
     databases: ['hb_control', 'hb_gitea']
-    highAvailability: env == 'prod'
+    highAvailability: databaseHighAvailability
     // Decision D45: weekly exports (hb-backup CronJob) beside point-in-time restore at its minimum.
     backupRetentionDays: 7
-    geoRedundantBackup: env == 'prod'
+    geoRedundantBackup: databaseGeoRedundantBackup
   }
 }
 
@@ -315,7 +345,7 @@ module redis 'modules/redis.bicep' = {
     clusteringPolicy: redisClusteringPolicy
     privateEndpointSubnetId: network.outputs.privateEndpointSubnetId
     vnetId: network.outputs.vnetId
-    highAvailability: env == 'prod'
+    highAvailability: redisHighAvailability
   }
 }
 
@@ -347,9 +377,9 @@ module postgresPool 'modules/postgres.bicep' = if (deployTenancy) {
     ]
     breakGlassPassword: pgBreakGlassPassword
     databases: []
-    highAvailability: env == 'prod'
-    backupRetentionDays: env == 'prod' ? 35 : 7
-    geoRedundantBackup: env == 'prod'
+    highAvailability: databaseHighAvailability
+    backupRetentionDays: 7  // D45, as the control server
+    geoRedundantBackup: databaseGeoRedundantBackup
     enablePgBouncer: poolServerSku.tier != 'Burstable'
   }
   dependsOn: [postgres]
@@ -426,6 +456,28 @@ module scheduleDataAccess 'modules/dev-schedule-access.bicep' = if (scheduleEnab
     roleDefinitionId: scheduleRole!.outputs.roleDefinitionId
     principalIds: schedule!.outputs.principalIds
     postgresServerNames: scheduledServers
+  }
+}
+
+// ── Budget (D50) and image promotion (D51) ──────────────────────────────────
+
+module budget 'modules/budget.bicep' = if (budgetAmount > 0) {
+  name: 'budget'
+  params: {
+    name: 'budget-${prefix}-${env}-monthly'
+    amount: budgetAmount
+    contactEmails: budgetContactEmails
+    startDate: budgetStartDate
+  }
+}
+
+module promotionSourceAccess 'modules/registry-pull.bicep' = if (!empty(promotionSourceRegistry)) {
+  scope: resourceGroup(promotionSourceRegistry.?subscriptionId ?? subscription().subscriptionId,
+    promotionSourceRegistry.?resourceGroup ?? '')
+  name: 'promotion-source-pull'
+  params: {
+    registryName: promotionSourceRegistry.?name ?? ''
+    principalIds: [identities.outputs.principalIds.ci]
   }
 }
 

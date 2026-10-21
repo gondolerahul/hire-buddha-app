@@ -1,0 +1,22 @@
+# Azure production bootstrap. Layered over values.yaml + values-azure.yaml; install.sh
+# adds the client ids and the vault name from infra/azure/env/prod.env.
+
+env: prod
+
+gateway:
+  # The gateway's LoadBalancer takes the static IP Bicep created (guide §4, §9.5).
+  # D49: public entry through this gateway, as dev (no Front Door).
+  serviceAnnotations:
+    service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-hb-prod-core
+    service.beta.kubernetes.io/azure-pip-name: pip-hb-prod-ingress
+  hostnames:
+    # Before the switch-over (WS9); today's hostnames are added at cutover. To be confirmed.
+    app: app.azprod.hirebuddha.com
+    gateway: gateway.azprod.hirebuddha.com
+
+certManager:
+  issuer:
+    # email: from HB_ACME_EMAIL (install.sh). A new environment starts on Let's
+    # Encrypt's staging directory; switch to https://acme-v02.api.letsencrypt.org/directory
+    # once both hostnames have been issued there (as dev did).
+    server: https://acme-staging-v02.api.letsencrypt.org/directory

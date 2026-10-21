@@ -1,0 +1,140 @@
+# Azure production (decision D49: the same size as dev). Layered over values.yaml +
+# values-azure.yaml. Replace every <...> with the values recorded in
+# infra/azure/env/prod.env once production's Bicep has run; none is a secret.
+# The deploy workflow promotes dev's images here after approval (D51).
+
+global:
+  env: prod
+  imageRegistry: acrhbprod<SUFFIX>.azurecr.io
+  imagePullPolicy: Always
+
+config:
+  STORAGE_BACKEND: azure_blob
+  AZURE_STORAGE_ACCOUNT_URL: https://sthbprod<SUFFIX>.blob.core.windows.net/
+  AZURE_KEYVAULT_URL: https://kv-hb-prod-<SUFFIX>.vault.azure.net/
+  ANTHROPIC_PROVIDER: vertex
+  STREAMING_HOST: gateway.azprod.hirebuddha.com
+  STREAMING_PROTOCOL: wss
+  FRONTEND_URL: https://app.azprod.hirebuddha.com
+  CORS_ORIGINS: https://app.azprod.hirebuddha.com
+  # Traces to the collector hb-bootstrap installs (WS1 1.9), which forwards them to App Insights.
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://hb-otel-collector.hb-platform.svc.cluster.local:4317
+  # The tenant runtime is off below: no Kubernetes sandbox yet, so the sandbox tools
+  # refuse and the idle reaper skips (with `kubernetes` it failed every 5 minutes).
+  SANDBOX_RUNTIME: ""
+  # M2 — tenant provisioning (Bicep slice 2): its own worker and identity, the
+  # pool server's roles, each tenant's identity and KEK.
+  # M2-3 (20 Oct): every business in its own database on psql-hb-prod-pool-01
+  # (the platform company moved there with the split tool).
+  TENANCY_MODE: split
+  PROVISIONING_QUEUE: provisioning
+  TENANT_DB_DDL_ROLE: hb_migrator
+  TENANT_DB_RUNTIME_PRINCIPALS: id-hb-prod-api,id-hb-prod-worker,id-hb-prod-connsvc
+  TENANT_DB_MIGRATOR_PRINCIPAL: id-hb-prod-migrator
+  AZURE_SUBSCRIPTION_ID: <production subscription id>
+  AZURE_LOCATION: centralindia
+  TENANT_IDENTITY_RESOURCE_GROUP: rg-hb-prod-tenants
+  TENANT_IDENTITY_NAME_PREFIX: id-hb-prod-t-
+  AKS_OIDC_ISSUER: <AKS_OIDC_ISSUER>
+  DATA_API_MODE: in_process
+  KEK_BACKEND: azure_keyvault
+  AZURE_TENANT_KEYS_VAULT_URL: https://kv-hb-prod-tk-<SUFFIX>.vault.azure.net/
+
+database:
+  url: postgresql+asyncpg://{user}@psql-hb-prod-control.postgres.database.azure.com:5432/hb_control?ssl=require
+  users:
+    api: id-hb-prod-api
+    worker: id-hb-prod-worker
+    migrations: id-hb-prod-migrator
+    provisioner: id-hb-prod-provisioner
+
+secrets:
+  csi:
+    keyVaultName: kv-hb-prod-<SUFFIX>
+    tenantId: 7cb9c9f3-27c0-412e-805c-fac9974e9cdc
+    clientIds:                              # az identity show -n id-hb-prod-<id> --query clientId
+      api: <CLIENT_ID_API>
+      worker: <CLIENT_ID_WORKER>
+      migrations: <CLIENT_ID_MIGRATOR>
+      provisioner: <CLIENT_ID_PROVISIONER>
+
+googleFederation:
+  # Pool hb-azure-prod / provider aks-prod in hirebuddha-production (guide §14,
+  # created for production's cluster issuer): only sa-api and sa-worker may act
+  # as hb-vertex-prod.
+  enabled: true
+  audience: //iam.googleapis.com/projects/844891213866/locations/global/workloadIdentityPools/hb-azure-prod/providers/aks-prod
+  serviceAccountEmail: hb-vertex-prod@hirebuddha-production.iam.gserviceaccount.com
+
+gateway:
+  hostnames:
+    app: app.azprod.hirebuddha.com
+    gateway: gateway.azprod.hirebuddha.com
+
+# Off until its images (hb-egress-proxy, caddy-redis) are in the registry and its
+# secrets (tenant-edge-redis, egress-proxy, gitea) and Gitea's database login exist.
+tenantRuntime:
+  enabled: false
+
+# D49: dev's requests and replicas (one D4s_v5 platform node). Raise them with
+# real load. `workers` is a list: Helm replaces it whole, so all are restated.
+api:
+  resources:
+    requests: { cpu: 150m, memory: 768Mi }
+    limits: { memory: 3Gi }
+
+workers:
+  - name: worker
+    image: worker
+    metricsPort: 9101
+    metricsPortSetting: WORKER_METRICS_PORT
+    queue: "arq:queue"
+    replicas: 1
+    terminationGracePeriodSeconds: 600
+    resources:
+      requests: { cpu: 150m, memory: 768Mi }
+      limits: { memory: 4Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 4, dueJobs: "10" }
+  - name: child-worker
+    image: childWorker
+    metricsPort: 9102
+    metricsPortSetting: CHILD_WORKER_METRICS_PORT
+    queue: "children"
+    replicas: 1
+    terminationGracePeriodSeconds: 600
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { memory: 4Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 6, dueJobs: "10" }
+  - name: event-worker
+    image: eventWorker
+    metricsPort: 9103
+    metricsPortSetting: EVENT_WORKER_METRICS_PORT
+    queue: "events"
+    replicas: 1
+    terminationGracePeriodSeconds: 120
+    resources:
+      requests: { cpu: 50m, memory: 384Mi }
+      limits: { memory: 1Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 4, dueJobs: "50" }
+  # M2: tenant provisioning as the provisioner identity (sa-provisioner).
+  - name: provisioner
+    image: worker
+    identity: provisioner
+    command: ["python", "-m", "arq", "src.ai.worker.ProvisionerWorkerSettings"]
+    kubernetesApi: true
+    metricsPort: 9105
+    metricsPortSetting: PROVISIONER_METRICS_PORT
+    queue: "provisioning"
+    replicas: 1
+    terminationGracePeriodSeconds: 600
+    resources:
+      requests: { cpu: 50m, memory: 384Mi }
+      limits: { memory: 1Gi }
+    autoscaling: { enabled: false, minReplicas: 1, maxReplicas: 1, dueJobs: "10" }
+
+scheduler:
+  replicas: 1
+
+frontend:
+  replicas: 1

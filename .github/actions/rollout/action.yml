@@ -1,0 +1,69 @@
+name: rollout
+description: >
+  Roll out the hb-platform chart on an Azure environment's cluster with the
+  given image tag, then check the API answers (deploy-azure.yml, D51).
+
+inputs:
+  env-name:
+    description: dev or prod (infra/k8s/env/<env-name>/hb-platform.yaml)
+    required: true
+  client-id:
+    required: true
+  tenant-id:
+    required: true
+  subscription-id:
+    required: true
+  acr-name:
+    required: true
+  aks-name:
+    required: true
+  aks-resource-group:
+    required: true
+  image-tag:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: azure/login@v2
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}
+    - uses: azure/setup-helm@v4
+      with:
+        version: v3.16.3
+    - uses: azure/setup-kubectl@v4
+    - uses: azure/use-kubelogin@v1
+      with:
+        kubelogin-version: v0.1.6
+    - name: Cluster credentials (Entra ID, workload login)
+      shell: bash
+      env:
+        AKS_RG: ${{ inputs.aks-resource-group }}
+        AKS: ${{ inputs.aks-name }}
+      run: |
+        az aks get-credentials -g "$AKS_RG" -n "$AKS" --overwrite-existing
+        kubelogin convert-kubeconfig -l azurecli
+    - name: helm upgrade hb-platform
+      shell: bash
+      env:
+        ENV_NAME: ${{ inputs.env-name }}
+        ACR: ${{ inputs.acr-name }}
+        TAG: ${{ inputs.image-tag }}
+      run: |
+        helm upgrade --install hb-platform infra/k8s/charts/hb-platform -n hb-platform \
+          -f infra/k8s/charts/hb-platform/values-azure.yaml \
+          -f "infra/k8s/env/${ENV_NAME}/hb-platform.yaml" \
+          --set global.imageRegistry="${ACR}.azurecr.io" \
+          --set global.imageTag="${TAG}" \
+          --atomic --wait --timeout 20m
+    - name: Smoke test
+      shell: bash
+      env:
+        RUN_ID: ${{ github.run_id }}
+      run: |
+        kubectl -n hb-platform rollout status deploy/hb-api --timeout=5m
+        kubectl -n hb-platform run "smoke-${RUN_ID}" --rm -i --restart=Never \
+          --image=curlimages/curl:8.10.1 --command -- \
+          curl -fsS --max-time 20 http://hb-api:8000/api/v1/health

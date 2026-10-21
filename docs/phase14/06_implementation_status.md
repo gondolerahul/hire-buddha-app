@@ -2,8 +2,8 @@
 
 > **Updated:** 2026-10-21
 > **Where it stands (21 Oct):** **M2 is proved on Azure dev** (§1 "M2 on Azure dev"): dev runs `TENANCY_MODE=split` — every business in its own database on `psql-hb-dev-pool-01` (four: the platform company, *M2 Proof Co*, *Isolation A*, *Isolation B*), each `active`, healthy and at the tenant tree's head, which the migrations Job took them to and recorded; a business added by one API call ends `active` in under a minute; and the first slice of the **isolation suite** (`backend/tests/isolation/`, tech spec §13.3) passes against `https://gateway.azdev.hirebuddha.com` both ways — **87 passed**. Fixed on the way: a split-mode session sent statements built on a control table (the credit gate's insert) to the tenant database, so no run could start; another business's connection answered 409 instead of 404; a document deleted while it was processed failed its job. M2-4's engineering gaps are mostly closed (§1 WS2 gaps): reports across companies read every tenant database, partners and staff can work in another company from the screens (`X-Company-Id`), and the file mover names the company in old avatar URLs. **M1 is proved except** Claude, GPT, self sign-up (e-mail) and a Twilio call, which wait on the owner's steps (§5.2). Commits after `5447c7c` are local until pushed; Azure dev runs `489d715`'s images.
-> **Before production:** the owner's sizing and cost preferences and the final CI/CD workflow (asked 21 Oct), then staging (M7-1).
-> **Next (engineering):** WS3/WS4 leftovers (§5.4), slice 4 for WS6 on Azure once its cost is agreed (§5.6), staging.
+> **Production (owner, 21 Oct — D49–D52):** the same size as dev, running around the clock; 1-year reservations at launch plus budget alerts; **no staging** — the image dev ran goes to production after a reviewer approves in GitHub. The code for it is written and validated (§5.8); creating production on Azure waits for the owner's go-ahead and steps (§5.8).
+> **Next (engineering):** WS3/WS4 leftovers (§5.4), slice 4 for WS6 on Azure once its cost is agreed (§5.6).
 >
 > **20 Oct:** WS0–WS8's code written and tested on this laptop; Azure dev slice 1 deployed and the platform running on it (§1 "Azure dev, 20 Oct"); speech and music as configurable models and tools.
 >
@@ -480,12 +480,25 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 | M6-5 | Sandbox isolation tests on AKS (no database, IMDS or other tenants reachable); SP-1, SP-3, SP-10 | Eng |
 | M6-6 | The M6 end-to-end: a CRM asked for → pull request → merge → image → preview → published on `crm-acme.apps.<domain>` and a custom domain | Eng |
 
+### 5.8 Production on Azure (decisions D49–D52, 21 Oct)
+
+Written and validated, not deployed: `infra/azure/env/prod.bicepparam` (dev's sizes; HA and geo backup off — Burstable cannot have HA —, 7-day point-in-time restore per D45, platform pool capped at 2 nodes, a ₹55,000 monthly budget with 80 % / 100 % / forecast alerts, production's CI identity allowed to read dev's registry), `infra/azure/env/prod.env` (names; ids to fill from the outputs), `infra/k8s/env/prod/` (platform values = dev's sizes; bootstrap on Let's Encrypt staging first; pre-cutover hostnames `app.azprod` / `gateway.azprod`, **to be confirmed**). `main.bicep` gained `aksTier`, `databaseHighAvailability`, `databaseGeoRedundantBackup`, `redisHighAvailability`, `budgetAmount` (`modules/budget.bicep`) and `promotionSourceRegistry` (`modules/registry-pull.bicep`), with defaults that leave dev as deployed; the pool server's retention is 7 days in every environment (it was 35 for `prod`, against D45). `deploy-azure.yml`: staging removed; job `prod` waits for `azure-prod`'s reviewers, copies dev's images into production's registry by digest (`docker buildx imagetools create`, signed in to dev's registry with an Entra token: production's identity holds only AcrPull there) and rolls them out with the shared `.github/actions/rollout`; off until `AZURE_PROD_ENABLED=true`. CI renders and validates production's values too. Checked: `bicep build` (no warnings), both parameter files build, actionlint, the production renders pass kubeconform, its resource requests equal dev's.
+
+| # | Item | Who |
+|---|------|-----|
+| P-1 | A subscription for production (guide §20: its own), and its Entra groups `grp-hb-prod-admins`, `-developers`, `-pg-admins` | Owner |
+| P-2 | `az deployment sub create … -p infra/azure/env/prod.bicepparam` (slices 1–2), then fill `prod.env` / `infra/k8s/env/prod/hb-platform.yaml` from its outputs; Key Vault secrets, database roles (`infra/azure/sql/`), cluster bootstrap, Google federation pool `hb-azure-prod` and service account `hb-vertex-prod` (guide §7–§14) | Eng, on the owner's go-ahead |
+| P-3 | DNS: `app.azprod` / `gateway.azprod` (or other names) → production's ingress IP | Owner (GoDaddy) |
+| P-4 | GitHub: environment `azure-prod` with **required reviewers** and its variables (incl. `SOURCE_ACR_NAME=acrhbdevac48`), repository variable `AZURE_PROD_ENABLED=true`; and `azure-dev` + `AZURE_DEPLOY_ENABLED=true` (M1-7), which production's job follows | Owner |
+| P-5 | Buy the 1-year reservations once the resources exist: the two node VMs (D2s_v5, D4s_v5, Central India) and the two PostgreSQL servers if the portal offers Burstable for reservations (not confirmed) | Owner |
+| P-6 | The move from GCP (WS9: runbook, rehearsals on dev per D52, cutover of today's hostnames) | Owner, Eng |
+
 ### 5.7 M7/M8 — hardening and move (WS7, WS9; slice 5)
 
 | # | Item | Who |
 |---|------|-----|
-| M7-1 | Staging environment (Bicep parameters for staging; slice 5 observability: managed Prometheus, Grafana) | Eng |
-| M7-2 | Two migration rehearsals on a restored production copy within the agreed window (WS7 tools exist; `azcopy` for large file moves) | Eng, owner sets the window |
+| M7-1 | ~~Staging environment~~ — **none (D51, owner 21 Oct)**; slice 5 observability (managed Prometheus, Grafana) still open | Eng |
+| M7-2 | Two migration rehearsals on a restored production copy within the agreed window — **on dev** (D52: dev treated as production while it holds the copy, the copy deleted after) (WS7 tools exist; `azcopy` for large file moves) | Eng, owner sets the window |
 | M7-3 | Production's crossing: time the ~45 old-chain revisions (DM-12/13 type changes) on a restored copy; raise the migrations Job's deadline if needed; carry any new `main` revision into `migrations/legacy/` first | Eng |
 | M7-4 | Hardening: isolation suite, load targets, resilience drills (scheduler/router/worker, Redis, tenant database), DR drill (restore one tenant; export and restore to a clean environment), security review (Connection Service, Data API, sandbox, App Controller), Defender | Eng |
 | M8-1 | Switch-over runbook (plan WS9): DNS TTL, partner IP allow-lists (Tata), maintenance window, cutover, standby, GCP shutdown | Owner, Eng |
