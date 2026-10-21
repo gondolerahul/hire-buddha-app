@@ -55,6 +55,7 @@ secrets:
       api: 34160366-3caf-4c52-9a72-03da778dd4bc
       worker: 4bce55de-0922-41c7-b753-1d5e78411fcc
       migrations: 39ea108a-dd59-474b-9ecd-566c8856c414
+      appcontroller: abf183a8-8ed1-43ef-bf89-8331ccf58880   # the App Controller reads settings as id-hb-prod-appcontroller
       provisioner: af71404a-6d58-46ac-b70a-4d08ed18ad42
 
 googleFederation:

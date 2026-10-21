@@ -96,6 +96,6 @@ roleRef:
   name: hb-app-controller
 subjects:
   - kind: ServiceAccount
-    name: hb-app-controller
+    name: {{ .Values.tenantRuntimeRbac.appControllerServiceAccount }}
     namespace: {{ .Values.namespaces.platform }}
 {{- end }}

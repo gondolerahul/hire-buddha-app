@@ -32,9 +32,10 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ (index $.Values.serviceAccounts $identity).name }}
-      {{- if $w.kubernetesApi }}
+      {{- if or $w.kubernetesApi $.Values.tenantRuntime.enabled }}
       # It calls the cluster's API with its service account (the provisioner's
-      # tenant namespaces; the bootstrap's ClusterRole says what it may do).
+      # tenant namespaces; with the tenant runtime, agents' sandbox pods — the
+      # bootstrap's ClusterRoles say what each may do).
       automountServiceAccountToken: true
       {{- end }}
       # A running agent step is given time to finish; arq re-queues what is cut off.

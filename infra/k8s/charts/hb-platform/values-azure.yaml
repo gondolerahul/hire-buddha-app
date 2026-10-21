@@ -60,6 +60,8 @@ gateway:
 tenantRuntime:
   enabled: true
   appsNodePool: apps
+  appController:
+    serviceAccountName: sa-appcontroller
   gitea:
     enabled: true
     # One replica on a standard SSD disk (a Premium file share bills 100 GiB at least).

@@ -257,6 +257,9 @@ tenantRuntime:
   appsNodePool: ""
   appController:
     enabled: true
+    # An existing service account to run as (Azure: sa-appcontroller, with its workload
+    # identity); empty = one this chart makes, hb-app-controller.
+    serviceAccountName: ""
     resources:
       requests: { cpu: 50m, memory: 256Mi }
       limits: { memory: 512Mi }

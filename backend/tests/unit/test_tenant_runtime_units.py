@@ -88,6 +88,9 @@ def test_the_edge_serves_every_running_apps_names_with_on_demand_tls():
     assert "reverse_proxy crm.t-acme01.svc.cluster.local:8080" in caddyfile
     assert "keda-add-ons-http-interceptor-proxy" in caddyfile   # a sleeping app wakes through KEDA
     assert "old.example.com" not in caddyfile and "on_demand" in caddyfile
+    # Unprivileged Caddy: its own ports, and the one redirect is the plain-HTTP block's.
+    assert "http_port 8080" in caddyfile and "https_port 8443" in caddyfile
+    assert "auto_https disable_redirects" in caddyfile and ":8080 {" in caddyfile and ":80 {" not in caddyfile
 
 
 def test_egress_allow_lists_and_status():

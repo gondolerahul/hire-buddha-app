@@ -69,12 +69,14 @@ secrets:
       - { name: encryption-master-key, alias: ENCRYPTION_MASTER_KEY }
       - { name: redis-url, alias: REDIS_URL }
       - { name: egress-proxy-secret, alias: EGRESS_PROXY_SECRET }
+      - { name: gitea-admin-token, alias: GITEA_ADMIN_TOKEN }   # the platform's Gitea admin (slice 4)
     keyVaultName: kv-hb-dev-ac48
     tenantId: 7cb9c9f3-27c0-412e-805c-fac9974e9cdc
     clientIds:                              # az identity show -n id-hb-dev-<id> --query clientId
       api: fe5fa098-6452-43d9-90df-f585cb5e5b57
       worker: 215f6ffc-398d-4803-9a10-2e7a7e9af822
       migrations: 4aeae4d6-29cd-4024-ae73-2a37cb43ecf4
+      appcontroller: b002da27-bf17-4302-b8e9-1311ab41e3ad   # the App Controller reads settings as id-hb-dev-appcontroller
       provisioner: 3c25dc64-6183-4bdf-a065-3984b8ea5544
 
 googleFederation:

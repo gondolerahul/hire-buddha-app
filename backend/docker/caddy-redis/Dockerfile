@@ -10,9 +10,16 @@ RUN xcaddy build --with github.com/pberkel/caddy-storage-redis@${STORAGE_REDIS_V
 
 FROM caddy:${CADDY_VERSION}-alpine
 COPY --from=build /usr/bin/caddy /usr/bin/caddy
+# No file capability on the binary: the chart drops every capability and forbids privilege
+# escalation, under which a binary carrying one cannot be run ("operation not permitted");
+# it listens on 8080/8443 and needs none.
+RUN apk add --no-cache libcap && setcap -r /usr/bin/caddy 2>/dev/null || true; apk del libcap
 # Writable places for a non-root Caddy (its data and config are also overridden by
 # XDG paths; certificates themselves live in Redis).
 RUN mkdir -p /data/caddy /config/caddy && chown -R 10001:10001 /data /config
 ENV XDG_DATA_HOME=/data XDG_CONFIG_HOME=/config
 USER 10001
 EXPOSE 8080 8443
+# The chart passes Caddy's arguments (run --config … --watch): caddy is the entrypoint.
+ENTRYPOINT ["caddy"]
+CMD ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

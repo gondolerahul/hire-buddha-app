@@ -22,6 +22,9 @@ serviceAccounts:
 # where hb-platform's tenantRuntime is enabled.
 tenantRuntimeRbac:
   enabled: false
+  # The App Controller's account in the platform namespace (hb-platform's
+  # tenantRuntime.appController.serviceAccountName; sa-appcontroller on Azure).
+  appControllerServiceAccount: sa-appcontroller
 
 # The provisioner's ClusterRole: tenant namespaces with their quota, limits and
 # default-deny policy (M2, templates/provisioner-rbac.yaml).

@@ -28,6 +28,11 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ .Values.serviceAccounts.api.name }}
+      {{- if .Values.tenantRuntime.enabled }}
+      # It starts sandbox pods and TenantApps in t-* namespaces with its service account
+      # (hb-bootstrap's hb-platform-tenant-runtime says what it may do).
+      automountServiceAccountToken: true
+      {{- end }}
       terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
       {{- include "hb.podSpecCommon" . | nindent 6 }}
       containers:

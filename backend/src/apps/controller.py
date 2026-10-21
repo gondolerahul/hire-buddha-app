@@ -197,9 +197,17 @@ def upstream(cr: Dict[str, Any]) -> str:
     return f"{cr['metadata']['name']}.{cr['metadata']['namespace']}.svc.cluster.local:{APP_PORT}"
 
 
+EDGE_HTTP_PORT, EDGE_HTTPS_PORT = 8080, 8443   # the edge container's ports (hb-caddy-redis)
+
+
 def edge_caddyfile(apps: List[Dict[str, Any]], *, ask_url: str, email: str = "") -> str:
-    """The tenant app edge's whole configuration, from every running TenantApp's routes."""
-    lines = ["{", f"    on_demand_tls {{\n        ask {ask_url}\n    }}"]
+    """The tenant app edge's whole configuration, from every running TenantApp's routes.
+
+    Caddy runs unprivileged on 8080/8443 (the Service maps 80/443 there), so it is told its
+    ports; it makes no redirects of its own, which would name :8443 — the last block redirects.
+    """
+    lines = ["{", f"    http_port {EDGE_HTTP_PORT}", f"    https_port {EDGE_HTTPS_PORT}",
+             "    auto_https disable_redirects", f"    on_demand_tls {{\n        ask {ask_url}\n    }}"]
     if email:
         lines.append(f"    email {email}")
     lines += ["    storage redis {\n        address {$REDIS_ADDRESS}\n        password {$REDIS_PASSWORD}\n"
@@ -215,9 +223,9 @@ def edge_caddyfile(apps: List[Dict[str, Any]], *, ask_url: str, email: str = "")
         seen.update(hosts)
         lines += [", ".join(f"https://{h}" for h in hosts) + " {", "    tls {\n        on_demand\n    }",
                   "    encode gzip zstd",
-                  f"    reverse_proxy {upstream(cr)} {{\n        header_up X-Forwarded-Host {{host}}\n    }}",
+                  f"    reverse_proxy {upstream(cr)}",   # passes X-Forwarded-Host itself
                   "}", ""]
-    lines += [":80 {", "    redir https://{host}{uri} 308", "}", ""]
+    lines += [f":{EDGE_HTTP_PORT} {{", "    redir https://{host}{uri} 308", "}", ""]
     return "\n".join(lines)
 
 

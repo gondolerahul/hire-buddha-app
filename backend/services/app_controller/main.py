@@ -90,6 +90,13 @@ def configure(settings: kopf.OperatorSettings, **_: Any) -> None:
     settings.watching.server_timeout = 270
 
 
+@kopf.on.startup()
+async def publish_on_start(**_: Any) -> None:
+    """The edge's Caddyfile and the egress policy exist from the start, before any app: the
+    edge cannot start without its Caddyfile (found on Azure dev, 21 Oct 2026)."""
+    await _publish_edge()
+
+
 @kopf.on.create(controller.GROUP, controller.VERSION, controller.PLURAL)
 @kopf.on.update(controller.GROUP, controller.VERSION, controller.PLURAL, field="spec")
 @kopf.on.resume(controller.GROUP, controller.VERSION, controller.PLURAL)

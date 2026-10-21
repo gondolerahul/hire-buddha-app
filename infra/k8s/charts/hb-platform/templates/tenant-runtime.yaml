@@ -10,6 +10,8 @@ change only the hb-platform and hb-system namespaces.
 {{- $rt := .Values.tenantRuntime }}
 {{- $sys := $rt.systemNamespace }}
 {{- if $rt.appController.enabled }}
+{{- $acSa := $rt.appController.serviceAccountName | default "hb-app-controller" }}
+{{- if not $rt.appController.serviceAccountName }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -18,6 +20,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "hb.labels" . | nindent 4 }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -40,7 +43,9 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      serviceAccountName: hb-app-controller
+      # On Azure sa-appcontroller (hb-bootstrap), federated to id-<env>-appcontroller: it reads
+      # the platform's settings from Key Vault like the API (SECRET_KEY signs the edge's ask).
+      serviceAccountName: {{ $acSa }}
       automountServiceAccountToken: true
       securityContext:
         {{- toYaml .Values.securityContext | nindent 8 }}
@@ -53,6 +58,8 @@ spec:
           image: {{ include "hb.image" (dict "root" . "image" "appController") }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           {{- include "hb.backendEnv" . | nindent 10 }}
+            # Settings require a database URL; the controller itself never connects.
+            {{- include "hb.databaseUrlEnv" (dict "root" $ "user" "api") | nindent 12 }}
             - name: EDGE_ASK_URL
               value: "http://hb-api.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.api.service.port }}/internal/v1/edge/ask"
             - name: ACME_EMAIL
@@ -70,9 +77,20 @@ spec:
             periodSeconds: 30
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
+            {{- if and .Values.secrets.csi.enabled (index .Values.secrets.csi.clientIds "appcontroller") }}
+            - { name: secrets-store, mountPath: {{ .Values.secrets.csi.mountPath | quote }}, readOnly: true }
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if and .Values.secrets.csi.enabled (index .Values.secrets.csi.clientIds "appcontroller") }}
+        - name: secrets-store
+          csi:
+            driver: {{ .Values.secrets.csi.driver }}
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ .Release.Name }}-secrets-appcontroller
+        {{- end }}
 {{- end }}
 {{- if $rt.tenantEdge.enabled }}
 ---
@@ -105,6 +123,7 @@ spec:
       containers:
         - name: caddy
           image: {{ $rt.tenantEdge.image | default (include "hb.image" (dict "root" . "image" "caddyRedis")) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           args: [run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile, --watch]
           ports:
             - { name: http, containerPort: 8080 }
@@ -338,5 +357,26 @@ spec:
     app.kubernetes.io/name: gitea
   ports:
     - { name: http, port: 3000, targetPort: 3000 }
+{{- if .Values.networkPolicy.enabled }}
+---
+# The namespace denies inbound by default: Gitea answers the platform's own pods
+# (the API and the workers push and read tenants' repositories), nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hb-platform-to-gitea
+  labels:
+    {{- include "hb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gitea
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 3000
+{{- end }}
 {{- end }}
 {{- end }}
