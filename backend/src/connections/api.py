@@ -117,6 +117,8 @@ def _grants(grants: Optional[List[Grant]]) -> Optional[List[Dict[str, Any]]]:
 async def _call(coro: Any) -> Any:
     try:
         return await coro
+    except service.NoSuchConnection as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     except service.ConnectionProblem as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except ProviderError as error:
@@ -249,6 +251,8 @@ async def issue_token(body: TokenRequest):
                                           principal_id=body.principal_id, action=body.action, run_id=body.run_id)
     except service.NotGranted as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
+    except service.NoSuchConnection as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     except service.ConnectionProblem as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return {"access_token": token.access_token, "expires_at": token.expires_at.isoformat() if token.expires_at else None,

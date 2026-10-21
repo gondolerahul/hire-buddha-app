@@ -245,6 +245,10 @@ async def test_an_owner_connects_gmail_and_only_the_granted_agent_uses_it(world,
                                         json={"accounts": ["g-acme"]})
             assert refused.json() == {"connections": [], "refused": [
                 {"external_id": "g-acme", "name": "sales@acme.test", "reason": service.ACCOUNT_TAKEN}]}
+            # Acme's connection is not Beta's to see or touch: 404, as for an id nobody has.
+            for method, path in (("GET", ""), ("GET", "/impact"), ("POST", "/test"), ("DELETE", "")):
+                answer = await client.request(method, f"/api/v1/connections/{connection_id}{path}")
+                assert answer.status_code == 404, (method, path, answer.text)
 
         # Disconnect: the trigger listening to it pauses; the route and the secret go.
         async with tenant_session(world.acme.company_id) as db:

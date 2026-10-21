@@ -64,6 +64,10 @@ class ConnectionProblem(RuntimeError):
     """A connection request that cannot be done; the message is safe to show."""
 
 
+class NoSuchConnection(ConnectionProblem):
+    """No connection of this business has that id — another business's included (404, not 409)."""
+
+
 class NotGranted(PermissionError):
     """The caller (agent, app) has not been granted this connection."""
 
@@ -451,7 +455,7 @@ async def _connect(company_id: Any, user_id: Any, row: Any, app: Any, account: A
 async def _load(db: Any, company_id: Any, connection_id: Any) -> Connection:
     connection = await db.get(Connection, uuid.UUID(str(connection_id)))
     if connection is None or connection.company_id != uuid.UUID(str(company_id)):
-        raise ConnectionProblem("There is no such connection.")
+        raise NoSuchConnection("There is no such connection.")
     return connection
 
 
