@@ -1,6 +1,5 @@
 # Azure production (decision D49: the same size as dev). Layered over values.yaml +
-# values-azure.yaml. Replace every <...> with the values recorded in
-# infra/azure/env/prod.env once production's Bicep has run; none is a secret.
+# values-azure.yaml. Ids from infra/azure/env/prod.env (21 Oct 2026); none is a secret.
 # The deploy workflow promotes dev's images here after approval (D51).
 
 global:
@@ -35,7 +34,7 @@ config:
   AZURE_LOCATION: centralindia
   TENANT_IDENTITY_RESOURCE_GROUP: rg-hb-prod-tenants
   TENANT_IDENTITY_NAME_PREFIX: id-hb-prod-t-
-  AKS_OIDC_ISSUER: <AKS_OIDC_ISSUER>
+  AKS_OIDC_ISSUER: https://centralindia.oic.prod-aks.azure.com/7cb9c9f3-27c0-412e-805c-fac9974e9cdc/754e6391-10da-496e-8df0-2dd84a23a936/
   DATA_API_MODE: in_process
   KEK_BACKEND: azure_keyvault
   AZURE_TENANT_KEYS_VAULT_URL: https://kv-hb-prod-tk-e7b3.vault.azure.net/
@@ -53,10 +52,10 @@ secrets:
     keyVaultName: kv-hb-prod-e7b3
     tenantId: 7cb9c9f3-27c0-412e-805c-fac9974e9cdc
     clientIds:                              # az identity show -n id-hb-prod-<id> --query clientId
-      api: <CLIENT_ID_API>
-      worker: <CLIENT_ID_WORKER>
-      migrations: <CLIENT_ID_MIGRATOR>
-      provisioner: <CLIENT_ID_PROVISIONER>
+      api: 34160366-3caf-4c52-9a72-03da778dd4bc
+      worker: 4bce55de-0922-41c7-b753-1d5e78411fcc
+      migrations: 39ea108a-dd59-474b-9ecd-566c8856c414
+      provisioner: af71404a-6d58-46ac-b70a-4d08ed18ad42
 
 googleFederation:
   # Pool hb-azure-prod / provider aks-prod in hirebuddha-production (guide §14,
