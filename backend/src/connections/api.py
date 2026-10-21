@@ -25,6 +25,8 @@ Platform staff (``app_admin``):
 
     GET    /api/v1/admin/connectors                        with each provider review (E09-S11)
     PATCH  /api/v1/admin/connectors/{id}                   switch Available / Preview / Unavailable, record a review
+    GET    /api/v1/admin/oauth-apps                        HireBuddha's app with each provider (M1-12)
+    PUT    /api/v1/admin/oauth-apps/{provider}             register or change it: settings, secrets by vault name
     GET    /api/v1/admin/unrouted-events
 """
 from __future__ import annotations
@@ -292,6 +294,75 @@ async def admin_update_connector(connector_id: str, body: ConnectorUpdate, _: Us
         row.approval = {**(row.approval or {}), **body.approval}
     await db.commit()
     return _admin_view(row)
+
+
+class OAuthAppIn(BaseModel):
+    settings: Dict[str, str] = Field(default_factory=dict, description="Non-secret settings: client_id, app_id, …")
+    refs: Dict[str, str] = Field(default_factory=dict,
+                                 description="Further secrets by vault name: verify_token, private_key, webhook_secret")
+    secret: Optional[str] = Field(None, description="The client secret's vault name")
+
+
+async def _oauth_app_views(db: AsyncSession) -> List[Dict[str, Any]]:
+    """Each provider's app: registered or not, its settings, and whether each named secret is in the vault."""
+    from src.auth.platform import platform_company_id
+    from src.config.models import IntegrationRegistry
+    from src.config.registry_secrets import secret_by_name
+    from src.connections.register_app import PROVIDERS, REQUIRED, REQUIRED_REFS
+
+    platform = await platform_company_id(db)
+    rows = {row.service_sku: row for row in (await db.execute(select(IntegrationRegistry).where(
+        IntegrationRegistry.company_id == platform,
+        IntegrationRegistry.service_sku.in_([f"oauth-app-{p}" for p in PROVIDERS])))).scalars().all()}
+
+    async def in_vault(name: Optional[str]) -> Optional[bool]:
+        if not name:
+            return None
+        try:
+            return bool(await secret_by_name(name))
+        except Exception:  # noqa: BLE001 - unknown or unreadable: not there for the app either
+            return False
+
+    views = []
+    for provider in PROVIDERS:
+        row = rows.get(f"oauth-app-{provider}")
+        metadata = dict(row.service_metadata or {}) if row is not None else {}
+        refs = {k[: -len("_ref")]: v for k, v in metadata.items() if k.endswith("_ref")}
+        views.append({
+            "provider": provider, "registered": row is not None, "status": row.status if row is not None else None,
+            "settings": {k: v for k, v in metadata.items() if not k.endswith("_ref")},
+            "secret": row.secret_ref if row is not None else None,
+            "secret_in_vault": await in_vault(row.secret_ref if row is not None else None),
+            "refs": refs, "refs_in_vault": {k: await in_vault(v) for k, v in refs.items()},
+            "required": list(REQUIRED[provider]), "required_refs": list(REQUIRED_REFS.get(provider, ())),
+        })
+    return views
+
+
+@router.get("/api/v1/admin/oauth-apps", openapi_extra=capability(
+    "HireBuddha's own app with each provider: its settings and whether its secrets are in the vault (never "
+    "their values).", "read", "app_admin", scope="platform"))
+async def admin_oauth_apps(_: User = Depends(staff_only), db: AsyncSession = Depends(get_control_db)):
+    return await _oauth_app_views(db)
+
+
+@router.put("/api/v1/admin/oauth-apps/{provider}", openapi_extra=capability(
+    "Register or change HireBuddha's app with a provider (M1-12): non-secret settings, and its secrets by "
+    "vault name only.", "write_internal", "app_admin", scope="platform"))
+async def admin_register_oauth_app(provider: str, body: OAuthAppIn, _: User = Depends(staff_only),
+                                   db: AsyncSession = Depends(get_control_db)):
+    from src.connections.register_app import register, row_values
+
+    try:
+        values = row_values(provider, {k: v.strip() for k, v in body.settings.items() if v.strip()},
+                            {k: v.strip() for k, v in body.refs.items() if v.strip()},
+                            (body.secret or "").strip() or None)
+        await register(values, apply=True)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return next(v for v in await _oauth_app_views(db) if v["provider"] == provider)
 
 
 @router.get("/api/v1/admin/unrouted-events", openapi_extra=capability(

@@ -18,6 +18,8 @@
 | POST | `/api/v1/admin/automation/resume` | signed in | `src.automation.api` |
 | GET | `/api/v1/admin/connectors` | roles: app_admin | `src.connections.api` |
 | PATCH | `/api/v1/admin/connectors/{connector_id}` | roles: app_admin | `src.connections.api` |
+| GET | `/api/v1/admin/oauth-apps` | roles: app_admin | `src.connections.api` |
+| PUT | `/api/v1/admin/oauth-apps/{provider}` | roles: app_admin | `src.connections.api` |
 | GET | `/api/v1/admin/tenant-servers` | roles: app_admin | `src.common.tenancy.api` |
 | GET | `/api/v1/admin/tenants` | roles: app_admin | `src.common.tenancy.api` |
 | POST | `/api/v1/admin/tenants` | roles: app_admin | `src.common.tenancy.api` |

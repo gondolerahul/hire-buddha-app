@@ -6,6 +6,7 @@
  * and its status: Available, Preview, Unavailable or Coming soon — staff's
  * switch wins over the catalog's until cleared. **Unrouted events**: provider
  * webhooks for accounts no business has connected (kept 7 days, hashes only).
+ * **HireBuddha's provider apps** (M1-12): the apps businesses connect through.
  */
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,6 +17,7 @@ import { STATUS_BADGE, connectionsService, type ConnectorAdmin, type ConnectorSt
 import { problemText } from '@/services/records.service';
 
 import { LOCAL_TZ } from '../records/RecordsPage';
+import { ProviderAppsPanel } from './ProviderAppsPanel';
 import '@/components/automation/automation.css';
 
 const STATUSES: ConnectorStatus[] = ['available', 'preview', 'unavailable', 'planned'];
@@ -54,7 +56,7 @@ export const ConnectorApprovalsPage: React.FC = () => {
     const queryClient = useQueryClient();
     const connectors = useQuery({ queryKey: ['admin', 'connectors'], queryFn: connectionsService.adminConnectors });
     const unrouted = useQuery({ queryKey: ['admin', 'unrouted'], queryFn: connectionsService.unrouted });
-    const [tab, setTab] = useState<'connectors' | 'unrouted'>('connectors');
+    const [tab, setTab] = useState<'connectors' | 'unrouted' | 'apps'>('connectors');
     const [open, setOpen] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin'] });
@@ -81,7 +83,10 @@ export const ConnectorApprovalsPage: React.FC = () => {
                 <button className={tab === 'connectors' ? 'ar-tab--on' : ''} onClick={() => setTab('connectors')}>Connectors</button>
                 <button className={tab === 'unrouted' ? 'ar-tab--on' : ''} onClick={() => setTab('unrouted')}>
                     Unrouted events ({unrouted.data?.length ?? 0})</button>
+                <button className={tab === 'apps' ? 'ar-tab--on' : ''} onClick={() => setTab('apps')}>
+                    HireBuddha's provider apps</button>
             </nav>
+            {tab === 'apps' && <ProviderAppsPanel />}
             {tab === 'connectors' && (
                 <table className="ar-table" aria-label="Connectors">
                     <thead><tr><th>Connector</th><th>Catalog</th><th>Now</th><th>Review</th><th>Switch</th></tr></thead>

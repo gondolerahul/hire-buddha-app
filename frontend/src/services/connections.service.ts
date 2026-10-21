@@ -157,4 +157,30 @@ export const connectionsService = {
     async unrouted(): Promise<UnroutedEvent[]> {
         return (await apiClient.get('/admin/unrouted-events')).data;
     },
+    /** HireBuddha's own app with each provider (M1-12): settings, and secrets by vault name only. */
+    async oauthApps(): Promise<ProviderAppView[]> {
+        return (await apiClient.get('/admin/oauth-apps')).data;
+    },
+    async saveOauthApp(provider: string, body: ProviderAppInput): Promise<ProviderAppView> {
+        return (await apiClient.put(`/admin/oauth-apps/${provider}`, body)).data;
+    },
 };
+
+export interface ProviderAppView {
+    provider: string;
+    registered: boolean;
+    status: string | null;
+    settings: Record<string, string>;
+    secret: string | null;
+    secret_in_vault: boolean | null;
+    refs: Record<string, string>;
+    refs_in_vault: Record<string, boolean | null>;
+    required: string[];
+    required_refs: string[];
+}
+
+export interface ProviderAppInput {
+    settings: Record<string, string>;
+    refs: Record<string, string>;
+    secret: string | null;
+}

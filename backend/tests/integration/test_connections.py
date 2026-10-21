@@ -618,3 +618,55 @@ async def test_old_credentials_become_connections_once(world):
     assert page_token.access_token == "page-token"
     again = await convert_company(company, apply=True)
     assert again["converted"] == [] and len(again["skipped"]) == 3       # the registry row is gone already
+
+
+async def test_staff_register_a_provider_app_with_its_secrets_named_only(world, monkeypatch):
+    """M1-12: HireBuddha's app with a provider from the staff screens — settings, and secrets by vault
+    name; the view says whether each is in the vault, never its value; only staff may."""
+    from src.auth.platform import platform_company_id
+    from src.common.platform.secrets import set_secrets
+    from src.common.platform.secrets.env import EnvSecrets
+    from src.common.tenancy.session import control_session
+    from src.config.models import IntegrationRegistry
+    from src.connections.apps import provider_app
+
+    async with control_session() as db:
+        platform = await platform_company_id(db)
+        existed = (await db.execute(select(IntegrationRegistry.id).where(
+            IntegrationRegistry.company_id == platform,
+            IntegrationRegistry.service_sku == "oauth-app-github"))).first() is not None
+    if platform is None or existed:
+        pytest.skip("needs a platform company without a GitHub app row")
+    set_secrets(EnvSecrets())
+    monkeypatch.setenv("OAUTH_GITHUB_KEY_TEST", "-----BEGIN KEY-----")
+    monkeypatch.setenv("OAUTH_GITHUB_SECRET_TEST", "client-secret-value")
+    staff = {"user": SimpleNamespace(id=uuid.uuid4(), company_id=platform, role="app_admin")}
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_app(staff)), base_url="http://t") as client:
+            missing = await client.put("/api/v1/admin/oauth-apps/github", json={"settings": {"client_id": "Iv1.abc"}})
+            assert missing.status_code == 422 and "app_id" in missing.text
+            body = {"settings": {"client_id": "Iv1.abc", "app_id": "123", "app_slug": "hirebuddha-dev"},
+                    "refs": {"private_key": "oauth-github-key-test", "webhook_secret": "oauth-github-hook-test"},
+                    "secret": "oauth-github-secret-test"}
+            saved = await client.put("/api/v1/admin/oauth-apps/github", json=body)
+            assert saved.status_code == 200, saved.text
+            view = saved.json()
+            assert view["registered"] and view["settings"]["app_slug"] == "hirebuddha-dev"
+            assert view["secret_in_vault"] is True
+            assert view["refs_in_vault"] == {"private_key": True, "webhook_secret": False}  # not put there yet
+            listed = (await client.get("/api/v1/admin/oauth-apps")).json()
+            assert [v["provider"] for v in listed] == ["meta", "google", "microsoft", "linkedin", "x", "github"]
+            assert "client-secret-value" not in saved.text + str(listed) and "BEGIN KEY" not in str(listed)
+            staff["user"] = world.acme
+            assert (await client.get("/api/v1/admin/oauth-apps")).status_code == 403
+            assert (await client.put("/api/v1/admin/oauth-apps/github", json=body)).status_code == 403
+        async with control_session() as db:
+            app = await provider_app(db, "oauth-app-github")   # what connecting through it reads
+        assert (app.client_id, app.client_secret, app.secret("private_key")) == (
+            "Iv1.abc", "client-secret-value", "-----BEGIN KEY-----")
+    finally:
+        set_secrets(None)
+        async with control_session() as db:
+            await db.execute(delete(IntegrationRegistry).where(IntegrationRegistry.company_id == platform,
+                                                               IntegrationRegistry.service_sku == "oauth-app-github"))
+            await db.commit()
