@@ -1,10 +1,19 @@
 """
 Analytics & Reports Service
 Provides data-layer methods for all role-specific reports.
+
+Across tenants (Phase 14 M2-4): with split tenancy a report over many companies
+— an app admin's global view, a partner's tenants, the data-growth counts —
+runs its queries on each tenant database in turn (``scopes``) and combines the
+rows, one connection at a time. Their aggregates are sums and counts, so the
+combined numbers equal what one shared database gave; averages and percentiles
+are worked out after combining. A tenant whose database cannot be read is left
+out and listed (``tenants_unavailable``), rather than failing the report.
 """
 from __future__ import annotations
+import logging
 from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Sequence
 from uuid import UUID
 
 from sqlalchemy import text, func, case, and_, or_, desc, asc
@@ -22,9 +31,44 @@ from src.billing.billing_models import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
+def _avg(total: Any, count: Any) -> float:
+    return float(total or 0) / count if count else 0.0
+
+
 class ReportsService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, scopes: Optional[Sequence[Optional[UUID]]] = None):
+        """``scopes``: the companies whose tenant databases a report reads (``tenant_scopes()``);
+        None reads ``db`` alone, as every report did with one shared database."""
         self.db = db
+        self.scopes = scopes
+        self.unavailable: List[str] = []
+
+    async def _rows(self, q: Any, scopes: Optional[Sequence[Optional[UUID]]] = None) -> List[Any]:
+        """``q``'s rows from the report's databases: ``db``, or — with split tenancy and
+        scopes — each of those tenant databases in turn."""
+        from src.common.tenancy.session import is_split, tenant_session
+
+        scopes = self.scopes if scopes is None else scopes
+        if scopes is None or not is_split():
+            return list((await self.db.execute(q)).all())
+        rows: List[Any] = []
+        for company_id in scopes:
+            try:
+                async with tenant_session(company_id) as session:
+                    rows.extend((await session.execute(q)).all())
+            except Exception as exc:  # one tenant's database must not fail the whole report
+                logger.warning("report: tenant %s left out: %s", company_id, exc)
+                if str(company_id) not in self.unavailable:
+                    self.unavailable.append(str(company_id))
+        return rows
+
+    def _with_unavailable(self, report: Dict[str, Any]) -> Dict[str, Any]:
+        if self.unavailable:
+            report["tenants_unavailable"] = list(self.unavailable)
+        return report
 
     # ─── Execution Health ──────────────────────────────────────────────────────
 
@@ -38,25 +82,33 @@ class ReportsService:
         q = select(
             ExecutionRun.status,
             func.count(ExecutionRun.id).label("cnt"),
-            func.avg(ExecutionRun.execution_time_ms).label("avg_ms"),
-            func.avg(ExecutionRun.total_cost_usd).label("avg_cost"),
+            func.sum(ExecutionRun.execution_time_ms).label("sum_ms"),
+            func.count(ExecutionRun.execution_time_ms).label("n_ms"),
+            func.sum(ExecutionRun.total_cost_usd).label("sum_cost"),
+            func.count(ExecutionRun.total_cost_usd).label("n_cost"),
         ).where(ExecutionRun.created_at >= since)
 
         if company_id:
             q = q.where(ExecutionRun.company_id == company_id)
 
         q = q.group_by(ExecutionRun.status)
-        result = await self.db.execute(q)
-        rows = result.all()
+        by_status: Dict[str, Dict[str, Any]] = {}
+        for r in await self._rows(q):
+            s = by_status.setdefault(r.status, {"cnt": 0, "sum_ms": 0, "n_ms": 0, "sum_cost": 0.0, "n_cost": 0})
+            s["cnt"] += r.cnt
+            s["sum_ms"] += float(r.sum_ms or 0)
+            s["n_ms"] += r.n_ms
+            s["sum_cost"] += float(r.sum_cost or 0)
+            s["n_cost"] += r.n_cost
 
         status_data = [
             {
-                "status": r.status,
-                "count": r.cnt,
-                "avg_execution_ms": float(r.avg_ms or 0),
-                "avg_cost_usd": float(r.avg_cost or 0),
+                "status": status,
+                "count": s["cnt"],
+                "avg_execution_ms": _avg(s["sum_ms"], s["n_ms"]),
+                "avg_cost_usd": _avg(s["sum_cost"], s["n_cost"]),
             }
-            for r in rows
+            for status, s in by_status.items()
         ]
 
         # Daily trend (last 30 days)
@@ -74,31 +126,28 @@ class ReportsService:
             ExecutionRun.status,
         ).order_by(text("1"))
 
-        daily_result = await self.db.execute(daily_q)
-        daily_rows = daily_result.all()
-
         daily: Dict[str, Dict] = {}
-        for r in daily_rows:
+        for r in await self._rows(daily_q):
             day_str = r.day.strftime("%Y-%m-%d") if r.day else "unknown"
             if day_str not in daily:
                 daily[day_str] = {"date": day_str}
-            daily[day_str][r.status] = r.cnt
+            daily[day_str][r.status] = daily[day_str].get(r.status, 0) + r.cnt
 
         total_runs = sum(s["count"] for s in status_data)
         failed = next((s["count"] for s in status_data if s["status"] == "FAILED"), 0)
         completed = next((s["count"] for s in status_data if s["status"] == "COMPLETED"), 0)
         paused = next((s["count"] for s in status_data if s["status"] == "PAUSED"), 0)
 
-        return {
+        return self._with_unavailable({
             "status_breakdown": status_data,
-            "daily_trend": list(daily.values()),
+            "daily_trend": sorted(daily.values(), key=lambda d: d["date"]),
             "summary": {
                 "total_runs": total_runs,
                 "success_rate": round(completed / total_runs * 100, 1) if total_runs else 0,
                 "failure_rate": round(failed / total_runs * 100, 1) if total_runs else 0,
                 "paused_count": paused,
             },
-        }
+        })
 
     # ─── LLM Performance ──────────────────────────────────────────────────────
 
@@ -114,7 +163,8 @@ class ReportsService:
             LLMInteractionLog.model_provider,
             LLMInteractionLog.model_name,
             func.count(LLMInteractionLog.id).label("calls"),
-            func.avg(LLMInteractionLog.latency_ms).label("avg_latency_ms"),
+            func.sum(LLMInteractionLog.latency_ms).label("sum_latency_ms"),
+            func.count(LLMInteractionLog.latency_ms).label("n_latency"),
             func.sum(LLMInteractionLog.prompt_tokens).label("total_prompt_tokens"),
             func.sum(LLMInteractionLog.completion_tokens).label("total_completion_tokens"),
             func.sum(LLMInteractionLog.cost_usd).label("total_cost"),
@@ -127,20 +177,28 @@ class ReportsService:
             LLMInteractionLog.model_provider,
             LLMInteractionLog.model_name,
         )
-        result = await self.db.execute(q)
-        rows = result.all()
+        by_model: Dict[tuple, Dict[str, Any]] = {}
+        for r in await self._rows(q):
+            m = by_model.setdefault((r.model_provider, r.model_name), {
+                "calls": 0, "sum_latency": 0.0, "n_latency": 0, "prompt": 0, "completion": 0, "cost": 0.0})
+            m["calls"] += r.calls
+            m["sum_latency"] += float(r.sum_latency_ms or 0)
+            m["n_latency"] += r.n_latency
+            m["prompt"] += int(r.total_prompt_tokens or 0)
+            m["completion"] += int(r.total_completion_tokens or 0)
+            m["cost"] += float(r.total_cost or 0)
 
         model_data = [
             {
-                "provider": r.model_provider,
-                "model": r.model_name,
-                "calls": r.calls,
-                "avg_latency_ms": round(float(r.avg_latency_ms or 0), 1),
-                "total_prompt_tokens": int(r.total_prompt_tokens or 0),
-                "total_completion_tokens": int(r.total_completion_tokens or 0),
-                "total_cost_usd": round(float(r.total_cost or 0), 6),
+                "provider": provider,
+                "model": model,
+                "calls": m["calls"],
+                "avg_latency_ms": round(_avg(m["sum_latency"], m["n_latency"]), 1),
+                "total_prompt_tokens": m["prompt"],
+                "total_completion_tokens": m["completion"],
+                "total_cost_usd": round(m["cost"], 6),
             }
-            for r in rows
+            for (provider, model), m in by_model.items()
         ]
 
         # Latency percentiles (simplified)
@@ -152,8 +210,7 @@ class ReportsService:
         if company_id:
             lat_q = lat_q.where(LLMInteractionLog.company_id == company_id)
 
-        lat_result = await self.db.execute(lat_q)
-        latencies = sorted([r[0] for r in lat_result.all() if r[0] is not None])
+        latencies = sorted([r[0] for r in await self._rows(lat_q) if r[0] is not None])
         n = len(latencies)
         percentiles = {}
         if n:
@@ -163,12 +220,12 @@ class ReportsService:
                 "p99": latencies[int(n * 0.99)] if n > 100 else latencies[-1],
             }
 
-        return {
+        return self._with_unavailable({
             "model_breakdown": model_data,
             "latency_percentiles": percentiles,
             "total_calls": sum(m["calls"] for m in model_data),
             "total_cost_usd": sum(m["total_cost_usd"] for m in model_data),
-        }
+        })
 
     # ─── Tool Efficacy ─────────────────────────────────────────────────────────
 
@@ -185,34 +242,38 @@ class ReportsService:
             ToolInteractionLog.provider,
             func.count(ToolInteractionLog.id).label("calls"),
             func.sum(case((ToolInteractionLog.success == True, 1), else_=0)).label("successes"),
-            func.avg(ToolInteractionLog.latency_ms).label("avg_latency_ms"),
+            func.sum(ToolInteractionLog.latency_ms).label("sum_latency_ms"),
+            func.count(ToolInteractionLog.latency_ms).label("n_latency"),
         ).where(ToolInteractionLog.created_at >= since)
 
         if company_id:
             q = q.where(ToolInteractionLog.company_id == company_id)
 
-        q = q.group_by(ToolInteractionLog.tool_name, ToolInteractionLog.provider) \
-             .order_by(desc("calls"))
-
-        result = await self.db.execute(q)
-        rows = result.all()
+        q = q.group_by(ToolInteractionLog.tool_name, ToolInteractionLog.provider)
+        by_tool: Dict[tuple, Dict[str, Any]] = {}
+        for r in await self._rows(q):
+            t = by_tool.setdefault((r.tool_name, r.provider), {"calls": 0, "successes": 0, "sum": 0.0, "n": 0})
+            t["calls"] += r.calls or 0
+            t["successes"] += int(r.successes or 0)
+            t["sum"] += float(r.sum_latency_ms or 0)
+            t["n"] += r.n_latency
 
         tool_data = []
-        for r in rows:
-            calls = r.calls or 0
-            successes = int(r.successes or 0)
+        for (tool_name, provider), t in by_tool.items():
+            calls, successes = t["calls"], t["successes"]
             failures = calls - successes
             tool_data.append({
-                "tool_name": r.tool_name,
-                "provider": r.provider,
+                "tool_name": tool_name,
+                "provider": provider,
                 "total_calls": calls,
                 "success_count": successes,
                 "failure_count": failures,
                 "error_rate": round(failures / calls * 100, 1) if calls else 0,
-                "avg_latency_ms": round(float(r.avg_latency_ms or 0), 1),
+                "avg_latency_ms": round(_avg(t["sum"], t["n"]), 1),
             })
+        tool_data.sort(key=lambda t: t["total_calls"], reverse=True)
 
-        return {"tools": tool_data}
+        return self._with_unavailable({"tools": tool_data})
 
     # ─── HITL Report ───────────────────────────────────────────────────────────
 
@@ -238,8 +299,7 @@ class ReportsService:
             q = q.where(ExecutionRun.company_id == company_id)
 
         q = q.order_by(desc(HumanApproval.requested_at))
-        result = await self.db.execute(q)
-        rows = result.all()
+        rows = sorted(await self._rows(q), key=lambda row: row[0].requested_at, reverse=True)
 
         approvals = []
         overdue_count = 0
@@ -266,12 +326,12 @@ class ReportsService:
         for a in approvals:
             status_counts[a["status"]] = status_counts.get(a["status"], 0) + 1
 
-        return {
+        return self._with_unavailable({
             "approvals": approvals,
             "status_counts": status_counts,
             "overdue_count": overdue_count,
             "total": len(approvals),
-        }
+        })
 
     # ─── Wallet Liability ─────────────────────────────────────────────────────
 
@@ -417,15 +477,17 @@ class ReportsService:
             ExecutionRun.created_at >= datetime.utcnow() - timedelta(days=30),
         ).group_by(ExecutionRun.company_id, ExecutionRun.status)
 
-        exec_result = await self.db.execute(exec_q)
-        exec_rows = exec_result.all()
+        # Runs are in each tenant's own database (split); companies and wallets in this one.
+        from src.common.tenancy.session import tenant_scopes
 
+        ready = await tenant_scopes()
+        run_scopes = None if ready == [None] else [t for t in tenant_ids if t in set(ready)]
         exec_by_tenant: Dict[str, Dict] = {}
-        for row in exec_rows:
+        for row in await self._rows(exec_q, scopes=run_scopes):
             tid = str(row.company_id)
             if tid not in exec_by_tenant:
                 exec_by_tenant[tid] = {}
-            exec_by_tenant[tid][row.status] = row.cnt
+            exec_by_tenant[tid][row.status] = exec_by_tenant[tid].get(row.status, 0) + row.cnt
 
         # Wallet per tenant
         wallet_q = select(CreditWallet).where(CreditWallet.company_id.in_(tenant_ids))
@@ -461,7 +523,7 @@ class ReportsService:
             })
 
         scores.sort(key=lambda x: x["health_score"], reverse=True)
-        return {"tenants": scores}
+        return self._with_unavailable({"tenants": scores})
 
     # ─── Campaign Analytics ────────────────────────────────────────────────────
 
@@ -841,34 +903,37 @@ class ReportsService:
             "human_approvals": HumanApproval,
         }
 
+        from src.common.tenancy.bases import CONTROL, plane_of
+
         counts = {}
         for name, model in tables.items():
             q = select(func.count(model.id))
-            result = await self.db.execute(q)
-            counts[name] = result.scalar() or 0
+            # A control table is counted once, in this database; a tenant table in every tenant's.
+            on_control = plane_of(model.__table__) == CONTROL
+            rows = list((await self.db.execute(q)).all()) if on_control else await self._rows(q)
+            counts[name] = sum(r[0] or 0 for r in rows)
 
         # Monthly growth for key tables
         growth_q = select(
             func.date_trunc("month", LLMInteractionLog.created_at).label("month"),
             func.count(LLMInteractionLog.id).label("cnt"),
-        ).group_by(text("1")) \
-         .order_by(text("1"))
+        ).group_by(text("1"))
 
-        growth_result = await self.db.execute(growth_q)
-        llm_growth = [
-            {"month": r.month.strftime("%Y-%m"), "count": r.cnt}
-            for r in growth_result.all()
-            if r.month
-        ]
+        by_month: Dict[str, int] = {}
+        for r in await self._rows(growth_q):
+            if r.month:
+                month = r.month.strftime("%Y-%m")
+                by_month[month] = by_month.get(month, 0) + r.cnt
+        llm_growth = [{"month": m, "count": c} for m, c in sorted(by_month.items())]
 
-        return {
+        return self._with_unavailable({
             "row_counts": counts,
             "llm_log_growth": llm_growth,
             "recommendations": [
                 {"table": k, "count": v, "needs_archival": v > 1_000_000}
                 for k, v in counts.items()
             ],
-        }
+        })
 
     # ── Unit economics per entity version (R2 §10) ──────────────────────────
     async def get_version_economics(self, entity_id: UUID) -> List[Dict[str, Any]]:

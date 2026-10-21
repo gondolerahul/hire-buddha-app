@@ -5,8 +5,9 @@ Provides endpoints for all 6-role analytics reports.
 Databases (Phase 14 WS2): wallet, subscription, partner and usage reports read
 the control database; run, LLM, tool, approval, campaign and agent reports the
 caller's tenant database (one entity's versions: the acting company's). With
-split tenancy an app admin's ``global_view`` covers the tenant database it is
-in, not every tenant's, until reports fan out over the tenants.
+split tenancy an app admin's ``global_view``, a partner's tenant health and the
+data-growth counts read every tenant database in turn (``ReportsService``'s
+scopes, M2-4).
 """
 from __future__ import annotations
 from typing import Optional
@@ -15,7 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.tenancy.session import get_acting_tenant_db, get_control_db, get_tenant_db
+from src.common.tenancy.session import get_acting_tenant_db, get_control_db, get_tenant_db, tenant_scopes
 from src.auth.dependencies import RoleChecker, get_current_user
 from src.auth.roles import Role
 from src.auth.models import User
@@ -28,6 +29,14 @@ APP_ROLES = {"app_admin", "app_user"}
 PARTNER_ROLES = {"app_admin", "partner_admin", "partner_user"}
 
 
+async def _service(db: AsyncSession, current_user: User, global_view: bool) -> tuple[ReportsService, Optional[UUID]]:
+    """The report's service and the company it is limited to: an app admin's global view
+    covers every company — with split tenancy, every tenant database."""
+    if global_view and current_user.role == "app_admin":
+        return ReportsService(db, scopes=await tenant_scopes()), None
+    return ReportsService(db), current_user.company_id
+
+
 # ─── Execution Health ──────────────────────────────────────────────────────────
 
 @router.get("/execution-health", summary="Execution success/fail/pause rates")
@@ -37,8 +46,7 @@ async def get_execution_health(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ):
-    svc = ReportsService(db)
-    company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
+    svc, company_id = await _service(db, current_user, global_view)
     return await svc.get_execution_health(company_id=company_id, days=days)
 
 
@@ -51,8 +59,7 @@ async def get_llm_performance(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ):
-    svc = ReportsService(db)
-    company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
+    svc, company_id = await _service(db, current_user, global_view)
     return await svc.get_llm_performance(company_id=company_id, days=days)
 
 
@@ -65,8 +72,7 @@ async def get_tool_efficacy(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ):
-    svc = ReportsService(db)
-    company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
+    svc, company_id = await _service(db, current_user, global_view)
     return await svc.get_tool_efficacy(company_id=company_id, days=days)
 
 
@@ -79,8 +85,7 @@ async def get_hitl_report(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ):
-    svc = ReportsService(db)
-    company_id = None if (global_view and current_user.role == "app_admin") else current_user.company_id
+    svc, company_id = await _service(db, current_user, global_view)
     return await svc.get_hitl_report(company_id=company_id, days=days)
 
 
@@ -112,9 +117,9 @@ async def get_usage_breakdown(
 @router.get("/tenant-health", summary="Per-tenant health scorecards (partner roles)")
 async def get_tenant_health(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN, Role.PARTNER_ADMIN, Role.PARTNER_USER])),
-    db: AsyncSession = Depends(get_tenant_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
-    svc = ReportsService(db)
+    svc = ReportsService(db)  # each tenant's runs are read in its own database
     return await svc.get_tenant_health_scores(partner_company_id=current_user.company_id)
 
 
@@ -211,7 +216,7 @@ async def get_partner_performance(
 @router.get("/data-growth", summary="Table row counts and archival readiness (app_user)")
 async def get_data_growth(
     current_user: User = Depends(RoleChecker([Role.APP_ADMIN, Role.APP_USER])),
-    db: AsyncSession = Depends(get_tenant_db),
+    db: AsyncSession = Depends(get_control_db),
 ):
-    svc = ReportsService(db)
+    svc = ReportsService(db, scopes=await tenant_scopes())  # the platform's rows: every tenant database
     return await svc.get_data_growth()

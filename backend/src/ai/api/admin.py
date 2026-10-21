@@ -61,7 +61,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import RoleChecker, get_current_user
 from src.auth.roles import ADMIN_ROLES
 from src.auth.models import User
-from src.common.tenancy.session import get_acting_tenant_db, get_control_db, get_tenant_db, tenant_db_for
+from src.common.tenancy.session import (
+    get_acting_tenant_db, get_control_db, get_tenant_db, is_split, tenant_db_for, tenant_scopes, tenant_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -588,6 +590,24 @@ def _company_scope(user: User, requested_company: Optional[UUID]) -> Optional[UU
     return user.company_id
 
 
+async def _tenant_kpi_rows(db: AsyncSession, user: User, scope: Optional[UUID], statement: Any,
+                           params: dict) -> list:
+    """A tenant-plane KPI query's rows: the named company's database, or — an app admin
+    naming no company, with split tenancy — every tenant database's in turn (M2-4).
+    The callers' rows are sums and counts, which they add up."""
+    if scope is None and user.role == "app_admin" and is_split():
+        rows: list = []
+        for company_id in await tenant_scopes():
+            try:
+                async with tenant_session(company_id) as tenant_db:
+                    rows.extend((await tenant_db.execute(statement, params)).all())
+            except Exception as exc:  # one tenant's database must not fail the dashboard
+                logger.warning("KPI: tenant %s left out: %s", company_id, exc)
+        return rows
+    async with tenant_db_for(db, scope or user.company_id) as tenant_db:
+        return list((await tenant_db.execute(statement, params)).all())
+
+
 @router.get("/admin/kpi/runs")
 async def kpi_runs(
     since: str = Query("7d"),
@@ -597,39 +617,31 @@ async def kpi_runs(
 ) -> list[dict]:
     scope = _company_scope(user, company_id)
     delta = _parse_since(since)
-    async with tenant_db_for(db, scope or user.company_id) as tenant_db:  # kpi_daily_rollup
-        rows = (await tenant_db.execute(
-            text(
-            """
-            SELECT day,
-                   SUM(runs_total)     AS runs_total,
-                   SUM(runs_completed) AS runs_completed,
-                   SUM(runs_failed)    AS runs_failed,
-                   SUM(runs_paused)    AS runs_paused,
-                   COALESCE(
-                     SUM(runs_completed)::float / NULLIF(SUM(runs_total), 0),
-                     0
-                   ) AS goal_hit_rate
-            FROM kpi_daily_rollup
-            WHERE day >= :since
-              AND (CAST(:scope AS uuid) IS NULL OR company_id = CAST(:scope AS uuid))
-            GROUP BY day
-            ORDER BY day
-            """
-            ),
-            {"since": datetime.utcnow() - delta,
-             "scope": str(scope) if scope else None},
-        )).all()
+    rows = await _tenant_kpi_rows(db, user, scope, text(  # kpi_daily_rollup
+        """
+        SELECT day,
+               SUM(runs_total)     AS runs_total,
+               SUM(runs_completed) AS runs_completed,
+               SUM(runs_failed)    AS runs_failed,
+               SUM(runs_paused)    AS runs_paused
+        FROM kpi_daily_rollup
+        WHERE day >= :since
+          AND (CAST(:scope AS uuid) IS NULL OR company_id = CAST(:scope AS uuid))
+        GROUP BY day
+        """
+    ), {"since": datetime.utcnow() - delta, "scope": str(scope) if scope else None})
+    days: dict = {}
+    for r in rows:  # one row per day and database: add them up
+        d = days.setdefault(r.day, {"runs_total": 0, "runs_completed": 0, "runs_failed": 0, "runs_paused": 0})
+        for key in d:
+            d[key] += int(getattr(r, key) or 0)
     return [
         {
-            "day": r.day.isoformat() if r.day else None,
-            "runs_total": int(r.runs_total or 0),
-            "runs_completed": int(r.runs_completed or 0),
-            "runs_failed": int(r.runs_failed or 0),
-            "runs_paused": int(r.runs_paused or 0),
-            "goal_hit_rate": float(r.goal_hit_rate or 0),
+            "day": day.isoformat() if day else None,
+            **d,
+            "goal_hit_rate": d["runs_completed"] / d["runs_total"] if d["runs_total"] else 0.0,
         }
-        for r in rows
+        for day, d in sorted(days.items(), key=lambda item: (item[0] is None, item[0]))
     ]
 
 
@@ -675,22 +687,20 @@ async def kpi_critic(
 ) -> dict:
     delta = _parse_since(since)
     # Verdict distribution from health_record CORTEX nodes (tenant plane).
-    async with tenant_db_for(db, _company_scope(user, company_id) or user.company_id) as tenant_db:
-        verdicts = (await tenant_db.execute(
-            text(
-            """
-            SELECT COALESCE((content::jsonb)->>'post_critic_verdict', '-')
-                       AS verdict,
-                   COUNT(*) AS occurrences
-            FROM cortex_nodes
-            WHERE node_type = 'health_record'
-              AND created_at >= :since
-            GROUP BY verdict
-            ORDER BY occurrences DESC
-            """
-            ),
-            {"since": datetime.utcnow() - delta},
-        )).all()
+    counted = await _tenant_kpi_rows(db, user, _company_scope(user, company_id), text(
+        """
+        SELECT COALESCE((content::jsonb)->>'post_critic_verdict', '-')
+                   AS verdict,
+               COUNT(*) AS occurrences
+        FROM cortex_nodes
+        WHERE node_type = 'health_record'
+          AND created_at >= :since
+        GROUP BY verdict
+        """
+    ), {"since": datetime.utcnow() - delta})
+    by_verdict: dict = {}
+    for r in counted:
+        by_verdict[r.verdict] = by_verdict.get(r.verdict, 0) + int(r.occurrences)
     cost_share = (await db.execute(  # usage_logs: control plane
         text(
             """
@@ -712,8 +722,8 @@ async def kpi_critic(
     )).first()
     return {
         "verdict_distribution": [
-            {"verdict": r.verdict, "occurrences": int(r.occurrences)}
-            for r in verdicts
+            {"verdict": verdict, "occurrences": n}
+            for verdict, n in sorted(by_verdict.items(), key=lambda item: -item[1])
         ],
         "cost_share": float(cost_share.share or 0) if cost_share else 0.0,
     }
