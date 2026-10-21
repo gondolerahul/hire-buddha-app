@@ -5,7 +5,7 @@ import pytest
 
 # A test's tier is its directory (TS-15): every test under one of these is
 # marked with it, so `-m` selection matches the layout without decorators.
-TIER_DIRECTORIES = ("integration", "e2e", "parity", "regression", "chaos")
+TIER_DIRECTORIES = ("integration", "e2e", "parity", "regression", "chaos", "isolation")
 
 _TESTS_ROOT = Path(__file__).resolve().parent
 
