@@ -220,3 +220,38 @@ async def test_triggering_a_run_without_free_credit_is_402(db):
     assert exc.value.status_code == 402
     runs = (await db.execute(select(ExecutionRun).where(ExecutionRun.entity_id == ent.id))).scalars().all()
     assert runs == []
+
+
+async def test_a_partner_starting_its_tenants_agent_starts_the_tenants_run_on_its_credit(db, monkeypatch):
+    """D54 (owner, 21 Oct 2026): whose run, whose credits — the tenant's. The partner's own wallet is
+    empty; the run is admitted on the tenant's and stamped with the tenant's company."""
+    from src.ai.schemas.execution import ExecutionRunCreate
+    from src.ai.service import AIService
+    from src.auth.models import Company
+
+    async def _queued(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("src.ai.service.enqueue_job", _queued)
+    partner = await _company(db, "0")
+    (await db.get(Company, partner)).type = "PARTNER"
+    tenant = await _company(db, "50")
+    (await db.get(Company, tenant)).parent_id = partner
+    agent = HierarchicalEntity(company_id=tenant, type="AGENT", status="ACTIVE", name="tenant agent")
+    db.add(agent)
+    await db.flush()
+
+    run = await AIService(db).trigger_execution(
+        ExecutionRunCreate(entity_id=agent.id, input_data={"input": "x"}), partner, uuid.uuid4(),
+        user_role="partner_admin")
+    assert run.company_id == tenant
+
+    stranger = await _company(db, "50")   # a company the partner cannot see
+    other = HierarchicalEntity(company_id=stranger, type="AGENT", status="ACTIVE", name="not theirs")
+    db.add(other)
+    await db.flush()
+    with pytest.raises(HTTPException) as exc:
+        await AIService(db).trigger_execution(
+            ExecutionRunCreate(entity_id=other.id, input_data={"input": "x"}), partner, uuid.uuid4(),
+            user_role="partner_admin")
+    assert exc.value.status_code == 404

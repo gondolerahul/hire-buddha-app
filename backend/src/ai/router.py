@@ -192,9 +192,11 @@ async def get_dashboard_stats(
 @router.post("/execute", response_model=ExecutionRunResponse)
 async def trigger_execution(
     execution_in: ExecutionRunCreate,
-    db: AsyncSession = Depends(get_tenant_db),
+    db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Start a run. A partner or staff member working in a tenant (``X-Company-Id``)
+    starts the tenant's run, paid by the tenant's credits (D54)."""
     service = AIService(db)
     return await service.trigger_execution(execution_in, current_user.company_id, current_user.id, user_role=current_user.role)
 

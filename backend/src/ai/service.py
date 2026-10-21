@@ -384,6 +384,12 @@ class AIService:
         written on the run as it is created; a manual run has none."""
         # Pre-flight: validate entity exists and belongs to this company
         entity = await self.get_entity(execution_in.entity_id, company_id, user_role=user_role)
+        # Whose run (owner, 21 Oct 2026, decision D54): a partner or platform staff member
+        # starting another company's agent (one get_entity let them see) starts that
+        # company's run, paid by that company's credits — not their own. A template
+        # runs as the caller's.
+        if entity.company_id and not entity.is_template and entity.company_id != company_id:
+            company_id = entity.company_id
         if entity_version_id is not None:
             # A test run of one version (a draft, or an older one): checked and
             # executed as that version describes the entity (EP-10).
