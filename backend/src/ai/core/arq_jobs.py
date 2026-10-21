@@ -585,6 +585,10 @@ async def process_document(ctx: dict[str, Any], document_id_str: str, file_conte
 
         except Exception as e:
             await db.rollback()
+            if (await db.execute(select(Document.id).where(Document.id == document_id))).scalar_one_or_none() is None:
+                # Deleted while it was being processed: nothing left to mark.
+                logger.info(f"Document {document_id} was deleted while it was processed")
+                return
             document.upload_status = "failed"
             await db.commit()
             logger.error(f"Doc processing failed: {e}")
