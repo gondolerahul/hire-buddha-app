@@ -428,6 +428,7 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 
 | # | Item | Who |
 |---|------|-----|
+| M1-0 | **Production manual test plan**: `docs/how-to/PRODUCTION_MANUAL_TEST_PLAN.md` (21 Oct) — tenant 0 *Buddha Cognitive Lab*, partner *Durwankur Technologies* and its client, every product area, the later items | Owner runs it |
 | M1-1 | Enable Claude in Vertex AI Model Garden for `hirebuddha-production` (each model: Enable, accept Anthropic's terms); then register Claude and settle SP-5 (Vertex or Foundry) | Owner, then Eng |
 | M1-2 | GPT: an Azure OpenAI deployment (the existing resource is in East US 2, or one in Central India), the "Cognitive Services OpenAI User" role for the API and worker identities, a registry row with `auth: managed_identity` | Owner decides region, Eng |
 | M1-3 | E-mail: an `smtp-system` integration (provider and sender address), so sign-up verification, password resets and notifications work | Owner (provider account), Eng |
@@ -448,8 +449,8 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 | M2-1 | ~~Bicep slice 2~~ — **done 20 Oct** (Burstable B2s pool server, tenant-keys vault, tenants' resource group, the provisioner's rights) | Eng |
 | M2-2 | ~~The provisioner's Azure steps~~ — **done 20 Oct** (`47aa9e9`): its own worker and identity (`sa-provisioner`, queue `provisioning`), the pool server's roles made on first use, tenant databases owned by `hb_migrator` (DDL as that role), `identity_ready` (managed identity + federated credential + `hb_dataapi` sign-in), `keys_ready` in `kv-hb-dev-tk-ac48`, `namespace_ready` (ClusterRole `hb-provisioner`). **Proved**: test company *M2 Proof Co* (`a1f5cfd8-…`, tenant `ncnpd9qr1g`) went `requested` → `active` through the staff API in 23 s; checked in Azure, the cluster and the database (below). Left: `data_api_ready` as a per-tenant Deployment (dev serves the Data API in-process, `DATA_API_MODE=in_process`) | Eng |
 | M2-3 | ~~Switch dev to `split`, two tenants on Azure, the isolation smoke tests~~ — **done 21 Oct** (§1 "M2 on Azure dev"; 87 passed). Was: **Before it:** (a) the platform company and any other existing company need a tenant database and their rows moved (`python -m src.common.tenancy.split`; owner decision — dev holds only test data); (b) runtime schema changes (WS4 schema engine) run DDL as the API, which tenant databases now refuse — apply approved changes as the DDL role (through the provisioner/migrator path); (c) in single mode with `KEK_BACKEND=azure_keyvault` a company's first connection would try to create its KEK with the API's Crypto User role and fail — moot once every company is provisioned (keys_ready makes it) | Owner decides (a), Eng |
-| M2-4 | The split-mode gaps of §1 WS2. **Done 21 Oct**: report fan-out, the frontend's `X-Company-Id`, old avatar URLs. Left: `trigger_execution` for another company's agent (**owner decision**: whose run, whose credits — until then a partner starts a tenant's agent by working in that company), Tata inbound status callbacks naming the tenant (needs a live Smartflo payload), E.164 numbers for the mobile AI leg | Eng (one owner decision) |
-| M2-5 | SP-6: Entra tokens + built-in PgBouncer + per-tenant engines at 200 tenant databases | Eng |
+| M2-4 | The split-mode gaps of §1 WS2. **Done 21 Oct**: report fan-out, the frontend's `X-Company-Id`, old avatar URLs, and **another company's agent** (D54: the tenant's run, on the tenant's credits; `/execute` opens the acting company's database). Left: Tata inbound status callbacks naming the tenant (needs a live Smartflo payload), E.164 numbers for the mobile AI leg | Eng (one owner decision) |
+| M2-5 | ~~SP-6~~ — **deferred** (D55, owner 21 Oct): revisit before a pool server nears ~40 tenants | — |
 
 ### 5.4 M3/M4 leftovers (WS3, WS4)
 
@@ -474,7 +475,7 @@ Everything not done, in one list. **Owner** marks a step only the owner can take
 
 | # | Item | Who |
 |---|------|-----|
-| M6-1 | Bicep slice 4: `sandbox` pool with Kata, `apps` pool, apps registry, the tenant edge's static IP, Gitea's storage | Eng (≈ $350/month) |
+| M6-1 | Bicep slice 4: `sandbox` pool with Kata, `apps` pool, apps registry, the tenant edge's static IP, Gitea's storage — **agreed 21 Oct (D53)**: dev and production; sandbox D4s_v5 scaling 0–2, apps one D2s_v5 (1–3), the platform registry reused | Eng |
 | M6-2 | Images: `hb-sandbox` (with the agent), `hb-checks`, `hb-egress-proxy`, `hb-app-controller`, Caddy with Redis | Eng |
 | M6-3 | Secrets and settings the tenant runtime needs: `tenant-edge-redis`, `egress-proxy`, Gitea's database login on `hb_gitea` and its admin token; then `tenantRuntime.enabled: true` in dev | Eng |
 | M6-4 | ACR Tasks builds, KEDA HTTP add-on (SP-9), `*.apps.<domain>` DNS, managed Prometheus for metering | Eng |
@@ -516,7 +517,7 @@ Found on the way: `db-scripts/seed_admin_user.py` opened its own engine without 
 | # | Item | Who |
 |---|------|-----|
 | M7-1 | ~~Staging environment~~ — **none (D51, owner 21 Oct)**; slice 5 observability (managed Prometheus, Grafana) still open | Eng |
-| M7-2 | Two migration rehearsals on a restored production copy within the agreed window — **on dev** (D52: dev treated as production while it holds the copy, the copy deleted after) (WS7 tools exist; `azcopy` for large file moves) | Eng, owner sets the window |
+| M7-2 | ~~Two migration rehearsals~~ — **not needed** (D56: the owner moves the few GCP tenants by hand with the WS7 tools). Was: on dev (D52: dev treated as production while it holds the copy, the copy deleted after) (WS7 tools exist; `azcopy` for large file moves) | Eng, owner sets the window |
 | M7-3 | Production's crossing: time the ~45 old-chain revisions (DM-12/13 type changes) on a restored copy; raise the migrations Job's deadline if needed; carry any new `main` revision into `migrations/legacy/` first | Eng |
 | M7-4 | Hardening: isolation suite, load targets, resilience drills (scheduler/router/worker, Redis, tenant database), DR drill (restore one tenant; export and restore to a clean environment), security review (Connection Service, Data API, sandbox, App Controller), Defender | Eng |
-| M8-1 | Switch-over runbook (plan WS9): DNS TTL, partner IP allow-lists (Tata), maintenance window, cutover, standby, GCP shutdown | Owner, Eng |
+| M8-1 | ~~Switch-over runbook~~ — **by hand** (D56); partners' allow-lists already have production's egress IP | Owner |
