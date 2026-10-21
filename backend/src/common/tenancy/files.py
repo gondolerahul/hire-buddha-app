@@ -14,7 +14,8 @@ Each object is copied through the storage adapter (streamed through a local
 file, never whole in memory), its SHA-256 compared on both sides, and only
 then is the artifact row moved (``storage_key``, and ``file_path`` where it
 named the old key or file). The old objects stay until ``--delete-old``, after
-the cutover has been verified. Run it once the business's rows are in their
+the cutover has been verified. Agents' avatar URLs saved before split mode
+get the ``?company=`` split mode needs (M2-4). Run it once the business's rows are in their
 final database (after ``split``): the artifact rows are read and rewritten in the
 business's own database, whatever ``TENANCY_MODE`` is. On Azure, a large business is better copied first with
 ``azcopy`` between containers and then verified by this tool's dry run.
@@ -120,7 +121,47 @@ async def move_files(company_id: Any, *, apply: bool, delete_old: bool = False) 
             if delete_old:
                 await storage.delete(old)
                 report["deleted"] += 1
+        report["avatar_urls"] = await _name_company_in_avatar_urls(db, company_id, apply=apply)
     return report
+
+
+def _avatar_url_with_company(url: Any, company_id: uuid.UUID) -> Optional[str]:
+    """A public avatar URL saved before split mode (``/api/v1/files/<id>/public``) with the
+    company named, which split mode needs to find the file's row; ``None`` if it needs nothing."""
+    if not isinstance(url, str) or "?" in url:
+        return None
+    head, sep, rest = url.partition("/api/v1/files/")
+    artifact, _, tail = rest.partition("/")
+    if not sep or tail != "public":
+        return None
+    try:
+        uuid.UUID(artifact)
+    except ValueError:
+        return None
+    return f"{url}?company={company_id}"
+
+
+async def _name_company_in_avatar_urls(db: Any, company_id: uuid.UUID, *, apply: bool) -> int:
+    """Agents' avatar URLs (``identity.profile_image_url``) get ``?company=``. Saved versions
+    keep theirs: a version is a fixed snapshot (its hash covers it), and the screens show the agent's."""
+    from src.ai.orm.entity import HierarchicalEntity
+
+    entities = (await db.execute(
+        select(HierarchicalEntity).where(HierarchicalEntity.company_id == company_id)
+        .execution_options(include_deleted=True)
+    )).scalars().all()
+    changed = 0
+    for entity in entities:
+        identity = entity.identity if isinstance(entity.identity, dict) else None
+        url = _avatar_url_with_company((identity or {}).get("profile_image_url"), company_id)
+        if url is None:
+            continue
+        changed += 1
+        if apply:
+            entity.identity = {**identity, "profile_image_url": url}
+    if apply and changed:
+        await db.commit()
+    return changed
 
 
 async def _cli(args: argparse.Namespace) -> int:

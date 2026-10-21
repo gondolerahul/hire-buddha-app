@@ -224,6 +224,7 @@ async def test_a_rehearsal_moves_credentials_rows_and_files_and_reports_them(bus
     report — kept as JSON and Markdown — says all is well."""
     from src.ai.artifact_models import Artifact
     from src.ai.email_models import EmailConnection
+    from src.ai.orm.entity import HierarchicalEntity
     from src.common.config import settings
     from src.common.platform.storage import company_namespace, legacy_namespace
     from src.common.security import encrypt_api_key
@@ -242,7 +243,12 @@ async def test_a_rehearsal_moves_credentials_rows_and_files_and_reports_them(bus
                         mime_type="text/plain"))
         db.add(EmailConnection(company_id=company, email_address="ops@split.test",
                                encrypted_app_password=encrypt_api_key("mail-pass")))
+        avatar = f"/api/v1/files/{uuid.uuid4()}/public"  # saved before split mode: no company
+        agent = HierarchicalEntity(company_id=company, type="AGENT", status="ACTIVE", name="Avatar agent",
+                                   identity={"system_prompt": "hi", "profile_image_url": avatar})
+        db.add(agent)
         await db.commit()
+        agent_id = agent.id
 
     report = await rehearse([company], server_name=business["server"], files=True)
     [result] = report["results"]
@@ -263,6 +269,10 @@ async def test_a_rehearsal_moves_credentials_rows_and_files_and_reports_them(bus
                                                                    Connection.connector_id == "imap_mailbox"))
                          ).scalars().all()
             assert mailbox.external_account_id == "ops@split.test"
+            # The agent's avatar URL now names the company, as split mode serves it (M2-4).
+            moved_agent = await db.get(HierarchicalEntity, agent_id)
+            assert moved_agent.identity == {"system_prompt": "hi", "profile_image_url": f"{avatar}?company={company}"}
+        assert result["files"]["avatar_urls"] == 1
         assert company_namespace(company) == f"t-{key}"            # new files go to the tenant's namespace
     finally:
         settings.TENANCY_MODE = "single"
