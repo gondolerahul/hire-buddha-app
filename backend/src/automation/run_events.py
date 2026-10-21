@@ -12,11 +12,15 @@ Approvals the same way (plan WS3 3.8): ``approval.requested`` when a run
 asks a person, ``approval.decided`` when it is answered (``data.status``:
 APPROVED, REJECTED or TIMEOUT) — "when an approval waits, message the manager".
 
-The kernel does not emit them yet (WS2 is moving it): the event worker's
-sweep relays them from ``execution_runs`` and ``human_approvals``, for the
-businesses that have a trigger listening for ``run.*`` / ``approval.*``, for
-what happened in the last hour and after the oldest such trigger was made.
-When the kernel emits them itself the same keys keep each one single.
+The kernel emits them itself (W3-1): a run's final persist and its
+cancellation call ``emit_run_finished``, opening and answering an approval
+call ``emit_approval`` — each best-effort (a failure is logged, never the
+run's) and only for a business with a trigger listening for ``run.*`` /
+``approval.*``. The event worker's sweep still relays them from
+``execution_runs`` and ``human_approvals`` (the last hour, after the oldest
+such trigger was made) for anything an emission missed — a worker that died
+between the run's commit and its event; the same dedupe keys keep each one
+single.
 """
 from __future__ import annotations
 
@@ -152,6 +156,60 @@ async def relay_approvals(db: Any, company_id: Any, since: datetime, *, now: Opt
         if new:
             created.append(row.id)
     return created
+
+
+async def is_listening(db: Any, company_id: Any, prefix: str) -> bool:
+    """Whether the business has an enabled trigger on ``<prefix>*``."""
+    return (await db.execute(
+        select(Trigger.id).where(Trigger.company_id == company_id, Trigger.enabled.is_(True),
+                                 Trigger.kind.in_(("event", "data")), Trigger.event_type.like(f"{prefix}%"))
+        .limit(1))).first() is not None
+
+
+async def _emit(db: Any, company_id: Any, envelopes: List[Envelope]) -> List[UUID]:
+    created = []
+    for envelope_ in envelopes:
+        row, new = await store.record(db, company_id, envelope_)
+        if new:
+            created.append(row.id)
+    await db.commit()
+    for event_id in created:
+        await store.nudge(company_id, event_id)
+    return created
+
+
+async def emit_run_finished(db: Any, run: Any) -> List[UUID]:
+    """The kernel's ``run.<outcome>`` for a top-level run that has just ended (commits it). Never raises."""
+    try:
+        if run is None or run.parent_run_id is not None or outcome_of(run.status) is None:
+            return []
+        if not await is_listening(db, run.company_id, "run."):
+            return []
+        from src.ai.orm import HierarchicalEntity
+
+        name = (await db.execute(select(HierarchicalEntity.name).where(
+            HierarchicalEntity.id == run.entity_id).execution_options(include_deleted=True))).scalar()
+        return await _emit(db, run.company_id, [envelope(run, name)])
+    except Exception:  # noqa: BLE001 - the sweep relays it
+        logger.exception("run %s: run-finished event not emitted (the sweep will relay it)",
+                         getattr(run, "id", None))
+        return []
+
+
+async def emit_approval(db: Any, approval: Any) -> List[UUID]:
+    """The kernel's ``approval.requested`` / ``approval.decided`` for an approval just opened or
+    answered (commits them; one already stored is not stored again). Never raises."""
+    try:
+        from src.ai.orm import ExecutionRun
+
+        run = await db.get(ExecutionRun, approval.run_id)
+        company_id = approval.company_id or (run.company_id if run is not None else None)
+        if company_id is None or not await is_listening(db, company_id, "approval."):
+            return []
+        return await _emit(db, company_id, approval_envelopes(approval, run))
+    except Exception:  # noqa: BLE001 - the sweep relays it
+        logger.exception("approval %s: event not emitted (the sweep will relay it)", getattr(approval, "id", None))
+        return []
 
 
 async def relay_all(db: Any, *, now: Optional[datetime] = None) -> int:

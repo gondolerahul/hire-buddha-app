@@ -617,6 +617,9 @@ class AIService:
                 await r.close()
             except Exception:
                 pass  # Non-fatal: the loop's own status re-read still aborts it.
+            from src.automation.run_events import emit_run_finished
+
+            await emit_run_finished(self.db, await self.db.get(ExecutionRun, run.id, populate_existing=True))
 
         # Reload with relationships for the response schema.
         result = await self.db.execute(
@@ -959,6 +962,9 @@ class AIService:
             raise HTTPException(status_code=409, detail=f"This approval is already {current}")
         await self.db.commit()
         await self.db.refresh(approval)
+        from src.automation.run_events import emit_approval
+
+        await emit_approval(self.db, approval)  # approval.decided (W3-1)
         # The router enqueues the resume of the run parked on it (GH-07).
         return approval
 

@@ -119,4 +119,9 @@ async def settle_deadline(db: Any, approval_id: Any, *, auto_approve: bool) -> t
                 reviewer_notes="Auto-approved on timeout" if auto_approve else None)
     )
     await db.commit()
+    from src.automation.run_events import emit_approval
+
+    approval = await db.get(HumanApproval, approval_id, populate_existing=True)
+    if approval is not None:
+        await emit_approval(db, approval)  # approval.decided: TIMEOUT or auto-approved (W3-1)
     return await read_decision(db, approval_id)

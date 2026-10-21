@@ -114,6 +114,9 @@ async def open_for(company_id: Any, view: Dict[str, Any], *, entity_name: Option
             db.add(approval)
             await db.commit()
             approval_id = approval.id
+            from src.automation.run_events import emit_approval
+
+            await emit_approval(db, approval)  # approval.requested (W3-1)
     except Exception:  # noqa: BLE001 - the change waits either way; the Data API can decide it
         logger.exception("schema change %s: no inbox row", view.get("id"))
         return None

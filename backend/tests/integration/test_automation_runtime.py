@@ -483,6 +483,78 @@ async def test_when_an_agent_finishes_the_next_one_starts_once(biz):
     assert [f.event_id for f in await _firings(biz, trigger_id)] == [event.id]
 
 
+async def test_the_kernel_emits_a_finished_run_itself_once(biz):
+    """W3-1: the event exists when the run ends, without the sweep; the sweep then adds nothing."""
+    from src.ai.orm import ExecutionRun
+    from src.automation import run_events
+
+    async with _session() as db:
+        run = ExecutionRun(company_id=biz.company, entity_id=biz.agent, status="COMPLETED", input_data={},
+                           result_data={"summary": "done"}, completed_at=datetime.utcnow())
+        db.add(run)
+        await db.commit()
+        assert await run_events.emit_run_finished(db, run) == []       # nobody listens: nothing stored
+    other = await _other_agent(biz)
+    await _trigger(biz, kind="event", event_type="run.completed", entity_id=other,
+                   filter={"path": "data.entity_id", "op": "eq", "value": str(biz.agent)})
+    async with _session() as db:
+        run = await db.get(ExecutionRun, run.id)
+        [event_id] = await run_events.emit_run_finished(db, run)
+        assert await run_events.emit_run_finished(db, run) == []       # once per run and outcome
+        assert await run_events.relay_all(db) == 0                     # the sweep finds it stored
+        event = await db.get(Event, event_id)
+    assert event.type == "run.completed" and event.data["output"] == {"summary": "done"}
+    assert biz.nudged[-1][1] == event_id
+
+
+async def test_cancelling_a_run_emits_run_cancelled(biz):
+    from src.ai.orm import ExecutionRun
+    from src.ai.service import AIService
+
+    other = await _other_agent(biz)
+    await _trigger(biz, kind="event", event_type="run.cancelled", entity_id=other)
+    async with _session() as db:
+        run = ExecutionRun(company_id=biz.company, entity_id=biz.agent, status="RUNNING", input_data={})
+        db.add(run)
+        await db.commit()
+        await AIService(db).cancel_execution(run.id, biz.company, "tenant_admin")
+        [event] = (await db.execute(select(Event).where(Event.company_id == biz.company,
+                                                        Event.type == "run.cancelled"))).scalars().all()
+    assert event.data["run_id"] == str(run.id) and event.data["status"] == "CANCELLED"
+
+
+async def test_answering_an_approval_emits_approval_decided(biz):
+    from src.ai.orm import ExecutionRun, HumanApproval
+    from src.ai.service import AIService
+    from src.automation import run_events
+
+    await _trigger(biz, kind="event", event_type="approval.decided")
+    async with _session() as db:
+        run = ExecutionRun(company_id=biz.company, entity_id=biz.agent, status="PAUSED", input_data={})
+        db.add(run)
+        await db.flush()
+        approval = HumanApproval(run_id=run.id, company_id=biz.company, checkpoint_trigger="BEFORE_STEP: Send",
+                                 status="PENDING", requested_at=datetime.utcnow())
+        db.add(approval)
+        await db.commit()
+        await AIService(db).respond_to_approval(approval.id, "APPROVED", biz.user, "fine", company_id=biz.company)
+        rows = (await db.execute(select(Event).where(Event.company_id == biz.company,
+                                                     Event.type == "approval.decided"))).scalars().all()
+        assert await run_events.relay_all(db) == 0                     # not made twice by the sweep
+    assert [(e.data["status"], e.data["notes"]) for e in rows] == [("APPROVED", "fine")]
+
+
+async def _other_agent(biz):
+    """A second agent to run: a trigger on its own agent's runs is refused (it would loop)."""
+    from src.ai.orm import HierarchicalEntity
+
+    async with _session() as db:
+        agent = HierarchicalEntity(company_id=biz.company, type="AGENT", status="ACTIVE", name="ws3 next")
+        db.add(agent)
+        await db.commit()
+        return agent.id
+
+
 async def test_a_trigger_does_not_answer_events_from_before_it_existed(biz):
     old, _ = await _event(biz)
     async with _session() as db:

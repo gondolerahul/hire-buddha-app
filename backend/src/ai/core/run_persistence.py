@@ -162,6 +162,12 @@ class RunPersistence:
         if self.credits is not None:
             await self.credits.settle(fresh)
 
+        # "When this agent finishes, run that one" (Phase 14 W3-1): the run's own
+        # run.<outcome> event, for a business listening for it. Best-effort.
+        from src.automation.run_events import emit_run_finished
+
+        await emit_run_finished(self.db, fresh)
+
     async def _persist_suspended(self, run: ExecutionRun, state: AgentState) -> None:
         """Persist a resumable snapshot + WAITING_ON_CHILDREN status, PAUSED
         when the run waits on a person's decision (GH-07), or WAITING_ON_EVENT

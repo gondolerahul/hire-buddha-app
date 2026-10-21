@@ -421,6 +421,9 @@ class GovernanceService:
         self.db.add(approval)
         await self.db.commit()
         await self.db.refresh(approval)
+        from src.automation.run_events import emit_approval
+
+        await emit_approval(self.db, approval)  # approval.requested (W3-1)
         # Best-effort: the approval row is the record, and the approvals page reads it.
         try:
             await publish_run_event(self.redis, run.id, {
