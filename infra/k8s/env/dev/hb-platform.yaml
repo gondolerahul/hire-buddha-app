@@ -18,9 +18,21 @@ config:
   CORS_ORIGINS: https://app.azdev.hirebuddha.com
   # Traces to the collector hb-bootstrap installs (WS1 1.9), which forwards them to App Insights.
   OTEL_EXPORTER_OTLP_ENDPOINT: http://hb-otel-collector.hb-platform.svc.cluster.local:4317
-  # The tenant runtime is off below: no Kubernetes sandbox yet, so the sandbox tools
-  # refuse and the idle reaper skips (with `kubernetes` it failed every 5 minutes).
-  SANDBOX_RUNTIME: ""
+  # The tenant runtime (slice 4, D53, 21 Oct): sandboxes on the Kata pool, tenants'
+  # app builds by ACR Tasks in this registry, apps by the App Controller, built-in Git.
+  SANDBOX_RUNTIME: kubernetes
+  APP_BUILDER: acr_tasks
+  ACR_SUBSCRIPTION_ID: af133a07-d04f-4d5d-928b-d532a3abf0f4
+  ACR_RESOURCE_GROUP: rg-hb-dev-core
+  ACR_REGISTRY_NAME: acrhbdevac48
+  ACR_LOGIN_SERVER: acrhbdevac48.azurecr.io
+  GIT_BACKEND: gitea
+  GITEA_URL: http://gitea.hb-platform.svc.cluster.local:3000
+  APPS_DOMAIN: apps.azdev.hirebuddha.com
+  APP_EDGE_IP: 20.219.187.165
+  APP_EDGE_TARGET: edge.apps.azdev.hirebuddha.com
+  APP_DATA_API_PUBLIC_URL: https://gateway.azdev.hirebuddha.com/data
+  APP_DATA_API_INTERNAL_URL: http://hb-api.hb-platform.svc.cluster.local:8000/data
   # M2 — tenant provisioning (Bicep slice 2): its own worker and identity, the
   # pool server's roles, each tenant's identity and KEK.
   # M2-3 (20 Oct): every business in its own database on psql-hb-dev-pool-01
@@ -49,6 +61,14 @@ database:
 
 secrets:
   csi:
+    # Key Vault secret -> setting (values-azure.yaml's four, restated: Helm replaces a
+    # list whole) and the tenant runtime's egress-proxy password.
+    objects:
+      - { name: secret-key, alias: SECRET_KEY }
+      - { name: internal-token, alias: INTERNAL_TOKEN }
+      - { name: encryption-master-key, alias: ENCRYPTION_MASTER_KEY }
+      - { name: redis-url, alias: REDIS_URL }
+      - { name: egress-proxy-secret, alias: EGRESS_PROXY_SECRET }
     keyVaultName: kv-hb-dev-ac48
     tenantId: 7cb9c9f3-27c0-412e-805c-fac9974e9cdc
     clientIds:                              # az identity show -n id-hb-dev-<id> --query clientId
@@ -69,10 +89,19 @@ gateway:
     app: app.azdev.hirebuddha.com
     gateway: gateway.azdev.hirebuddha.com
 
-# Off until its images (hb-egress-proxy, caddy-redis) are in the registry and its
-# secrets (tenant-edge-redis, egress-proxy, gitea) and Gitea's database login exist.
+# The tenant runtime (slice 4, D53): its Secrets hb-system/egress-proxy,
+# hb-system/tenant-edge-redis and hb-platform/gitea come from Key Vault (made once);
+# Gitea signs in to hb_gitea as the password login gitea.
 tenantRuntime:
-  enabled: false
+  enabled: true
+  tenantEdge:
+    serviceAnnotations:
+      service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-hb-dev-core
+      service.beta.kubernetes.io/azure-pip-name: pip-hb-dev-edge
+    acmeEmail: gondole.rahul@outlook.com
+    redisAddress: redis-hb-dev-ac48.centralindia.redis.azure.net:10000
+  gitea:
+    databaseHost: psql-hb-dev-control.postgres.database.azure.com
 
 # Dev sizing (20 Oct, budget): reservations close to what dev uses, so the
 # platform pool stays at one node (requests had reached 93% of a D4s_v5's CPU

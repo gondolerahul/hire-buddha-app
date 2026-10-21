@@ -362,6 +362,9 @@ class Settings(BaseSettings):
     SANDBOX_K8S_RUNTIME_CLASS: str = "kata-vm-isolation"
     SANDBOX_K8S_NODE_POOL: str = "sandbox"
     SANDBOX_K8S_WORKSPACE_LIMIT: str = "2Gi"
+    # How long a new sandbox pod may take to be ready: the sandbox pool scales to zero
+    # (D53), so the first one after an idle spell waits for a node and its image pull.
+    SANDBOX_K8S_READY_TIMEOUT_SECONDS: int = 480
     SANDBOX_AGENT_PORT: int = 7070
     SANDBOX_IDLE_DELETE_SECONDS: int = 900
     SANDBOX_SCRATCH_RETENTION_DAYS: int = 7

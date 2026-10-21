@@ -272,7 +272,10 @@ class KubernetesSandboxRuntime:
     async def _wait_ready(self, namespace: str) -> str:
         from src.common.platform.kube import path_for
 
-        deadline = time.monotonic() + READY_TIMEOUT_SECONDS
+        from src.common.config import settings
+
+        wait = settings.SANDBOX_K8S_READY_TIMEOUT_SECONDS or READY_TIMEOUT_SECONDS
+        deadline = time.monotonic() + wait
         while True:
             pod = await self.kube.get(path_for("Pod", namespace, self.name))
             status = pod.get("status") or {}
@@ -282,7 +285,7 @@ class KubernetesSandboxRuntime:
             if status.get("phase") == "Failed":
                 raise RuntimeError(f"sandbox pod {self.name} failed: {status.get('reason') or status.get('message')}")
             if time.monotonic() > deadline:
-                raise RuntimeError(f"sandbox pod {self.name} was not ready in {READY_TIMEOUT_SECONDS}s")
+                raise RuntimeError(f"sandbox pod {self.name} was not ready in {wait}s")
             await asyncio.sleep(1)
 
     def _scratch_key(self, namespace: str) -> str:

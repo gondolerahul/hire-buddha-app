@@ -18,3 +18,7 @@ certManager:
     # Production since staging issued app and gateway (October 2026). A new
     # environment starts on https://acme-staging-v02.api.letsencrypt.org/directory.
     server: https://acme-v02.api.letsencrypt.org/directory
+
+# The tenant runtime's cluster-wide RBAC (slice 4): hb-platform's tenantRuntime is on.
+tenantRuntimeRbac:
+  enabled: true

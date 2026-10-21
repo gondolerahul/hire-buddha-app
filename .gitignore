@@ -68,3 +68,6 @@ backend/.local-git/
 # Per-environment deploy settings (names and ids, never secrets): tracked, unlike a Python env/.
 !infra/azure/env/
 !infra/k8s/env/
+
+# The sandbox image's staged build context (deploy-azure.yml, local builds)
+backend/docker/sandbox/stage/
