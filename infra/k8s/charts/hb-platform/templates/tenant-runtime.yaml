@@ -1,55 +1,14 @@
 {{- /*
-Tenant runtime (Phase 14 WS6, tech spec §11): what the platform may do in
-tenant namespaces, the App Controller, the tenant app edge (Caddy, on-demand
-TLS), the cluster egress proxy and the built-in Git (Gitea). Off by default;
-values-azure.yaml turns it on.
+Tenant runtime (Phase 14 WS6, tech spec §11): the App Controller, the tenant
+app edge (Caddy, on-demand TLS), the cluster egress proxy and the built-in Git
+(Gitea). Off by default; values-azure.yaml turns it on. What the platform and
+the App Controller may do across tenant namespaces is cluster-wide RBAC, in the
+hb-bootstrap chart (tenantRuntimeRbac): the deploy pipeline's identity may
+change only the hb-platform and hb-system namespaces.
 */ -}}
 {{- if .Values.tenantRuntime.enabled }}
 {{- $rt := .Values.tenantRuntime }}
 {{- $sys := $rt.systemNamespace }}
----
-# The API and workers: sandbox pods, their secrets and network policy, TenantApp
-# objects and app secrets in t-* namespaces; pod logs; checks Jobs.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: hb-platform-tenant-runtime
-  labels:
-    {{- include "hb.labels" . | nindent 4 }}
-rules:
-  - apiGroups: [""]
-    resources: [pods, secrets]
-    verbs: [get, list, watch, create, update, patch, delete]
-  - apiGroups: [""]
-    resources: [pods/log]
-    verbs: [get]
-  - apiGroups: [networking.k8s.io]
-    resources: [networkpolicies]
-    verbs: [get, create, update, patch]
-  - apiGroups: [batch]
-    resources: [jobs]
-    verbs: [get, list, create, delete]
-  - apiGroups: [hirebuddha.com]
-    resources: [tenantapps]
-    verbs: [get, list, watch, create, update, patch, delete]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: hb-platform-tenant-runtime
-  labels:
-    {{- include "hb.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: hb-platform-tenant-runtime
-subjects:
-  - kind: ServiceAccount
-    name: {{ .Values.serviceAccounts.api.name }}
-    namespace: {{ .Release.Namespace }}
-  - kind: ServiceAccount
-    name: {{ .Values.serviceAccounts.worker.name }}
-    namespace: {{ .Release.Namespace }}
 {{- if $rt.appController.enabled }}
 ---
 apiVersion: v1
@@ -59,54 +18,6 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "hb.labels" . | nindent 4 }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: hb-app-controller
-  labels:
-    {{- include "hb.labels" . | nindent 4 }}
-rules:
-  - apiGroups: [hirebuddha.com]
-    resources: [tenantapps, tenantapps/status]
-    verbs: [get, list, watch, patch, update]
-  - apiGroups: [""]
-    resources: [services, serviceaccounts, configmaps, events]
-    verbs: [get, list, watch, create, update, patch, delete]
-  - apiGroups: [apps]
-    resources: [deployments]
-    verbs: [get, list, watch, create, update, patch, delete]
-  - apiGroups: [networking.k8s.io]
-    resources: [networkpolicies]
-    verbs: [get, list, create, update, patch, delete]
-  - apiGroups: [policy]
-    resources: [poddisruptionbudgets]
-    verbs: [get, list, create, update, patch, delete]
-  - apiGroups: [http.keda.sh]
-    resources: [httpscaledobjects]
-    verbs: [get, list, create, update, patch, delete]
-  # kopf's own bookkeeping
-  - apiGroups: [apiextensions.k8s.io]
-    resources: [customresourcedefinitions]
-    verbs: [list, watch]
-  - apiGroups: [""]
-    resources: [namespaces]
-    verbs: [list, watch]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: hb-app-controller
-  labels:
-    {{- include "hb.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: hb-app-controller
-subjects:
-  - kind: ServiceAccount
-    name: hb-app-controller
-    namespace: {{ .Release.Namespace }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -146,6 +57,9 @@ spec:
               value: "http://hb-api.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.api.service.port }}/internal/v1/edge/ask"
             - name: ACME_EMAIL
               value: {{ $rt.tenantEdge.acmeEmail | quote }}
+            # Tenant apps run on the apps node pool (slice 4, D53).
+            - name: APPS_NODE_POOL
+              value: {{ $rt.appsNodePool | quote }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:
@@ -190,7 +104,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: caddy
-          image: {{ $rt.tenantEdge.image }}
+          image: {{ $rt.tenantEdge.image | default (include "hb.image" (dict "root" . "image" "caddyRedis")) }}
           args: [run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile, --watch]
           ports:
             - { name: http, containerPort: 8080 }
@@ -340,7 +254,8 @@ spec:
 {{- if $rt.gitea.enabled }}
 ---
 # The built-in Git (D36): one Gitea, no public UI (reached by the platform only),
-# Postgres database hb_gitea, repositories on Azure Files premium.
+# Postgres database hb_gitea (a password login, gitea), repositories on the
+# volume of tenantRuntime.gitea (Azure: a 16 GiB standard SSD, one replica).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -348,7 +263,7 @@ metadata:
   labels:
     {{- include "hb.labels" . | nindent 4 }}
 spec:
-  accessModes: [ReadWriteMany]
+  accessModes: [{{ $rt.gitea.accessMode | default "ReadWriteMany" }}]
   storageClassName: {{ $rt.gitea.storageClass }}
   resources:
     requests:

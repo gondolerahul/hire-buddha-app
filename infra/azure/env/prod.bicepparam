@@ -48,12 +48,15 @@ param poolServerSku = {
 param tenantKeysVaultSku = 'standard'
 
 // Production runs around the clock (no working hours).
+// Slice 4, the tenant runtime (D53): sandbox D4s_v5 scaling 0-2 (Kata), apps one D2s_v5 (1-3).
+param deployTenantRuntime = true
+
 param scheduleEnabled = false
 
 // D50: budget alerts at 80 % / 100 % actual and 100 % forecast, on production's
 // resource groups only. About ₹50,000 a month at list price around the clock;
 // lower once the reservations apply.
-param budgetAmount = 55000
+param budgetAmount = 65000   // ₹55,000 + slice 4 (D53)
 param budgetContactEmails = [readEnvironmentVariable('HB_BUDGET_EMAIL')]
 
 // D51: production's CI identity reads dev's registry and imports the images dev ran.

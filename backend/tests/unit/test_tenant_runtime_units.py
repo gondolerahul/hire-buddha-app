@@ -54,6 +54,16 @@ def test_a_tenant_app_becomes_a_locked_down_deployment_and_its_neighbours():
     assert not any("HTTPS_PROXY" == e["name"] for e in container["env"])
 
 
+def test_a_tenant_app_runs_on_the_apps_pool_when_there_is_one(monkeypatch):
+    """Slice 4 (D53): the apps node pool's label and taint; without APPS_NODE_POOL, anywhere."""
+    pod = lambda: controller.deployment(_cr())["spec"]["template"]["spec"]  # noqa: E731
+    monkeypatch.delenv("APPS_NODE_POOL", raising=False)
+    assert "nodeSelector" not in pod() and "tolerations" not in pod()
+    monkeypatch.setenv("APPS_NODE_POOL", "apps")
+    assert pod()["nodeSelector"] == {"hb/pool": "apps"}
+    assert pod()["tolerations"] == [{"key": "hb/pool", "operator": "Equal", "value": "apps", "effect": "NoSchedule"}]
+
+
 def test_an_allow_list_opens_the_proxy_and_sleep_mode_adds_a_scaler():
     kinds = {c["kind"]: c for c in controller.children(_cr(egress=["api.stripe.com"], mode="sleep"))}
     assert kinds["HTTPScaledObject"]["spec"]["replicas"]["min"] == 0

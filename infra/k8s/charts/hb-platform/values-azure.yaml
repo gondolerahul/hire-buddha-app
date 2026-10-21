@@ -59,5 +59,10 @@ gateway:
 
 tenantRuntime:
   enabled: true
+  appsNodePool: apps
   gitea:
     enabled: true
+    # One replica on a standard SSD disk (a Premium file share bills 100 GiB at least).
+    storageClass: managed-csi
+    accessMode: ReadWriteOnce
+    storage: 16Gi

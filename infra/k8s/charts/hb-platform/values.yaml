@@ -28,6 +28,9 @@ images:
   # Tenant runtime (Phase 14 WS6).
   appController: hb-app-controller
   egressProxy: hb-egress-proxy
+  sandbox: hb-sandbox
+  checks: hb-checks
+  caddyRedis: hb-caddy-redis
 
 # Non-secret settings (backend/src/common/config.py), as environment variables.
 config:
@@ -250,6 +253,8 @@ tenantRuntime:
   enabled: false
   # Where the shared pieces run (the edge and the egress proxy).
   systemNamespace: hb-system
+  # The node pool tenants' apps run on (its label and taint hb/pool; slice 4). Empty: anywhere.
+  appsNodePool: ""
   appController:
     enabled: true
     resources:
@@ -257,8 +262,9 @@ tenantRuntime:
       limits: { memory: 512Mi }
   tenantEdge:
     enabled: true
-    # Caddy with the caddy-storage-redis module (certificates shared by replicas).
-    image: ghcr.io/hirebuddha/caddy-redis:2.8.4
+    # Caddy with the caddy-storage-redis module (certificates shared by replicas):
+    # empty = images.caddyRedis from this chart's registry and tag (backend/docker/caddy-redis).
+    image: ""
     replicas: 2
     loadBalancerIP: ""
     serviceAnnotations: {}

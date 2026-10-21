@@ -8,7 +8,8 @@ them:
 * ``ServiceAccount`` (no token mounted) and the app's ``Secret``-mounted key;
 * ``Deployment`` — non-root, read-only root file system, ``/tmp`` writable,
   limits from the spec, the image by digest, probes on the health path,
-  previous digests kept in an annotation (rollback = set the previous one);
+  previous digests kept in an annotation (rollback = set the previous one),
+  on the apps node pool (``APPS_NODE_POOL``: its label and taint ``hb/pool``);
 * ``Service`` on port 8080;
 * ``NetworkPolicy`` — in from the tenant edge only; out to the tenant's Data
   API, the egress proxy and DNS, nothing else (§13.2);
@@ -24,6 +25,7 @@ the egress proxy's allow-lists (:func:`egress_allowlists`).
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, List, Optional
 
 GROUP = "hirebuddha.com"
@@ -56,6 +58,15 @@ def _meta(cr: Dict[str, Any], name: str, extra: Optional[Dict[str, Any]] = None)
     if extra:
         meta.update(extra)
     return meta
+
+
+def _placement() -> Dict[str, Any]:
+    """The apps node pool (slice 4, D53): tenant apps run there, not beside the platform."""
+    pool = os.environ.get("APPS_NODE_POOL", "").strip()
+    if not pool:
+        return {}
+    return {"nodeSelector": {"hb/pool": pool},
+            "tolerations": [{"key": "hb/pool", "operator": "Equal", "value": pool, "effect": "NoSchedule"}]}
 
 
 def deployment(cr: Dict[str, Any]) -> Dict[str, Any]:
@@ -104,6 +115,7 @@ def deployment(cr: Dict[str, Any]) -> Dict[str, Any]:
                     "topologySpreadConstraints": [{"maxSkew": 1, "topologyKey": "kubernetes.io/hostname",
                                                    "whenUnsatisfiable": "ScheduleAnyway",
                                                    "labelSelector": {"matchLabels": {"app.kubernetes.io/name": name}}}],
+                    **_placement(),
                 },
             },
         },

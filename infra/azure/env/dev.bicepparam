@@ -45,6 +45,9 @@ param tenantKeysVaultSku = 'standard'
 
 // Working hours (owner, 20 Oct): Mon–Sat 09:00–21:00 IST; the cluster and both
 // PostgreSQL servers are stopped nights and Sundays (budget ₹50,000/month).
+// Slice 4, the tenant runtime (D53): sandbox D4s_v5 scaling 0-2 (Kata), apps one D2s_v5 (1-3).
+param deployTenantRuntime = true
+
 param scheduleEnabled = true
 param scheduleWeekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 param scheduleStartHour = 9

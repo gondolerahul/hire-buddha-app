@@ -18,6 +18,11 @@ serviceAccounts:
   migrator: {}
   appcontroller: {}
 
+# The tenant runtime's ClusterRoles (WS6, templates/tenant-runtime-rbac.yaml): on
+# where hb-platform's tenantRuntime is enabled.
+tenantRuntimeRbac:
+  enabled: false
+
 # The provisioner's ClusterRole: tenant namespaces with their quota, limits and
 # default-deny policy (M2, templates/provisioner-rbac.yaml).
 provisionerRbac:

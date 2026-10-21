@@ -10,3 +10,8 @@ data:
   {{ $key }}: {{ $value | toString | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.tenantRuntime.enabled }}
+  # The sandbox and checks images of this release (WS6): same registry and tag.
+  SANDBOX_K8S_IMAGE: {{ include "hb.image" (dict "root" . "image" "sandbox") | quote }}
+  CHECKS_IMAGE: {{ include "hb.image" (dict "root" . "image" "checks") | quote }}
+  {{- end }}

@@ -12,6 +12,9 @@
 //
 // * Working hours (scheduleEnabled; dev) — the cluster and the PostgreSQL
 //   servers stop outside them (two Logic Apps; budget).
+// * Slice 4, Tenant runtime (deployTenantRuntime; D53) — the sandbox (Kata,
+//   scaling to zero) and apps node pools, the tenant edge's static IP, and
+//   ACR Tasks on the platform registry for tenants' app builds.
 // * Budget (budgetAmount) — a monthly cost budget with e-mail alerts (D50).
 // * Promotion (promotionSourceRegistry) — this environment's CI identity may
 //   read another environment's registry, so production deploys the images dev
@@ -125,6 +128,19 @@ param databaseGeoRedundantBackup bool = env == 'prod'
 
 @description('Redis high availability (a replica).')
 param redisHighAvailability bool = env == 'prod'
+
+@description('Slice 4: the tenant runtime (WS6) — sandbox and apps pools, edge IP, ACR Tasks. D53.')
+param deployTenantRuntime bool = false
+
+@description('Sandbox pool (Kata micro-VMs): a size with nested virtualization; scales to zero (D53).')
+param sandboxPoolVmSize string = 'Standard_D4s_v5'
+param sandboxPoolMinCount int = 0
+param sandboxPoolMaxCount int = 2
+
+@description('Apps pool: tenants\' published apps (D53).')
+param appsPoolVmSize string = 'Standard_D2s_v5'
+param appsPoolMinCount int = 1
+param appsPoolMaxCount int = 3
 
 @description('Monthly cost budget for this environment\'s resource groups (0: none). D50.')
 param budgetAmount int = 0
@@ -464,6 +480,41 @@ module scheduleDataAccess 'modules/dev-schedule-access.bicep' = if (scheduleEnab
   }
 }
 
+// ── Slice 4: tenant runtime (D53) ───────────────────────────────────────────
+
+module tenantPools 'modules/aks-tenant-pools.bicep' = if (deployTenantRuntime) {
+  scope: rgAks
+  name: 'aks-tenant-pools'
+  params: {
+    clusterName: aks.outputs.name
+    nodeSubnetId: network.outputs.aksNodeSubnetId
+    sandboxVmSize: sandboxPoolVmSize
+    sandboxMinCount: sandboxPoolMinCount
+    sandboxMaxCount: sandboxPoolMaxCount
+    appsVmSize: appsPoolVmSize
+    appsMinCount: appsPoolMinCount
+    appsMaxCount: appsPoolMaxCount
+  }
+}
+
+module edgeIp 'modules/edge-ip.bicep' = if (deployTenantRuntime) {
+  scope: rgCore
+  name: 'edge-ip'
+  params: {
+    location: location
+    name: 'pip-${prefix}-${env}-edge'
+  }
+}
+
+module tenantRuntimeAccess 'modules/tenant-runtime-access.bicep' = if (deployTenantRuntime) {
+  scope: rgCore
+  name: 'tenant-runtime-access'
+  params: {
+    registryName: names.acr
+    principalIds: [identities.outputs.principalIds.api, identities.outputs.principalIds.worker]
+  }
+}
+
 // ── Budget (D50) and image promotion (D51) ──────────────────────────────────
 
 module budget 'modules/budget.bicep' = if (budgetAmount > 0) {
@@ -508,3 +559,4 @@ output identityClientIds object = identities.outputs.clientIds
 output postgresPoolFqdn string = deployTenancy ? postgresPool!.outputs.fqdn : ''
 output tenantKeysVaultUri string = deployTenancy ? tenantKeys!.outputs.uri : ''
 output tenantIdentitiesResourceGroup string = deployTenancy ? names.rgTenants : ''
+output edgeIp string = deployTenantRuntime ? edgeIp!.outputs.address : ''
