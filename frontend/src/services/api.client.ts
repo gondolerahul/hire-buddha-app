@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '@/config/api';
+import { ACTING_COMPANY_HEADER, getActingCompany } from './actingCompany';
 
 /** Told of every successful write: its method and path (FE-21). */
 export type WriteListener = (method: string, url: string) => void;
@@ -22,6 +23,12 @@ class ApiClient {
                 const token = localStorage.getItem('access_token');
                 if (token && config.headers) {
                     config.headers.Authorization = `Bearer ${token}`;
+                }
+                // The company a partner or platform admin works in (Phase 14 M2-4);
+                // a request that names one itself keeps it.
+                const acting = getActingCompany();
+                if (acting && config.headers && !config.headers[ACTING_COMPANY_HEADER]) {
+                    config.headers[ACTING_COMPANY_HEADER] = acting.id;
                 }
                 return config;
             },

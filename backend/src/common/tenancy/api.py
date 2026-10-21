@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +27,7 @@ from src.auth.models import User
 from src.automation.api import capability
 from src.common.tenancy import health as health_mod
 from src.common.tenancy import provisioner
-from src.common.tenancy.session import get_control_db, is_split, tenancy_mode
+from src.common.tenancy.session import acting_company_id, get_control_db, is_split, tenancy_mode
 
 router = APIRouter(tags=["Tenancy"])
 
@@ -66,12 +66,15 @@ async def _enqueue(company_id: UUID) -> None:
 
 @router.get("/api/v1/workspace", openapi_extra=capability(
     "Whether the caller's workspace is ready, or which setup steps are left.", "read", "any signed-in user"))
-async def workspace(current_user: User = Depends(get_current_user),
+async def workspace(request: Request, current_user: User = Depends(get_current_user),
                     db: AsyncSession = Depends(get_control_db)) -> Dict[str, Any]:
     if not is_split():
         return {"company_id": str(current_user.company_id), "mode": tenancy_mode(), "status": "active",
                 "ready": True, "steps": []}
-    view = await provisioner.provisioning_status(db, current_user.company_id)
+    # The company the screens are working in: a partner or staff member acting for
+    # another (X-Company-Id, M2-4) is shown that company's workspace, not their own.
+    company_id = await acting_company_id(request, current_user, db)
+    view = await provisioner.provisioning_status(db, company_id)
     # A person sees what is being set up, not the servers or the errors behind it.
     steps = [{"step": s["step"], "outcome": s["outcome"]} for s in view["steps"]]
     return {"company_id": view["company_id"], "mode": tenancy_mode(), "status": view["status"],

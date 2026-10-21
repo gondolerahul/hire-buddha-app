@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { WorkspaceGate } from './WorkspaceGate';
+import { ActingCompanyBanner, ActingCompanySwitcher } from './ActingCompany';
 import {
     Menu,
     X,
@@ -64,6 +65,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const [userMenuOpen, setUserMenuOpen] = useState(false);
     const [openSubmenus, setOpenSubmenus] = useState<Record<string, boolean>>({});
     const { logout, user } = useAuth();
+    // Partners and platform staff may work in another company's data (Phase 14 M2-4).
+    const canActForOthers = [UserRole.APP_ADMIN, UserRole.APP_USER, UserRole.PARTNER_ADMIN, UserRole.PARTNER_USER]
+        .includes(user?.role as UserRole);
     const { theme, toggleTheme } = useTheme();
     const location = useLocation();
 
@@ -279,6 +283,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                         })}
                     </div>
                     <div className="sidebar-footer pt-4 border-t border-white/5 mt-4 space-y-2">
+                        {canActForOthers && <ActingCompanySwitcher expanded={sidebarOpen} ownCompanyId={user?.company_id} />}
                         <NotificationBell expanded={sidebarOpen} />
                         <button
                             className="theme-toggle-button w-full"
@@ -331,6 +336,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 <main>
                     <ErrorBoundary scope="This page" resetKey={location.pathname}>
                         <Suspense fallback={<div className="page-loading">Loading…</div>}>
+                            {canActForOthers && <ActingCompanyBanner />}
                             <WorkspaceGate>{children}</WorkspaceGate>
                         </Suspense>
                     </ErrorBoundary>

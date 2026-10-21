@@ -279,6 +279,16 @@ async def test_staff_add_a_tenant_with_one_call_and_people_see_their_workspace(c
         refused = await client.get("/api/v1/admin/tenants")
         assert refused.status_code == 403
 
+        # Working in another company (X-Company-Id, M2-4): its workspace, not one's own —
+        # staff whose own company has no database see the business's ready workspace.
+        acting = {"X-Company-Id": str(company["id"])}
+        caller["user"] = SimpleNamespace(id=uuid.uuid4(), company_id=uuid.uuid4(), role="app_admin")
+        assert (await client.get("/api/v1/workspace")).json()["ready"] is False
+        theirs = await client.get("/api/v1/workspace", headers=acting)
+        assert theirs.json()["ready"] is True and theirs.json()["company_id"] == str(company["id"])
+        caller["user"] = SimpleNamespace(id=uuid.uuid4(), company_id=uuid.uuid4(), role="tenant_admin")
+        assert (await client.get("/api/v1/workspace", headers=acting)).status_code == 403
+
 
 @pytest_asyncio.fixture
 async def ddl_roles(company, monkeypatch):
