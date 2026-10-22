@@ -33,9 +33,9 @@ permissions:
   contents: read
   id-token: write
 
-concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: false
+# One rollout per environment at a time, in order. Not one lock for the whole run:
+# a production job waiting for its reviewer held it, so every later push waited
+# (hours) before even its tests ran.
 
 env:
   # Every image of a release, one tag: the platform's, and the tenant runtime's (WS6, slice 4).
@@ -132,6 +132,9 @@ jobs:
     needs: [images, app-controller]
     runs-on: ubuntu-latest
     environment: azure-dev
+    concurrency:
+      group: deploy-dev-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/rollout
@@ -151,6 +154,10 @@ jobs:
     if: ${{ vars.AZURE_PROD_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: azure-prod
+    # A newer push's production job replaces an older one still queued behind it.
+    concurrency:
+      group: deploy-prod-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: azure/login@v2
