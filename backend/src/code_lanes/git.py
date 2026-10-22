@@ -372,13 +372,18 @@ class GiteaProvider:
 
     async def head(self, full_name: str, ref: str) -> Optional[str]:
         async with httpx.AsyncClient(base_url=f"{self.base_url}/api/v1", transport=self._transport, timeout=30) as c:
-            response = await c.get(f"/repos/{full_name}/commits/{ref}", headers={"Authorization": f"token {self.token}"},
-                                   params={"stat": "false"})
-        if response.status_code in (404, 409, 422):
+            # Gitea has no GitHub-style /commits/{ref}: the newest commit of a branch, tag or sha is listed.
+            response = await c.get(f"/repos/{full_name}/commits", headers={"Authorization": f"token {self.token}"},
+                                   params={"sha": ref, "limit": 1, "stat": "false", "verification": "false",
+                                           "files": "false"})
+        if response.status_code in (404, 409, 422):   # no such ref; 409: an empty repository
+            return None
+        if response.status_code == 500 and "does not exist" in response.text:   # Gitea 1.22: a branch not made yet
             return None
         if response.status_code != 200:
             raise GitError(f"gitea commit {ref}: {response.status_code}")
-        return response.json().get("sha")
+        found = response.json()
+        return (found[0] if isinstance(found, list) and found else {}).get("sha")
 
     async def commit_files(self, full_name: str, *, branch: str, base: str, files: Dict[str, bytes],
                            message: str, delete: Sequence[str] = ()) -> str:

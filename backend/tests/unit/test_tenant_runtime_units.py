@@ -299,14 +299,18 @@ async def test_gitea_makes_the_tenant_org_commits_and_merges():
         if method == "POST" and path == "/orgs/t-acme01/repos":
             return httpx.Response(201, json={"id": 7, "full_name": "t-acme01/crm", "default_branch": "main",
                                              "html_url": "http://gitea/t-acme01/crm"})
-        if method == "GET" and path.startswith("/repos/t-acme01/crm/commits/"):
-            return httpx.Response(200, json={"sha": "base1"}) if path.endswith("/main") else httpx.Response(404)
+        if method == "GET" and path == "/repos/t-acme01/crm/commits":   # Gitea's form: no /commits/{ref}
+            assert request.url.params["limit"] == "1"
+            return httpx.Response(200, json=[{"sha": "base1"}]) if request.url.params["sha"] == "main" \
+                else httpx.Response(500, json={"message": "object does not exist [id: hb/1-x, rel_path: ]"})
         if method == "GET" and path.startswith("/repos/t-acme01/crm/contents/"):
-            return httpx.Response(404)
+            assert request.url.params["ref"] == "main"
+            return httpx.Response(200, json={"sha": "f1"}) if path.endswith("/app.json") else httpx.Response(404)
         if method == "POST" and path == "/repos/t-acme01/crm/contents":
             body = json.loads(request.content)
             assert body["new_branch"] == "hb/1-x" and body["branch"] == "main"
-            assert body["files"][0]["operation"] == "create"
+            operations = {f["path"]: (f["operation"], f.get("sha")) for f in body["files"]}
+            assert operations == {"a.py": ("create", None), "app.json": ("update", "f1")}   # an edit names its blob
             return httpx.Response(201, json={"commit": {"sha": "c2"}})
         if method == "POST" and path == "/repos/t-acme01/crm/pulls":
             return httpx.Response(201, json={"number": 4, "state": "open", "head": {"sha": "c2"}, "html_url": "u"})
@@ -323,7 +327,9 @@ async def test_gitea_makes_the_tenant_org_commits_and_merges():
     gitea = GiteaProvider("http://gitea", "admin", transport=httpx.MockTransport(handler))
     repo = await gitea.create_repo("t-acme01", "crm")
     assert repo.full_name == "t-acme01/crm" and ("POST", "/orgs") in seen
-    sha = await gitea.commit_files(repo.full_name, branch="hb/1-x", base="main", files={"a.py": b"x=1"}, message="m")
+    assert await gitea.head(repo.full_name, "main") == "base1" and await gitea.head(repo.full_name, "nope") is None
+    sha = await gitea.commit_files(repo.full_name, branch="hb/1-x", base="main",
+                                   files={"a.py": b"x=1", "app.json": b"{}"}, message="m")
     review = await gitea.open_review(repo.full_name, branch="hb/1-x", base="main", title="t", body="b")
     await gitea.post_check(repo.full_name, sha, name="secrets", conclusion="success", summary="none")
     assert sha == "c2" and review.number == 4
