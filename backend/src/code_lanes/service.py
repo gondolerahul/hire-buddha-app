@@ -421,7 +421,7 @@ async def promote(company_id: Any, item_id: Any, *, repo_id: Any, user_id: Any =
                       {"review_id": view["id"], "code_item_id": str(item.id), "repo": repo.full_name,
                        "number": opened.number, "url": opened.url}, source="code_lanes")
     if run_checks:
-        await queue_checks(company_id, review.id)
+        await queue_checks(company_id, review.id, head_sha=view["head_sha"])
     return view
 
 
@@ -461,7 +461,7 @@ async def open_change(company_id: Any, *, repo_id: Any, branch: str, files: Dict
                       {"review_id": view["id"], "app_id": str(app_id) if app_id else None, "repo": repo.full_name,
                        "number": opened.number, "url": opened.url}, source="code_lanes")
     if run_checks:
-        await queue_checks(company_id, review.id)
+        await queue_checks(company_id, review.id, head_sha=view["head_sha"])
     if app_id and view["head_sha"]:
         # The pull request's head is built; a succeeded build runs as its preview (…-pr<n>).
         from src.apps import service as apps
@@ -474,13 +474,18 @@ async def open_change(company_id: Any, *, repo_id: Any, branch: str, files: Dict
     return view
 
 
-async def queue_checks(company_id: Any, review_id: Any) -> None:
-    """Run the checks in a worker (``run_review_checks``); inline when there is no queue."""
+async def queue_checks(company_id: Any, review_id: Any, *, head_sha: Optional[str] = None) -> None:
+    """Run the checks in a worker (``run_review_checks``); inline when there is no queue.
+
+    One job per head of the pull request (an update is checked again); without a head — a person
+    asking for them again — a new one each time. arq refuses a job id while it keeps the result
+    of an earlier job with it (an hour), so a fixed id per review silently ran nothing."""
     from src.common.job_queue import enqueue_job, tenant_arg
 
+    attempt = head_sha[:12] if head_sha else uuid.uuid4().hex[:12]
     try:
         await enqueue_job("run_review_checks", str(review_id), company_id=tenant_arg(company_id),
-                          _job_id=f"checks:{review_id}")
+                          _job_id=f"checks:{review_id}:{attempt}")
     except Exception:  # noqa: BLE001 - no Redis: run them here
         logger.warning("checks for review %s run inline (no job queue)", review_id, exc_info=True)
         await run_review_checks(company_id, review_id)

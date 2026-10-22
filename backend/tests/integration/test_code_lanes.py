@@ -184,6 +184,23 @@ async def test_an_app_change_is_a_pull_request_and_a_closed_one_outside_is_follo
     assert followed["status"] == "closed"
 
 
+async def test_every_head_of_a_pull_request_and_every_request_again_gets_its_own_checks_job(lane):
+    from src.code_lanes import service
+
+    repo = await service.create_repo(lane.company_id, lane.owner.id, "pages")
+    await lane.git.commit_files(repo["full_name"], branch="main", base="main", files={"index.html": b"a"},
+                                message="start")
+    first = await service.open_change(lane.company_id, repo_id=repo["id"], branch="hb/1-x",
+                                      files={"index.html": b"b"}, title="B")
+    second = await service.open_change(lane.company_id, repo_id=repo["id"], branch="hb/1-x",
+                                       files={"index.html": b"c"}, title="B")
+    await service.queue_checks(lane.company_id, second["id"])
+    await service.queue_checks(lane.company_id, second["id"])
+    ids = [kwargs["_job_id"] for function, _, kwargs in lane.queued if function == "run_review_checks"]
+    assert len(ids) == len(set(ids)) == 4   # arq would refuse a repeated id while it keeps the last result
+    assert ids[0] == f"checks:{first['id']}:{first['head_sha'][:12]}" and second["head_sha"][:12] in ids[1]
+
+
 async def test_a_synthesized_tool_is_scratch_code_linked_to_its_registry_row(lane, monkeypatch):
     from src.ai.meta.tool_synthesis_pipeline import register_draft_tool
     from src.ai.orm.tools import ToolRegistryEntry
