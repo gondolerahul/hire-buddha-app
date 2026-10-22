@@ -10,6 +10,8 @@ The suite itself is ``check_suite.py`` (standard library only). Where it runs:
   Kubernetes Job in the tenant's namespace on the sandbox pool (Kata), image
   ``CHECKS_IMAGE`` (gitleaks, semgrep, pip-audit, npm, trivy), which fetches
   the files from a ten-minute signed URL and runs the whole suite, tests too.
+  Its only way out is the egress proxy, as ``t-<key>/checks`` (the storage
+  account and the package registries: ``CHECKS_EGRESS_ALLOWLIST``).
   The results are the last ``HB-CHECKS`` line of its log.
 """
 from __future__ import annotations
@@ -132,9 +134,34 @@ class KubernetesChecksRunner:
         return self._kube
 
     @staticmethod
+    def network_policy(namespace: str) -> Dict[str, Any]:
+        """Checks pods take no connections; out only to DNS and the egress proxy (as ``t-<key>/checks``),
+        which lets them reach the storage account and the package registries."""
+        from src.apps.controller import EDGE_NAMESPACE, EGRESS_PROXY_PORT
+
+        return {
+            "apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+            "metadata": {"name": "checks-isolation", "namespace": namespace},
+            "spec": {
+                "podSelector": {"matchLabels": {"hb/role": "checks"}}, "policyTypes": ["Ingress", "Egress"],
+                "ingress": [],
+                "egress": [
+                    {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}},
+                             "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+                     "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]},
+                    {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": EDGE_NAMESPACE}},
+                             "podSelector": {"matchLabels": {"app.kubernetes.io/name": "egress-proxy"}}}],
+                     "ports": [{"protocol": "TCP", "port": EGRESS_PROXY_PORT}]},
+                ],
+            },
+        }
+
+    @staticmethod
     def job_manifest(namespace: str, name: str, source_url: str) -> Dict[str, Any]:
+        from src.ai.tools.sandbox.k8s_runtime import proxy_url
         from src.common.config import settings
 
+        proxy = proxy_url(f"{namespace}/checks")
         return {
             "apiVersion": "batch/v1", "kind": "Job",
             "metadata": {"name": name, "namespace": namespace, "labels": {"hb/role": "checks"}},
@@ -153,7 +180,9 @@ class KubernetesChecksRunner:
                         "containers": [{
                             "name": "checks", "image": getattr(settings, "CHECKS_IMAGE", "") or "hb-checks:local",
                             "args": ["/work", "--fetch", source_url, "--tests", "--json"],
-                            "env": [{"name": "HOME", "value": "/tmp"}],
+                            "env": [{"name": "HOME", "value": "/tmp"}] + [
+                                {"name": n, "value": proxy}
+                                for n in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")],
                             "resources": {"requests": {"cpu": "500m", "memory": "1Gi"},
                                           "limits": {"cpu": "2", "memory": "2Gi", "ephemeral-storage": "2Gi"}},
                             "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
@@ -182,7 +211,9 @@ class KubernetesChecksRunner:
         if not url:
             raise RuntimeError("the storage adapter gives no signed URLs: checks Jobs need Blob storage")
         try:
-            await self.kube.apply(self.job_manifest(namespace, name, url))
+            await self.kube.apply(self.network_policy(namespace))
+            # A new Job each time (unique name): created, not applied — the platform may create Jobs, not patch them.
+            await self.kube.create(self.job_manifest(namespace, name, url))
             deadline = time.monotonic() + JOB_TIMEOUT_SECONDS + 60
             while True:
                 job = await self.kube.get(path_for("Job", namespace, name))

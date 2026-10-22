@@ -229,6 +229,19 @@ def edge_caddyfile(apps: List[Dict[str, Any]], *, ask_url: str, email: str = "")
     return "\n".join(lines)
 
 
+def egress_defaults(*, sandbox: str, checks: str, storage_url: str = "") -> Dict[str, List[str]]:
+    """The egress proxy's lists by kind of caller, for callers without a list of their own:
+    sandboxes (``sbx-allowlist``) and checks Jobs (``checks``: the registries, and the storage
+    account they fetch their source from)."""
+    from urllib.parse import urlparse
+
+    def hosts(text: str) -> List[str]:
+        return [h.strip().lower() for h in text.split(",") if h.strip()]
+
+    storage = (urlparse(storage_url).hostname or "").lower() if storage_url else ""
+    return {"sbx-allowlist": hosts(sandbox), "checks": sorted(set(hosts(checks)) | ({storage} if storage else set()))}
+
+
 def egress_allowlists(apps: List[Dict[str, Any]]) -> Dict[str, Any]:
     """The egress proxy's allow-lists for apps: ``{"t-<key>/app-<name>": [hosts]}``."""
     out: Dict[str, Any] = {}

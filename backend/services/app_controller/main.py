@@ -60,8 +60,10 @@ async def _publish_edge() -> None:
     await kube().apply({"apiVersion": "v1", "kind": "ConfigMap",
                         "metadata": {"name": EDGE_CONFIG, "namespace": controller.EDGE_NAMESPACE},
                         "data": {"Caddyfile": caddyfile}})
-    defaults = [h.strip() for h in settings.SANDBOX_EGRESS_ALLOWLIST.split(",") if h.strip()]
-    policy = {"defaults": {"sbx-allowlist": defaults}, "principals": controller.egress_allowlists(apps)}
+    defaults = controller.egress_defaults(sandbox=settings.SANDBOX_EGRESS_ALLOWLIST,
+                                          checks=settings.CHECKS_EGRESS_ALLOWLIST,
+                                          storage_url=settings.AZURE_STORAGE_ACCOUNT_URL)
+    policy = {"defaults": defaults, "principals": controller.egress_allowlists(apps)}
     await kube().apply({"apiVersion": "v1", "kind": "ConfigMap",
                         "metadata": {"name": EGRESS_POLICY, "namespace": controller.EDGE_NAMESPACE},
                         "data": {"policy.json": json.dumps(policy, indent=1, sort_keys=True)}})

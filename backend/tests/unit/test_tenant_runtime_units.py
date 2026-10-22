@@ -441,11 +441,19 @@ def test_the_cluster_egress_proxy_knows_callers_by_their_credentials(monkeypatch
         proxy.principal_of(["Proxy-Authorization: Basic " + base64.b64encode(b"t-acme01%2Fapp-crm:wrong").decode()])
     with pytest.raises(proxy.AuthRequired):
         proxy.principal_of([])
-    rules = {"defaults": {"sbx-allowlist": ["googleapis.com"]}, "principals": {"t-acme01/app-crm": ["stripe.com"]}}
+    from src.apps import controller
+
+    defaults = controller.egress_defaults(sandbox="googleapis.com", checks="registry.npmjs.org, pypi.org",
+                                          storage_url="https://sthbdevac48.blob.core.windows.net/")
+    assert defaults == {"sbx-allowlist": ["googleapis.com"],
+                        "checks": ["pypi.org", "registry.npmjs.org", "sthbdevac48.blob.core.windows.net"]}
+    rules = {"defaults": defaults, "principals": {"t-acme01/app-crm": ["stripe.com"]}}
     assert proxy.allowed_hosts("t-acme01/sbx-web", rules) is None
     assert proxy.allowed_hosts("t-acme01/sbx-allowlist", rules) == ["googleapis.com"]
+    assert proxy.allowed_hosts("t-acme01/checks", rules) == defaults["checks"]   # a checks Job: registries, storage
     assert proxy.allowed_hosts("t-acme01/app-crm", rules) == ["stripe.com"]
     assert proxy.allowed_hosts("t-beta02/app-shop", rules) == []
+    assert proxy.allowed_hosts("t-beta02/app-checks", rules) == []   # an app's list is its own, never a default
     proxy.check_host("api.stripe.com", ["stripe.com"])
     with pytest.raises(proxy.Refused):
         proxy.check_host("evilstripe.com", ["stripe.com"])
@@ -550,6 +558,58 @@ def test_the_checks_job_runs_on_the_sandbox_pool():
     assert pod["nodeSelector"] == {"hb/pool": "sandbox"} and pod["automountServiceAccountToken"] is False
     assert pod["containers"][0]["args"] == ["/work", "--fetch", "https://blob/x?sas", "--tests", "--json"]
     assert job["spec"]["backoffLimit"] == 0
+    env = {e["name"]: e["value"] for e in pod["containers"][0]["env"]}
+    assert env["HTTPS_PROXY"].split("://", 1)[1].startswith("t-acme01%2Fchecks:") and env["https_proxy"] == env["HTTPS_PROXY"]
+    policy = KubernetesChecksRunner.network_policy("t-acme01")["spec"]
+    assert policy["podSelector"] == {"matchLabels": {"hb/role": "checks"}} and policy["ingress"] == []
+    assert [rule["ports"][0]["port"] for rule in policy["egress"]] == [53, 8888]   # DNS and the egress proxy only
+
+
+async def test_the_checks_runner_creates_its_job_and_reads_its_results(monkeypatch):
+    from src.code_lanes.checks import KubernetesChecksRunner
+    from src.common.platform.kube import KubeClient
+    from src.common.platform.storage import set_storage
+    from src.common.tenancy.directory import directory
+    from tests.harness.storage import MemoryStorage
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "PATCH" and request.url.path.endswith("/networkpolicies/checks-isolation"):
+            return httpx.Response(200, json={})
+        if request.method == "POST" and request.url.path == "/apis/batch/v1/namespaces/t-acme01/jobs":
+            return httpx.Response(201, json=json.loads(request.content))
+        if request.method == "GET" and "/jobs/checks-" in request.url.path:
+            return httpx.Response(200, json={"status": {"succeeded": 1}})
+        if request.method == "GET" and request.url.path == "/api/v1/namespaces/t-acme01/pods":
+            return httpx.Response(200, json={"items": [{"metadata": {"name": "checks-pod"}}]})
+        if request.method == "GET" and request.url.path.endswith("/pods/checks-pod/log"):
+            return httpx.Response(200, text='HB-CHECKS [{"name": "code", "conclusion": "success"}]')
+        return httpx.Response(403, json={"message": f"forbidden {request.method} {request.url.path}"})
+
+    class Located:
+        key = "acme01"
+
+    async def located(company_id):
+        return Located()
+
+    storage = MemoryStorage()
+
+    async def signed_url(key, ttl_seconds=600):
+        return f"https://blob/{key}?sas"
+
+    storage.signed_url = signed_url
+    set_storage(storage)
+    monkeypatch.setattr(directory, "get", located)
+    try:
+        kube = KubeClient("https://kube", token="t", transport=httpx.MockTransport(handler))
+        results = await KubernetesChecksRunner(kube, poll_seconds=0).run(uuid.uuid4(), {"a.py": b"x = 1\n"})
+    finally:
+        set_storage(None)
+    assert results == [{"name": "code", "conclusion": "success"}]
+    assert ("POST", "/apis/batch/v1/namespaces/t-acme01/jobs") in calls   # created, never patched (no RBAC patch)
+    assert not [c for c in calls if c[0] == "PATCH" and "/jobs" in c[1]]
 
 
 def test_metering_counts_the_part_of_the_hour_a_deployment_ran():

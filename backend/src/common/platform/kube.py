@@ -157,6 +157,11 @@ class KubeClient:
                                   content_type="application/apply-patch+yaml",
                                   params={"fieldManager": FIELD_MANAGER, "force": "true" if force else "false"})
 
+    async def create(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new object (POST): for one-off objects whose callers may create but not patch."""
+        meta = body.get("metadata") or {}
+        return await self.request("POST", path_for(body["kind"], meta.get("namespace")), body=body)
+
     async def patch(self, path: str, patch: Dict[str, Any]) -> Dict[str, Any]:
         """A JSON merge patch (``status``, an annotation)."""
         return await self.request("PATCH", path, body=patch, content_type="application/merge-patch+json")

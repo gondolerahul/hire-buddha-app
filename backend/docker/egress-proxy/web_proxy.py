@@ -16,12 +16,13 @@ the request line rewritten to origin form. Standard library only.
 **Cluster mode** (Phase 14 WS6 6.2: ``POLICY_FILE`` set, one proxy service
 ``hb-system/egress-proxy`` for every tenant): each caller authenticates with
 ``Proxy-Authorization: Basic <principal>:<password>`` — ``t-<key>/sbx-web``,
-``t-<key>/sbx-allowlist``, ``t-<key>/app-<name>`` — the password being an
-HMAC of the principal under ``PROXY_SECRET``, so the proxy needs no store of
-callers. What each may reach comes from the policy file (a ConfigMap the App
-Controller writes, re-read when it changes): ``sbx-web`` any public host;
-``sbx-allowlist`` its tenant's list or the default list; an app its own
-outbound allow-list, nothing when it has none. The public-address check
+``t-<key>/sbx-allowlist``, ``t-<key>/checks``, ``t-<key>/app-<name>`` — the
+password being an HMAC of the principal under ``PROXY_SECRET``, so the proxy
+needs no store of callers. What each may reach comes from the policy file (a
+ConfigMap the App Controller writes, re-read when it changes): ``sbx-web`` any
+public host; ``sbx-allowlist`` and ``checks`` (a promotion's checks Job) their
+tenant's list or their kind's default list; an app its own outbound
+allow-list, nothing when it has none. The public-address check
 applies to everyone.
 """
 from __future__ import annotations
@@ -115,9 +116,10 @@ def allowed_hosts(principal: str, rules: dict) -> Optional[List[str]]:
     listed = (rules.get("principals") or {}).get(principal)
     if who == "sbx-web":
         return None if listed is None else list(listed)
-    if who == "sbx-allowlist":
-        return list(listed if listed is not None else (rules.get("defaults") or {}).get("sbx-allowlist") or [])
-    return list(listed or [])
+    if listed is not None:
+        return list(listed)
+    # sbx-allowlist and checks (a promotion's checks Job) fall back to their kind's default list.
+    return list((rules.get("defaults") or {}).get(who) or []) if who in ("sbx-allowlist", "checks") else []
 
 
 def check_host(host: str, hosts: Optional[List[str]]) -> None:

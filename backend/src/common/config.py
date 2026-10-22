@@ -378,6 +378,10 @@ class Settings(BaseSettings):
     # a promotion's checks Job runs this image on AKS (backend/docker/checks).
     CODE_SCRATCH_RETENTION_DAYS: int = 7
     CHECKS_IMAGE: str = "hb-checks:local"
+    # Where a checks Job may go through the egress proxy (caller t-<key>/checks): the
+    # package registries its audits read; the storage account it fetches the source
+    # from is added (AZURE_STORAGE_ACCOUNT_URL's host).
+    CHECKS_EGRESS_ALLOWLIST: str = "registry.npmjs.org,pypi.org,files.pythonhosted.org"
     # Built-in Git (D36): local_git (bare repositories under LOCAL_GIT_DIR,
     # empty = backend/.local-git) | gitea (GITEA_URL with GITEA_ADMIN_TOKEN).
     GIT_BACKEND: str = ""
