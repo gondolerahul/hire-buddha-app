@@ -462,6 +462,15 @@ async def open_change(company_id: Any, *, repo_id: Any, branch: str, files: Dict
                        "number": opened.number, "url": opened.url}, source="code_lanes")
     if run_checks:
         await queue_checks(company_id, review.id)
+    if app_id and view["head_sha"]:
+        # The pull request's head is built; a succeeded build runs as its preview (…-pr<n>).
+        from src.apps import service as apps
+
+        try:
+            view["build"] = await apps.start_build(company_id, app_id, commit_sha=view["head_sha"],
+                                                   review_id=view["id"], user_id=user_id)
+        except Exception:  # noqa: BLE001 - the pull request stands; a build can be asked for again
+            logger.exception("build of review %s not started", view["id"])
     return view
 
 
@@ -563,6 +572,8 @@ async def _after_merge(company_id: Any, review: Dict[str, Any], item: Optional[C
                           {"code_item_id": str(item.id), "kind": item.kind, "name": item.name,
                            "commit_sha": item.commit_sha, "path": item.path, "review_id": review["id"]},
                           source="code_lanes")
+    if review.get("app_id"):
+        await _end_preview(company_id, review)
     if review.get("app_id") and review.get("merge_sha"):
         from src.apps import service as apps
 
@@ -571,6 +582,16 @@ async def _after_merge(company_id: Any, review: Dict[str, Any], item: Optional[C
                                    review_id=review["id"])
         except Exception:  # noqa: BLE001 - the merge stands; the build can be started again
             logger.exception("build after merge of review %s not started", review["id"])
+
+
+async def _end_preview(company_id: Any, review: Dict[str, Any]) -> None:
+    """A closed or merged pull request's preview stops (tech spec §11.5)."""
+    from src.apps import service as apps
+
+    try:
+        await apps.expire_previews(company_id, review["app_id"], pr_number=review["number"])
+    except Exception:  # noqa: BLE001 - the hourly expiry stops it later
+        logger.exception("preview of review %s not stopped", review["id"])
 
 
 async def _record_tool_asset(item: CodeItem, review: Dict[str, Any]) -> None:
@@ -657,6 +678,8 @@ async def reject(company_id: Any, review_id: Any, *, user: Any) -> Dict[str, Any
         view = review_view(review)
     await events.emit(company_id, "code.rejected", f"code_review:{review.id}",
                       {"review_id": view["id"], "code_item_id": view["code_item_id"]}, source="code_lanes")
+    if view.get("app_id"):
+        await _end_preview(company_id, view)
     return view
 
 
@@ -687,10 +710,8 @@ async def review_closed_outside(company_id: Any, provider: str, full_name: str, 
         view = review_view(review)
     if merged:
         await _after_merge(company_id, view, item)
-    if view.get("app_id") and not merged:
-        from src.apps import service as apps
-
-        await apps.expire_previews(company_id, view["app_id"], pr_number=number)
+    elif view.get("app_id"):
+        await _end_preview(company_id, view)
     return view
 
 

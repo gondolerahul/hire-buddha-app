@@ -15,14 +15,17 @@ over an ``httpx.MockTransport`` with :func:`set_kube`.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-__all__ = ["FIELD_MANAGER", "KubeClient", "KubeError", "KubeNotFound", "get_kube", "path_for", "set_kube"]
+__all__ = ["FIELD_MANAGER", "KubeClient", "KubeError", "KubeNotFound", "get_kube", "path_for", "set_kube",
+           "token_expiry"]
 
 FIELD_MANAGER = "hirebuddha"
 _SA_DIR = Path("/var/run/secrets/kubernetes.io/serviceaccount")
@@ -174,6 +177,18 @@ class KubeClient:
         if since_seconds:
             params["sinceSeconds"] = since_seconds
         return await self.request("GET", path_for("Pod", namespace, pod) + "/log", params=params, raw=True)
+
+
+def token_expiry(token: str) -> Optional[datetime]:
+    """When to stop using a service-account token: 5 minutes (at most a tenth of its life) before it
+    expires — after the kubelet has replaced the file (at 80 % of its life). None if it is not a JWT."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        issued, expires = int(claims["iat"]), int(claims["exp"])
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+    return datetime.fromtimestamp(expires - min(300, (expires - issued) // 10), tz=timezone.utc)
 
 
 class _InClusterClient(KubeClient):

@@ -102,6 +102,21 @@ def test_egress_allow_lists_and_status():
     assert controller.status_of({"spec": {"replicas": 0}, "status": {}}, _cr(mode="sleep"))["phase"] == "Sleeping"
 
 
+def test_the_controller_drops_its_token_after_the_kubelet_replaced_it_and_before_it_expires():
+    from datetime import datetime, timezone
+
+    from src.common.platform.kube import token_expiry
+
+    def jwt(claims):
+        body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+        return f"e30.{body}.sig"
+
+    hour = token_expiry(jwt({"iat": 1_000_000, "exp": 1_003_607}))   # AKS: an hour, replaced at ~48 minutes
+    assert hour == datetime.fromtimestamp(1_003_307, tz=timezone.utc)   # 55 minutes in
+    assert token_expiry(jwt({"iat": 0, "exp": 600})) == datetime.fromtimestamp(540, tz=timezone.utc)
+    assert token_expiry("not-a-jwt") is None and token_expiry(jwt({"sub": "x"})) is None
+
+
 # ── Templates ───────────────────────────────────────────────────────────────
 
 def test_the_five_d48_templates():

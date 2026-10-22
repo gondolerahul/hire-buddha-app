@@ -154,9 +154,10 @@ async def _events(biz, prefix):
     return [r.type for r in rows]
 
 
-async def test_a_crm_is_created_built_published_rolled_back_and_operated(biz):
+async def test_a_crm_is_created_built_published_rolled_back_and_operated(biz, monkeypatch):
     from src.apps import service as apps
     from src.apps.models import CustomDomain
+    from src.common.config import settings
     from src.common.tenancy.session import control_session
 
     with pytest.raises(apps.AppProblem, match="name the objects"):
@@ -213,7 +214,11 @@ async def test_a_crm_is_created_built_published_rolled_back_and_operated(biz):
                                          resources={"cpu": "500m", "memory": "512Mi"}, env={"GREETING": "hi"})
     assert changed["mode"] == "sleep" and changed["outbound_allowlist"] == ["api.stripe.com"]
     spec = biz.runtime.applied[-1]
-    assert spec.mode == "sleep" and spec.egress == ["api.stripe.com"] and spec.env["GREETING"] == "hi"
+    assert spec.egress == ["api.stripe.com"] and spec.env["GREETING"] == "hi"
+    assert spec.mode == "always_on" and spec.resources["replicas"] == 1   # no KEDA HTTP add-on: runs always on
+    monkeypatch.setattr(settings, "APP_SLEEP_ENABLED", True)
+    await apps.update_settings(biz.company_id, app["id"], mode="sleep")
+    assert biz.runtime.applied[-1].mode == "sleep"
     for bad in ({"resources": {"cpu": "64"}}, {"env": {"HB_APP": "x"}}, {"outbound_allowlist": ["not a host"]}):
         with pytest.raises(apps.AppProblem):
             await apps.update_settings(biz.company_id, app["id"], **bad)
@@ -263,6 +268,47 @@ async def test_a_custom_domain_is_served_once_its_dns_is_right(biz):
     assert await apps.expire_previews(biz.company_id, app["id"]) == 0
     assert await apps.expire_previews(biz.company_id, app["id"], now=datetime.utcnow() + timedelta(days=8)) == 1
     assert biz.runtime.calls[-1] == ("delete", "site-preview")
+
+
+class PassingChecks:
+    async def run(self, company_id, files):
+        return [{"name": "code", "conclusion": "success", "summary": "fine", "tool": "test"}]
+
+
+async def test_an_app_change_is_built_and_previewed_and_its_preview_ends_at_the_merge(biz):
+    from src.apps import service as apps
+    from src.apps.models import AppBuild
+    from src.apps.db import app_session
+    from src.code_lanes import service as code
+
+    app = await apps.create_app(biz.company_id, biz.owner, name="crm", display_name="Sales", template="crm_admin",
+                                objects=["contact"])
+    await apps.run_build(biz.company_id, app["build"]["id"])
+    await apps.publish(biz.company_id, app["id"])
+    detail = await apps.get_app(biz.company_id, app["id"])
+
+    review = await code.open_change(biz.company_id, repo_id=detail["repo_id"], app_id=app["id"],
+                                    branch="hb/abcd1234-title", files={"src/title.txt": b"Pipeline"},
+                                    title="Call it Pipeline", run_checks=False, user_id=biz.owner.id)
+    assert review["build"]["status"] == "queued" and review["build"]["commit_sha"] == review["head_sha"]
+    async with app_session(biz.company_id) as db:
+        build = await db.get(AppBuild, uuid.UUID(review["build"]["id"]))
+    assert str(build.review_id) == review["id"]
+    await apps.run_build(biz.company_id, review["build"]["id"])
+    spec = biz.runtime.applied[-1]   # the pull request's head runs as its preview
+    assert spec.instance == f"crm-pr{review['number']}" and spec.hostnames[0].startswith(f"crm-")
+    assert f"-pr{review['number']}." in spec.hostnames[0] and spec.resources["replicas"] == 1
+    previews = [d for d in await apps.list_deployments(biz.company_id, app["id"]) if d["kind"] == "preview"]
+    assert [(d["pr_number"], d["status"]) for d in previews] == [(review["number"], "active")]
+
+    await code.run_review_checks(biz.company_id, review["id"], runner=PassingChecks())
+    merged = await code.approve(biz.company_id, review["id"], user=biz.owner)
+    assert merged["status"] == "merged"
+    assert ("delete", f"crm-pr{review['number']}") in biz.runtime.calls   # the merge ends the preview
+    previews = [d for d in await apps.list_deployments(biz.company_id, app["id"]) if d["kind"] == "preview"]
+    assert [d["status"] for d in previews] == ["expired"]
+    builds = await apps.list_builds(biz.company_id, app["id"])
+    assert builds[0]["commit_sha"] == merged["merge_sha"] and builds[0]["status"] == "queued"   # the merge is built
 
 
 async def test_a_forms_public_key_only_creates_its_one_object(biz):

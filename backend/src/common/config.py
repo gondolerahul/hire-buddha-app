@@ -398,6 +398,9 @@ class Settings(BaseSettings):
     # Hostnames: <app>-<slug>.apps.<APPS_DOMAIN>; previews expire after this many days.
     APPS_DOMAIN: str = "apps.localhost"
     APP_PREVIEW_DAYS: int = 7
+    # Sleep mode (to zero when idle) needs KEDA's HTTP add-on in the cluster (SP-9).
+    # Off: an app set to sleep, and every preview, runs always on with one replica.
+    APP_SLEEP_ENABLED: bool = False
     # Custom domains: the CNAME target (the edge's name) and, for an apex
     # domain that cannot have a CNAME, the edge's static IP.
     APP_EDGE_TARGET: str = ""

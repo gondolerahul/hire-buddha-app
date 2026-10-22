@@ -14,15 +14,16 @@ drift.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import kopf
 
 from src.apps import controller
-from src.common.platform.kube import KubeClient, KubeNotFound, path_for
+from src.common.platform.kube import KubeClient, KubeNotFound, path_for, token_expiry
 
 log = logging.getLogger("app-controller")
 EDGE_CONFIG = "tenant-edge-config"
@@ -81,6 +82,20 @@ async def reconcile(body: Any, patch: Any) -> Dict[str, Any]:
     patch.status.update(controller.status_of(deploy, cr))
     await _publish_edge()
     return {"applied": applied}
+
+
+@kopf.on.login()
+def login(**kwargs: Any) -> Optional[kopf.ConnectionInfo]:
+    """The pod's token with an expiry. AKS's projected token lives an hour and the kubelet replaces the
+    file after ~48 minutes; kopf's own handler gives it no expiry, so kopf kept it until the API refused
+    it, re-read the same file and stopped with "ran out of valid credentials" (hourly restarts on Azure
+    dev, 21 Oct 2026). Expiring it first makes kopf read the replaced file in time."""
+    info = kopf.login_with_service_account(**kwargs)
+    if info is None:   # outside a pod: the developer's kubeconfig
+        return kopf.login_with_kubeconfig(**kwargs)
+    if not info.token:
+        return info
+    return dataclasses.replace(info, expiration=token_expiry(info.token))
 
 
 @kopf.on.startup()

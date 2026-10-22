@@ -551,6 +551,7 @@ def _instance(app: App, kind: str, pr_number: Optional[int]) -> str:
 async def _spec(db: Any, app: App, build: AppBuild, *, kind: str, pr_number: Optional[int], hostnames: List[str],
                 previous: List[str], tenant_key: str) -> Any:
     from src.apps.runtime import AppSpec
+    from src.common.config import settings
 
     secrets_ = await _unseal(db, app)
     settings_ = app.settings or {}
@@ -562,10 +563,16 @@ async def _spec(db: Any, app: App, build: AppBuild, *, kind: str, pr_number: Opt
     image = build.image
     if build.builder != "docker" and (build.image_digest or "").startswith("sha256:"):
         image = f"{build.image.rsplit(':', 1)[0]}@{build.image_digest}"
+    mode = app.mode if kind == "published" else "sleep"
+    resources = dict(app.resources or {})
+    if kind == "preview":
+        resources["replicas"] = 1
+    if mode == "sleep" and not settings.APP_SLEEP_ENABLED:   # no KEDA HTTP add-on: one replica, always on
+        mode, resources["replicas"] = "always_on", 1
     return AppSpec(tenant_key=tenant_key, app=app.name, instance=_instance(app, kind, pr_number), image=image,
                    port=int(settings_.get("port", 8080)), health_path=settings_.get("health_path", "/healthz"),
-                   env=env, app_key=secrets_.get("app_key"), resources=app.resources or {},
-                   mode=app.mode if kind == "published" else "sleep", hostnames=hostnames,
+                   env=env, app_key=secrets_.get("app_key"), resources=resources,
+                   mode=mode, hostnames=hostnames,
                    egress=list(app.outbound_allowlist or []), previous_images=previous)
 
 
