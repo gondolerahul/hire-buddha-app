@@ -35,6 +35,9 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).warning(
             "INTERNAL_TOKEN is empty or a placeholder: POST /internal/event answers 503"
         )
+    from src.common.config import warn_unknown_env_keys
+
+    warn_unknown_env_keys(logging.getLogger(__name__))  # a misspelt setting is otherwise ignored (C-8)
     from src.ai.core.feature_flags import listen_for_invalidations, warn_if_table_missing
 
     await warn_if_table_missing()

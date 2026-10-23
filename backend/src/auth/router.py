@@ -8,7 +8,7 @@ from src.auth.schemas import (
 )
 from src.auth import account_emails, service
 import httpx
-import os
+from src.common.config import settings
 from src.auth import service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -183,8 +183,8 @@ async def oauth_login(
     if provider == "google":
         token_url = "https://oauth2.googleapis.com/token"
         data = {
-            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "client_id": settings.GOOGLE_CLIENT_ID,
+            "client_secret": settings.GOOGLE_CLIENT_SECRET,
             "code": request.code,
             "grant_type": "authorization_code",
             "redirect_uri": request.redirect_uri,
@@ -207,8 +207,8 @@ async def oauth_login(
     elif provider == "microsoft":
         token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
         data = {
-            "client_id": os.getenv("MICROSOFT_CLIENT_ID"),
-            "client_secret": os.getenv("MICROSOFT_CLIENT_SECRET"),
+            "client_id": settings.MICROSOFT_CLIENT_ID,
+            "client_secret": settings.MICROSOFT_CLIENT_SECRET,
             "code": request.code,
             "grant_type": "authorization_code",
             "redirect_uri": request.redirect_uri,

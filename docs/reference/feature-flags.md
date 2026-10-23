@@ -13,6 +13,12 @@ Board's seven with MI-20; four memory flags on 2026-10-09, GH-15/GH-16), and
 `tests/unit/test_flag_catalogue.py` keeps this catalogue and those counts equal to the
 code (ON-16): a flag added or deleted without its row here fails it.
 
+**Who changes them (Phase 15 T0-1):** HireBuddha staff only. `PUT`/`DELETE
+/api/v1/ai/admin/feature_flags/{key}` and the experimental-tool opt-in are `app_admin`
+routes; the key must be one of the flags below or `tools.experimental.<tool>` (else 422);
+each change is recorded in `admin_audit_log` with the value it replaced and a reason.
+Customers' rows from before are listed by `python -m src.ai.core.flag_rows`.
+
 ### 1. Agent loop
 
 | Flag | Default | Controls |

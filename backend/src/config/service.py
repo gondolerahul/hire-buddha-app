@@ -78,6 +78,8 @@ class ConfigService:
     async def create_registry_entry(self, entry_in: IntegrationRegistryCreate) -> IntegrationRegistry:
         entry_data = entry_in.model_dump(exclude={"api_key"})
         api_key = entry_in.api_key
+        from src.billing.razorpay_gateway import refuse_plain_secrets
+        refuse_plain_secrets(entry_data.get("service_sku"), entry_data.get("service_metadata"))
         if entry_data.get("provider_name") == "tata_tele":
             # Secrets typed into the metadata JSON are encrypted, never stored plain.
             from src.voice.tata_credentials import normalize_tata_metadata
@@ -115,6 +117,9 @@ class ConfigService:
         entry = await self.get_registry_entry(entry_id)
         
         update_data = entry_in.model_dump(exclude_unset=True)
+        from src.billing.razorpay_gateway import refuse_plain_secrets
+        refuse_plain_secrets(update_data.get("service_sku") or getattr(entry, "service_sku", None),
+                             update_data.get("service_metadata"))
         provider = update_data.get("provider_name") or entry.provider_name
         if provider == "tata_tele" and "service_metadata" in update_data:
             # Keep the stored secrets the console never sees; encrypt any it sends.

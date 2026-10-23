@@ -163,7 +163,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 { path: '/admin/agent-kernel/kpi', label: 'KPI Dashboard', icon: Gauge },
                 { path: '/admin/agent-kernel/meta-intelligence', label: 'Meta-Agent Intelligence', icon: Sparkles },
                 { path: '/admin/agent-kernel/cost', label: 'Cost Attribution', icon: Receipt },
-                { path: '/admin/agent-kernel/feature-flags', label: 'Feature Flags', icon: Flag },
+                // Engineering switches: staff only (Phase 15 Q6, T0-1).
+                ...(user?.role === UserRole.APP_ADMIN ? [{ path: '/admin/agent-kernel/feature-flags', label: 'Feature Flags', icon: Flag }] : []),
                 { path: '/admin/agent-kernel/risks', label: 'Risk & Exit', icon: ShieldAlert },
             ]
         }] : [])

@@ -39,9 +39,23 @@ export interface SubscriptionCheckout {
     subscription_id: string;
 }
 
+/** What the top-up form offers, and whether this user may pay (Phase 15 T0-3, T0-4). */
+export interface TopUpOptions {
+    currency: string;
+    min: number;
+    max: number;
+    presets: number[];
+    can_pay: boolean;
+}
+
 export const creditsService = {
     getBalance: async (): Promise<CreditBalance> => {
         const { data } = await apiClient.get<CreditBalance>('/credits/balance');
+        return data;
+    },
+
+    getTopUpOptions: async (): Promise<TopUpOptions> => {
+        const { data } = await apiClient.get<TopUpOptions>('/credits/topup-options');
         return data;
     },
 

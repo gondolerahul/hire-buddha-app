@@ -59,7 +59,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import RoleChecker, get_current_user
-from src.auth.roles import ADMIN_ROLES
+from src.auth.roles import ADMIN_ROLES, Role
 from src.auth.models import User
 from src.common.tenancy.session import (
     get_acting_tenant_db, get_control_db, get_tenant_db, is_split, tenant_db_for, tenant_scopes, tenant_session,
@@ -515,27 +515,37 @@ async def run_spec_critic(
 async def toggle_experimental_tool(
     tool_id: str,
     enabled: bool = Query(...),
+    company_id: Optional[UUID] = Query(None, description="The company opted in; default your own"),
     db: AsyncSession = Depends(get_control_db),
-    user: User = Depends(RoleChecker(ADMIN_ROLES)),
+    user: User = Depends(RoleChecker([Role.APP_ADMIN])),
 ) -> dict:
-    """Flip the per-company ``tools.experimental.{tool_id}`` flag.
+    """Flip a company's ``tools.experimental.{tool_id}`` flag (``app_admin`` only, audited).
 
     Through ``FeatureFlags.set``, so every process drops its cached value
     when this commits (GH-14); a raw upsert left them on it for a minute.
     """
-    if user.company_id is None:
-        raise HTTPException(status_code=400, detail="user has no company")
+    target = company_id or user.company_id
+    if target is None:
+        raise HTTPException(status_code=400, detail="company_id required")
     flag_key = f"tools.experimental.{tool_id}"
+    _declared_flag(flag_key)
     try:
         from src.ai.core.feature_flags import FeatureFlags
+        from src.common.admin_audit import record_admin_change
 
-        await FeatureFlags(db).set(flag_key, enabled=enabled, company_id=user.company_id)
+        old = await _flag_row_value(db, flag_key, target, None)
+        await FeatureFlags(db).set(flag_key, enabled=enabled, company_id=target)
+        record_admin_change(
+            db, actor=user, action="set", object_type="feature_flag", object_key=flag_key,
+            target_company_id=target, scope=_flag_scope("company", target, None),
+            old_value=old, new_value={"enabled": enabled, "value_json": (old or {}).get("value_json")},
+        )
         await db.commit()
     except Exception as exc:
         logger.warning(f"toggle_experimental_tool failed: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
     return {"flag_key": flag_key, "enabled": enabled,
-            "company_id": str(user.company_id)}
+            "company_id": str(target)}
 
 
 # ---------------------------------------------------------------------------
@@ -1331,24 +1341,66 @@ async def list_feature_flags_admin(
     ]
 
 
+# Flags are engineering switches: only HireBuddha staff change them (Phase 15
+# Q6, T0-1). A customer used to be able to turn on its own company's kill
+# switches — tool synthesis, video of minors — and to write keys nothing read.
+staff_only = RoleChecker([Role.APP_ADMIN])
+
+
+def _declared_flag(flag_key: str) -> str:
+    """The flag's kind; 422 for a key no code reads."""
+    from src.ai.core.feature_flags import flag_kind
+
+    kind = flag_kind(flag_key)
+    if kind is None:
+        raise HTTPException(status_code=422, detail=f"unknown feature flag {flag_key!r}")
+    return kind
+
+
+async def _flag_row_value(
+    db: AsyncSession, flag_key: str, company_id: Optional[UUID], entity_id: Optional[UUID],
+) -> Optional[dict]:
+    """The row at exactly this scope as ``{enabled, value_json}``, or None (the audit's old value)."""
+    if entity_id is not None:
+        where = "entity_id = :e"
+    elif company_id is not None:
+        where = "company_id = :c AND entity_id IS NULL"
+    else:
+        where = "company_id IS NULL AND entity_id IS NULL"
+    row = (await db.execute(
+        text(f"SELECT enabled, value_json FROM feature_flags WHERE flag_key = :k AND {where}"),
+        {"k": flag_key, "c": str(company_id) if company_id else None, "e": str(entity_id) if entity_id else None},
+    )).first()
+    return None if row is None else {"enabled": bool(row.enabled), "value_json": row.value_json}
+
+
+def _flag_scope(scope: str, company_id: Optional[UUID], entity_id: Optional[UUID]) -> dict:
+    return {"scope": scope, "entity_id": str(entity_id) if entity_id else None}
+
+
 @router.put("/feature_flags/{flag_key}")
 async def set_feature_flag(
     flag_key: str,
     payload: dict,
     db: AsyncSession = Depends(get_control_db),
-    user: User = Depends(RoleChecker(ADMIN_ROLES)),
+    user: User = Depends(staff_only),
 ) -> dict:
-    """Upsert a feature flag at the requested scope.
+    """Upsert a feature flag at the requested scope (``app_admin`` only).
 
     Body:
       {
         "enabled": bool | null,
-        "value_json": <json> | null,
+        "value_json": <json> | null,     (a number for a numeric flag)
         "scope": "global" | "company" | "entity",
         "company_id": UUID | null,
-        "entity_id": UUID | null
+        "entity_id": UUID | null,
+        "reason": str | null
       }
+
+    The key must be a declared flag (422 otherwise). The change and the value
+    it replaced are written to ``admin_audit_log`` in the same transaction.
     """
+    kind = _declared_flag(flag_key)
     scope = str(payload.get("scope", "company"))
     enabled = payload.get("enabled")
     value_json = payload.get("value_json")
@@ -1356,6 +1408,12 @@ async def set_feature_flag(
         raise HTTPException(
             status_code=400, detail="enabled or value_json required",
         )
+    if enabled is not None and not isinstance(enabled, bool):
+        raise HTTPException(status_code=422, detail="enabled must be true or false")
+    if kind == "numeric" and value_json is not None and (
+        isinstance(value_json, bool) or not isinstance(value_json, (int, float))
+    ):
+        raise HTTPException(status_code=422, detail=f"{flag_key} is numeric: value_json must be a number")
 
     company_id: Optional[UUID] = None
     entity_id: Optional[UUID] = None
@@ -1375,32 +1433,29 @@ async def set_feature_flag(
             )
         company_id = UUID(str(payload["company_id"]))
         entity_id = UUID(str(payload["entity_id"]))
-    elif scope == "global":
-        if user.role != "app_admin":
-            raise HTTPException(
-                status_code=403, detail="only app_admin can set global flags",
-            )
-    else:
+    elif scope != "global":
         raise HTTPException(status_code=400, detail=f"invalid scope={scope!r}")
 
-    # Tenant-scoped admins can only mutate their own company.
-    if (
-        user.role != "app_admin"
-        and company_id is not None
-        and company_id != user.company_id
-    ):
-        raise HTTPException(
-            status_code=403, detail="not authorised for that company",
-        )
-
     from src.ai.core.feature_flags import FeatureFlags
-    flags = FeatureFlags(db)
-    await flags.set(
+    from src.common.admin_audit import record_admin_change
+
+    old = await _flag_row_value(db, flag_key, company_id, entity_id)
+    await FeatureFlags(db).set(
         flag_key,
-        enabled=enabled if enabled is None or isinstance(enabled, bool) else bool(enabled),
+        enabled=enabled,
         value_json=value_json,
         company_id=company_id,
         entity_id=entity_id,
+    )
+    # What the row now holds: the upsert keeps a value the body left out.
+    new = {
+        "enabled": enabled if enabled is not None else bool(old and old["enabled"]),
+        "value_json": value_json if value_json is not None else (old or {}).get("value_json"),
+    }
+    record_admin_change(
+        db, actor=user, action="set", object_type="feature_flag", object_key=flag_key,
+        target_company_id=company_id, scope=_flag_scope(scope, company_id, entity_id),
+        old_value=old, new_value=new, reason=payload.get("reason"),
     )
     await db.commit()
     return {
@@ -1419,30 +1474,30 @@ async def delete_feature_flag(
     scope: str = Query("company"),
     company_id: Optional[UUID] = Query(None),
     entity_id: Optional[UUID] = Query(None),
+    reason: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_control_db),
-    user: User = Depends(RoleChecker(ADMIN_ROLES)),
+    user: User = Depends(staff_only),
 ) -> dict:
-    if scope == "global" and user.role != "app_admin":
-        raise HTTPException(
-            status_code=403, detail="only app_admin can delete global flags",
-        )
+    """Remove the row at one scope (``app_admin`` only), audited.
+
+    An undeclared key is accepted here, so staff can clear rows written before
+    keys were checked (``python -m src.ai.core.flag_rows`` lists them).
+    """
     if scope == "company" and company_id is None:
         company_id = user.company_id
-    if (
-        user.role != "app_admin"
-        and company_id is not None
-        and company_id != user.company_id
-    ):
-        raise HTTPException(
-            status_code=403, detail="not authorised for that company",
-        )
+    company_id = company_id if scope != "global" else None
+    entity_id = entity_id if scope == "entity" else None
     from src.ai.core.feature_flags import FeatureFlags
-    flags = FeatureFlags(db)
-    deleted = await flags.delete(
-        flag_key,
-        company_id=company_id if scope != "global" else None,
-        entity_id=entity_id if scope == "entity" else None,
-    )
+    from src.common.admin_audit import record_admin_change
+
+    old = await _flag_row_value(db, flag_key, company_id, entity_id)
+    deleted = await FeatureFlags(db).delete(flag_key, company_id=company_id, entity_id=entity_id)
+    if deleted:
+        record_admin_change(
+            db, actor=user, action="delete", object_type="feature_flag", object_key=flag_key,
+            target_company_id=company_id, scope=_flag_scope(scope, company_id, entity_id),
+            old_value=old, new_value=None, reason=reason,
+        )
     await db.commit()
     return {"deleted": deleted, "flag_key": flag_key, "scope": scope}
 

@@ -707,7 +707,8 @@ export const AppRouter: React.FC = () => {
                     <Route
                         path="/admin/agent-kernel/feature-flags"
                         element={
-                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN, UserRole.PARTNER_ADMIN, UserRole.TENANT_ADMIN]}>
+                            // Engineering switches: HireBuddha staff only (Phase 15 Q6, T0-1).
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
                                 <MainLayout><FeatureFlagsPage /></MainLayout>
                             </ProtectedRoute>
                         }

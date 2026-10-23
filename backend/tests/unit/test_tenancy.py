@@ -79,6 +79,8 @@ APPENDIX_A_CONTROL = {
     "connector_catalog", "external_account_routes", "unrouted_events",
     # Tenant apps (WS6, tech spec §11.5): every hostname the tenant edge serves.
     "custom_domains",
+    # Phase 15 (tech design §17): who changed a platform setting, from what.
+    "admin_audit_log",
 }
 APPENDIX_A_TENANT = {
     "hierarchical_entities", "entity_versions", "entity_assets",

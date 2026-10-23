@@ -34,7 +34,7 @@
 | GET | `/api/v1/ai/admin/admin/kpi/meta_agent` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/admin/kpi/runs` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/admin/risks` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
-| POST | `/api/v1/ai/admin/admin/tools/{tool_id}/experimental` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
+| POST | `/api/v1/ai/admin/admin/tools/{tool_id}/experimental` | roles: app_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/companies/{company_id}/cost_attribution` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/entities/{entity_id}/bandit_state` | signed in | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/executions/{run_id}/cost_attribution` | signed in | `src.ai.api.admin` |
@@ -44,8 +44,8 @@
 | GET | `/api/v1/ai/admin/feature_flags/explain` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | POST | `/api/v1/ai/admin/feature_flags/invalidate` | roles: app_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/feature_flags/me` | signed in | `src.ai.api.admin` |
-| DELETE | `/api/v1/ai/admin/feature_flags/{flag_key}` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
-| PUT | `/api/v1/ai/admin/feature_flags/{flag_key}` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
+| DELETE | `/api/v1/ai/admin/feature_flags/{flag_key}` | roles: app_admin | `src.ai.api.admin` |
+| PUT | `/api/v1/ai/admin/feature_flags/{flag_key}` | roles: app_admin | `src.ai.api.admin` |
 | POST | `/api/v1/ai/admin/meta/entities/{entity_id}/promote` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/meta/intelligence/anti_patterns` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/meta/intelligence/prompt_candidates` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
@@ -241,11 +241,12 @@
 | DELETE | `/api/v1/credits/subscription-tiers/{tier_id}` | roles: app_admin | `src.billing.credits_router` |
 | PUT | `/api/v1/credits/subscription-tiers/{tier_id}` | roles: app_admin | `src.billing.credits_router` |
 | GET | `/api/v1/credits/subscriptions` | signed in | `src.billing.credits_router` |
-| POST | `/api/v1/credits/subscriptions` | signed in | `src.billing.credits_router` |
-| POST | `/api/v1/credits/subscriptions/verify` | signed in | `src.billing.credits_router` |
-| DELETE | `/api/v1/credits/subscriptions/{subscription_id}` | signed in | `src.billing.credits_router` |
-| POST | `/api/v1/credits/topup` | signed in | `src.billing.credits_router` |
-| POST | `/api/v1/credits/topup/verify` | signed in | `src.billing.credits_router` |
+| POST | `/api/v1/credits/subscriptions` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
+| POST | `/api/v1/credits/subscriptions/verify` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
+| DELETE | `/api/v1/credits/subscriptions/{subscription_id}` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
+| POST | `/api/v1/credits/topup` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
+| GET | `/api/v1/credits/topup-options` | signed in | `src.billing.credits_router` |
+| POST | `/api/v1/credits/topup/verify` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
 | POST | `/api/v1/cron/daily-credits` | roles: app_admin | `src.billing.cron_router` |
 | POST | `/api/v1/cron/monthly-billing` | roles: app_admin | `src.billing.cron_router` |
 | GET | `/api/v1/data-keys` | signed in | `src.data_api.platform_router` |
@@ -298,6 +299,7 @@
 | POST | `/api/v1/onboarding/skip` | signed in | `src.auth.onboarding_router` |
 | GET | `/api/v1/onboarding/status` | signed in | `src.auth.onboarding_router` |
 | POST | `/api/v1/onboarding/step/{step_name}` | signed in | `src.auth.onboarding_router` |
+| GET | `/api/v1/partner/analytics/revenue` | roles: app_admin, partner_admin | `src.auth.partner_router` |
 | GET | `/api/v1/partner/analytics/summary` | roles: app_admin, partner_admin | `src.auth.partner_router` |
 | GET | `/api/v1/partner/tenants` | roles: app_admin, partner_admin | `src.auth.partner_router` |
 | GET | `/api/v1/partner/tenants/{tenant_id}/details` | roles: app_admin, partner_admin | `src.auth.partner_router` |

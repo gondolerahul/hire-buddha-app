@@ -16,6 +16,7 @@ from src.common.tenancy.session import get_control_db
 from src.auth.router import get_current_user
 from src.auth.dependencies import RoleChecker
 from src.auth.models import User
+from src.auth.roles import Role
 from src.billing.credit_service import CreditService
 from src.billing.payment_service import (
     LIVE_SUBSCRIPTION_STATUSES, PaymentNotFound, PaymentService, razorpay_signature_valid, razorpay_time,
@@ -36,8 +37,17 @@ async def _get_razorpay_creds(db: AsyncSession) -> Optional[dict]:
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
+# Top-up limits (Phase 15 T0-4, B-14; tech design §6.6): USD for now; they
+# become the settings wallet.topup_min_usd / max_usd / presets_usd (T5-2).
+TOPUP_MIN_USD = Decimal("5")
+TOPUP_MAX_USD = Decimal("10000")
+TOPUP_PRESETS_USD = (10, 25, 50, 100)
+
+
 class TopUpRequest(BaseModel):
-    amount: Decimal  # USD amount to top up (e.g., 10.00)
+    # USD to top up, at most two decimals: Razorpay takes whole cents, and
+    # int(amount * 100) used to drop anything finer without a word.
+    amount: Decimal = Field(ge=TOPUP_MIN_USD, le=TOPUP_MAX_USD, decimal_places=2)
 
 
 class TopUpVerify(BaseModel):
@@ -54,6 +64,11 @@ class SubscriptionCreate(BaseModel):
 # could). bonus_pct is a percentage — 30 is 30% — unlike the billing config's
 # fractions.
 app_admin_only = RoleChecker(["app_admin"])
+
+# Paying, subscribing and cancelling are the company's admins' (Phase 15 T0-3,
+# B-15): any user of the company could, tenant_user included. The Gold
+# partner joins them with the partner programme (WS15-8).
+billing_admin = RoleChecker([Role.PARTNER_ADMIN, Role.TENANT_ADMIN])
 
 
 class SubscriptionTierCreate(BaseModel):
@@ -84,10 +99,22 @@ async def get_balance(
 
 # ─── Wallet Top-Up ────────────────────────────────────────────────────────────
 
+@router.get("/topup-options", summary="Top-up limits and preset amounts")
+async def get_topup_options(current_user: User = Depends(get_current_user)):
+    """What the top-up form offers, and whether this user may pay."""
+    return {
+        "currency": "USD",
+        "min": float(TOPUP_MIN_USD),
+        "max": float(TOPUP_MAX_USD),
+        "presets": list(TOPUP_PRESETS_USD),
+        "can_pay": current_user.role in billing_admin.allowed_roles,
+    }
+
+
 @router.post("/topup", summary="Initiate Razorpay order for wallet top-up")
 async def initiate_topup(
     payload: TopUpRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
     creds = await _get_razorpay_creds(db)
@@ -103,7 +130,7 @@ async def initiate_topup(
         # Razorpay receipt must be ≤ 40 chars; use first 8 chars of company_id
         short_cid = str(current_user.company_id).replace("-", "")[:8]
         order_data = {
-            "amount": int(payload.amount * 100),  # USD cents (e.g. $10 = 1000 cents)
+            "amount": int(payload.amount * 100),  # USD cents, exact: at most 2 decimals (T0-4)
             "currency": "USD",
             "receipt": f"topup_{short_cid}",
             "notes": {"company_id": str(current_user.company_id), "type": "topup"},
@@ -141,7 +168,7 @@ async def initiate_topup(
 @router.post("/topup/verify", summary="Verify Razorpay payment and credit wallet")
 async def verify_topup(
     payload: TopUpVerify,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
     creds = await _get_razorpay_creds(db)
@@ -352,7 +379,7 @@ async def get_subscription(
 @router.post("/subscriptions", summary="Create a Razorpay subscription for a tier")
 async def create_subscription(
     payload: SubscriptionCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
     result = await db.execute(
@@ -419,7 +446,7 @@ class SubscriptionVerify(BaseModel):
 @router.post("/subscriptions/verify", summary="Verify the first subscription payment and grant its credits")
 async def verify_subscription(
     payload: SubscriptionVerify,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
     creds = await _get_razorpay_creds(db)
@@ -464,7 +491,7 @@ async def verify_subscription(
 @router.delete("/subscriptions/{subscription_id}", summary="Cancel subscription")
 async def cancel_subscription(
     subscription_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
     result = await db.execute(

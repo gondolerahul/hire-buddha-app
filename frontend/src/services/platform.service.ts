@@ -44,6 +44,24 @@ export interface TenantSummary {
     recent_executions_7d: number;
     user_count: number;
     created_at?: string;
+    /** The one health score's weak spots (Phase 15 T0-6). */
+    health_reasons?: string[];
+    at_risk?: boolean;
+}
+
+/** What a partner's tenants were billed — billed amounts, never cost (Phase 15 T0-6). */
+export interface PartnerRevenue {
+    currency: string;
+    months: number;
+    totals: {
+        tenants: number;
+        active_tenants: number;
+        suspended_tenants: number;
+        billed_this_month: number;
+        billed_period: number;
+    };
+    monthly: { month: string; billed: number }[];
+    tenants: { company_id: string; company_name: string; status: string; billed_this_month: number; billed_period: number }[];
 }
 
 export interface PartnerAnalytics {
@@ -93,6 +111,11 @@ export const partnerService = {
 
     getAnalytics: async (): Promise<PartnerAnalytics> => {
         const res = await apiClient.get('/partner/analytics/summary');
+        return res.data;
+    },
+
+    getRevenue: async (months = 6): Promise<PartnerRevenue> => {
+        const res = await apiClient.get('/partner/analytics/revenue', { params: { months } });
         return res.data;
     },
 };

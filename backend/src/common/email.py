@@ -1,7 +1,7 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import os
+from src.common.config import settings
 import logging
 import asyncio
 
@@ -179,7 +179,7 @@ class EmailService:
 
     def send_verification_email(self, to_email: str, token: str):
         subject = "Verify your HireBuddha account"
-        verification_link = f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/verify-email?token={token}"
+        verification_link = f"{settings.FRONTEND_URL}/verify-email?token={token}"
         
         body = f"""
         <html>
@@ -212,7 +212,7 @@ class EmailService:
                 <p><strong>Invoice ID:</strong> {invoice_id}</p>
                 <p><strong>Amount Due:</strong> ${amount}</p>
                 <p>Please log in to your account to update your payment method:</p>
-                <a href="{os.getenv('FRONTEND_URL', 'http://localhost:5173')}/billing">Update Payment Method</a>
+                <a href="{settings.FRONTEND_URL}/billing">Update Payment Method</a>
                 <p>If you have any questions, please contact our support team.</p>
             </body>
         </html>

@@ -14,8 +14,9 @@ Resolution order (first hit wins):
 Numeric flags read the database rows' ``value_json`` with ``get_float``; both
 kinds report the tier their value came from (``resolve`` / ``resolve_float``).
 
-Track 13 owns the formal admin-UI + audit-log story. This module is the
-minimum viable plumbing the AgentLoop needs in Track 2.
+Flags are engineering switches, staff-only (Phase 15 Q6, T0-1): the admin API
+writes a declared key only (``flag_kind``), for ``app_admin`` only, and every
+write leaves an ``admin_audit_log`` row (``src.common.admin_audit``).
 
 The DB table is OPTIONAL — if Alembic hasn't run the migration yet,
 flags fall through to env vars + defaults instead of raising. That
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
@@ -131,6 +133,27 @@ NUMERIC_DEFAULTS: dict[str, float] = {
     # Planner candidate count.
     "planner.n_candidates": 3,
 }
+
+
+# A company's opt-in to one EXPERIMENTAL/DRAFT tool (TL-13): the only family of
+# keys not listed above, since there is one per tool.
+EXPERIMENTAL_TOOL_PREFIX = "tools.experimental."
+_TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def flag_kind(flag_key: str) -> Optional[str]:
+    """``boolean`` or ``numeric`` for a declared flag; ``None`` for a key nothing reads.
+
+    The admin API writes only declared keys (Phase 15 T0-1): a typo used to
+    create a row that no code ever read.
+    """
+    if flag_key in DEFAULTS:
+        return "boolean"
+    if flag_key in NUMERIC_DEFAULTS:
+        return "numeric"
+    if flag_key.startswith(EXPERIMENTAL_TOOL_PREFIX) and _TOOL_NAME.match(flag_key[len(EXPERIMENTAL_TOOL_PREFIX):]):
+        return "boolean"
+    return None
 
 
 def _env_name(key: str) -> str:

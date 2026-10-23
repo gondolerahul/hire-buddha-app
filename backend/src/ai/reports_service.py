@@ -452,74 +452,34 @@ class ReportsService:
     # ─── Tenant Health Scores ─────────────────────────────────────────────────
 
     async def get_tenant_health_scores(self, partner_company_id: UUID) -> Dict[str, Any]:
-        """Per-tenant health scorecard for partner_admin / partner_user."""
-        # Get all tenants under this partner
+        """Per-tenant health scorecard for partner_admin / partner_user.
+
+        The one score of ``src.auth.tenant_health`` — the partner's tenant list
+        shows the same (Phase 15 T0-6; this report had its own formula, C-13).
+        """
+        from src.auth.tenant_health import gather, score
+
         tenant_q = select(Company).where(
             Company.parent_id == partner_company_id,
             Company.type == "TENANT",
         )
-        result = await self.db.execute(tenant_q)
-        tenants = result.scalars().all()
-
-        tenant_ids = [t.id for t in tenants]
-        tenant_map = {str(t.id): t.name for t in tenants}
-
-        if not tenant_ids:
+        tenants = (await self.db.execute(tenant_q)).scalars().all()
+        if not tenants:
             return {"tenants": []}
 
-        # Execution stats per tenant
-        exec_q = select(
-            ExecutionRun.company_id,
-            ExecutionRun.status,
-            func.count(ExecutionRun.id).label("cnt"),
-        ).where(
-            ExecutionRun.company_id.in_(tenant_ids),
-            ExecutionRun.created_at >= datetime.utcnow() - timedelta(days=30),
-        ).group_by(ExecutionRun.company_id, ExecutionRun.status)
-
-        # Runs are in each tenant's own database (split); companies and wallets in this one.
-        from src.common.tenancy.session import tenant_scopes
-
-        ready = await tenant_scopes()
-        run_scopes = None if ready == [None] else [t for t in tenant_ids if t in set(ready)]
-        exec_by_tenant: Dict[str, Dict] = {}
-        for row in await self._rows(exec_q, scopes=run_scopes):
-            tid = str(row.company_id)
-            if tid not in exec_by_tenant:
-                exec_by_tenant[tid] = {}
-            exec_by_tenant[tid][row.status] = exec_by_tenant[tid].get(row.status, 0) + row.cnt
-
-        # Wallet per tenant
-        wallet_q = select(CreditWallet).where(CreditWallet.company_id.in_(tenant_ids))
-        wallet_result = await self.db.execute(wallet_q)
-        wallets = {str(w.company_id): w for w in wallet_result.scalars().all()}
-
+        signals = await gather(self.db, [t.id for t in tenants])
         scores = []
         for t in tenants:
-            tid = str(t.id)
-            tstatus = exec_by_tenant.get(tid, {})
-            total_runs = sum(tstatus.values())
-            completed = tstatus.get("COMPLETED", 0)
-            failed = tstatus.get("FAILED", 0)
-            w = wallets.get(tid)
-            wallet_total = float((w.daily_credits or 0) + (w.wallet_balance or 0) + (w.subscription_credits or 0)) if w else 0
-
-            health_score = 100.0
-            if total_runs > 0:
-                health_score = round(completed / total_runs * 100, 1)
-            if wallet_total < 1.0:
-                health_score = max(0, health_score - 20)
-
+            s = signals[t.id]
             scores.append({
-                "company_id": tid,
+                "company_id": str(t.id),
                 "company_name": t.name,
                 "status": t.status,
-                "total_runs_30d": total_runs,
-                "completed_runs": completed,
-                "failed_runs": failed,
-                "wallet_balance": round(wallet_total, 4),
-                "health_score": health_score,
-                "at_risk": wallet_total < 2.0 or (total_runs > 0 and failed / total_runs > 0.3),
+                "total_runs_30d": s.runs_30d,
+                "completed_runs": s.completed_30d,
+                "failed_runs": s.failed_30d,
+                "wallet_balance": round(s.credit_usd, 4),
+                **score(s),
             })
 
         scores.sort(key=lambda x: x["health_score"], reverse=True)

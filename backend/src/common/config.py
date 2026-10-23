@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any, Optional
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,10 +51,10 @@ class Settings(BaseSettings):
     STREAMING_PROTOCOL: str = "ws"
 
     # ── HTTP edge — one list, one limit (the gateway on :8001 is merged in) ─
+    # No raw IP addresses: a forgotten dev host was trusted by default (C-7).
     CORS_ORIGINS: str = (
         "http://localhost:3000,"
         "http://127.0.0.1:3000,"
-        "http://34.100.230.121:3000,"
         "https://dev.hirebuddha.com,"
         "https://app.hirebuddha.com,"
         "https://gateway.hirebuddha.com"
@@ -71,8 +72,17 @@ class Settings(BaseSettings):
     LIVE_SESSIONS_PER_COMPANY: int = 20
 
     # ── Account emails (AU-06, AU-08) ─────────────────────────────────────
-    # Where verification and password-reset links point: the SPA's origin.
+    # Where verification, password-reset and billing links point: the SPA's
+    # origin. Read here only — the e-mails had their own default, :5173 (C-3).
     FRONTEND_URL: str = "http://localhost:3000"
+
+    # ── Sign-in with Google / Microsoft (POST /auth/oauth/{provider}) ─────
+    # Read from the environment through Settings, so on AKS the secrets come
+    # from Key Vault like every other (C-3). Empty: that provider's sign-in fails.
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    MICROSOFT_CLIENT_ID: str = ""
+    MICROSOFT_CLIENT_SECRET: str = ""
     # Local development only: when an account email cannot be sent (no SMTP
     # integration), write its link to the API log instead. Never in production —
     # the links are credentials.
@@ -526,3 +536,55 @@ def _load_settings() -> Settings:
 
 
 settings = _load_settings()
+
+
+# Variables something other than Settings reads (os.environ), so they are not
+# unknown: tooling, the platform, and the seed scripts.
+NON_SETTINGS_ENV = frozenset({
+    "SETTINGS_SECRETS_DIR", "HB_ALEMBIC_INI", "HB_MIGRATION_URL", "ARTIFACTS_DIR", "APPS_NODE_POOL",
+    "TRACE_MAX_FIELD_BYTES", "INSTANCE_ID", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+    "VERTEX_PROJECT_ID", "VERTEX_REGION",
+})
+NON_SETTINGS_PREFIXES = ("AI_FLAG_", "OTEL_", "KUBERNETES_", "PYTHON", "VITE_")
+
+
+def unknown_env_keys(env_file: str = ".env", environ: Optional[dict] = None) -> list[str]:
+    """Names that look like settings but that nothing reads (Phase 15 T0-7, C-8).
+
+    ``Settings`` ignores an unknown variable (``extra="ignore"``), so a misspelt
+    one in production changed nothing, silently. This finds them: every name in
+    ``env_file`` that is neither a setting nor read elsewhere, and every name in
+    the process environment that is *almost* a setting's (a likely typo — the
+    environment also holds PATH and the like, which are not ours).
+    """
+    import difflib
+
+    fields = set(Settings.model_fields)
+    known = fields | NON_SETTINGS_ENV
+
+    def unknown(name: str) -> bool:
+        return name not in known and not name.startswith(NON_SETTINGS_PREFIXES)
+
+    found: set[str] = set()
+    path = Path(env_file)
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            name = line.split("=", 1)[0].strip().removeprefix("export ").strip()
+            if name and not name.startswith("#") and "=" in line and unknown(name):
+                found.add(name)
+    for name in (os.environ if environ is None else environ):
+        if name.isupper() and unknown(name) and difflib.get_close_matches(name, fields, n=1, cutoff=0.88):
+            found.add(name)
+    return sorted(found)
+
+
+def warn_unknown_env_keys(logger: Any) -> list[str]:
+    """Log each unknown variable once, with the setting it was probably meant to be."""
+    import difflib
+
+    names = unknown_env_keys()
+    for name in names:
+        guess = difflib.get_close_matches(name, list(Settings.model_fields), n=1, cutoff=0.6)
+        logger.warning("environment variable %s is not a setting and nothing reads it%s",
+                       name, f" (did you mean {guess[0]}?)" if guess else "")
+    return names

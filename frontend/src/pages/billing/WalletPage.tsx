@@ -1,7 +1,7 @@
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState, useEffect } from 'react';
 import { Wallet, CreditCard, CheckCircle, AlertTriangle, RefreshCw, Star } from 'lucide-react';
-import { creditsService, CreditBalance, Subscription } from '@/services/credits.service';
+import { creditsService, CreditBalance, Subscription, TopUpOptions } from '@/services/credits.service';
 import './WalletPage.css';
 import { loadRazorpay } from '@/utils/razorpay';
 
@@ -36,31 +36,29 @@ export const WalletPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     const [cancellingId, setCancellingId] = useState<string | null>(null);
-    const [subscriptionTiers, setSubscriptionTiers] = useState<Array<{
+    // Only the tiers the API offers: the page used to invent three when there
+    // were none, which the API then refused (Phase 15 T0-5).
+    const [plans, setPlans] = useState<Array<{
         id: string; name: string; tier_level: number; monthly_fee: number; bonus_pct: number;
     }>>([]);
-
-    // Fallback plans if API returns empty (initial seed)
-    const FALLBACK_PLANS = [
-        { tier_level: 1, name: 'Starter', monthly_fee: 29, bonus_pct: 20 },
-        { tier_level: 2, name: 'Growth', monthly_fee: 79, bonus_pct: 30 },
-        { tier_level: 3, name: 'Scale', monthly_fee: 199, bonus_pct: 40 },
-    ];
-
-    const plans = subscriptionTiers.length > 0 ? subscriptionTiers : FALLBACK_PLANS;
+    const [topUpOptions, setTopUpOptions] = useState<TopUpOptions | null>(null);
+    // Paying, subscribing and cancelling are the company admins' (T0-3).
+    const canPay = topUpOptions?.can_pay ?? false;
 
     const fetchData = async () => {
         setLoading(true);
         setError(null);
         try {
-            const [bal, sub, tiers] = await Promise.all([
+            const [bal, sub, tiers, options] = await Promise.all([
                 creditsService.getBalance(),
                 creditsService.getSubscription(),
                 creditsService.getSubscriptionTiers().catch(() => []),
+                creditsService.getTopUpOptions().catch(() => null),
             ]);
             setBalance(bal);
             setSubscription(sub.subscription);
-            setSubscriptionTiers(tiers);
+            setPlans(tiers);
+            setTopUpOptions(options);
         } catch (e: any) {
             setError(e?.response?.data?.detail || 'Failed to load wallet data');
         } finally {
@@ -71,8 +69,13 @@ export const WalletPage: React.FC = () => {
     useEffect(() => { fetchData(); }, []);
 
     const handleTopUp = async () => {
-        const amt = parseFloat(topUpAmount);
-        if (isNaN(amt) || amt < 1) { setError('Please enter a valid amount (min $1)'); return; }
+        const amt = Number(topUpAmount);
+        const min = topUpOptions?.min ?? 5;
+        const max = topUpOptions?.max ?? 10000;
+        if (!/^\d+(\.\d{1,2})?$/.test(topUpAmount.trim()) || amt < min || amt > max) {
+            setError(`Enter an amount from $${min} to $${max.toLocaleString()}, in whole cents`);
+            return;
+        }
         setTopping(true);
         setError(null);
         try {
@@ -87,7 +90,7 @@ export const WalletPage: React.FC = () => {
             if (Razorpay) {
                 const rzp = new Razorpay({
                     key: order.key_id,
-                    amount: amt * 100,
+                    amount: Math.round(amt * 100),
                     currency: order.currency,
                     name: 'HireBuddha',
                     description: 'Wallet Top-Up',
@@ -237,13 +240,19 @@ export const WalletPage: React.FC = () => {
 
             <div className="wallet-two-col">
                 {/* Top-Up Section — the balance is spendable on either account model */}
-                {balance && (
+                {balance && !canPay && (
+                    <div className="topup-section glass">
+                        <h2 className="section-title"><CreditCard size={18} /> Top Up Wallet</h2>
+                        <p className="section-desc">Only your company's admins can add funds or change the plan.</p>
+                    </div>
+                )}
+                {balance && canPay && (
                     <div className="topup-section glass">
                         <h2 className="section-title"><CreditCard size={18} /> Top Up Wallet</h2>
                         <p className="section-desc">Add funds via Razorpay. Balance is valid for 365 days.</p>
                         <div className="topup-form">
                             <div className="amount-presets">
-                                {[10, 25, 50, 100].map((v) => (
+                                {(topUpOptions?.presets ?? []).map((v) => (
                                     <button
                                         key={v}
                                         className={`preset-btn ${topUpAmount === String(v) ? 'active' : ''}`}
@@ -257,8 +266,9 @@ export const WalletPage: React.FC = () => {
                                 <span className="currency-symbol">$</span>
                                 <input
                                     type="number"
-                                    min="1"
-                                    step="1"
+                                    min={topUpOptions?.min}
+                                    max={topUpOptions?.max}
+                                    step="0.01"
                                     value={topUpAmount}
                                     onChange={(e) => setTopUpAmount(e.target.value)}
                                     placeholder="Custom amount"
@@ -289,13 +299,15 @@ export const WalletPage: React.FC = () => {
                                 <p className="sub-next">Paid through: {parseServerDate(subscription.next_billing_date).toLocaleDateString()}</p>
                             )}
                         </div>
-                        <button
-                            className="btn-danger"
-                            onClick={() => handleCancel(subscription.id)}
-                            disabled={cancellingId === subscription.id}
-                        >
-                            {cancellingId === subscription.id ? 'Cancelling…' : 'Cancel Subscription'}
-                        </button>
+                        {canPay && (
+                            <button
+                                className="btn-danger"
+                                onClick={() => handleCancel(subscription.id)}
+                                disabled={cancellingId === subscription.id}
+                            >
+                                {cancellingId === subscription.id ? 'Cancelling…' : 'Cancel Subscription'}
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
@@ -308,8 +320,11 @@ export const WalletPage: React.FC = () => {
                         Subscribe for a monthly auto-debit via Razorpay and bonus credits every month.
                         Credits are spent soonest-expiring first: daily, then subscription, then your wallet balance.
                     </p>
+                    {plans.length === 0 && (
+                        <p className="section-desc plans-empty">No plans are available at the moment.</p>
+                    )}
                     <div className="plans-grid">
-                        {plans.map((plan: any) => (
+                        {plans.map((plan) => (
                             <div key={plan.tier_level} className={`plan-card glass ${plan.tier_level === 2 ? 'popular' : ''}`}>
                                 {plan.tier_level === 2 && <div className="popular-badge">Most Popular</div>}
                                 <h3 className="plan-name">{plan.name}</h3>
@@ -320,12 +335,14 @@ export const WalletPage: React.FC = () => {
                                     {plan.tier_level >= 2 && <li><CheckCircle size={14} />Priority Support</li>}
                                     {plan.tier_level >= 3 && <li><CheckCircle size={14} />Unlimited Agents</li>}
                                 </ul>
-                                <button
-                                    className="btn-primary full-width"
-                                    onClick={() => handleSubscribe(plan.tier_level, plan.monthly_fee)}
-                                >
-                                    Subscribe — ${plan.monthly_fee}/mo
-                                </button>
+                                {canPay && (
+                                    <button
+                                        className="btn-primary full-width"
+                                        onClick={() => handleSubscribe(plan.tier_level, plan.monthly_fee)}
+                                    >
+                                        Subscribe — ${plan.monthly_fee}/mo
+                                    </button>
+                                )}
                             </div>
                         ))}
                     </div>

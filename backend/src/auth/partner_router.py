@@ -10,12 +10,12 @@ and runs are in its own database (Phase 14 WS2), read through ``tenant_db_for``
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
@@ -23,6 +23,7 @@ from sqlalchemy import func
 from src.common.tenancy.session import get_control_db, is_split, tenant_db_for
 from src.auth.models import Company, User
 from src.auth.dependencies import get_current_user, RoleChecker
+from src.billing.billing_models import CreditWallet
 
 logger = logging.getLogger(__name__)
 
@@ -37,30 +38,12 @@ async def list_tenants_with_health(
     current_user: User = Depends(partner_only),
 ):
     """
-    List tenants managed by this partner with health scores.
-    
-    Health score (0-100) is calculated from:
-      - Wallet balance (30 pts)
-      - Active integrations (20 pts)
-      - Active agents (25 pts)
-      - Recent executions (25 pts)
+    List tenants managed by this partner with health scores (0-100, the one
+    score of ``tenant_health``; its signals are read for all tenants at once).
     """
-    # Get tenants belonging to this partner
-    if current_user.role == "app_admin":
-        tenant_query = select(Company).where(Company.type == "TENANT")
-    else:
-        tenant_query = select(Company).where(
-            Company.type == "TENANT",
-            Company.parent_id == current_user.company_id,
-        )
-
-    result = await db.execute(tenant_query)
+    result = await db.execute(select(Company).where(*_partner_tenants(current_user)))
     tenants = result.scalars().all()
-
-    tenant_summaries = []
-    for tenant in tenants:
-        summary = await _build_tenant_summary(db, tenant)
-        tenant_summaries.append(summary)
+    tenant_summaries = await _tenant_summaries(db, tenants)
 
     return {
         "total_tenants": len(tenant_summaries),
@@ -84,7 +67,7 @@ async def get_tenant_details(
     if current_user.role != "app_admin" and tenant.parent_id != current_user.company_id:
         raise HTTPException(status_code=403, detail="Not authorized to view this tenant")
 
-    summary = await _build_tenant_summary(db, tenant)
+    summary = (await _tenant_summaries(db, [tenant]))[0]
 
     # Fetch integrations
     integrations = []
@@ -173,15 +156,7 @@ async def get_partner_analytics(
     current_user: User = Depends(partner_only),
 ):
     """Aggregated analytics across all tenants managed by this partner."""
-    if current_user.role == "app_admin":
-        tenant_query = select(Company.id).where(Company.type == "TENANT")
-    else:
-        tenant_query = select(Company.id).where(
-            Company.type == "TENANT",
-            Company.parent_id == current_user.company_id,
-        )
-
-    result = await db.execute(tenant_query)
+    result = await db.execute(select(Company.id).where(*_partner_tenants(current_user)))
     tenant_ids = [row[0] for row in result.fetchall()]
 
     if not tenant_ids:
@@ -198,12 +173,14 @@ async def get_partner_analytics(
     # Aggregate entity count, execution count and cost (tenant databases)
     total_entities, total_executions, total_cost = await _tenant_totals(db, tenant_ids)
 
-    # Aggregate wallet balance
+    # Aggregate wallet balance: every bucket, not the top-up one alone (P-25)
     total_wallet = 0.0
     try:
         from src.billing.billing_models import CreditWallet
         wallet_result = await db.execute(
-            select(func.coalesce(func.sum(CreditWallet.wallet_balance), 0)).where(
+            select(func.coalesce(func.sum(
+                CreditWallet.daily_credits + CreditWallet.wallet_balance
+                + CreditWallet.subscription_credits + CreditWallet.subscription_bonus_credits), 0)).where(
                 CreditWallet.company_id.in_(tenant_ids)
             )
         )
@@ -230,13 +207,88 @@ async def get_partner_analytics(
     }
 
 
+@router.get("/analytics/revenue")
+async def get_partner_revenue(
+    months: int = Query(6, ge=1, le=24),
+    db: AsyncSession = Depends(get_control_db),
+    current_user: User = Depends(partner_only),
+):
+    """What this partner's tenants were billed, per tenant and per month (Phase 15 T0-6).
+
+    The partner dashboard called the app-admin-only ``partner-performance``
+    report, got 403 and showed nothing (P-27). This is the partner's own view,
+    in **billed** amounts — ``billing_events.total_billing``, what the wallets
+    were charged — never provider cost (REQ-BL-3). ``app_admin``: every tenant.
+    """
+    from src.billing.billing_models import BillingEvent
+
+    tenants = (await db.execute(select(Company).where(*_partner_tenants(current_user)))).scalars().all()
+    today = datetime.utcnow().date()
+    month_starts = [_month_start(today, back) for back in range(months - 1, -1, -1)]
+    this_month = month_starts[-1]
+
+    billed: dict = {}
+    ids = [t.id for t in tenants]
+    if ids:
+        rows = (await db.execute(
+            select(BillingEvent.company_id, BillingEvent.period_month, func.sum(BillingEvent.total_billing))
+            .where(BillingEvent.company_id.in_(ids), BillingEvent.period_month >= month_starts[0])
+            .group_by(BillingEvent.company_id, BillingEvent.period_month)
+        )).all()
+        for company_id, period, total in rows:
+            billed[(company_id, period)] = Decimal(str(total or 0))
+
+    per_tenant = []
+    for t in tenants:
+        period_total = sum((billed.get((t.id, m), Decimal("0")) for m in month_starts), Decimal("0"))
+        per_tenant.append({
+            "company_id": str(t.id),
+            "company_name": t.name,
+            "status": t.status,
+            "billed_this_month": float(billed.get((t.id, this_month), Decimal("0"))),
+            "billed_period": float(period_total),
+        })
+    per_tenant.sort(key=lambda r: r["billed_period"], reverse=True)
+    monthly = [{"month": m.strftime("%Y-%m"),
+                "billed": float(sum((v for (_, p), v in billed.items() if p == m), Decimal("0")))}
+               for m in month_starts]
+    return {
+        "currency": "USD",
+        "months": months,
+        "totals": {
+            "tenants": len(tenants),
+            "active_tenants": sum(1 for t in tenants if t.status == "active"),
+            "suspended_tenants": sum(1 for t in tenants if t.status == "suspended"),
+            "billed_this_month": monthly[-1]["billed"],
+            "billed_period": float(sum((v for v in billed.values()), Decimal("0"))),
+        },
+        "monthly": monthly,
+        "tenants": per_tenant,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _month_start(today: date, back: int) -> date:
+    """The first day of the month ``back`` months before ``today``'s."""
+    index = today.year * 12 + (today.month - 1) - back
+    return date(index // 12, index % 12 + 1, 1)
+
+def _partner_tenants(user: User) -> tuple:
+    """The filter for the caller's tenants: a partner's own; every tenant for app_admin."""
+    if user.role == "app_admin":
+        return (Company.type == "TENANT",)
+    return (Company.type == "TENANT", Company.parent_id == user.company_id)
+
+
 async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int, int, float]:
-    """Agents, runs and the runs' cost of ``tenant_ids``: one query on the
-    shared database (single mode), one per tenant database (split mode)."""
+    """Agents, top-level runs and their cost of ``tenant_ids``: one query on the
+    shared database (single mode), one per tenant database (split mode).
+
+    A child run's cost is already in its parent's total, so only top-level runs
+    are summed — summing every run counted child spend twice (P-25)."""
     from src.ai.orm import ExecutionRun, HierarchicalEntity
 
     scopes = [(tid, [tid]) for tid in tenant_ids] if is_split() else [(None, tenant_ids)]
@@ -251,7 +303,7 @@ async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int,
                     select(
                         func.count(ExecutionRun.id),
                         func.coalesce(func.sum(ExecutionRun.total_cost_usd), 0),
-                    ).where(ExecutionRun.company_id.in_(ids))
+                    ).where(ExecutionRun.company_id.in_(ids), ExecutionRun.parent_run_id.is_(None))
                 )).one()
                 executions += row[0] or 0
                 cost += float(row[1])
@@ -261,95 +313,42 @@ async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int,
     return entities, executions, cost
 
 
-async def _build_tenant_summary(db: AsyncSession, tenant: Company) -> dict:
-    """Build a health-scored summary for a single tenant."""
-    summary = {
-        "id": str(tenant.id),
-        "name": tenant.name,
-        "status": tenant.status,
-        "onboarding_status": tenant.onboarding_status or "pending",
-        "created_at": tenant.created_at.isoformat() if tenant.created_at else None,
-    }
+async def _tenant_summaries(db: AsyncSession, tenants: List[Company]) -> List[dict]:
+    """Health-scored summaries of ``tenants``, their signals read in one batch (P-23)."""
+    from src.auth.tenant_health import gather, score
+    from src.config.models import IntegrationRegistry
 
-    health_score = 0.0
+    ids = [t.id for t in tenants]
+    if not ids:
+        return []
+    signals = await gather(db, ids)
+    users = dict((await db.execute(
+        select(User.company_id, func.count(User.id)).where(User.company_id.in_(ids)).group_by(User.company_id)
+    )).all())
+    integrations = dict((await db.execute(
+        select(IntegrationRegistry.company_id, func.count(IntegrationRegistry.id))
+        .where(IntegrationRegistry.company_id.in_(ids), IntegrationRegistry.status == "active")
+        .group_by(IntegrationRegistry.company_id)
+    )).all())
+    daily = dict((await db.execute(
+        select(CreditWallet.company_id, CreditWallet.daily_credits).where(CreditWallet.company_id.in_(ids))
+    )).all())
 
-    # 1. Wallet balance (0-30 pts)
-    try:
-        from src.billing.billing_models import CreditWallet
-        wallet_result = await db.execute(
-            select(CreditWallet).where(CreditWallet.company_id == tenant.id)
-        )
-        wallet = wallet_result.scalar_one_or_none()
-        if wallet:
-            balance = float(wallet.wallet_balance or 0) + float(wallet.daily_credits or 0)
-            summary["wallet_balance"] = round(balance, 2)
-            summary["daily_credits"] = float(wallet.daily_credits or 0)
-            # Score: full points if balance > $10, proportional below
-            health_score += min(30, (balance / 10) * 30)
-        else:
-            summary["wallet_balance"] = 0.0
-            summary["daily_credits"] = 0.0
-    except Exception:
-        summary["wallet_balance"] = 0.0
-        summary["daily_credits"] = 0.0
-
-    # 2. Active integrations (0-20 pts)
-    try:
-        from src.config.models import IntegrationRegistry
-        int_count = await db.execute(
-            select(func.count(IntegrationRegistry.id)).where(
-                IntegrationRegistry.company_id == tenant.id,
-                IntegrationRegistry.status == "active",
-            )
-        )
-        count = int_count.scalar() or 0
-        summary["integration_count"] = count
-        health_score += min(20, count * 10)  # 2+ integrations = full score
-    except Exception:
-        summary["integration_count"] = 0
-
-    # 3. Active agents (0-25 pts) and 4. recent executions — last 7 days
-    # (0-25 pts): the tenant's own database
-    summary["entity_count"] = 0
-    summary["recent_executions_7d"] = 0
-    try:
-        from src.ai.orm import ExecutionRun, HierarchicalEntity
-        from datetime import timedelta
-        week_ago = datetime.utcnow() - timedelta(days=7)
-        async with tenant_db_for(db, tenant.id) as tenant_db:
-            agent_count = await tenant_db.execute(
-                select(func.count(HierarchicalEntity.id)).where(
-                    HierarchicalEntity.company_id == tenant.id,
-                    HierarchicalEntity.is_template == False,
-                )
-            )
-            count = agent_count.scalar() or 0
-            summary["entity_count"] = count
-            health_score += min(25, count * 5)  # 5+ entities = full score
-
-            exec_count = await tenant_db.execute(
-                select(func.count(ExecutionRun.id)).where(
-                    ExecutionRun.company_id == tenant.id,
-                    ExecutionRun.created_at >= week_ago,
-                )
-            )
-            count = exec_count.scalar() or 0
-            summary["recent_executions_7d"] = count
-            health_score += min(25, count * 2.5)  # 10+ executions = full score
-    except Exception:
-        logger.warning("Partner view: agents and runs of tenant %s not read", tenant.id, exc_info=True)
-
-    # User count
-    user_count = await db.execute(
-        select(func.count(User.id)).where(User.company_id == tenant.id)
-    )
-    summary["user_count"] = user_count.scalar() or 0
-
-    summary["health_score"] = round(min(100, health_score), 1)
-    summary["health_level"] = (
-        "green" if health_score >= 70 else
-        "amber" if health_score >= 40 else
-        "red"
-    )
-
-    return summary
+    summaries = []
+    for tenant in tenants:
+        s = signals[tenant.id]
+        summaries.append({
+            "id": str(tenant.id),
+            "name": tenant.name,
+            "status": tenant.status,
+            "onboarding_status": tenant.onboarding_status or "pending",
+            "created_at": tenant.created_at.isoformat() if tenant.created_at else None,
+            "wallet_balance": round(s.credit_usd, 2),
+            "daily_credits": float(daily.get(tenant.id) or 0),
+            "integration_count": int(integrations.get(tenant.id, 0)),
+            "entity_count": s.agents,
+            "recent_executions_7d": s.runs_7d,
+            "user_count": int(users.get(tenant.id, 0)),
+            **score(s),
+        })
+    return summaries

@@ -7,7 +7,13 @@ For every system-integration row of the platform company that still holds its
 secret encrypted in the database (``encrypted_api_key``, no ``secret_ref``):
 the value is written to the platform vault as ``registry-<service sku>``, read
 back to check it, and only then does the row get ``secret_ref`` and lose its
-``encrypted_api_key``. A row that fails is left as it was. Rows of other
+``encrypted_api_key``. A row that fails is left as it was.
+
+The ``razorpay_keys`` row from before Phase 15 T0-2 kept its secrets in its
+metadata in plain text (``key_secret``, ``webhook_secret``): they move the
+same way, to ``registry-razorpay-keys`` (the row's ``secret_ref``) and
+``registry-razorpay-keys-webhook`` (``service_metadata.webhook_secret_ref``),
+and leave the metadata. Rows of other
 companies are a business's own keys: they become connections (WS7,
 ``python -m src.connections.migrate``), not vault secrets.
 
@@ -60,7 +66,54 @@ async def move_secrets(db: Any, writer: Optional[Any], *, apply: bool) -> Dict[s
         except Exception as error:  # noqa: BLE001 - this row stays as it was
             await db.rollback()
             report["failed"].append({**item, "error": f"{type(error).__name__}: {error}"[:300]})
+    await _move_razorpay_metadata(db, writer, apply=apply, report=report)
     return report
+
+
+async def _write_checked(writer: Any, name: str, value: str) -> None:
+    from src.common.platform.secrets import get_secrets
+
+    await writer.set(name, value)
+    reader = get_secrets()
+    reader.forget(name)
+    if await reader.get(name) != value:
+        raise RuntimeError("the vault does not return what was written")
+
+
+async def _move_razorpay_metadata(db: Any, writer: Optional[Any], *, apply: bool,
+                                  report: Dict[str, List[Dict[str, str]]]) -> None:
+    """The plain-text secrets of ``razorpay_keys`` (T0-2) into the vault."""
+    from src.billing.razorpay_gateway import RAZORPAY_SKU, WEBHOOK_SECRET_REF
+    from src.config.models import IntegrationRegistry
+
+    rows = (await db.execute(select(IntegrationRegistry).where(
+        IntegrationRegistry.service_sku == RAZORPAY_SKU))).scalars().all()
+    for row in rows:
+        metadata = dict(row.service_metadata or {})
+        moves = []  # (metadata field, vault name)
+        if metadata.get("key_secret"):
+            moves.append(("key_secret", vault_name(row.service_sku)))
+        if metadata.get("webhook_secret"):
+            moves.append(("webhook_secret", vault_name(row.service_sku) + "-webhook"))
+        for field, name in moves:
+            item = {"service_sku": f"{row.service_sku}.{field}", "secret_ref": name}
+            if not apply:
+                report["would_move"].append(item)
+                continue
+            try:
+                await _write_checked(writer, name, metadata[field])
+                metadata.pop(field)
+                if field == "key_secret":
+                    row.secret_ref, row.encrypted_api_key = name, None
+                else:
+                    metadata[WEBHOOK_SECRET_REF] = name
+                row.service_metadata = dict(metadata)
+                await db.commit()
+                report["moved"].append(item)
+            except Exception as error:  # noqa: BLE001 - this secret stays where it was
+                await db.rollback()
+                report["failed"].append({**item, "error": f"{type(error).__name__}: {error}"[:300]})
+                break  # the local copy of the metadata no longer matches the row
 
 
 async def _cli(apply: bool) -> int:

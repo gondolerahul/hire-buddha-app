@@ -17,6 +17,8 @@ export interface SetFeatureFlagBody {
     value_json?: unknown;
     company_id?: string;
     entity_id?: string;
+    /** Kept in the admin audit log with the change. */
+    reason?: string;
 }
 
 export const featureFlagsService = {

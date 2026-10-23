@@ -19,9 +19,16 @@ from src.ai.core import feature_flags as ff
 class _DB:
     def __init__(self):
         self.commits = 0
+        self.added = []
 
     async def commit(self):
         self.commits += 1
+
+    async def execute(self, *args, **kwargs):  # the flag's row before the change: none
+        return SimpleNamespace(first=lambda: None)
+
+    def add(self, row):  # the audit row (Phase 15 T0-1)
+        self.added.append(row)
 
 
 @pytest.mark.asyncio
@@ -35,10 +42,11 @@ async def test_the_experimental_toggle_writes_through_set(monkeypatch):
 
     monkeypatch.setattr(ff.FeatureFlags, "set", _set)
     company, db = uuid.uuid4(), _DB()
-    user = SimpleNamespace(company_id=company, role="tenant_admin")
-    out = await admin.toggle_experimental_tool("social_api", enabled=True, db=db, user=user)
+    user = SimpleNamespace(id=uuid.uuid4(), company_id=uuid.uuid4(), role="app_admin")
+    out = await admin.toggle_experimental_tool("social_api", enabled=True, company_id=company, db=db, user=user)
     assert calls == [("tools.experimental.social_api", {"enabled": True, "company_id": company})]
     assert db.commits == 1 and out["enabled"] is True
+    assert [(a.object_key, a.target_company_id) for a in db.added] == [("tools.experimental.social_api", company)]
 
 
 @pytest.mark.asyncio

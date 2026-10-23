@@ -72,7 +72,8 @@ export const FeatureFlagsPage: React.FC = () => {
                 <p>
                     A flag takes the first value it finds: an entity row, a company row,
                     a global row, the <code>AI_FLAG_</code> env var, then the code default.
-                    The source column says which one set it.
+                    The source column says which one set it. Only HireBuddha staff change flags;
+                    each change is recorded with who made it and why.
                 </p>
             </header>
 
@@ -102,6 +103,7 @@ export const FeatureFlagsPage: React.FC = () => {
                     isAppAdmin={isAppAdmin}
                     onChange={refreshEffective}
                     companyId={user?.company_id ?? null}
+                    declaredKeys={(flags ?? []).map((f) => f.flag_key)}
                 />
             )}
             {tab === 'numeric' && flags && <NumericTab flags={flags.filter((f) => f.kind === 'numeric')} />}
@@ -146,9 +148,10 @@ interface AdminTabProps {
     isAppAdmin: boolean;
     companyId: string | null;
     onChange: () => void;
+    declaredKeys: string[];
 }
 
-const AdminTab: React.FC<AdminTabProps> = ({ isAppAdmin, companyId, onChange }) => {
+const AdminTab: React.FC<AdminTabProps> = ({ isAppAdmin, companyId, onChange, declaredKeys }) => {
     const [rows, setRows] = useState<FeatureFlagRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [scope, setScope] = useState<'all' | 'global' | 'company' | 'entity'>('all');
@@ -222,6 +225,7 @@ const AdminTab: React.FC<AdminTabProps> = ({ isAppAdmin, companyId, onChange }) 
                 <CreateOverrideForm
                     isAppAdmin={isAppAdmin}
                     defaultCompanyId={companyId}
+                    declaredKeys={declaredKeys}
                     onCreated={() => {
                         setShowCreate(false);
                         reload();
@@ -289,11 +293,12 @@ const AdminTab: React.FC<AdminTabProps> = ({ isAppAdmin, companyId, onChange }) 
 interface CreateFormProps {
     isAppAdmin: boolean;
     defaultCompanyId: string | null;
+    declaredKeys: string[];
     onCreated: () => void;
 }
 
 const CreateOverrideForm: React.FC<CreateFormProps> = ({
-    isAppAdmin, defaultCompanyId, onCreated,
+    isAppAdmin, defaultCompanyId, declaredKeys, onCreated,
 }) => {
     const [flagKey, setFlagKey] = useState('');
     const [scope, setScope] = useState<'global' | 'company' | 'entity'>('company');
@@ -301,6 +306,7 @@ const CreateOverrideForm: React.FC<CreateFormProps> = ({
     const [companyId, setCompanyId] = useState(defaultCompanyId ?? '');
     const [entityId, setEntityId] = useState('');
     const [valueJsonText, setValueJsonText] = useState('');
+    const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
 
     const submit = async (e: React.FormEvent) => {
@@ -323,10 +329,12 @@ const CreateOverrideForm: React.FC<CreateFormProps> = ({
                 company_id: scope !== 'global' ? companyId : undefined,
                 entity_id: scope === 'entity' ? entityId : undefined,
                 value_json,
+                reason: reason.trim() || undefined,
             });
             onCreated();
             setFlagKey('');
             setValueJsonText('');
+            setReason('');
         } catch (e: any) {
             alert(`create failed: ${e?.response?.data?.detail ?? e}`);
         } finally {
@@ -341,9 +349,14 @@ const CreateOverrideForm: React.FC<CreateFormProps> = ({
                 <input
                     value={flagKey}
                     onChange={(e) => setFlagKey(e.target.value)}
-                    placeholder="agent_loop.enabled"
+                    placeholder="bandit.enabled"
+                    list="ff-declared-keys"
                     required
                 />
+                {/* The API takes declared keys only (and tools.experimental.<tool>). */}
+                <datalist id="ff-declared-keys">
+                    {declaredKeys.map((k) => <option key={k} value={k} />)}
+                </datalist>
             </div>
             <div>
                 <label>scope</label>
@@ -390,6 +403,14 @@ const CreateOverrideForm: React.FC<CreateFormProps> = ({
                     value={valueJsonText}
                     onChange={(e) => setValueJsonText(e.target.value)}
                     placeholder="3.14 or {&quot;a&quot;:1}"
+                />
+            </div>
+            <div className="ff-page__form-wide">
+                <label>reason (kept in the audit log)</label>
+                <input
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="why this override"
                 />
             </div>
             <button type="submit" disabled={busy}>
