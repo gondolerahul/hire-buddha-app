@@ -13,6 +13,8 @@ from decimal import Decimal
 
 import pytest
 
+from src.billing.units import Dimension
+
 from src.ai.core import agent_loop_sse
 from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.ai.services.cost_attribution import CostLedger
@@ -47,7 +49,7 @@ async def _run(db):
     await db.flush()
     db.add(IntegrationRegistry(company_id=c.id, provider_name="test", service_sku="p48-model-in",
                                model_name="p48-model", component_type="input_token",
-                               internal_cost=Decimal("1.00"), cost_unit="per_1M_tokens",
+                               internal_cost=Decimal("1.00"), cost_unit_code="PER_1M_TOKENS",
                                status="active", service_category="LLM"))
     ent = HierarchicalEntity(company_id=c.id, type="AGENT", status="ACTIVE", name="framed")
     db.add(ent)
@@ -63,7 +65,7 @@ async def _run(db):
 async def test_an_llm_row_publishes_a_cost_charged_frame(db, redis):
     company, run = await _run(db)
     await UsageService(db).log_usage(company, "p48-model-in", 500_000, execution_id=run.id,
-                                     attribution="critic_post")
+                                     attribution="critic_post", dimension=Dimension.TOKEN)
     [(channel, frame)] = redis.published
     assert channel == f"run_events:{run.id}"
     assert frame["type"] == "cost_charged" and frame["attribution"] == "critic_post"
@@ -83,5 +85,5 @@ async def test_a_tool_charge_publishes_one_too(db, redis):
 @pytest.mark.asyncio
 async def test_a_row_with_no_run_publishes_nothing(db, redis):
     company, _run_row = await _run(db)
-    await UsageService(db).log_usage(company, "p48-model-in", 1000)
+    await UsageService(db).log_usage(company, "p48-model-in", 1000, dimension=Dimension.TOKEN)
     assert redis.published == []

@@ -133,7 +133,7 @@ async def test_integrations_are_one_companys_even_for_app_admin(db, test_company
     await db.flush()
     for company in (test_company_id, other.id):
         db.add(IntegrationRegistry(company_id=company, provider_name="test", service_sku=f"api16-{uuid.uuid4().hex[:6]}",
-                                   model_name="m", component_type="input_token", cost_unit="per_1M_tokens",
+                                   model_name="m", component_type="input_token", cost_unit_code="PER_1M_TOKENS",
                                    internal_cost=1, status="active", service_category="LLM"))
     await db.flush()
     admin = SimpleNamespace(id=uuid.uuid4(), role="app_admin", company_id=test_company_id)

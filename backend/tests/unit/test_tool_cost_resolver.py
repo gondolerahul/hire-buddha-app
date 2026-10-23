@@ -28,13 +28,13 @@ def _db_with_registry_row(row=None) -> MagicMock:
     return db
 
 
-def _registry_row(*, internal_cost=Decimal("0.012"), sku="custom-sku", cost_unit="per_request"):
+def _registry_row(*, internal_cost=Decimal("0.012"), sku="custom-sku", cost_unit_code="PER_REQUEST"):
     return SimpleNamespace(
         id=uuid4(),
         internal_cost=internal_cost,
         service_sku=sku,
         provider_name="test-provider",
-        cost_unit=cost_unit,
+        cost_unit_code=cost_unit_code,
     )
 
 
@@ -127,7 +127,7 @@ async def test_platform_row_prices_a_tenant_without_its_own() -> None:
 @pytest.mark.asyncio
 async def test_a_per_thousand_price_is_divided_per_call() -> None:
     """BC-10: cost_unit was ignored, so a per-1000 price was charged per call."""
-    row = _registry_row(internal_cost=Decimal("5.00"), cost_unit="per_1000_requests")
+    row = _registry_row(internal_cost=Decimal("5.00"), cost_unit_code="PER_1K_REQUESTS")
     amount, _, _ = await ToolCostResolver(_db_with_registry_row(row), uuid4()).resolve("web_search")
     assert amount == Decimal("0.005")
 

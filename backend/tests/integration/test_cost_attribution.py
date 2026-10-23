@@ -25,6 +25,8 @@ from decimal import Decimal
 
 import pytest
 
+from src.billing.units import Dimension
+
 
 pytestmark = pytest.mark.needs_db
 
@@ -65,12 +67,12 @@ async def _seed_llm_sku(db, app_company_id: uuid.UUID, service_sku: str) -> uuid
             INSERT INTO integration_registry (
                 id, company_id, provider_name, model_name, service_sku,
                 component_type, service_category, status,
-                internal_cost, cost_unit,
+                internal_cost, cost_unit_code,
                 created_at, updated_at
             ) VALUES (
                 :id, :company_id, 'mock-provider', :sku, :sku,
                 'AI_MODEL', 'LLM', 'active',
-                1.000000, '1M Tokens',
+                1.000000, 'PER_1M_TOKENS',
                 now(), now()
             )
             """
@@ -146,6 +148,7 @@ async def test_attribution_round_trip_per_tag(db, test_company_id) -> None:
             raw_quantity=1000.0,
             execution_id=run_id,
             attribution=tag,
+            dimension=Dimension.TOKEN,
         )
         # UsageService commits internally; the test session still rolls
         # back at teardown because we're inside its outer transaction.
@@ -191,6 +194,7 @@ async def test_unknown_attribution_falls_back_to_tool(db, test_company_id) -> No
         raw_quantity=500.0,
         execution_id=run_id,
         attribution="critic_pst",       # typo!
+        dimension=Dimension.TOKEN,
     )
     assert usage is not None
     assert usage.attribution == "tool"
@@ -208,10 +212,10 @@ async def test_dashboard_query_breaks_down_by_attribution(db, test_company_id) -
     svc = UsageService(db)
     await svc.log_usage(company_id=test_company_id, service_sku=sku,
                         raw_quantity=2000.0, execution_id=run_id,
-                        attribution="planner")
+                        attribution="planner", dimension=Dimension.TOKEN)
     await svc.log_usage(company_id=test_company_id, service_sku=sku,
                         raw_quantity=300.0, execution_id=run_id,
-                        attribution="critic_post")
+                        attribution="critic_post", dimension=Dimension.TOKEN)
     from sqlalchemy import text
     rows = (await db.execute(
         text(
@@ -245,12 +249,12 @@ async def _seed_embedding_sku(db, app_company_id: uuid.UUID, service_sku: str) -
             INSERT INTO integration_registry (
                 id, company_id, provider_name, model_name, service_sku,
                 component_type, service_category, status,
-                internal_cost, cost_unit,
+                internal_cost, cost_unit_code,
                 created_at, updated_at
             ) VALUES (
                 :id, :company_id, 'google', :model, :sku,
                 'character', 'EMBEDDING', 'active',
-                0.000025, '1000 char',
+                0.000025, 'PER_1K_CHARACTERS',
                 now(), now()
             )
             """
@@ -290,6 +294,7 @@ async def test_embedding_usage_is_attributed(db, test_company_id) -> None:
         metadata={"embedding_phase": "retrieval",
                   "embedding_task_type": "RETRIEVAL_QUERY"},
         attribution=CostAttribution.EMBEDDING.value,
+        dimension=Dimension.CHARACTER,
     )
     assert usage is not None, "embedding usage did not persist"
     assert usage.attribution == "embedding"
@@ -299,7 +304,7 @@ async def test_embedding_usage_is_attributed(db, test_company_id) -> None:
 
 
 async def _seed_sandbox_sku(db, app_company_id: uuid.UUID, service_sku: str) -> uuid.UUID:
-    """Insert a per-second sandbox runtime SKU (cost_unit 'second' → divisor 1)."""
+    """Insert a per-second sandbox runtime SKU (PER_SECOND)."""
     from sqlalchemy import text
     sku_id = uuid.uuid4()
     await db.execute(
@@ -308,11 +313,11 @@ async def _seed_sandbox_sku(db, app_company_id: uuid.UUID, service_sku: str) -> 
             INSERT INTO integration_registry (
                 id, company_id, provider_name, model_name, service_sku,
                 component_type, service_category, status,
-                internal_cost, cost_unit, created_at, updated_at
+                internal_cost, cost_unit_code, created_at, updated_at
             ) VALUES (
                 :id, :company_id, 'hirebuddha', 'sandbox-runtime', :sku,
                 'sandbox', 'SANDBOX', 'active',
-                0.000020, 'second', now(), now()
+                0.000020, 'PER_SECOND', now(), now()
             )
             """
         ),
@@ -341,6 +346,7 @@ async def test_sandbox_usage_is_attributed(db, test_company_id) -> None:
         execution_id=run_id,
         metadata={"sandbox_runtime": "ContainerRuntime", "sandbox_kind": "exec"},
         attribution=CostAttribution.SANDBOX.value,
+        dimension=Dimension.SECOND,
     )
     assert usage is not None, "sandbox usage did not persist"
     assert usage.attribution == "sandbox"
@@ -378,6 +384,7 @@ async def test_no_usage_log_is_unattributed(db, test_company_id) -> None:
             raw_quantity=1000.0,
             execution_id=run_id,
             attribution=tag,
+            dimension=Dimension.TOKEN,
         )
 
     # The invariant: no row scoped to this run is UNATTRIBUTED.

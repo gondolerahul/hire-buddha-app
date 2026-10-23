@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+
+from src.billing.units import Dimension
 from sqlalchemy import text
 
 from src.ai.core import approval_pause
@@ -338,9 +340,9 @@ async def _spent(db, company_id, run, usd: str):
     sku = f"gh08-{uuid.uuid4().hex[:6]}"
     db.add(IntegrationRegistry(company_id=company_id, provider_name="test", service_sku=sku,
                                component_type="tool", internal_cost=Decimal(usd),
-                               cost_unit="per_request", status="active", service_category="API_TOOL"))
+                               cost_unit_code="PER_REQUEST", status="active", service_category="API_TOOL"))
     await db.flush()
-    await UsageService(db).log_usage(company_id, sku, 1, execution_id=run.id, attribution="tool")
+    await UsageService(db).log_usage(company_id, sku, 1, execution_id=run.id, attribution="tool", dimension=Dimension.REQUEST)
 
 
 def _browse():

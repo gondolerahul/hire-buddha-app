@@ -9,7 +9,7 @@ interface AuthContextType {
     token: string | null;
     loading: boolean;
     login: (email: string, password: string) => Promise<void>;
-    register: (email: string, password: string, fullName: string) => Promise<void>;
+    register: (email: string, password: string, fullName: string, countryCode?: string) => Promise<void>;
     logout: () => void;
     isAuthenticated: boolean;
 }
@@ -71,10 +71,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         window.location.href = '/dashboard';
     };
 
-    const register = async (email: string, password: string, fullName: string) => {
+    const register = async (email: string, password: string, fullName: string, countryCode?: string) => {
         // Registration emails a verification link and signs nobody in (AU-08):
         // the account can sign in once the address is verified.
-        await authService.register({ email, password, full_name: fullName });
+        await authService.register({ email, password, full_name: fullName, country_code: countryCode });
         window.location.href = `/verify-email?email=${encodeURIComponent(email)}`;
     };
 

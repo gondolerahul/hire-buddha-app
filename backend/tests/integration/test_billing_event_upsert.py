@@ -65,11 +65,11 @@ async def _rows(maker, company_id):
 
 
 async def _one_settlement_total(maker, company_id) -> Decimal:
-    from src.billing.billing_service import BillingService, compute_billed_amount
+    from src.billing.formulas import formula_for
 
     async with maker() as db:
-        config = await BillingService(db).get_billing_config(company_id)
-    return compute_billed_amount(BASE, config)
+        formula = await formula_for(db, company_id)  # the company's price formula (Phase 15 T3-2)
+    return formula.rate(BASE)
 
 
 @pytest.mark.asyncio
@@ -107,11 +107,11 @@ async def test_each_grouping_and_category_is_kept_apart(sessions):
                           image_gen_count=2)
     await _record(maker, company_id, grouping_type="agent", grouping_value="b", event_category="video")
     again = await _record(maker, company_id, grouping_type="agent", grouping_value="a", event_category="telephony",
-                          telephony_in_minutes=Decimal("1.5"))
+                          telephony_in_seconds=Decimal("90"))
     rows = {r.grouping_value: r for r in await _rows(maker, company_id)}
     assert set(rows) == {"a", "b"}
     assert again.id == first.id  # the returned row is the accumulated one
     one = await _one_settlement_total(maker, company_id)
     assert rows["a"].image_charge == one and rows["a"].telephony_charge > 0
-    assert rows["a"].image_gen_count == 2 and rows["a"].telephony_in_minutes == Decimal("1.5")
+    assert rows["a"].image_gen_count == 2 and rows["a"].telephony_in_seconds == Decimal("90")
     assert rows["b"].video_charge == one and rows["b"].image_charge == 0

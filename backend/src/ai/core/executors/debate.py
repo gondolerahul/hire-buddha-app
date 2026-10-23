@@ -35,6 +35,7 @@ from src.ai.core.strategist import Move
 from src.ai.core.trace import span
 from src.ai.llm.router import LLMRouter
 from src.ai.orm.execution import ExecutionRun
+from src.billing.units import Dimension
 
 logger = logging.getLogger(__name__)
 
@@ -266,12 +267,14 @@ class DebateExecutor:
                     company_id=run.company_id,
                     service_sku=f"{model_name}-in" if model_name else "unknown-in",
                     raw_quantity=float(pt),
+                    dimension=Dimension.TOKEN,
                     execution_id=run.id,
                 )
                 u_out = await usage.log_usage(
                     company_id=run.company_id,
                     service_sku=f"{model_name}-out" if model_name else "unknown-out",
                     raw_quantity=float(ct),
+                    dimension=Dimension.TOKEN,
                     execution_id=run.id,
                 )
             except Exception as exc:                                       # noqa: BLE001

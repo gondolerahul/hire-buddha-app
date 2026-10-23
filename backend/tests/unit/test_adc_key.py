@@ -20,7 +20,7 @@ from src.config.schemas import IntegrationRegistryCreate
 def _create(provider: str, **kw) -> IntegrationRegistryCreate:
     return IntegrationRegistryCreate(
         company_id=uuid.uuid4(), provider_name=provider, model_name="m", service_sku="m-in",
-        component_type="input_token", internal_cost=Decimal("0.3"), cost_unit="per_million_tokens", **kw)
+        component_type="input_token", internal_cost=Decimal("0.3"), cost_unit_code="PER_1M_TOKENS", **kw)
 
 
 @pytest.mark.parametrize("provider", ["google", "gemini", "anthropic", "anthropic_vertex"])

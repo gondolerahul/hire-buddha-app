@@ -41,7 +41,7 @@ async def _world(db):
     await db.flush()
     integration = IntegrationRegistry(
         company_id=company.id, provider_name="tata_tele", service_sku="tata-voice",
-        component_type="telephony", internal_cost=0, cost_unit="per_minute",
+        component_type="telephony", internal_cost=0, cost_unit_code="PER_MINUTE",
         status="active", encrypted_api_key=_legacy("tata-api-key", OLD),
         service_metadata={"login_email": "ops@example.com",
                           "secrets_encrypted": {"auth_token": encrypt_api_key("tata-auth", master=OLD)}},

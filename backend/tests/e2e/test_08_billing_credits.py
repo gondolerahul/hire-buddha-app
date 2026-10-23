@@ -21,20 +21,28 @@ async def test_get_billing_config_global(client: httpx.AsyncClient, app_admin_to
 
 @pytest.mark.asyncio
 async def test_update_billing_config_admin(client: httpx.AsyncClient, app_admin_token):
+    """A formula change is a new platform version (Phase 15 T3-2); the test puts the old one back."""
+    headers = auth_headers(app_admin_token)
+    before = (await client.get("/api/v1/billing/config", headers=headers)).json()["config"]
     resp = await client.put(
         "/api/v1/billing/config",
-        headers=auth_headers(app_admin_token),
+        headers=headers,
         json={
             "multiplier_factor": 2.5,
-            "platform_fee_pct": 0.1,
-            "sales_partner_fee_pct": 0.05,
-            "discount_pct": 0.0
+            "platform_fee_pct": 0.15,       # spf is retired: a fee for everyone is pf (K-10)
+            "discount_pct": 0.0,
+            "reason": f"e2e {TEST_ID}",
         }
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "config" in data
-    assert float(data["config"]["multiplier_factor"]) == 2.5
+    try:
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "config" in data
+        assert float(data["config"]["multiplier_factor"]) == 2.5
+    finally:
+        await client.put("/api/v1/billing/config", headers=headers, json={
+            "multiplier_factor": before["multiplier_factor"], "platform_fee_pct": before["platform_fee_pct"],
+            "discount_pct": before["discount_pct"], "reason": f"e2e {TEST_ID}: restored"})
 
 
 @pytest.mark.asyncio

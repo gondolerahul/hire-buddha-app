@@ -7,13 +7,14 @@ checkpoints so the engine can delegate without knowing billing internals.
 """
 import logging
 from decimal import Decimal
-from typing import Any, Optional, cast
+from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import select
 
 from src.billing.credit_service import CreditService, InsufficientCreditsError, SpendCapReached, minimum_threshold
-from src.billing.billing_service import BillingService, calculate_tb, compute_billed_amount
+from src.billing.billing_service import BillingService
+from src.billing.formulas import formula_for_run
 from src.ai.orm import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
 from src.ai.schemas.governance import checkpoint_problem
@@ -73,8 +74,8 @@ class GovernanceService:
         (settlement still charges it).
         """
         try:
-            config = await self.billing_service.get_billing_config(run.company_id)
-            billed = compute_billed_amount(accumulated_cost, config)
+            formula = await formula_for_run(self.db, run.company_id, run.id)
+            billed = formula.rate(accumulated_cost)
             # The company's monthly cap, counting this run's bill so far (GH-18).
             capped = await self.credit_service.spend_cap_refusal(run.company_id, pending=billed)
         except Exception as e:
@@ -174,20 +175,10 @@ class GovernanceService:
             return Decimal("0")
 
         try:
-            # Compute billed amount using the TB formula
-            config = await self.billing_service.get_billing_config(
-                run.company_id
-            )
-            if not config:
-                mf, pf, spf, d = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
-            else:
-                mf = Decimal(str(config.multiplier_factor))
-                pf = Decimal(str(config.platform_fee_pct))
-                spf = Decimal(str(config.sales_partner_fee_pct))
-                d = Decimal(str(config.discount_pct))
-
-            tb_result = calculate_tb(total_cost, mf, pf, spf, d)
-            billed_amount = tb_result["total_billing"]
+            # The billed amount: the formula the run's usage rows were rated
+            # with (T3-2, T3-3) — the same amount, as the formula is linear.
+            formula = await formula_for_run(self.db, run.company_id, run.id)
+            billed_amount = formula.rate(total_cost)
 
             # Store billed amount on the run record (its tenant database)
             run.billed_amount = billed_amount
@@ -195,9 +186,9 @@ class GovernanceService:
 
             logger.info(
                 f"TB formula: raw=${total_cost} → billed=${billed_amount} "
-                f"(mf={mf}, pf={pf}, spf={spf}, d={d})"
+                f"(mf={formula.mf}, pf={formula.pf}, d={formula.d}, formula {formula.id or formula.scope})"
             )
-            return await self._charge(run, entity_name, total_cost, cast(Decimal, billed_amount))
+            return await self._charge(run, entity_name, total_cost, billed_amount)
 
         except Exception as billing_err:
             logger.warning(
@@ -245,6 +236,11 @@ class GovernanceService:
                 other_ai_cost=total_cost,
                 commit=False,
             )
+            # Its billing lines and the shadow comparison (Phase 15 T3-4, T3-7).
+            from src.billing.shadow import record_settlement
+            await record_settlement(self.db, control, company_id=run.company_id, run_id=run.id,
+                                    subject_type="run", grouping_type="entity", grouping_id=run.entity_id,
+                                    v1_cost_usd=total_cost, v1_billed_usd=billed_amount)
             await control.commit()
         logger.info(
             f"Billing event recorded for run {run.id}: "

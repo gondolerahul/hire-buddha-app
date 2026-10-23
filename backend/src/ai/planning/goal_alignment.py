@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.billing.units import Dimension
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,7 @@ class GoalAlignmentVerifier:
                             company_id=self.company_id,
                             service_sku=f"{model}-in",
                             raw_quantity=float(response.prompt_tokens),
+                            dimension=Dimension.TOKEN,
                             execution_id=self.run_id,
                             attribution="critic_align",
                         ))
@@ -136,6 +138,7 @@ class GoalAlignmentVerifier:
                             company_id=self.company_id,
                             service_sku=f"{model}-out",
                             raw_quantity=float(response.completion_tokens),
+                            dimension=Dimension.TOKEN,
                             execution_id=self.run_id,
                             attribution="critic_align",
                         ))

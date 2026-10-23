@@ -155,8 +155,8 @@ class Settings(BaseSettings):
     # sandbox path (TL-29): src/ai/tools/sandbox/workspace.py.
     SANDBOX_WORKSPACE_ROOT: str = ""
     # S6 cost attribution: sandbox runtime time is metered against this SKU
-    # (IntegrationRegistry.service_sku, owned by the APP company; cost_unit
-    # "second"). Seed it with scripts/seed_sandbox_sku.py.
+    # (IntegrationRegistry.service_sku, owned by the APP company; priced
+    # PER_SECOND). Seed it with scripts/seed_sandbox_sku.py.
     SANDBOX_COST_SKU: str = "sandbox-runtime"
     # The LinkedIn API version every LinkedIn call sends (TL-48). LinkedIn
     # retires a version about a year after release: whoever touches the

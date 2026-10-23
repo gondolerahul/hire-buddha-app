@@ -1,7 +1,7 @@
 """Seed (idempotently) the ``sandbox-runtime`` cost SKU — Phase 12 `02` S6.
 
 Sandbox runtime time is metered against an IntegrationRegistry SKU owned by the
-APP (platform) company, with cost_unit ``second`` so UsageService bills
+APP (platform) company, priced per second (PER_SECOND) so UsageService bills
 ``internal_cost * seconds``. Without this row, sandbox metering logs a warning
 and records nothing (same as embedding before its SKU existed).
 
@@ -46,7 +46,7 @@ async def seed() -> None:
             await db.execute(
                 text(
                     "UPDATE integration_registry "
-                    "SET internal_cost = :cost, cost_unit = 'second', "
+                    "SET internal_cost = :cost, cost_unit_code = 'PER_SECOND', "
                     "    status = 'active', updated_at = now() "
                     "WHERE id = :id"
                 ),
@@ -62,11 +62,11 @@ async def seed() -> None:
                 INSERT INTO integration_registry (
                     id, company_id, provider_name, model_name, service_sku,
                     component_type, service_category, status,
-                    internal_cost, cost_unit, created_at, updated_at
+                    internal_cost, cost_unit_code, created_at, updated_at
                 ) VALUES (
                     :id, :c, 'hirebuddha', 'sandbox-runtime', :sku,
                     'sandbox', 'SANDBOX', 'active',
-                    :cost, 'second', now(), now()
+                    :cost, 'PER_SECOND', now(), now()
                 )
                 """
             ),

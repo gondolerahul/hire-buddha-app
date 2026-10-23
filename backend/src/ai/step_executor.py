@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 from src.ai.core.prompt_utils import parse_variables, build_sandwich_prompt, filter_context_for_step
 from src.ai.core.exceptions import UncertaintySignal
 from src.ai.schemas import DEFAULT_REVIEW_SYSTEM_PROMPT as DEFAULT_REVIEW_PROMPT
+from src.billing.units import Dimension
 
 
 def step_directive(step: Any) -> Optional[StepDirective]:
@@ -985,6 +986,7 @@ Step 2: [your analysis]
             company_id=run.company_id,
             service_sku=input_sku,
             raw_quantity=float(prompt_tokens),
+            dimension=Dimension.TOKEN,
             execution_id=run.id,
             attribution=attribution,
         )
@@ -993,6 +995,7 @@ Step 2: [your analysis]
             company_id=run.company_id,
             service_sku=output_sku,
             raw_quantity=float(completion_tokens),
+            dimension=Dimension.TOKEN,
             execution_id=run.id,
             attribution=attribution,
         )

@@ -304,3 +304,20 @@ async def list_task_types(
             "speech_to_speech": "Real-time bidirectional voice conversation",
         }
     }
+
+
+@router.get("/cost-units")
+async def list_cost_units(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """The units a registry price may be quoted in (Phase 15 T1-7): the SKU editor's dropdown.
+
+    From the ``cost_units`` table, which equals ``src.billing.units.UNITS``.
+    """
+    from src.billing.billing_models import CostUnitRow
+
+    rows = (await db.execute(select(CostUnitRow).where(CostUnitRow.active.is_(True))
+                             .order_by(CostUnitRow.dimension, CostUnitRow.per_quantity))).scalars().all()
+    return [{"code": r.code, "dimension": r.dimension, "per_quantity": float(r.per_quantity), "label": r.label}
+            for r in rows]

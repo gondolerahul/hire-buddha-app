@@ -10,7 +10,7 @@ import {
     AlertTriangle,
     Route as RouteIcon
 } from 'lucide-react';
-import { integrationService, Integration } from '../services/integration.service';
+import { integrationService, Integration, CostUnitOption } from '../services/integration.service';
 import { authService } from '../services/auth.service';
 import { User, UserRole } from '../types';
 import { CreateIntegrationModal } from '../components/CreateIntegrationModal';
@@ -24,6 +24,7 @@ import './IntegrationsPage.css';
 
 export const IntegrationsPage: React.FC = () => {
     const [integrations, setIntegrations] = useState<Integration[]>([]);
+    const [unitLabels, setUnitLabels] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -32,6 +33,12 @@ export const IntegrationsPage: React.FC = () => {
     const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([]);
     const [isEmailWizardOpen, setIsEmailWizardOpen] = useState(false);
     const [emailLoading, setEmailLoading] = useState(false);
+
+    useEffect(() => {
+        integrationService.getCostUnits()
+            .then((units: CostUnitOption[]) => setUnitLabels(Object.fromEntries(units.map(u => [u.code, u.label]))))
+            .catch(() => setUnitLabels({}));
+    }, []);
 
     const fetchIntegrations = useCallback(async () => {
         try {
@@ -209,10 +216,10 @@ export const IntegrationsPage: React.FC = () => {
 
                         <div className="card-meta">
                             <span className="meta-item">
-                                <span style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>${Number(item.internal_cost).toFixed(6)}</span>
+                                <span style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>${Number(item.internal_cost)}</span>
                             </span>
                             <span className="meta-item">
-                                {item.cost_unit}
+                                {unitLabels[item.cost_unit_code] ?? item.cost_unit_code}
                             </span>
                         </div>
 

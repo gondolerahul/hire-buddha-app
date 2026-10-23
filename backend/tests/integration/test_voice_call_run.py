@@ -45,7 +45,7 @@ async def _call(db):
     session.phone_number = "+15550000000"
     db.add(IntegrationRegistry(company_id=session.company_id, provider_name="twilio",
                                service_sku="in-out", component_type="telephony",
-                               internal_cost=Decimal("0.02"), cost_unit="per_minute",
+                               internal_cost=Decimal("0.02"), cost_unit_code="PER_MINUTE",
                                status="active", service_category="COMMUNICATION"))
     await db.flush()
     return session
@@ -81,7 +81,8 @@ async def test_the_calls_run_closes_with_the_whole_call_and_a_trace(db, one_sess
     cost = await calls.finish(db, billed_amount=Decimal("0.5"), tokens=1200,
                               result={"duration_seconds": 90, "turns": 4})
 
-    assert cost == usage.total_cost and cost >= Decimal("0.07")    # 2 minutes + the tool
+    # 90 s at $0.02/min is 1.5 minutes, billed per second (T1-4; was 2 started minutes) + the tool
+    assert cost == usage.total_cost and cost == Decimal("0.03") + calls.cost
     run = (await db.execute(select(ExecutionRun).where(ExecutionRun.id == calls.run_id))).scalar_one()
     await db.refresh(run)
     assert run.status == "COMPLETED" and Decimal(str(run.total_cost_usd)) == cost
@@ -149,5 +150,6 @@ async def test_hang_up_closes_the_run_after_the_call_is_charged(db, one_session,
 
     run = (await db.execute(select(ExecutionRun).where(ExecutionRun.id == calls.run_id))).scalar_one()
     await db.refresh(run)
-    assert run.status == "COMPLETED" and Decimal(str(run.total_cost_usd)) >= Decimal("0.04")
+    # At least 61 s at $0.02/min, per second (T1-4; the started-minute rule made it 2 minutes, $0.04)
+    assert run.status == "COMPLETED" and Decimal(str(run.total_cost_usd)) >= Decimal("0.02") * 61 / 60
     assert run.billed_amount is not None and run.result_data["turns"] == 3

@@ -43,6 +43,8 @@ import {
     Sparkles,
     Receipt,
     Flag,
+    Coins,
+    Scale,
     ShieldAlert,
     Timer,
     Database,
@@ -153,6 +155,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/connectors', label: 'Connector Approvals', icon: Plug }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/reports/costing', label: 'Costing Report', icon: PiggyBank }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/settings/billing', label: 'Billing Settings', icon: Settings }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/currency', label: 'Currency & FX', icon: Coins }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/billing-shadow', label: 'Billing Shadow', icon: Scale }] : []),
             ]
         },
         // Phase 11 — Agent Kernel observability + admin. Admin-only.

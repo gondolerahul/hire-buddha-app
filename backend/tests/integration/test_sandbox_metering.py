@@ -38,7 +38,7 @@ async def test_sandbox_seconds_are_charged_to_the_run(db, monkeypatch):
     db.add(IntegrationRegistry(company_id=c.id, provider_name="hirebuddha", model_name="sandbox-runtime",
                                service_sku=settings.SANDBOX_COST_SKU, component_type="sandbox",
                                service_category="SANDBOX", status="active",
-                               internal_cost=Decimal("0.0001"), cost_unit="second"))
+                               internal_cost=Decimal("0.0001"), cost_unit_code="PER_SECOND"))
     ent = HierarchicalEntity(company_id=c.id, type="SKILL", status="ACTIVE", name="scripted")
     db.add(ent)
     await db.flush()

@@ -22,7 +22,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select, update
 
-__all__ = ["RunSpend", "run_spend", "refresh_run_cost"]
+__all__ = ["RunSpend", "run_spend", "refresh_run_cost", "descendant_run_ids"]
 
 
 @dataclass(frozen=True)
@@ -76,3 +76,20 @@ async def refresh_run_cost(db: Any, run_id: Optional[UUID], *, commit: bool = Tr
     if commit:
         await db.commit()
     return spend
+
+
+async def descendant_run_ids(db: Any, run_id: Optional[UUID]) -> list[UUID]:
+    """Every structural descendant of ``run_id`` (children, their children …), not the run itself.
+
+    A top-level run's settlement covers its descendants' usage rows (tech design
+    §6.5): a child run is never settled on its own.
+    """
+    if run_id is None:
+        return []
+    from src.ai.orm.execution import ExecutionRun
+
+    tree = (select(ExecutionRun.id).where(ExecutionRun.parent_run_id == run_id)
+            .cte("descendants", recursive=True))
+    tree = tree.union_all(select(ExecutionRun.id).where(ExecutionRun.parent_run_id == tree.c.id))
+    rows = (await db.execute(select(tree.c.id))).scalars().all()
+    return list(rows)

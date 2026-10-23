@@ -31,7 +31,7 @@ async def _run(db):
     for suffix, cost in (("in", "1.00"), ("out", "4.00")):
         db.add(IntegrationRegistry(company_id=c.id, provider_name="test", service_sku=f"{MODEL}-{suffix}",
                                    model_name=MODEL, component_type=f"{suffix}put_token",
-                                   internal_cost=Decimal(cost), cost_unit="per_1M_tokens",
+                                   internal_cost=Decimal(cost), cost_unit_code="PER_1M_TOKENS",
                                    status="active", service_category="LLM"))
     ent = HierarchicalEntity(company_id=c.id, type="AGENT", status="ACTIVE", name="critiqued")
     db.add(ent)

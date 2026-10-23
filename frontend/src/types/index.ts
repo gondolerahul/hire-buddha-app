@@ -21,6 +21,9 @@ export interface User {
     role: UserRole;
     company_id: string;
     profile_picture_url?: string;
+    /** How the company is billed (Phase 15 T2-5, GET /auth/me). */
+    country_code?: string;
+    billing_currency?: string;
     is_active: boolean;
     created_at: string;
 }
@@ -43,6 +46,8 @@ export interface RegisterRequest {
     email: string;
     password: string;
     full_name: string;
+    /** ISO 3166 code: the workspace is billed in its currency (Phase 15 T2-3). */
+    country_code?: string;
 }
 
 export interface AuthResponse {

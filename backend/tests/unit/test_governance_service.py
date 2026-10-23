@@ -60,10 +60,11 @@ class TestCircuitBreaker:
 
     @pytest.mark.asyncio
     async def test_stops_when_the_bill_reaches_spendable_credit(self, service):
+        from src.billing.formulas import Formula
+
         run = MagicMock(id=uuid4(), company_id=uuid4())
-        config = MagicMock(multiplier_factor=Decimal("2"), platform_fee_pct=Decimal("0"),
-                           sales_partner_fee_pct=Decimal("0"), discount_pct=Decimal("0"))
-        with patch.object(service.billing_service, "get_billing_config", AsyncMock(return_value=config)), \
+        doubled = Formula(Decimal("2"), Decimal("0"), Decimal("0"))     # the run's formula (Phase 15 T3-2)
+        with patch("src.ai.governance.governance_service.formula_for_run", AsyncMock(return_value=doubled)), \
              patch.object(service.credit_service, "get_balance", AsyncMock(return_value={"total_available": 3.0})), \
              patch.object(service.credit_service, "held_by_others", AsyncMock(return_value=Decimal("1"))):
             await service.check_credit_circuit_breaker(run, Decimal("0.99"))   # bill 1.98 < 2

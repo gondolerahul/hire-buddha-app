@@ -180,6 +180,9 @@ async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
         onboarding_status="pending",
         onboarding_metadata={"completed_steps": [], "created_via": "self_registration"}
     )
+    # The country the person signed up from, and its billing currency (Phase 15 T2-3, FX-1).
+    from src.auth.geography import set_geography
+    await set_geography(db, new_company, user.country_code, billing_state=user.billing_state)
 
     # Read default_daily_credits from global BillingConfig BEFORE flush
     try:
@@ -444,6 +447,10 @@ async def get_or_create_oauth_user(db: AsyncSession, email: str, full_name: str)
         onboarding_status="pending",
         onboarding_metadata={"completed_steps": [], "created_via": "oauth"}
     )
+    # The provider tells us no country: India and INR until the onboarding
+    # profile step sets it (Phase 15 T2-3, FX-1).
+    from src.auth.geography import set_geography
+    await set_geography(db, new_company, None)
 
     # Read default_daily_credits from global BillingConfig BEFORE flush
     try:

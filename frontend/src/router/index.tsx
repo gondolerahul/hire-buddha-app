@@ -50,6 +50,10 @@ const RiskAndExitPage = lazy(() => import('@/pages/admin/RiskAndExitPage'));
 // Phase 14 automation settings (decision D47).
 const AutomationSettings = lazy(() => import('@/pages/automation/AutomationSettings'));
 const AutomationPlatformPage = lazy(() => import('@/pages/admin/AutomationPlatformPage'));
+// Phase 15 T2-6: Currency & FX (moves to /console/currency with the console shell, T9-1).
+const CurrencyPage = lazy(() => import('@/pages/admin/CurrencyPage'));
+// Phase 15 T3-7: the shadow comparison of the old and new billing paths.
+const BillingShadowPage = lazy(() => import('@/pages/admin/BillingShadowPage'));
 // Phase 14 WS3: the automation control room (triggers, event log).
 const ControlRoom = lazy(() => import('@/pages/automation/ControlRoom'));
 // Phase 14 WS8: records, connections, apps and code, business settings, platform admin.
@@ -613,6 +617,22 @@ export const AppRouter: React.FC = () => {
                         element={
                             <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
                                 <MainLayout><AutomationPlatformPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/currency"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><CurrencyPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/billing-shadow"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><BillingShadowPage /></MainLayout>
                             </ProtectedRoute>
                         }
                     />

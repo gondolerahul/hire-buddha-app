@@ -523,8 +523,8 @@ class ReportsService:
         }
 
         # Aggregate billing totals
-        total_tel_in = sum(float(be.telephony_in_minutes) for be in billing_events)
-        total_tel_out = sum(float(be.telephony_out_minutes) for be in billing_events)
+        total_tel_in = sum(float(be.telephony_in_seconds) for be in billing_events) / 60  # billed seconds (T1-4)
+        total_tel_out = sum(float(be.telephony_out_seconds) for be in billing_events) / 60
         total_images = sum(be.image_gen_count for be in billing_events)
         total_tel_charge = sum(float(be.telephony_charge) for be in billing_events)
         total_llm_charge = sum(float(be.llm_charge) for be in billing_events)

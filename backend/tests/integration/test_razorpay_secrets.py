@@ -43,7 +43,7 @@ async def _row(db, **fields) -> IntegrationRegistry:
 
     row = IntegrationRegistry(company_id=await platform_company_id(db), provider_name="razorpay",
                               service_sku=RAZORPAY_SKU, service_category="OTHER", component_type="payment_gateway",
-                              internal_cost=0, cost_unit="per 1", status="active", **fields)
+                              internal_cost=0, cost_unit_code="PER_REQUEST", status="active", **fields)
     db.add(row)
     await db.flush()
     return row
@@ -89,7 +89,7 @@ async def test_the_registry_api_refuses_plain_text_secrets(db):
     service = ConfigService(db)
     entry = IntegrationRegistryCreate(
         company_id=await platform_company_id(db), provider_name="razorpay", service_sku=RAZORPAY_SKU,
-        service_category="OTHER", component_type="payment_gateway", internal_cost=0, cost_unit="per_call",
+        service_category="OTHER", component_type="payment_gateway", internal_cost=0, cost_unit_code="PER_REQUEST",
         service_metadata={"key_id": "rzp_x", "key_secret": "plain"}, api_key="unused")
     with pytest.raises(HTTPException) as refused:
         await service.create_registry_entry(entry)

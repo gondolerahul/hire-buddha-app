@@ -1,16 +1,13 @@
 """
-Billing Service — implements the global billing formula and billing event recording.
+Billing Service — billing events, and the daily-credit settings of ``billing_config``.
 
-TB = (c × mf) + (c × mf × pf) + (c × mf × spf) - (c × mf × d)
-
-Where:
-  c   = base cost (unit execution cost)
-  mf  = multiplier factor %
-  pf  = platform fee %
-  spf = sales partner fee %
-  d   = discount %
+The customer price is ``src.billing.formulas`` (Phase 15 T3-2): versioned
+``billing_formulas``, ``TB = c·mf·(1 + pf − d)``. ``billing_config`` keeps only
+``default_daily_credits`` (until the daily-credit policies of T5-5); its formula
+and override columns are read by nothing. ``calculate_tb`` is the formula as it
+was — four fields with ``spf`` — kept for the golden billing suite (T3-1).
 """
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from datetime import date, datetime
 from typing import Optional
 import uuid
@@ -34,11 +31,10 @@ def calculate_tb(
     spf: Decimal,
     d: Decimal,
 ) -> dict:
-    """
-    Calculate Total Billing using the formula:
-    TB = (c*mf) + (c*mf*pf) + (c*mf*spf) - (c*mf*d)
+    """The formula before Phase 15: TB = (c*mf) + (c*mf*pf) + (c*mf*spf) - (c*mf*d).
 
-    Returns a dict with all intermediate values and the final TB.
+    Only ``tests/golden/billing/record.py`` calls it, to show what the old code
+    billed. Prices come from ``src.billing.formulas``.
     """
     multiplied = c * mf
     platform_fee = multiplied * pf
@@ -53,23 +49,6 @@ def calculate_tb(
         "discount_amount": discount,
         "total_billing": total,
     }
-
-
-def compute_billed_amount(base_cost: Decimal, config: Optional["BillingConfig"]) -> Decimal:
-    """
-    Customer-billed amount for a given internal cost under a billing config.
-
-    Falls back to the identity formula (no fees/discounts) when the company
-    has no active config, matching the per-call credit deduction behavior.
-    """
-    if config is None:
-        mf, pf, spf, d = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
-    else:
-        mf = Decimal(str(config.multiplier_factor))
-        pf = Decimal(str(config.platform_fee_pct))
-        spf = Decimal(str(config.sales_partner_fee_pct))
-        d = Decimal(str(config.discount_pct))
-    return calculate_tb(Decimal(str(base_cost)), mf, pf, spf, d)["total_billing"]
 
 
 class BillingService:
@@ -99,34 +78,14 @@ class BillingService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def voice_base_cost(
-        self,
-        company_id: UUID,
-        *,
-        total_cost: Decimal,
-        telephony_cost: Decimal,
-        telephony_minutes: Decimal,
-    ) -> Decimal:
-        """A call's base cost, with the company's telephony override applied.
-
-        ``base_cost_telephony`` is a per-minute carrier rate: it replaces the
-        telephony part of the call's cost and leaves the rest (the speech
-        model's audio) as logged. Before BC-13 it replaced the whole cost, and
-        only in the billing event — the wallet was charged without it.
-        """
-        config = await self.get_billing_config(company_id)
-        if config is None or config.base_cost_telephony is None:
-            return total_cost
-        return total_cost - telephony_cost + Decimal(str(config.base_cost_telephony)) * telephony_minutes
-
     async def record_billing_event(
         self,
         company_id: UUID,
         base_cost: Decimal,
         grouping_type: Optional[str] = None,
         grouping_value: Optional[str] = None,
-        telephony_in_minutes: Decimal = Decimal("0"),
-        telephony_out_minutes: Decimal = Decimal("0"),
+        telephony_in_seconds: Decimal = Decimal("0"),
+        telephony_out_seconds: Decimal = Decimal("0"),
         image_gen_count: int = 0,
         video_gen_count: int = 0,
         other_ai_cost: Decimal = Decimal("0"),
@@ -139,20 +98,11 @@ class BillingService:
         Divides the final price into category charges based on event_category.
         ``commit=False`` leaves it to the caller's transaction (a run's settlement).
         """
-        config = await self.get_billing_config(company_id)
-        if not config:
-            # No config found — use identity formula (no fees/discounts)
-            mf, pf, spf, d = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
-        else:
-            mf = Decimal(str(config.multiplier_factor))
-            pf = Decimal(str(config.platform_fee_pct))
-            spf = Decimal(str(config.sales_partner_fee_pct))
-            d = Decimal(str(config.discount_pct))
-        # base_cost is final here: the base-cost overrides are applied where
-        # the cost is computed (voice_base_cost, ToolCostResolver), so what is
-        # recorded is what the wallet was charged (BC-13).
+        from src.billing.formulas import formula_for
 
-        tb = calculate_tb(base_cost, mf, pf, spf, d)
+        # base_cost is final here: a company's own prices are its registry rows
+        # (the billing-config overrides were migrated to rows, T3-2).
+        tb = (await formula_for(self.db, company_id)).breakdown(base_cost)
 
         today = datetime.utcnow().date()  # the period follows the UTC timestamps (DM-12)
         period = date(today.year, today.month, 1)
@@ -165,8 +115,8 @@ class BillingService:
         charge_column = f"{event_category}_charge" if event_category in _CATEGORY_CHARGES else "api_charge"
         amounts = {
             **{k: Decimal(str(v)) for k, v in tb.items()},
-            "telephony_in_minutes": telephony_in_minutes,
-            "telephony_out_minutes": telephony_out_minutes,
+            "telephony_in_seconds": telephony_in_seconds,
+            "telephony_out_seconds": telephony_out_seconds,
             "image_gen_count": image_gen_count,
             "video_gen_count": video_gen_count,
             "other_ai_cost": other_ai_cost,

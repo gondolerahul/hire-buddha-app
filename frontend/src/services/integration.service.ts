@@ -10,7 +10,8 @@ export interface Integration {
     service_category: string;
     component_type: string;
     internal_cost: number;
-    cost_unit: string;
+    /** A cost unit code (GET /config/cost-units), e.g. PER_1M_TOKENS — Phase 15 T1-2. */
+    cost_unit_code: string;
     service_metadata: Record<string, any> | null;
     status: string;
     created_at: string;
@@ -25,7 +26,8 @@ export interface IntegrationCreate {
     service_category?: string;
     component_type: string;
     internal_cost: number;
-    cost_unit: string;
+    /** A cost unit code (GET /config/cost-units), e.g. PER_1M_TOKENS — Phase 15 T1-2. */
+    cost_unit_code: string;
     api_key: string;
     service_metadata?: Record<string, any>;
     status?: string;
@@ -38,10 +40,18 @@ export interface IntegrationUpdate {
     service_category?: string;
     component_type?: string;
     internal_cost?: number;
-    cost_unit?: string;
+    cost_unit_code?: string;
     api_key?: string;
     service_metadata?: Record<string, any>;
     status?: string;
+}
+
+/** A unit a registry price may be quoted in (Phase 15 T1-7). */
+export interface CostUnitOption {
+    code: string;
+    dimension: string;
+    per_quantity: number;
+    label: string;
 }
 
 export interface Model {
@@ -55,6 +65,11 @@ export interface Model {
 export const integrationService = {
     /** Every integration of the caller's company, page by page (API-16). */
     getIntegrations: async (): Promise<Integration[]> => fetchAllPages<Integration>('/config/integrations'),
+
+    getCostUnits: async (): Promise<CostUnitOption[]> => {
+        const response = await apiClient.get<CostUnitOption[]>('/config/cost-units');
+        return response.data;
+    },
 
     getModels: async (): Promise<Model[]> => {
         const response = await apiClient.get<Model[]>('/config/models');

@@ -720,7 +720,6 @@ async def download_campaign_report(
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from src.ai.campaign_models import CampaignCall, campaign_call_sort_order
     from src.voice.models import VoiceSession, ConversationHistory
-    from src.billing.billing_service import BillingService, compute_billed_amount
     from sqlalchemy import func
 
     await _visible_campaign(db, campaign_id, current_user)
@@ -753,9 +752,10 @@ async def download_campaign_report(
         )
         calls = calls_result.scalars().all()
 
-        # Billing config for customer-billed (TB) amounts; recomputed with the
-        # current config, not the config at call time.
-        billing_config = await BillingService(db).get_billing_config(campaign.company_id)
+        # The formula for customer-billed (TB) amounts; recomputed with the
+        # current formula, not the one at call time.
+        from src.billing.formulas import formula_for
+        billing_formula = await formula_for(db, campaign.company_id)
 
         # ── Batch-load linked VoiceSession data ──────────────────────────
         voice_session_ids = [
@@ -839,7 +839,7 @@ async def download_campaign_report(
             vs = voice_sessions_map[call.voice_session_id]
             if vs.total_cost_usd is None:
                 return None
-            billed = compute_billed_amount(Decimal(str(vs.total_cost_usd)), billing_config)
+            billed = billing_formula.rate(Decimal(str(vs.total_cost_usd)))
             return float(round(billed, 4))
 
         total_billed_usd = sum(

@@ -9,10 +9,27 @@ from src.auth.roles import Role
 # login had to match the case used at sign-up.
 Email = Annotated[EmailStr, AfterValidator(str.lower)]
 
+def _gstin(value: Optional[str]) -> Optional[str]:
+    from src.auth.geography import valid_gstin
+    return valid_gstin(value)
+
+
+def _state(value: Optional[str]) -> Optional[str]:
+    from src.auth.geography import valid_state
+    return valid_state(value)
+
+
+# ISO 3166 alpha-2; the API checks it against the country profiles (Phase 15 T2-3).
+CountryCode = Annotated[str, Field(min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")]
+
+
 class UserCreate(BaseModel):
     email: Email
     password: str
     full_name: str
+    # The workspace's country: its billing currency follows (FX-1). India when omitted.
+    country_code: Optional[CountryCode] = None
+    billing_state: Annotated[Optional[str], AfterValidator(_state)] = None
 
 class UserCreateAdmin(UserCreate):
     company_id: UUID
@@ -65,6 +82,9 @@ class CompanyBase(BaseModel):
 
 class CompanyCreate(CompanyBase):
     parent_id: Optional[UUID] = None
+    # Its billing currency follows (FX-1, Phase 15 T2-3). India when omitted.
+    country_code: Optional[CountryCode] = None
+    billing_state: Annotated[Optional[str], AfterValidator(_state)] = None
     apply_default_daily_credits: bool = True  # whether to apply default daily credits
     custom_daily_credits: Optional[float] = None  # custom daily credit amount override
 
@@ -83,6 +103,12 @@ class CompanyUpdate(BaseModel):
     monthly_spend_cap_usd: Optional[float] = Field(default=None, gt=0)
     # The business time zone schedules and reports use (Phase 14 WS1 1.10).
     timezone: Annotated[Optional[str], AfterValidator(_iana_timezone)] = None
+    # Billing profile (Phase 15 T2-2): what invoices show. The country and the
+    # billing currency are not changed here (FX-1).
+    legal_name: Optional[str] = None
+    gstin: Annotated[Optional[str], AfterValidator(_gstin)] = None
+    billing_state: Annotated[Optional[str], AfterValidator(_state)] = None
+    billing_address: Optional[Dict[str, Any]] = None
 
 class CompanyResponse(CompanyBase):
     id: UUID
@@ -91,7 +117,13 @@ class CompanyResponse(CompanyBase):
     onboarding_status: Optional[str] = "pending"
     monthly_spend_cap_usd: Optional[float] = None
     timezone: str = "Asia/Kolkata"
-    
+    country_code: str = "IN"
+    billing_currency: str = "INR"
+    billing_state: Optional[str] = None
+    gstin: Optional[str] = None
+    legal_name: Optional[str] = None
+    billing_address: Optional[Dict[str, Any]] = None
+
     class Config:
         from_attributes = True
 
@@ -125,3 +157,10 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class MeResponse(UserResponse):
+    """``GET /auth/me``: the user, and how their company is billed (Phase 15 T2-5) —
+    the screens show money in ``billing_currency``."""
+    country_code: Optional[str] = None
+    billing_currency: Optional[str] = None

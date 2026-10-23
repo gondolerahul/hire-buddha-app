@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 from uuid import UUID
+from src.billing.units import Dimension
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ async def log_llm_response_usage(
                 company_id=company_id,
                 service_sku=f"{model_name}-in",
                 raw_quantity=float(prompt_tokens),
+                dimension=Dimension.TOKEN,
                 execution_id=run_id,
                 attribution=attribution,
             ))
@@ -60,6 +62,7 @@ async def log_llm_response_usage(
                 company_id=company_id,
                 service_sku=f"{model_name}-out",
                 raw_quantity=float(completion_tokens),
+                dimension=Dimension.TOKEN,
                 execution_id=run_id,
                 attribution=attribution,
             ))

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import CheckConstraint, Column, Index, text, String, Boolean, ForeignKey, DateTime, Integer, Numeric, Text
+from sqlalchemy import CHAR, CheckConstraint, Column, Index, text, String, Boolean, ForeignKey, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -23,11 +23,22 @@ class Company(ControlBase):
     onboarding_metadata = Column(JSONB, nullable=True)  # tracks completed steps & config
     default_daily_credits = Column(Numeric(10, 4), nullable=True)  # override daily credit amount for this tenant (was text, DM-11)
     # What the company may be billed in a calendar month; NULL = no cap (GH-18).
-    monthly_spend_cap_usd = Column(Numeric(14, 4), nullable=True)
+    monthly_spend_cap_usd = Column(Numeric(24, 10), nullable=True)
     # The business's IANA time zone: schedules, reports, an agent's "today"
     # (Phase 14 WS1 1.10; src/common/timezones.py). With TENANCY_MODE=split the tenant
     # directory's copy is read (WS2); a change is written to both.
     timezone = Column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
+    # Geography and billing profile (Phase 15 T2-2, tech design §3.1). The
+    # billing currency follows the country when the company is made (FX-1,
+    # src/auth/geography.py) and does not change by itself afterwards.
+    country_code = Column(CHAR(2), ForeignKey("country_profiles.country_code"), nullable=False,
+                          default="IN", server_default="IN")
+    billing_currency = Column(CHAR(3), ForeignKey("currencies.code"), nullable=False,
+                              default="INR", server_default="INR")
+    billing_state = Column(String(2), nullable=True)      # Indian state (GST place of supply)
+    gstin = Column(Text, nullable=True)
+    legal_name = Column(Text, nullable=True)
+    billing_address = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

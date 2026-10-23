@@ -1,18 +1,26 @@
 import { apiClient } from './api.client';
 
+/** The price formula in effect, TB = c·mf·(1 + pf − d) (Phase 15 T3-2), and daily credits. */
 export interface BillingConfig {
-    id: string;
     company_id: string | null;
-    config_name: string;
+    formula_id: string | null;
+    formula_scope: string;
     multiplier_factor: number;
     platform_fee_pct: number;
-    sales_partner_fee_pct: number;
     discount_pct: number;
     default_daily_credits: number;
-    base_cost_telephony?: number | null;
-    base_cost_image_gen?: number | null;
-    is_active: boolean;
-    updated_at: string;
+}
+
+/** One version of a formula (append-only). */
+export interface FormulaVersion {
+    id: string;
+    multiplier_factor: number;
+    platform_fee_pct: number;
+    discount_pct: number;
+    active: boolean;
+    effective_from: string | null;
+    reason: string | null;
+    created_by: string | null;
 }
 
 export interface BillingEvent {
@@ -33,8 +41,9 @@ export interface BillingEvent {
     image_charge: number;
     video_charge: number;
     api_charge: number;
-    telephony_in_minutes: number;
-    telephony_out_minutes: number;
+    /** Billed seconds, exact (Phase 15 T1-4). */
+    telephony_in_seconds: number;
+    telephony_out_seconds: number;
     image_gen_count: number;
     video_gen_count: number;
     other_ai_cost: number;
@@ -44,8 +53,8 @@ export interface ReportTotals {
     total_base_cost?: number;
     total_billing?: number;
     total_revenue?: number;
-    total_telephony_in_minutes?: number;
-    total_telephony_out_minutes?: number;
+    total_telephony_in_seconds?: number;
+    total_telephony_out_seconds?: number;
     total_image_gen?: number;
     total_video_gen?: number;
     total_other_ai_cost?: number;
@@ -68,12 +77,11 @@ export interface ReportResponse {
 export interface BillingConfigUpdate {
     multiplier_factor?: number;
     platform_fee_pct?: number;
-    sales_partner_fee_pct?: number;
     discount_pct?: number;
     default_daily_credits?: number;
-    base_cost_telephony?: number | null;   // null clears the override
-    base_cost_image_gen?: number | null;
     company_id?: string;
+    /** Kept with the formula version. */
+    reason?: string;
 }
 
 export interface SubscriptionTier {
@@ -101,12 +109,12 @@ export interface SubscriptionTierUpdate {
 }
 
 export const billingService = {
-    getConfig: async (): Promise<{ config: BillingConfig | null }> => {
+    getConfig: async (): Promise<{ config: BillingConfig | null; history?: FormulaVersion[] }> => {
         const { data } = await apiClient.get('/billing/config');
         return data;
     },
 
-    updateConfig: async (payload: BillingConfigUpdate): Promise<{ config: BillingConfig }> => {
+    updateConfig: async (payload: BillingConfigUpdate): Promise<{ config: BillingConfig; history?: FormulaVersion[] }> => {
         const { data } = await apiClient.put('/billing/config', payload);
         return data;
     },

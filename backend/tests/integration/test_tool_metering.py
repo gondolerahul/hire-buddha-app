@@ -52,9 +52,9 @@ async def _app_company(db):
     return app
 
 
-def _sku(company_id, sku, cost, unit="per_request", category="API_TOOL"):
+def _sku(company_id, sku, cost, unit="PER_REQUEST", category="API_TOOL"):
     return IntegrationRegistry(company_id=company_id, provider_name="test", service_sku=sku,
-                               component_type="tool", internal_cost=Decimal(cost), cost_unit=unit,
+                               component_type="tool", internal_cost=Decimal(cost), cost_unit_code=unit,
                                status="active", service_category=category)
 
 
@@ -99,7 +99,7 @@ async def test_a_tenant_without_its_own_row_pays_the_platform_price(db):
 async def test_a_per_thousand_price_is_charged_per_call(db):
     company, run = await _tenant_run(db)
     tool = f"metered_tool_{uuid.uuid4().hex[:6]}"
-    db.add(_sku(company, tool, "5.00", unit="per_1000_requests"))
+    db.add(_sku(company, tool, "5.00", unit="PER_1K_REQUESTS"))
     await db.flush()
     assert await _executor(db, company)._charge_tool(run, tool) == Decimal("0.005")
 
@@ -117,8 +117,8 @@ async def test_another_tools_price_row_does_not_price_other_tools(db):
 async def test_a_steps_llm_spend_is_attributed_to_the_step(db):
     company, run = await _tenant_run(db)
     model = f"meter-model-{uuid.uuid4().hex[:6]}"
-    db.add_all([_sku(company, f"{model}-in", "1.00", unit="per_million_tokens", category="LLM"),
-                _sku(company, f"{model}-out", "2.00", unit="per_million_tokens", category="LLM")])
+    db.add_all([_sku(company, f"{model}-in", "1.00", unit="PER_1M_TOKENS", category="LLM"),
+                _sku(company, f"{model}-out", "2.00", unit="PER_1M_TOKENS", category="LLM")])
     log = LLMInteractionLog(run_id=run.id, model_provider="test", model_name=model,
                             input_prompt="p", output_response="o", prompt_tokens=1000,
                             completion_tokens=500, latency_ms=1)

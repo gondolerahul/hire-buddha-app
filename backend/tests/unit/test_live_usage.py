@@ -58,7 +58,7 @@ def logger_and_rows():
     db.add = rows.append
     usage_logger = VoiceUsageLogger(db)
     usage_logger._get_sku = AsyncMock(return_value=SimpleNamespace(
-        id=uuid4(), internal_cost=Decimal("2.0"), cost_unit="per_1m_tokens"))
+        id=uuid4(), internal_cost=Decimal("2.0"), cost_unit_code="PER_1M_TOKENS"))
     return usage_logger, rows
 
 

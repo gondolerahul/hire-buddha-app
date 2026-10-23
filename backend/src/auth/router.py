@@ -88,11 +88,20 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 from pydantic import BaseModel, Field
 
 from src.auth.dependencies import get_current_user
-from src.auth.schemas import UserResponse
+from src.auth.schemas import MeResponse, UserResponse
 
-@router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: UserResponse = Depends(get_current_user)):
-    return current_user
+@router.get("/me", response_model=MeResponse)
+async def read_users_me(current_user: UserResponse = Depends(get_current_user),
+                        db: AsyncSession = Depends(get_control_db)):
+    from sqlalchemy import select as _select
+    from src.auth.models import Company
+
+    me = MeResponse.model_validate(current_user, from_attributes=True)
+    row = (await db.execute(_select(Company.country_code, Company.billing_currency)
+                            .where(Company.id == current_user.company_id))).first()
+    if row is not None:
+        me.country_code, me.billing_currency = row.country_code, row.billing_currency
+    return me
 
 class UrlTokenRequest(BaseModel):
     scope: str = Field(description="One of URL_TOKEN_SCOPES: the path prefix the token is for")

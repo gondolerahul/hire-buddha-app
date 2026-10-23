@@ -16,6 +16,7 @@ from src.ai.orm import ExecutionRun, HierarchicalEntity, LLMInteractionLog
 from src.ai.schemas import PlanStep
 from src.ai.llm.router import LLMRouter
 from src.ai.usage_service import UsageService
+from src.billing.units import Dimension
 
 logger = logging.getLogger(__name__)
 
@@ -667,6 +668,7 @@ class PlannerService:
                 company_id=run.company_id,
                 service_sku=in_sku,
                 raw_quantity=float(plan_result_resp.prompt_tokens or 0),
+                dimension=Dimension.TOKEN,
                 execution_id=run.id,
                 attribution="planner",
             )
@@ -674,6 +676,7 @@ class PlannerService:
                 company_id=run.company_id,
                 service_sku=out_sku,
                 raw_quantity=float(plan_result_resp.completion_tokens or 0),
+                dimension=Dimension.TOKEN,
                 execution_id=run.id,
                 attribution="planner",
             )

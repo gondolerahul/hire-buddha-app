@@ -172,6 +172,8 @@ app.include_router(files_router)  # GET /api/v1/files/{id} — signed file links
 mount_optional(app, "src.billing.billing_router")
 mount_optional(app, "src.billing.credits_router")
 mount_optional(app, "src.billing.razorpay_webhook")  # POST /api/v1/credits/razorpay/webhook
+mount_optional(app, "src.billing.currency_router")  # /api/v1/admin/currencies, fx-rates … (Phase 15 T2-4)
+mount_optional(app, "src.billing.shadow_router")  # /api/v1/admin/billing-shadow (Phase 15 T3-7)
 mount_optional(app, "src.billing.cron_router")
 
 # Analytics & Reports

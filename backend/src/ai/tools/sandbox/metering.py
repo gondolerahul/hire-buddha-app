@@ -6,14 +6,15 @@ attribution so the cost dashboard can break out how much agent runtime is spent
 in the sandbox substrate (host subprocess or per-tenant container).
 
 Time is billed against the ``settings.SANDBOX_COST_SKU`` IntegrationRegistry SKU
-(cost_unit ``second``, owned by the APP company — seed it with
+(priced per second — ``PER_SECOND`` —, owned by the APP company — seed it with
 ``scripts/seed_sandbox_sku.py``). When the SKU is absent ``UsageService`` logs a
-warning and records nothing, exactly like embedding cost before its SKU existed —
-metering never raises into the tool path.
+$0 row marked ``cost_source: missing`` (Phase 15 T1-3), so the gap shows —
+metering never raises into the tool path. Seconds are exact: no rounding (T1-5).
 """
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any, Mapping, Optional
 from uuid import UUID
 
@@ -38,13 +39,12 @@ async def meter_sandbox_usage(
     company_id = context.get("company_id")
     if not company_id or duration_ms <= 0:
         return
-    seconds = round(duration_ms / 1000.0, 6)
-    if seconds <= 0:
-        return
+    seconds = Decimal(int(duration_ms)) / 1000  # exact (T1-5)
     run_id = context.get("run_id")
     try:
         from src.ai.services.cost_attribution import CostAttribution
         from src.ai.usage_service import UsageService
+        from src.billing.units import Dimension
         from src.common.config import settings
         from src.common.tenancy.session import control_session
         async with control_session() as db:
@@ -52,6 +52,7 @@ async def meter_sandbox_usage(
                 company_id=UUID(str(company_id)),
                 service_sku=getattr(settings, "SANDBOX_COST_SKU", "sandbox-runtime"),
                 raw_quantity=seconds,
+                dimension=Dimension.SECOND,
                 execution_id=UUID(str(run_id)) if run_id else None,
                 metadata={
                     "sandbox_runtime": runtime_name,

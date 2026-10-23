@@ -58,10 +58,9 @@ class CreditGuard:
         """The run's likely bill: the larger of its plan's estimate and the
         average billed for the entity's last finished top-level runs."""
         from src.ai.planning.cost_estimator import estimate_plan_cost
-        from src.billing.billing_service import BillingService, compute_billed_amount
+        from src.billing.formulas import formula_for
 
-        config = await BillingService(self.db).get_billing_config(self.company_id)
-        planned = compute_billed_amount(estimate_plan_cost(plan_steps, self.entity), config)
+        planned = (await formula_for(self.db, self.company_id)).rate(estimate_plan_cost(plan_steps, self.entity))
         recent = (await self.db.execute(
             select(ExecutionRun.billed_amount)
             .where(ExecutionRun.entity_id == getattr(self.entity, "id", None),

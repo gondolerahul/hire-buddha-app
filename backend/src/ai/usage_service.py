@@ -1,12 +1,22 @@
-import re
+"""Pricing a metered quantity and writing its usage row.
+
+A registry price is ``internal_cost`` USD per its unit (``cost_unit_code``, one
+of ``src.billing.units.CostUnit``): ``cost = quantity × internal_cost ÷
+per_quantity`` (Phase 15 T1-3). The free-text unit and its parser are gone
+(REQ-CO-2). Each meter says which dimension it measured — tokens, characters,
+seconds, vCPU-hours …; a row whose unit measures something else is a *unit
+mismatch*, and a quantity with no row is *missing*: both are written as $0
+rows marked ``cost_source`` and announced, so an unpriced or mispriced service
+is visible instead of free (A6).
+"""
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Iterable, Optional, Union
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from src.ai.orm import UsageLog
+from src.billing.units import Dimension, price_usd, unit_spec
 from src.config.models import IntegrationRegistry
 import logging
 
@@ -19,83 +29,77 @@ async def app_company_id(db: AsyncSession) -> Optional[UUID]:
     return await platform_company_id(db)
 
 
-_UNIT_NOUNS: dict[str, str] = {
-    "token": "token", "tokens": "token",
-    "character": "character", "characters": "character", "char": "character", "chars": "character",
-    "call": "call", "calls": "call", "request": "call", "requests": "call", "flat fee": "call",
-    "second": "second", "seconds": "second", "sec": "second", "secs": "second",
-    "minute": "minute", "minutes": "minute", "min": "minute", "mins": "minute",
-    "image": "image", "images": "image", "video": "video", "videos": "video",
-    "query": "query", "queries": "query", "search": "query", "searches": "query",
-    "page": "page", "pages": "page", "email": "email", "emails": "email",
-    "message": "message", "messages": "message",
-    "transaction pct": "transaction pct",
-    # App hosting and databases (Phase 14 WS6 6.12): vCPU-hours, GB-hours, GB, days.
-    "hour": "hour", "hours": "hour", "vcpu hour": "hour", "gb hour": "hour",
-    "gb": "gb", "gigabyte": "gb", "gigabytes": "gb", "day": "day", "days": "day",
-}
-_SCALE = {"": Decimal(1), "k": Decimal(1000), "m": Decimal(1_000_000),
-          "thousand": Decimal(1000), "million": Decimal(1_000_000)}
-_UNIT_RE = re.compile(
-    r"^(?:per\s+)?(?:(?P<num>\d+(?:\.\d+)?)?\s*(?P<scale>k|m|thousand|million)?\s+)?(?P<noun>[a-z ]+?)$"
-)
+Dimensions = Union[Dimension, Iterable[Dimension]]
+
+
+def _dimensions(dimension: Dimensions) -> list[Dimension]:
+    return [dimension] if isinstance(dimension, Dimension) else list(dimension)
 
 
 @dataclass(frozen=True)
-class CostUnit:
-    """A parsed ``cost_unit``: the price is for ``quantity`` of ``noun``."""
-    quantity: Decimal
-    noun: str
+class Price:
+    """What a quantity costs at a registry row. ``cost_source``: ``registry``;
+    ``unit_mismatch`` (the row's unit measures something else: $0); ``missing``
+    (no row: $0)."""
+    cost: Decimal
+    cost_source: str
+
+    @property
+    def priced(self) -> bool:
+        return self.cost_source == "registry"
 
 
-def parse_cost_unit(cost_unit: Optional[str]) -> CostUnit:
-    """Parse ``per_1k_tokens``, ``per 1M tokens``, ``1M Tokens``,
-    ``per_million_tokens``, ``per 1000 characters``, ``per_minute``,
-    ``second`` … Separators (``_``, ``-``, spaces) and case do not matter.
-    Raises ``ValueError`` for anything else: a pricing field that silently
-    defaulted to "per one" over-billed 1000× or 1,000,000× (LP-01)."""
-    text = re.sub(r"[_\-\s]+", " ", (cost_unit or "").strip().lower())
-    text = re.sub(r"(?<=\d),(?=\d{3})", "", text)
-    text = re.sub(r"(?<=\d)(k|m)\b", r" \1", text)  # "1k tokens" -> "1 k tokens"
-    match = _UNIT_RE.match(text)
-    noun = _UNIT_NOUNS.get(match.group("noun").strip()) if match else None
-    if not match or noun is None:
-        raise ValueError(
-            f"unknown cost_unit {cost_unit!r}: use e.g. 'per_1k_tokens', 'per_1m_tokens', "
-            f"'per_minute', 'per_call' (nouns: {', '.join(sorted(set(_UNIT_NOUNS.values())))})"
-        )
-    num = Decimal(match.group("num")) if match.group("num") else Decimal(1)
-    quantity = num * _SCALE[match.group("scale") or ""]
-    if quantity <= 0:
-        raise ValueError(f"cost_unit {cost_unit!r} prices zero units")
-    return CostUnit(quantity=quantity, noun=noun)
+def price_at(entry: Optional[IntegrationRegistry], quantity, dimension: Dimensions) -> Price:
+    """``quantity`` (measured in ``dimension``) at ``entry``'s price — no rounding."""
+    if entry is None:
+        return Price(Decimal("0"), "missing")
+    if unit_spec(entry.cost_unit_code).dimension not in _dimensions(dimension):
+        return Price(Decimal("0"), "unit_mismatch")
+    return Price(price_usd(Decimal(str(quantity)), Decimal(str(entry.internal_cost)), entry.cost_unit_code),
+                 "registry")
 
 
-def unit_divisor(cost_unit: Optional[str]) -> Decimal:
-    """How many units ``internal_cost`` is quoted for: a price "per 1M tokens"
-    is divided by 1,000,000 to price one token, "per 1000 …" by 1000.
-
-    Registry writes reject an unknown unit; a row stored before that check is
-    logged and priced per one unit, as it always was."""
+async def flag_unpriced(price: Price, *, sku: str, company_id: Optional[UUID], run_id: Optional[UUID],
+                        dimension: Dimensions) -> None:
+    """Log and emit ``usage.cost.missing`` / ``usage.cost.unit_mismatch`` for a $0 charge that should cost."""
+    if price.priced:
+        return
+    dims = [str(d) for d in _dimensions(dimension)]
+    logger.warning("usage of %s charged $0: %s (metered in %s)", sku, price.cost_source, ", ".join(dims))
     try:
-        return parse_cost_unit(cost_unit).quantity
-    except ValueError:
-        logger.error("Unknown cost_unit %r; pricing per one unit. Fix the registry row.", cost_unit)
-        return Decimal(1)
+        from src.ai.core.agent_loop_sse import event_async
+        await event_async(f"usage.cost.{price.cost_source}", sku=sku, dimension=dims,
+                          run_id=str(run_id) if run_id else None,
+                          company_id=str(company_id) if company_id else None)
+    except Exception:                                                       # pragma: no cover
+        logger.debug("usage.cost event failed", exc_info=True)
+
+
+async def registry_entry(db: AsyncSession, company_id: UUID, service_sku: str) -> Optional[IntegrationRegistry]:
+    """The company's active row for ``service_sku``, else the platform's.
+
+    Cost-bearing services (models, telephony, …) are registered once, by the
+    APP company; a company's own row comes first.
+    """
+    entry = (await db.execute(select(IntegrationRegistry).where(
+        IntegrationRegistry.company_id == company_id,
+        IntegrationRegistry.service_sku == service_sku,
+        IntegrationRegistry.status == "active",
+    ))).scalar_one_or_none()
+    if entry is None:
+        platform = await app_company_id(db)
+        if platform and platform != company_id:
+            entry = (await db.execute(select(IntegrationRegistry).where(
+                IntegrationRegistry.company_id == platform,
+                IntegrationRegistry.service_sku == service_sku,
+                IntegrationRegistry.status == "active",
+            ))).scalar_one_or_none()
+    return entry
 
 
 class UsageService:
     def __init__(self, db: AsyncSession):
         self.db = db
-
-    async def _get_app_company_id(self) -> Optional[UUID]:
-        """Get the ID of the platform (APP) company.
-
-        Cost-bearing services (AI models, telephony, SERP API, etc.) are
-        always registered at the platform level under the APP company.
-        This helper enables the fallback lookup for cost calculation.
-        """
-        return await app_company_id(self.db)
 
     async def log_usage(
         self,
@@ -105,61 +109,20 @@ class UsageService:
         execution_id: Optional[UUID] = None,
         metadata: Optional[dict] = None,
         attribution: Optional[str] = None,
+        *,
+        dimension: Dimensions,
     ) -> UsageLog:
+        """Price ``raw_quantity`` of ``service_sku`` and write its usage row (committed).
+
+        ``dimension`` is what the meter measured (an LLM call: ``TOKEN``; an
+        embedding: ``CHARACTER``; sandbox time: ``SECOND`` …); a meter whose
+        quantity can be in more than one may pass several. With no row for the
+        SKU, or a row priced in another dimension, the row is written at $0 with
+        ``cost_source`` ``missing`` / ``unit_mismatch`` and an event — it used
+        to write nothing, so an unpriced model was free and invisible (A6).
         """
-        Logs usage for a specific SKU and company.
-        Calculates cost based on the internal_cost in IntegrationRegistry.
-
-        Cost-bearing services (AI models, telephony, etc.) are owned by the
-        APP company (platform-level).  If no company-specific SKU entry is
-        found, we fall back to the platform-level entry for cost calculation.
-        """
-        # 1. Try company-specific SKU
-        result = await self.db.execute(
-            select(IntegrationRegistry).where(
-                IntegrationRegistry.company_id == company_id,
-                IntegrationRegistry.service_sku == service_sku,
-                IntegrationRegistry.status == "active"
-            )
-        )
-        registry_entry = result.scalar_one_or_none()
-        
-        # 2. Platform-level fallback: AI models, telephony, etc. are
-        #    owned by the APP company and should be used for cost
-        #    calculation across all tenants.
-        if not registry_entry:
-            app_company_id = await self._get_app_company_id()
-            if app_company_id and app_company_id != company_id:
-                result = await self.db.execute(
-                    select(IntegrationRegistry).where(
-                        IntegrationRegistry.company_id == app_company_id,
-                        IntegrationRegistry.service_sku == service_sku,
-                        IntegrationRegistry.status == "active"
-                    )
-                )
-                registry_entry = result.scalar_one_or_none()
-                if registry_entry:
-                    logger.info(
-                        f"Using platform-level SKU '{service_sku}' for cost calculation "
-                        f"(company {company_id} has no company-specific entry)"
-                    )
-
-        if not registry_entry:
-            # No SKU found at company or platform level
-            logger.warning(
-                f"No active registry entry found for SKU '{service_sku}' "
-                f"(checked company {company_id} and platform)"
-            )
-            return None
-
-        # Calculate cost
-        # registry_entry.internal_cost is Decimal(18,6)
-        # raw_quantity is float (e.g. number of tokens)
-        
-        # Support unit-based costing (e.g., 1M Tokens, per_million_tokens)
-        calculated_cost = (
-            registry_entry.internal_cost * Decimal(str(raw_quantity))
-        ) / unit_divisor(registry_entry.cost_unit)
+        entry = await registry_entry(self.db, company_id, service_sku)
+        price = price_at(entry, raw_quantity, dimension)
 
         # Validate attribution against the closed enum; unknown values
         # silently fall back to the column default "tool" rather than
@@ -178,22 +141,35 @@ class UsageService:
             except Exception:
                 clean_attribution = attribution
 
+        log_metadata = dict(metadata or {})
+        if not price.priced:
+            log_metadata.update(cost_source=price.cost_source, sku=service_sku,
+                                dimension=[str(d) for d in _dimensions(dimension)])
+            if entry is not None:
+                log_metadata["unit"] = entry.cost_unit_code
+
         usage_log = UsageLog(
             company_id=company_id,
             run_id=execution_id,
-            sku_id=registry_entry.id,
+            sku_id=entry.id if entry is not None else None,
             raw_quantity=Decimal(str(raw_quantity)),
-            calculated_cost=calculated_cost,
-            log_metadata=metadata,
+            calculated_cost=price.cost,
+            log_metadata=log_metadata or None,
             attribution=clean_attribution,
         )
-        
+        # What the customer is billed for it (Phase 15 T3-3).
+        from src.billing.rating import rate_row
+        await rate_row(self.db, usage_log, sku=service_sku,
+                       sku_category=entry.service_category if entry is not None else None)
+
         self.db.add(usage_log)
         await self.db.commit()
         await self.db.refresh(usage_log)
+        await flag_unpriced(price, sku=service_sku, company_id=company_id, run_id=execution_id,
+                            dimension=dimension)
         from src.ai.services.cost_attribution import emit_cost_charged
         await emit_cost_charged(
             run_id=execution_id, company_id=company_id, attribution=clean_attribution,
-            sku=service_sku, amount=calculated_cost,
+            sku=service_sku, amount=price.cost,
         )
         return usage_log

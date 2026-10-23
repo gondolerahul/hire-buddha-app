@@ -3,8 +3,10 @@ import { X } from 'lucide-react';
 import { GlassCard } from './ui/GlassCard';
 import { GlassInput } from './ui/GlassInput';
 import { JellyButton } from './ui/JellyButton';
-import { integrationService, Model, Integration } from '../services/integration.service';
+import { integrationService, Model, Integration, CostUnitOption } from '../services/integration.service';
 import { User } from '../types';
+import { currencyService } from '../services/currency.service';
+import { formatMoney } from '../utils/money';
 
 interface CreateIntegrationModalProps {
     isOpen: boolean;
@@ -64,6 +66,10 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
         ? SERVICE_CATEGORIES.filter(c => TENANT_ALLOWED_CATEGORY_IDS.has(c.id))
         : SERVICE_CATEGORIES;
     const [models, setModels] = useState<Model[]>([]);
+    // The enumerated units (Phase 15 T1-7): a price is per one of these, never free text.
+    const [costUnits, setCostUnits] = useState<CostUnitOption[]>([]);
+    // Today's INR rate, for the ₹ preview (staff can read rates; others see USD only).
+    const [inrPerUsd, setInrPerUsd] = useState<number | null>(null);
     const [formData, setFormData] = useState({
         provider_name: '',
         model_name: '',
@@ -71,7 +77,7 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
         service_category: 'LLM',
         component_type: 'input_token',
         internal_cost: 0,
-        cost_unit: '1M Tokens',
+        cost_unit_code: 'PER_1M_TOKENS',
         api_key: '',
         status: 'active',
         service_metadata: {} as Record<string, any>
@@ -91,6 +97,10 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
         };
         if (isOpen) {
             fetchModels();
+            integrationService.getCostUnits().then(setCostUnits).catch(() => setCostUnits([]));
+            currencyService.listCurrencies()
+                .then(rows => setInrPerUsd(rows.find(c => c.code === 'INR')?.current_rate?.units_per_usd ?? null))
+                .catch(() => setInrPerUsd(null));
         }
     }, [isOpen]);
 
@@ -103,7 +113,7 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
                 service_category: editingIntegration.service_category || 'LLM',
                 component_type: editingIntegration.component_type,
                 internal_cost: editingIntegration.internal_cost,
-                cost_unit: editingIntegration.cost_unit,
+                cost_unit_code: editingIntegration.cost_unit_code,
                 api_key: '', // Don't show existing key
                 status: editingIntegration.status,
                 service_metadata: editingIntegration.service_metadata || {}
@@ -117,7 +127,7 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
                 service_category: 'LLM',
                 component_type: 'input_token',
                 internal_cost: 0,
-                cost_unit: '1M Tokens',
+                cost_unit_code: 'PER_1M_TOKENS',
                 api_key: '',
                 status: 'active',
                 service_metadata: {}
@@ -179,6 +189,7 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
         }
     };
 
+    const selectedUnit = costUnits.find(u => u.code === formData.cost_unit_code);
     const isTwilio = formData.provider_name.toLowerCase() === 'twilio';
     const usesAdc = ADC_PROVIDERS.has(formData.provider_name.toLowerCase());
 
@@ -266,19 +277,36 @@ export const CreateIntegrationModal: React.FC<CreateIntegrationModalProps> = ({
                     <GlassInput
                         label="Internal Cost"
                         type="number"
-                        step="0.000001"
+                        step="any"
                         value={formData.internal_cost.toString()}
                         onChange={(e) => setFormData({ ...formData, internal_cost: parseFloat(e.target.value) })}
                         required
                     />
 
-                    <GlassInput
-                        label="Cost Unit"
-                        value={formData.cost_unit}
-                        onChange={(e) => setFormData({ ...formData, cost_unit: e.target.value })}
-                        required
-                        placeholder="e.g. 1M Tokens"
-                    />
+                    <div className="col-span-1">
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Cost Unit</label>
+                        <select
+                            value={formData.cost_unit_code}
+                            onChange={(e) => setFormData({ ...formData, cost_unit_code: e.target.value })}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-rose-500/50 transition-all"
+                            required
+                        >
+                            {costUnits.length === 0 && (
+                                <option value={formData.cost_unit_code} className="bg-gray-900">{formData.cost_unit_code}</option>
+                            )}
+                            {costUnits.map(u => (
+                                <option key={u.code} value={u.code} className="bg-gray-900">{u.label}</option>
+                            ))}
+                        </select>
+                        {selectedUnit && Number(formData.internal_cost) > 0 && (
+                            <p className="text-xs text-gray-400 mt-1">
+                                = ${(Number(formData.internal_cost) / selectedUnit.per_quantity).toPrecision(4)} per {selectedUnit.dimension.replace('_', '-')}
+                                {inrPerUsd != null && (
+                                    <> · {formatMoney(Number(formData.internal_cost) * inrPerUsd, 'INR')} {selectedUnit.label} at today's rate</>
+                                )}
+                            </p>
+                        )}
+                    </div>
 
                     <div className="col-span-2">
                         <GlassInput

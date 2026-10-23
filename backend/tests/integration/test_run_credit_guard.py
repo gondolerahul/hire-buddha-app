@@ -19,7 +19,7 @@ from src.ai.core.credit_guard import CreditGuard
 from src.ai.core.exceptions import CreditExhaustedError
 from src.ai.orm import ExecutionRun, HierarchicalEntity
 from src.billing.billing_models import CreditHold, CreditWallet
-from src.billing.billing_service import BillingService, compute_billed_amount
+from src.billing.formulas import formula_for
 from src.billing.credit_service import CreditService
 
 pytestmark = pytest.mark.needs_db
@@ -117,9 +117,9 @@ async def test_the_breaker_stops_the_run_when_its_bill_uses_up_its_credit(db):
     company = await _company(db, "1.00")
     run, ent = await _run(db, company)
     guard, _ = await _admit(db, run, ent, "0.10")
-    config = await BillingService(db).get_billing_config(company)
+    formula = await formula_for(db, company)  # the company's price formula (Phase 15 T3-2)
     under = Decimal("0.01")
-    while compute_billed_amount(under * 2, config) < Decimal("1.00"):
+    while formula.rate(under * 2) < Decimal("1.00"):
         under *= 2
     await guard.check(under)                       # billed < $1: continues
     with pytest.raises(CreditExhaustedError, match="Partial results saved"):
@@ -134,10 +134,10 @@ async def test_other_runs_holds_count_against_the_breaker(db):
     run, ent = await _run(db, company, entity_type="ACTION")
     guard, refusal = await _admit(db, run, ent, "0.10")
     assert refusal is None
-    config = await BillingService(db).get_billing_config(company)
+    formula = await formula_for(db, company)  # the company's price formula (Phase 15 T3-2)
     # $2.00 balance − $1.50 held by the other run leaves $0.50 for this one.
     cost = Decimal("0.60")
-    assert compute_billed_amount(cost, config) >= Decimal("0.50")
+    assert formula.rate(cost) >= Decimal("0.50")
     with pytest.raises(CreditExhaustedError):
         await guard.check(cost)
 

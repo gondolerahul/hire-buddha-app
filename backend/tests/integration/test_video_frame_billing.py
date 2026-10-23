@@ -32,10 +32,10 @@ async def _video_call(db):
     db.add_all([
         IntegrationRegistry(company_id=c.id, provider_name="test", service_sku=f"{MODEL}-in",
                             component_type="input_token", internal_cost=Decimal("1.00"),
-                            cost_unit="per_1M_tokens", status="active", service_category="LLM"),
+                            cost_unit_code="PER_1M_TOKENS", status="active", service_category="LLM"),
         IntegrationRegistry(company_id=c.id, provider_name="test", service_sku=f"{MODEL}-out",
                             component_type="output_token", internal_cost=Decimal("4.00"),
-                            cost_unit="per_1M_tokens", status="active", service_category="LLM"),
+                            cost_unit_code="PER_1M_TOKENS", status="active", service_category="LLM"),
     ])
     agent = HierarchicalEntity(company_id=c.id, type="AGENT", status="ACTIVE", name="video concierge")
     db.add(agent)

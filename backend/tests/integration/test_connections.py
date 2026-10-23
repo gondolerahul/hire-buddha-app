@@ -447,7 +447,7 @@ async def test_platform_secrets_move_into_the_vault_and_keep_working(world, monk
             platform = await platform_company_id(db)
             row = IntegrationRegistry(company_id=platform, provider_name="serpapi", service_sku=sku,
                                       service_category="API_TOOL", component_type="flat_fee", internal_cost=0,
-                                      cost_unit="per 1", encrypted_api_key=encrypt_api_key("serp-key"))
+                                      cost_unit_code="PER_REQUEST", encrypted_api_key=encrypt_api_key("serp-key"))
             db.add(row)
             await db.commit()
             dry = await move_secrets(db, Vault(), apply=False)
@@ -587,7 +587,7 @@ async def test_old_credentials_become_connections_once(world):
     async with control_session() as db:
         db.add(IntegrationRegistry(company_id=company, provider_name="serpapi", service_sku=f"serp-{company.hex[:6]}",
                                    service_category="API_TOOL", component_type="flat_fee", internal_cost=0,
-                                   cost_unit="per 1", encrypted_api_key=encrypt_api_key("their-serp-key")))
+                                   cost_unit_code="PER_REQUEST", encrypted_api_key=encrypt_api_key("their-serp-key")))
         await db.commit()
 
     dry = await convert_company(company, apply=False)

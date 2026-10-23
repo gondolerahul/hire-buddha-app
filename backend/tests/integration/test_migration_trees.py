@@ -157,6 +157,19 @@ async def _model_built(url) -> uuid.UUID:
     later = [p for p in baseline.parent.glob("tenant_platform_*.py") if p != baseline]
     added = {pair for p in later for pair in re.findall(r"op\.add_column\('([a-z_]+)', sa\.Column\('([a-z_]+)'",
                                                         p.read_text(encoding="utf-8"))}
+    # ... and with the types they had then: a revision that changes a column's type
+    # lists it in COLUMNS (table -> [(column, type before, nullable)]), e.g. tenant_platform_0005_amounts.
+    import importlib.util
+
+    from sqlalchemy.dialects import postgresql
+
+    retyped = []
+    for path in sorted(later):
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        revision = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(revision)
+        for table, columns in getattr(revision, "COLUMNS", {}).items():
+            retyped += [(table, column, before.compile(dialect=postgresql.dialect())) for column, before, _ in columns]
     agent_id = uuid.uuid4()
     engine = create_async_engine(url)
     try:
@@ -165,6 +178,9 @@ async def _model_built(url) -> uuid.UUID:
             for table, column in sorted(added):
                 if table in at_the_cut:
                     await conn.exec_driver_sql(f'ALTER TABLE platform."{table}" DROP COLUMN IF EXISTS "{column}"')
+            for table, column, before in retyped:
+                if table in at_the_cut:
+                    await conn.exec_driver_sql(f'ALTER TABLE platform."{table}" ALTER COLUMN "{column}" TYPE {before}')
             await conn.execute(metadata.tables["platform.hierarchical_entities"].insert().values(
                 id=agent_id, company_id=uuid.uuid4(), type="AGENT", name="kept through adoption"))
     finally:

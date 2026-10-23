@@ -12,6 +12,8 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+
+from src.billing.units import Dimension
 from sqlalchemy import select
 
 from src.ai.governance.run_cost import refresh_run_cost, run_spend
@@ -33,13 +35,13 @@ async def _company_with_prices(db):
     db.add_all([
         IntegrationRegistry(company_id=c.id, provider_name="test", service_sku=f"{MODEL}-in",
                             component_type="input_token", internal_cost=Decimal("1.00"),
-                            cost_unit="per_1M_tokens", status="active", service_category="LLM"),
+                            cost_unit_code="PER_1M_TOKENS", status="active", service_category="LLM"),
         IntegrationRegistry(company_id=c.id, provider_name="test", service_sku=f"{MODEL}-out",
                             component_type="output_token", internal_cost=Decimal("4.00"),
-                            cost_unit="per_1M_tokens", status="active", service_category="LLM"),
+                            cost_unit_code="PER_1M_TOKENS", status="active", service_category="LLM"),
         IntegrationRegistry(company_id=c.id, provider_name="test", service_sku="p41_tool",
                             component_type="tool", internal_cost=Decimal("0.05"),
-                            cost_unit="per_request", status="active", service_category="API_TOOL"),
+                            cost_unit_code="PER_REQUEST", status="active", service_category="API_TOOL"),
     ])
     ent = HierarchicalEntity(company_id=c.id, type="AGENT", status="ACTIVE", name="spender")
     db.add(ent)
@@ -60,9 +62,9 @@ async def test_a_runs_spend_is_its_rows_and_tokens_count_only_llm_rows(db):
     company, entity = await _company_with_prices(db)
     run = await _run(db, company, entity)
     usage = UsageService(db)
-    await usage.log_usage(company, f"{MODEL}-in", 1_000_000, execution_id=run.id, attribution="planner")
-    await usage.log_usage(company, f"{MODEL}-out", 250_000, execution_id=run.id, attribution="critic_post")
-    await usage.log_usage(company, "p41_tool", 1, execution_id=run.id, attribution="tool")
+    await usage.log_usage(company, f"{MODEL}-in", 1_000_000, execution_id=run.id, attribution="planner", dimension=Dimension.TOKEN)
+    await usage.log_usage(company, f"{MODEL}-out", 250_000, execution_id=run.id, attribution="critic_post", dimension=Dimension.TOKEN)
+    await usage.log_usage(company, "p41_tool", 1, execution_id=run.id, attribution="tool", dimension=Dimension.REQUEST)
 
     spend = await run_spend(db, run.id)
     assert spend.cost_usd == Decimal("2.05")         # 1.00 + 1.00 + 0.05
@@ -73,7 +75,7 @@ async def test_a_runs_spend_is_its_rows_and_tokens_count_only_llm_rows(db):
 async def test_children_count_and_retries_do_not(db):
     company, entity = await _company_with_prices(db)
     parent = await _run(db, company, entity)
-    await UsageService(db).log_usage(company, "p41_tool", 1, execution_id=parent.id)
+    await UsageService(db).log_usage(company, "p41_tool", 1, execution_id=parent.id, dimension=Dimension.REQUEST)
     await _run(db, company, entity, parent_run_id=parent.id,
                total_cost_usd=Decimal("1.50"), total_tokens=300)
     await _run(db, company, entity, retry_of_run_id=parent.id,
@@ -87,7 +89,7 @@ async def test_children_count_and_retries_do_not(db):
 async def test_refresh_writes_the_spend_onto_the_run(db):
     company, entity = await _company_with_prices(db)
     run = await _run(db, company, entity)
-    await UsageService(db).log_usage(company, "p41_tool", 2, execution_id=run.id)
+    await UsageService(db).log_usage(company, "p41_tool", 2, execution_id=run.id, dimension=Dimension.REQUEST)
     spend = await refresh_run_cost(db, run.id)
     await db.refresh(run)
     assert spend.cost_usd == Decimal("0.10") == Decimal(str(run.total_cost_usd))
@@ -102,13 +104,13 @@ async def test_the_loops_budget_is_set_from_the_runs_rows(db):
     company, entity = await _company_with_prices(db)
     run = await _run(db, company, entity)
     usage = UsageService(db)
-    await usage.log_usage(company, f"{MODEL}-out", 500_000, execution_id=run.id, attribution="critic_post")
+    await usage.log_usage(company, f"{MODEL}-out", 500_000, execution_id=run.id, attribution="critic_post", dimension=Dimension.TOKEN)
     loop = AgentLoop(db=db, redis=None)
     loop._run_id = run.id
     state = SimpleNamespace(budget=Budget(usd_used=Decimal("9.99")))   # a stale tally is replaced
     await loop._refresh_spend(state)
     assert state.budget.usd_used == Decimal("2.00") and state.budget.tokens_used == 500_000
-    await usage.log_usage(company, "p41_tool", 1, execution_id=run.id, attribution="tool")
+    await usage.log_usage(company, "p41_tool", 1, execution_id=run.id, attribution="tool", dimension=Dimension.REQUEST)
     await loop._refresh_spend(state)
     assert state.budget.usd_used == Decimal("2.05")
 

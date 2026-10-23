@@ -72,6 +72,9 @@ async def create_company(
             "created_by": str(current_user.id),
         },
     )
+    # Its country, and the billing currency that follows it (Phase 15 T2-3, FX-1).
+    from src.auth.geography import set_geography
+    await set_geography(db, new_company, company.country_code, billing_state=company.billing_state)
     db.add(new_company)
     await db.flush()
 

@@ -1,9 +1,10 @@
-"""LP-01 — ``cost_unit`` is parsed, not substring-matched.
+"""LP-01, Phase 15 T1-2…T1-4 — a price's unit is a code, and the meter says what it measured.
 
-The divisor was picked by substring: ``per_1k_tokens`` (the form the
-credentials guide uses) matched nothing and priced each token at the
-per-thousand rate, 1000× over; ``per_1M_tokens`` priced it 1,000,000× over.
-Nothing stopped such a unit from being written.
+The unit was free text, matched by substring (LP-01: ``per_1k_tokens`` priced
+each token 1000× over) and then parsed (``parse_cost_unit``). Now it is one of
+``src.billing.units.CostUnit``: a registry write names a code or is refused;
+a quantity is priced only by a unit of the dimension it was measured in; calls
+are priced per second, never per started minute.
 """
 from __future__ import annotations
 
@@ -15,60 +16,73 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from src.ai.usage_service import parse_cost_unit, unit_divisor
+from src.ai.usage_service import price_at
+from src.billing.units import Dimension
 
 
-@pytest.mark.parametrize("unit,quantity,noun", [
-    ("per_1k_tokens", 1000, "token"),
-    ("per_1K_tokens", 1000, "token"),
-    ("per-1k-tokens", 1000, "token"),
-    ("per_1M_tokens", 1_000_000, "token"),
-    ("per_1m_tokens", 1_000_000, "token"),
-    ("1M Tokens", 1_000_000, "token"),
-    ("per_million_tokens", 1_000_000, "token"),
-    ("per 1,000,000 tokens", 1_000_000, "token"),
-    ("per_1000_characters", 1000, "character"),
-    ("per_minute", 1, "minute"),
-    ("second", 1, "second"),
-    ("per_call", 1, "call"),
-    ("flat_fee", 1, "call"),
-    ("per_image", 1, "image"),
-    ("per token", 1, "token"),
-])
-def test_known_units_parse(unit, quantity, noun):
-    parsed = parse_cost_unit(unit)
-    assert parsed.quantity == Decimal(quantity)
-    assert parsed.noun == noun
-    assert unit_divisor(unit) == Decimal(quantity)
+def _row(code: str, cost: str, **extra) -> SimpleNamespace:
+    return SimpleNamespace(id=uuid4(), internal_cost=Decimal(cost), cost_unit_code=code, service_metadata=None,
+                           **extra)
 
 
-@pytest.mark.parametrize("unit", ["", "per_1k", "per_banana", "tokens per 1k", "1kk tokens"])
-def test_unknown_units_are_rejected(unit):
-    with pytest.raises(ValueError):
-        parse_cost_unit(unit)
-
-
-def test_a_registry_write_with_an_unknown_unit_is_refused():
+def test_a_registry_write_names_a_known_code():
     from src.config.schemas import IntegrationRegistryCreate, IntegrationRegistryUpdate
 
     base = dict(provider_name="openai", service_sku="gpt-x-in", component_type="LLM",
                 internal_cost=Decimal("0.5"), company_id=uuid4(), api_key="k")
-    assert IntegrationRegistryCreate(**base, cost_unit="per_1k_tokens").cost_unit == "per_1k_tokens"
-    with pytest.raises(ValidationError, match="cost_unit"):
-        IntegrationRegistryCreate(**base, cost_unit="per thousandish tokens")
-    with pytest.raises(ValidationError, match="cost_unit"):
-        IntegrationRegistryUpdate(cost_unit="per_banana")
-    assert IntegrationRegistryUpdate(status="inactive").cost_unit is None
+    assert IntegrationRegistryCreate(**base, cost_unit_code="PER_1K_TOKENS").cost_unit_code == "PER_1K_TOKENS"
+    with pytest.raises(ValidationError, match="cost_unit_code"):
+        IntegrationRegistryCreate(**base, cost_unit_code="per_1k_tokens")       # text is not a code
+    with pytest.raises(ValidationError, match="cost_unit_code"):
+        IntegrationRegistryCreate(**base)                                         # the unit is required
+    with pytest.raises(ValidationError, match="cost_unit_code"):
+        IntegrationRegistryUpdate(cost_unit_code="PER_BANANA")
+    with pytest.raises(ValidationError, match="internal_cost"):
+        IntegrationRegistryCreate(**{**base, "internal_cost": Decimal("-1")}, cost_unit_code="PER_1K_TOKENS")
+    assert IntegrationRegistryUpdate(status="inactive").cost_unit_code is None
+
+
+def test_a_quantity_is_priced_only_in_its_own_dimension():
+    tokens = _row("PER_1M_TOKENS", "0.30")
+    assert price_at(tokens, 1500, Dimension.TOKEN).cost == Decimal("0.00045")
+    assert price_at(tokens, 1500, Dimension.TOKEN).cost_source == "registry"
+    # A per-minute price applied to tokens used to be divided anyway.
+    assert price_at(_row("PER_MINUTE", "0.60"), 1500, Dimension.TOKEN).cost_source == "unit_mismatch"
+    assert price_at(_row("PER_MINUTE", "0.60"), 1500, Dimension.TOKEN).cost == 0
+    assert price_at(None, 1500, Dimension.TOKEN).cost_source == "missing"
+    assert price_at(_row("PER_1K_QUERIES", "5"), 2, [Dimension.REQUEST, Dimension.QUERY]).cost == Decimal("0.01")
 
 
 @pytest.mark.asyncio
-async def test_voice_audio_tokens_use_the_parsed_divisor():
+async def test_a_call_is_billed_per_second_not_per_started_minute():
     from src.voice.usage_logger import VoiceUsageLogger
 
     db = MagicMock(commit=AsyncMock())
-    logger = VoiceUsageLogger(db)
-    logger._get_sku = AsyncMock(return_value=SimpleNamespace(
-        id=uuid4(), internal_cost=Decimal("1.0"), cost_unit="per_1m_tokens"))
-    cost = await logger._log_llm_audio_usage(uuid4(), "audio-in", audio_seconds=60, usage_type="input")
-    # 60 s × 167 tokens/s = 10,020 tokens at $1 per 1M tokens.
-    assert cost == Decimal("1.0") * Decimal(10020) / Decimal(1_000_000)
+    meter = VoiceUsageLogger(db)
+    meter._get_sku = AsyncMock(return_value=_row("PER_MINUTE", "0.60"))
+    assert await meter._log_telephony_usage(uuid4(), "twilio", duration_seconds=125) == Decimal("1.25")
+    assert await meter._log_telephony_usage(uuid4(), "twilio", duration_seconds=Decimal("2.5")) == Decimal("0.025")
+    row = db.add.call_args.args[0]
+    assert row.raw_quantity == Decimal("2.5") and row.log_metadata["duration_seconds"] == 2.5
+
+
+@pytest.mark.asyncio
+async def test_voice_audio_is_priced_by_its_sku_unit():
+    from src.voice.usage_logger import VoiceUsageLogger
+
+    db = MagicMock(commit=AsyncMock())
+    meter = VoiceUsageLogger(db)
+    # Per token, no count from the provider: 60 s × 167 tokens/s at $1 per 1M tokens.
+    meter._get_sku = AsyncMock(return_value=_row("PER_1M_TOKENS", "1.0"))
+    cost = await meter._log_llm_audio_usage(uuid4(), "audio-in", audio_seconds=60, usage_type="input")
+    assert cost == Decimal(10020) / Decimal(1_000_000)
+    # The SKU's own tokens-per-second when it gives one.
+    meter._get_sku = AsyncMock(return_value=SimpleNamespace(
+        id=uuid4(), internal_cost=Decimal("1.0"), cost_unit_code="PER_1M_TOKENS",
+        service_metadata={"tokens_per_second": 25}))
+    assert await meter._log_llm_audio_usage(uuid4(), "audio-in", audio_seconds=60,
+                                            usage_type="input") == Decimal(1500) / Decimal(1_000_000)
+    # Per minute: the audio's exact seconds ÷ 60 — 90 s is 1.5 minutes, not 2.
+    meter._get_sku = AsyncMock(return_value=_row("PER_MINUTE", "0.10"))
+    assert await meter._log_llm_audio_usage(uuid4(), "audio-in", audio_seconds=90,
+                                            usage_type="input") == Decimal("0.15")

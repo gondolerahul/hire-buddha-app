@@ -81,6 +81,11 @@ APPENDIX_A_CONTROL = {
     "custom_domains",
     # Phase 15 (tech design §17): who changed a platform setting, from what.
     "admin_audit_log",
+    # Phase 15 T1-1: the enumerated cost units registry prices name.
+    "cost_units",
+    # Phase 15 WS15-2, WS15-3: currency, settings, formulas, billing lines, the shadow comparison.
+    "currencies", "fx_rates", "country_profiles", "platform_settings", "billing_formulas", "billing_lines",
+    "billing_shadow_diffs",
 }
 APPENDIX_A_TENANT = {
     "hierarchical_entities", "entity_versions", "entity_assets",

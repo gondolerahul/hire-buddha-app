@@ -30,7 +30,7 @@ class VoiceSession(TenantBase):
     started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     ended_at = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
-    total_cost_usd = Column(Numeric(10, 4), nullable=False, default=0)
+    total_cost_usd = Column(Numeric(24, 10), nullable=False, default=0)
     context_state = Column(JSONB, nullable=True)  # Conversation context
     conversation_log = Column(JSONB, nullable=True)  # Full transcript
     session_metadata = Column(JSONB, nullable=True)
@@ -64,7 +64,7 @@ class WhatsAppSession(TenantBase):
     started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     last_message_at = Column(DateTime(timezone=True), nullable=True)
     message_count = Column(Integer, nullable=False, default=0)
-    total_cost_usd = Column(Numeric(10, 4), nullable=False, default=0)
+    total_cost_usd = Column(Numeric(24, 10), nullable=False, default=0)
     conversation_log = Column(JSONB, nullable=True)
     session_metadata = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)

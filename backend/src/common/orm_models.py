@@ -42,6 +42,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "src.code_lanes.models",
     "src.apps.models",
     "src.common.admin_audit",
+    "src.common.settings_store",
     "cortex_memory.models",
 )
 

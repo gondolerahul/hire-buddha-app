@@ -21,7 +21,7 @@ async def _model(db, company_id, model, skus=("in", "out")):
     rows = [IntegrationRegistry(company_id=company_id, provider_name="google", model_name=model,
                                 service_sku=f"{model}-{side}", service_category="LLM",
                                 component_type=f"{side}put_token", internal_cost=Decimal("0.3"),
-                                cost_unit="per_million_tokens") for side in skus]
+                                cost_unit_code="PER_1M_TOKENS") for side in skus]
     db.add_all(rows)
     await db.flush()
     return rows[0]

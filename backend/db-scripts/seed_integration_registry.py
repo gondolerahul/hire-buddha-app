@@ -18,8 +18,8 @@ Vertex AI authenticates with Application Default Credentials, so no key is
 stored (LP-12: a Vertex-backed provider needs none; it used to take the
 placeholder ``vertex-ai-service-account``).
 
-Prices are Vertex list prices (USD) and use the cost_unit spellings that
-UsageService recognises (``per_million_tokens`` / ``per_million_characters``).
+Prices are Vertex list prices (USD), each with its unit code (src.billing.units:
+``PER_1M_TOKENS`` / ``PER_1M_CHARACTERS``).
 
 USAGE (from backend/, after seed_admin_user.py):
   VERTEX_PROJECT_ID=my-gcp-project python db-scripts/seed_integration_registry.py
@@ -49,11 +49,11 @@ from src.config.service import ConfigService
 LLM_MODEL = "gemini-2.5-flash"
 EMBEDDING_MODEL = "text-embedding-005"
 
-# (sku, model, category, component_type, internal_cost, cost_unit)
+# (sku, model, category, component_type, internal_cost, cost_unit_code)
 ENTRIES = [
-    (f"{LLM_MODEL}-in", LLM_MODEL, "LLM", "input_token", Decimal("0.30"), "per_million_tokens"),
-    (f"{LLM_MODEL}-out", LLM_MODEL, "LLM", "output_token", Decimal("2.50"), "per_million_tokens"),
-    (f"{EMBEDDING_MODEL}-in", EMBEDDING_MODEL, "EMBEDDING", "character", Decimal("0.025"), "per_million_characters"),
+    (f"{LLM_MODEL}-in", LLM_MODEL, "LLM", "input_token", Decimal("0.30"), "PER_1M_TOKENS"),
+    (f"{LLM_MODEL}-out", LLM_MODEL, "LLM", "output_token", Decimal("2.50"), "PER_1M_TOKENS"),
+    (f"{EMBEDDING_MODEL}-in", EMBEDDING_MODEL, "EMBEDDING", "character", Decimal("0.025"), "PER_1M_CHARACTERS"),
 ]
 
 # task_type -> SKU of the integration that serves it
@@ -95,7 +95,7 @@ async def seed(project_id: str, region: str) -> None:
                 service_category=category,
                 component_type=component,
                 internal_cost=cost,
-                cost_unit=unit,
+                cost_unit_code=unit,
                 service_metadata={"project_id": project_id, "region": region},
             ))
             print(f"  [OK]   {sku} ({category}, ${cost} {unit})  → id={entry.id}")

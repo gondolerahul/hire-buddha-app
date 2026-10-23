@@ -343,6 +343,7 @@ class ConfigService:
         integration = result.scalar_one_or_none()
         if not integration:
             raise HTTPException(status_code=404, detail="Integration not found or inactive")
+        await self._check_billable(integration, "Default")
         if fallback_integration_id is not None:
             await self._check_fallback(integration_id, fallback_integration_id)
 
@@ -386,19 +387,36 @@ class ConfigService:
         )).scalar_one_or_none()
         if fallback is None:
             raise HTTPException(status_code=404, detail="Fallback integration not found or inactive")
-        if fallback.service_category == ServiceCategory.LLM and fallback.model_name:
-            skus = set((await self.db.execute(
+        await self._check_billable(fallback, "Fallback")
+
+    async def _check_billable(self, integration: IntegrationRegistry, role: str) -> None:
+        """A model the router may call must be priced (LP-08; Phase 15 T1-3, A6).
+
+        A text or live model needs active ``<model>-in`` and ``<model>-out`` rows
+        with a price, an embedding model its ``-in`` row; any other integration
+        a price of its own. An unpriced model used to run free: the usage
+        service found no row and wrote nothing.
+        """
+        model = integration.model_name
+        category = integration.service_category
+        if category in (ServiceCategory.LLM, ServiceCategory.LLM_LIVE, ServiceCategory.EMBEDDING) and model:
+            needed = {f"{model}-in"} if category == ServiceCategory.EMBEDDING else {f"{model}-in", f"{model}-out"}
+            priced = set((await self.db.execute(
                 select(IntegrationRegistry.service_sku).where(
-                    IntegrationRegistry.company_id == fallback.company_id,
-                    IntegrationRegistry.model_name == fallback.model_name,
+                    IntegrationRegistry.company_id == integration.company_id,
+                    IntegrationRegistry.model_name == model,
                     IntegrationRegistry.status == "active",
+                    IntegrationRegistry.internal_cost > 0,
                 )
             )).scalars())
-            missing = {f"{fallback.model_name}-in", f"{fallback.model_name}-out"} - skus
+            missing = needed - priced
             if missing:
                 raise HTTPException(status_code=422, detail=(
-                    f"Fallback model '{fallback.model_name}' cannot be billed: no active "
+                    f"{role} model '{model}' cannot be billed: no active, priced "
                     f"{', '.join(sorted(missing))} SKU"))
+        elif not integration.internal_cost or integration.internal_cost <= 0:
+            raise HTTPException(status_code=422, detail=(
+                f"{role} integration '{integration.service_sku}' cannot be billed: it has no price"))
 
     async def resolve_fallback_for_task(
         self, company_id: UUID, task_type: str

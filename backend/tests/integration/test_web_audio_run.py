@@ -31,7 +31,7 @@ async def _web_session(db):
                       (VoiceUsageLogger.GEMINI_OUTPUT_SKU, "output_token")):
         db.add(IntegrationRegistry(company_id=c.id, provider_name="google", service_sku=sku,
                                    component_type=kind, internal_cost=Decimal("1.00"),
-                                   cost_unit="per_1M_tokens", status="active", service_category="LLM"))
+                                   cost_unit_code="PER_1M_TOKENS", status="active", service_category="LLM"))
     agent = HierarchicalEntity(company_id=c.id, type="AGENT", status="ACTIVE", name="web receptionist")
     db.add(agent)
     await db.flush()

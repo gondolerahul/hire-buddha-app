@@ -22,7 +22,7 @@ from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.voice.models import VoiceSession, WhatsAppSession, ConversationHistory
 from src.ai.artifact_models import Artifact
-from src.billing.billing_service import BillingService, calculate_tb
+from src.billing.formulas import formula_for
 
 # google-genai used for LLM call summaries (best-effort — silently skipped if unavailable)
 try:
@@ -76,19 +76,11 @@ async def list_voice_sessions(
         sessions = result.scalars().all()
 
         # Fix #2: Compute billed_amount via TB formula for each session
-        billing_svc = BillingService(db)
-        config = await billing_svc.get_billing_config(current_user.company_id)
-        if config:
-            mf = Decimal(str(config.multiplier_factor))
-            pf = Decimal(str(config.platform_fee_pct))
-            spf = Decimal(str(config.sales_partner_fee_pct))
-            d = Decimal(str(config.discount_pct))
-        else:
-            mf, pf, spf, d = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
+        formula = await formula_for(db, current_user.company_id)  # T3-2
 
         def _billed(raw_cost):
             c = Decimal(str(raw_cost)) if raw_cost else Decimal("0")
-            return float(calculate_tb(c, mf, pf, spf, d)["total_billing"])
+            return float(formula.rate(c))
 
         return {
             "total": len(sessions),
@@ -316,16 +308,8 @@ async def get_voice_session(
         
         # Fix #2: Compute billed_amount for session detail view
         raw_cost = Decimal(str(session.total_cost_usd)) if session.total_cost_usd else Decimal("0")
-        billing_svc = BillingService(db)
-        config = await billing_svc.get_billing_config(current_user.company_id)
-        if config:
-            mf = Decimal(str(config.multiplier_factor))
-            pf = Decimal(str(config.platform_fee_pct))
-            spf = Decimal(str(config.sales_partner_fee_pct))
-            d_val = Decimal(str(config.discount_pct))
-        else:
-            mf, pf, spf, d_val = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
-        billed = float(calculate_tb(raw_cost, mf, pf, spf, d_val)["total_billing"])
+        formula = await formula_for(db, current_user.company_id)  # T3-2
+        billed = float(formula.rate(raw_cost))
 
         # Derive from/to numbers from session metadata and direction
         meta = session.session_metadata or {}
@@ -464,19 +448,11 @@ async def list_whatsapp_sessions(
         sessions = result.scalars().all()
         
         # Fix #2: Compute billed_amount for WhatsApp sessions
-        billing_svc = BillingService(db)
-        config = await billing_svc.get_billing_config(current_user.company_id)
-        if config:
-            mf = Decimal(str(config.multiplier_factor))
-            pf = Decimal(str(config.platform_fee_pct))
-            spf = Decimal(str(config.sales_partner_fee_pct))
-            d = Decimal(str(config.discount_pct))
-        else:
-            mf, pf, spf, d = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
+        formula = await formula_for(db, current_user.company_id)  # T3-2
 
         def _billed(raw_cost):
             c = Decimal(str(raw_cost)) if raw_cost else Decimal("0")
-            return float(calculate_tb(c, mf, pf, spf, d)["total_billing"])
+            return float(formula.rate(c))
 
         return {
             "total": len(sessions),
@@ -528,16 +504,8 @@ async def get_whatsapp_session(
         
         # Fix #2: Compute billed_amount for WhatsApp session detail
         raw_cost = Decimal(str(session.total_cost_usd)) if session.total_cost_usd else Decimal("0")
-        billing_svc = BillingService(db)
-        config = await billing_svc.get_billing_config(current_user.company_id)
-        if config:
-            mf = Decimal(str(config.multiplier_factor))
-            pf = Decimal(str(config.platform_fee_pct))
-            spf = Decimal(str(config.sales_partner_fee_pct))
-            d_val = Decimal(str(config.discount_pct))
-        else:
-            mf, pf, spf, d_val = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
-        billed = float(calculate_tb(raw_cost, mf, pf, spf, d_val)["total_billing"])
+        formula = await formula_for(db, current_user.company_id)  # T3-2
+        billed = float(formula.rate(raw_cost))
 
         return {
             "id": str(session.id),
@@ -655,20 +623,12 @@ async def get_streaming_stats(
         whatsapp_sessions = whatsapp_result.scalars().all()
         
         # Fix #2: Compute billed totals via TB formula for stats
-        billing_svc = BillingService(db)
-        config = await billing_svc.get_billing_config(company_id)
-        if config:
-            mf = Decimal(str(config.multiplier_factor))
-            pf = Decimal(str(config.platform_fee_pct))
-            spf = Decimal(str(config.sales_partner_fee_pct))
-            d = Decimal(str(config.discount_pct))
-        else:
-            mf, pf, spf, d = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
+        formula = await formula_for(db, company_id)  # T3-2
 
         voice_raw = sum(float(s.total_cost_usd or 0) for s in voice_sessions)
         whatsapp_raw = sum(float(s.total_cost_usd or 0) for s in whatsapp_sessions)
-        voice_billed = float(calculate_tb(Decimal(str(voice_raw)), mf, pf, spf, d)["total_billing"])
-        whatsapp_billed = float(calculate_tb(Decimal(str(whatsapp_raw)), mf, pf, spf, d)["total_billing"])
+        voice_billed = float(formula.rate(Decimal(str(voice_raw))))
+        whatsapp_billed = float(formula.rate(Decimal(str(whatsapp_raw))))
 
         return {
             "period_days": days,

@@ -7,10 +7,9 @@ calls) call ``StepExecutorService._charge_tool``, which calls it. Before
 BC-11 each path carried its own hand-copied price tables and this module —
 built to replace them — had no callers.
 
-Lookup, first hit wins:
+Lookup, first hit wins (the per-image override of ``billing_config`` became
+the company's own ``image_generation`` registry row — Phase 15 T3-2):
 
-  0. for ``image_generation``, the company's ``billing_config.base_cost_image_gen``
-     when set — the per-image override on the Billing Settings page (BC-13)
   1. the company's own active ``integration_registry`` row for the tool —
      ``service_sku == tool_id``, one of :data:`TOOL_SKU_MAP[tool_id]`, or for a
      media tool the first row of its :data:`TOOL_CATEGORY` (the model it uses)
@@ -26,9 +25,11 @@ Lookup, first hit wins:
      ``tests/unit/test_tool_prices.py`` fails on a registered tool that is
      none of 1–4.
 
-A registry price is per ``cost_unit``: one call is one unit of a per-call SKU
-and a thousandth of a "per 1000 …" SKU (``unit_divisor``, shared with
-``UsageService``; BC-10). Every non-zero charge is written as one attributed
+A registry price is per its unit's code (``cost_unit_code``, Phase 15 T1-3):
+a call's ``units`` are counted in the dimensions :data:`TOOL_DIMENSIONS` gives
+the tool (a call, by default), and a row priced in another dimension is a
+*unit mismatch* — charged $0 and flagged like an unpriced tool, never
+divided by the wrong quantity. Every non-zero charge is written as one attributed
 ``usage_logs`` row — with its SKU when it came from the registry, without one
 for a fixed cost (BC-07).
 """
@@ -41,6 +42,8 @@ from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import or_, select
+
+from src.billing.units import Dimension, unit_spec
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,25 @@ TOOL_CATEGORY: dict[str, str] = {
     "text_to_speech": "SPEECH_GENERATION",
     "music_generation": "MUSIC_GENERATION",
 }
+
+
+# What a tool's ``units`` count (Phase 15 T1-3): one call (``request``) unless
+# listed. A registry row for the tool must be priced in one of these.
+TOOL_DIMENSIONS: dict[str, frozenset[Dimension]] = {
+    "web_search": frozenset({Dimension.REQUEST, Dimension.QUERY}),
+    "batch_web_search": frozenset({Dimension.REQUEST, Dimension.QUERY}),
+    "scraper_tool": frozenset({Dimension.REQUEST, Dimension.PAGE}),
+    "pdf_generator": frozenset({Dimension.REQUEST, Dimension.PAGE}),
+    "image_generation": frozenset({Dimension.IMAGE}),
+    "video_generate": frozenset({Dimension.SECOND}),     # seconds of video
+    "text_to_speech": frozenset({Dimension.SECOND}),     # seconds of speech
+    "music_generation": frozenset({Dimension.REQUEST, Dimension.UNIT}),  # per clip
+}
+CALL_DIMENSIONS = frozenset({Dimension.REQUEST})
+
+
+def tool_dimensions(tool_id: str) -> frozenset[Dimension]:
+    return TOOL_DIMENSIONS.get(tool_id, CALL_DIMENSIONS)
 
 
 # Per-unit costs for tools with no registry row (a call's units: one, or the
@@ -183,7 +205,7 @@ class ToolChargeResult:
         sku_id: Optional[UUID] = None,
     ):
         self.amount = amount
-        self.source = source           # "config" | "registry" | "platform" | "fixed" | "missing"
+        self.source = source           # "registry" | "platform" | "fixed" | "free" | "missing" | "unit_mismatch"
         self.sku_id = sku_id
 
     def __bool__(self) -> bool:
@@ -232,7 +254,7 @@ class ToolCostResolver:
         """
         unit_price, source, sku_id = await self.resolve(tool_id)
         amount = unit_price * Decimal(str(units))
-        missing = source == "missing"
+        missing = source in ("missing", "unit_mismatch")
         if amount <= 0 and not missing:
             return ToolChargeResult(amount=Decimal("0"), source=source, sku_id=sku_id)
         from src.ai.services.cost_attribution import CostLedger
@@ -248,13 +270,15 @@ class ToolCostResolver:
             latency_ms=latency_ms,
             log_metadata={"tool": tool_id, "cost_source": source, "units": float(units)},
             unpriced=missing,
+            # A media tool's charge is billed as media (T3-3, tech design §5.3).
+            sku_category=TOOL_CATEGORY.get(tool_id) or ("IMAGE_GENERATION" if tool_id == "image_generation" else None),
         )
         if missing:
             # Every call, not once per process (GH-05): the row and the
             # event make an unpriced tool visible in the run's costs.
-            logger.warning("ToolCostResolver: tool %r has no price; charged $0", tool_id)
+            logger.warning("ToolCostResolver: tool %r charged $0 (%s)", tool_id, source)
             from src.ai.core.agent_loop_sse import event_async
-            await event_async("tool.cost.missing", tool=tool_id, run_id=str(run_id) if run_id else None,
+            await event_async(f"tool.cost.{source}", tool=tool_id, run_id=str(run_id) if run_id else None,
                               company_id=str(company_id) if company_id else None)
         return ToolChargeResult(amount=amount, source=source, sku_id=sku_id)
 
@@ -288,17 +312,7 @@ class ToolCostResolver:
     async def _lookup_uncached(
         self, tool_id: str,
     ) -> tuple[Decimal, str, Optional[UUID]]:
-        from src.ai.usage_service import app_company_id, unit_divisor
-
-        if tool_id == "image_generation":
-            # The company's billing config may fix the per-image cost (BC-13).
-            try:
-                from src.billing.billing_service import BillingService
-                config = await BillingService(self.db).get_billing_config(self.company_id)
-                if config is not None and config.base_cost_image_gen is not None:
-                    return (Decimal(str(config.base_cost_image_gen)), "config", None)
-            except Exception as exc:                                        # pragma: no cover
-                logger.debug(f"ToolCostResolver billing-config lookup failed: {exc}")
+        from src.ai.usage_service import app_company_id
 
         try:
             row = await self._registry_row(tool_id, self.company_id)
@@ -313,8 +327,12 @@ class ToolCostResolver:
             row = None
 
         if row is not None:
-            per_call = Decimal(str(row.internal_cost)) / unit_divisor(row.cost_unit)
-            return (per_call, source, row.id)
+            spec = unit_spec(row.cost_unit_code)
+            if spec.dimension not in tool_dimensions(tool_id):
+                logger.warning("ToolCostResolver: %s is priced %s; the tool counts %s", row.service_sku,
+                               row.cost_unit_code, ", ".join(sorted(tool_dimensions(tool_id))))
+                return (Decimal("0"), "unit_mismatch", row.id)
+            return (Decimal(str(row.internal_cost)) / spec.per_quantity, source, row.id)
 
         fixed = TOOL_FIXED_COST.get(tool_id)
         if fixed is not None:

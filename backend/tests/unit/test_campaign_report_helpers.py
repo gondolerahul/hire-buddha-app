@@ -4,49 +4,35 @@ disposition sort order used by the Excel export and campaign detail API."""
 from decimal import Decimal
 from types import SimpleNamespace
 
-from src.billing.billing_service import calculate_tb, compute_billed_amount
+from src.billing.billing_service import calculate_tb
+from src.billing.formulas import IDENTITY, Formula
 from src.ai.campaign_models import DISPOSITION_PRIORITY, campaign_call_sort_order
 
 
-class TestComputeBilledAmount:
-    def test_identity_when_no_config(self):
-        assert compute_billed_amount(Decimal("1.25"), None) == Decimal("1.25")
+class TestBilledAmount:
+    """The campaign report's billed column: the company's formula on a call's cost
+    (Phase 15 T3-2: ``Formula``; ``spf`` is folded into ``pf``)."""
+
+    def test_identity_when_no_formula(self):
+        assert IDENTITY.rate(Decimal("1.25")) == Decimal("1.25")
 
     def test_applies_tb_formula(self):
-        config = SimpleNamespace(
-            multiplier_factor="2",
-            platform_fee_pct="0.10",
-            sales_partner_fee_pct="0.05",
-            discount_pct="0.03",
-        )
-        # TB = c*mf * (1 + pf + spf - d) = 1 * 2 * 1.12 = 2.24
-        assert compute_billed_amount(Decimal("1"), config) == Decimal("2.24")
+        # TB = c*mf * (1 + pf - d) = 1 * 2 * (1 + 0.15 - 0.03) = 2.24
+        assert Formula(Decimal("2"), Decimal("0.15"), Decimal("0.03")).rate(Decimal("1")) == Decimal("2.24")
 
     def test_discount_exceeding_fees(self):
-        config = SimpleNamespace(
-            multiplier_factor="1",
-            platform_fee_pct="0",
-            sales_partner_fee_pct="0",
-            discount_pct="0.50",
-        )
-        assert compute_billed_amount(Decimal("10"), config) == Decimal("5.00")
+        assert Formula(Decimal("1"), Decimal("0"), Decimal("0.50")).rate(Decimal("10")) == Decimal("5.00")
 
-    def test_matches_calculate_tb(self):
-        config = SimpleNamespace(
-            multiplier_factor="1.5",
-            platform_fee_pct="0.08",
-            sales_partner_fee_pct="0.02",
-            discount_pct="0.01",
-        )
+    def test_matches_the_old_formula_with_spf_folded(self):
         expected = calculate_tb(
             Decimal("0.4321"), Decimal("1.5"), Decimal("0.08"),
             Decimal("0.02"), Decimal("0.01"),
         )["total_billing"]
-        assert compute_billed_amount(Decimal("0.4321"), config) == expected
+        assert Formula(Decimal("1.5"), Decimal("0.10"), Decimal("0.01")).rate(Decimal("0.4321")) == expected
 
     def test_accepts_float_base_cost(self):
-        # VoiceSession.total_cost_usd arrives as Numeric/float; helper coerces
-        assert compute_billed_amount(0.5, None) == Decimal("0.5")
+        # VoiceSession.total_cost_usd arrives as Numeric/float
+        assert IDENTITY.rate(0.5) == Decimal("0.5")
 
 
 class TestNormalizePhone:

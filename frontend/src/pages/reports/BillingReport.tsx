@@ -24,7 +24,7 @@ function exportToCSV(events: BillingEvent[], filename: string) {
     const headers = ['Period', 'Grouping', 'Telephony Charge', 'Images Charge', 'Video Charge', 'API Charge', 'Total Billing', 'Tel In', 'Tel Out', 'Images', 'Videos'];
     const rows = events.map((e) => [
         e.period_month, e.grouping_value || '', e.telephony_charge, e.image_charge, e.video_charge, e.api_charge, e.total_billing,
-        e.telephony_in_minutes, e.telephony_out_minutes, e.image_gen_count, e.video_gen_count,
+        e.telephony_in_seconds / 60, e.telephony_out_seconds / 60, e.image_gen_count, e.video_gen_count,
     ]);
     const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -153,7 +153,7 @@ export const BillingReport: React.FC = () => {
                                     <td>{e.period_month}</td>
                                     {groupingType && <td>{e.grouping_value || '—'}</td>}
                                     <td className="num">
-                                        {e.telephony_in_minutes.toFixed(1)}↓ / {e.telephony_out_minutes.toFixed(1)}↑
+                                        {(e.telephony_in_seconds / 60).toFixed(1)}↓ / {(e.telephony_out_seconds / 60).toFixed(1)}↑
                                     </td>
                                     <td className="num">{formatUSD(e.telephony_charge)}</td>
                                     <td className="num">{e.image_gen_count} imgs / {e.video_gen_count} vids</td>

@@ -29,7 +29,7 @@ SRC = pathlib.Path(__file__).resolve().parents[2] / "src"
 def _create(category: str) -> IntegrationRegistryCreate:
     return IntegrationRegistryCreate(
         company_id=uuid.uuid4(), provider_name="google", service_sku="x", service_category=category,
-        component_type="image", internal_cost=Decimal("0.04"), cost_unit="per_image", api_key="k")
+        component_type="image", internal_cost=Decimal("0.04"), cost_unit_code="PER_IMAGE", api_key="k")
 
 
 def test_the_api_accepts_only_the_list():
@@ -51,7 +51,7 @@ def test_the_code_queries_no_category_outside_the_list():
 async def test_the_database_refuses_a_category_outside_the_list(db, test_company_id):
     db.add(IntegrationRegistry(company_id=test_company_id, provider_name="google", service_sku="p9-img",
                                service_category="IMAGE_GEN", component_type="image",
-                               internal_cost=Decimal("0.04"), cost_unit="per_image"))
+                               internal_cost=Decimal("0.04"), cost_unit_code="PER_IMAGE"))
     with pytest.raises(IntegrityError):
         await db.flush()
 
@@ -60,7 +60,7 @@ async def test_the_database_refuses_a_category_outside_the_list(db, test_company
 async def test_a_listed_category_is_stored(db, test_company_id):
     row = IntegrationRegistry(company_id=test_company_id, provider_name="google", service_sku="p9-img",
                               service_category=ServiceCategory.IMAGE_GENERATION, component_type="image",
-                              internal_cost=Decimal("0.04"), cost_unit="per_image")
+                              internal_cost=Decimal("0.04"), cost_unit_code="PER_IMAGE")
     db.add(row)
     await db.flush()
     await db.refresh(row)

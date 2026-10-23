@@ -102,7 +102,7 @@ class CallLog(TenantBase):
     from_number = Column(String(30), nullable=True)
     to_number = Column(String(30), nullable=True)
     provider = Column(String(30), nullable=True)        # twilio | tata_tele
-    call_cost_usd = Column(Numeric(10, 6), nullable=True)
+    call_cost_usd = Column(Numeric(24, 10), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 

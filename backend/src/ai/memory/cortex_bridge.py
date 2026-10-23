@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # A: Direct import — no circular dependency after extraction to ai.core
 from src.ai.core.prompt_utils import parse_variables as _parse_variables
+from src.billing.units import Dimension
 
 
 class CortexBridge:
@@ -243,12 +244,14 @@ class CortexBridge:
                         company_id=run.company_id,
                         service_sku=_in_sku,
                         raw_quantity=float(_resp.prompt_tokens),
+                        dimension=Dimension.TOKEN,
                         execution_id=run.id,
                     )
                     _out_usage = await self.usage_service.log_usage(
                         company_id=run.company_id,
                         service_sku=_out_sku,
                         raw_quantity=float(_resp.completion_tokens),
+                        dimension=Dimension.TOKEN,
                         execution_id=run.id,
                     )
                     logger.info(

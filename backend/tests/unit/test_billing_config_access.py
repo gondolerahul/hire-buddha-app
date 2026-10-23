@@ -37,6 +37,9 @@ class _DB:
     async def execute(self, *_a, **_k):
         return _Result()
 
+    async def commit(self):
+        return None
+
 
 def _app(role: str | None) -> FastAPI:
     app = FastAPI()
@@ -55,21 +58,22 @@ def _app(role: str | None) -> FastAPI:
 
 @pytest.fixture
 def config_calls(monkeypatch):
+    """Records reads of the formula, new formula versions (Phase 15 T3-2) and daily-credit writes."""
     calls: list = []
-    config = SimpleNamespace(
-        id=uuid.uuid4(), company_id=None, config_name="default", multiplier_factor=1.3,
-        platform_fee_pct=0.15, sales_partner_fee_pct=0.1, discount_pct=0, default_daily_credits=5,
-        base_cost_telephony=None, base_cost_image_gen=None, is_active=True, updated_at=None)
 
-    async def _get(self, company_id):
+    async def _view(db, company_id):
         calls.append(("get", company_id))
-        return config
+        return {"config": {"multiplier_factor": 1.3}, "history": []}
+
+    async def _set_formula(db, **fields):
+        calls.append(("set_formula", fields.get("scope_id"),
+                      {k: fields[k] for k in ("mf", "pf", "d")}))
 
     async def _update(self, company_id, **fields):
         calls.append(("update", company_id, fields))
-        return config
 
-    monkeypatch.setattr(billing_router.BillingService, "get_billing_config", _get)
+    monkeypatch.setattr(billing_router, "_config_view", _view)
+    monkeypatch.setattr("src.billing.formulas.set_formula", _set_formula)
     monkeypatch.setattr(billing_router.BillingService, "update_billing_config", _update)
     return calls
 
@@ -104,6 +108,8 @@ async def test_only_app_admin_writes_the_billing_config(role, config_calls):
     {"multiplier_factor": 0},
     {"default_daily_credits": -1},
     {"base_cost_telephony": -0.01},
+    {"base_cost_telephony": 0.01},       # retired: a company's price is its registry row (T3-2)
+    {"sales_partner_fee_pct": 0.05},     # retired: partners earn commission (K-10)
 ])
 async def test_out_of_range_pricing_is_refused(body, config_calls):
     res = await _call(_app("app_admin"), "PUT", "/api/v1/billing/config", json=body)
@@ -117,8 +123,9 @@ async def test_fractions_in_range_are_saved(config_calls):
                       json={"platform_fee_pct": 0.15, "discount_pct": 0, "multiplier_factor": 1.3})
     assert res.status_code == 200
     from decimal import Decimal
-    assert config_calls[0][2] == {"platform_fee_pct": Decimal("0.15"), "discount_pct": Decimal("0"),
-                                  "multiplier_factor": Decimal("1.3")}
+    # A new version of the platform's formula (Phase 15 T3-2).
+    assert config_calls[0] == ("set_formula", None, {"mf": Decimal("1.3"), "pf": Decimal("0.15"),
+                                                     "d": Decimal("0")})
 
 
 @pytest.mark.asyncio

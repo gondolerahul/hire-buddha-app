@@ -34,6 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai.constants import EMBEDDING_MODEL, EMBEDDING_MODEL_FALLBACK
+from src.billing.units import Dimension
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +357,7 @@ class EmbeddingService:
                     # "-in" input-billing SKU convention.
                     service_sku=f"{model_name}-in",
                     raw_quantity=float(billable_chars),
+                    dimension=Dimension.CHARACTER,
                     execution_id=run_id,
                     metadata={
                         "embedding_model": model_name,

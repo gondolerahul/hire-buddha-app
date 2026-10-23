@@ -42,11 +42,11 @@ async def test_a_second_app_company_is_refused(db):
 async def test_a_provider_is_matched_exactly(db, test_company_id):
     db.add(IntegrationRegistry(company_id=test_company_id, provider_name="googleplaces", service_sku="p9-places",
                                service_category="API_TOOL", component_type="flat_fee",
-                               internal_cost=Decimal("0.01"), cost_unit="per_request"))
+                               internal_cost=Decimal("0.01"), cost_unit_code="PER_REQUEST"))
     db.add(IntegrationRegistry(company_id=test_company_id, provider_name="Google", model_name="gemini-x",
                                service_sku="p9-gemini-x-in", service_category="LLM",
                                component_type="input_token", internal_cost=Decimal("0.3"),
-                               cost_unit="per_million_tokens"))
+                               cost_unit_code="PER_1M_TOKENS"))
     await db.flush()
 
     svc = ConfigService(db)

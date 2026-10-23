@@ -109,6 +109,7 @@ class CostLedger:
         log_metadata: Optional[dict] = None,
         commit: bool = False,
         unpriced: bool = False,
+        sku_category: Optional[str] = None,
     ) -> Any:
         """Insert a ``UsageLog`` row tagged with ``attribution``.
 
@@ -124,6 +125,9 @@ class CostLedger:
           * A $0 charge writes nothing — except an ``unpriced`` one: a call
             to a tool with no price is recorded at $0 so it shows in the
             run's costs (GH-05).
+          * The row is rated as it is written (Phase 15 T3-3): its billed
+            amount, formula version and category (``sku_category`` tells a
+            media tool from another).
         """
         if attribution not in VALID_ATTRIBUTIONS:
             logger.warning(
@@ -148,6 +152,8 @@ class CostLedger:
             log_metadata=meta,
             attribution=attribution,
         )
+        from src.billing.rating import rate_row
+        await rate_row(self.db, row, sku_category=sku_category)
         self.db.add(row)
         if commit:
             await self.db.commit()

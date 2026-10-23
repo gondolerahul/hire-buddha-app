@@ -1,0 +1,116 @@
+.currency-page {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.currency-page .page-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.currency-card {
+    padding: 1.5rem 2rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 1.5rem;
+}
+
+.currency-card h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.15rem;
+    color: var(--color-white);
+    margin-bottom: 1rem;
+}
+
+.currency-card h3 {
+    font-size: 1rem;
+    color: var(--color-white);
+    margin: 1.5rem 0 0.75rem;
+}
+
+.currency-settings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+}
+
+.currency-settings label,
+.add-rate label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+}
+
+.currency-page select,
+.currency-page input[type="number"],
+.currency-page input[type="text"],
+.currency-page input[type="datetime-local"] {
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--color-white);
+}
+
+.currency-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.currency-table th,
+.currency-table td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.currency-table th {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+
+.add-rate__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.add-rate__reason {
+    grid-column: 1 / -1;
+}
+
+.add-rate__preview {
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.04);
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--color-text-secondary);
+}
+
+.add-rate__preview ul {
+    margin: 0.5rem 0 0 1rem;
+}
+
+.country-filter {
+    margin-bottom: 0.75rem;
+    min-width: 240px;
+}
+
+.country-table-wrap {
+    max-height: 420px;
+    overflow: auto;
+}
+
+.currency-page .muted {
+    color: var(--color-text-secondary);
+    font-size: 0.8em;
+}

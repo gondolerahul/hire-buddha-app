@@ -16,8 +16,18 @@
 | PUT | `/api/v1/admin/automation/limits` | signed in | `src.automation.api` |
 | POST | `/api/v1/admin/automation/pause` | signed in | `src.automation.api` |
 | POST | `/api/v1/admin/automation/resume` | signed in | `src.automation.api` |
+| GET | `/api/v1/admin/billing-shadow` | roles: app_admin | `src.billing.shadow_router` |
+| PUT | `/api/v1/admin/billing-shadow/mode` | roles: app_admin | `src.billing.shadow_router` |
 | GET | `/api/v1/admin/connectors` | roles: app_admin | `src.connections.api` |
 | PATCH | `/api/v1/admin/connectors/{connector_id}` | roles: app_admin | `src.connections.api` |
+| GET | `/api/v1/admin/country-profiles` | roles: app_admin | `src.billing.currency_router` |
+| PUT | `/api/v1/admin/country-profiles/{country_code}` | roles: app_admin | `src.billing.currency_router` |
+| GET | `/api/v1/admin/currencies` | roles: app_admin | `src.billing.currency_router` |
+| GET | `/api/v1/admin/currency-settings` | roles: app_admin | `src.billing.currency_router` |
+| PUT | `/api/v1/admin/currency-settings` | roles: app_admin | `src.billing.currency_router` |
+| GET | `/api/v1/admin/fx-rates` | roles: app_admin | `src.billing.currency_router` |
+| POST | `/api/v1/admin/fx-rates` | roles: app_admin | `src.billing.currency_router` |
+| GET | `/api/v1/admin/fx-rates/preview` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/oauth-apps` | roles: app_admin | `src.connections.api` |
 | PUT | `/api/v1/admin/oauth-apps/{provider}` | roles: app_admin | `src.connections.api` |
 | GET | `/api/v1/admin/tenant-servers` | roles: app_admin | `src.common.tenancy.api` |
@@ -198,6 +208,7 @@
 | GET | `/api/v1/companies/partners` | roles: app_admin | `src.auth.company_router` |
 | GET | `/api/v1/companies/tenants` | roles: app_admin, partner_admin | `src.auth.company_router` |
 | PATCH | `/api/v1/companies/{company_id}` | signed in | `src.auth.company_router` |
+| GET | `/api/v1/config/cost-units` | signed in | `src.config.router` |
 | GET | `/api/v1/config/integrations` | signed in | `src.config.router` |
 | POST | `/api/v1/config/integrations` | signed in | `src.config.router` |
 | DELETE | `/api/v1/config/integrations/{entry_id}` | signed in | `src.config.router` |
@@ -234,6 +245,7 @@
 | POST | `/api/v1/cortex/trees/{tree_id}/recurse` | signed in | `src.ai.memory.cortex_router` |
 | POST | `/api/v1/cortex/trees/{tree_id}/resume` | signed in | `src.ai.memory.cortex_router` |
 | POST | `/api/v1/cortex/trees/{tree_id}/suspend` | signed in | `src.ai.memory.cortex_router` |
+| GET | `/api/v1/countries` | — | `src.billing.currency_router` |
 | GET | `/api/v1/credits/balance` | signed in | `src.billing.credits_router` |
 | POST | `/api/v1/credits/razorpay/webhook` | — | `src.billing.razorpay_webhook` |
 | GET | `/api/v1/credits/subscription-tiers` | signed in | `src.billing.credits_router` |

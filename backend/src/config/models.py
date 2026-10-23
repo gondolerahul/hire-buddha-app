@@ -99,8 +99,13 @@ class IntegrationRegistry(ControlBase):
     # environment locally), read at run time instead of encrypted_api_key
     # (Phase 14 WS5 5.7, tech spec §10.2). config/registry_secrets.py reads either.
     secret_ref = Column(Text, nullable=True)
-    internal_cost = Column(Numeric(18, 6), nullable=False)
-    cost_unit = Column(String, nullable=False)
+    internal_cost = Column(Numeric(24, 10), nullable=False)  # USD per the unit; exact (T1-5)
+    # The price's unit, a code of src.billing.units.CostUnit (Phase 15 T1-2):
+    # internal_cost USD per the unit's per_quantity of its dimension.
+    cost_unit_code = Column(Text, ForeignKey("cost_units.code"), nullable=False)
+    # The old free-text unit, read by nothing since T1-3; dropped one release
+    # after control_0007 (plan §4 step 10). Not written any more.
+    cost_unit = Column(String, nullable=True)
     service_metadata = Column(JSONB, nullable=True)
     # service_metadata fields by provider:
     #   google/gemini (Vertex AI — default): {"project_id": "...", "region": "us-central1"}

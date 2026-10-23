@@ -30,7 +30,7 @@ def _row(company, model, sku_suffix, provider="anthropic", key="sk-test"):
     return IntegrationRegistry(
         company_id=company, provider_name=provider, service_sku=f"{model}-{sku_suffix}",
         model_name=model, component_type=f"{sku_suffix}put_token", internal_cost=Decimal("1"),
-        cost_unit="per_1M_tokens", status="active", service_category="LLM",
+        cost_unit_code="PER_1M_TOKENS", status="active", service_category="LLM",
         encrypted_api_key=encrypt_api_key(key),
     )
 

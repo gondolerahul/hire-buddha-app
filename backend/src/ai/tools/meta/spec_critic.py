@@ -46,6 +46,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from src.ai.tools.base import Tool, ToolStatus
+from src.billing.units import Dimension
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +241,7 @@ class MetaSpecCriticTool(Tool):
                                 company_id=meta_tree.company_id,
                                 service_sku=f"{model}-in",
                                 raw_quantity=float(response.prompt_tokens),
+                                dimension=Dimension.TOKEN,
                                 attribution="meta_spec_critic",
                             )
                         if response.completion_tokens:
@@ -247,6 +249,7 @@ class MetaSpecCriticTool(Tool):
                                 company_id=meta_tree.company_id,
                                 service_sku=f"{model}-out",
                                 raw_quantity=float(response.completion_tokens),
+                                dimension=Dimension.TOKEN,
                                 attribution="meta_spec_critic",
                             )
                 except Exception:                                            # pragma: no cover

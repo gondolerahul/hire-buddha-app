@@ -30,8 +30,8 @@ function exportToCSV(events: BillingEvent[], filename: string) {
     const rows = events.map((e) => [
         e.period_month, e.company_name ?? e.company_id, e.grouping_type, e.grouping_value, e.base_cost,
         e.multiplied_cost, e.platform_fee_amount, e.partner_fee_amount,
-        e.discount_amount, e.total_billing, e.telephony_in_minutes,
-        e.telephony_out_minutes, e.image_gen_count, e.video_gen_count, e.other_ai_cost,
+        e.discount_amount, e.total_billing, e.telephony_in_seconds / 60,
+        e.telephony_out_seconds / 60, e.image_gen_count, e.video_gen_count, e.other_ai_cost,
     ]);
     const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -130,7 +130,7 @@ export const CostingReport: React.FC = () => {
                 <SummaryCard label="Total Billing (TB)" value={formatUSD(totals.total_billing || 0)} />
                 <SummaryCard
                     label="Telephony"
-                    value={`${(totals.total_telephony_in_minutes || 0).toFixed(1)} in / ${(totals.total_telephony_out_minutes || 0).toFixed(1)} out`}
+                    value={`${((totals.total_telephony_in_seconds || 0) / 60).toFixed(1)} in / ${((totals.total_telephony_out_seconds || 0) / 60).toFixed(1)} out`}
                     sub="minutes"
                 />
                 <SummaryCard
@@ -184,8 +184,8 @@ export const CostingReport: React.FC = () => {
                                     <td className="num">{formatUSD(e.partner_fee_amount)}</td>
                                     <td className="num deduction">-{formatUSD(e.discount_amount)}</td>
                                     <td className="num total">{formatUSD(e.total_billing)}</td>
-                                    <td className="num">{e.telephony_in_minutes.toFixed(1)}'</td>
-                                    <td className="num">{e.telephony_out_minutes.toFixed(1)}'</td>
+                                    <td className="num">{(e.telephony_in_seconds / 60).toFixed(1)}'</td>
+                                    <td className="num">{(e.telephony_out_seconds / 60).toFixed(1)}'</td>
                                     <td className="num">{e.image_gen_count}</td>
                                     <td className="num">{e.video_gen_count}</td>
                                     <td className="num">{formatUSD(e.other_ai_cost)}</td>

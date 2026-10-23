@@ -25,11 +25,11 @@ from sqlalchemy import text
 from src.common.database import AsyncSessionLocal
 
 SKUS = (
-    ("app-hosting-vcpu-hour", "per_vcpu_hour", os.environ.get("APP_SKU_VCPU_HOUR", "0.045")),
-    ("app-hosting-gb-hour", "per_gb_hour", os.environ.get("APP_SKU_GB_HOUR", "0.005")),
-    ("app-egress-gb", "per_gb", os.environ.get("APP_SKU_EGRESS_GB", "0.087")),
-    ("tenant-db-pool-share", "per_day", os.environ.get("TENANT_DB_POOL_DAY", "4.50")),
-    ("tenant-db-dedicated", "per_day", os.environ.get("TENANT_DB_DEDICATED_DAY", "9.00")),
+    ("app-hosting-vcpu-hour", "PER_VCPU_HOUR", os.environ.get("APP_SKU_VCPU_HOUR", "0.045")),
+    ("app-hosting-gb-hour", "PER_GB_HOUR", os.environ.get("APP_SKU_GB_HOUR", "0.005")),
+    ("app-egress-gb", "PER_GB", os.environ.get("APP_SKU_EGRESS_GB", "0.087")),
+    ("tenant-db-pool-share", "PER_DAY", os.environ.get("TENANT_DB_POOL_DAY", "4.50")),
+    ("tenant-db-dedicated", "PER_DAY", os.environ.get("TENANT_DB_DEDICATED_DAY", "9.00")),
 )
 
 
@@ -45,13 +45,13 @@ async def seed() -> None:
                 {"c": str(app[0]), "sku": sku})).first()
             if existing is not None:
                 await db.execute(text(
-                    "UPDATE integration_registry SET internal_cost = :cost, cost_unit = :unit, status = 'active', "
+                    "UPDATE integration_registry SET internal_cost = :cost, cost_unit_code = :unit, status = 'active', "
                     "updated_at = now() WHERE id = :id"), {"cost": cost, "unit": unit, "id": str(existing[0])})
                 print(f"Updated {sku} ({cost} {unit})")
                 continue
             await db.execute(text(
                 "INSERT INTO integration_registry (id, company_id, provider_name, model_name, service_sku, "
-                "component_type, service_category, status, internal_cost, cost_unit, created_at, updated_at) "
+                "component_type, service_category, status, internal_cost, cost_unit_code, created_at, updated_at) "
                 "VALUES (:id, :c, 'hirebuddha', :sku, :sku, 'hosting', 'OTHER', 'active', :cost, :unit, now(), now())"),
                 {"id": str(uuid.uuid4()), "c": str(app[0]), "sku": sku, "cost": cost, "unit": unit})
             print(f"Seeded {sku} ({cost} {unit})")

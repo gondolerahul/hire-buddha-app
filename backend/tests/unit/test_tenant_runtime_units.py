@@ -625,8 +625,10 @@ def test_metering_counts_the_part_of_the_hour_a_deployment_ran():
     assert cores("250m") == 0.25 and cores("2") == 2.0 and gb("512Mi") == 0.5 and gb("2Gi") == 2.0
 
 
-def test_hosting_cost_units_parse():
-    from src.ai.usage_service import parse_cost_unit
+def test_hosting_skus_are_priced_in_what_their_meters_measure():
+    """Phase 15 T1-3: each hosting SKU's seeded unit has the dimension its meter declares."""
+    from scripts.seed_app_skus import SKUS
+    from src.apps.metering import SKU_DIMENSIONS
+    from src.billing.units import unit_spec
 
-    assert parse_cost_unit("per_vcpu_hour").noun == "hour"
-    assert parse_cost_unit("per_gb").noun == "gb" and parse_cost_unit("per day").noun == "day"
+    assert {sku: unit_spec(code).dimension for sku, code, _ in SKUS} == SKU_DIMENSIONS

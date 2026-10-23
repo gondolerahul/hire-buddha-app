@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CountrySelect } from './CountrySelect';
 import { X } from 'lucide-react';
 import { GlassCard, GlassInput, JellyButton } from './ui';
 
@@ -22,6 +23,8 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
     initialData
 }) => {
     const [name, setName] = useState('');
+    // A new company's country: it is billed in that country's currency (Phase 15 T2-3, FX-1).
+    const [country, setCountry] = useState('IN');
     // Blank = no cap (GH-18). Set only when editing an existing company.
     const [spendCap, setSpendCap] = useState('');
     const [loading, setLoading] = useState(false);
@@ -47,7 +50,7 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
                 name,
                 type: initialData?.type || type,
                 parent_id: initialData?.parent_id || parentId,
-                ...(initialData ? { monthly_spend_cap_usd: spendCap.trim() ? Number(spendCap) : null } : {}),
+                ...(initialData ? { monthly_spend_cap_usd: spendCap.trim() ? Number(spendCap) : null } : { country_code: country }),
             });
             setName('');
             onClose();
@@ -83,6 +86,8 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
                         placeholder={`e.g. ${type === 'PARTNER' ? 'Global Logic' : 'Business Unit A'}`}
                         required
                     />
+
+                    {!initialData && <CountrySelect value={country} onChange={setCountry} />}
 
                     {initialData && (
                         <GlassInput

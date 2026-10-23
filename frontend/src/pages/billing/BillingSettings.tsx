@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, Settings, Save, Plus, Trash2, Edit } from 'lucide-react';
-import { billingService, BillingConfig, SubscriptionTier } from '@/services/billing.service';
+import { billingService, BillingConfig, FormulaVersion, SubscriptionTier } from '@/services/billing.service';
+import { parseServerDate } from '@/utils/datetime';
 import './BillingSettings.css';
 import { apiErrorMessage } from '@/utils/apiError';
 
@@ -10,6 +11,9 @@ const asPercent = (v?: number | null) =>
 
 export const BillingSettings: React.FC = () => {
     const [config, setConfig] = useState<Partial<BillingConfig>>({});
+    // Formula versions, newest first, and why the next one is made (Phase 15 T3-2).
+    const [history, setHistory] = useState<FormulaVersion[]>([]);
+    const [reason, setReason] = useState('');
     const [tiers, setTiers] = useState<SubscriptionTier[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -35,15 +39,10 @@ export const BillingSettings: React.FC = () => {
             if (configRes.config) {
                 setConfig(configRes.config);
             } else {
-                // Initialize default empty
-                setConfig({
-                    multiplier_factor: 1.0,
-                    platform_fee_pct: 0.0,
-                    sales_partner_fee_pct: 0.0,
-                    discount_pct: 0.0,
-                    default_daily_credits: 0,
-                });
+                // The identity formula: billed = cost
+                setConfig({ multiplier_factor: 1.0, platform_fee_pct: 0.0, discount_pct: 0.0, default_daily_credits: 0 });
             }
+            setHistory(configRes.history ?? []);
             setTiers(tiersRes);
         } catch (err: any) {
             setError(apiErrorMessage(err, 'Failed to load billing configuration.'));
@@ -60,16 +59,15 @@ export const BillingSettings: React.FC = () => {
             const payload = {
                 multiplier_factor: config.multiplier_factor,
                 platform_fee_pct: config.platform_fee_pct,
-                sales_partner_fee_pct: config.sales_partner_fee_pct,
                 discount_pct: config.discount_pct,
                 default_daily_credits: config.default_daily_credits,
-                // null clears an override (undefined would leave it unchanged)
-                base_cost_telephony: config.base_cost_telephony || null,
-                base_cost_image_gen: config.base_cost_image_gen || null,
+                reason: reason.trim() || undefined,
             };
             const res = await billingService.updateConfig(payload);
             setConfig(res.config);
-            setSuccessMsg('Billing configuration saved successfully.');
+            setHistory(res.history ?? []);
+            setReason('');
+            setSuccessMsg('Saved. A formula change is a new version: new usage is priced with it; a run already running keeps its formula.');
         } catch (err: any) {
             setError(apiErrorMessage(err, 'Failed to save billing configuration.'));
         } finally {
@@ -138,7 +136,7 @@ export const BillingSettings: React.FC = () => {
                 {/* Global Config Section */}
                 <div className="settings-card glass">
                     <h2><DollarSign size={18} /> Default Global Settings</h2>
-                    <p className="card-desc">Controls the primary billing variables calculated via TB formula.</p>
+                    <p className="card-desc">The customer price of usage: TB = cost × mf × (1 + pf − d). Partners earn commission, not a share of the price.</p>
 
                     <div className="form-group">
                         <label>Multiplier Factor (mf)</label>
@@ -160,15 +158,6 @@ export const BillingSettings: React.FC = () => {
                             <small className="field-hint">{asPercent(config.platform_fee_pct)}</small>
                         </div>
                         <div className="form-group">
-                            <label>Partner Fee (spf) (fraction, 0–1)</label>
-                            <input
-                                type="number" step="0.01" min="0" max="1"
-                                value={config.sales_partner_fee_pct ?? ''}
-                                onChange={e => setConfig({ ...config, sales_partner_fee_pct: parseFloat(e.target.value) })}
-                            />
-                            <small className="field-hint">{asPercent(config.sales_partner_fee_pct)}</small>
-                        </div>
-                        <div className="form-group">
                             <label>Discount (d) (fraction, 0–1)</label>
                             <input
                                 type="number" step="0.01" min="0" max="1"
@@ -188,30 +177,26 @@ export const BillingSettings: React.FC = () => {
                         />
                     </div>
 
-                    <hr className="divider" />
-                    <h3 className="section-subtitle mt-4">Base Cost Overrides</h3>
-                    <p className="card-desc">Optional. Telephony replaces the carrier rate per billed minute of a call (the speech model's cost is kept); Image Gen is the price of each generated image. Leave empty to use the registry rates.</p>
-
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Telephony ($/min)</label>
-                            <input
-                                type="number" step="0.0001"
-                                value={config.base_cost_telephony || ''}
-                                onChange={e => setConfig({ ...config, base_cost_telephony: parseFloat(e.target.value) || null })}
-                                placeholder="0.008"
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>Image Gen ($/image)</label>
-                            <input
-                                type="number" step="0.0001"
-                                value={config.base_cost_image_gen || ''}
-                                onChange={e => setConfig({ ...config, base_cost_image_gen: parseFloat(e.target.value) || null })}
-                                placeholder="0.05"
-                            />
-                        </div>
+                    <div className="form-group">
+                        <label>Reason for the change (kept with the version)</label>
+                        <input type="text" value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Q4 price review" />
                     </div>
+
+                    <hr className="divider" />
+                    <h3 className="section-subtitle mt-4">Formula history</h3>
+                    <p className="card-desc">A company's own telephony or image price is its registry row (System Integrations), not an override here.</p>
+                    {history.length === 0 ? <p className="field-hint">No versions yet: billed = cost.</p> : (
+                        <ul className="formula-history">
+                            {history.map(v => (
+                                <li key={v.id}>
+                                    <strong>mf {v.multiplier_factor}, pf {v.platform_fee_pct}, d {v.discount_pct}</strong>
+                                    {!v.active && ' (ended)'}
+                                    {' · from '}{v.effective_from ? parseServerDate(v.effective_from).toLocaleString() : '—'}
+                                    {v.reason ? ` · ${v.reason}` : ''}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
 
                     <button className="btn-primary mt-4 w-full" onClick={handleConfigSave} disabled={saving}>
                         <Save size={16} /> {saving ? 'Saving...' : 'Save Global Settings'}

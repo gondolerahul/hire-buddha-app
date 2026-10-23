@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { GlassCard, GlassInput, JellyButton } from '@/components/ui';
+import { CountrySelect } from '@/components/CountrySelect';
 import logo from '@/assets/logo.png';
 import './LoginPage.css';
 
@@ -9,6 +10,8 @@ export const RegisterPage: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
+    // The workspace's country: it is billed in that country's currency (Phase 15 T2-3).
+    const [country, setCountry] = useState('IN');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const { register } = useAuth();
@@ -26,7 +29,7 @@ export const RegisterPage: React.FC = () => {
         setLoading(true);
 
         try {
-            await register(email, password, fullName);
+            await register(email, password, fullName, country);
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Registration failed. Please try again.');
         } finally {
@@ -90,6 +93,8 @@ export const RegisterPage: React.FC = () => {
                                 </div>
                             )}
                         </div>
+
+                        <CountrySelect value={country} onChange={setCountry} />
 
                         {error && <div className="error-message">{error}</div>}
 

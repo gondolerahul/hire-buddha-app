@@ -1546,7 +1546,8 @@ class BaseStreamHandler:
 
         if self.voice_session and self.started_at:
             end_time = self.call_ended_at or datetime.utcnow()
-            duration = int((end_time - self.started_at).total_seconds())
+            exact_seconds = Decimal(str((end_time - self.started_at).total_seconds()))
+            duration = int(exact_seconds)
 
             try:
                 async with tenant_session(self.voice_session.company_id) as session:
@@ -1586,7 +1587,7 @@ class BaseStreamHandler:
                         session_id=self.session_id,
                         company_id=self.voice_session.company_id,
                         provider=self.voice_session.provider,
-                        duration_seconds=duration,
+                        duration_seconds=exact_seconds,  # billed per second, exactly (T1-4)
                         metadata={
                             "agent_id": str(self.voice_session.agent_id),
                             "customer_id": str(self.voice_session.customer_id),
@@ -1599,36 +1600,21 @@ class BaseStreamHandler:
                     billed_amount: Optional[Decimal] = None
 
                     if total_cost and total_cost > 0:
-                        # One base cost for the charge and the billing event,
-                        # with the telephony override applied (BC-13).
-                        cost_decimal = await BillingService(session).voice_base_cost(
-                            self.voice_session.company_id,
-                            total_cost=Decimal(str(total_cost)),
-                            telephony_cost=usage.telephony_cost,
-                            telephony_minutes=usage.telephony_minutes,
-                        )
+                        # The call's base cost: its usage rows. A telephony price
+                        # for one company is its own registry row now — the
+                        # billing-config override is retired (T3-2).
+                        cost_decimal = Decimal(str(total_cost))
 
-                        # Fix #1: Apply TB formula before credit deduction
-                        # (matches the pattern in worker.py execute_run)
+                        # The customer price: the formula the call's rows were rated with (T3-2, T3-3).
                         try:
-                            from src.billing.billing_service import calculate_tb
-                            billing_svc = BillingService(session)
-                            config = await billing_svc.get_billing_config(
-                                self.voice_session.company_id
-                            )
-                            if not config:
-                                mf, pf, spf, d = Decimal("1"), Decimal("0"), Decimal("0"), Decimal("0")
-                            else:
-                                mf = Decimal(str(config.multiplier_factor))
-                                pf = Decimal(str(config.platform_fee_pct))
-                                spf = Decimal(str(config.sales_partner_fee_pct))
-                                d = Decimal(str(config.discount_pct))
-
-                            tb_result = calculate_tb(cost_decimal, mf, pf, spf, d)
-                            billed_amount = tb_result["total_billing"]
+                            from src.billing.formulas import formula_for_run
+                            formula = await formula_for_run(
+                                session, self.voice_session.company_id,
+                                call_run.run_id if call_run is not None else None)
+                            billed_amount = formula.rate(cost_decimal)
                             logger.info(
                                 f"Voice TB formula: raw=${cost_decimal} → billed=${billed_amount} "
-                                f"(mf={mf}, pf={pf}, spf={spf}, d={d})"
+                                f"(mf={formula.mf}, pf={formula.pf}, d={formula.d})"
                             )
                         except Exception as tb_err:
                             logger.warning(f"TB formula failed, falling back to raw cost: {tb_err}")
@@ -1649,20 +1635,20 @@ class BaseStreamHandler:
                         # Fix #7: Pass event_category="telephony" so charges
                         # appear in the correct report column
                         try:
-                            # Billed minutes, rounded as the usage log rounds them (BC-12).
-                            duration_minutes = usage.telephony_minutes
+                            # The seconds the usage row billed — exact (T1-4).
+                            billed_seconds = usage.telephony_seconds
                             await BillingService(session).record_billing_event(
                                 company_id=self.voice_session.company_id,
                                 base_cost=cost_decimal,
                                 grouping_type="agent",
                                 grouping_value=str(self.voice_session.agent_id),
-                                telephony_out_minutes=(
-                                    duration_minutes
+                                telephony_out_seconds=(
+                                    billed_seconds
                                     if self.voice_session.direction == "outbound"
                                     else Decimal("0")
                                 ),
-                                telephony_in_minutes=(
-                                    duration_minutes
+                                telephony_in_seconds=(
+                                    billed_seconds
                                     if self.voice_session.direction == "inbound"
                                     else Decimal("0")
                                 ),
@@ -1670,6 +1656,16 @@ class BaseStreamHandler:
                             )
                         except Exception as be:
                             logger.warning(f"Billing event recording failed: {be}")
+
+                        # Its billing lines and the shadow comparison (Phase 15 T3-4, T3-7).
+                        if call_run is not None and call_run.run_id is not None:
+                            from src.billing.shadow import record_settlement
+                            await record_settlement(
+                                session, session, company_id=self.voice_session.company_id,
+                                run_id=call_run.run_id, subject_type="call", grouping_type="agent",
+                                grouping_id=self.voice_session.agent_id, v1_cost_usd=cost_decimal,
+                                v1_billed_usd=billed_amount, descendants=False)
+                            await session.commit()
 
                     if call_run is not None:
                         try:

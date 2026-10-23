@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { CountrySelect } from '@/components/CountrySelect';
 import { onboardingService, OnboardingStatus } from '@/services/platform.service';
 import './OnboardingWizard.css';
 
@@ -71,6 +72,8 @@ const OnboardingWizard: React.FC = () => {
     // Form state for company_profile step
     const [companyName, setCompanyName] = useState('');
     const [industry, setIndustry] = useState('');
+    // The business's country; its billing currency follows until money moves (Phase 15 T2-3).
+    const [country, setCountry] = useState(user?.country_code ?? 'IN');
 
     const loadStatus = useCallback(async () => {
         try {
@@ -99,7 +102,7 @@ const OnboardingWizard: React.FC = () => {
         try {
             let stepData: Record<string, any> | undefined;
             if (step.key === 'company_profile') {
-                stepData = { name: companyName || user?.full_name + "'s Workspace", industry };
+                stepData = { name: companyName || user?.full_name + "'s Workspace", industry, country_code: country };
             }
             const updated = await onboardingService.completeStep(step.key, stepData);
             setStatus(updated);
@@ -196,6 +199,9 @@ const OnboardingWizard: React.FC = () => {
                                         <option value="marketing">Marketing & Advertising</option>
                                         <option value="other">Other</option>
                                     </select>
+                                </div>
+                                <div className="form-group">
+                                    <CountrySelect value={country} onChange={setCountry} selectClassName="" />
                                 </div>
                             </>
                         )}

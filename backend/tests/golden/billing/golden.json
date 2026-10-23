@@ -1,0 +1,29 @@
+{
+  "calls": {
+    "exact_minutes_identity": {
+      "billed_per_started_minute": "1.24"
+    },
+    "one_second_discounted": {
+      "billed_per_started_minute": "0.8100"
+    },
+    "short_call_doc_formula": {
+      "billed_per_started_minute": "3.3980625"
+    }
+  },
+  "payments": {
+    "subscription_growth": "600",
+    "subscription_scale": "1300",
+    "topup_10": "10.00",
+    "topup_cents": "12.34"
+  },
+  "recorded_with": "calculate_tb + billing_config (mf, pf, spf, d); calls per started minute",
+  "runs": {
+    "discounted_small_rows": "2.222369100",
+    "doc_example": "0.75000",
+    "doc_example_many_rows": "0.75000",
+    "fully_discounted": "0.00",
+    "identity_one_row": "0.4512345",
+    "partner_fee_folded": "6.3437500000",
+    "zero_cost": "0.000"
+  }
+}

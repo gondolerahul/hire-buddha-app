@@ -86,8 +86,8 @@ class ExecutionRun(TenantBase):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Metrics and Tracing
-    total_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), default=0)
-    billed_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 6), nullable=True)  # TB formula result — the user-facing charge
+    total_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), default=0)  # exact (T1-5)
+    billed_amount: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), nullable=True)  # TB formula result — the user-facing charge
     total_tokens: Mapped[int | None] = mapped_column(Integer, default=0)
     # Wall-clock milliseconds from started_at to completed_at, written when the
     # loop finalises the run (EP-15); a suspended parent's wait is included.
@@ -173,7 +173,7 @@ class LLMInteractionLog(TenantBase):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, default=0)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), default=0)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), default=0)
     reasoning_mode: Mapped[str | None] = mapped_column(String, nullable=True)
     step_name: Mapped[str | None] = mapped_column(String, nullable=True)  # Associates this log with a specific plan step
     log_metadata: Mapped[Any] = mapped_column(JSONB, nullable=True)

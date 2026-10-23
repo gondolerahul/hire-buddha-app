@@ -25,6 +25,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select
 
+from src.billing.units import Dimension
+
 logger = logging.getLogger(__name__)
 
 SKU_VCPU = "app-hosting-vcpu-hour"
@@ -97,10 +99,21 @@ async def _from_requests(db: Any, app: Any, start: datetime, end: datetime) -> D
         count = replicas if row.kind == "published" else 1
         vcpu += hours * cpu * count
         mem += hours * memory * count
-    return {"vcpu_hours": round(vcpu, 6), "gb_hours": round(mem, 6), "egress_gb": 0.0}
+    return {"vcpu_hours": vcpu, "gb_hours": mem, "egress_gb": 0.0}  # exact: no rounding (T1-5)
 
 
-async def _bill(company_id: Any, sku: str, quantity: float, metadata: Dict[str, Any]) -> None:
+# What each SKU's quantity measures (Phase 15 T1-3): a SKU priced in another
+# dimension is a unit mismatch, charged $0 and flagged, not mis-billed.
+SKU_DIMENSIONS = {
+    SKU_VCPU: Dimension.VCPU_HOUR,
+    SKU_MEMORY: Dimension.GB_HOUR,
+    SKU_EGRESS: Dimension.GB,
+    SKU_DB_POOL: Dimension.DAY,
+    SKU_DB_DEDICATED: Dimension.DAY,
+}
+
+
+async def _bill(company_id: Any, sku: str, quantity: Any, metadata: Dict[str, Any]) -> None:
     if quantity <= 0:
         return
     from src.ai.services.cost_attribution import CostAttribution
@@ -109,7 +122,7 @@ async def _bill(company_id: Any, sku: str, quantity: float, metadata: Dict[str, 
 
     async with control_session() as cdb:
         await UsageService(cdb).log_usage(company_id=uuid.UUID(str(company_id)), service_sku=sku,
-                                          raw_quantity=quantity, metadata=metadata,
+                                          raw_quantity=quantity, metadata=metadata, dimension=SKU_DIMENSIONS[sku],
                                           attribution=CostAttribution.HOSTING.value)
 
 
@@ -142,9 +155,9 @@ async def meter_hour(company_id: Any, window_start: datetime, *, source: Optiona
             if not any(usage.values()):
                 continue
             db.add(AppUsage(company_id=app.company_id, app_id=app.id, window_start=start, source=source,
-                            vcpu_hours=Decimal(str(round(usage["vcpu_hours"], 6))),
-                            gb_hours=Decimal(str(round(usage["gb_hours"], 6))),
-                            egress_gb=Decimal(str(round(usage["egress_gb"], 6)))))
+                            vcpu_hours=Decimal(str(usage["vcpu_hours"])),
+                            gb_hours=Decimal(str(usage["gb_hours"])),
+                            egress_gb=Decimal(str(usage["egress_gb"]))))
             await db.commit()
             meta = {"app_id": str(app.id), "app": app.name, "window_start": start.isoformat() + "Z", "source": source}
             await _bill(company_id, SKU_VCPU, usage["vcpu_hours"], meta)
@@ -182,7 +195,7 @@ async def meter_databases(day: datetime) -> Dict[str, int]:
         if done:
             skipped += 1
             continue
-        share = 1.0 if dedicated else 1.0 / per_server[server.id]
+        share = Decimal(1) if dedicated else Decimal(1) / per_server[server.id]  # exact (T1-5)
         await _bill(entry.company_id, sku, share, {"day": start.date().isoformat(), "server": server.name,
                                                    "tenants_on_server": per_server[server.id]})
         billed += 1

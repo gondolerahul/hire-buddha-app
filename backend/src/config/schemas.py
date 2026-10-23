@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
 
+from src.billing.units import CostUnit
 from src.config.models import ServiceCategory, needs_api_key
 
 # ---------------------------------------------------------------------------
@@ -17,7 +18,9 @@ class IntegrationRegistryBase(BaseModel):
     service_category: str = "LLM"
     component_type: str
     internal_cost: Decimal
-    cost_unit: str
+    # The price's unit by code (Phase 15 T1-2): internal_cost USD per it. The
+    # free-text cost_unit and its parser are gone (REQ-CO-2).
+    cost_unit_code: str
     service_metadata: Optional[dict] = None
     status: str = "active"
     # A secret's name in the platform vault instead of a stored key (WS5 5.7).
@@ -31,25 +34,17 @@ def _vault_name(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
-def _known_cost_unit(value: Optional[str]) -> Optional[str]:
-    """A registry price must name a unit the billing code can divide by;
-    an unknown one used to price "per one" and over-bill (LP-01)."""
-    if value is not None:
-        from src.ai.usage_service import parse_cost_unit
-        parse_cost_unit(value)  # ValueError → 422
-    return value
-
-
 class IntegrationRegistryCreate(IntegrationRegistryBase):
     company_id: UUID
     # Written values are one of the list (LP-11); reads stay ``str`` so a row
     # from before the constraint still renders.
     service_category: ServiceCategory = ServiceCategory.LLM
+    cost_unit_code: CostUnit  # one of the enumerated units (422 otherwise)
+    internal_cost: Decimal = Field(ge=0)
     # Optional for a provider that authenticates with ADC (LP-12); required
     # for every other provider. ``tata_tele`` may carry it in its metadata.
     api_key: Optional[str] = Field(None, alias="api_key")
 
-    _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
     _vault_name_valid = field_validator("secret_ref")(_vault_name)
 
     @model_validator(mode="after")
@@ -65,14 +60,13 @@ class IntegrationRegistryUpdate(BaseModel):
     service_sku: Optional[str] = None
     service_category: Optional[ServiceCategory] = None
     component_type: Optional[str] = None
-    internal_cost: Optional[Decimal] = None
-    cost_unit: Optional[str] = None
+    internal_cost: Optional[Decimal] = Field(None, ge=0)
+    cost_unit_code: Optional[CostUnit] = None
     service_metadata: Optional[dict] = None
     status: Optional[str] = None
     api_key: Optional[str] = None
     secret_ref: Optional[str] = None
 
-    _cost_unit_known = field_validator("cost_unit")(_known_cost_unit)
     _vault_name_valid = field_validator("secret_ref")(_vault_name)
 
 class IntegrationRegistryResponse(IntegrationRegistryBase):

@@ -99,6 +99,17 @@ async def complete_onboarding_step(
             company.name = sd["name"]
         if sd.get("logo_url"):
             company.logo_url = sd["logo_url"]
+        # The business's country — its currency follows while no money has moved (Phase 15 T2-3, FX-1).
+        if sd.get("country_code"):
+            from src.auth.geography import set_geography
+            await set_geography(db, company, sd["country_code"], billing_state=sd.get("billing_state"),
+                                initial=False)
+        elif sd.get("billing_state"):
+            from src.auth.geography import valid_state
+            try:
+                company.billing_state = valid_state(sd["billing_state"])
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error))
 
     company.onboarding_metadata = meta
     company.onboarding_status = "in_progress"
