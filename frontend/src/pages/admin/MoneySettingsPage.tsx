@@ -24,6 +24,9 @@ const GROUP_LABEL: Record<string, string> = {
     alerts: 'Alerts',
     daily_credits: 'Daily credits',
     currency: 'Currency',
+    tax: 'Tax and invoices',
+    payments: 'Payments',
+    partners: 'Partner programme',
 };
 
 function shown(value: unknown): string {
@@ -40,7 +43,8 @@ function parse(setting: MoneySetting, raw: string): unknown {
     return raw.trim();
 }
 
-export const MoneySettingsPage: React.FC = () => {
+/** `groups`: show only these setting groups (the console splits wallet policy and tax onto their own pages). */
+export const MoneySettingsPage: React.FC<{ groups?: string[] }> = ({ groups: only }) => {
     const [companyId, setCompanyId] = useState('');
     const [scopeCompany, setScopeCompany] = useState<string | null>(null);
     const [settings, setSettings] = useState<MoneySetting[]>([]);
@@ -60,9 +64,9 @@ export const MoneySettingsPage: React.FC = () => {
 
     const groups = useMemo(() => {
         const out: Record<string, MoneySetting[]> = {};
-        for (const s of settings) (out[s.group] ??= []).push(s);
+        for (const s of settings) if (!only || only.includes(s.group)) (out[s.group] ??= []).push(s);
         return out;
-    }, [settings]);
+    }, [settings, only]);
 
     return (
         <div className="money-console">

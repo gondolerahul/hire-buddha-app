@@ -26,9 +26,9 @@ const CHECK_LABEL: Record<string, string> = {
     capability_assessment: 'Capability (Gold)', agreement_reviewed: 'Agreement',
 };
 
-export const PartnersAdminPage: React.FC = () => {
+export const PartnersAdminPage: React.FC<{ defaultTab?: Tab }> = ({ defaultTab = 'partners' }) => {
     const [params, setParams] = useSearchParams();
-    const tab = (TABS as readonly string[]).includes(params.get('tab') ?? '') ? params.get('tab') as Tab : 'partners';
+    const tab = (TABS as readonly string[]).includes(params.get('tab') ?? '') ? params.get('tab') as Tab : defaultTab;
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
 
@@ -38,8 +38,8 @@ export const PartnersAdminPage: React.FC = () => {
                 <div>
                     <h1 className="page-title"><HeartHandshake size={22} /> Partner network</h1>
                     <p className="page-subtitle">
-                        Partners, applications, leads. Rules and the simulator are on <Link to="/admin/partners/rules">Programme rules</Link>;
-                        statements on <Link to="/admin/partners/payouts">Partner payouts</Link>.
+                        Partners, applications, leads. Rules and the simulator are on <Link to="/console/partners/rules">Programme rules</Link>;
+                        statements on <Link to="/console/finance/payouts">Partner payouts</Link>.
                     </p>
                 </div>
             </div>
@@ -76,7 +76,7 @@ const PartnersTab: React.FC<{ onError: (t: string) => void }> = ({ onError }) =>
 
     const node = (p: AdminPartner): React.ReactNode => (
         <li key={p.partner_id}>
-            <Link to={`/admin/partners/${p.partner_id}`}>{p.name}</Link>{' '}
+            <Link to={`/console/partners/${p.partner_id}`}>{p.name}</Link>{' '}
             <span className="partner-status">{p.partner_type}</span>{' '}
             <span className={`partner-status ${p.status === 'active' ? 'ok' : 'warn'}`}>{p.status}</span>
             <span className="muted"> · {p.tenants ?? 0} tenants</span>
@@ -99,7 +99,7 @@ const PartnersTab: React.FC<{ onError: (t: string) => void }> = ({ onError }) =>
                     <tbody>
                         {rows.map(p => (
                             <tr key={p.partner_id}>
-                                <td><Link to={`/admin/partners/${p.partner_id}`}>{p.name}</Link></td>
+                                <td><Link to={`/console/partners/${p.partner_id}`}>{p.name}</Link></td>
                                 <td>{p.partner_type}</td><td>{p.status}</td><td>{p.depth}</td><td>{p.recruiter ?? 'HireBuddha'}</td>
                                 <td>{p.tenants ?? 0}</td><td>{formatMoney(p.sourced_billed_mtd_usd ?? 0, 'USD')}</td>
                                 <td>{p.kyc_status}</td><td>{p.fee_paid_until ? formatDate(p.fee_paid_until) : '—'}</td>

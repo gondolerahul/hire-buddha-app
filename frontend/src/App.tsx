@@ -12,6 +12,7 @@ const AnimatedBackground = lazy(() =>
 import './styles/tokens.css';
 import './styles/theme.css';
 import './styles/global.css';
+import './styles/brand.css';
 
 const App: React.FC = () => {
     return (

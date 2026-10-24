@@ -42,6 +42,8 @@ def guard(route: Any) -> str:
         if type(call).__name__ == "RoleChecker":
             roles = sorted(str(getattr(r, "value", r)) for r in call.allowed_roles)
             found.append("roles: " + ", ".join(roles))
+        elif type(call).__name__ == "StaffChecker":
+            found.append("staff: app_admin, app_user with " + " or ".join(sorted(call.functions)))
         elif name == "get_current_user_from_query":
             found.append("URL token")
         elif name == "require_internal":

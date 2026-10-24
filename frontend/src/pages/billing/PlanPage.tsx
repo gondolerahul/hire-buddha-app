@@ -176,7 +176,7 @@ export const PlanPage: React.FC = () => {
                     <h1 className="page-title"><Star size={22} /> Plan</h1>
                     <p className="page-subtitle">
                         What your plan includes and costs. Prices are in {offer.currency} before GST; the monthly fee
-                        becomes credit in your <Link to="/wallet">wallet</Link>, with the plan's bonus on top.
+                        becomes credit in your <Link to="/billing">wallet</Link>, with the plan's bonus on top.
                     </p>
                 </div>
             </div>

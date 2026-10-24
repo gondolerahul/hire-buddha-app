@@ -159,7 +159,7 @@ export const HITLPanel: React.FC = () => {
                                         <div className="flex items-center justify-between text-xs text-tertiary">
                                             <span>EXECUTION REF</span>
                                             <Link
-                                                to={`/ai/executions/${approval.run_id}`}
+                                                to={`/work/${approval.run_id}`}
                                                 className="text-secondary font-mono bg-white/5 px-2 py-1 rounded hover:text-white"
                                             >
                                                 {approval.run_id.slice(0, 12)}

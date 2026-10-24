@@ -1,0 +1,55 @@
+/* The balance chip and the shell's banners (Phase 15 T9-1). */
+.balance-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: inherit;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    background: var(--surface-2, rgba(255, 255, 255, 0.04));
+}
+
+.balance-chip.ok { border-color: rgba(80, 200, 120, 0.35); }
+.balance-chip.warn { border-color: rgba(240, 180, 60, 0.5); }
+.balance-chip.bad { border-color: rgba(230, 80, 80, 0.6); color: #f08a8a; }
+
+.shell-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 1rem;
+    padding: 0.65rem 1rem;
+    border-radius: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.shell-banner.bad { background: rgba(230, 80, 80, 0.12); border: 1px solid rgba(230, 80, 80, 0.4); }
+.shell-banner.info { background: rgba(237, 171, 72, 0.08); border: 1px solid rgba(237, 171, 72, 0.3); }
+
+.shell-banner-action {
+    margin-left: auto;
+    font-weight: 600;
+    color: var(--accent, #edab48);
+}
+
+.shell-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    min-height: 2rem;
+}
+
+.shell-workspace {
+    margin-right: auto;
+    font-family: 'Chakra Petch', var(--font-family-primary, sans-serif);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent, #edab48);
+}

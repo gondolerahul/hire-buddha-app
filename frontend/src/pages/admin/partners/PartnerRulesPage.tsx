@@ -79,7 +79,7 @@ export const PartnerRulesPage: React.FC = () => {
                     <h1 className="page-title"><Scale size={22} /> Programme rules</h1>
                     <p className="page-subtitle">
                         Commission on customer payments only — never on recruiting or partnership fees. Payout and network
-                        policy are <Link to="/admin/money-settings">money settings</Link> (partners).
+                        policy are <Link to="/console/settings">money settings</Link> (partners).
                     </p>
                 </div>
             </div>

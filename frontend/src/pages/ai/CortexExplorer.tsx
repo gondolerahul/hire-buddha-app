@@ -113,7 +113,7 @@ export const CortexExplorer: React.FC = () => {
                             <div
                                 key={tree.id}
                                 className="cortex-tree-card"
-                                onClick={() => navigate(`/cortex/trees/${tree.id}`)}
+                                onClick={() => navigate(`/knowledge/memory/${tree.id}`)}
                             >
                                 <div className="cortex-tree-card-header">
                                     <span
@@ -147,7 +147,7 @@ export const CortexExplorer: React.FC = () => {
                                             <Play size={14} /> Resume
                                         </JellyButton>
                                     )}
-                                    <JellyButton size="sm" variant="secondary" onClick={() => navigate(`/cortex/trees/${tree.id}`)}>
+                                    <JellyButton size="sm" variant="secondary" onClick={() => navigate(`/knowledge/memory/${tree.id}`)}>
                                         <Eye size={14} /> Explore <ChevronRight size={14} />
                                     </JellyButton>
                                 </div>

@@ -134,6 +134,13 @@ async def update_user_as_admin(db: AsyncSession, user_id: uuid.UUID, update: Use
         del changes["is_active"]
     is_self = user.id == actor.id
 
+    if "staff_functions" in changes:
+        # Only HireBuddha's admins give staff their console functions, and only to app_user (T9-12).
+        if actor.role != Role.APP_ADMIN:
+            raise HTTPException(status_code=403, detail="Only an app_admin sets staff functions")
+        if (changes.get("role") or user.role) != Role.APP_USER:
+            raise HTTPException(status_code=422, detail="Staff functions are for app_user")
+        changes["staff_functions"] = sorted(set(changes["staff_functions"] or []))
     if is_self and ("role" in changes or "is_active" in changes):
         raise HTTPException(status_code=403, detail="You cannot change your own role or active status")
     if not is_self or set(changes) - {"full_name"}:

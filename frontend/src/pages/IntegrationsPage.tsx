@@ -173,7 +173,7 @@ export const IntegrationsPage: React.FC = () => {
                             <p className="text-sm text-gray-400">Map your configured integrations to specific AI tasks like logic reasoning, voice streaming, and image generation.</p>
                         </div>
                     </div>
-                    <Link to="/ai-config" className="flex-shrink-0">
+                    <Link to="/console/ai/routing" className="flex-shrink-0">
                         <JellyButton roseGold>
                             Configure AI Routing
                         </JellyButton>

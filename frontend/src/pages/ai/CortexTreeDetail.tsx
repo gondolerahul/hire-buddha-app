@@ -131,7 +131,7 @@ export const CortexTreeDetail: React.FC = () => {
             <div className="cortex-detail-loading">
                 <AlertCircle size={32} />
                 <p>Tree not found</p>
-                <JellyButton onClick={() => navigate('/cortex')}>Back to Explorer</JellyButton>
+                <JellyButton onClick={() => navigate('/knowledge/memory')}>Back to Explorer</JellyButton>
             </div>
         );
     }
@@ -144,7 +144,7 @@ export const CortexTreeDetail: React.FC = () => {
             {/* Header */}
             <div className="cortex-detail-header">
                 <div className="cortex-detail-header-left">
-                    <JellyButton size="sm" variant="secondary" onClick={() => navigate('/cortex')}>
+                    <JellyButton size="sm" variant="secondary" onClick={() => navigate('/knowledge/memory')}>
                         <ChevronLeft size={14} /> All Trees
                     </JellyButton>
                     <Brain size={22} className="cortex-detail-icon" />

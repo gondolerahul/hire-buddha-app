@@ -16,6 +16,9 @@ export interface CompanyUpdate {
 }
 
 export const companyService = {
+    /** The companies the caller can see: every one (staff), its own and its tenants (partners), or its own. */
+    list: async (): Promise<Company[]> => (await apiClient.get<Company[]>('/companies')).data,
+
     getPartners: async (): Promise<Company[]> => {
         const response = await apiClient.get<Company[]>('/companies/partners');
         return response.data;

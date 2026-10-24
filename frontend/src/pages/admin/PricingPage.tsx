@@ -43,7 +43,7 @@ export const PricingPage: React.FC = () => {
                     <h1 className="page-title"><Tag size={22} /> Pricing</h1>
                     <p className="page-subtitle">
                         Fixed prices — not rated by the usage formula. An edit is a new version, charged from each
-                        item's next charge. The usage formula (mf, pf, d) is on <a href="/settings/billing">Billing Settings</a>.
+                        item's next charge. The usage formula (mf, pf, d) is on <a href="/console/formula">Billing Settings</a>.
                     </p>
                 </div>
             </div>

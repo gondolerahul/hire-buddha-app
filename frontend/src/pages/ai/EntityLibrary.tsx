@@ -126,7 +126,7 @@ export const EntityLibrary: React.FC = () => {
                     <p>Orchestrate Actions, Skills, Agents, and Processes</p>
                 </div>
                 <div className="header-actions">
-                    <Link to="/ai/entities/create">
+                    <Link to="/agents/new">
                         <JellyButton roseGold>
                             <Plus size={20} />
                             Create Entity
@@ -200,13 +200,13 @@ export const EntityLibrary: React.FC = () => {
                             </div>
 
                             <div className="entity-actions">
-                                <Link to={`/ai/execute/${entity.id}`}>
+                                <Link to={`/agents/${entity.id}/run`}>
                                     <JellyButton variant="primary">
                                         <Play size={16} />
                                         Run
                                     </JellyButton>
                                 </Link>
-                                <Link to={`/ai/entities/edit/${entity.id}`}>
+                                <Link to={`/agents/${entity.id}`}>
                                     <JellyButton variant="secondary">
                                         <Edit size={16} />
                                         Edit

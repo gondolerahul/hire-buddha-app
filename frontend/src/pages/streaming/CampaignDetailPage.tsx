@@ -124,7 +124,7 @@ export const CampaignDetailPage: React.FC = () => {
                 <div className="campaign-detail-error">
                     <AlertCircle size={48} />
                     <p>{error || 'Campaign not found'}</p>
-                    <button className="btn-back" onClick={() => navigate('/streaming/campaigns')}>
+                    <button className="btn-back" onClick={() => navigate('/calls/campaigns')}>
                         <ArrowLeft size={16} /> Back to Campaigns
                     </button>
                 </div>
@@ -135,7 +135,7 @@ export const CampaignDetailPage: React.FC = () => {
     return (
         <div className="campaign-detail-page">
             <div className="campaign-detail-header">
-                <button className="btn-back" onClick={() => navigate('/streaming/campaigns')}>
+                <button className="btn-back" onClick={() => navigate('/calls/campaigns')}>
                     <ArrowLeft size={18} />
                     <span>Back</span>
                 </button>
@@ -252,7 +252,7 @@ export const CampaignDetailPage: React.FC = () => {
                                                     {call.voice_session_id && (
                                                         <button
                                                             className="btn-view"
-                                                            onClick={() => navigate(`/streaming/calls/${call.voice_session_id}`)}
+                                                            onClick={() => navigate(`/calls/${call.voice_session_id}`)}
                                                         >
                                                             <Info size={14} /> View Call
                                                         </button>

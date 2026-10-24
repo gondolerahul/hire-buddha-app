@@ -98,7 +98,7 @@ export const TemplateMarketplace: React.FC = () => {
                 'success'
             );
             // Navigate to the cloned entity's edit page after a brief pause
-            setTimeout(() => navigate(`/ai/entities/edit/${cloned.id}`), 1200);
+            setTimeout(() => navigate(`/agents/${cloned.id}`), 1200);
         } catch (error: any) {
             console.error('Failed to clone template:', error);
             // Extract detailed error message from API response
@@ -295,7 +295,7 @@ export const TemplateMarketplace: React.FC = () => {
                                     </JellyButton>
                                     <JellyButton
                                         variant="secondary"
-                                        onClick={() => navigate(`/ai/entities/edit/${template.id}`)}
+                                        onClick={() => navigate(`/agents/${template.id}`)}
                                     >
                                         <Eye size={16} />
                                         View

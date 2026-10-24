@@ -1,0 +1,215 @@
+/* The design system's core components (Phase 15 T9-2). Brand tokens only. */
+.b-page {
+    padding: var(--s-6);
+    max-width: 1280px;
+    margin: 0 auto;
+}
+
+.b-page-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: var(--s-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--s-5);
+}
+
+.b-page-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.b-page-subtitle {
+    margin: var(--s-2) 0 0;
+    color: var(--fg-muted);
+    max-width: 70ch;
+}
+
+.b-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-strong);
+    font: 600 0.88rem var(--font-body);
+    cursor: pointer;
+    transition: background var(--dur, 0.2s), border-color var(--dur, 0.2s);
+}
+
+.b-btn-md { padding: 0.5rem 1rem; }
+.b-btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; }
+.b-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.b-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.b-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.b-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.b-btn-secondary { background: var(--surface-2); color: var(--fg); }
+.b-btn-secondary:hover:not(:disabled) { border-color: var(--border-gold); }
+.b-btn-ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
+.b-btn-ghost:hover:not(:disabled) { color: var(--fg); background: var(--surface-2); }
+.b-btn-danger { background: transparent; border-color: var(--negative); color: var(--negative); }
+
+.b-badge {
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: var(--r-pill);
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid var(--border-strong);
+    color: var(--fg-muted);
+}
+
+.b-badge-positive { color: var(--positive); border-color: var(--positive); }
+.b-badge-warning { color: var(--warning); border-color: var(--warning); }
+.b-badge-negative { color: var(--negative); border-color: var(--negative); }
+.b-badge-accent { color: var(--accent); border-color: var(--border-gold); background: var(--accent-quiet); }
+
+.b-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--s-5);
+    margin-bottom: var(--s-4);
+    overflow-x: auto;
+}
+
+.b-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--s-3);
+    margin-bottom: var(--s-4);
+}
+
+.b-card-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.b-card-actions {
+    display: flex;
+    gap: var(--s-2);
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.b-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-1);
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+}
+
+.b-field.b-grow { flex: 1 1 260px; }
+.b-field-hint { font-size: 0.75rem; color: var(--fg-subtle); }
+
+.b-field input,
+.b-field select,
+.b-field textarea {
+    background: var(--surface-2);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    padding: 0.45rem 0.65rem;
+    font: 0.9rem var(--font-body);
+}
+
+.b-field input:focus,
+.b-field select:focus { outline: none; box-shadow: var(--focus-ring); border-color: var(--border-gold); }
+
+.b-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    align-items: flex-end;
+}
+
+.b-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--s-3);
+    margin-bottom: var(--s-4);
+}
+
+.b-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--s-4);
+}
+
+.b-tile.b-clickable { cursor: pointer; }
+.b-tile.b-clickable:hover { border-color: var(--border-gold); }
+.b-tile-label { margin: 0; font-size: 0.78rem; color: var(--fg-subtle); }
+.b-tile-value { margin: var(--s-1) 0 0; font-family: var(--font-display); font-size: 1.45rem; font-weight: 600; color: var(--fg); }
+.b-tile-hint { margin: var(--s-1) 0 0; font-size: 0.75rem; color: var(--fg-muted); }
+.b-tile-positive .b-tile-value { color: var(--positive); }
+.b-tile-negative .b-tile-value { color: var(--negative); }
+.b-tile-warning .b-tile-value { color: var(--warning); }
+.b-tile-accent { border-color: var(--border-gold); }
+
+.b-tabs {
+    display: flex;
+    gap: var(--s-1);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--s-4);
+    flex-wrap: wrap;
+}
+
+.b-tabs button {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.55rem 0.9rem;
+    color: var(--fg-muted);
+    font: 500 0.9rem var(--font-body);
+    cursor: pointer;
+}
+
+.b-tabs button.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+.b-notice {
+    padding: 0.7rem 1rem;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-strong);
+    margin-bottom: var(--s-4);
+    font-size: 0.9rem;
+}
+
+.b-notice-positive { border-color: var(--positive); }
+.b-notice-negative { border-color: var(--negative); color: var(--negative); }
+.b-notice-warning { border-color: var(--warning); }
+
+.b-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+
+.b-table th,
+.b-table td {
+    text-align: left;
+    padding: 0.5rem 0.65rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+}
+
+.b-table th {
+    font-weight: 500;
+    color: var(--fg-subtle);
+    white-space: nowrap;
+}
+
+.b-table td.num,
+.b-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.b-table tr.b-clickable { cursor: pointer; }
+.b-table tr.b-clickable:hover td { background: var(--accent-quiet); }
+
+.b-muted { color: var(--fg-muted); }
+.b-section-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: .02em; color: var(--fg-muted); margin: 24px 0 8px; text-transform: uppercase; }
+.b-neg { color: var(--negative); }

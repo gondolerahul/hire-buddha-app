@@ -48,7 +48,7 @@ const History: React.FC<{ trigger: Trigger; timezone: string }> = ({ trigger, ti
                 <li key={f.id} className={`ar-tone--${outcomeTone(f.outcome)}`}>
                     {formatTime(f.decided_at, timezone)} · <strong>{outcomeLabel(f.outcome)}</strong>
                     {f.reason && <span> — {f.reason}</span>}
-                    {f.run_id && <> · <Link to={`/ai/executions/${f.run_id}`}>view run</Link></>}
+                    {f.run_id && <> · <Link to={`/work/${f.run_id}`}>view run</Link></>}
                 </li>
             ))}
         </ul>
@@ -172,7 +172,7 @@ export const ControlRoom: React.FC = () => {
                             <li key={w.id}>
                                 <span>{w.entity_name ?? 'A run'} waits for <span className="ar-mono">{w.event_type}</span></span>
                                 <span className="ar-note">until {formatTime(w.deadline_at, timezone)}</span>
-                                <Link to={`/ai/executions/${w.run_id}`} className="ar-link">run</Link>
+                                <Link to={`/work/${w.run_id}`} className="ar-link">run</Link>
                                 <JellyButton size="sm" variant="ghost" disabled={busy}
                                              onClick={() => act(() => automationService.cancelWait(w.id),
                                                                 'Wait cancelled; the run goes on without the event.',

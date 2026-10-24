@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import RoleChecker
+from src.auth.dependencies import RoleChecker, StaffChecker
 from src.auth.models import User
 from src.common.tenancy.session import get_control_db
 from src.partners import access, applications, assignments, charges, leads, rules, statements
@@ -41,6 +41,9 @@ from src.partners.models import (
 
 router = APIRouter(prefix="/api/v1/admin/partners", tags=["Partner programme: staff"])
 staff = RoleChecker(["app_admin"])
+sales = StaffChecker('sales')
+finance = StaffChecker('finance')
+money = StaffChecker('sales', 'finance')
 
 
 async def _profile(db: AsyncSession, partner_id: UUID) -> PartnerProfile:
@@ -61,7 +64,7 @@ def _profile_view(p: PartnerProfile, *, name: Optional[str], recruiter: Optional
 
 
 @router.get("")
-async def list_partners(db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def list_partners(db: AsyncSession = Depends(get_control_db), user: User = Depends(sales)):
     profiles = (await db.execute(select(PartnerProfile).order_by(PartnerProfile.depth))).scalars().all()
     named = await names(db, [*(p.company_id for p in profiles), *(p.recruiter_partner_id for p in profiles)])
     counts = dict((await db.execute(select(PartnerAssignment.partner_id, func.count()).where(
@@ -78,7 +81,7 @@ async def list_partners(db: AsyncSession = Depends(get_control_db), user: User =
 
 
 @router.get("/tree-check")
-async def tree_check(db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def tree_check(db: AsyncSession = Depends(get_control_db), user: User = Depends(sales)):
     from src.partners.tree import violations
 
     found = await violations(db)
@@ -88,7 +91,7 @@ async def tree_check(db: AsyncSession = Depends(get_control_db), user: User = De
 # ── rules (before /{partner_id}) ─────────────────────────────────────────────
 
 @router.get("/rules")
-async def get_rules(db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def get_rules(db: AsyncSession = Depends(get_control_db), user: User = Depends(sales)):
     from src.billing.settings_catalogue import CATALOGUE, value
     from src.partners.models import PartnerType
 
@@ -159,7 +162,7 @@ async def simulate(body: SimulateBody, db: AsyncSession = Depends(get_control_db
 
 @router.get("/applications")
 async def list_applications(status: Optional[str] = None, db: AsyncSession = Depends(get_control_db),
-                            user: User = Depends(staff)):
+                            user: User = Depends(sales)):
     query = select(PartnerApplication).order_by(PartnerApplication.created_at.desc())
     if status:
         query = query.where(PartnerApplication.status == status)
@@ -218,7 +221,7 @@ async def reject(app_id: UUID, body: RejectBody, db: AsyncSession = Depends(get_
 
 @router.get("/leads")
 async def lead_queue(status: Optional[str] = None, db: AsyncSession = Depends(get_control_db),
-                     user: User = Depends(staff)):
+                     user: User = Depends(sales)):
     query = select(PartnerLead).order_by(PartnerLead.created_at.desc())
     if status:
         query = query.where(PartnerLead.status == status)
@@ -262,7 +265,7 @@ async def convert_lead(lead_id: UUID, body: ConvertBody, db: AsyncSession = Depe
 
 @router.get("/assignments")
 async def list_assignments(tenant_id: Optional[UUID] = None, partner_id: Optional[UUID] = None,
-                           db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+                           db: AsyncSession = Depends(get_control_db), user: User = Depends(sales)):
     query = select(PartnerAssignment).order_by(PartnerAssignment.since.desc())
     if tenant_id:
         query = query.where(PartnerAssignment.tenant_id == tenant_id)
@@ -295,7 +298,7 @@ async def reassign(body: ReassignBody, db: AsyncSession = Depends(get_control_db
 # ── charges ──────────────────────────────────────────────────────────────────
 
 @router.get("/charges")
-async def all_charges(db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def all_charges(db: AsyncSession = Depends(get_control_db), user: User = Depends(money)):
     rows = (await db.execute(select(OneTimeCharge).order_by(OneTimeCharge.created_at.desc()).limit(500))
             ).scalars().all()
     named = await names(db, [*(r.tenant_id for r in rows), *(r.partner_id for r in rows)])
@@ -321,7 +324,7 @@ async def staff_charge(body: ChargeBody, db: AsyncSession = Depends(get_control_
 
 @router.get("/statements")
 async def list_statements(status: Optional[str] = None, db: AsyncSession = Depends(get_control_db),
-                          user: User = Depends(staff)):
+                          user: User = Depends(finance)):
     query = select(PartnerStatement).order_by(PartnerStatement.period.desc(), PartnerStatement.created_at.desc())
     if status:
         query = query.where(PartnerStatement.status == status)
@@ -343,7 +346,7 @@ async def build_statements(body: BuildBody, db: AsyncSession = Depends(get_contr
 
 
 @router.get("/statements/export.csv")
-async def export(db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def export(db: AsyncSession = Depends(get_control_db), user: User = Depends(finance)):
     from src.common.admin_audit import record_admin_change
 
     rows = (await db.execute(select(PartnerStatement).where(PartnerStatement.status == "approved"))).scalars().all()
@@ -362,7 +365,7 @@ async def _statement(db: AsyncSession, statement_id: UUID) -> PartnerStatement:
 
 
 @router.get("/statements/{statement_id}")
-async def statement(statement_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def statement(statement_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(finance)):
     stmt = await _statement(db, statement_id)
     rows = await statements.entries_of(db, stmt)
     named = await names(db, [stmt.partner_id, *(r.tenant_id for r in rows)])
@@ -371,7 +374,7 @@ async def statement(statement_id: UUID, db: AsyncSession = Depends(get_control_d
 
 
 @router.get("/statements/{statement_id}/pdf")
-async def statement_pdf(statement_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def statement_pdf(statement_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(finance)):
     stmt = await _statement(db, statement_id)
     partner = (await names(db, [stmt.partner_id])).get(stmt.partner_id) or ""
     return Response(statements.render_pdf(stmt, await statements.entries_of(db, stmt), partner=partner),
@@ -410,7 +413,7 @@ async def reopen(statement_id: UUID, db: AsyncSession = Depends(get_control_db),
 
 
 @router.get("/ledger")
-async def ledger(db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def ledger(db: AsyncSession = Depends(get_control_db), user: User = Depends(finance)):
     rows = (await db.execute(select(PartnerLedgerEntry.partner_id, PartnerLedgerEntry.currency,
                                     PartnerLedgerEntry.level, PartnerLedgerEntry.status,
                                     func.sum(PartnerLedgerEntry.amount), func.sum(PartnerLedgerEntry.amount_usd))
@@ -424,7 +427,7 @@ async def ledger(db: AsyncSession = Depends(get_control_db), user: User = Depend
 # ── one partner ──────────────────────────────────────────────────────────────
 
 @router.get("/{partner_id}")
-async def partner_360(partner_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+async def partner_360(partner_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(money)):
     from src.partners.fees import fee_view
     from src.partners.models import PartnerAgreement
 

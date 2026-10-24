@@ -93,7 +93,7 @@ export const ExecutionPage: React.FC = () => {
 
             // Redirect to detail page with trace
             setTimeout(() => {
-                navigate(`/ai/executions/${data.id}`);
+                navigate(`/work/${data.id}`);
             }, 1000);
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Execution failed');

@@ -10,6 +10,9 @@ export interface Company {
     monthly_spend_cap_usd?: number | null;
     // The business time zone schedules and reports use (Phase 14).
     timezone?: string;
+    // How it is billed (Phase 15 T2-5).
+    country_code?: string;
+    billing_currency?: string;
     created_at: string;
     updated_at: string;
 }
@@ -24,9 +27,16 @@ export interface User {
     /** How the company is billed (Phase 15 T2-5, GET /auth/me). */
     country_code?: string;
     billing_currency?: string;
+    /** The workspace the screens show (Phase 15 T9-1): APP, PARTNER or TENANT, and a partner's type. */
+    company_type?: 'APP' | 'PARTNER' | 'TENANT';
+    partner_type?: 'SILVER' | 'GOLD' | null;
+    /** An app_user's console functions (T9-12): support, sales, finance, ops. */
+    staff_functions?: StaffFunction[];
     is_active: boolean;
     created_at: string;
 }
+
+export type StaffFunction = 'support' | 'sales' | 'finance' | 'ops';
 
 export enum UserRole {
     APP_ADMIN = 'app_admin',

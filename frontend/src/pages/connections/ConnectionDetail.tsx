@@ -132,7 +132,7 @@ export const ConnectionDetail: React.FC = () => {
                     {c.activity.map((a, i) => (
                         <li key={i}>{formatTime(a.at, LOCAL_TZ)} · <strong>{a.action.replace(/_/g, ' ')}</strong>
                             {a.actor_kind && <span> by {a.actor_kind}</span>}
-                            {a.run_id && <> · <Link to={`/ai/executions/${a.run_id}`}>run</Link></>}</li>
+                            {a.run_id && <> · <Link to={`/work/${a.run_id}`}>run</Link></>}</li>
                     ))}
                 </ul>
             </section>

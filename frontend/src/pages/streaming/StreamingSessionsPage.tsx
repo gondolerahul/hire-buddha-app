@@ -214,7 +214,7 @@ export const StreamingSessionsPage: React.FC = () => {
                                             <td>
                                                 <button
                                                     className="btn-view"
-                                                    onClick={() => navigate(`/streaming/calls/${session.id}`)}
+                                                    onClick={() => navigate(`/calls/${session.id}`)}
                                                 >
                                                     View
                                                 </button>

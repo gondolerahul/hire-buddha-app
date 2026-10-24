@@ -80,7 +80,7 @@ export const PartnerDetailPage: React.FC = () => {
                 <div>
                     <h1 className="page-title"><HeartHandshake size={22} /> {p.name}</h1>
                     <p className="page-subtitle">
-                        <Link to="/admin/partners">Partner network</Link> · {p.partner_type} · {p.status.replace('_', ' ')}
+                        <Link to="/console/partners">Partner network</Link> · {p.partner_type} · {p.status.replace('_', ' ')}
                         {p.recruiter ? ` · recruited by ${p.recruiter}` : ''} · level {p.depth}
                     </p>
                 </div>
@@ -158,7 +158,7 @@ export const PartnerDetailPage: React.FC = () => {
                     {data.network.length === 0 ? <p className="card-desc">No recruits.</p> : (
                         <table className="money-table"><tbody>
                             {data.network.map(n => (
-                                <tr key={n.partner_id}><td><Link to={`/admin/partners/${n.partner_id}`}>{n.name}</Link></td><td>{n.partner_type}</td><td>{n.status}</td></tr>
+                                <tr key={n.partner_id}><td><Link to={`/console/partners/${n.partner_id}`}>{n.name}</Link></td><td>{n.partner_type}</td><td>{n.status}</td></tr>
                             ))}
                         </tbody></table>
                     )}

@@ -567,7 +567,7 @@ export const ExecutionDetail: React.FC = () => {
         setRetrying(true);
         try {
             const { data } = await apiClient.post<ExecutionRun>(`/ai/executions/${run.id}/retry`);
-            navigate(`/ai/executions/${data.id}`);
+            navigate(`/work/${data.id}`);
         } catch (error) {
             console.error('Retry failed:', error);
             alert('Failed to retry execution. See console for details.');
@@ -584,7 +584,7 @@ export const ExecutionDetail: React.FC = () => {
             const { data } = await apiClient.post<ExecutionRun>(`/ai/executions/${run.id}/refine`, {
                 feedback: refineFeedback.trim(),
             });
-            navigate(`/ai/executions/${data.id}`);
+            navigate(`/work/${data.id}`);
         } catch (error: any) {
             console.error('Refine failed:', error);
             setRefineError(error.response?.data?.detail || 'Refinement failed. See console for details.');
@@ -642,7 +642,7 @@ export const ExecutionDetail: React.FC = () => {
             <div className="page-container execution-detail-page">
                 <header className="page-header">
                     <div className="flex items-center gap-6">
-                        <JellyButton variant="ghost" onClick={() => navigate('/ai/executions')} className="p-2">
+                        <JellyButton variant="ghost" onClick={() => navigate('/work')} className="p-2">
                             <ArrowLeft size={24} />
                         </JellyButton>
                         <div>
@@ -667,7 +667,7 @@ export const ExecutionDetail: React.FC = () => {
         <div className="page-container execution-detail-page">
             <header className="page-header">
                 <div className="flex items-center gap-6">
-                    <JellyButton variant="ghost" onClick={() => navigate('/ai/executions')} className="p-2">
+                    <JellyButton variant="ghost" onClick={() => navigate('/work')} className="p-2">
                         <ArrowLeft size={24} />
                     </JellyButton>
                     <div>
@@ -708,7 +708,7 @@ export const ExecutionDetail: React.FC = () => {
                         <JellyButton
                             variant="ghost"
                             size="md"
-                            onClick={() => navigate(`/ai/cortex/${cortexTreeId}`)}
+                            onClick={() => navigate(`/knowledge/memory/${cortexTreeId}`)}
                             className="flex items-center gap-2"
                         >
                             <Brain size={18} /> CORTEX Tree
@@ -961,7 +961,7 @@ export const ExecutionDetail: React.FC = () => {
                                 <div className="context-item">
                                     <label className="context-label">CORTEX Tree</label>
                                     <span className="context-value cortex-link"
-                                        onClick={() => navigate(`/ai/cortex/${cortexTreeId}`)}
+                                        onClick={() => navigate(`/knowledge/memory/${cortexTreeId}`)}
                                     >
                                         {cortexTreeId.slice(0, 12)}...
                                     </span>

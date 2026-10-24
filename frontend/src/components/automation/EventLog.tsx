@@ -65,7 +65,7 @@ const EventDetailPanel: React.FC<{ id: string; timezone: string; onReplayed: () 
                             <li key={f.id} className={`ar-tone--${outcomeTone(f.outcome)}`}>
                                 <strong>{outcomeLabel(f.outcome)}</strong>
                                 {f.reason && <span> — {f.reason}</span>}
-                                {f.run_id && <> · <Link to={`/ai/executions/${f.run_id}`}>view run</Link></>}
+                                {f.run_id && <> · <Link to={`/work/${f.run_id}`}>view run</Link></>}
                             </li>
                         ))}
                     </ul>

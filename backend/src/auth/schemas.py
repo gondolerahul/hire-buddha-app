@@ -1,5 +1,6 @@
 from pydantic import AfterValidator, BaseModel, EmailStr, Field
 from typing import Annotated, Optional, List, Dict, Any, Literal
+from datetime import datetime
 from uuid import UUID
 
 from src.auth.roles import Role
@@ -123,6 +124,7 @@ class CompanyResponse(CompanyBase):
     gstin: Optional[str] = None
     legal_name: Optional[str] = None
     billing_address: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -141,10 +143,15 @@ class OnboardingStepRequest(BaseModel):
     step_name: str  # company_profile, integrations, first_agent, phone_setup, billing
     step_data: Optional[Dict[str, Any]] = None  # arbitrary data for this step
 
+STAFF_FUNCTIONS = ("support", "sales", "finance", "ops")
+
+
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     is_active: Optional[bool] = None
     role: Optional[Role] = None
+    # An app_user's console functions (Phase 15 T9-12); set by app_admin only.
+    staff_functions: Optional[List[Literal["support", "sales", "finance", "ops"]]] = None
 
 class UserResponse(BaseModel):
     id: UUID
@@ -154,6 +161,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     profile_picture_url: Optional[str] = None
+    staff_functions: List[str] = []
 
     class Config:
         from_attributes = True
@@ -163,4 +171,7 @@ class MeResponse(UserResponse):
     """``GET /auth/me``: the user, and how their company is billed (Phase 15 T2-5) —
     the screens show money in ``billing_currency``."""
     country_code: Optional[str] = None
+    # Which workspace the screens show (Phase 15 T9-1): the company's type, and a partner's type.
+    company_type: Optional[str] = None
+    partner_type: Optional[str] = None
     billing_currency: Optional[str] = None

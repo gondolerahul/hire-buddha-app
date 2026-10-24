@@ -57,6 +57,8 @@ class User(ControlBase):
     hashed_password = Column(String, nullable=False)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
     role = Column(String, default="tenant_user")  # app_admin, partner_admin, tenant_admin, app_user, partner_user, tenant_user
+    # What an app_user does in the console (Phase 15 T9-12, 07 §4.2): some of support, sales, finance, ops.
+    staff_functions = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     profile_picture_url = Column(String, nullable=True)

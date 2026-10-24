@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import RoleChecker
+from src.auth.dependencies import RoleChecker, StaffChecker
 from src.auth.models import Company, User
 from src.auth.roles import Role
 from src.auth.router import get_current_user
@@ -34,6 +34,7 @@ from src.common.tenancy.session import get_control_db
 
 router = APIRouter(tags=["Invoices"])
 staff = RoleChecker([Role.APP_ADMIN])
+finance = StaffChecker('finance')
 billing_admin = RoleChecker([Role.PARTNER_ADMIN, Role.TENANT_ADMIN])
 STAFF_ROLES = {"app_admin", "app_user"}
 
@@ -158,7 +159,7 @@ def _payment_view(p: PaymentTransaction, invoice_number: Optional[str]) -> dict:
 @router.get("/api/v1/admin/payments")
 async def admin_payments(company_id: Optional[UUID] = None, status: Optional[str] = None,
                          limit: int = Query(100, ge=1, le=500), db: AsyncSession = Depends(get_control_db),
-                         user: User = Depends(staff)):
+                         user: User = Depends(finance)):
     query = select(PaymentTransaction, Invoice.number).outerjoin(Invoice, Invoice.id == PaymentTransaction.invoice_id)
     if company_id:
         query = query.where(PaymentTransaction.company_id == company_id)

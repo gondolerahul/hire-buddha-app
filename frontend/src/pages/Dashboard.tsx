@@ -13,7 +13,7 @@ export const Dashboard: React.FC = () => {
     const { user } = useAuth();
 
     if (!user) {
-        return <Navigate to="/auth/login" />;
+        return <Navigate to="/login" />;
     }
 
     const renderDashboard = () => {

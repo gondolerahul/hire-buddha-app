@@ -111,7 +111,7 @@ const SpanRow: React.FC<{ node: SpanNode; depth: number }> = ({ node, depth }) =
                 {node.child_run_id && (
                     <Link
                         className="agentk-span__childlink"
-                        to={`/ai/executions/${node.child_run_id}`}
+                        to={`/work/${node.child_run_id}`}
                         onClick={(e) => e.stopPropagation()}
                     >
                         open sub-run ↗

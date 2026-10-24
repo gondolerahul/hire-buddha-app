@@ -47,38 +47,38 @@
 | GET | `/api/v1/admin/fx-rates/preview` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/oauth-apps` | roles: app_admin | `src.connections.api` |
 | PUT | `/api/v1/admin/oauth-apps/{provider}` | roles: app_admin | `src.connections.api` |
-| GET | `/api/v1/admin/partners` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/applications` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/applications` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/applications/{app_id}/approve` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/applications/{app_id}/reject` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/applications/{app_id}/review` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/assignments` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/assignments` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/assignments/reassign` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/charges` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/charges` | staff: app_admin, app_user with finance or sales | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/charges` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/leads` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/leads` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
 | PATCH | `/api/v1/admin/partners/leads/{lead_id}` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/leads/{lead_id}/convert` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/ledger` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/rules` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/ledger` | staff: app_admin, app_user with finance | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/rules` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
 | PUT | `/api/v1/admin/partners/rules/commission` | roles: app_admin | `src.partners.admin_router` |
 | PUT | `/api/v1/admin/partners/rules/fee` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/simulate` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/statements` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements` | staff: app_admin, app_user with finance | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/statements/build` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/statements/export.csv` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/statements/{statement_id}` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements/export.csv` | staff: app_admin, app_user with finance | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements/{statement_id}` | staff: app_admin, app_user with finance | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/statements/{statement_id}/approve` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/statements/{statement_id}/paid` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/statements/{statement_id}/pdf` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements/{statement_id}/pdf` | staff: app_admin, app_user with finance | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/statements/{statement_id}/reopen` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/tree-check` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/partners/{partner_id}` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/tree-check` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/{partner_id}` | staff: app_admin, app_user with finance or sales | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/{partner_id}/adjustment` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/{partner_id}/agreement` | roles: app_admin | `src.partners.admin_router` |
 | PUT | `/api/v1/admin/partners/{partner_id}/kyc` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/{partner_id}/status` | roles: app_admin | `src.partners.admin_router` |
-| GET | `/api/v1/admin/payments` | roles: app_admin | `src.billing.invoices_router` |
+| GET | `/api/v1/admin/payments` | staff: app_admin, app_user with finance | `src.billing.invoices_router` |
 | POST | `/api/v1/admin/payments/{payment_id}/refund` | roles: app_admin | `src.billing.invoices_router` |
 | GET | `/api/v1/admin/plans` | roles: app_admin | `src.billing.plans_router` |
 | POST | `/api/v1/admin/plans` | roles: app_admin | `src.billing.plans_router` |
@@ -97,8 +97,8 @@
 | GET | `/api/v1/admin/tenants/{company_id}` | roles: app_admin | `src.common.tenancy.api` |
 | POST | `/api/v1/admin/tenants/{company_id}/provision` | roles: app_admin | `src.common.tenancy.api` |
 | GET | `/api/v1/admin/unrouted-events` | roles: app_admin | `src.connections.api` |
-| GET | `/api/v1/admin/wallets` | roles: app_admin | `src.billing.wallet_router` |
-| GET | `/api/v1/admin/wallets/{company_id}` | roles: app_admin | `src.billing.wallet_router` |
+| GET | `/api/v1/admin/wallets` | staff: app_admin, app_user with finance or support | `src.billing.wallet_router` |
+| GET | `/api/v1/admin/wallets/{company_id}` | staff: app_admin, app_user with finance or support | `src.billing.wallet_router` |
 | POST | `/api/v1/admin/wallets/{company_id}/adjust` | roles: app_admin | `src.billing.wallet_router` |
 | POST | `/api/v1/admin/wallets/{company_id}/currency` | roles: app_admin | `src.billing.wallet_router` |
 | GET | `/api/v1/ai/admin/admin/decisions` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
@@ -435,6 +435,7 @@
 | GET | `/api/v1/records/settings` | signed in | `src.data_api.platform_router` |
 | PUT | `/api/v1/records/settings` | signed in | `src.data_api.platform_router` |
 | POST | `/api/v1/records/token` | signed in | `src.data_api.platform_router` |
+| GET | `/api/v1/reports` | signed in | `src.reports.router` |
 | GET | `/api/v1/reports/analytics/agent-errors` | signed in | `src.ai.reports_router` |
 | GET | `/api/v1/reports/analytics/campaign-analytics` | signed in | `src.ai.reports_router` |
 | GET | `/api/v1/reports/analytics/credit-forecast` | signed in | `src.ai.reports_router` |
@@ -452,6 +453,7 @@
 | GET | `/api/v1/reports/analytics/wallet-liability` | roles: app_admin | `src.ai.reports_router` |
 | GET | `/api/v1/reports/billing` | roles: app_admin | `src.billing.billing_router` |
 | GET | `/api/v1/reports/costing` | roles: app_admin | `src.billing.billing_router` |
+| GET | `/api/v1/reports/{report_id}` | signed in | `src.reports.router` |
 | GET | `/api/v1/settings/partner-access` | signed in | `src.partners.tenant_router` |
 | POST | `/api/v1/settings/partner-access/{grant_id}/approve` | signed in | `src.partners.tenant_router` |
 | POST | `/api/v1/settings/partner-access/{grant_id}/revoke` | signed in | `src.partners.tenant_router` |

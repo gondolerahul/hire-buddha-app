@@ -151,3 +151,26 @@ class RoleChecker:
                 detail="Operation not permitted"
             )
         return user
+
+
+class StaffChecker:
+    """Dependency: an app_admin, or an app_user holding one of ``functions`` (Phase 15 T9-9, T9-12).
+
+    For the console's read endpoints: support, sales and finance staff see the
+    pages of their function; changes stay app_admin's (``RoleChecker``).
+    """
+
+    def __init__(self, *functions: str):
+        from src.auth.schemas import STAFF_FUNCTIONS
+
+        unknown = set(functions) - set(STAFF_FUNCTIONS)
+        if unknown:
+            raise ValueError(f"unknown staff functions: {sorted(unknown)}")
+        self.functions = frozenset(functions)
+
+    def __call__(self, user: User = Depends(get_current_user)):
+        if user.role == Role.APP_ADMIN:
+            return user
+        if user.role == Role.APP_USER and self.functions & set(getattr(user, "staff_functions", None) or []):
+            return user
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")

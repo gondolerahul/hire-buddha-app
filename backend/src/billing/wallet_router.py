@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import RoleChecker
+from src.auth.dependencies import RoleChecker, StaffChecker
 from src.auth.models import Company, User
 from src.auth.roles import Role
 from src.auth.router import get_current_user
@@ -35,6 +35,7 @@ from src.common.tenancy.session import get_control_db
 
 router = APIRouter(tags=["Wallet"])
 staff = RoleChecker([Role.APP_ADMIN])
+readers = StaffChecker('finance', 'support')
 
 
 def _entry(e: WalletEntry, *, staff_view: bool) -> dict:
@@ -77,7 +78,7 @@ def _wallet_view(balance: dict) -> dict:
 @router.get("/api/v1/admin/wallets")
 async def list_wallets(state: Optional[str] = Query(None, pattern="^(ok|in_debt|over_tolerance|suspended)$"),
                        q: Optional[str] = Query(None, max_length=100), limit: int = Query(100, ge=1, le=500),
-                       db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+                       db: AsyncSession = Depends(get_control_db), user: User = Depends(readers)):
     now = datetime.utcnow()
     live = (select(WalletLot.company_id, func.sum(WalletLot.remaining).label("available"))
             .where(WalletLot.remaining > 0, (WalletLot.expires_at.is_(None)) | (WalletLot.expires_at > now))
@@ -100,7 +101,7 @@ async def list_wallets(state: Optional[str] = Query(None, pattern="^(ok|in_debt|
 
 @router.get("/api/v1/admin/wallets/{company_id}")
 async def get_wallet(company_id: UUID, limit: int = Query(100, ge=1, le=500), before: Optional[datetime] = None,
-                     db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+                     db: AsyncSession = Depends(get_control_db), user: User = Depends(readers)):
     from src.billing.credit_service import CreditService
     from src.billing.wallet import WalletService
 

@@ -97,10 +97,14 @@ async def read_users_me(current_user: UserResponse = Depends(get_current_user),
     from src.auth.models import Company
 
     me = MeResponse.model_validate(current_user, from_attributes=True)
-    row = (await db.execute(_select(Company.country_code, Company.billing_currency)
+    row = (await db.execute(_select(Company.country_code, Company.billing_currency, Company.type)
                             .where(Company.id == current_user.company_id))).first()
     if row is not None:
-        me.country_code, me.billing_currency = row.country_code, row.billing_currency
+        me.country_code, me.billing_currency, me.company_type = row.country_code, row.billing_currency, row.type
+    if me.company_type == "PARTNER":
+        from src.partners.scope import partner_type_of
+        me.partner_type = await partner_type_of(db, current_user.company_id)
+    me.staff_functions = list(getattr(current_user, "staff_functions", None) or [])
     return me
 
 class UrlTokenRequest(BaseModel):

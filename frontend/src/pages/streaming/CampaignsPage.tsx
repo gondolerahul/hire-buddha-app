@@ -274,7 +274,7 @@ export const CampaignsPage: React.FC = () => {
 
                                         <button
                                             className="btn-view"
-                                            onClick={() => navigate(`/streaming/campaigns/${campaign.id}`)}
+                                            onClick={() => navigate(`/calls/campaigns/${campaign.id}`)}
                                         >
                                             <Info size={16} /> Details
                                         </button>

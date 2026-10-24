@@ -68,7 +68,7 @@ export const EntityBuilder: React.FC = () => {
                 const params = targetCompanyId ? `?target_company_id=${targetCompanyId}` : '';
                 await apiClient.post(`/ai/entities${params}`, entityData);
             }
-            navigate('/ai/entities');
+            navigate('/agents');
         } catch (err: any) {
             const detail = err.response?.data?.detail;
             // Handle Pydantic validation errors which are arrays of {type, loc, msg, input}
@@ -91,7 +91,7 @@ export const EntityBuilder: React.FC = () => {
     };
 
     const handleCancel = () => {
-        navigate('/ai/entities');
+        navigate('/agents');
     };
 
     return (

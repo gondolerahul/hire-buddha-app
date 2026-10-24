@@ -97,7 +97,7 @@ export const CodePage: React.FC = () => {
                         are reviewed code in your repositories.</p>
                 </div>
                 <div className="ar-row"><Link to="/apps" className="ar-link">Apps</Link>
-                    <Link to="/settings/tenant" className="ar-link">Retention</Link></div>
+                    <Link to="/settings" className="ar-link">Retention</Link></div>
             </header>
             {open && <ItemPanel itemId={open} manager={manager} onClose={() => setParams({})} />}
             <nav className="ar-tabs" aria-label="Lanes">
@@ -112,7 +112,7 @@ export const CodePage: React.FC = () => {
                             <td>{item.name}</td><td>{item.kind.replace('_', ' ')}</td><td>{item.status}</td>
                             <td>{lane === 'scratch' ? formatTime(item.retention_until, LOCAL_TZ) : <span className="ar-mono">{item.path}</span>}</td>
                             <td>{formatTime(item.created_at, LOCAL_TZ)}{item.created_by_run_id &&
-                                <> · <Link to={`/ai/executions/${item.created_by_run_id}`} onClick={e => e.stopPropagation()}>run</Link></>}</td>
+                                <> · <Link to={`/work/${item.created_by_run_id}`} onClick={e => e.stopPropagation()}>run</Link></>}</td>
                         </tr>
                     ))}
                 </tbody>

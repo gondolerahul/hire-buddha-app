@@ -83,6 +83,15 @@ export const TenantSettings: React.FC = () => {
                 </section>
             )}
 
+            <section className="ar-section" aria-label="Country and currency">
+                <h2>Country and currency</h2>
+                <p className="ar-note">
+                    {user?.country_code ?? 'IN'} · billed in {user?.billing_currency ?? 'INR'}. Prices, your wallet and
+                    invoices are in this currency; GST applies in India. HireBuddha support changes it when you move country.
+                </p>
+                {canEdit && <p className="ar-note">Spend limits are on <Link to="/billing/controls">Spend controls</Link>.</p>}
+            </section>
+
             <section className="ar-section" aria-label="Business time zone">
                 <h2>Business time zone</h2>
                 <p className="ar-note">Schedules, reports and "today" for your agents use it.</p>

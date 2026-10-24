@@ -1,0 +1,491 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`menus by role (07 §4) > app_admin 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Platform overview /console",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "Companies /console/companies",
+      "Users /console/users",
+      "Workspaces /console/workspaces",
+    ],
+  },
+  {
+    "group": "Partners",
+    "items": [
+      "Partner network /console/partners",
+      "Applications /console/partners/applications",
+      "Leads /console/leads",
+      "Programme rules /console/partners/rules",
+    ],
+  },
+  {
+    "group": "Commercial",
+    "items": [
+      "Plans & entitlements /console/plans",
+      "Pricing /console/pricing",
+      "Billing formula /console/formula",
+      "Daily credits /console/daily-credits",
+      "Currency & FX /console/currency",
+      "Wallet & admission /console/wallet-policy",
+      "Tax & invoicing /console/tax",
+    ],
+  },
+  {
+    "group": "Finance",
+    "items": [
+      "Revenue & margin /console/finance/revenue",
+      "Receivables /console/finance/receivables",
+      "Payments & invoices /console/finance/payments",
+      "Partner payouts /console/finance/payouts",
+      "Wallet liability /console/finance/liability",
+      "Billing shadow /console/finance/shadow",
+    ],
+  },
+  {
+    "group": "Operations",
+    "items": [
+      "Runs /console/ops/runs",
+      "Approvals oversight /console/ops/approvals",
+      "Calls & campaigns /console/ops/calls",
+      "Phone number pool /console/ops/numbers",
+      "Apps & hosting /console/ops/apps",
+      "Automation /console/ops/automation",
+      "Health & incidents /console/ops/health",
+    ],
+  },
+  {
+    "group": "AI platform",
+    "items": [
+      "Models & SKUs /console/ai/skus",
+      "Model routing /console/ai/routing",
+      "Tools /console/ai/tools",
+      "Templates /console/ai/templates",
+      "Connectors /console/ai/connectors",
+      "Kernel KPIs /console/ai/kernel/kpi",
+      "Meta-agent /console/ai/kernel/meta",
+      "Cost attribution /console/ai/kernel/cost",
+      "Feature flags /console/ai/kernel/flags",
+      "Risk & exit /console/ai/kernel/risks",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Report library /console/reports",
+    ],
+  },
+  {
+    "group": "Settings",
+    "items": [
+      "Platform settings /console/settings",
+      "Audit log /console/audit",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > app_user (finance) 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Platform overview /console",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "Companies /console/companies",
+    ],
+  },
+  {
+    "group": "Finance",
+    "items": [
+      "Revenue & margin /console/finance/revenue",
+      "Receivables /console/finance/receivables",
+      "Payments & invoices /console/finance/payments",
+      "Partner payouts /console/finance/payouts",
+      "Wallet liability /console/finance/liability",
+    ],
+  },
+  {
+    "group": "AI platform",
+    "items": [
+      "Cost attribution /console/ai/kernel/cost",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Report library /console/reports",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > app_user (sales, ops) 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Platform overview /console",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "Companies /console/companies",
+    ],
+  },
+  {
+    "group": "Partners",
+    "items": [
+      "Partner network /console/partners",
+      "Leads /console/leads",
+    ],
+  },
+  {
+    "group": "Operations",
+    "items": [
+      "Runs /console/ops/runs",
+      "Approvals oversight /console/ops/approvals",
+      "Calls & campaigns /console/ops/calls",
+      "Phone number pool /console/ops/numbers",
+      "Apps & hosting /console/ops/apps",
+      "Automation /console/ops/automation",
+      "Health & incidents /console/ops/health",
+    ],
+  },
+  {
+    "group": "AI platform",
+    "items": [
+      "Kernel KPIs /console/ai/kernel/kpi",
+      "Meta-agent /console/ai/kernel/meta",
+      "Cost attribution /console/ai/kernel/cost",
+      "Risk & exit /console/ai/kernel/risks",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Report library /console/reports",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > app_user (support) 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Platform overview /console",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "Companies /console/companies",
+      "Users /console/users",
+    ],
+  },
+  {
+    "group": "Operations",
+    "items": [
+      "Runs /console/ops/runs",
+      "Approvals oversight /console/ops/approvals",
+      "Calls & campaigns /console/ops/calls",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Report library /console/reports",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > partner_admin (Gold) 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Overview /partner",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "My tenants /partner/tenants",
+      "Leads /partner/leads",
+      "Setup & customisation fees /partner/charges",
+    ],
+  },
+  {
+    "group": "Network",
+    "items": [
+      "My partners /partner/network",
+    ],
+  },
+  {
+    "group": "Earnings",
+    "items": [
+      "Earnings /partner/earnings",
+      "Statements & payouts /partner/statements",
+    ],
+  },
+  {
+    "group": "Partnership",
+    "items": [
+      "Partnership /partner/partnership",
+      "Programme guide /partner/guide",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Reports /partner/reports",
+    ],
+  },
+  {
+    "group": "Team",
+    "items": [
+      "Team /partner/team",
+      "Access grants /partner/access",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > partner_admin (Silver) 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Overview /partner",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "Referred customers /partner/customers",
+      "Leads /partner/leads",
+    ],
+  },
+  {
+    "group": "Network",
+    "items": [
+      "My partners /partner/network",
+    ],
+  },
+  {
+    "group": "Earnings",
+    "items": [
+      "Earnings /partner/earnings",
+      "Statements & payouts /partner/statements",
+    ],
+  },
+  {
+    "group": "Partnership",
+    "items": [
+      "Partnership /partner/partnership",
+      "Programme guide /partner/guide",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Reports /partner/reports",
+    ],
+  },
+  {
+    "group": "Team",
+    "items": [
+      "Team /partner/team",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > partner_user (Gold) 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Overview /partner",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "My tenants /partner/tenants",
+      "Leads /partner/leads",
+    ],
+  },
+  {
+    "group": "Partnership",
+    "items": [
+      "Programme guide /partner/guide",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Reports /partner/reports",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > partner_user (Silver) 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Overview /partner",
+    ],
+  },
+  {
+    "group": "Customers",
+    "items": [
+      "Referred customers /partner/customers",
+      "Leads /partner/leads",
+    ],
+  },
+  {
+    "group": "Partnership",
+    "items": [
+      "Programme guide /partner/guide",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Reports /partner/reports",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > tenant_admin 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Overview /home",
+    ],
+  },
+  {
+    "group": "AI employees",
+    "items": [
+      "Employees /agents",
+      "Templates /agents/templates",
+      "Knowledge /knowledge",
+    ],
+  },
+  {
+    "group": "Work",
+    "items": [
+      "Work history /work",
+      "Approvals /approvals",
+      "Automation /automation",
+    ],
+  },
+  {
+    "group": "Customers & calls",
+    "items": [
+      "Campaigns /calls/campaigns",
+      "Calls /calls",
+      "Phone numbers /calls/numbers",
+    ],
+  },
+  {
+    "group": "Data & apps",
+    "items": [
+      "Records /records",
+      "Apps /apps",
+      "Code /code",
+      "Connections /connections",
+      "Files /files",
+    ],
+  },
+  {
+    "group": "Billing",
+    "items": [
+      "Wallet /billing",
+      "Plan /billing/plan",
+      "Usage & charges /billing/usage",
+      "Invoices /billing/invoices",
+      "Fees to pay /billing/charges",
+      "Spend controls /billing/controls",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Reports /reports",
+    ],
+  },
+  {
+    "group": "Settings",
+    "items": [
+      "Business profile /settings",
+      "Team /settings/team",
+      "Automation & data /settings/automation",
+      "Partner access /settings/partner-access",
+    ],
+  },
+]
+`;
+
+exports[`menus by role (07 §4) > tenant_user 1`] = `
+[
+  {
+    "group": "Home",
+    "items": [
+      "Overview /home",
+    ],
+  },
+  {
+    "group": "AI employees",
+    "items": [
+      "Employees /agents",
+      "Knowledge /knowledge",
+    ],
+  },
+  {
+    "group": "Work",
+    "items": [
+      "Work history /work",
+      "Approvals /approvals",
+    ],
+  },
+  {
+    "group": "Customers & calls",
+    "items": [
+      "Campaigns /calls/campaigns",
+      "Calls /calls",
+    ],
+  },
+  {
+    "group": "Data & apps",
+    "items": [
+      "Files /files",
+    ],
+  },
+  {
+    "group": "Reports",
+    "items": [
+      "Reports /reports",
+    ],
+  },
+]
+`;

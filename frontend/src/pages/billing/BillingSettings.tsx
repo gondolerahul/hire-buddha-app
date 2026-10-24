@@ -122,7 +122,7 @@ export const BillingSettings: React.FC = () => {
                     </div>
 
                     <p className="field-hint mb-4">
-                        Daily credits are policies now, set on <a href="/admin/daily-credits">Daily credits</a>.
+                        Daily credits are policies now, set on <a href="/console/daily-credits">Daily credits</a>.
                     </p>
 
                     <div className="form-group">
@@ -156,7 +156,7 @@ export const BillingSettings: React.FC = () => {
                     <h2><Layers size={18} /> Plans</h2>
                     <p className="card-desc">
                         Plans — their price per currency, bonus, tolerance and entitlements — are managed
-                        on <Link to="/admin/plans">Plans &amp; Entitlements</Link>.
+                        on <Link to="/console/plans">Plans &amp; Entitlements</Link>.
                     </p>
                 </div>
             </div>
