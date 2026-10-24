@@ -139,7 +139,9 @@ if __name__ == "__main__":
 
     password = None
     if "--password-stdin" in sys.argv[1:]:
-        password = sys.stdin.readline().rstrip("\n")
+        # "\r\n" too: az's tsv output on Windows ends in CRLF, and a kept "\r"
+        # becomes part of the password, which no one can then type.
+        password = sys.stdin.readline().rstrip("\r\n")
         if not password:
             sys.exit("--password-stdin: no password on stdin")
     asyncio.run(seed(password))
