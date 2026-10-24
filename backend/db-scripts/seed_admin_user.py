@@ -50,6 +50,9 @@ from src.auth.models import Company, User
 from src.common import database
 from src.common.config import settings
 from src.common.security import get_password_hash
+from src.common.orm_models import import_all_models
+
+import_all_models()  # every mapper, so foreign keys to other modules resolve (companies → currencies)
 
 ADMIN_EMAIL    = "admin@hirebuddha.com"
 ADMIN_PASSWORD = "adminpass"

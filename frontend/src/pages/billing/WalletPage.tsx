@@ -1,27 +1,63 @@
-import { parseServerDate } from '@/utils/datetime';
+import { formatDate, formatDateTime } from '@/utils/datetime';
 import React, { useState, useEffect } from 'react';
-import { Wallet, CreditCard, CheckCircle, AlertTriangle, RefreshCw, Star } from 'lucide-react';
-import { creditsService, CreditBalance, Subscription, TopUpOptions } from '@/services/credits.service';
+import { Wallet, CreditCard, CheckCircle, AlertTriangle, RefreshCw, Star, ListOrdered } from 'lucide-react';
+import {
+    creditsService, CreditBalance, LedgerEntry, Subscription, TopUpOptions, WalletLot,
+} from '@/services/credits.service';
+import { formatMoney } from '@/utils/money';
 import './WalletPage.css';
 import { loadRazorpay } from '@/utils/razorpay';
 
+const LOT_LABEL: Record<WalletLot['kind'], string> = {
+    daily: 'Daily credits',
+    subscription: 'Subscription credits',
+    subscription_bonus: 'Subscription bonus',
+    topup: 'Top-up',
+    grant: 'Credit from HireBuddha',
+};
 
+const ENTRY_LABEL: Record<LedgerEntry['kind'], string> = {
+    grant: 'Credit added',
+    deduct: 'Usage',
+    expire: 'Expired',
+    debt_add: 'Usage (owed)',
+    debt_repay: 'Debt repaid',
+    adjust: 'Adjustment',
+    refund: 'Refund',
+    convert: 'Currency change',
+};
 
-function CreditBucket({ label, amount, expiry, accent }: {
-    label: string; amount: number; expiry?: string | null; accent?: boolean;
+/** What a wallet that is not `ok` means for the company (Phase 15 §6.3). */
+function StateBanner({ balance }: { balance: CreditBalance }) {
+    if (balance.state === 'ok') return null;
+    const owed = formatMoney(balance.debt, balance.currency);
+    const text = {
+        in_debt: `Your wallet owes ${owed}. New runs, calls and automation wait until it is repaid; work already running finishes.`,
+        over_tolerance: `Your wallet owes ${owed}, over its limit. Running work has been stopped and nothing new starts.`,
+        suspended: `Your account is suspended for an unpaid balance of ${owed}. It is read-only, and apps and the Data API are off, until the balance is repaid.`,
+    }[balance.state];
+    return (
+        <div className="error-banner wallet-state-banner" role="alert">
+            <AlertTriangle size={14} /> {text} A top-up repays the debt first.
+        </div>
+    );
+}
+
+function CreditBucket({ label, amount, currency, expiry, accent, scale }: {
+    label: string; amount: number; currency: string; expiry?: string | null; accent?: boolean; scale: number;
 }) {
-    const pct = Math.min((amount / 50) * 100, 100);
+    const pct = scale > 0 ? Math.min((amount / scale) * 100, 100) : 0;
     return (
         <div className={`credit-bucket glass ${accent ? 'accent' : ''}`}>
             <div className="bucket-header">
                 <span className="bucket-label">{label}</span>
-                <span className="bucket-amount">${amount.toFixed(2)}</span>
+                <span className="bucket-amount">{formatMoney(amount, currency)}</span>
             </div>
             <div className="bucket-bar">
                 <div className="bucket-fill" style={{ width: `${pct}%` }} />
             </div>
             {expiry && (
-                <p className="bucket-expiry">Expires: {parseServerDate(expiry).toLocaleDateString()}</p>
+                <p className="bucket-expiry">Expires: {formatDate(expiry)}</p>
             )}
         </div>
     );
@@ -31,7 +67,8 @@ export const WalletPage: React.FC = () => {
     const [balance, setBalance] = useState<CreditBalance | null>(null);
     const [subscription, setSubscription] = useState<Subscription | null>(null);
     const [loading, setLoading] = useState(true);
-    const [topUpAmount, setTopUpAmount] = useState('10');
+    const [topUpAmount, setTopUpAmount] = useState('');
+    const [ledger, setLedger] = useState<LedgerEntry[]>([]);
     const [topping, setTopping] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
@@ -49,16 +86,19 @@ export const WalletPage: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const [bal, sub, tiers, options] = await Promise.all([
+            const [bal, sub, tiers, options, entries] = await Promise.all([
                 creditsService.getBalance(),
                 creditsService.getSubscription(),
                 creditsService.getSubscriptionTiers().catch(() => []),
                 creditsService.getTopUpOptions().catch(() => null),
+                creditsService.getLedger(25).catch(() => []),
             ]);
             setBalance(bal);
             setSubscription(sub.subscription);
             setPlans(tiers);
             setTopUpOptions(options);
+            setLedger(entries);
+            if (options) setTopUpAmount(prev => prev || (options.presets[0] ?? options.min));
         } catch (e: any) {
             setError(e?.response?.data?.detail || 'Failed to load wallet data');
         } finally {
@@ -68,18 +108,22 @@ export const WalletPage: React.FC = () => {
 
     useEffect(() => { fetchData(); }, []);
 
+    const currency = balance?.currency ?? topUpOptions?.currency ?? 'INR';
+
     const handleTopUp = async () => {
-        const amt = Number(topUpAmount);
-        const min = topUpOptions?.min ?? 5;
-        const max = topUpOptions?.max ?? 10000;
-        if (!/^\d+(\.\d{1,2})?$/.test(topUpAmount.trim()) || amt < min || amt > max) {
-            setError(`Enter an amount from $${min} to $${max.toLocaleString()}, in whole cents`);
+        const amount = topUpAmount.trim();
+        const amt = Number(amount);
+        const min = Number(topUpOptions?.min ?? 0);
+        const max = Number(topUpOptions?.max ?? Infinity);
+        if (!/^\d+(\.\d{1,2})?$/.test(amount) || amt < min || amt > max) {
+            setError(`Enter an amount from ${formatMoney(min, currency)} to ${formatMoney(max, currency)}, `
+                + 'with at most two decimals');
             return;
         }
         setTopping(true);
         setError(null);
         try {
-            const order = await creditsService.initiateTopUp(amt);
+            const order = await creditsService.initiateTopUp(amount);
             // Open Razorpay checkout
             let Razorpay: any;
             try {
@@ -102,7 +146,7 @@ export const WalletPage: React.FC = () => {
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature,
                             });
-                            setSuccess(`Successfully added $${result.credits_added.toFixed(2)} to your wallet!`);
+                            setSuccess(`Added ${formatMoney(result.credits_added, result.currency)} to your wallet.`);
                             fetchData();
                         } catch (e: any) {
                             setError('Payment verification failed. Please contact support.');
@@ -183,7 +227,8 @@ export const WalletPage: React.FC = () => {
 
     if (loading) return <div className="wallet-page"><div className="loading-state"><div className="pulse">Loading wallet…</div></div></div>;
 
-    const totalAvail = balance?.total_available || 0;
+    const totalAvail = Number(balance?.available ?? 0);
+    const scale = Math.max(totalAvail, 1);
 
     return (
         <div className="wallet-page">
@@ -195,14 +240,23 @@ export const WalletPage: React.FC = () => {
                 <button className="btn-secondary" onClick={fetchData}><RefreshCw size={14} /> Refresh</button>
             </div>
 
+            {balance && <StateBanner balance={balance} />}
             {error && <div className="error-banner"><AlertTriangle size={14} /> {error}</div>}
             {success && <div className="success-banner"><CheckCircle size={14} /> {success}</div>}
 
             {/* Credit Overview */}
             <div className="wallet-overview glass">
                 <div className="overview-total">
-                    <p className="overview-label">Total Available</p>
-                    <p className="overview-amount">${totalAvail.toFixed(2)}</p>
+                    <p className="overview-label">Available</p>
+                    <p className="overview-amount">{formatMoney(totalAvail, currency)}</p>
+                    {balance && balance.held > 0 && (
+                        <p className="overview-held">
+                            {formatMoney(balance.held, currency)} held by running work · {formatMoney(balance.free, currency)} free
+                        </p>
+                    )}
+                    {balance && Number(balance.debt) > 0 && (
+                        <p className="overview-debt">Owed: {formatMoney(balance.debt, currency)}</p>
+                    )}
                     <p className="overview-model">
                         {balance?.account_model === 'subscription' ? '📅 Subscription Plan' : '💳 Pay-As-You-Go'}
                     </p>
@@ -212,12 +266,16 @@ export const WalletPage: React.FC = () => {
                     <CreditBucket
                         label="Daily Credits"
                         amount={balance?.daily_credits || 0}
+                        currency={currency}
+                        scale={scale}
                         expiry={balance?.daily_expires_at}
                         accent
                     />
                     <CreditBucket
-                        label="Wallet Balance"
+                        label="Top-ups"
                         amount={balance?.wallet_balance || 0}
+                        currency={currency}
+                        scale={scale}
                         expiry={balance?.wallet_expires_at}
                     />
                     {(balance?.account_model === 'subscription'
@@ -226,11 +284,15 @@ export const WalletPage: React.FC = () => {
                             <CreditBucket
                                 label="Subscription Credits"
                                 amount={balance?.subscription_credits || 0}
+                                currency={currency}
+                                scale={scale}
                                 expiry={balance?.sub_credits_expire_at}
                             />
                             <CreditBucket
                                 label="Bonus Credits"
                                 amount={balance?.subscription_bonus_credits || 0}
+                                currency={currency}
+                                scale={scale}
                                 expiry={balance?.sub_credits_expire_at}
                             />
                         </>
@@ -249,21 +311,24 @@ export const WalletPage: React.FC = () => {
                 {balance && canPay && (
                     <div className="topup-section glass">
                         <h2 className="section-title"><CreditCard size={18} /> Top Up Wallet</h2>
-                        <p className="section-desc">Add funds via Razorpay. Balance is valid for 365 days.</p>
+                        <p className="section-desc">
+                            Add funds in {currency} via Razorpay. A top-up repays any debt first and is valid
+                            for {topUpOptions?.validity_days ?? 90} days.
+                        </p>
                         <div className="topup-form">
                             <div className="amount-presets">
                                 {(topUpOptions?.presets ?? []).map((v) => (
                                     <button
                                         key={v}
-                                        className={`preset-btn ${topUpAmount === String(v) ? 'active' : ''}`}
-                                        onClick={() => setTopUpAmount(String(v))}
+                                        className={`preset-btn ${topUpAmount === v ? 'active' : ''}`}
+                                        onClick={() => setTopUpAmount(v)}
                                     >
-                                        ${v}
+                                        {formatMoney(v, currency, { digits: 0 })}
                                     </button>
                                 ))}
                             </div>
                             <div className="custom-amount">
-                                <span className="currency-symbol">$</span>
+                                <span className="currency-symbol">{currency}</span>
                                 <input
                                     type="number"
                                     min={topUpOptions?.min}
@@ -275,7 +340,7 @@ export const WalletPage: React.FC = () => {
                                 />
                             </div>
                             <button className="btn-primary full-width" onClick={handleTopUp} disabled={topping}>
-                                {topping ? 'Processing…' : `Top Up $${topUpAmount}`}
+                                {topping ? 'Processing…' : `Top up ${formatMoney(topUpAmount || 0, currency)}`}
                             </button>
                         </div>
                     </div>
@@ -296,7 +361,7 @@ export const WalletPage: React.FC = () => {
                             <p className="sub-fee">${subscription.monthly_fee}/mo</p>
                             <p className="sub-bonus">+{subscription.bonus_pct}% Bonus Credits</p>
                             {subscription.next_billing_date && (
-                                <p className="sub-next">Paid through: {parseServerDate(subscription.next_billing_date).toLocaleDateString()}</p>
+                                <p className="sub-next">Paid through: {formatDate(subscription.next_billing_date)}</p>
                             )}
                         </div>
                         {canPay && (
@@ -310,6 +375,63 @@ export const WalletPage: React.FC = () => {
                         )}
                     </div>
                 )}
+            </div>
+
+            {/* Credit lots and the ledger (Phase 15 T4-1) */}
+            <div className="wallet-two-col">
+                <div className="wallet-lots glass">
+                    <h2 className="section-title"><Wallet size={18} /> Credit lots</h2>
+                    <p className="section-desc">
+                        Spent in this order: daily, subscription, bonus, then top-ups by the earliest expiry.
+                    </p>
+                    {(balance?.lots ?? []).length === 0 ? (
+                        <p className="section-desc">No credit right now.</p>
+                    ) : (
+                        <table className="wallet-table">
+                            <thead><tr><th>Kind</th><th>Left</th><th>Of</th><th>Expires</th></tr></thead>
+                            <tbody>
+                                {(balance?.lots ?? []).map((lot) => (
+                                    <tr key={lot.id}>
+                                        <td>{LOT_LABEL[lot.kind] ?? lot.kind}</td>
+                                        <td>{formatMoney(lot.remaining, currency)}</td>
+                                        <td>{formatMoney(lot.original, currency)}</td>
+                                        <td>{lot.expires_at ? formatDate(lot.expires_at) : '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+                <div className="wallet-ledger glass">
+                    <h2 className="section-title"><ListOrdered size={18} /> Recent activity</h2>
+                    {ledger.length === 0 ? (
+                        <p className="section-desc">Nothing yet.</p>
+                    ) : (
+                        <table className="wallet-table">
+                            <thead><tr><th>When</th><th>What</th><th>Amount</th><th>Balance</th></tr></thead>
+                            <tbody>
+                                {ledger.map((e) => (
+                                    <tr key={e.id}>
+                                        <td>{e.created_at ? formatDateTime(e.created_at) : ''}</td>
+                                        <td>
+                                            {e.source_type === 'staff' ? 'Adjustment by HireBuddha' : ENTRY_LABEL[e.kind] ?? e.kind}
+                                            {e.category ? ` · ${e.category.replace('_', ' ')}` : ''}
+                                        </td>
+                                        <td className={Number(e.amount) < 0 ? 'amount-out' : 'amount-in'}>
+                                            {formatMoney(e.amount, e.currency)}
+                                        </td>
+                                        <td>
+                                            {formatMoney(e.balance_after, e.currency)}
+                                            {Number(e.debt_after) > 0 && (
+                                                <span className="ledger-debt"> (owes {formatMoney(e.debt_after, e.currency)})</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
             </div>
 
             {/* Subscription Plans */}

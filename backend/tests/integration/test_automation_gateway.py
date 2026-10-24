@@ -34,6 +34,7 @@ from sqlalchemy import select, text
 
 from src.automation import router, store
 from src.automation.models import Event, Trigger, TriggerFiring
+from tests.harness.wallet import fund
 
 pytestmark = pytest.mark.needs_db
 
@@ -75,8 +76,7 @@ async def biz(monkeypatch):
         db.add(company)
         await db.flush()
         later = datetime.utcnow() + timedelta(days=1)
-        db.add(CreditWallet(company_id=company.id, daily_credits=Decimal("0"), daily_expires_at=later,
-                            wallet_balance=Decimal("100"), wallet_expires_at=later))
+        await fund(db, company.id, "100")
         admin = User(email=f"ws3-{uuid.uuid4().hex[:8]}@example.com", hashed_password="x", full_name="WS3",
                      role="tenant_admin", company_id=company.id, is_active=True, is_verified=True)
         inbox = HierarchicalEntity(company_id=company.id, type="AGENT", status="ACTIVE", name="Inbox agent",

@@ -72,7 +72,7 @@ async def gather(db: Any, tenant_ids: Iterable[UUID]) -> Dict[UUID, TenantSignal
     query on the shared database (single mode) or one per tenant database (split).
     A tenant whose database cannot be read keeps zero runs and agents."""
     from src.ai.orm import ExecutionRun, HierarchicalEntity
-    from src.billing.billing_models import CreditWallet
+    from src.billing.wallet import summaries
     from src.common.tenancy.session import is_split, tenant_db_for
 
     ids = list(tenant_ids)
@@ -80,11 +80,9 @@ async def gather(db: Any, tenant_ids: Iterable[UUID]) -> Dict[UUID, TenantSignal
     if not ids:
         return signals
 
-    credit = (CreditWallet.daily_credits + CreditWallet.wallet_balance
-              + CreditWallet.subscription_credits + CreditWallet.subscription_bonus_credits)
-    for company_id, amount in (await db.execute(
-            select(CreditWallet.company_id, credit).where(CreditWallet.company_id.in_(ids)))).all():
-        signals[company_id].credit_usd = float(amount or 0)
+    # The live lots of each wallet, at today's rate (Phase 15 M15.2: the score is in USD).
+    for company_id, wallet in (await summaries(db, ids)).items():
+        signals[company_id].credit_usd = float(wallet["available_usd"])
 
     now = datetime.utcnow()
     week_ago, month_ago = now - timedelta(days=7), now - timedelta(days=30)

@@ -1,3 +1,4 @@
+import { formatBilled } from '@/utils/money';
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -134,9 +135,8 @@ export const StreamingSessionsPage: React.FC = () => {
         return `${mins}m ${secs}s`;
     };
 
-    const formatCost = (cost: number) => {
-        return `$${cost.toFixed(4)}`;
-    };
+    // Billed amounts: the viewer's currency (`billed_currency`), USD for staff (Phase 15 T9-3).
+    const formatCost = (cost: number, row?: object) => formatBilled(row, cost ?? 0);
 
     return (
         <div className="streaming-sessions-page">
@@ -210,7 +210,7 @@ export const StreamingSessionsPage: React.FC = () => {
                                             </td>
                                             <td>{parseServerDate(session.started_at).toLocaleString()}</td>
                                             <td>{formatDuration(session.duration_seconds)}</td>
-                                            <td>{formatCost(session.billed_amount)}</td>
+                                            <td>{formatCost(session.billed_amount, session)}</td>
                                             <td>
                                                 <button
                                                     className="btn-view"
@@ -268,7 +268,7 @@ export const StreamingSessionsPage: React.FC = () => {
                                                     : 'N/A'}
                                             </td>
                                             <td>{session.message_count}</td>
-                                            <td>{formatCost(session.billed_amount)}</td>
+                                            <td>{formatCost(session.billed_amount, session)}</td>
                                             <td>
                                                 <button
                                                     className="btn-view"
@@ -301,7 +301,7 @@ export const StreamingSessionsPage: React.FC = () => {
                             </div>
                             <div className="stat-row">
                                 <span>Total Billed:</span>
-                                <strong>{formatCost(stats.voice.total_billed)}</strong>
+                                <strong>{formatCost(stats.voice.total_billed, stats.voice)}</strong>
                             </div>
                         </div>
 
@@ -321,7 +321,7 @@ export const StreamingSessionsPage: React.FC = () => {
                             </div>
                             <div className="stat-row">
                                 <span>Total Billed:</span>
-                                <strong>{formatCost(stats.whatsapp.total_billed)}</strong>
+                                <strong>{formatCost(stats.whatsapp.total_billed, stats.whatsapp)}</strong>
                             </div>
                         </div>
                     </div>
@@ -356,7 +356,7 @@ export const StreamingSessionsPage: React.FC = () => {
                             </div>
                             <div className="detail-row">
                                 <span>Billed Amount:</span>
-                                <strong>{formatCost(selectedSession.billed_amount || selectedSession.total_cost_usd || 0)}</strong>
+                                <strong>{formatCost(selectedSession.billed_amount || 0, selectedSession)}</strong>
                             </div>
                             <div className="detail-row">
                                 <span>Status:</span>

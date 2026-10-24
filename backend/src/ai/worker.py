@@ -51,7 +51,9 @@ from src.ai.campaign_worker import (
 )
 
 from src.mobile.reconciler import mobile_housekeeping_job
-from src.billing.jobs import billing_daily_credits, billing_subscription_reconciliation
+from src.billing.jobs import (
+    billing_settle_standalone, billing_subscription_reconciliation, billing_wallet_check, billing_wallet_tick,
+)
 from src.common.tenancy.provisioner import provision_tenant
 from src.schema_engine.engine import apply_schema_change
 
@@ -194,9 +196,13 @@ try:
         cron(traced_job(kpi_rollup_refresh), minute={7}),
         # Mobile dialer: expire stale call attempts + reconcile unidentified AI legs.
         cron(traced_job(mobile_housekeeping_job), minute={1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56}),
-        # Billing (BC-04): renew expired daily credits and reap abandoned
-        # checkouts at midnight UTC; reconcile subscriptions with Razorpay.
-        cron(traced_job(billing_daily_credits), hour={0}, minute={0}),
+        # Billing (BC-04, Phase 15 M15.2): the wallet tick every 15 minutes (lot
+        # expiry, daily credits at local midnight, enforcement, notices, reaping
+        # abandoned checkouts); standalone settlement hourly; the ledger check
+        # nightly; subscriptions reconciled with Razorpay.
+        cron(traced_job(billing_wallet_tick), minute={2, 17, 32, 47}),
+        cron(traced_job(billing_settle_standalone), minute={12}),
+        cron(traced_job(billing_wallet_check), hour={2}, minute={10}),
         cron(traced_job(billing_subscription_reconciliation), hour={1}, minute={30}),
         # Tenant runtime (Phase 14 WS6): hosting use of the last hour, database shares of
         # yesterday, expired previews, idle sandbox pods (AKS only).

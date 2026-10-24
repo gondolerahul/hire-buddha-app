@@ -40,7 +40,7 @@ export const BillingSettings: React.FC = () => {
                 setConfig(configRes.config);
             } else {
                 // The identity formula: billed = cost
-                setConfig({ multiplier_factor: 1.0, platform_fee_pct: 0.0, discount_pct: 0.0, default_daily_credits: 0 });
+                setConfig({ multiplier_factor: 1.0, platform_fee_pct: 0.0, discount_pct: 0.0 });
             }
             setHistory(configRes.history ?? []);
             setTiers(tiersRes);
@@ -60,7 +60,6 @@ export const BillingSettings: React.FC = () => {
                 multiplier_factor: config.multiplier_factor,
                 platform_fee_pct: config.platform_fee_pct,
                 discount_pct: config.discount_pct,
-                default_daily_credits: config.default_daily_credits,
                 reason: reason.trim() || undefined,
             };
             const res = await billingService.updateConfig(payload);
@@ -168,14 +167,9 @@ export const BillingSettings: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="form-group mb-4">
-                        <label>Default Daily Credits ($)</label>
-                        <input
-                            type="number" step="0.50"
-                            value={config.default_daily_credits || ''}
-                            onChange={e => setConfig({ ...config, default_daily_credits: parseFloat(e.target.value) })}
-                        />
-                    </div>
+                    <p className="field-hint mb-4">
+                        Daily credits are policies now, set on <a href="/admin/daily-credits">Daily credits</a>.
+                    </p>
 
                     <div className="form-group">
                         <label>Reason for the change (kept with the version)</label>

@@ -1,3 +1,4 @@
+import { formatBilled, formatMoney } from '@/utils/money';
 import React, { useState } from 'react';
 import { useReport } from '@/queries/hooks';
 import {
@@ -61,7 +62,7 @@ const CostTab: React.FC = () => {
             </div>
 
             <div className="stats-grid-4">
-                <StatCard label="Total Billing" value={`$${(data?.total_cost_usd || 0).toFixed(4)}`} icon={DollarSign} color="#e8885a" />
+                <StatCard label="Total Billing" value={formatBilled(data, data?.total_billed_usd || 0)} icon={DollarSign} color="#e8885a" />
                 <StatCard label="Largest Channel" value={channels[0]?.service || '—'} icon={Activity} />
                 <StatCard label="Total API Calls" value={channels.reduce((s, c) => s + c.calls, 0).toLocaleString()} icon={Zap} />
                 <StatCard label="Days Tracked" value={days} icon={Clock} />
@@ -74,7 +75,7 @@ const CostTab: React.FC = () => {
                         {channels.length === 0 ? <EmptyChart /> : (
                             <ResponsiveContainer width="100%" height={260}>
                                 <PieChart>
-                                    <Pie data={channels} dataKey="total_cost_usd" nameKey="service" cx="50%" cy="50%" outerRadius={100} label={({ service, total_cost_usd }) => `${service}: $${Number(total_cost_usd).toFixed(3)}`}>
+                                    <Pie data={channels} dataKey="billed_usd" nameKey="service" cx="50%" cy="50%" outerRadius={100} label={({ service, billed_usd }) => `${service}: ${formatBilled(data, billed_usd)}`}>
                                         {channels.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                                     </Pie>
                                     <Tooltip contentStyle={{ background: 'rgba(20,15,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }} />
@@ -94,7 +95,7 @@ const CostTab: React.FC = () => {
                                     <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }} />
                                     <YAxis tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }} />
                                     <Tooltip contentStyle={{ background: 'rgba(20,15,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }} formatter={(v) => [`$${Number(v).toFixed(6)}`, 'Billing']} />
-                                    <Area type="monotone" dataKey="cost" stroke="#e8c5a0" fill="rgba(232,197,160,0.15)" strokeWidth={2} />
+                                    <Area type="monotone" dataKey="billed_usd" stroke="#e8c5a0" fill="rgba(232,197,160,0.15)" strokeWidth={2} />
                                 </AreaChart>
                             </ResponsiveContainer>
                         )}
@@ -116,7 +117,7 @@ const CostTab: React.FC = () => {
                                 <td>{c.category || '—'}</td>
                                 <td className="num">{c.calls.toLocaleString()}</td>
                                 <td className="num">{c.total_quantity.toFixed(4)}</td>
-                                <td className="num total highlight-col">${c.total_cost_usd.toFixed(6)}</td>
+                                <td className="num total highlight-col">{formatBilled(c, c.billed_usd, { smallDigits: 6 })}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -145,8 +146,8 @@ const ForecastTab: React.FC = () => {
     return (
         <div className="tab-content">
             <div className="stats-grid-4">
-                <StatCard label="Total Available" value={`$${(wallet?.total_available || 0).toFixed(4)}`} icon={DollarSign} />
-                <StatCard label="Daily Burn Rate" value={`$${(burn?.avg_daily_usd || 0).toFixed(6)}`} icon={TrendingDown} />
+                <StatCard label="Total Available" value={formatMoney(wallet?.total_available || 0, data?.currency)} icon={DollarSign} />
+                <StatCard label="Daily Burn Rate" value={formatMoney(burn?.avg_daily || 0, data?.currency)} icon={TrendingDown} />
                 <StatCard label="Days Remaining" value={daysLeft >= 999 ? '∞' : daysLeft} icon={Clock} color={isCritical ? '#e8885a' : isWarning ? '#d2b96b' : '#4dbe8d'} />
                 <StatCard label="Depletion Date" value={forecast?.depletion_date || 'N/A'} icon={AlertTriangle} color={isCritical ? '#e8885a' : '#4dbe8d'} />
             </div>
@@ -191,8 +192,8 @@ const ForecastTab: React.FC = () => {
                                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                                     <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }} />
                                     <YAxis tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }} />
-                                    <Tooltip contentStyle={{ background: 'rgba(20,15,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }} formatter={(v) => [`$${Number(v).toFixed(6)}`, 'Billing']} />
-                                    <Bar dataKey="cost" fill="#c9956c" radius={[4, 4, 0, 0]} />
+                                    <Tooltip contentStyle={{ background: 'rgba(20,15,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }} formatter={(v) => [formatMoney(Number(v), data?.currency), 'Billing']} />
+                                    <Bar dataKey="billed" fill="#c9956c" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         )}

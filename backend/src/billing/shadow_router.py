@@ -1,7 +1,7 @@
 """The shadow comparison, for staff (Phase 15 T3-7).
 
     GET /api/v1/admin/billing-shadow?days=14    the mode, a summary, and the settlements that differ
-    PUT /api/v1/admin/billing-shadow/mode       off | shadow ("on" waits for the new settlement, WS15-4)
+    PUT /api/v1/admin/billing-shadow/mode       off | shadow (the settlement charges rated rows since M15.2)
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,16 +59,12 @@ async def shadow_summary(days: int = Query(14, ge=1, le=90), company_id: Optiona
 
 
 class ModeBody(BaseModel):
-    mode: Literal["off", "shadow", "on"]
+    mode: Literal["off", "shadow"]
     reason: Optional[str] = None
 
 
 @router.put("/mode")
 async def set_mode(body: ModeBody, db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
-    if body.mode == "on":
-        raise HTTPException(status_code=422, detail=(
-            "The new settlement (wallet lots and debt, WS15-4) is not built yet: 'on' would charge nothing "
-            "differently. Use 'shadow' until it is."))
     await set_platform_setting(db, "billing.v2_mode", body.mode, actor=user, reason=body.reason)
     await db.commit()
     return {"mode": await v2_mode(db)}

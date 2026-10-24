@@ -1,10 +1,9 @@
 """
-Billing Service — billing events, and the daily-credit settings of ``billing_config``.
+Billing Service — billing events.
 
 The customer price is ``src.billing.formulas`` (Phase 15 T3-2): versioned
-``billing_formulas``, ``TB = c·mf·(1 + pf − d)``. ``billing_config`` keeps only
-``default_daily_credits`` (until the daily-credit policies of T5-5); its formula
-and override columns are read by nothing. ``calculate_tb`` is the formula as it
+``billing_formulas``, ``TB = c·mf·(1 + pf − d)``; daily credits are policies
+(``src.billing.daily_credits``, T5-5). ``billing_config`` is read by nothing. ``calculate_tb`` is the formula as it
 was — four fields with ``spf`` — kept for the golden billing suite (T3-1).
 """
 from decimal import Decimal
@@ -18,7 +17,7 @@ from sqlalchemy import select, and_, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 
-from src.billing.billing_models import BILLING_EVENT_UNIQUE_KEY, BillingConfig, BillingEvent
+from src.billing.billing_models import BILLING_EVENT_UNIQUE_KEY, BillingEvent
 
 _CATEGORY_CHARGES = ("telephony", "llm", "image", "video")
 _CHARGE_COLUMNS = tuple(f"{c}_charge" for c in _CATEGORY_CHARGES) + ("api_charge",)
@@ -54,29 +53,6 @@ def calculate_tb(
 class BillingService:
     def __init__(self, db: AsyncSession):
         self.db = db
-
-    async def get_billing_config(self, company_id: UUID) -> BillingConfig:
-        """
-        Return company-specific billing config, falling back to global default.
-        """
-        # Try company-specific first
-        stmt = select(BillingConfig).where(
-            BillingConfig.company_id == company_id,
-            BillingConfig.is_active == True,
-        ).order_by(BillingConfig.updated_at.desc())
-        result = await self.db.execute(stmt)
-        config = result.scalar_one_or_none()
-
-        if config:
-            return config
-
-        # Fall back to global default (company_id IS NULL)
-        stmt = select(BillingConfig).where(
-            BillingConfig.company_id == None,
-            BillingConfig.is_active == True,
-        )
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
 
     async def record_billing_event(
         self,
@@ -172,43 +148,3 @@ class BillingService:
         )
         result = await self.db.execute(stmt)
         return result.scalars().all()
-
-    # The formula fields must always have a value; an override may be cleared.
-    REQUIRED_CONFIG_FIELDS = ("multiplier_factor", "platform_fee_pct", "sales_partner_fee_pct",
-                              "discount_pct", "default_daily_credits")
-    OVERRIDE_FIELDS = ("base_cost_telephony", "base_cost_image_gen")
-
-    async def update_billing_config(
-        self,
-        company_id: Optional[UUID],
-        **fields: Optional[Decimal],
-    ) -> BillingConfig:
-        """Create or update billing config for a company (or global).
-
-        Only the fields passed are changed. A formula field passed as None is
-        left alone; an override passed as None is cleared (before, an override
-        once set could never be removed).
-        """
-        stmt = select(BillingConfig).where(
-            BillingConfig.company_id == company_id,
-            BillingConfig.is_active == True,
-        )
-        result = await self.db.execute(stmt)
-        config = result.scalar_one_or_none()
-
-        if not config:
-            config = BillingConfig(company_id=company_id)
-            self.db.add(config)
-
-        for name, value in fields.items():
-            if name in self.REQUIRED_CONFIG_FIELDS and value is not None:
-                setattr(config, name, value)
-            elif name in self.OVERRIDE_FIELDS:
-                setattr(config, name, value)
-            elif name not in self.REQUIRED_CONFIG_FIELDS:
-                raise ValueError(f"Unknown billing config field: {name}")
-
-        config.updated_at = datetime.utcnow()
-        await self.db.commit()
-        await self.db.refresh(config)
-        return config

@@ -44,3 +44,14 @@ export function formatMoney(amount: number | string | null | undefined, currency
 export function fromUsd(usd: number, unitsPerUsd: number): number {
     return usd * unitsPerUsd;
 }
+
+/**
+ * A billed amount as the API sends it (Phase 15 T9-3): staff get USD; a tenant's
+ * or partner's people get their company's currency, named in `billed_currency`
+ * on the same object.
+ */
+export function formatBilled(row: object | null | undefined,
+                             amount: number | string | null | undefined, options: MoneyOptions = {}): string {
+    const currency = (row as { billed_currency?: string | null } | null | undefined)?.billed_currency;
+    return formatMoney(amount ?? 0, currency ?? 'USD', options);
+}

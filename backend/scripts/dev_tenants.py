@@ -96,8 +96,11 @@ async def _register(url: Any) -> uuid.UUID:
     from sqlalchemy import select
 
     from src.auth.models import Company
+    from src.common.orm_models import import_all_models
     from src.common.tenancy.models import TenantDbServer, TenantDirectoryEntry
     from src.common.tenancy.session import control_session
+
+    import_all_models()  # every mapper, so companies → currencies resolves
 
     async with control_session() as db:
         server = (await db.execute(select(TenantDbServer).where(TenantDbServer.name == SERVER_NAME))).scalar()

@@ -48,7 +48,9 @@ async def call_refusal(db: Any, company_id: Any, *, direction: str, checkpoint: 
         event("voice.call.refused", reason="live session cap", **context)
         return live_sessions.cap_message()
     try:
-        await CreditService(db).check_sufficient_for_execution(company_id=company_id, entity_type="AGENT")
+        # The wallet is ok and admission.min_balance.call is free (Phase 15 T4-5, T4-6).
+        await CreditService(db).check_sufficient_for_execution(company_id=company_id, entity_type="call",
+                                                               floor_key="admission.min_balance.call")
     except InsufficientCreditsError as exc:
         logger.warning("Call refused (%s, %s) for company %s: %s", direction, checkpoint, company_id, exc)
         event("voice.call.refused", reason=str(exc)[:300], **context)

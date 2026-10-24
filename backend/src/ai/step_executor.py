@@ -373,7 +373,7 @@ class StepExecutorService:
         _parent_accumulated = Decimal(str(run.total_cost_usd or 0))
         if self._governance:
             await self._governance.check_child_credit_gate(
-                run.company_id, _parent_accumulated, child_entity_id=str(entity_id)
+                run.company_id, _parent_accumulated, child_entity_id=str(entity_id), run_id=run.id
             )
         else:
             logger.warning("GovernanceService not injected — skipping child credit gate")

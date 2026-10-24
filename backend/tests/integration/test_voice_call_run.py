@@ -104,15 +104,11 @@ async def test_the_calls_run_closes_with_the_whole_call_and_a_trace(db, one_sess
 @pytest.mark.asyncio
 async def test_hang_up_closes_the_run_after_the_call_is_charged(db, one_session, monkeypatch):
     """The handler's call-end path: usage on the run, then the run closed."""
-    from src.billing.billing_models import CreditWallet
     from src.voice import websocket_handler as wh
+    from tests.harness.wallet import fund
 
     session = await _call(db)
-    later = datetime.utcnow() + timedelta(days=1)
-    db.add(CreditWallet(company_id=session.company_id, daily_credits=Decimal("0"),
-                        daily_expires_at=later, wallet_balance=Decimal("100"),
-                        wallet_expires_at=later))
-    await db.flush()
+    await fund(db, session.company_id, "100")
 
     class _Sessions:
         def __init__(self, _db):

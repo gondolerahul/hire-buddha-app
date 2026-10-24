@@ -28,7 +28,7 @@ from src.auth import partner_router
 from src.auth.dependencies import get_current_user
 from src.auth.models import Company
 from src.auth.tenant_health import TenantSignals, score
-from src.billing.billing_models import BillingEvent, CreditWallet
+from src.billing.billing_models import BillingEvent
 from src.common.database import get_db
 
 pytestmark = pytest.mark.needs_db
@@ -62,7 +62,8 @@ def _client(db, role: str, company_id) -> httpx.AsyncClient:
 
 
 async def _company(db, kind: str, parent=None, status="active") -> Company:
-    c = Company(name=f"t06-{kind.lower()}-{uuid.uuid4().hex[:6]}", type=kind, status=status, parent_id=parent)
+    c = Company(name=f"t06-{kind.lower()}-{uuid.uuid4().hex[:6]}", type=kind, status=status, parent_id=parent,
+                billing_currency="USD")
     db.add(c)
     await db.flush()
     return c
@@ -89,9 +90,11 @@ async def portfolio(db):
                      parent_run_id=parent.id, depth=1, total_cost_usd=Decimal("0.40")),   # inside the parent's 1.00
         ExecutionRun(entity_id=agent.id, company_id=busy.id, status="FAILED", input_data={},
                      total_cost_usd=Decimal("0.50")),
-        CreditWallet(company_id=busy.id, daily_credits=Decimal("1"), wallet_balance=Decimal("2"),
-                     subscription_credits=Decimal("3"), subscription_bonus_credits=Decimal("4")),
     ])
+    # Credit of every kind (Phase 15 M15.2: lots): 1 + 2 + 3 + 4.
+    from tests.harness.wallet import fund
+    for kind, usd in (("daily", "1"), ("topup", "2"), ("subscription", "3"), ("subscription_bonus", "4")):
+        await fund(db, busy.id, usd, kind=kind)
     today = datetime.utcnow().date()
     this_month = date(today.year, today.month, 1)
     last_month = date(today.year - (today.month == 1), (today.month - 2) % 12 + 1, 1)

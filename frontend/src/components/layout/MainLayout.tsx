@@ -157,6 +157,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/settings/billing', label: 'Billing Settings', icon: Settings }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/currency', label: 'Currency & FX', icon: Coins }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/billing-shadow', label: 'Billing Shadow', icon: Scale }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/wallets', label: 'Wallets', icon: Wallet }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/daily-credits', label: 'Daily Credits', icon: Timer }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/pricing', label: 'Pricing', icon: Coins }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/money-settings', label: 'Money Settings', icon: Settings }] : []),
             ]
         },
         // Phase 11 — Agent Kernel observability + admin. Admin-only.

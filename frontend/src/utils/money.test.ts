@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatMoney, fromUsd } from './money';
+import { formatBilled, formatMoney, fromUsd } from './money';
 
 describe('formatMoney (Phase 15 T2-5)', () => {
     it('shows rupees with Indian grouping', () => {
@@ -29,5 +29,16 @@ describe('formatMoney (Phase 15 T2-5)', () => {
 
     it('converts USD at a rate for display', () => {
         expect(fromUsd(20, 100)).toBe(2000);
+    });
+});
+
+describe('formatBilled (Phase 15 T9-3)', () => {
+    it('uses the currency the API names beside a billed amount', () => {
+        expect(formatBilled({ billed_amount: 60, billed_currency: 'INR' }, 60)).toBe(formatMoney(60, 'INR'));
+    });
+
+    it('is USD when none is named (what staff get)', () => {
+        expect(formatBilled({ billed_amount: 0.6 }, 0.6)).toBe(formatMoney(0.6, 'USD'));
+        expect(formatBilled(null, undefined)).toBe(formatMoney(0, 'USD'));
     });
 });

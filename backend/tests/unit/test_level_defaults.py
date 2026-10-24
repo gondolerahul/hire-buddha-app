@@ -43,9 +43,10 @@ async def test_the_manifest_summary_teaches_the_composition_rule() -> None:
     ("PROCESS", "0.50"), ("LOOP", "1.00"), ("GRAPH", "2.00"),
 ])
 def test_each_level_has_a_credit_floor(level, floor) -> None:
-    from src.billing.credit_service import minimum_threshold
+    """The defaults of the admission.min_balance.<LEVEL> settings (Phase 15 T5-2): unchanged."""
+    from src.billing.settings_catalogue import spec_for
 
-    assert minimum_threshold(level) == Decimal(floor)
+    assert spec_for(f"admission.min_balance.{level}").default == Decimal(floor)
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,9 @@ GATES: dict[str, Gate] = {
     "webhook_signature": Gate("closed", "an inbound webhook whose endpoint secret does not decrypt is refused (GW-01)"),
     "webhook_duplicate": Gate("closed", "an inbound webhook whose delivery cannot be checked for a repeat is a 503 (GW-03)"),
     "voice_call_credit": Gate("closed", "a call's credit admission: a balance it cannot read refuses the call (VT-01, HD9)"),
+    "call_credit_check": Gate(
+        "open", "a live call's credit check every voice.credit_check_seconds (Phase 15 T4-6)",
+        why_open="a call is not cut off on a wallet it cannot read; the settlement at hang-up still bills it"),
     "edge_rate_limit": Gate("closed", "the live-socket handshake and webhook-endpoint limits: Redis unreachable counts in this process instead, still a limit (GW-02)"),
 }
 

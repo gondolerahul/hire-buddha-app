@@ -1,9 +1,11 @@
 """schemas/governance.py — Governance, HITL checkpoints, execution limits."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 from typing import Any, ClassVar, Collection, List, Optional
 
-from pydantic import BaseModel, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from src.ai.schemas.enums import HITLTriggerType
 from src.ai.schemas.hitl_expression import ExpressionError, parse
@@ -74,8 +76,17 @@ def checkpoint_problem(raw: Any, step_refs: Optional[Collection[str]] = None) ->
     return None
 
 
+class MaxBill(BaseModel):
+    """What one run may be billed, in the company's currency (Phase 15 T5-7, K-19)."""
+    amount: Decimal = Field(..., ge=0, decimal_places=4)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+
+
 class Governance(BaseModel):
+    # The cap's raw-cost equivalent: derived from ``max_bill`` when the agent is
+    # saved (``src.billing.agent_budget``); set on its own only by older agents.
     max_cost_usd: Optional[float] = None
+    max_bill: Optional[MaxBill] = None
     timeout_ms: int = 60000
     # How deep the tree below this entity may go: a child run past it is refused
     # (EP-06). One setting; ``execution_limits.max_recursion_depth`` is folded

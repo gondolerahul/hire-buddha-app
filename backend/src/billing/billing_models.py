@@ -47,6 +47,7 @@ class BillingConfig(ControlBase):
     sales_partner_fee_pct = Column(Numeric(10, 4), nullable=False, default=0.0)  # spf
     discount_pct = Column(Numeric(10, 4), nullable=False, default=0.0)           # d
 
+    # Retired by the daily-credit policies (Phase 15 T5-5, control_0016): read by nothing.
     default_daily_credits = Column(Numeric(10, 4), nullable=False, default=0)
 
     # Base cost overrides
@@ -63,15 +64,34 @@ class BillingConfig(ControlBase):
 
 class CreditWallet(ControlBase):
     """
-    Per-company credit buckets consumed in priority order.
-    Priority: daily_credits → wallet_balance (PAYG) or subscription_credits (Subscription)
+    A company's wallet (Phase 15 T4-1, tech design §6): its credit is the
+    remaining amount of its live lots (``WalletLot``), in the company's billing
+    currency; ``debt`` is what it owes; ``state`` gates new and running work
+    (§6.3). Every change is an append-only ``WalletEntry``, made under this
+    row's lock (``src.billing.wallet``).
+
+    The four bucket columns below are the wallet before lots: read by nothing
+    since the cutover migration (``control_0015_wallet_lots``) and dropped one
+    release after (plan §4 step 10).
     """
     __tablename__ = "credit_wallets"
-    __table_args__ = (Index("idx_credit_wallets_company", "company_id"),)
+    __table_args__ = (
+        Index("idx_credit_wallets_company", "company_id"),
+        CheckConstraint("state IN ('ok', 'in_debt', 'over_tolerance', 'suspended')", name="ck_credit_wallets_state"),
+        CheckConstraint("debt >= 0", name="ck_credit_wallets_debt"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, unique=True)
     account_model = Column(String(30), nullable=False, default="pay_as_you_go")  # pay_as_you_go | subscription
+    currency = Column(CHAR(3), ForeignKey("currencies.code"), nullable=False, default="INR", server_default="INR")
+    state = Column(String(20), nullable=False, default="ok", server_default="ok")
+    debt = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    in_debt_since = Column(DateTime(timezone=True), nullable=True)
+    over_tolerance_since = Column(DateTime(timezone=True), nullable=True)
+    suspended_at = Column(DateTime(timezone=True), nullable=True)
+    # Σ remaining of live lots, kept with every entry (W-8; the nightly check proves it).
+    cached_available = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
 
     # Daily credits — injected daily per BillingConfig, expires at 00:00:00 next day (never carries forward)
     daily_credits = Column(Numeric(24, 10), nullable=False, default=0)
@@ -269,11 +289,15 @@ class CreditHold(ControlBase):
     # deletes its hold.
     run_id = Column(UUID(as_uuid=True), nullable=False, unique=True,
                     info=refers_to("execution_runs.id", ondelete="CASCADE"))
+    # Held, in the wallet's currency (Phase 15 T4-5; ``currency`` names it).
     amount = Column(Numeric(24, 10), nullable=False)
+    currency = Column(CHAR(3), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     released_at = Column(DateTime(timezone=True), nullable=True)
     settled_at = Column(DateTime(timezone=True), nullable=True)
+    # What the settlement billed: USD, and in the wallet's currency.
     billed_amount = Column(Numeric(24, 10), nullable=True)
+    billed_ccy = Column(Numeric(24, 10), nullable=True)
 
     __table_args__ = (
         Index("idx_credit_holds_open", "company_id",
@@ -414,3 +438,195 @@ class BillingShadowDiff(ControlBase):
     rows = Column(Integer, nullable=False, default=0)
     formula_ids = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class WalletLot(ControlBase):
+    """One grant of credit with its own expiry (Phase 15 T4-1, tech design §6.1, K-7).
+
+    Spent in order (W-3): daily → subscription → subscription bonus → top-ups
+    and grants by earliest ``expires_at``. ``paid`` lots are commissionable and
+    repay debt first (W-7); daily credits and staff grants are not.
+    """
+    __tablename__ = "wallet_lots"
+    __table_args__ = (
+        CheckConstraint("kind IN ('daily', 'subscription', 'subscription_bonus', 'topup', 'grant')",
+                        name="ck_wallet_lots_kind"),
+        CheckConstraint("remaining >= 0 AND original >= 0", name="ck_wallet_lots_amounts"),
+        Index("ix_wallet_lots_live", "company_id", "expires_at", postgresql_where=text("remaining > 0")),
+        # One daily lot per company and local date (DC-6, control_0016).
+        Index("uq_wallet_lots_daily_date", "company_id", "local_date", unique=True,
+              postgresql_where=text("kind = 'daily' AND local_date IS NOT NULL")),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    kind = Column(String(30), nullable=False)
+    currency = Column(CHAR(3), nullable=False)
+    original = Column(Numeric(24, 10), nullable=False)
+    remaining = Column(Numeric(24, 10), nullable=False)
+    granted_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    paid = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    source_type = Column(String(40), nullable=True)       # payment | subscription | daily_policy | staff | migration
+    source_id = Column(Text, nullable=True)
+    fx_rate_id = Column(UUID(as_uuid=True), nullable=True)
+    policy_id = Column(UUID(as_uuid=True), nullable=True)  # the daily-credit policy that granted it
+    local_date = Column(Date, nullable=True)              # a daily lot's day in the company's time zone
+
+
+class WalletEntry(ControlBase):
+    """An append-only line of the wallet's ledger (Phase 15 T4-1, W-9): every grant,
+    deduction, expiry, debt change and adjustment, with the balance and debt after it."""
+    __tablename__ = "wallet_entries"
+    __table_args__ = (
+        CheckConstraint("kind IN ('grant', 'deduct', 'expire', 'debt_add', 'debt_repay', 'adjust', 'refund', "
+                        "'convert')", name="ck_wallet_entries_kind"),
+        Index("ix_wallet_entries_company", "company_id", "created_at"),
+        Index("ix_wallet_entries_source", "source_type", "source_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    lot_id = Column(UUID(as_uuid=True), nullable=True)
+    kind = Column(String(20), nullable=False)
+    amount = Column(Numeric(24, 10), nullable=False)       # signed: + credit, − spent or expired
+    currency = Column(CHAR(3), nullable=False)
+    balance_after = Column(Numeric(24, 10), nullable=False)
+    debt_after = Column(Numeric(24, 10), nullable=False)
+    category = Column(String(30), nullable=True)            # a deduction's billing category
+    reason = Column(Text, nullable=True)
+    source_type = Column(String(40), nullable=True)         # settlement | payment | subscription | daily_policy | staff
+    source_id = Column(Text, nullable=True)
+    run_id = Column(UUID(as_uuid=True), nullable=True)      # W-2: what caused the spend
+    user_id = Column(UUID(as_uuid=True), nullable=True)
+    actor_id = Column(UUID(as_uuid=True), nullable=True)    # who did it (staff adjustments)
+    fx_rate_id = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class DailyCreditPolicy(ControlBase):
+    """Who gets daily credits, for how long (Phase 15 T5-5, tech design §7.1).
+
+    ``audience``: ``direct`` (tenants with no partner), ``partner`` (the
+    tenants of ``partner_id``) or ``all_partners`` (tenants of a partner with
+    no policy of its own). ``duration_days`` counts from the sign-up day (day
+    1); NULL is no end (only the policies migrated from the old flat amount).
+    """
+    __tablename__ = "daily_credit_policies"
+    __table_args__ = (
+        CheckConstraint("audience IN ('direct', 'partner', 'all_partners')", name="ck_daily_credit_policies_audience"),
+        CheckConstraint("(audience = 'partner') = (partner_id IS NOT NULL)", name="ck_daily_credit_policies_partner"),
+        CheckConstraint("duration_days IS NULL OR duration_days IN (0, 10, 15, 30, 60, 90, 180, 365)",
+                        name="ck_daily_credit_policies_duration"),
+        Index("ix_daily_credit_policies_audience", "audience", "partner_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    name = Column(Text, nullable=False)
+    audience = Column(String(20), nullable=False)
+    partner_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
+    duration_days = Column(Integer, nullable=True)
+    active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    effective_from = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow,
+                            server_default=text("now()"))
+    created_by = Column(UUID(as_uuid=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class DailyCreditBand(ControlBase):
+    """A policy's amount for days ``from_day``…``to_day`` of a company's life (§7.1, DC-2)."""
+    __tablename__ = "daily_credit_bands"
+    __table_args__ = (
+        CheckConstraint("from_day >= 1 AND to_day >= from_day", name="ck_daily_credit_bands_days"),
+        CheckConstraint("amount_usd >= 0", name="ck_daily_credit_bands_amount"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    policy_id = Column(UUID(as_uuid=True), ForeignKey("daily_credit_policies.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    from_day = Column(Integer, nullable=False)
+    to_day = Column(Integer, nullable=False)
+    amount_usd = Column(Numeric(24, 10), nullable=False)
+
+
+class CompanyDailyCreditOverride(ControlBase):
+    """One company's daily credits, whatever its policy (§7.2 step 1): ``none`` gives
+    nothing; ``custom`` gives ``amount_usd`` a day for ``duration_days`` (NULL: no
+    end) or until ``until``; ``policy`` follows the policies (the row records why)."""
+    __tablename__ = "company_daily_credit_overrides"
+    __table_args__ = (
+        CheckConstraint("mode IN ('policy', 'custom', 'none')", name="ck_company_daily_credit_overrides_mode"),
+        CheckConstraint("mode <> 'custom' OR amount_usd IS NOT NULL", name="ck_company_daily_credit_overrides_amount"),
+    )
+
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), primary_key=True)
+    mode = Column(String(10), nullable=False)
+    amount_usd = Column(Numeric(24, 10), nullable=True)
+    duration_days = Column(Integer, nullable=True)
+    until = Column(DateTime(timezone=True), nullable=True)
+    reason = Column(Text, nullable=True)
+    set_by = Column(UUID(as_uuid=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class PriceItem(ControlBase):
+    """A fixed price (Phase 15 T5-3, tech design §8.3): not rated by the formula.
+
+    ``amount_usd`` with per-currency overrides (``{"INR": 2000}``); an edit is a
+    new ``version`` (``price_item_versions`` keeps each), applying from each
+    recurring item's next charge.
+    """
+    __tablename__ = "price_items"
+    __table_args__ = (
+        CheckConstraint("kind IN ('recurring', 'one_time')", name="ck_price_items_kind"),
+        CheckConstraint("interval IS NULL OR interval IN ('month', 'year')", name="ck_price_items_interval"),
+        CheckConstraint("amount_usd >= 0", name="ck_price_items_amount"),
+    )
+
+    code = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    kind = Column(String(20), nullable=False)
+    interval = Column(String(10), nullable=True)
+    amount_usd = Column(Numeric(24, 10), nullable=False)
+    currency_overrides = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    taxable = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    updated_by = Column(UUID(as_uuid=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class PriceItemVersion(ControlBase):
+    """Every version a price item has had (append-only; for audit and invoices)."""
+    __tablename__ = "price_item_versions"
+    __table_args__ = (UniqueConstraint("code", "version", name="uq_price_item_versions"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    code = Column(Text, ForeignKey("price_items.code"), nullable=False)
+    version = Column(Integer, nullable=False)
+    amount_usd = Column(Numeric(24, 10), nullable=False)
+    currency_overrides = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    active = Column(Boolean, nullable=False)
+    reason = Column(Text, nullable=True)
+    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class CompanyLock(ControlBase):
+    """A value of a company its tenant (or partner) may not change (Phase 15 T5-4, §8.5, Q5).
+
+    A lock set by a partner blocks the tenant; one set by app_admin blocks the
+    tenant and the partner.
+    """
+    __tablename__ = "company_locks"
+    __table_args__ = (
+        CheckConstraint("key IN ('spend_cap', 'plan')", name="ck_company_locks_key"),
+        CheckConstraint("locked_by_role IN ('app_admin', 'partner')", name="ck_company_locks_role"),
+    )
+
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), primary_key=True)
+    key = Column(String(20), primary_key=True)
+    locked_by_role = Column(String(20), nullable=False)
+    locked_by = Column(UUID(as_uuid=True), nullable=True)
+    reason = Column(Text, nullable=True)
+    at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))

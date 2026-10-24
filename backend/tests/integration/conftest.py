@@ -27,6 +27,12 @@ import pytest_asyncio
 
 from tests.harness.infra import infra_unavailable
 
+# Every mapper, so a test module that imports only some models can still use them
+# (companies.billing_currency refers to currencies, a billing model; Phase 15).
+from src.common.orm_models import import_all_models  # noqa: E402
+
+import_all_models()
+
 
 # ---------------------------------------------------------------------------
 # DB session

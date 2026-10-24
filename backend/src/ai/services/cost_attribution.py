@@ -62,6 +62,7 @@ async def emit_cost_charged(
     amount: Decimal,
     latency_ms: int = 0,
     persisted: bool = True,
+    billed_usd: Optional[Decimal] = None,
 ) -> None:
     """Tell the run's execution page a usage row was written (P4.8).
 
@@ -79,6 +80,8 @@ async def emit_cost_charged(
             attribution=attribution,
             sku=sku,
             amount_usd=float(amount),
+            # What the customer is billed for it (Phase 15 T3-3): what non-staff viewers see (T9-3).
+            billed_usd=float(billed_usd) if billed_usd is not None else None,
             latency_ms=int(latency_ms or 0),
             persisted=persisted,
         )
@@ -161,6 +164,6 @@ class CostLedger:
         await emit_cost_charged(
             run_id=run_id, company_id=company_id, attribution=attribution,
             sku=str(sku_id) if sku_id else None, amount=amount,
-            latency_ms=latency_ms, persisted=commit,
+            latency_ms=latency_ms, persisted=commit, billed_usd=row.billed_usd,
         )
         return row

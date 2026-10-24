@@ -1,3 +1,4 @@
+import { formatBilled } from '@/utils/money';
 import React, { useState, useEffect, useCallback } from 'react';
 import { partnerService, TenantSummary, PartnerAnalytics } from '@/services/platform.service';
 import './PartnerDashboard.css';
@@ -75,7 +76,7 @@ const PartnerDashboard: React.FC = () => {
                     </div>
                     <div className="partner-stat-card cost">
                         <div className="stat-label">Platform Billing</div>
-                        <div className="stat-value">${analytics.total_cost_usd.toFixed(2)}</div>
+                        <div className="stat-value">{formatBilled(analytics, analytics.total_billed_usd ?? 0)}</div>
                         <div className="stat-sub">Total AI billing</div>
                     </div>
                 </div>
@@ -224,7 +225,7 @@ const PartnerDashboard: React.FC = () => {
                                 {selectedTenant.recent_executions.slice(0, 5).map((r: any) => (
                                     <div key={r.id} className="detail-row">
                                         <span className="label">{r.status}</span>
-                                        <span className="value">${(r.billed_amount != null ? r.billed_amount : r.total_cost_usd).toFixed(4)}</span>
+                                        <span className="value">{formatBilled(r, r.billed_amount ?? 0)}</span>
                                     </div>
                                 ))}
                             </div>

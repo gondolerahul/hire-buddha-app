@@ -1,4 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
+import { useAuth } from '@/hooks/useAuth';
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { JellyButton } from '@/components/ui';
 import { Info, Brain, Settings, Route, Wrench, Shield, Timer, Plus, Trash2, Volume2, VolumeX, ChevronDown, ChevronRight, AlertTriangle, Sliders, Database, Upload, User, GitBranch, Search, CheckSquare, Square, File, X, FolderOpen, Lock, FileText, Image, Music, Video, FileSpreadsheet } from 'lucide-react';
@@ -417,7 +418,11 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
     // ═══════════════════════════════════════════════════════════════════════════
     // TAB 5: SAFEGUARDS — "What are the limits?"
     // ═══════════════════════════════════════════════════════════════════════════
-    const [maxCostUsd, setMaxCostUsd] = useState<number | undefined>(entity?.governance?.max_cost_usd);
+    // The agent's budget: what one run may be billed, in the company's currency (Phase 15 T5-7).
+    const { user: signedIn } = useAuth();
+    const budgetCurrency = entity?.governance?.max_bill?.currency || signedIn?.billing_currency || 'INR';
+    const [maxBill, setMaxBill] = useState<string>(
+        entity?.governance?.max_bill?.amount != null ? String(entity.governance.max_bill.amount) : '');
     const [timeoutMs, setTimeoutMs] = useState(entity?.governance?.timeout_ms || 300000);
     // One setting (EP-28): governance.max_recursion_depth. Older entities kept the
     // builder's value in execution_limits; the backend folds it in.
@@ -807,7 +812,8 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
             },
 
             governance: {
-                max_cost_usd: maxCostUsd, timeout_ms: timeoutMs,
+                max_bill: maxBill.trim() ? { amount: maxBill.trim(), currency: budgetCurrency } : null,
+                timeout_ms: timeoutMs,
                 max_recursion_depth: maxRecursionDepth,
                 goal_validation_interval: goalValidationInterval,
                 execution_limits: { max_tool_calls: maxToolCalls },
@@ -1766,8 +1772,9 @@ export const EntityConfigurationTabs: React.FC<EntityConfigurationTabsProps> = (
                             <h3>Cost Controls</h3>
                             <div className="form-row">
                                 <div className="form-group">
-                                    <label>Max Cost (USD)</label>
-                                    <input type="number" step="0.01" value={maxCostUsd || ''} onChange={(e) => setMaxCostUsd(e.target.value ? parseFloat(e.target.value) : undefined)} placeholder="No limit" />
+                                    <label>Budget per run ({budgetCurrency})</label>
+                                    <input type="number" step="0.01" min="0" value={maxBill} onChange={(e) => setMaxBill(e.target.value)} placeholder="No limit" />
+                                    <small className="field-hint">What one run may be billed; a plan estimated above it does not start.</small>
                                 </div>
                                 <div className="form-group">
                                     <label className="checkbox-label">

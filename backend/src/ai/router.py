@@ -131,7 +131,17 @@ async def get_entity(
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
-    return _shown(await service.get_entity(entity_id, current_user.company_id, current_user.role))
+    entity = await service.get_entity(entity_id, current_user.company_id, current_user.role)
+    response = _shown(entity)
+    gov = entity.governance if isinstance(entity.governance, dict) else {}
+    if response.governance is not None and gov.get("max_cost_usd") and not gov.get("max_bill"):
+        # An agent saved before budgets were billed: its cap as the amount it bills (Phase 15 T5-7).
+        from src.ai.schemas.governance import MaxBill
+        from src.billing.agent_budget import max_bill_of
+        bill = await max_bill_of(db, entity.company_id, gov)
+        if bill:
+            response.governance.max_bill = MaxBill(amount=bill["amount"], currency=bill["currency"])
+    return response
 
 @router.put("/entities/{entity_id}", response_model=HierarchicalEntityResponse)
 async def update_entity(
@@ -414,6 +424,9 @@ async def stream_execution(
     import asyncio
 
     resume_after = start_id(request.headers.get("last-event-id") or last_event_id)
+    # Tenants and partners see billed amounts only (Phase 15 T9-3).
+    from src.billing.money_view import is_staff, sse_data
+    viewer = None if is_staff(current_user.role) else (str(current_user.role), current_user.company_id)
 
     async def event_generator():
         r = redis.from_url(settings.REDIS_URL or "redis://localhost:6379")
@@ -425,7 +438,7 @@ async def stream_execution(
                 frames = await read_run_events(r, execution_id, after, block_ms=wait)
                 for entry_id, data in frames:
                     after = entry_id
-                    yield f"id: {entry_id}\ndata: {data}\n\n"
+                    yield f"id: {entry_id}\ndata: {await sse_data(viewer, data)}\n\n"
                     if is_terminal(data):
                         return
                 if not frames:

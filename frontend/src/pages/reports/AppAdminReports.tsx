@@ -1,3 +1,4 @@
+import { formatMoney } from '@/utils/money';
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState } from 'react';
 import { useReport } from '@/queries/hooks';
@@ -73,10 +74,10 @@ const RevenueTab: React.FC = () => {
     return (
         <div className="tab-content">
             <div className="stats-grid-4">
-                <StatCard label="Total Credit Liability" value={fmtUSD(totals?.total_liability || 0)} icon={DollarSign} color="#e8885a" />
-                <StatCard label="Daily Credits" value={fmtUSD(totals?.total_daily_credits || 0)} icon={Clock} />
-                <StatCard label="Wallet Balances" value={fmtUSD(totals?.total_wallet_balance || 0)} icon={Database} />
-                <StatCard label="Subscription Credits" value={fmtUSD(totals?.total_subscription_credits || 0)} icon={TrendingUp} color="#4dbe8d" />
+                <StatCard label="Total Credit Liability" value={formatMoney(totals?.total_liability || 0, data?.display_currency)} icon={DollarSign} color="#e8885a" />
+                <StatCard label="Daily Credits" value={formatMoney(totals?.total_daily_credits || 0, data?.display_currency)} icon={Clock} />
+                <StatCard label="Wallet Balances" value={formatMoney(totals?.total_wallet_balance || 0, data?.display_currency)} icon={Database} />
+                <StatCard label="Subscription Credits" value={formatMoney(totals?.total_subscription_credits || 0, data?.display_currency)} icon={TrendingUp} color="#4dbe8d" />
             </div>
 
             <SectionTitle>Credit Liability by Company</SectionTitle>
@@ -111,10 +112,10 @@ const RevenueTab: React.FC = () => {
                                 <td>{w.company_name}</td>
                                 <td><span className={`badge badge-${w.company_type.toLowerCase()}`}>{w.company_type}</span></td>
                                 <td>{w.account_model}</td>
-                                <td className="num">{fmtUSD(w.daily_credits)}</td>
-                                <td className="num">{fmtUSD(w.wallet_balance)}</td>
-                                <td className="num">{fmtUSD(w.subscription_credits)}</td>
-                                <td className="num total highlight-col">{fmtUSD(w.total_available)}</td>
+                                <td className="num">{formatMoney(w.daily_credits, w.currency)}</td>
+                                <td className="num">{formatMoney(w.wallet_balance, w.currency)}</td>
+                                <td className="num">{formatMoney(w.subscription_credits, w.currency)}</td>
+                                <td className="num total highlight-col">{formatMoney(w.total_available, w.currency)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -479,10 +480,10 @@ const WalletTab: React.FC = () => {
     return (
         <div className="tab-content">
             <div className="stats-grid-4">
-                <StatCard label="Total Liability" value={fmtUSD(data?.totals.total_liability || 0)} icon={Database} color="#e8885a" />
-                <StatCard label="Daily Credits Pool" value={fmtUSD(data?.totals.total_daily_credits || 0)} icon={Clock} />
-                <StatCard label="PAYG Wallet Pool" value={fmtUSD(data?.totals.total_wallet_balance || 0)} icon={DollarSign} />
-                <StatCard label="Subscription Pool" value={fmtUSD(data?.totals.total_subscription_credits || 0)} icon={TrendingUp} color="#4dbe8d" />
+                <StatCard label="Total Liability" value={formatMoney(data?.totals.total_liability || 0, data?.display_currency)} icon={Database} color="#e8885a" />
+                <StatCard label="Daily Credits Pool" value={formatMoney(data?.totals.total_daily_credits || 0, data?.display_currency)} icon={Clock} />
+                <StatCard label="PAYG Wallet Pool" value={formatMoney(data?.totals.total_wallet_balance || 0, data?.display_currency)} icon={DollarSign} />
+                <StatCard label="Subscription Pool" value={formatMoney(data?.totals.total_subscription_credits || 0, data?.display_currency)} icon={TrendingUp} color="#4dbe8d" />
             </div>
 
             <div className="two-col-grid">
@@ -503,12 +504,12 @@ const WalletTab: React.FC = () => {
                 <div>
                     <SectionTitle>Low Balance Alert</SectionTitle>
                     <div className="alert-list">
-                        {wallets.filter(w => w.total_available < 2).map(w => (
+                        {wallets.filter(w => w.total_available_display < 200).map(w => (
                             <div key={w.company_id} className="alert-card glass alert-danger">
                                 <AlertTriangle size={16} />
                                 <div>
                                     <p className="alert-name">{w.company_name}</p>
-                                    <p className="alert-value">Only {fmtUSD(w.total_available)} remaining</p>
+                                    <p className="alert-value">Only {formatMoney(w.total_available, w.currency)} remaining</p>
                                 </div>
                             </div>
                         ))}

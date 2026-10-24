@@ -214,22 +214,24 @@ async def test_a_media_tool_is_billed_as_media(db, test_company_id, no_platform_
 
 @pytest.mark.asyncio
 async def test_a_settlement_adds_lines_in_the_company_currency_and_a_shadow_row(db, test_company_id, no_platform_formula):
+    """The settlement (T3-5) charges the rated rows of the run and its descendants once,
+    adds them to the day's lines by category, and records the shadow comparison."""
     from src.ai.orm import ExecutionRun, HierarchicalEntity
-    from src.billing.shadow import record_settlement
+    from src.billing.settlement import settle_run
 
     await set_formula(db, scope="company", scope_id=test_company_id, mf=Decimal("1.5"), pf=Decimal("0.2"),
                       d=Decimal(0), actor=STAFF)
     agent = HierarchicalEntity(company_id=test_company_id, type="AGENT", status="ACTIVE", name="t34")
     db.add(agent)
     await db.flush()
-    parent = ExecutionRun(entity_id=agent.id, company_id=test_company_id, status="COMPLETED", input_data={})
+    parent = ExecutionRun(entity_id=agent.id, company_id=test_company_id, status="COMPLETED", input_data={},
+                          total_cost_usd=Decimal("0.42"))
     db.add(parent)
     await db.flush()
     child = ExecutionRun(entity_id=agent.id, company_id=test_company_id, status="COMPLETED", input_data={},
                          parent_run_id=parent.id, depth=1)
     db.add(child)
     await db.flush()
-    formula = await formula_for_run(db, test_company_id, parent.id)
     for run_id, attribution, cost in [(parent.id, "planner", "0.10"), (child.id, "actor_step", "0.30"),
                                       (child.id, "sandbox", "0.02")]:
         row = UsageLog(company_id=test_company_id, run_id=run_id, raw_quantity=Decimal(1),
@@ -239,20 +241,18 @@ async def test_a_settlement_adds_lines_in_the_company_currency_and_a_shadow_row(
         db.add(row)
     await db.flush()
 
-    total = Decimal("0.42")
-    for _ in range(2):                                    # two settlements on one day add up
-        await record_settlement(db, db, company_id=test_company_id, run_id=parent.id, subject_type="run",
-                                grouping_type="entity", grouping_id=agent.id, v1_cost_usd=total,
-                                v1_billed_usd=formula.rate(total))
+    first = await settle_run(db, db, parent)
+    second = await settle_run(db, db, parent)                  # a retried finalisation charges nothing
+    assert first.claimed and not second.claimed and first.billed_usd == Decimal("0.756")
     lines = {line.category: line for line in (await db.execute(
         select(BillingLine).where(BillingLine.company_id == test_company_id))).scalars().all()}
     assert set(lines) == {"ai_models", "sandbox"}
     ai = lines["ai_models"]
-    assert (ai.currency, ai.rows, ai.cost_usd) == ("INR", 4, Decimal("0.8"))
-    assert ai.billed_usd == Decimal("1.44") and ai.billed_ccy == Decimal("144")     # 1.8 × 0.8; × 100 INR
+    assert (ai.currency, ai.rows, ai.cost_usd) == ("INR", 2, Decimal("0.4"))
+    assert ai.billed_usd == Decimal("0.72") and ai.billed_ccy == Decimal("72")     # 1.8 × 0.4; × 100 INR
     shadows = (await db.execute(select(BillingShadowDiff).where(
         BillingShadowDiff.subject_id == parent.id))).scalars().all()
-    assert len(shadows) == 2 and all(s.diff_usd == 0 and s.rows == 3 for s in shadows)
+    assert len(shadows) == 1 and shadows[0].diff_usd == 0 and shadows[0].rows == 3
     assert shadows[0].v2_billed_usd == Decimal("0.756")
 
 

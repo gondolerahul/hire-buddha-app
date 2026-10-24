@@ -73,6 +73,10 @@ app = FastAPI(title="HireBuddha Platform", version="0.2.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+# Tenants and partners see billed amounts only, in their currency (Phase 15 T9-3).
+from src.billing.money_view import MoneyViewMiddleware  # noqa: E402
+
+app.add_middleware(MoneyViewMiddleware)
 
 # Split tenancy: a company whose database is not ready yet (being provisioned,
 # or never requested) gets a 503 that says so, not a 500 (Phase 14 WS2 2.9).
@@ -174,6 +178,11 @@ mount_optional(app, "src.billing.credits_router")
 mount_optional(app, "src.billing.razorpay_webhook")  # POST /api/v1/credits/razorpay/webhook
 mount_optional(app, "src.billing.currency_router")  # /api/v1/admin/currencies, fx-rates … (Phase 15 T2-4)
 mount_optional(app, "src.billing.shadow_router")  # /api/v1/admin/billing-shadow (Phase 15 T3-7)
+mount_optional(app, "src.billing.settings_router")  # /api/v1/admin/billing-settings (Phase 15 T5-1)
+mount_optional(app, "src.billing.wallet_router")  # /api/v1/admin/wallets, /api/v1/credits/ledger (Phase 15 T4-1, T2-7)
+mount_optional(app, "src.billing.daily_credits_router")  # /api/v1/admin/daily-credits (Phase 15 T5-5)
+mount_optional(app, "src.billing.price_items_router")  # /api/v1/admin/price-items (Phase 15 T5-3)
+mount_optional(app, "src.billing.locks")  # /api/v1/companies/{id}/locks (Phase 15 T5-4)
 mount_optional(app, "src.billing.cron_router")
 
 # Analytics & Reports

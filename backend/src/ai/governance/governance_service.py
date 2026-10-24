@@ -12,7 +12,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from src.billing.credit_service import CreditService, InsufficientCreditsError, SpendCapReached, minimum_threshold
+from src.billing.credit_service import CreditService, InsufficientCreditsError, SpendCapReached
 from src.billing.billing_service import BillingService
 from src.billing.formulas import formula_for_run
 from src.ai.orm import HumanApproval, ExecutionRun
@@ -43,21 +43,21 @@ class GovernanceService:
     async def check_credit_gate(
         self, run: 'ExecutionRun', entity_type: str, estimate: Decimal,
     ) -> Decimal:
-        """Admit a top-level run and hold its estimated bill.
+        """Admit a top-level run and hold its estimated bill (``estimate`` USD, §6.4).
 
-        Raises InsufficientCreditsError when less than the entity type's
-        minimum is free (the wallet minus other runs' holds). Returns the
-        amount held. Errors reading the wallet propagate: a run whose credit
-        cannot be checked does not start (before BC-05 this gate swallowed
-        them — and had no callers at all). A company at its monthly spend cap
-        is refused first (``SpendCapReached``, GH-18).
+        Refused — ``SpendCapReached`` (GH-18), ``WalletBlocked`` (the wallet is
+        in debt or worse, §6.3) or InsufficientCreditsError (less than the
+        level's ``admission.min_balance`` free) — before anything runs. Returns
+        the amount held, in the wallet's currency. Errors reading the wallet
+        propagate: a run whose credit cannot be checked does not start (BC-05).
         """
+        from src.billing.settings_catalogue import min_balance
+
         await self.credit_service.check_spend_cap(run.company_id)
-        held = await self.credit_service.place_hold(
-            run.company_id, run.id, estimate, minimum_threshold(entity_type)
-        )
+        floor = await min_balance(self.db, run.company_id, entity_type)
+        held = await self.credit_service.place_hold(run.company_id, run.id, estimate, floor)
         logger.info(
-            f"Credit gate passed for run {run.id}: holding ${held:.4f} "
+            f"Credit gate passed for run {run.id}: holding {held:.4f} "
             f"(estimate ${estimate:.4f}, entity_type={entity_type})"
         )
         return held
@@ -65,14 +65,18 @@ class GovernanceService:
     async def check_credit_circuit_breaker(
         self, run: 'ExecutionRun', accumulated_cost: Decimal,
     ) -> None:
-        """Stop a run once its bill so far reaches the credit it may spend.
+        """Stop a run once its bill so far uses up what it may spend (§6.3).
 
-        The bill is ``accumulated_cost`` (raw provider cost) through the TB
-        formula — what settlement will charge. The credit it may spend is the
-        wallet minus other runs' holds. Raises InsufficientCreditsError to
+        The bill is ``accumulated_cost`` (raw provider cost) through the
+        formula — what settlement will charge. What the run may spend is the
+        free credit (the wallet minus other work's holds) plus the wallet's
+        negative tolerance, less any debt; a wallet over its tolerance or
+        suspended stops every running run. Raises InsufficientCreditsError to
         stop; a failure to read the wallet is logged and the run continues
         (settlement still charges it).
         """
+        from src.billing.wallet import money
+
         try:
             formula = await formula_for_run(self.db, run.company_id, run.id)
             billed = formula.rate(accumulated_cost)
@@ -86,68 +90,68 @@ class GovernanceService:
             logger.warning(f"Spend cap reached mid-execution for run {run.id}. Stopping.")
             raise SpendCapReached(f"Execution stopped: {capped} Partial results saved.")
         try:
-            balance = await self.credit_service.get_balance(run.company_id)
-            others = await self.credit_service.held_by_others(run.company_id, run.id)
-            spendable = Decimal(str(balance["total_available"])) - others
+            headroom, balance = await self.credit_service.headroom(run.company_id, run.id, billed)
         except Exception as e:
             from src.common.gates import gate_failed
             gate_failed("credit_breaker", e, run_id=str(run.id), company_id=str(run.company_id))
             return
-        if spendable - billed <= 0:
+        if headroom <= 0:
+            currency = balance["currency"]
             logger.warning(
-                f"Credit exhausted mid-execution for run {run.id}: billed so far "
-                f"${billed:.4f}, spendable ${spendable:.4f}. Stopping."
+                f"Credit exhausted mid-execution for run {run.id}: billed so far ${billed:.4f}, "
+                f"headroom {headroom:.4f} {currency}, wallet {balance['state']}. Stopping."
             )
+            if balance["state"] in ("over_tolerance", "suspended"):
+                reason = f"the wallet owes {money(balance['debt'], currency)}, over its limit"
+            else:
+                reason = (f"credit balance exhausted (free {money(max(balance['free'], Decimal(0)), currency)}, "
+                          f"billed so far ${billed:.4f})")
             raise InsufficientCreditsError(
-                f"Execution stopped: credit balance exhausted. Billed so far: ${billed:.4f}; "
-                f"credit available to this run: ${max(spendable, Decimal('0')):.4f}. "
-                f"Partial results saved. Please top up credits and retry."
+                f"Execution stopped: {reason}. Partial results saved. Please top up credits and retry."
             )
 
     async def check_child_credit_gate(
-        self, company_id: UUID, parent_accumulated_cost: 'Decimal', child_entity_id: str = ""
+        self, company_id: UUID, parent_accumulated_cost: 'Decimal', child_entity_id: str = "",
+        *, run_id: Optional[UUID] = None,
     ) -> None:
         """Pre-spawn credit gate for child entities.
 
-        Checks that the parent wallet still has credits remaining before
-        launching a potentially expensive child entity. Raises
-        InsufficientCreditsError if the wallet is drained.
-
-        Phase 10E: Extracted from step_executor.py to route all billing
-        through GovernanceService.
+        A child does not start when the wallet is in debt or worse (§6.3), nor
+        when the parent's bill so far (``parent_accumulated_cost`` through the
+        formula) leaves the parent no headroom. Raises
+        InsufficientCreditsError; an unreadable wallet is logged and the spawn
+        goes ahead (the parent's breaker still watches it).
         """
+        from src.billing.credit_service import state_refusal
+        from src.billing.formulas import formula_for
+
         try:
-            effective = await self.credit_service.get_effective_balance(
-                company_id, parent_accumulated_cost
-            )
-            if effective <= 0:
+            billed = (await formula_for(self.db, company_id)).rate(parent_accumulated_cost)
+            headroom, balance = await self.credit_service.headroom(company_id, run_id, billed)
+            refusal = state_refusal(balance)
+            if refusal:
+                raise InsufficientCreditsError(f"Cannot spawn child entity {child_entity_id}: {refusal}")
+            if headroom <= 0:
                 raise InsufficientCreditsError(
-                    f"Cannot spawn child entity {child_entity_id}: parent run has accumulated "
-                    f"${parent_accumulated_cost:.4f} cost with no remaining credits. "
-                    f"Please top up credits and retry."
+                    f"Cannot spawn child entity {child_entity_id}: the parent run has been billed "
+                    f"${billed:.4f} with no credit left. Please top up credits and retry."
                 )
-            logger.info(
-                f"Child run credit gate passed: ${effective:.4f} remaining "
-                f"(parent accumulated: ${parent_accumulated_cost:.4f})"
-            )
+            logger.info(f"Child run credit gate passed: {headroom:.4f} {balance['currency']} of headroom")
         except InsufficientCreditsError:
             raise
         except Exception as e:
             logger.warning(f"Child run credit gate check failed: {e}")
 
     # ------------------------------------------------------------------
-    # TB Billing Settlement
+    # Settlement (Phase 15 T3-5: src.billing.settlement)
     # ------------------------------------------------------------------
 
     async def settle_billing(
         self, run: 'ExecutionRun', entity_name: str
     ) -> Decimal:
-        """
-        Final billing settlement for top-level runs using TB formula.
-
-        Computes billed amount, deducts remaining credits, and records
-        the billing event. Returns the billed amount.
-        """
+        """Settle a finished top-level run: its usage rows and its descendants',
+        charged once to the wallet (into debt if need be). Returns the billed
+        amount (USD)."""
         if run.parent_run_id:
             return Decimal("0")  # Only top-level runs settle
         try:
@@ -160,93 +164,39 @@ class GovernanceService:
                 logger.warning(f"Could not release the credit hold of run {run.id}: {e}")
 
     async def _settle(self, run: 'ExecutionRun', entity_name: str) -> Decimal:
-        raw_cost = run.total_cost_usd
-        logger.info(
-            f"Final billing settlement for top-level run {run.id}. Total cost: {raw_cost}"
-        )
-
-        total_cost: Decimal = (
-            Decimal(str(raw_cost)) if raw_cost is not None else Decimal("0")
-        )
-
-        if total_cost <= Decimal("0"):
-            run.billed_amount = Decimal("0")
-            logger.info(f"Run {run.id} cost is 0, no credits deducted.")
-            return Decimal("0")
-
-        try:
-            # The billed amount: the formula the run's usage rows were rated
-            # with (T3-2, T3-3) — the same amount, as the formula is linear.
-            formula = await formula_for_run(self.db, run.company_id, run.id)
-            billed_amount = formula.rate(total_cost)
-
-            # Store billed amount on the run record (its tenant database)
-            run.billed_amount = billed_amount
-            await self.db.commit()
-
-            logger.info(
-                f"TB formula: raw=${total_cost} → billed=${billed_amount} "
-                f"(mf={formula.mf}, pf={formula.pf}, d={formula.d}, formula {formula.id or formula.scope})"
-            )
-            return await self._charge(run, entity_name, total_cost, billed_amount)
-
-        except Exception as billing_err:
-            logger.warning(
-                f"Billing/credit deduction failed for run {run.id}: {billing_err}"
-            )
-            return Decimal("0")
-
-    async def _charge(self, run: 'ExecutionRun', entity_name: str,
-                      total_cost: Decimal, billed_amount: Decimal) -> Decimal:
         """The control side of a settlement, in one control transaction (WS2
-        2.6): claim the run's settlement, deduct, record the billing event —
-        or nothing at all when the run was settled before."""
+        2.6): claim the run's settlement, charge its rows, record the billing
+        event — or nothing at all when the run was settled before. A failure
+        leaves the rows unsettled for the hourly job (T3-6)."""
+        from src.billing.enforcement import wallet_changed
+        from src.billing.settlement import settle_run
         from src.common.tenancy.session import control_db_for
 
-        async with control_db_for(self.db) as control:
-            credits, billing = CreditService(control), BillingService(control)
-            if not await credits.claim_settlement(run.company_id, run.id, billed_amount):
-                # The claim changed nothing; with one database ``control`` is
-                # the run's own session, which a rollback would expire.
-                logger.warning(f"Run {run.id} is already settled; not charged again")
-                return Decimal("0")
-
-            # Final settlement: deduct whatever remains
-            settlement = await credits.consume_incremental(
-                run.company_id, billed_amount, commit=False
-            )
-            if settlement["exhausted"]:
-                logger.warning(
-                    f"BILLING SHORTFALL for run {run.id}: "
-                    f"billed=${billed_amount}, shortfall=${settlement['shortfall']:.4f}. "
-                    f"Wallet drained to $0. Deducted: {settlement}"
-                )
-            else:
-                logger.info(
-                    f"Credits deducted for run {run.id}: {settlement} "
-                    f"(billed: ${billed_amount})"
-                )
-
-            # Record billing event
-            await billing.record_billing_event(
-                company_id=run.company_id,
-                base_cost=total_cost,
-                grouping_type="process",
-                grouping_value=entity_name,
-                other_ai_cost=total_cost,
-                commit=False,
-            )
-            # Its billing lines and the shadow comparison (Phase 15 T3-4, T3-7).
-            from src.billing.shadow import record_settlement
-            await record_settlement(self.db, control, company_id=run.company_id, run_id=run.id,
-                                    subject_type="run", grouping_type="entity", grouping_id=run.entity_id,
-                                    v1_cost_usd=total_cost, v1_billed_usd=billed_amount)
-            await control.commit()
-        logger.info(
-            f"Billing event recorded for run {run.id}: "
-            f"raw=${total_cost}, billed=${billed_amount}"
-        )
-        return billed_amount
+        try:
+            async with control_db_for(self.db) as control:
+                settled = await settle_run(self.db, control, run, grouping_type="entity",
+                                           grouping_id=run.entity_id)
+                if not settled.claimed:
+                    # Nothing changed; with one database ``control`` is the
+                    # run's own session, which a rollback would expire.
+                    logger.warning(f"Run {run.id} is already settled; not charged again")
+                    return Decimal("0")
+                if settled.cost_usd > 0:
+                    # Billing events stay for the reports until billing lines replace them (T3-8).
+                    await BillingService(control).record_billing_event(
+                        company_id=run.company_id, base_cost=settled.cost_usd, grouping_type="process",
+                        grouping_value=entity_name, other_ai_cost=settled.cost_usd, commit=False)
+                await control.commit()
+                change = settled.change
+            run.billed_amount = settled.billed_usd
+            await self.db.commit()
+        except Exception as billing_err:
+            logger.warning(f"Settlement of run {run.id} failed (the hourly job retries it): {billing_err}")
+            return Decimal("0")
+        logger.info(f"Run {run.id} settled: {len(settled.rows)} rows, billed ${settled.billed_usd} "
+                    f"= {settled.billed_ccy} {settled.currency}")
+        await wallet_changed(self.db, run.company_id, change)
+        return settled.billed_usd
 
     # ------------------------------------------------------------------
     # HITL Checkpoint Evaluation

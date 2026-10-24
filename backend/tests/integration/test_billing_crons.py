@@ -1,9 +1,11 @@
-"""The billing crons run on a schedule, and the daily one is safe to re-run (BC-04, BC-18).
+"""The billing crons run on a schedule, and the wallet tick is safe to re-run (BC-04, BC-18, Phase 15 M15.2).
 
 Before: nothing scheduled either billing job — they were admin endpoints only —
 and the daily job assigned every wallet a full day's credits, so running it
 again mid-day handed back whatever had been spent. Abandoned checkouts stayed
-``pending`` / ``pending_payment`` forever.
+``pending`` / ``pending_payment`` forever. Since M15.2 the daily job is the
+wallet tick (every 15 minutes): lot expiry, daily credits once per local date,
+enforcement.
 """
 from __future__ import annotations
 
@@ -13,58 +15,72 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, text
+from sqlalchemy import select
 
-from src.billing.billing_models import CreditWallet, PaymentTransaction, Subscription
+from src.billing.billing_models import (
+    CreditWallet, DailyCreditBand, DailyCreditPolicy, PaymentTransaction, Subscription, WalletEntry, WalletLot,
+)
 from src.billing.cron_service import CronService
+from src.billing.wallet import WalletService
+from tests.harness.wallet import available, fund
 
 pytestmark = pytest.mark.needs_db
 
 
 async def _company(db):
     from src.auth.models import Company
-    c = Company(name=f"cron-{uuid.uuid4().hex[:6]}", type="TENANT", status="active")
+    c = Company(name=f"cron-{uuid.uuid4().hex[:6]}", type="TENANT", status="active", billing_currency="USD")
     db.add(c)
     await db.flush()
     return c.id
 
 
-async def _daily(db, company_id) -> Decimal:
-    w = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == company_id)
-                          .execution_options(populate_existing=True))).scalar_one()
-    return Decimal(str(w.daily_credits))
+async def _direct_policy(db, amount="1.25"):
+    policy = DailyCreditPolicy(name=f"cron direct {uuid.uuid4().hex[:4]}", audience="direct", duration_days=None,
+                               effective_from=datetime.utcnow() - timedelta(days=1))
+    db.add(policy)
+    await db.flush()
+    db.add(DailyCreditBand(policy_id=policy.id, from_day=1, to_day=100000, amount_usd=Decimal(amount)))
+    await db.flush()
+    return policy
 
 
-def test_the_worker_schedules_both_billing_crons():
+def test_the_worker_schedules_the_billing_crons():
     from src.ai.worker import WorkerSettings
     names = {c.name for c in WorkerSettings.cron_jobs}
-    assert any("billing_daily_credits" in n for n in names), names
-    assert any("billing_subscription_reconciliation" in n for n in names), names
+    for job in ("billing_wallet_tick", "billing_settle_standalone", "billing_wallet_check",
+                "billing_subscription_reconciliation"):
+        assert any(job in n for n in names), (job, names)
 
 
 @pytest.mark.asyncio
-async def test_rerunning_the_daily_job_does_not_refill_spent_credits(db):
+async def test_rerunning_the_tick_does_not_refill_spent_daily_credits(db):
+    await _direct_policy(db, "1.25")
     company = await _company(db)
-    db.add(CreditWallet(company_id=company, daily_credits=Decimal("1.25"),
-                        daily_expires_at=datetime.utcnow() + timedelta(hours=6)))
-    await db.flush()
     await CronService(db).run_daily_credit_job()
+    assert await available(db, company) == Decimal("1.25")
+    await WalletService(db).deduct(company, Decimal("1"), source_type="test")
     await CronService(db).run_daily_credit_job()
-    assert await _daily(db, company) == Decimal("1.25")
+    assert await available(db, company) == Decimal("0.25")
+    lots = (await db.execute(select(WalletLot).where(WalletLot.company_id == company,
+                                                     WalletLot.kind == "daily"))).scalars().all()
+    assert len(lots) == 1
 
 
 @pytest.mark.asyncio
-async def test_the_daily_job_renews_expired_credits(db):
+async def test_the_tick_expires_lots_past_their_expiry(db):
     company = await _company(db)
-    db.add(CreditWallet(company_id=company, daily_credits=Decimal("0.10"),
-                        daily_expires_at=datetime.utcnow() - timedelta(minutes=1)))
+    await fund(db, company, "3", expires_in=timedelta(minutes=5))
+    lot = (await db.execute(select(WalletLot).where(WalletLot.company_id == company))).scalar_one()
+    lot.expires_at = datetime.utcnow() - timedelta(minutes=1)
     await db.flush()
-    configured = (await db.execute(text(
-        "select default_daily_credits from billing_config where company_id is null and is_active"))).scalar()
     await CronService(db).run_daily_credit_job()
-    assert await _daily(db, company) == Decimal(str(configured or 0))
-    w = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == company))).scalar_one()
-    assert w.daily_expires_at > datetime.utcnow()
+    await db.refresh(lot)
+    assert lot.remaining == 0
+    [entry] = (await db.execute(select(WalletEntry).where(WalletEntry.lot_id == lot.id,
+                                                          WalletEntry.kind == "expire"))).scalars().all()
+    assert entry.amount == Decimal("-3")
+    assert await WalletService(db).check(company) == []
 
 
 @pytest.mark.asyncio
@@ -99,7 +115,7 @@ async def test_a_payment_that_arrives_for_an_expired_order_is_still_credited(db)
     await db.flush()
     await CronService(db).reap_abandoned_checkouts()
     _, wallet, credited = await PaymentService(db).credit_topup(order_id=order_id, payment_id="pay_late")
-    assert credited and Decimal(str(wallet.wallet_balance)) == Decimal("5")
+    assert credited and await available(db, company) == Decimal("5")
 
 
 @pytest_asyncio.fixture
@@ -118,29 +134,28 @@ async def savepoint_db(_engine):
 
 
 @pytest.mark.asyncio
-async def test_one_company_failing_does_not_stop_the_daily_job(savepoint_db, monkeypatch):
+async def test_one_company_failing_does_not_stop_the_tick(savepoint_db, monkeypatch):
     """BC-31: the error handler's rollback expired every loaded company, so the
     next ``company.id`` raised MissingGreenlet and the whole job failed."""
-    from src.billing.credit_service import CreditService
+    import src.billing.daily_credits as daily
     db = savepoint_db
+    await _direct_policy(db, "0.10")
     ours = await _company(db)
-    db.add(CreditWallet(company_id=ours, daily_credits=Decimal("0.10"),
-                        daily_expires_at=datetime.utcnow() - timedelta(minutes=1)))
+    other = await _company(db)
     await db.commit()
 
-    renew = CreditService.renew_expired_credits
+    grant = daily.grant_today
     failed: list = []
 
-    async def renew_or_fail(self, company_id):
-        if not failed and company_id != ours:
+    async def grant_or_fail(session, company_id, **kwargs):
+        if company_id == other:
             failed.append(company_id)
             raise RuntimeError("wallet unavailable")
-        return await renew(self, company_id)
+        return await grant(session, company_id, **kwargs)
 
-    monkeypatch.setattr(CreditService, "renew_expired_credits", renew_or_fail)
+    monkeypatch.setattr(daily, "grant_today", grant_or_fail)
     result = await CronService(db).run_daily_credit_job()
 
-    assert failed and result["errors"] == 1 and result["processed"] >= 1
-    w = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == ours)
-                          .execution_options(populate_existing=True))).scalar_one()
-    assert w.daily_expires_at > datetime.utcnow()
+    assert failed and result["daily_credits"]["errors"] == 1 and result["processed"] >= 2
+    assert await available(db, ours) == Decimal("0.10")
+    assert (await db.execute(select(CreditWallet).where(CreditWallet.company_id == other))).first() is None

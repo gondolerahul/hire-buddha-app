@@ -16,6 +16,10 @@
 | PUT | `/api/v1/admin/automation/limits` | signed in | `src.automation.api` |
 | POST | `/api/v1/admin/automation/pause` | signed in | `src.automation.api` |
 | POST | `/api/v1/admin/automation/resume` | signed in | `src.automation.api` |
+| GET | `/api/v1/admin/billing-settings` | roles: app_admin | `src.billing.settings_router` |
+| DELETE | `/api/v1/admin/billing-settings/{key}` | roles: app_admin | `src.billing.settings_router` |
+| PUT | `/api/v1/admin/billing-settings/{key}` | roles: app_admin | `src.billing.settings_router` |
+| GET | `/api/v1/admin/billing-settings/{key}/history` | roles: app_admin | `src.billing.settings_router` |
 | GET | `/api/v1/admin/billing-shadow` | roles: app_admin | `src.billing.shadow_router` |
 | PUT | `/api/v1/admin/billing-shadow/mode` | roles: app_admin | `src.billing.shadow_router` |
 | GET | `/api/v1/admin/connectors` | roles: app_admin | `src.connections.api` |
@@ -25,17 +29,33 @@
 | GET | `/api/v1/admin/currencies` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/currency-settings` | roles: app_admin | `src.billing.currency_router` |
 | PUT | `/api/v1/admin/currency-settings` | roles: app_admin | `src.billing.currency_router` |
+| GET | `/api/v1/admin/daily-credits/companies/{company_id}` | roles: app_admin | `src.billing.daily_credits_router` |
+| GET | `/api/v1/admin/daily-credits/overrides` | roles: app_admin | `src.billing.daily_credits_router` |
+| DELETE | `/api/v1/admin/daily-credits/overrides/{company_id}` | roles: app_admin | `src.billing.daily_credits_router` |
+| PUT | `/api/v1/admin/daily-credits/overrides/{company_id}` | roles: app_admin | `src.billing.daily_credits_router` |
+| GET | `/api/v1/admin/daily-credits/policies` | roles: app_admin | `src.billing.daily_credits_router` |
+| POST | `/api/v1/admin/daily-credits/policies` | roles: app_admin | `src.billing.daily_credits_router` |
+| DELETE | `/api/v1/admin/daily-credits/policies/{policy_id}` | roles: app_admin | `src.billing.daily_credits_router` |
+| PUT | `/api/v1/admin/daily-credits/policies/{policy_id}` | roles: app_admin | `src.billing.daily_credits_router` |
+| POST | `/api/v1/admin/daily-credits/preview` | roles: app_admin | `src.billing.daily_credits_router` |
 | GET | `/api/v1/admin/fx-rates` | roles: app_admin | `src.billing.currency_router` |
 | POST | `/api/v1/admin/fx-rates` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/fx-rates/preview` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/oauth-apps` | roles: app_admin | `src.connections.api` |
 | PUT | `/api/v1/admin/oauth-apps/{provider}` | roles: app_admin | `src.connections.api` |
+| GET | `/api/v1/admin/price-items` | roles: app_admin | `src.billing.price_items_router` |
+| PUT | `/api/v1/admin/price-items/{code}` | roles: app_admin | `src.billing.price_items_router` |
+| GET | `/api/v1/admin/price-items/{code}/versions` | roles: app_admin | `src.billing.price_items_router` |
 | GET | `/api/v1/admin/tenant-servers` | roles: app_admin | `src.common.tenancy.api` |
 | GET | `/api/v1/admin/tenants` | roles: app_admin | `src.common.tenancy.api` |
 | POST | `/api/v1/admin/tenants` | roles: app_admin | `src.common.tenancy.api` |
 | GET | `/api/v1/admin/tenants/{company_id}` | roles: app_admin | `src.common.tenancy.api` |
 | POST | `/api/v1/admin/tenants/{company_id}/provision` | roles: app_admin | `src.common.tenancy.api` |
 | GET | `/api/v1/admin/unrouted-events` | roles: app_admin | `src.connections.api` |
+| GET | `/api/v1/admin/wallets` | roles: app_admin | `src.billing.wallet_router` |
+| GET | `/api/v1/admin/wallets/{company_id}` | roles: app_admin | `src.billing.wallet_router` |
+| POST | `/api/v1/admin/wallets/{company_id}/adjust` | roles: app_admin | `src.billing.wallet_router` |
+| POST | `/api/v1/admin/wallets/{company_id}/currency` | roles: app_admin | `src.billing.wallet_router` |
 | GET | `/api/v1/ai/admin/admin/decisions` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | POST | `/api/v1/ai/admin/admin/decisions` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
 | GET | `/api/v1/ai/admin/admin/exit_checklist` | roles: app_admin, partner_admin, tenant_admin | `src.ai.api.admin` |
@@ -208,6 +228,9 @@
 | GET | `/api/v1/companies/partners` | roles: app_admin | `src.auth.company_router` |
 | GET | `/api/v1/companies/tenants` | roles: app_admin, partner_admin | `src.auth.company_router` |
 | PATCH | `/api/v1/companies/{company_id}` | signed in | `src.auth.company_router` |
+| GET | `/api/v1/companies/{company_id}/locks` | signed in | `src.billing.locks` |
+| DELETE | `/api/v1/companies/{company_id}/locks/{key}` | signed in | `src.billing.locks` |
+| PUT | `/api/v1/companies/{company_id}/locks/{key}` | signed in | `src.billing.locks` |
 | GET | `/api/v1/config/cost-units` | signed in | `src.config.router` |
 | GET | `/api/v1/config/integrations` | signed in | `src.config.router` |
 | POST | `/api/v1/config/integrations` | signed in | `src.config.router` |
@@ -247,6 +270,7 @@
 | POST | `/api/v1/cortex/trees/{tree_id}/suspend` | signed in | `src.ai.memory.cortex_router` |
 | GET | `/api/v1/countries` | — | `src.billing.currency_router` |
 | GET | `/api/v1/credits/balance` | signed in | `src.billing.credits_router` |
+| GET | `/api/v1/credits/ledger` | signed in | `src.billing.wallet_router` |
 | POST | `/api/v1/credits/razorpay/webhook` | — | `src.billing.razorpay_webhook` |
 | GET | `/api/v1/credits/subscription-tiers` | signed in | `src.billing.credits_router` |
 | POST | `/api/v1/credits/subscription-tiers` | roles: app_admin | `src.billing.credits_router` |

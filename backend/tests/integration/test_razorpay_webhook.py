@@ -23,6 +23,7 @@ from src.auth.dependencies import get_current_user
 from src.billing import credits_router, razorpay_webhook
 from src.billing.billing_models import CreditWallet, PaymentTransaction
 from src.common.database import get_db
+from tests.harness.wallet import available
 
 pytestmark = pytest.mark.needs_db
 
@@ -68,7 +69,7 @@ async def _post(client, body: bytes, secret: str = WEBHOOK_SECRET):
 
 async def _company_and_order(db, amount="25.00"):
     from src.auth.models import Company
-    c = Company(name=f"webhook-{uuid.uuid4().hex[:6]}", type="TENANT", status="active")
+    c = Company(name=f"webhook-{uuid.uuid4().hex[:6]}", type="TENANT", status="active", billing_currency="USD")
     db.add(c)
     await db.flush()
     order_id = f"order_{uuid.uuid4().hex[:14]}"
@@ -81,7 +82,7 @@ async def _company_and_order(db, amount="25.00"):
 async def _balance(db, company_id) -> Decimal:
     w = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == company_id)
                           .execution_options(populate_existing=True))).scalar_one_or_none()
-    return Decimal(str(w.wallet_balance)) if w else Decimal("0")
+    return await available(db, company_id) if w else Decimal("0")
 
 
 async def _txn(db, order_id) -> PaymentTransaction:
@@ -111,7 +112,7 @@ async def test_webhook_then_browser_callback_credits_once(db, monkeypatch):
         sig = hmac.new(KEY_SECRET.encode(), f"{order}|pay_w2".encode(), hashlib.sha256).hexdigest()
         res = await client.post("/api/v1/credits/topup/verify", json={
             "razorpay_order_id": order, "razorpay_payment_id": "pay_w2", "razorpay_signature": sig})
-    assert res.json()["credits_added"] == 0.0
+    assert Decimal(res.json()["credits_added"]) == 0
     assert await _balance(db, company) == Decimal("25")
 
 

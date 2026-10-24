@@ -66,6 +66,8 @@ def test_tenancy_mode_is_single_unless_set(monkeypatch):
 APPENDIX_A_CONTROL = {
     "companies", "users", "refresh_tokens", "user_devices",
     "subscription_tiers", "subscriptions", "payment_transactions", "credit_wallets", "credit_holds",
+    "wallet_lots", "wallet_entries", "daily_credit_policies", "daily_credit_bands", "company_daily_credit_overrides",
+    "price_items", "price_item_versions", "company_locks",
     "billing_config", "billing_events", "usage_logs",
     "integration_registry", "model_task_defaults", "feature_flags", "tool_registry_entries",
     "phone_numbers", "webhook_endpoints",

@@ -31,9 +31,6 @@ from src.billing.credit_service import InsufficientCreditsError
 
 logger = logging.getLogger(__name__)
 
-# How many of the entity's recent finished runs the estimate averages.
-_HISTORY_RUNS = 10
-
 
 class CreditGuard:
     def __init__(self, db: Any, redis: Any, run: ExecutionRun, entity: Any) -> None:
@@ -59,8 +56,10 @@ class CreditGuard:
         average billed for the entity's last finished top-level runs."""
         from src.ai.planning.cost_estimator import estimate_plan_cost
         from src.billing.formulas import formula_for
+        from src.billing.settings_catalogue import value
 
         planned = (await formula_for(self.db, self.company_id)).rate(estimate_plan_cost(plan_steps, self.entity))
+        history_runs = await value(self.db, "admission.hold_history_runs")   # was 10 (Phase 15 T5-2)
         recent = (await self.db.execute(
             select(ExecutionRun.billed_amount)
             .where(ExecutionRun.entity_id == getattr(self.entity, "id", None),
@@ -68,10 +67,25 @@ class CreditGuard:
                    ExecutionRun.billed_amount.isnot(None),
                    ExecutionRun.billed_amount > 0)
             .order_by(ExecutionRun.created_at.desc())
-            .limit(_HISTORY_RUNS)
+            .limit(history_runs)
         )).scalars().all()
         history = sum((Decimal(str(b)) for b in recent), Decimal("0")) / len(recent) if recent else Decimal("0")
         return max(planned, history)
+
+    async def over_budget(self, plan_steps: list[Any]) -> Optional[str]:
+        """The refusal when the plan is estimated past the entity's own budget:
+        its ``governance.max_bill`` — billed, in the company's currency (Phase 15
+        T5-7) — else, for an agent saved before it, ``max_cost_usd`` (EP-I9).
+        Applies to child runs too."""
+        from src.ai.planning.cost_estimator import estimate_plan_cost
+        from src.billing.agent_budget import over_bill_cap
+        from src.billing.formulas import formula_for
+
+        gov = getattr(self.entity, "governance", None) or {}
+        if isinstance(gov, dict) and isinstance(gov.get("max_bill"), dict) and plan_steps:
+            billed = (await formula_for(self.db, self.company_id)).rate(estimate_plan_cost(plan_steps, self.entity))
+            return await over_bill_cap(self.db, self.company_id, gov, billed)
+        return self.over_own_cap(plan_steps)
 
     def over_own_cap(self, plan_steps: list[Any]) -> Optional[str]:
         """The refusal when the plan's estimated cost is past the entity's own
@@ -93,7 +107,7 @@ class CreditGuard:
 
     async def admit(self, entity_type: str, plan_steps: list[Any]) -> Optional[str]:
         """Hold the run's estimated bill. Returns the refusal, or None when admitted."""
-        over = self.over_own_cap(plan_steps)
+        over = await self.over_budget(plan_steps)
         if over:
             await event_async("agent.loop.plan_over_cap", run_id=str(self.run_id), reason=over)
             return over
@@ -111,7 +125,7 @@ class CreditGuard:
             gate_failed("credit_admission", exc, run_id=str(self.run_id), company_id=str(self.company_id))
             raise
         await event_async("agent.loop.credit_hold", run_id=str(self.run_id),
-                          held_usd=float(held), estimate_usd=float(estimate))
+                          held=float(held), estimate_usd=float(estimate))
         return None
 
     async def check(self, accumulated_cost: Decimal) -> None:

@@ -39,12 +39,12 @@ async def test_a_company_with_credit_takes_the_call(db):
 
 @pytest.mark.asyncio
 async def test_credit_held_by_running_runs_is_not_free(db):
-    from src.billing.credit_service import minimum_threshold
+    from src.billing.settings_catalogue import spec_for
 
-    floor = minimum_threshold("AGENT")
-    company = await _company(db, str(floor * 2))          # total_available is twice the floor…
+    floor = spec_for("admission.min_balance.call").default    # USD; the test company is billed in USD
+    company = await _company(db, str(floor * 2))          # the wallet holds twice the floor…
     run, _ = await _run(db, company)                       # …but a RUNNING run holds 1.5 floors
-    db.add(CreditHold(company_id=company, run_id=run.id, amount=floor * Decimal("1.5")))
+    db.add(CreditHold(company_id=company, run_id=run.id, amount=floor * Decimal("1.5"), currency="USD"))
     await db.flush()
     assert (await db.execute(select(CreditHold).where(CreditHold.run_id == run.id))).scalar_one()
 

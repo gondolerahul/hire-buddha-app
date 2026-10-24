@@ -2,8 +2,8 @@
 
 Budget lived only on each entity, so a company with forty agents had forty
 budgets and no single lever. ``companies.monthly_spend_cap_usd`` is what the
-company may be billed in a calendar month — its billing events, every settled
-run and call. At the cap nothing new starts (a run's admission, a call or a
+company may be billed in a calendar month — its billing lines, every
+settlement (Phase 15 T3-4, T3-5). At the cap nothing new starts (a run's admission, a call or a
 campaign's credit check) and a running run stops at its circuit breaker. No cap
 set means none. Real Postgres, rolled back.
 """
@@ -19,7 +19,7 @@ import pytest
 from fastapi import FastAPI
 
 from src.ai.core.exceptions import CreditExhaustedError
-from src.billing.billing_models import BillingEvent
+from src.billing.billing_models import BillingLine
 from src.billing.credit_service import CreditService, SpendCapReached
 
 from tests.integration.test_run_credit_guard import _admit, _company, _run
@@ -29,9 +29,10 @@ pytestmark = pytest.mark.needs_db
 
 async def _billed_this_month(db, company_id, amount: str):
     today = datetime.utcnow().date()
-    db.add(BillingEvent(company_id=company_id, period_month=date(today.year, today.month, 1),
-                        grouping_type="process", grouping_value=f"spender-{uuid.uuid4().hex[:6]}",
-                        base_cost=Decimal(amount), total_billing=Decimal(amount)))
+    db.add(BillingLine(company_id=company_id, period_day=date(today.year, today.month, 1), category="ai_models",
+                       grouping_type="entity", grouping_id=uuid.uuid4(), currency="USD",
+                       cost_usd=Decimal(amount), billed_usd=Decimal(amount), billed_ccy=Decimal(amount),
+                       quantity=Decimal(1), rows=1))
     await db.flush()
 
 

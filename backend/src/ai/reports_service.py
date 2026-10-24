@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Sequence
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import text, func, case, and_, or_, desc, asc
@@ -336,48 +337,59 @@ class ReportsService:
     # ─── Wallet Liability ─────────────────────────────────────────────────────
 
     async def get_wallet_liability(self) -> Dict[str, Any]:
-        """Global credit wallet balances (app_admin view)."""
-        q = select(
-            CreditWallet,
-            Company.name.label("company_name"),
-            Company.type.label("company_type"),
-        ).join(Company, CreditWallet.company_id == Company.id) \
-         .order_by(asc(CreditWallet.wallet_balance))
+        """Every wallet's credit and debt (app_admin view), by lot kind in its own
+        currency, with totals in the display currency (Phase 15 M15.2)."""
+        from src.billing.billing_models import WalletLot
+        from src.billing.currency import current_rate, to_ccy, to_usd
+        from src.billing.settings_catalogue import value
 
-        result = await self.db.execute(q)
-        rows = result.all()
-
+        display = str(await value(self.db, "billing.display_currency"))
+        display_rate = await current_rate(self.db, display)
+        now = datetime.utcnow()
+        lots = (await self.db.execute(
+            select(WalletLot.company_id, WalletLot.kind, func.sum(WalletLot.remaining))
+            .where(WalletLot.remaining > 0, (WalletLot.expires_at.is_(None)) | (WalletLot.expires_at > now))
+            .group_by(WalletLot.company_id, WalletLot.kind))).all()
+        by_company: Dict[Any, Dict[str, float]] = {}
+        for company_id, kind, amount in lots:
+            by_company.setdefault(company_id, {})[kind] = float(amount or 0)
+        rows = (await self.db.execute(
+            select(CreditWallet, Company.name.label("company_name"), Company.type.label("company_type"))
+            .join(Company, CreditWallet.company_id == Company.id))).all()
+        rates: Dict[str, Any] = {}
         wallets = []
-        total_daily = 0.0
-        total_wallet = 0.0
-        total_sub = 0.0
-
+        totals = {"daily": 0.0, "subscription": 0.0, "topup": 0.0, "debt": 0.0}
         for row in rows:
             w = row[0]
-            daily = float(w.daily_credits)
-            wallet = float(w.wallet_balance)
-            sub = float(w.subscription_credits)
-            total_daily += daily
-            total_wallet += wallet
-            total_sub += sub
-            wallets.append({
-                "company_id": str(w.company_id),
-                "company_name": row.company_name,
-                "company_type": row.company_type,
-                "daily_credits": daily,
-                "wallet_balance": wallet,
-                "subscription_credits": sub,
-                "total_available": daily + wallet + sub,
-                "account_model": w.account_model,
-            })
+            kinds = by_company.get(w.company_id, {})
+            daily = kinds.get("daily", 0.0)
+            sub = kinds.get("subscription", 0.0) + kinds.get("subscription_bonus", 0.0)
+            topup = kinds.get("topup", 0.0) + kinds.get("grant", 0.0)
+            debt = float(w.debt or 0)
+            if w.currency not in rates:
+                rates[w.currency] = await current_rate(self.db, w.currency)
 
+            def shown(amount: float) -> float:
+                return float(to_ccy(to_usd(Decimal(str(amount)), rates[w.currency]), display_rate))
+            for key, amount in (("daily", daily), ("subscription", sub), ("topup", topup), ("debt", debt)):
+                totals[key] += shown(amount)
+            wallets.append({
+                "company_id": str(w.company_id), "company_name": row.company_name,
+                "company_type": row.company_type, "currency": w.currency, "state": w.state,
+                "daily_credits": daily, "wallet_balance": topup, "subscription_credits": sub,
+                "total_available": daily + sub + topup, "debt": debt,
+                "total_available_display": shown(daily + sub + topup), "account_model": w.account_model,
+            })
+        wallets.sort(key=lambda w: w["total_available_display"])
         return {
+            "display_currency": display,
             "wallets": wallets,
             "totals": {
-                "total_daily_credits": round(total_daily, 4),
-                "total_wallet_balance": round(total_wallet, 4),
-                "total_subscription_credits": round(total_sub, 4),
-                "total_liability": round(total_daily + total_wallet + total_sub, 4),
+                "total_daily_credits": round(totals["daily"], 4),
+                "total_wallet_balance": round(totals["topup"], 4),
+                "total_subscription_credits": round(totals["subscription"], 4),
+                "total_liability": round(totals["daily"] + totals["topup"] + totals["subscription"], 4),
+                "total_debt": round(totals["debt"], 4),
             },
         }
 
@@ -388,7 +400,7 @@ class ReportsService:
         company_id: UUID,
         days: int = 30,
     ) -> Dict[str, Any]:
-        """Per-channel cost breakdown from usage_logs."""
+        """Per-channel usage from usage_logs: cost (staff) and billed (everyone, Phase 15 T9-3)."""
         from src.config.models import IntegrationRegistry
         since = datetime.utcnow() - timedelta(days=days)
 
@@ -403,13 +415,14 @@ class ReportsService:
             func.count(UsageLog.id).label("calls"),
             func.sum(UsageLog.raw_quantity).label("total_qty"),
             func.sum(UsageLog.calculated_cost).label("total_cost"),
+            func.sum(UsageLog.billed_usd).label("total_billed"),
         ).outerjoin(IntegrationRegistry, UsageLog.sku_id == IntegrationRegistry.id) \
          .where(
             UsageLog.company_id == company_id,
             UsageLog.timestamp >= since,
         ) \
          .group_by(service, category) \
-         .order_by(desc("total_cost"))
+         .order_by(desc("total_billed"))
 
         result = await self.db.execute(q)
         rows = result.all()
@@ -421,6 +434,7 @@ class ReportsService:
                 "calls": r.calls,
                 "total_quantity": float(r.total_qty or 0),
                 "total_cost_usd": round(float(r.total_cost or 0), 6),
+                "billed_usd": round(float(r.total_billed or 0), 6),
             }
             for r in rows
         ]
@@ -429,6 +443,7 @@ class ReportsService:
         daily_q = select(
             func.date_trunc("day", UsageLog.timestamp).label("day"),
             func.sum(UsageLog.calculated_cost).label("cost"),
+            func.sum(UsageLog.billed_usd).label("billed"),
         ).where(
             UsageLog.company_id == company_id,
             UsageLog.timestamp >= since,
@@ -438,7 +453,8 @@ class ReportsService:
         daily_result = await self.db.execute(daily_q)
         daily_rows = daily_result.all()
         daily_trend = [
-            {"date": r.day.strftime("%Y-%m-%d"), "cost": round(float(r.cost or 0), 6)}
+            {"date": r.day.strftime("%Y-%m-%d"), "cost": round(float(r.cost or 0), 6),
+             "billed_usd": round(float(r.billed or 0), 6)}
             for r in daily_rows
             if r.day
         ]
@@ -447,6 +463,7 @@ class ReportsService:
             "channels": channels,
             "daily_trend": daily_trend,
             "total_cost_usd": sum(c["total_cost_usd"] for c in channels),
+            "total_billed_usd": sum(c["billed_usd"] for c in channels),
         }
 
     # ─── Tenant Health Scores ─────────────────────────────────────────────────
@@ -509,6 +526,7 @@ class ReportsService:
             func.count(ExecutionRun.id).label("cnt"),
             func.avg(ExecutionRun.execution_time_ms).label("avg_ms"),
             func.sum(ExecutionRun.total_cost_usd).label("total_cost"),
+            func.sum(ExecutionRun.billed_amount).label("total_billed"),
         ).where(
             ExecutionRun.company_id == company_id,
             ExecutionRun.created_at >= since,
@@ -518,7 +536,8 @@ class ReportsService:
         exec_rows = exec_result.all()
 
         status_breakdown = {
-            r.status: {"count": r.cnt, "avg_ms": float(r.avg_ms or 0), "total_cost": float(r.total_cost or 0)}
+            r.status: {"count": r.cnt, "avg_ms": float(r.avg_ms or 0), "total_cost": float(r.total_cost or 0),
+                       "billed_usd": float(r.total_billed or 0)}
             for r in exec_rows
         }
 
@@ -576,6 +595,7 @@ class ReportsService:
                 "status": run.status,
                 "input_data": run.input_data,
                 "total_cost_usd": float(run.total_cost_usd or 0),
+                "billed_amount": float(run.billed_amount) if run.billed_amount is not None else None,
                 "total_tokens": run.total_tokens,
                 "execution_time_ms": run.execution_time_ms,
                 "started_at": run.started_at.isoformat() if run.started_at else None,
@@ -601,6 +621,7 @@ class ReportsService:
                 "failed": failed,
                 "success_rate": round(completed / total * 100, 1) if total else 0,
                 "total_cost_usd": round(sum(t["total_cost_usd"] for t in tasks), 4),
+                "total_billed_usd": round(sum(t["billed_amount"] or 0 for t in tasks), 6),
                 "total_execution_ms": total_ms,
                 "estimated_time_saved_hours": round(estimated_manual_hours - actual_hours, 2),
             },
@@ -624,6 +645,7 @@ class ReportsService:
             func.count(ExecutionRun.id).label("cnt"),
             func.avg(ExecutionRun.execution_time_ms).label("avg_ms"),
             func.sum(ExecutionRun.total_cost_usd).label("total_cost"),
+            func.sum(ExecutionRun.billed_amount).label("total_billed"),
         ).join(ExecutionRun, HierarchicalEntity.id == ExecutionRun.entity_id) \
          .where(
             ExecutionRun.company_id == company_id,
@@ -651,8 +673,10 @@ class ReportsService:
                     "failed": 0,
                     "avg_ms": float(row.avg_ms or 0),
                     "total_cost": float(row.total_cost or 0),
+                    "billed_usd": 0.0,
                 }
             entity_map[eid]["total"] += row.cnt
+            entity_map[eid]["billed_usd"] += float(row.total_billed or 0)
             if row.status == "COMPLETED":
                 entity_map[eid]["completed"] = row.cnt
             elif row.status == "FAILED":
@@ -671,70 +695,56 @@ class ReportsService:
     # ─── Credit Depletion Forecast ─────────────────────────────────────────────
 
     async def get_credit_forecast(self, company_id: UUID) -> Dict[str, Any]:
-        """Burn rate trend and depletion forecast for tenant_admin / tenant_user."""
-        # Get wallet
-        wallet_q = select(CreditWallet).where(CreditWallet.company_id == company_id)
-        wallet_result = await self.db.execute(wallet_q)
-        wallet = wallet_result.scalar_one_or_none()
+        """Burn rate and depletion forecast for tenant_admin / tenant_user, in the
+        wallet's currency and billed amounts (Phase 15 M15.2, T9-3: never cost)."""
+        from src.billing.currency import current_rate, to_ccy
+        from src.billing.wallet import WalletService
 
+        wallet_q = select(CreditWallet).where(CreditWallet.company_id == company_id)
+        wallet = (await self.db.execute(wallet_q)).scalar_one_or_none()
         if not wallet:
             return {"error": "No wallet found", "forecast": None}
+        balance_now = await WalletService(self.db).balance(company_id)
+        kinds = balance_now["by_kind"]
+        total_balance = float(balance_now["available"])
+        rate = await current_rate(self.db, wallet.currency)
 
-        total_balance = float((wallet.daily_credits or 0) + (wallet.wallet_balance or 0) + (wallet.subscription_credits or 0))
-
-        # Daily burn rate from usage_logs (last 7 days)
+        # Daily billed burn from usage_logs (last 7 days), in the wallet's currency.
         since_7d = datetime.utcnow() - timedelta(days=7)
-        burn_q = select(
-            func.date_trunc("day", UsageLog.timestamp).label("day"),
-            func.sum(UsageLog.calculated_cost).label("daily_cost"),
-        ).where(
-            UsageLog.company_id == company_id,
-            UsageLog.timestamp >= since_7d,
-        ).group_by(text("1")) \
-         .order_by(text("1"))
-
-        burn_result = await self.db.execute(burn_q)
-        burn_rows = burn_result.all()
-
+        burn_rows = (await self.db.execute(
+            select(func.date_trunc("day", UsageLog.timestamp).label("day"),
+                   func.sum(UsageLog.billed_usd).label("daily_billed"))
+            .where(UsageLog.company_id == company_id, UsageLog.timestamp >= since_7d)
+            .group_by(text("1")).order_by(text("1")))).all()
         daily_burn = [
-            {"date": r.day.strftime("%Y-%m-%d"), "cost": round(float(r.daily_cost or 0), 6)}
-            for r in burn_rows
-            if r.day
+            {"date": r.day.strftime("%Y-%m-%d"),
+             "billed": round(float(to_ccy(Decimal(str(r.daily_billed or 0)), rate)), 6)}
+            for r in burn_rows if r.day
         ]
+        avg_daily_burn = sum(d["billed"] for d in daily_burn) / len(daily_burn) if daily_burn else 0
 
-        avg_daily_burn = (
-            sum(d["cost"] for d in daily_burn) / len(daily_burn)
-            if daily_burn else 0
-        )
-
-        # Project future balance
         projection = []
         balance = total_balance
         today = datetime.utcnow().date()
         for i in range(30):
             d = today + timedelta(days=i)
-            projection.append({
-                "date": d.strftime("%Y-%m-%d"),
-                "projected_balance": round(max(0, balance), 4),
-            })
-            balance -= avg_daily_burn
-            if balance <= 0:
-                balance = 0
-
-        days_remaining = (
-            int(total_balance / avg_daily_burn) if avg_daily_burn > 0 else 999
-        )
+            projection.append({"date": d.strftime("%Y-%m-%d"), "projected_balance": round(max(0, balance), 4)})
+            balance = max(0, balance - avg_daily_burn)
+        days_remaining = int(total_balance / avg_daily_burn) if avg_daily_burn > 0 else 999
 
         return {
+            "currency": wallet.currency,
             "wallet": {
-                "daily_credits": float(wallet.daily_credits or 0),
-                "wallet_balance": float(wallet.wallet_balance or 0),
-                "subscription_credits": float(wallet.subscription_credits or 0),
+                "daily_credits": float(kinds["daily"]),
+                "wallet_balance": float(kinds["topup"] + kinds["grant"]),
+                "subscription_credits": float(kinds["subscription"] + kinds["subscription_bonus"]),
                 "total_available": total_balance,
+                "debt": float(balance_now["debt"]),
+                "state": balance_now["state"],
                 "account_model": wallet.account_model,
             },
             "burn_rate": {
-                "avg_daily_usd": round(avg_daily_burn, 6),
+                "avg_daily": round(avg_daily_burn, 6),
                 "daily_history": daily_burn,
             },
             "forecast": {

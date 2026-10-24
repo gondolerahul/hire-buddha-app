@@ -1,4 +1,5 @@
-"""Phase 15 T0-3, T0-4: only a company's admins pay; a top-up is within bounds, in cents.
+"""Phase 15 T0-3, T0-4, T4-3: only a company's admins pay; a top-up is within bounds, in paise/cents,
+in the company's currency (the bounds are wallet.topup_min_usd / max_usd at today's rate: ₹500–₹10,00,000).
 
 Before, any user of a company (``tenant_user`` included) could top up,
 subscribe or cancel the subscription (B-15), and a top-up had no bounds:
@@ -82,20 +83,32 @@ async def test_a_non_admin_cannot_pay_subscribe_or_cancel(db, test_company_id, r
     assert options["can_pay"] is False and balance.status_code == 200   # still sees the wallet
 
 
+async def _in_rupees(db, company_id):
+    """The test company billed in INR, as an Indian tenant is (the rollback undoes it)."""
+    from sqlalchemy import text
+    await db.execute(text("UPDATE companies SET billing_currency = 'INR' WHERE id = :c"), {"c": company_id})
+    await db.execute(text("UPDATE credit_wallets SET currency = 'INR' WHERE company_id = :c"), {"c": company_id})
+    await db.flush()
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("amount", ["4.99", "10000.01", "10.005", "-5", "0"])
-async def test_a_top_up_outside_the_bounds_or_finer_than_a_cent_is_refused(db, test_company_id, razorpay, amount):
+@pytest.mark.parametrize("amount", ["499.99", "1000000.01", "1000.005", "-5", "0"])
+async def test_a_top_up_outside_the_bounds_or_finer_than_a_paisa_is_refused(db, test_company_id, razorpay, amount):
+    await _in_rupees(db, test_company_id)
     async with _client(db, "tenant_admin", test_company_id) as client:
         response = await client.post("/api/v1/credits/topup", json={"amount": amount})
     assert response.status_code == 422 and razorpay.created == []
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("amount,cents", [("5", 500), ("12.34", 1234), ("10000", 1_000_000)])
-async def test_an_admin_tops_up_the_exact_amount(db, test_company_id, razorpay, amount, cents):
+@pytest.mark.parametrize("amount,paise", [("500", 50_000), ("1234.56", 123_456), ("1000000", 100_000_000)])
+async def test_an_admin_tops_up_the_exact_amount(db, test_company_id, razorpay, amount, paise):
+    await _in_rupees(db, test_company_id)
     async with _client(db, "tenant_admin", test_company_id) as client:
         response = await client.post("/api/v1/credits/topup", json={"amount": amount})
         options = (await client.get("/api/v1/credits/topup-options")).json()
     assert response.status_code == 200
-    assert razorpay.created[-1]["amount"] == cents
-    assert options == {"currency": "USD", "min": 5.0, "max": 10000.0, "presets": [10, 25, 50, 100], "can_pay": True}
+    assert razorpay.created[-1]["amount"] == paise and razorpay.created[-1]["currency"] == "INR"
+    assert options == {"currency": "INR", "min": "500.00", "max": "1000000.00",
+                       "presets": ["1000.00", "2500.00", "5000.00", "10000.00"], "validity_days": 90,
+                       "can_pay": True}

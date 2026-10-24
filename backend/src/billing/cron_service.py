@@ -11,17 +11,13 @@ Both are scheduled by the Arq worker (``billing.jobs``, registered in
 ``cron_router.py``.
 """
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional
-from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from src.auth.models import Company
 from src.billing.billing_models import PaymentTransaction, Subscription
-from src.billing.credit_service import CreditService
 from src.billing.payment_service import (
     LIVE_SUBSCRIPTION_STATUSES, RAZORPAY_SUBSCRIPTION_STATUS, PaymentService, razorpay_time,
 )
@@ -29,56 +25,34 @@ from src.billing.razorpay_gateway import get_razorpay_creds, razorpay_client
 
 logger = logging.getLogger(__name__)
 
-# A checkout nobody completed within this long is abandoned (BC-18).
-ABANDONED_AFTER = timedelta(hours=24)
+# A checkout nobody completed within ``checkout.abandoned_after_hours`` is
+# abandoned (BC-18; a setting since Phase 15 T5-2, default 24).
 
 
 class CronService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _active_company_ids(self) -> list[UUID]:
-        """The ids of all active companies.
-
-        Ids, not ORM objects: a failed company's rollback expires every loaded
-        instance, and reading an expired one's ``id`` is a lazy load that an
-        async session refuses (MissingGreenlet), which ended the job (BC-31).
-        """
-        result = await self.db.execute(
-            select(Company.id).where(Company.status == "active")
-        )
-        return list(result.scalars().all())
-
     async def run_daily_credit_job(self) -> dict:
         """
-        Daily cron — renew every active company's daily credits that have
-        expired, then reap abandoned checkouts. Called at 00:00 UTC.
+        The wallet tick (every 15 minutes, Phase 15 M15.2): lots past their
+        expiry expire; each active company whose local date has no daily lot
+        gets today's (``src.billing.daily_credits``); wallet states are
+        enforced; then abandoned checkouts are reaped.
 
-        Credits that have not expired are left alone, so running the job
-        again the same day grants nothing (before BC-04 it reset every
-        wallet to a full day's credits on each run).
+        Running it again grants nothing twice: a daily lot is granted once per
+        company and local date (before BC-04 every run reset every wallet).
         """
-        logger.info("Starting daily credit renewal job")
-        company_ids = await self._active_company_ids()
-        credit_svc = CreditService(self.db)
-        processed = 0
-        errors = 0
+        from src.billing.wallet_jobs import tick
 
-        for company_id in company_ids:
-            try:
-                await credit_svc.renew_expired_credits(company_id)
-                processed += 1
-            except Exception as e:
-                # One company's failure (say, it was deleted mid-run) undoes only
-                # its own renewal; each earlier one is already committed.
-                logger.error(f"Daily credit job failed for company {company_id}: {e}")
-                await self.db.rollback()
-                errors += 1
-
+        logger.info("Starting the wallet tick")
+        result = await tick(self.db)
+        daily = result["daily_credits"]
         reaped = await self.reap_abandoned_checkouts()
-        logger.info(f"Daily credit job complete. Processed: {processed}, Errors: {errors}, Reaped: {reaped}")
-        return {"processed": processed, "errors": errors, **reaped,
-                "timestamp": datetime.utcnow().isoformat()}
+        logger.info(f"Wallet tick complete: {result}; reaped: {reaped}")
+        return {"processed": daily["companies"], "granted": daily["granted"],
+                "errors": daily["errors"] + result["expired"]["errors"] + result["enforcement"]["errors"],
+                **result, **reaped, "timestamp": datetime.utcnow().isoformat()}
 
     async def reap_abandoned_checkouts(self) -> dict:
         """Close checkouts nobody completed within a day (BC-18).
@@ -89,7 +63,8 @@ class CronService:
         that does arrive for an expired order is still credited — money that
         moved is never refused.
         """
-        cutoff = datetime.utcnow() - ABANDONED_AFTER
+        from src.billing.settings_catalogue import value
+        cutoff = datetime.utcnow() - timedelta(hours=await value(self.db, "checkout.abandoned_after_hours"))
         orders = (await self.db.execute(select(PaymentTransaction).where(
             PaymentTransaction.transaction_type == "topup",
             PaymentTransaction.status == "pending",

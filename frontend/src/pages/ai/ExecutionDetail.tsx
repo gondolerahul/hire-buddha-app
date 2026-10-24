@@ -1,4 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
+import { formatBilled } from '@/utils/money';
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { GlassCard, JellyButton } from '@/components/ui';
@@ -219,7 +220,7 @@ const StepDetailPanel: React.FC<{
                                     </div>
                                     <div className="log-card-stats">
                                         <span>{(log.prompt_tokens + log.completion_tokens).toLocaleString()} tokens</span>
-                                        <span>${(log.cost_usd || 0).toFixed(4)}</span>
+                                        {log.cost_usd != null && <span>${log.cost_usd.toFixed(4)}</span>}
                                         <span>{log.latency_ms}ms</span>
                                         {expandedLogId === log.id ? <EyeOff size={14} /> : <Eye size={14} />}
                                     </div>
@@ -289,9 +290,9 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
 
                 <div className="node-meta">
                     <div className="stat-group">
-                        {(run.billed_amount != null ? run.billed_amount > 0 : run.total_cost_usd > 0) && (
+                        {(run.billed_amount ?? 0) > 0 && (
                             <div className="stat-item mini" title="Billed">
-                                <DollarSign size={10} /> ${(run.billed_amount != null ? run.billed_amount : run.total_cost_usd).toFixed(4)}
+                                <DollarSign size={10} /> {formatBilled(run, run.billed_amount)}
                             </div>
                         )}
                         {run.total_tokens > 0 && (
@@ -339,7 +340,7 @@ const TraceNode: React.FC<{ run: ExecutionRun; depth: number }> = ({ run, depth 
                                         </div>
                                         <div className="stat-group">
                                             <span>{log.prompt_tokens + log.completion_tokens} tokens</span>
-                                            <span>${log.cost_usd.toFixed(4)}</span>
+                                            {log.cost_usd != null && <span>${log.cost_usd.toFixed(4)}</span>}
                                             <span>{log.latency_ms}ms</span>
                                         </div>
                                     </div>
@@ -914,12 +915,11 @@ export const ExecutionDetail: React.FC = () => {
                                 <div className="context-item border-l-2 border-rose-gold">
                                     <label className="context-label">Billed Amount</label>
                                     <span className="text-xl font-black text-rose-gold">
-                                        ${run.billed_amount != null ? run.billed_amount.toFixed(4) : run.total_cost_usd.toFixed(4)}
+                                        {formatBilled(run, run.billed_amount ?? 0)}
                                     </span>
-                                    {/* Transparency: show the raw provider cost beside the
-                                        billed charge so the platform markup is visible
-                                        (DOC_FACTORY_REDESIGN.md §5.3). */}
-                                    {run.billed_amount != null &&
+                                    {/* Staff see the raw provider cost beside the billed charge;
+                                        tenants and partners see billed amounts only (Phase 15 T9-3). */}
+                                    {run.billed_amount != null && run.total_cost_usd != null &&
                                         Math.abs(run.billed_amount - run.total_cost_usd) > 0.0001 && (
                                         <span
                                             className="context-value block mt-1 opacity-70"

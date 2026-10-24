@@ -24,6 +24,7 @@ import pytest_asyncio
 from sqlalchemy import select, text
 
 from tests.harness.infra import infra_unavailable
+from tests.harness.wallet import fund
 
 pytestmark = [pytest.mark.needs_db]
 
@@ -173,33 +174,27 @@ async def test_credit_held_by_a_tenants_runs_is_read_across_both_databases(tenan
 
 
 async def test_a_tenants_run_is_settled_once_in_the_control_database(tenants):
-    """WS2 2.6: a Beta run finishes in Beta's database; its charge — the
-    settlement claim on its hold, the wallet deduction, the billing event —
-    commits in a control transaction of its own, and settling it again (a
-    retried finalisation) charges nothing."""
-    from datetime import timedelta
+    """WS2 2.6, Phase 15 T3-5: a Beta run finishes in Beta's database; its
+    charge — the settlement claim on its hold, its usage rows marked settled,
+    the wallet deduction, the billing event — commits in a control transaction
+    of its own, and settling it again (a retried finalisation) charges nothing."""
     from decimal import Decimal
 
     from sqlalchemy import delete
 
     from src.ai.governance.governance_service import GovernanceService
     from src.ai.orm.execution import ExecutionRun
-    from src.billing.billing_models import BillingEvent, CreditHold, CreditWallet
+    from src.ai.orm.usage import UsageLog
+    from src.billing.billing_models import BillingEvent, BillingLine, CreditHold
     from src.common.tenancy.session import control_session, tenant_session
+    from tests.harness.wallet import available, undo_entries
 
     _, beta = tenants
     name = f"settle-{uuid.uuid4().hex[:8]}"
-    later = datetime.utcnow() + timedelta(days=1)
     async with control_session() as db:
-        wallet = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == beta.company_id))
-                  ).scalar_one_or_none()
-        made_wallet = wallet is None
-        if made_wallet:
-            db.add(CreditWallet(company_id=beta.company_id, daily_credits=Decimal("0"), daily_expires_at=later,
-                                wallet_balance=Decimal("10"), wallet_expires_at=later))
-            await db.commit()
-        before = (await db.execute(select(CreditWallet.wallet_balance, CreditWallet.daily_credits)
-                                   .where(CreditWallet.company_id == beta.company_id))).one()
+        await fund(db, beta.company_id, "10")
+        await db.commit()
+        before = await available(db, beta.company_id)
     async with tenant_session(beta.company_id) as db:
         entity_id = (await _entity(db, beta.company_id, name)).id
         run = ExecutionRun(entity_id=entity_id, company_id=beta.company_id, status="COMPLETED",
@@ -207,12 +202,17 @@ async def test_a_tenants_run_is_settled_once_in_the_control_database(tenants):
         db.add(run)
         await db.commit()
         run_id = run.id
+    async with control_session() as db:
+        db.add(UsageLog(company_id=beta.company_id, run_id=run_id, raw_quantity=Decimal(1),
+                        calculated_cost=Decimal("0.30"), billed_usd=Decimal("0.30"), category="ai_models",
+                        attribution="actor_step"))
+        await db.commit()
     try:
         async with tenant_session(beta.company_id) as db:
             run = await db.get(ExecutionRun, run_id)
             billed = await GovernanceService(db, None).settle_billing(run, name)
             again = await GovernanceService(db, None).settle_billing(run, name)
-        assert billed > 0 and again == 0
+        assert billed == Decimal("0.30") and again == 0
         async with tenant_session(beta.company_id) as db:
             assert Decimal(str((await db.get(ExecutionRun, run_id)).billed_amount)) == billed
         async with control_session() as db:
@@ -221,22 +221,19 @@ async def test_a_tenants_run_is_settled_once_in_the_control_database(tenants):
             [event] = (await db.execute(select(BillingEvent.total_billing).where(
                 BillingEvent.company_id == beta.company_id, BillingEvent.grouping_value == name))).scalars().all()
             assert Decimal(str(event)) == billed
-            after = (await db.execute(select(CreditWallet.wallet_balance, CreditWallet.daily_credits)
-                                      .where(CreditWallet.company_id == beta.company_id))).one()
-            spent = (Decimal(str(before[0])) + Decimal(str(before[1]))
-                     - Decimal(str(after[0])) - Decimal(str(after[1])))
-            assert spent == billed
+            row = (await db.execute(select(UsageLog).where(UsageLog.run_id == run_id))).scalar_one()
+            assert row.settlement_id is not None and Decimal(str(row.billed_ccy)) == Decimal(str(hold.billed_ccy))
+            assert before - await available(db, beta.company_id) == Decimal(str(hold.billed_ccy))
     finally:
         async with control_session() as db:
+            await undo_entries(db, beta.company_id, run_id=run_id)
+            await undo_entries(db, beta.company_id, source_type="test")
+            await db.execute(delete(UsageLog).where(UsageLog.run_id == run_id))
+            await db.execute(delete(BillingLine).where(BillingLine.company_id == beta.company_id,
+                                                       BillingLine.grouping_id == entity_id))
             await db.execute(delete(CreditHold).where(CreditHold.run_id == run_id))
             await db.execute(delete(BillingEvent).where(BillingEvent.company_id == beta.company_id,
                                                         BillingEvent.grouping_value == name))
-            if made_wallet:
-                await db.execute(delete(CreditWallet).where(CreditWallet.company_id == beta.company_id))
-            else:
-                await db.execute(CreditWallet.__table__.update()
-                                 .where(CreditWallet.company_id == beta.company_id)
-                                 .values(wallet_balance=before[0], daily_credits=before[1]))
             await db.commit()
         async with tenant_session(beta.company_id) as db:
             await _drop_entity(db, entity_id)
@@ -286,7 +283,7 @@ async def test_a_partners_tenant_views_read_each_tenants_database(tenants):
                 expected[1] += (await db.execute(select(func.count(ExecutionRun.id)).where(
                     ExecutionRun.company_id == tenant.company_id))).scalar()
         async with control_session() as db:
-            entities, runs, _ = await partner_router._tenant_totals(db, [acme.company_id, beta.company_id])
+            entities, runs, _, _ = await partner_router._tenant_totals(db, [acme.company_id, beta.company_id])
         assert [entities, runs] == expected and runs >= 1
     finally:
         async with tenant_session(beta.company_id) as db:

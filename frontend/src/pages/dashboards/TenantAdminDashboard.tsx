@@ -1,3 +1,4 @@
+import { formatBilled, formatMoney } from '@/utils/money';
 import React, { useState, useEffect } from 'react';
 import { reportsService, CreditForecastData, AgentErrorsData, CampaignAnalyticsData } from '@/services/reports.service';
 import { DollarSign, Clock, Briefcase, Zap } from 'lucide-react';
@@ -44,8 +45,8 @@ export const TenantAdminDashboard: React.FC = () => {
             </div>
 
             <div className="stats-grid-4">
-                <StatCard label="Total Available Credits" value={fmtUSD(forecastData?.wallet.total_available || 0)} icon={DollarSign} color="#4dbe8d" />
-                <StatCard label="Burn Rate (Avg/Day)" value={fmtUSD(forecastData?.burn_rate.avg_daily_usd || 0)} icon={Zap} color="#e8885a" />
+                <StatCard label="Available Credit" value={formatMoney(forecastData?.wallet.total_available || 0, forecastData?.currency)} icon={DollarSign} color="#4dbe8d" />
+                <StatCard label="Burn Rate (Avg/Day)" value={formatMoney(forecastData?.burn_rate.avg_daily || 0, forecastData?.currency)} icon={Zap} color="#e8885a" />
                 <StatCard label="Days Remaining" value={forecastData?.forecast.days_remaining || 0} icon={Clock} color={forecastData && forecastData.forecast.days_remaining < 7 ? "#e8885a" : "#6b9bd2"} />
                 <StatCard label="Total Audio Outbound" value={`${campaignData?.telephony.total_outbound_minutes || 0} min`} icon={Briefcase} color="#d2b96b" sub={`Billed: ${fmtUSD(campaignData?.telephony.total_charge_usd || 0)}`} />
             </div>
@@ -108,7 +109,7 @@ export const TenantAdminDashboard: React.FC = () => {
                                 <td>{a.total}</td>
                                 <td style={{ color: a.failed > 0 ? '#e8885a' : 'inherit' }}>{a.failed}</td>
                                 <td style={{ color: a.error_rate > 10 ? '#e8885a' : '#4dbe8d', fontWeight: 700 }}>{fmtPct(a.error_rate)}</td>
-                                <td>{fmtUSD(a.total_cost)}</td>
+                                <td>{formatBilled(a, a.billed_usd ?? 0)}</td>
                             </tr>
                         ))}
                     </tbody>

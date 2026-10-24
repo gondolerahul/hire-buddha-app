@@ -89,8 +89,16 @@ async def _authenticate_user(token: Optional[str], db: AsyncSession, *,
 
     return user
 
-async def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
-    return await _authenticate_user(token, db)
+async def get_current_user(request: Request, token: Optional[str] = Depends(oauth2_scheme),
+                           db: AsyncSession = Depends(get_db)):
+    user = await _authenticate_user(token, db)
+    # A company suspended for an unpaid balance is read-only (Phase 15 T4-8).
+    from src.billing.suspension import refuse_writes
+    await refuse_writes(request, db, user)
+    # Who the response is for: tenants and partners see billed amounts only (Phase 15 T9-3).
+    from src.billing.money_view import remember_viewer
+    remember_viewer(request, user)
+    return user
 
 async def get_current_user_and_company(
     token: Optional[str] = Depends(oauth2_scheme),

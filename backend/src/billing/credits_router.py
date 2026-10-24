@@ -37,17 +37,31 @@ async def _get_razorpay_creds(db: AsyncSession) -> Optional[dict]:
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
-# Top-up limits (Phase 15 T0-4, B-14; tech design §6.6): USD for now; they
-# become the settings wallet.topup_min_usd / max_usd / presets_usd (T5-2).
-TOPUP_MIN_USD = Decimal("5")
-TOPUP_MAX_USD = Decimal("10000")
-TOPUP_PRESETS_USD = (10, 25, 50, 100)
-
-
 class TopUpRequest(BaseModel):
-    # USD to top up, at most two decimals: Razorpay takes whole cents, and
-    # int(amount * 100) used to drop anything finer without a word.
-    amount: Decimal = Field(ge=TOPUP_MIN_USD, le=TOPUP_MAX_USD, decimal_places=2)
+    # In the company's billing currency (Phase 15 T4-3), at most two decimals:
+    # Razorpay takes whole paise/cents. The limits are the settings
+    # wallet.topup_min_usd / max_usd at today's rate (tech design §6.6).
+    amount: Decimal = Field(gt=0, decimal_places=2)
+
+
+async def topup_limits(db: AsyncSession, company_id: UUID) -> dict:
+    """The top-up form's limits and presets in the company's currency (§6.6)."""
+    from src.billing.currency import current_rate, to_ccy
+    from src.billing.settings_catalogue import value
+
+    currency = (await CreditService(db).get_or_create_wallet(company_id)).currency
+    rate = await current_rate(db, currency)
+
+    def ccy(usd) -> Decimal:
+        return to_ccy(Decimal(str(usd)), rate).quantize(Decimal("0.01"))
+
+    return {
+        "currency": currency,
+        "min": ccy(await value(db, "wallet.topup_min_usd", company_id)),
+        "max": ccy(await value(db, "wallet.topup_max_usd", company_id)),
+        "presets": [ccy(p) for p in await value(db, "wallet.topup_presets_usd", company_id)],
+        "validity_days": await value(db, "wallet.topup_validity_days", company_id),
+    }
 
 
 class TopUpVerify(BaseModel):
@@ -100,13 +114,16 @@ async def get_balance(
 # ─── Wallet Top-Up ────────────────────────────────────────────────────────────
 
 @router.get("/topup-options", summary="Top-up limits and preset amounts")
-async def get_topup_options(current_user: User = Depends(get_current_user)):
-    """What the top-up form offers, and whether this user may pay."""
+async def get_topup_options(current_user: User = Depends(get_current_user),
+                            db: AsyncSession = Depends(get_control_db)):
+    """What the top-up form offers, in the company's currency, and whether this user may pay."""
+    limits = await topup_limits(db, current_user.company_id)
     return {
-        "currency": "USD",
-        "min": float(TOPUP_MIN_USD),
-        "max": float(TOPUP_MAX_USD),
-        "presets": list(TOPUP_PRESETS_USD),
+        "currency": limits["currency"],
+        "min": str(limits["min"]),
+        "max": str(limits["max"]),
+        "presets": [str(p) for p in limits["presets"]],
+        "validity_days": limits["validity_days"],
         "can_pay": current_user.role in billing_admin.allowed_roles,
     }
 
@@ -117,6 +134,11 @@ async def initiate_topup(
     current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
+    limits = await topup_limits(db, current_user.company_id)
+    currency = limits["currency"]
+    if not limits["min"] <= payload.amount <= limits["max"]:
+        raise HTTPException(status_code=422, detail=(
+            f"A top-up is between {currency} {limits['min']:,.2f} and {currency} {limits['max']:,.2f}."))
     creds = await _get_razorpay_creds(db)
     if not creds:
         raise HTTPException(
@@ -129,9 +151,11 @@ async def initiate_topup(
         client = razorpay.Client(auth=(creds["key_id"], creds["key_secret"]))
         # Razorpay receipt must be ≤ 40 chars; use first 8 chars of company_id
         short_cid = str(current_user.company_id).replace("-", "")[:8]
+        from src.billing.currency import gateway_minor_units, minor_units
         order_data = {
-            "amount": int(payload.amount * 100),  # USD cents, exact: at most 2 decimals (T0-4)
-            "currency": "USD",
+            # Paise / cents, exact: at most 2 decimals (T0-4), in the company's currency (T4-3).
+            "amount": gateway_minor_units(payload.amount, await minor_units(db, currency)),
+            "currency": currency,
             "receipt": f"topup_{short_cid}",
             "notes": {"company_id": str(current_user.company_id), "type": "topup"},
         }
@@ -142,7 +166,7 @@ async def initiate_topup(
             company_id=current_user.company_id,
             razorpay_order_id=order["id"],
             amount=payload.amount,
-            currency="USD",
+            currency=currency,
             transaction_type="topup",
             status="pending",
         )
@@ -151,8 +175,8 @@ async def initiate_topup(
 
         return {
             "order_id": order["id"],
-            "amount": payload.amount,
-            "currency": "USD",
+            "amount": str(payload.amount),
+            "currency": currency,
             "key_id": creds["key_id"],  # Sent to frontend for Razorpay.js
         }
     except ImportError:
@@ -194,8 +218,10 @@ async def verify_topup(
 
     return {
         "message": "Payment verified and wallet credited" if credited else "Payment already credited",
-        "credits_added": float(txn.amount) if credited else 0.0,
-        "new_balance": float(wallet.wallet_balance),
+        "currency": wallet.currency,
+        "credits_added": str(txn.credits_awarded) if credited else "0",
+        "new_balance": str(wallet.cached_available),
+        "debt": str(wallet.debt),
     }
 
 
@@ -306,8 +332,7 @@ async def delete_subscription_tier(
 # reconciliation job) for every one. Nothing grants credits without a payment
 # (BC-03, BC-04, BC-16).
 
-# Razorpay needs a finite number of cycles; ten years of monthly charges.
-SUBSCRIPTION_TOTAL_COUNT = 120
+# Razorpay needs a finite number of cycles: the setting subscriptions.total_cycles.
 
 
 def _subscription_to_dict(sub: Subscription) -> dict:
@@ -391,6 +416,8 @@ async def create_subscription(
     tier = result.scalar_one_or_none()
     if not tier:
         raise HTTPException(status_code=404, detail=f"Active subscription tier level {payload.tier_level} not found")
+    from src.billing.locks import require_unlocked
+    await require_unlocked(db, current_user.company_id, "plan", current_user)   # Phase 15 T5-4
 
     live = await _live_subscription(db, current_user.company_id)
     if live:
@@ -401,11 +428,13 @@ async def create_subscription(
 
     creds = await _get_razorpay_creds(db)
     client = _razorpay_client_or_503(creds)
+    from src.billing.settings_catalogue import value
+    total_cycles = await value(db, "subscriptions.total_cycles")   # 120: ten years (Phase 15 T5-2)
     try:
         plan_id = await _plan_for_tier(db, client, tier)
         rz_sub = client.subscription.create(data={
             "plan_id": plan_id,
-            "total_count": SUBSCRIPTION_TOTAL_COUNT,
+            "total_count": total_cycles,
             "customer_notify": 1,
             "notes": {"company_id": str(current_user.company_id), "tier_level": str(tier.tier_level)},
         })
@@ -503,6 +532,8 @@ async def cancel_subscription(
     sub = result.scalar_one_or_none()
     if not sub:
         raise HTTPException(status_code=404, detail="Subscription not found")
+    from src.billing.locks import require_unlocked
+    await require_unlocked(db, current_user.company_id, "plan", current_user)   # Phase 15 T5-4
 
     # Stop the mandate first: marking the row cancelled while Razorpay kept
     # charging would take money for a subscription we show as cancelled.

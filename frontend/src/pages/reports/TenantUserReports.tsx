@@ -1,3 +1,4 @@
+import { formatBilled, formatMoney } from '@/utils/money';
 import { parseServerDate } from '@/utils/datetime';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -95,7 +96,7 @@ const TaskHistoryTab: React.FC = () => {
                                     <td><StatusBadge status={t.status} /></td>
                                     <td className="num">{t.execution_time_ms ? `${(t.execution_time_ms / 1000).toFixed(1)}s` : '—'}</td>
                                     <td className="num">{(t.total_tokens || 0).toLocaleString()}</td>
-                                    <td className="num">${(t.billed_amount != null ? t.billed_amount : t.total_cost_usd).toFixed(6)}</td>
+                                    <td className="num">{formatBilled(t, t.billed_amount ?? 0, { smallDigits: 6 })}</td>
                                     <td>{parseServerDate(t.created_at).toLocaleDateString()}</td>
                                     <td>
                                         <button className="btn-icon" onClick={() => setExpanded(expanded === t.id ? null : t.id)}>
@@ -303,7 +304,7 @@ const UsageTab: React.FC = () => {
     const wallet = forecast?.wallet;
     const totalAvail = wallet?.total_available || 0;
     const summary = data?.summary;
-    const totalSpent = summary?.total_cost_usd || 0;
+    const totalSpent = summary?.total_billed_usd || 0;
 
     // Simple usage gauge (spent vs available)
     const usagePct = totalAvail + totalSpent > 0 ? Math.min(100, (totalSpent / (totalAvail + totalSpent)) * 100) : 0;
@@ -312,7 +313,7 @@ const UsageTab: React.FC = () => {
         <div className="tab-content">
             <div className="stats-grid-4">
                 <StatCard label="Total Tokens Used" value={((summary?.total || 0) * 1000).toLocaleString()} icon={Zap} />
-                <StatCard label="My Billing" value={`$${totalSpent.toFixed(6)}`} icon={User} color="#e8885a" />
+                <StatCard label="My Billing" value={formatBilled(summary, totalSpent)} icon={User} color="#e8885a" />
                 <StatCard label="Available Balance" value={`$${totalAvail.toFixed(4)}`} icon={CheckCircle} color="#4dbe8d" />
                 <StatCard label="Wallet Model" value={wallet?.account_model || '—'} icon={Shield} />
             </div>
@@ -345,8 +346,8 @@ const UsageTab: React.FC = () => {
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                             <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }} />
                             <YAxis tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }} />
-                            <Tooltip contentStyle={{ background: 'rgba(20,15,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }} formatter={(v) => [`$${Number(v).toFixed(6)}`, 'Billing']} />
-                            <Area type="monotone" dataKey="cost" stroke="#e8c5a0" fill="rgba(232,197,160,0.12)" strokeWidth={2} />
+                            <Tooltip contentStyle={{ background: 'rgba(20,15,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }} formatter={(v) => [formatMoney(Number(v), forecast?.currency), 'Billing']} />
+                            <Area type="monotone" dataKey="billed" stroke="#e8c5a0" fill="rgba(232,197,160,0.12)" strokeWidth={2} />
                         </AreaChart>
                     </ResponsiveContainer>
                 )}

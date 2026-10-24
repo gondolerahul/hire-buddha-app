@@ -166,7 +166,18 @@ async def context(request: Request) -> Context:
             raise tokens.Unauthorized("the token is for another business")
     if caller.kind == "key":
         await _rate_limit(caller)
+    await _not_suspended(caller.company_id)
     return Context(caller, engine, await schema.active_blueprint(engine, caller.company_id))
+
+
+async def _not_suspended(company_id: Any) -> None:
+    """A business suspended for an unpaid balance has its Data API off (Phase 15 T4-8)."""
+    from src.billing.suspension import AccountSuspended, is_suspended
+    from src.common.tenancy.session import control_session
+
+    async with control_session() as db:
+        if await is_suspended(db, company_id):
+            raise AccountSuspended("this business is suspended for an unpaid balance")
 
 
 class RateLimited(Exception):
@@ -363,6 +374,12 @@ def create_app() -> FastAPI:
     @app.exception_handler(schema.ApplyError)
     async def _apply_error(request: Request, error: schema.ApplyError) -> JSONResponse:
         return problem(409, "change_not_applied", str(error))
+
+    from src.billing.suspension import AccountSuspended
+
+    @app.exception_handler(AccountSuspended)
+    async def _suspended(request: Request, error: AccountSuspended) -> JSONResponse:
+        return problem(402, "account_suspended", str(error))
 
     @app.exception_handler(RateLimited)
     async def _rate_limited(request: Request, error: RateLimited) -> JSONResponse:

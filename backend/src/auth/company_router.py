@@ -78,25 +78,17 @@ async def create_company(
     db.add(new_company)
     await db.flush()
 
-    # Auto-provision CreditWallet if applicable
-    if company.type == "TENANT" and company.apply_default_daily_credits:
+    # A tenant's wallet, and today's daily credits from its policy (Phase 15 T4-1,
+    # T5-5); a company's own daily amount is a staff override on the Daily
+    # credits page, not a field of this form (DC-1).
+    if company.type == "TENANT":
         from src.auth.service import _provision_new_tenant
         await _provision_new_tenant(db, new_company)
-        # Apply custom daily credits override if specified
-        if company.custom_daily_credits is not None:
-            try:
-                from src.billing.billing_models import CreditWallet
-                from decimal import Decimal
-                result = await db.execute(
-                    select(CreditWallet).where(CreditWallet.company_id == new_company.id)
-                )
-                wallet = result.scalar_one_or_none()
-                if wallet:
-                    wallet.daily_credits = Decimal(str(company.custom_daily_credits))
-            except Exception:
-                pass
 
     await db.commit()
+    if company.type == "TENANT":
+        from src.auth.service import grant_first_daily_credits
+        await grant_first_daily_credits(db, new_company.id)
     await db.refresh(new_company)
     from src.auth.service import request_workspace
     await request_workspace(new_company.id)  # split tenancy: its own database (WS2 2.9)
@@ -141,6 +133,10 @@ async def update_company(
         raise HTTPException(status_code=403, detail="Not authorized to change this company's status")
     if "timezone" in update_data and update_data["timezone"] is None:
         del update_data["timezone"]  # a company always has a time zone
+    if "monthly_spend_cap_usd" in update_data and update_data["monthly_spend_cap_usd"] != company.monthly_spend_cap_usd:
+        # A locked cap stays as its locker set it (Phase 15 T5-4, Q5).
+        from src.billing.locks import require_unlocked
+        await require_unlocked(db, company.id, "spend_cap", current_user)
 
     for field, value in update_data.items():
         setattr(company, field, value)

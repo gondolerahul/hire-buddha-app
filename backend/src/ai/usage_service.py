@@ -170,6 +170,6 @@ class UsageService:
         from src.ai.services.cost_attribution import emit_cost_charged
         await emit_cost_charged(
             run_id=execution_id, company_id=company_id, attribution=clean_attribution,
-            sku=service_sku, amount=price.cost,
+            sku=service_sku, amount=price.cost, billed_usd=usage_log.billed_usd,
         )
         return usage_log

@@ -74,6 +74,10 @@ async def set_geography(db: Any, company: Any, country_code: Optional[str], *,
         raise HTTPException(status_code=409, detail=(
             f"This company is billed in {company.billing_currency} and money has moved; "
             "only HireBuddha staff can change its currency."))
+    if not initial and currency != company.billing_currency:
+        # The wallet follows: its daily credits so far are re-denominated (T2-7).
+        from src.billing.currency_change import convert_wallet
+        await convert_wallet(db, company.id, currency, reason=f"country set to {country} at onboarding")
     company.country_code, company.billing_currency = country, currency
     if billing_state is not None:
         company.billing_state = valid_state(billing_state)

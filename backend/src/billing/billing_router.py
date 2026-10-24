@@ -15,7 +15,7 @@ from src.auth.router import get_current_user
 from src.auth.dependencies import RoleChecker
 from src.auth.models import User
 from src.billing.billing_service import BillingService
-from src.billing.billing_models import BillingEvent, BillingConfig
+from src.billing.billing_models import BillingEvent
 
 router = APIRouter(prefix="/api/v1", tags=["Billing & Reports"])
 
@@ -115,9 +115,6 @@ async def _config_view(db: AsyncSession, company_id: Optional[UUID]) -> dict:
     versions = (await db.execute(select(BillingFormula).where(
         BillingFormula.scope == ("company" if company_id else "platform"), scope_filter)
         .order_by(BillingFormula.effective_from.desc(), BillingFormula.created_at.desc()).limit(50))).scalars().all()
-    daily = await BillingService(db).get_billing_config(company_id) if company_id else (await db.execute(
-        select(BillingConfig).where(BillingConfig.company_id.is_(None), BillingConfig.is_active.is_(True))
-    )).scalars().first()
     return {
         "config": {
             "company_id": str(company_id) if company_id else None,
@@ -126,7 +123,6 @@ async def _config_view(db: AsyncSession, company_id: Optional[UUID]) -> dict:
             "multiplier_factor": float(formula.mf),
             "platform_fee_pct": float(formula.pf),
             "discount_pct": float(formula.d),
-            "default_daily_credits": float(daily.default_daily_credits) if daily else 0.0,
         },
         "history": [{"id": str(v.id), "multiplier_factor": float(v.mf), "platform_fee_pct": float(v.pf),
                      "discount_pct": float(v.d), "active": v.active,
@@ -138,7 +134,7 @@ async def _config_view(db: AsyncSession, company_id: Optional[UUID]) -> dict:
 
 # ─── Billing Config ──────────────────────────────────────────────────────────
 
-@router.get("/billing/config", summary="The price formula and daily credits (app_admin)")
+@router.get("/billing/config", summary="The price formula (app_admin)")
 async def get_billing_config(
     company_id: Optional[UUID] = Query(None, description="A company's formula; omit for the platform's"),
     current_user: User = Depends(app_admin_only),
@@ -147,7 +143,7 @@ async def get_billing_config(
     return await _config_view(db, company_id)
 
 
-@router.put("/billing/config", summary="Change the price formula or daily credits (app_admin)")
+@router.put("/billing/config", summary="Change the price formula (app_admin)")
 async def update_billing_config(
     payload: BillingConfigUpdate,
     current_user: User = Depends(app_admin_only),
@@ -158,6 +154,10 @@ async def update_billing_config(
     from src.billing.formulas import formula_for, set_formula
 
     fields = payload.model_dump(exclude_unset=True)
+    if "default_daily_credits" in fields:
+        raise HTTPException(status_code=422, detail=(
+            "Daily credits are policies now (Phase 15 T5-5): set them on Console → Daily credits "
+            "(/api/v1/admin/daily-credits)."))
     if fields.get("sales_partner_fee_pct"):
         raise HTTPException(status_code=422, detail=(
             "sales_partner_fee_pct is retired: partners earn commission, not a share of the customer price "
@@ -174,9 +174,6 @@ async def update_billing_config(
             mf=fields.get("multiplier_factor", current.mf), pf=fields.get("platform_fee_pct", current.pf),
             d=fields.get("discount_pct", current.d), actor=current_user, reason=payload.reason)
         await db.commit()
-    if "default_daily_credits" in fields:
-        await BillingService(db).update_billing_config(
-            payload.company_id, default_daily_credits=fields["default_daily_credits"])
     return await _config_view(db, payload.company_id)
 
 

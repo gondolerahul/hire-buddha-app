@@ -1,6 +1,6 @@
 import { apiClient } from './api.client';
 
-/** The price formula in effect, TB = c·mf·(1 + pf − d) (Phase 15 T3-2), and daily credits. */
+/** The price formula in effect, TB = c·mf·(1 + pf − d) (Phase 15 T3-2). Daily credits are policies (T5-5). */
 export interface BillingConfig {
     company_id: string | null;
     formula_id: string | null;
@@ -8,7 +8,6 @@ export interface BillingConfig {
     multiplier_factor: number;
     platform_fee_pct: number;
     discount_pct: number;
-    default_daily_credits: number;
 }
 
 /** One version of a formula (append-only). */
@@ -78,7 +77,6 @@ export interface BillingConfigUpdate {
     multiplier_factor?: number;
     platform_fee_pct?: number;
     discount_pct?: number;
-    default_daily_credits?: number;
     company_id?: string;
     /** Kept with the formula version. */
     reason?: string;

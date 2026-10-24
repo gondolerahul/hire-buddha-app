@@ -21,7 +21,8 @@ class Company(ControlBase):
     status = Column(String, default="active")  # active, suspended
     onboarding_status = Column(String, default="pending")  # pending, in_progress, completed
     onboarding_metadata = Column(JSONB, nullable=True)  # tracks completed steps & config
-    default_daily_credits = Column(Numeric(10, 4), nullable=True)  # override daily credit amount for this tenant (was text, DM-11)
+    # Retired by the daily-credit policies (Phase 15 T5-5, control_0016): read by nothing.
+    default_daily_credits = Column(Numeric(10, 4), nullable=True)
     # What the company may be billed in a calendar month; NULL = no cap (GH-18).
     monthly_spend_cap_usd = Column(Numeric(24, 10), nullable=True)
     # The business's IANA time zone: schedules, reports, an agent's "today"

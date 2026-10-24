@@ -85,8 +85,6 @@ class CompanyCreate(CompanyBase):
     # Its billing currency follows (FX-1, Phase 15 T2-3). India when omitted.
     country_code: Optional[CountryCode] = None
     billing_state: Annotated[Optional[str], AfterValidator(_state)] = None
-    apply_default_daily_credits: bool = True  # whether to apply default daily credits
-    custom_daily_credits: Optional[float] = None  # custom daily credit amount override
 
 def _iana_timezone(value: Optional[str]) -> Optional[str]:
     from src.common.timezones import is_valid_timezone

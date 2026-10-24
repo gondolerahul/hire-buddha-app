@@ -90,6 +90,11 @@ class AIService:
             name=str(entity_data.get("name") or ""),
         ))
 
+        # A budget in the billed currency carries its cost equivalent (Phase 15 T5-7).
+        if entity_data.get("governance"):
+            from src.billing.agent_budget import apply_max_bill
+            entity_data["governance"] = await apply_max_bill(self.db, effective_company_id, entity_data["governance"])
+
         # Flatten identity if provided as nested model to JSONB column
         entity = HierarchicalEntity(**entity_data, company_id=effective_company_id, created_by=user_id)
         self.db.add(entity)
@@ -216,6 +221,17 @@ class AIService:
             if refused:
                 raise HTTPException(status_code=422, detail=f"Status: {refused}.")
         await self._require_composition(EntityShape.of(entity).with_changes(update_data))
+        if update_data.get("governance"):
+            # A budget in the billed currency carries its cost equivalent (Phase 15 T5-7). An
+            # edit that does not mention the budget keeps it: tenants never see max_cost_usd (T9-3).
+            from src.billing.agent_budget import apply_max_bill
+            incoming = update_data["governance"]
+            old = entity.governance if isinstance(entity.governance, dict) else {}
+            if "max_bill" not in incoming and incoming.get("max_cost_usd") is None:
+                for kept in ("max_bill", "max_cost_usd"):
+                    if old.get(kept) is not None:
+                        incoming[kept] = old[kept]
+            update_data["governance"] = await apply_max_bill(self.db, entity.company_id, incoming)
 
         for field, value in update_data.items():
             setattr(entity, field, value)
@@ -439,8 +455,10 @@ class AIService:
 
         # 402 now rather than a run that fails in the worker: the run's own
         # credit gate (AgentLoop, BC-05) still decides, with its hold.
-        from src.billing.credit_service import CreditService, minimum_threshold
-        await CreditService(self.db).require_credits(company_id, minimum_threshold(entity_type_str))
+        from src.billing.credit_service import CreditService
+        from src.billing.settings_catalogue import min_balance
+        await CreditService(self.db).require_credits(
+            company_id, await min_balance(self.db, company_id, entity_type_str))
         await _take_run_slot(company_id)  # GH-03: 429 past the company's runs a minute
 
         # Create Execution Record

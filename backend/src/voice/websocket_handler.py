@@ -48,7 +48,6 @@ from src.voice.call_guards import (
     parse_disposition,
     parse_not_interested_reason,
 )
-from src.billing.credit_service import CreditService
 from src.billing.billing_service import BillingService
 from src.common.config import settings
 from src.common.tenancy.session import control_session, is_split, tenant_session
@@ -361,6 +360,8 @@ class BaseStreamHandler:
             await self._tool_calls().start()
         except Exception as _run_err:
             logger.warning(f"Could not open the run for call {self.session_id}: {_run_err}")
+        # The call holds its credit, as a run does (Phase 15 T4-5).
+        await self._hold_call_credit()
 
         # Issue #7: Read max call duration from agent config
         self.max_call_duration_seconds = getattr(
@@ -397,6 +398,7 @@ class BaseStreamHandler:
             asyncio.create_task(self._flush_transcripts()),
             asyncio.create_task(self._call_duration_watchdog()),
             asyncio.create_task(self._activity_watchdog()),
+            asyncio.create_task(self._credit_watchdog()),
         ]
         if self.mobile:
             tasks.append(asyncio.create_task(self.mobile.control_listener()))
@@ -1280,6 +1282,75 @@ class BaseStreamHandler:
         except Exception as e:
             logger.error(f"Error flushing transcripts: {e}")
 
+    async def _hold_call_credit(self) -> None:
+        """Hold ``voice.call_hold_seconds`` of the call's billed rate (Phase 15 T4-5).
+        Best-effort: admission already checked the wallet; a hold that cannot be
+        placed is logged, and the mid-call check still watches the call."""
+        run_id = getattr(self._tool_calls(), "run_id", None)
+        if run_id is None:
+            return
+        try:
+            from src.voice.call_credit import place_call_hold
+            async with tenant_session(self.voice_session.company_id) as credit_db:
+                held = await place_call_hold(credit_db, self.voice_session.company_id, run_id,
+                                             self.voice_session.provider)
+            logger.info(f"Call {self.session_id} holds {held:.4f} of credit")
+        except Exception as hold_err:
+            logger.warning(f"Call {self.session_id}: no credit hold ({hold_err})")
+
+    async def _credit_watchdog(self):
+        """End the call when its bill so far uses up what it may spend (Phase 15 T4-6, §6.3).
+
+        Every ``voice.credit_check_seconds``: the call's seconds at its billed
+        rate, plus its tool calls, against free credit + tolerance − debt. At
+        the limit — or with the wallet over its tolerance — the agent says a
+        closing line, and the call ends 10 s later. A check that cannot read
+        the wallet lets the call go on (the settlement still bills it).
+        """
+        from src.billing.settings_catalogue import value
+        from src.voice.call_credit import CLOSING_LINE, billed_rate_per_second, call_headroom
+
+        company_id = self.voice_session.company_id
+        started = time.time()
+        try:
+            async with tenant_session(company_id) as credit_db:
+                every = max(int(await value(credit_db, "voice.credit_check_seconds", company_id)), 5)
+                rate = await billed_rate_per_second(credit_db, company_id, self.voice_session.provider)
+            while self.is_running:
+                await asyncio.sleep(every)
+                if not self.is_running:
+                    return
+                try:
+                    tools = getattr(self, "_voice_tools", None)
+                    async with tenant_session(company_id) as credit_db:
+                        headroom, balance = await call_headroom(
+                            credit_db, company_id, getattr(tools, "run_id", None),
+                            seconds=Decimal(str(time.time() - started)), rate_usd=rate,
+                            tools_cost_usd=getattr(tools, "cost", Decimal("0")) if tools else Decimal("0"))
+                except Exception as check_err:
+                    from src.common.gates import gate_failed
+                    gate_failed("call_credit_check", check_err, company_id=str(company_id),
+                                session_id=str(self.session_id))
+                    continue
+                if headroom > 0:
+                    continue
+                logger.warning(f"[CREDIT] Call {self.session_id} ends: no credit left "
+                               f"(headroom {headroom:.4f} {balance['currency']}, wallet {balance['state']})")
+                try:
+                    if self.gemini_session:
+                        await self.gemini_session.send_realtime_input(text=CLOSING_LINE)
+                except Exception as e:
+                    logger.warning(f"[CREDIT] Closing line not sent: {e}")
+                await asyncio.sleep(10)
+                if self.is_running:
+                    self.call_ended_at = datetime.utcnow()
+                    self.is_running = False
+                return
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"[CREDIT] Error in the credit watchdog: {e}")
+
     async def _call_duration_watchdog(self):
         """
         Auto-disconnect after max_call_duration_seconds.
@@ -1620,17 +1691,30 @@ class BaseStreamHandler:
                             logger.warning(f"TB formula failed, falling back to raw cost: {tb_err}")
                             billed_amount = cost_decimal
 
-                        try:
-                            await CreditService(session).consume(
-                                company_id=self.voice_session.company_id,
-                                amount=billed_amount,
-                            )
-                            logger.info(
-                                f"Voice credits deducted: ${billed_amount} "
-                                f"(raw: ${cost_decimal})"
-                            )
-                        except Exception as ce:
-                            logger.warning(f"Credit deduction failed: {ce}")
+                        # The call's rows charged once, into debt if the wallet runs
+                        # out: a call is never free (Phase 15 T3-5, B-10). Rows of a
+                        # call with no run are settled by the hourly job (T3-6).
+                        if call_run is not None and call_run.run_id is not None:
+                            try:
+                                from types import SimpleNamespace
+
+                                from src.billing.enforcement import wallet_changed
+                                from src.billing.settlement import settle_run
+                                settled = await settle_run(
+                                    session, session,
+                                    SimpleNamespace(id=call_run.run_id, company_id=self.voice_session.company_id,
+                                                    total_cost_usd=cost_decimal, entity_id=None),
+                                    grouping_type="agent", grouping_id=self.voice_session.agent_id,
+                                    subject_type="call", descendants=False)
+                                await session.commit()
+                                if settled.claimed:
+                                    billed_amount = settled.billed_usd
+                                logger.info(f"Voice call settled: ${settled.billed_usd} = "
+                                            f"{settled.billed_ccy} {settled.currency} (raw: ${cost_decimal})")
+                                await wallet_changed(session, self.voice_session.company_id, settled.change)
+                            except Exception as ce:
+                                await session.rollback()
+                                logger.warning(f"Call settlement failed (the hourly job retries it): {ce}")
 
                         # Fix #7: Pass event_category="telephony" so charges
                         # appear in the correct report column
@@ -1657,15 +1741,6 @@ class BaseStreamHandler:
                         except Exception as be:
                             logger.warning(f"Billing event recording failed: {be}")
 
-                        # Its billing lines and the shadow comparison (Phase 15 T3-4, T3-7).
-                        if call_run is not None and call_run.run_id is not None:
-                            from src.billing.shadow import record_settlement
-                            await record_settlement(
-                                session, session, company_id=self.voice_session.company_id,
-                                run_id=call_run.run_id, subject_type="call", grouping_type="agent",
-                                grouping_id=self.voice_session.agent_id, v1_cost_usd=cost_decimal,
-                                v1_billed_usd=billed_amount, descendants=False)
-                            await session.commit()
 
                     if call_run is not None:
                         try:
@@ -1678,6 +1753,13 @@ class BaseStreamHandler:
                             )
                         except Exception as _run_err:
                             logger.warning(f"Closing the call's run failed: {_run_err}")
+                        if call_run.run_id is not None:
+                            # The call's hold stops reserving credit (a settlement already released it).
+                            try:
+                                from src.billing.credit_service import CreditService
+                                await CreditService(session).release_hold(call_run.run_id)
+                            except Exception as _hold_err:
+                                logger.warning(f"The call's credit hold was not released: {_hold_err}")
 
                 # --- Post-call: update CampaignCall if this was a campaign call ---
                 try:

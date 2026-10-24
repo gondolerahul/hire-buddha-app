@@ -23,7 +23,6 @@ from sqlalchemy import func
 from src.common.tenancy.session import get_control_db, is_split, tenant_db_for
 from src.auth.models import Company, User
 from src.auth.dependencies import get_current_user, RoleChecker
-from src.billing.billing_models import CreditWallet
 
 logger = logging.getLogger(__name__)
 
@@ -165,28 +164,22 @@ async def get_partner_analytics(
             "total_entities": 0,
             "total_executions": 0,
             "total_cost_usd": 0.0,
+            "total_billed_usd": 0.0,
             "total_wallet_balance": 0.0,
             "active_tenants": 0,
             "suspended_tenants": 0,
         }
 
     # Aggregate entity count, execution count and cost (tenant databases)
-    total_entities, total_executions, total_cost = await _tenant_totals(db, tenant_ids)
+    total_entities, total_executions, total_cost, total_billed = await _tenant_totals(db, tenant_ids)
 
-    # Aggregate wallet balance: every bucket, not the top-up one alone (P-25)
+    # The tenants' credit: every live lot (Phase 15 M15.2), in USD at today's rate.
     total_wallet = 0.0
     try:
-        from src.billing.billing_models import CreditWallet
-        wallet_result = await db.execute(
-            select(func.coalesce(func.sum(
-                CreditWallet.daily_credits + CreditWallet.wallet_balance
-                + CreditWallet.subscription_credits + CreditWallet.subscription_bonus_credits), 0)).where(
-                CreditWallet.company_id.in_(tenant_ids)
-            )
-        )
-        total_wallet = float(wallet_result.scalar() or 0)
+        from src.billing.wallet import summaries
+        total_wallet = float(sum(w["available_usd"] for w in (await summaries(db, tenant_ids)).values()))
     except Exception:
-        pass
+        logger.warning("Partner analytics: wallets not read", exc_info=True)
 
     # Count active vs suspended
     status_result = await db.execute(
@@ -201,6 +194,7 @@ async def get_partner_analytics(
         "total_entities": total_entities,
         "total_executions": total_executions,
         "total_cost_usd": round(total_cost, 4),
+        "total_billed_usd": round(total_billed, 4),
         "total_wallet_balance": round(total_wallet, 4),
         "active_tenants": status_counts.get("active", 0),
         "suspended_tenants": status_counts.get("suspended", 0),
@@ -283,16 +277,17 @@ def _partner_tenants(user: User) -> tuple:
     return (Company.type == "TENANT", Company.parent_id == user.company_id)
 
 
-async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int, int, float]:
-    """Agents, top-level runs and their cost of ``tenant_ids``: one query on the
-    shared database (single mode), one per tenant database (split mode).
+async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int, int, float, float]:
+    """Agents, top-level runs, their cost and what they were billed (USD) of
+    ``tenant_ids``: one query on the shared database (single mode), one per
+    tenant database (split mode). Partners see the billed total only (T9-3).
 
     A child run's cost is already in its parent's total, so only top-level runs
     are summed — summing every run counted child spend twice (P-25)."""
     from src.ai.orm import ExecutionRun, HierarchicalEntity
 
     scopes = [(tid, [tid]) for tid in tenant_ids] if is_split() else [(None, tenant_ids)]
-    entities, executions, cost = 0, 0, 0.0
+    entities, executions, cost, billed = 0, 0, 0.0, 0.0
     for scope, ids in scopes:
         try:
             async with tenant_db_for(db, scope) as tenant_db:
@@ -303,14 +298,16 @@ async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int,
                     select(
                         func.count(ExecutionRun.id),
                         func.coalesce(func.sum(ExecutionRun.total_cost_usd), 0),
+                        func.coalesce(func.sum(ExecutionRun.billed_amount), 0),
                     ).where(ExecutionRun.company_id.in_(ids), ExecutionRun.parent_run_id.is_(None))
                 )).one()
                 executions += row[0] or 0
                 cost += float(row[1])
+                billed += float(row[2])
         except Exception:
             logger.warning("Partner analytics: agents and runs of %s not read", scope or "the tenants",
                            exc_info=True)
-    return entities, executions, cost
+    return entities, executions, cost, billed
 
 
 async def _tenant_summaries(db: AsyncSession, tenants: List[Company]) -> List[dict]:
@@ -330,8 +327,12 @@ async def _tenant_summaries(db: AsyncSession, tenants: List[Company]) -> List[di
         .where(IntegrationRegistry.company_id.in_(ids), IntegrationRegistry.status == "active")
         .group_by(IntegrationRegistry.company_id)
     )).all())
+    from src.billing.billing_models import WalletLot
+    now = datetime.utcnow()
     daily = dict((await db.execute(
-        select(CreditWallet.company_id, CreditWallet.daily_credits).where(CreditWallet.company_id.in_(ids))
+        select(WalletLot.company_id, func.coalesce(func.sum(WalletLot.remaining), 0))
+        .where(WalletLot.company_id.in_(ids), WalletLot.kind == "daily", WalletLot.remaining > 0,
+               WalletLot.expires_at > now).group_by(WalletLot.company_id)
     )).all())
 
     summaries = []

@@ -54,6 +54,11 @@ const AutomationPlatformPage = lazy(() => import('@/pages/admin/AutomationPlatfo
 const CurrencyPage = lazy(() => import('@/pages/admin/CurrencyPage'));
 // Phase 15 T3-7: the shadow comparison of the old and new billing paths.
 const BillingShadowPage = lazy(() => import('@/pages/admin/BillingShadowPage'));
+// Phase 15 M15.2 (T5-6): wallets, daily credits, pricing and money settings, for staff.
+const WalletsAdminPage = lazy(() => import('@/pages/admin/WalletsAdminPage'));
+const DailyCreditsPage = lazy(() => import('@/pages/admin/DailyCreditsPage'));
+const PricingPage = lazy(() => import('@/pages/admin/PricingPage'));
+const MoneySettingsPage = lazy(() => import('@/pages/admin/MoneySettingsPage'));
 // Phase 14 WS3: the automation control room (triggers, event log).
 const ControlRoom = lazy(() => import('@/pages/automation/ControlRoom'));
 // Phase 14 WS8: records, connections, apps and code, business settings, platform admin.
@@ -633,6 +638,38 @@ export const AppRouter: React.FC = () => {
                         element={
                             <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
                                 <MainLayout><BillingShadowPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/wallets"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><WalletsAdminPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/daily-credits"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><DailyCreditsPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/pricing"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><PricingPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/money-settings"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><MoneySettingsPage /></MainLayout>
                             </ProtectedRoute>
                         }
                     />

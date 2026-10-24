@@ -20,6 +20,7 @@ from sqlalchemy import select
 from src.automation import agent_actions, router, store, triggers
 from src.automation import limits as limits_mod
 from src.automation.models import Event, TimeIndexEntry, Trigger
+from tests.harness.wallet import fund
 
 pytestmark = pytest.mark.needs_db
 
@@ -56,8 +57,7 @@ async def biz(monkeypatch):
         db.add(company)
         await db.flush()
         later = datetime.utcnow() + timedelta(days=1)
-        db.add(CreditWallet(company_id=company.id, daily_credits=Decimal("0"), daily_expires_at=later,
-                            wallet_balance=Decimal("100"), wallet_expires_at=later))
+        await fund(db, company.id, "100")
 
         def entity(name, kind="AGENT", parent=None, status="ACTIVE", automation=None):
             row = HierarchicalEntity(company_id=company.id, type=kind, status=status, name=name,

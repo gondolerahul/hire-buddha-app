@@ -452,3 +452,61 @@
     text-align: center;
     padding: 4rem 2rem;
 }
+/* Lots, ledger and the wallet's state (Phase 15 M15.2) */
+.wallet-state-banner {
+    margin-bottom: 1rem;
+}
+
+.overview-held,
+.overview-debt {
+    font-size: 0.8rem;
+    margin: 0.25rem 0 0;
+    opacity: 0.75;
+}
+
+.overview-debt {
+    color: #f28b82;
+    opacity: 1;
+}
+
+.wallet-lots,
+.wallet-ledger {
+    border-radius: 16px;
+    padding: 1.5rem;
+    overflow-x: auto;
+}
+
+.wallet-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.wallet-table th,
+.wallet-table td {
+    text-align: left;
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    white-space: nowrap;
+}
+
+.wallet-table th {
+    font-weight: 600;
+    opacity: 0.6;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.wallet-table .amount-out {
+    color: #f28b82;
+}
+
+.wallet-table .amount-in {
+    color: #81c995;
+}
+
+.ledger-debt {
+    opacity: 0.7;
+    font-size: 0.75rem;
+}

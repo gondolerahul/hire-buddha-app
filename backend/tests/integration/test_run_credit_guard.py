@@ -8,7 +8,6 @@ same balance. Real Postgres, rolled back per test.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -18,23 +17,36 @@ from sqlalchemy import select
 from src.ai.core.credit_guard import CreditGuard
 from src.ai.core.exceptions import CreditExhaustedError
 from src.ai.orm import ExecutionRun, HierarchicalEntity
-from src.billing.billing_models import CreditHold, CreditWallet
+from src.billing.billing_models import CreditHold
 from src.billing.formulas import formula_for
 from src.billing.credit_service import CreditService
+from tests.harness.wallet import available, fund
 
 pytestmark = pytest.mark.needs_db
 
 
-async def _company(db, balance: str):
+async def _company(db, balance: str, currency: str = "USD"):
+    """A company whose wallet holds ``balance`` USD (a top-up lot), billed in ``currency``."""
     from src.auth.models import Company
-    c = Company(name=f"guard-{uuid.uuid4().hex[:6]}", type="TENANT", status="active")
+    c = Company(name=f"guard-{uuid.uuid4().hex[:6]}", type="TENANT", status="active", billing_currency=currency)
     db.add(c)
     await db.flush()
-    later = datetime.utcnow() + timedelta(days=1)
-    db.add(CreditWallet(company_id=c.id, daily_credits=Decimal("0"), daily_expires_at=later,
-                        wallet_balance=Decimal(balance), wallet_expires_at=later))
+    if Decimal(balance) > 0:
+        await fund(db, c.id, balance)
     await db.flush()
     return c.id
+
+
+async def _usage(db, run, cost: str):
+    """A usage row of ``run`` rated with the company's formula, as the meters write it (T3-3)."""
+    from src.ai.orm.usage import UsageLog
+    formula = await formula_for(db, run.company_id)
+    row = UsageLog(company_id=run.company_id, run_id=run.id, raw_quantity=Decimal(1), calculated_cost=Decimal(cost),
+                   billed_usd=formula.rate(Decimal(cost)), formula_id=formula.id, category="ai_models",
+                   attribution="actor_step")
+    db.add(row)
+    await db.flush()
+    return row
 
 
 async def _run(db, company_id, entity_type="PROCESS", status="RUNNING"):
@@ -155,15 +167,14 @@ async def test_a_run_settled_twice_is_charged_once(db):
     await _admit(db, run, ent, "1.00")
     run.total_cost_usd = Decimal("0.40")
     run.status = "COMPLETED"
+    await _usage(db, run, "0.40")
     await db.flush()
 
     async def _state():
-        wallet = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == company)
-                                   .execution_options(populate_existing=True))).scalar_one()
         billed = (await db.execute(select(BillingEvent.total_billing)
                                    .where(BillingEvent.company_id == company)
                                    .execution_options(populate_existing=True))).scalars().all()
-        return Decimal(str(wallet.wallet_balance)), [Decimal(str(b)) for b in billed]
+        return await available(db, company), [Decimal(str(b)) for b in billed]
 
     first = await GovernanceService(db, None).settle_billing(run, ent.name)
     after_first = await _state()
@@ -184,6 +195,7 @@ async def test_a_run_admitted_without_a_hold_is_settled_once_too(db):
     company = await _company(db, "5")
     run, ent = await _run(db, company, status="COMPLETED")
     run.total_cost_usd = Decimal("0.25")
+    await _usage(db, run, "0.25")
     await db.flush()
     assert await GovernanceService(db, None).settle_billing(run, ent.name) > 0
     assert await GovernanceService(db, None).settle_billing(run, ent.name) == 0

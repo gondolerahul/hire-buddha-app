@@ -1,4 +1,5 @@
 import { parseServerDate } from '@/utils/datetime';
+import { formatBilled } from '@/utils/money';
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { GlassCard, JellyButton } from '@/components/ui';
@@ -145,7 +146,7 @@ export const ExecutionHistory: React.FC = () => {
 
                             <div className="card-meta">
                                 <span className="meta-item" title="Billed Amount">
-                                    <DollarSign size={12} /> ${(execution.billed_amount != null ? execution.billed_amount : execution.total_cost_usd).toFixed(4)}
+                                    <DollarSign size={12} /> {formatBilled(execution, execution.billed_amount ?? 0)}
                                 </span>
                                 <span className="meta-item" title="Token Usage">
                                     <Database size={12} /> {execution.total_tokens.toLocaleString()}

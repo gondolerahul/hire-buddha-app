@@ -26,15 +26,20 @@ export interface HitlData {
     total: number;
 }
 
+/** Every wallet's credit and debt, each in its own currency; totals in the display currency (Phase 15 M15.2). */
 export interface WalletLiabilityData {
-    wallets: { company_id: string; company_name: string; company_type: string; daily_credits: number; wallet_balance: number; subscription_credits: number; total_available: number; account_model: string }[];
-    totals: { total_daily_credits: number; total_wallet_balance: number; total_subscription_credits: number; total_liability: number };
+    display_currency: string;
+    wallets: { company_id: string; company_name: string; company_type: string; currency: string; state: string; daily_credits: number; wallet_balance: number; subscription_credits: number; total_available: number; debt: number; total_available_display: number; account_model: string }[];
+    totals: { total_daily_credits: number; total_wallet_balance: number; total_subscription_credits: number; total_liability: number; total_debt: number };
 }
 
+/** Usage by channel: billed for everyone (in the viewer's currency, `billed_currency`); cost for staff only (T9-3). */
 export interface UsageBreakdownData {
-    channels: { service: string; category: string; calls: number; total_quantity: number; total_cost_usd: number }[];
-    daily_trend: { date: string; cost: number }[];
-    total_cost_usd: number;
+    channels: { service: string; category: string; calls: number; total_quantity: number; total_cost_usd?: number; billed_usd: number; billed_currency?: string }[];
+    daily_trend: { date: string; cost?: number; billed_usd: number; billed_currency?: string }[];
+    total_cost_usd?: number;
+    total_billed_usd: number;
+    billed_currency?: string;
 }
 
 export interface TenantHealthData {
@@ -49,16 +54,19 @@ export interface CampaignAnalyticsData {
 
 export interface PersonalTasksData {
     tasks: { id: string; entity_name: string; status: string; input_data?: any; total_cost_usd: number; billed_amount?: number; total_tokens: number; execution_time_ms?: number; started_at?: string; completed_at?: string; created_at: string; error_message?: string }[];
-    summary: { total: number; completed: number; failed: number; success_rate: number; total_cost_usd: number; total_execution_ms: number; estimated_time_saved_hours: number };
+    summary: { total: number; completed: number; failed: number; success_rate: number; total_cost_usd?: number; total_billed_usd?: number; total_execution_ms: number; estimated_time_saved_hours: number };
 }
 
 export interface AgentErrorsData {
-    agents: { entity_id: string; name: string; type: string; total: number; completed: number; failed: number; error_rate: number; avg_ms: number; total_cost: number }[];
+    /* Per agent: `billed_usd` (in the viewer's currency, `billed_currency`); `total_cost` for staff only. */
+    agents: { entity_id: string; name: string; type: string; total: number; completed: number; failed: number; error_rate: number; avg_ms: number; total_cost?: number; billed_usd?: number; billed_currency?: string }[];
 }
 
+/** Burn rate and depletion in the wallet's currency, billed amounts (Phase 15 M15.2). */
 export interface CreditForecastData {
-    wallet: { daily_credits: number; wallet_balance: number; subscription_credits: number; total_available: number; account_model: string };
-    burn_rate: { avg_daily_usd: number; daily_history: { date: string; cost: number }[] };
+    currency: string;
+    wallet: { daily_credits: number; wallet_balance: number; subscription_credits: number; total_available: number; debt: number; state: string; account_model: string };
+    burn_rate: { avg_daily: number; daily_history: { date: string; billed: number }[] };
     forecast: { days_remaining: number; depletion_date?: string; projection: { date: string; projected_balance: number }[] };
 }
 

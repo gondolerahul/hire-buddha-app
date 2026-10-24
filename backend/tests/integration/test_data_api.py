@@ -19,6 +19,7 @@ from sqlalchemy import select
 from src.automation import store
 from src.data_api import tokens
 from src.schema_engine import engine as schema
+from tests.harness.wallet import fund
 
 pytestmark = pytest.mark.needs_db
 
@@ -253,8 +254,7 @@ async def test_a_record_change_starts_the_data_trigger(biz, monkeypatch):
     monkeypatch.setattr("src.ai.service.enqueue_job", lambda *a, **k: _none())
     later = datetime.utcnow() + timedelta(days=1)
     async with database.AsyncSessionLocal() as db:
-        db.add(CreditWallet(company_id=biz.company_id, daily_credits=Decimal("0"), daily_expires_at=later,
-                            wallet_balance=Decimal("100"), wallet_expires_at=later))
+        await fund(db, biz.company_id, "100")
         await db.commit()
     async with _client() as client:
         await client.post("/data/v1/schema/changes", headers=await _user(biz), json={"operations": [
@@ -302,8 +302,7 @@ async def test_a_condition_trigger_runs_its_agent_only_when_the_condition_holds(
     monkeypatch.setattr("src.ai.service.enqueue_job", lambda *a, **k: _none())
     later = datetime.utcnow() + timedelta(days=1)
     async with database.AsyncSessionLocal() as db:
-        db.add(CreditWallet(company_id=biz.company_id, daily_credits=Decimal("0"), daily_expires_at=later,
-                            wallet_balance=Decimal("100"), wallet_expires_at=later))
+        await fund(db, biz.company_id, "100")
         await db.commit()
     async with _client() as client:
         await client.post("/data/v1/schema/changes", headers=await _user(biz), json={"operations": [

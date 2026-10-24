@@ -85,6 +85,7 @@ class PaymentService:
         # Create the wallet first: creating one commits, which would release
         # the row lock taken below.
         await self.credits.get_or_create_wallet(txn.company_id)
+        from src.billing.enforcement import wallet_changed
 
         txn = await self._topup(order_id, company_id, lock=True)
         if txn is None:                                                     # pragma: no cover
@@ -94,17 +95,32 @@ class PaymentService:
             await self.db.commit()  # release the locks
             return txn, wallet, False
 
-        amount = Decimal(str(txn.amount))
+        # What was paid, in the wallet's currency: the order's own currency
+        # (an order placed before the wallet cutover was in USD) converted at
+        # the rate in effect now. GST is not taken out yet (T6-5).
+        amount = await self._in_wallet_currency(Decimal(str(txn.amount)), txn.currency, wallet.currency)
         txn.razorpay_payment_id = payment_id
         if signature:
             txn.razorpay_signature = signature
         txn.status = "success"
         txn.credits_awarded = amount
-        self.credits.add_to_wallet_balance(wallet, amount)
+        change = await self.credits.add_wallet_credits(txn.company_id, amount, source_type="payment",
+                                                       source_id=order_id, commit=False)
         await self.db.commit()
         await self.db.refresh(wallet)
-        logger.info("Top-up %s credited %s to company %s", order_id, amount, txn.company_id)
+        logger.info("Top-up %s credited %s %s to company %s (debt repaid %s)", order_id, amount, wallet.currency,
+                    txn.company_id, change.debt_repaid)
+        await wallet_changed(self.db, txn.company_id, change)
         return txn, wallet, True
+
+    async def _in_wallet_currency(self, amount: Decimal, currency: Optional[str], wallet_currency: str) -> Decimal:
+        from src.billing.currency import current_rate, to_ccy, to_usd
+
+        currency = (currency or "USD").upper()
+        if currency == wallet_currency:
+            return amount
+        usd = to_usd(amount, await current_rate(self.db, currency))
+        return to_ccy(usd, await current_rate(self.db, wallet_currency))
 
     # ── Webhook ────────────────────────────────────────────────────────
 
@@ -153,8 +169,10 @@ class PaymentService:
         txn = await self._topup(order_id, None)
         if txn is None:
             return "ignored"  # not a top-up order (e.g. a subscription invoice)
-        paid = Decimal(str(payment.get("amount") or 0)) / 100
-        if paid != Decimal(str(txn.amount)) or (payment.get("currency") or "USD") != txn.currency:
+        from src.billing.currency import minor_units
+        currency = (txn.currency or "USD").upper()
+        paid = Decimal(str(payment.get("amount") or 0)) / (Decimal(10) ** await minor_units(self.db, currency))
+        if paid != Decimal(str(txn.amount)) or (payment.get("currency") or "USD").upper() != currency:
             logger.error(
                 "Razorpay payment %s for order %s paid %s %s; the order is for %s %s — not credited",
                 payment_id, order_id, paid, payment.get("currency"), txn.amount, txn.currency,
@@ -248,7 +266,8 @@ class PaymentService:
             await self.db.rollback()
             return False
         await self.credits.inject_subscription_credits(
-            sub.company_id, base_amount=fee, bonus_pct=bonus_pct, expires_at=cycle_end)  # commits
+            sub.company_id, base_amount=fee, bonus_pct=bonus_pct, expires_at=cycle_end,
+            source_id=payment_id)  # commits
         logger.info("Subscription %s: payment %s granted a cycle to %s", sub.id, payment_id, cycle_end)
         return True
 

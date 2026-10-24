@@ -68,7 +68,11 @@ export interface PartnerAnalytics {
     total_tenants: number;
     total_entities: number;
     total_executions: number;
-    total_cost_usd: number;
+    /** Raw cost: staff only (Phase 15 T9-3). */
+    total_cost_usd?: number;
+    /** What the tenants were billed, in the viewer's currency (`billed_currency`). */
+    total_billed_usd?: number;
+    billed_currency?: string;
     total_wallet_balance: number;
     active_tenants: number;
     suspended_tenants: number;

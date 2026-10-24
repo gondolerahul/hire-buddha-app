@@ -1,37 +1,27 @@
-"""Scoped platform settings (Phase 15 T2-1; the catalogue and resolver come with T5-1).
+"""Scoped platform settings: where values of the settings catalogue are stored (Phase 15 T2-1, T5-1).
 
 ``platform_settings`` holds one value per (key, scope, scope_id): the platform
-default (``scope='platform'``, no id), and later plan, partner and company
-values. T2-1 needs two platform values — ``billing.display_currency`` (what
-staff views show) and ``billing.default_currency`` (the currency of a country
-with no profile, REQ-BL-2) — so this module has just the table and a
-platform-scope get and set; T5-1 adds the catalogue (type, bounds, editors),
-the scope resolver with "explain", and its UI.
+value (``scope='platform'``, no id) and plan, partner and company values. What
+a key means — its type, bounds, default and allowed scopes — and how a
+company's value is resolved is ``src.billing.settings_catalogue``; this
+module only reads and writes rows.
 
-Writes are audited in ``admin_audit_log`` (``object_type='setting'``).
+Every write is audited in ``admin_audit_log`` (``object_type='setting'``).
 """
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
-from sqlalchemy import CheckConstraint, DateTime, Text, UniqueConstraint, select, text
+from sqlalchemy import CheckConstraint, DateTime, Text, UniqueConstraint, delete, select, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.common.tenancy.bases import ControlBase
 
-__all__ = ["PlatformSetting", "get_platform_setting", "set_platform_setting"]
-
-# Platform values before any row exists (the migration seeds the same).
-DEFAULTS: dict[str, Any] = {
-    "billing.display_currency": "INR",
-    "billing.default_currency": "INR",
-    # The new rating and settlement path (plan §6): off | shadow | on. Shadow
-    # records each settlement priced both ways (T3-7); "on" needs WS15-4.
-    "billing.v2_mode": "shadow",
-}
+__all__ = ["PlatformSetting", "get_platform_setting", "set_platform_setting", "set_setting", "delete_setting",
+           "read_values"]
 
 
 class PlatformSetting(ControlBase):
@@ -54,25 +44,67 @@ class PlatformSetting(ControlBase):
                                                  server_default=text("now()"))
 
 
+def _where(key: str, scope: str, scope_id: Optional[uuid.UUID]) -> list:
+    return [PlatformSetting.key == key, PlatformSetting.scope == scope,
+            PlatformSetting.scope_id == scope_id if scope_id is not None else PlatformSetting.scope_id.is_(None)]
+
+
+async def read_values(db: Any, key: str, scopes: Iterable[tuple[str, Optional[uuid.UUID]]]) -> dict:
+    """``{(scope, scope_id): value}`` of the rows of ``key`` at the given scopes (one query)."""
+    scopes = list(scopes)
+    rows = (await db.execute(select(PlatformSetting.scope, PlatformSetting.scope_id, PlatformSetting.value_json)
+                             .where(PlatformSetting.key == key,
+                                    PlatformSetting.scope.in_({s for s, _ in scopes})))).all()
+    wanted = set(scopes)
+    return {(r.scope, r.scope_id): r.value_json for r in rows if (r.scope, r.scope_id) in wanted}
+
+
 async def get_platform_setting(db: Any, key: str) -> Any:
-    """The platform value of ``key`` (its default when no row is set)."""
-    row = (await db.execute(select(PlatformSetting.value_json).where(
-        PlatformSetting.key == key, PlatformSetting.scope == "platform",
-        PlatformSetting.scope_id.is_(None)))).scalar_one_or_none()
-    return DEFAULTS.get(key) if row is None else row
+    """The platform value of ``key`` as stored (its catalogue default when no row is set)."""
+    from src.billing.settings_catalogue import CATALOGUE, _jsonable
+
+    row = (await db.execute(select(PlatformSetting.value_json).where(*_where(key, "platform", None)))
+           ).scalar_one_or_none()
+    if row is None:
+        spec = CATALOGUE.get(key)
+        return _jsonable(spec.default) if spec else None
+    return row
 
 
-async def set_platform_setting(db: Any, key: str, value: Any, *, actor: Any, reason: Optional[str] = None) -> None:
-    """Set the platform value of ``key`` and audit the change (the caller commits)."""
+async def set_setting(db: Any, key: str, value: Any, *, scope: str = "platform", scope_id: Optional[uuid.UUID] = None,
+                      actor: Any, reason: Optional[str] = None) -> None:
+    """Set ``key`` at a scope and audit it (the caller commits). The value is already validated."""
     from src.common.admin_audit import record_admin_change
 
-    row = (await db.execute(select(PlatformSetting).where(
-        PlatformSetting.key == key, PlatformSetting.scope == "platform",
-        PlatformSetting.scope_id.is_(None)))).scalar_one_or_none()
-    old = DEFAULTS.get(key) if row is None else row.value_json
+    row = (await db.execute(select(PlatformSetting).where(*_where(key, scope, scope_id)))).scalar_one_or_none()
+    old = None if row is None else row.value_json
     if row is None:
-        db.add(PlatformSetting(key=key, scope="platform", value_json=value, updated_by=getattr(actor, "id", None)))
+        db.add(PlatformSetting(key=key, scope=scope, scope_id=scope_id, value_json=value,
+                               updated_by=getattr(actor, "id", None)))
     else:
         row.value_json, row.updated_by, row.updated_at = value, getattr(actor, "id", None), datetime.utcnow()
     record_admin_change(db, actor=actor, action="set", object_type="setting", object_key=key,
-                        scope={"scope": "platform"}, old_value=old, new_value=value, reason=reason)
+                        target_company_id=scope_id if scope == "company" else None,
+                        scope={"scope": scope, "scope_id": str(scope_id) if scope_id else None},
+                        old_value=old, new_value=value, reason=reason)
+
+
+async def delete_setting(db: Any, key: str, *, scope: str, scope_id: Optional[uuid.UUID], actor: Any,
+                         reason: Optional[str] = None) -> bool:
+    """Remove the value at one scope (the next scope's value applies again); audited."""
+    from src.common.admin_audit import record_admin_change
+
+    row = (await db.execute(select(PlatformSetting).where(*_where(key, scope, scope_id)))).scalar_one_or_none()
+    if row is None:
+        return False
+    old = row.value_json
+    await db.execute(delete(PlatformSetting).where(PlatformSetting.id == row.id))
+    record_admin_change(db, actor=actor, action="delete", object_type="setting", object_key=key,
+                        target_company_id=scope_id if scope == "company" else None,
+                        scope={"scope": scope, "scope_id": str(scope_id) if scope_id else None},
+                        old_value=old, new_value=None, reason=reason)
+    return True
+
+
+async def set_platform_setting(db: Any, key: str, value: Any, *, actor: Any, reason: Optional[str] = None) -> None:
+    await set_setting(db, key, value, scope="platform", scope_id=None, actor=actor, reason=reason)

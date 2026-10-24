@@ -45,6 +45,9 @@ from src.common.database import AsyncSessionLocal
 from src.config.models import IntegrationRegistry
 from src.config.schemas import IntegrationRegistryCreate
 from src.config.service import ConfigService
+from src.common.orm_models import import_all_models
+
+import_all_models()  # every mapper, so foreign keys to other modules resolve (companies → currencies)
 
 LLM_MODEL = "gemini-2.5-flash"
 EMBEDDING_MODEL = "text-embedding-005"

@@ -329,8 +329,16 @@ export interface HITLCheckpoint {
     auto_approve_on_timeout: boolean;
 }
 
+/** What one run of an agent may be billed, in the company's currency (Phase 15 T5-7). */
+export interface MaxBill {
+    amount: string | number;
+    currency?: string | null;
+}
+
 export interface Governance {
+    /** The budget's raw-cost equivalent, derived from `max_bill` on save; staff only. */
     max_cost_usd?: number;
+    max_bill?: MaxBill | null;
     timeout_ms: number;
     max_recursion_depth?: number;   // how deep the tree below this entity may go (enforced)
     checkpoint_every_n_steps?: number;
@@ -394,7 +402,8 @@ export interface LLMInteractionLog {
     prompt_tokens: number;
     completion_tokens: number;
     latency_ms?: number;
-    cost_usd: number;
+    /** Staff only: absent for tenants and partners (Phase 15 T9-3). */
+    cost_usd?: number;
     reasoning_mode?: string;
     step_name?: string;
     created_at: string;
@@ -457,8 +466,11 @@ export interface ExecutionRun {
     context_state?: any;
     error_message?: string;
 
-    total_cost_usd: number;
+    /** Raw provider cost: staff only — absent for tenants and partners (Phase 15 T9-3). */
+    total_cost_usd?: number;
     billed_amount?: number;  // TB formula result — the user-facing charge
+    /** The currency of `billed_amount` for a tenant's or partner's people (USD for staff). */
+    billed_currency?: string;
     total_tokens: number;
     execution_time_ms?: number;
     trace_id?: string;

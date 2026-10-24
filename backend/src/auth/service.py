@@ -21,37 +21,27 @@ logger = logging.getLogger(__name__)
 
 
 async def _provision_new_tenant(db: AsyncSession, company: Company):
-    """Create CreditWallet for a newly-created tenant company.
-
-    IMPORTANT: This runs inside an active transaction (post-flush, pre-commit).
-    We must NOT execute queries to other tables (like BillingConfig) here because
-    asyncpg doesn't support concurrent operations on the same connection.
-
-    The caller is expected to set company.default_daily_credits before calling this.
-    """
+    """Create the wallet of a newly-created tenant company, in its billing
+    currency (Phase 15 T4-1). Runs post-flush, pre-commit; the caller commits.
+    Its first daily credits come after the commit (:func:`grant_first_daily_credits`)."""
     try:
-        from src.billing.billing_models import CreditWallet
-        from decimal import Decimal
+        from src.billing.wallet import WalletService
 
-        # Read default from company (set by caller from BillingConfig)
-        default_daily = Decimal("0")  # no fallback — must come from BillingConfig
-        if company.default_daily_credits:
-            try:
-                default_daily = Decimal(str(company.default_daily_credits))
-            except Exception:
-                pass
-
-        wallet = CreditWallet(
-            company_id=company.id,
-            daily_credits=default_daily,
-        )
-        db.add(wallet)
-        # Don't flush here — let the caller's commit handle it
-        logger.info(f"Queued CreditWallet for company {company.id} with {default_daily} daily credits")
-    except ImportError:
-        logger.warning("Billing module not available — skipping CreditWallet creation")
+        await WalletService(db).ensure(company.id)
     except Exception as e:
-        logger.warning(f"Failed to provision CreditWallet for company {company.id}: {e}")
+        logger.warning(f"Failed to provision the wallet of company {company.id}: {e}")
+
+
+async def grant_first_daily_credits(db: AsyncSession, company_id) -> None:
+    """Today's daily credits for a company just created (its policy, T5-5), so a new
+    business does not wait for the next quarter-hour tick. Best-effort; commits."""
+    try:
+        from src.billing.daily_credits import grant_today
+
+        await grant_today(db, company_id)
+    except Exception as e:
+        await db.rollback()
+        logger.warning(f"First daily credits of company {company_id} not granted: {e}")
 
 async def request_workspace(company_id) -> None:
     """A new company's own database (Phase 14 WS2 2.9): with ``TENANCY_MODE=split``
@@ -184,22 +174,6 @@ async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
     from src.auth.geography import set_geography
     await set_geography(db, new_company, user.country_code, billing_state=user.billing_state)
 
-    # Read default_daily_credits from global BillingConfig BEFORE flush
-    try:
-        from src.billing.billing_models import BillingConfig
-        config_result = await db.execute(
-            select(BillingConfig).where(
-                BillingConfig.company_id.is_(None),
-                BillingConfig.is_active == True
-            ).limit(1)
-        )
-        global_config = config_result.scalar_one_or_none()
-        if global_config and global_config.default_daily_credits:
-            new_company.default_daily_credits = global_config.default_daily_credits
-            logger.info(f"Using BillingConfig default_daily_credits: {global_config.default_daily_credits}")
-    except Exception as e:
-        logger.warning(f"Could not read BillingConfig for default credits: {e}")
-
     db.add(new_company)
     await db.flush()
 
@@ -215,10 +189,11 @@ async def create_user(db: AsyncSession, user: UserCreate, creator: User = None):
     db.add(new_user)
     await db.flush()
 
-    # Auto-provision CreditWallet with default daily credits
+    # The company's wallet; its daily credits once the sign-up has committed.
     await _provision_new_tenant(db, new_company)
 
     await db.commit()
+    await grant_first_daily_credits(db, new_company.id)
     await db.refresh(new_user)
     
     await request_workspace(new_company.id)
@@ -452,21 +427,6 @@ async def get_or_create_oauth_user(db: AsyncSession, email: str, full_name: str)
     from src.auth.geography import set_geography
     await set_geography(db, new_company, None)
 
-    # Read default_daily_credits from global BillingConfig BEFORE flush
-    try:
-        from src.billing.billing_models import BillingConfig
-        config_result = await db.execute(
-            select(BillingConfig).where(
-                BillingConfig.company_id.is_(None),
-                BillingConfig.is_active == True
-            ).limit(1)
-        )
-        global_config = config_result.scalar_one_or_none()
-        if global_config and global_config.default_daily_credits:
-            new_company.default_daily_credits = global_config.default_daily_credits
-    except Exception:
-        pass  # Fall back to model default
-
     db.add(new_company)
     await db.flush()
     
@@ -485,10 +445,11 @@ async def get_or_create_oauth_user(db: AsyncSession, email: str, full_name: str)
     db.add(new_user)
     await db.flush()
 
-    # Auto-provision CreditWallet
+    # The company's wallet; its daily credits once the sign-up has committed.
     await _provision_new_tenant(db, new_company)
 
     await db.commit()
+    await grant_first_daily_credits(db, new_company.id)
     await db.refresh(new_user)
     await request_workspace(new_company.id)
     return new_user

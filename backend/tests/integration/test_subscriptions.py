@@ -92,7 +92,7 @@ def rzp(monkeypatch):
 
 async def _company(db):
     from src.auth.models import Company
-    c = Company(name=f"subs-{uuid.uuid4().hex[:6]}", type="TENANT", status="active")
+    c = Company(name=f"subs-{uuid.uuid4().hex[:6]}", type="TENANT", status="active", billing_currency="USD")
     db.add(c)
     await db.flush()
     return c.id
@@ -138,8 +138,22 @@ async def _webhook(client, event, sub_entity, payment=None):
 
 
 async def _wallet(db, company_id):
-    return (await db.execute(select(CreditWallet).where(CreditWallet.company_id == company_id)
-                             .execution_options(populate_existing=True))).scalar_one_or_none()
+    """The wallet with its subscription lots summed (Phase 15 M15.2: lots, not buckets); USD company."""
+    from types import SimpleNamespace
+
+    from src.billing.wallet import WalletService
+    row = (await db.execute(select(CreditWallet).where(CreditWallet.company_id == company_id)
+                            .execution_options(populate_existing=True))).scalar_one_or_none()
+    if row is None:
+        return None
+    lots = (await WalletService(db).balance(company_id))["lots"]
+    sub_lots = [lot for lot in lots if lot["kind"] == "subscription"]
+    return SimpleNamespace(
+        account_model=row.account_model,
+        subscription_credits=sum((lot["remaining"] for lot in sub_lots), Decimal(0)),
+        subscription_bonus_credits=sum((lot["remaining"] for lot in lots if lot["kind"] == "subscription_bonus"),
+                                       Decimal(0)),
+        sub_credits_expire_at=max((lot["expires_at"] for lot in sub_lots), default=None))
 
 
 async def _sub(db, rz_id):
@@ -226,8 +240,8 @@ async def test_each_monthly_charge_replaces_the_cycles_credits(db, rzp):
         await _webhook(client, "subscription.charged", rzp.subs[rz_id],
                        {"id": "pay_m1", "amount": 2900, "currency": "USD"})
         # spend some of month one
-        from src.billing.credit_service import CreditService
-        await CreditService(db).consume(company, Decimal("30"))
+        from src.billing.wallet import WalletService
+        await WalletService(db).deduct(company, Decimal("30"), source_type="test")
         rzp.subs[rz_id]["current_end"] += 30 * 86400
         res = await _webhook(client, "subscription.charged", rzp.subs[rz_id],
                              {"id": "pay_m2", "amount": 2900, "currency": "USD"})
@@ -334,8 +348,8 @@ async def test_an_older_payment_recorded_late_does_not_replace_newer_credits(db,
         rz_id = await _subscribe(db, client, rzp, tier, cycle_days=40)
         await _webhook(client, "subscription.charged", rzp.subs[rz_id],
                        {"id": "pay_current", "amount": 2900, "currency": "USD"})
-        from src.billing.credit_service import CreditService
-        await CreditService(db).consume(company, Decimal("10"))
+        from src.billing.wallet import WalletService
+        await WalletService(db).deduct(company, Decimal("10"), source_type="test")
         left = Decimal(str((await _wallet(db, company)).subscription_credits))
         assert left < Decimal("29")
         earlier = {**rzp.subs[rz_id], "current_end": int(time.time()) + 10 * 86400}
