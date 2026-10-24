@@ -34,6 +34,17 @@ async def create_user(
     db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(RoleChecker(["app_admin", "partner_admin", "tenant_admin"]))
 ):
+    # The plan's limit.users (Phase 15 T6-2), for the company the user joins.
+    from sqlalchemy import func, select as _select
+
+    from src.billing.features import check_limit, feature_locked
+    target = getattr(user_in, "company_id", None) or current_user.company_id
+    if str(getattr(current_user.role, "value", current_user.role)) != "app_admin":
+        in_use = (await db.execute(_select(func.count(User.id)).where(
+            User.company_id == target, User.is_active.is_(True)))).scalar() or 0
+        refusal = await check_limit(db, target, "limit.users", in_use)
+        if refusal:
+            raise feature_locked("limit.users", refusal)
     return await create_user_as_admin(db, user_in, current_user)
 
 @router.patch("/{user_id}", response_model=UserResponse)

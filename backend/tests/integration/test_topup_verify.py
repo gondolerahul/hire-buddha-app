@@ -57,7 +57,7 @@ def _client(db, company_id, monkeypatch) -> httpx.AsyncClient:
     async def _creds(_db):
         return {"key_id": "rzp_test", "key_secret": SECRET}
 
-    monkeypatch.setattr(credits_router, "_get_razorpay_creds", _creds)
+    monkeypatch.setattr("src.billing.gateways.razorpay.get_razorpay_creds", _creds)  # the gateway (Phase 15 T6-3)
     app = FastAPI()
     app.include_router(credits_router.router)
     user = SimpleNamespace(id=uuid.uuid4(), role="tenant_admin", company_id=company_id)

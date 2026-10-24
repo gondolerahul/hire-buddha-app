@@ -9,6 +9,7 @@ subscribe or cancel the subscription (B-15), and a top-up had no bounds:
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 
 import httpx
@@ -42,7 +43,7 @@ def razorpay(monkeypatch):
         def __init__(self, auth):
             self.order = orders
 
-    monkeypatch.setattr(credits_router, "_get_razorpay_creds", _creds)
+    monkeypatch.setattr("src.billing.gateways.razorpay.get_razorpay_creds", _creds)  # the gateway (Phase 15 T6-3)
     monkeypatch.setattr("razorpay.Client", _Client)
     return orders
 
@@ -101,7 +102,8 @@ async def test_a_top_up_outside_the_bounds_or_finer_than_a_paisa_is_refused(db, 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("amount,paise", [("500", 50_000), ("1234.56", 123_456), ("1000000", 100_000_000)])
+# The amount is the credit; the order charges it with 18% GST on top (Phase 15 T6-5).
+@pytest.mark.parametrize("amount,paise", [("500", 59_000), ("1234.56", 145_678), ("1000000", 118_000_000)])
 async def test_an_admin_tops_up_the_exact_amount(db, test_company_id, razorpay, amount, paise):
     await _in_rupees(db, test_company_id)
     async with _client(db, "tenant_admin", test_company_id) as client:
@@ -109,6 +111,8 @@ async def test_an_admin_tops_up_the_exact_amount(db, test_company_id, razorpay, 
         options = (await client.get("/api/v1/credits/topup-options")).json()
     assert response.status_code == 200
     assert razorpay.created[-1]["amount"] == paise and razorpay.created[-1]["currency"] == "INR"
-    assert options == {"currency": "INR", "min": "500.00", "max": "1000000.00",
-                       "presets": ["1000.00", "2500.00", "5000.00", "10000.00"], "validity_days": 90,
-                       "can_pay": True}
+    assert Decimal(response.json()["net"]) == Decimal(amount)
+    assert {k: v for k, v in options.items() if k != "tax_regime"} == {
+        "currency": "INR", "min": "500.00", "max": "1000000.00",
+        "presets": ["1000.00", "2500.00", "5000.00", "10000.00"], "validity_days": 90,
+        "tax_rate": "18", "can_pay": True}

@@ -89,6 +89,8 @@ class AIService:
             hierarchy=entity_data.get("hierarchy"), planning=entity_data.get("planning"),
             name=str(entity_data.get("name") or ""),
         ))
+        if not entity_data.get("is_template"):
+            await self._require_plan_for(entity_data, effective_company_id, user_role)    # Phase 15 T6-2
 
         # A budget in the billed currency carries its cost equivalent (Phase 15 T5-7).
         if entity_data.get("governance"):
@@ -193,6 +195,35 @@ class AIService:
             
         return entity
 
+    async def _require_plan_for(self, entity_data: dict, company_id: UUID, user_role: Optional[str],
+                                *, creating: bool = True) -> None:
+        """The plan's agent features (Phase 15 T6-2): the builder, the entity's level, and
+        ``limit.agents`` for a new one. Staff are never limited."""
+        if str(user_role or "") in ("app_admin", "app_user"):
+            return
+        from sqlalchemy import func
+
+        from src.billing.features import check_feature, check_limit, feature_locked
+        from src.common.tenancy.session import control_db_for
+
+        level = str(entity_data.get("type") or "").upper()
+        keys = ["feature.agents.builder"]
+        if level == "PROCESS":
+            keys.append("feature.agents.process_level")
+        if level in ("LOOP", "GRAPH"):
+            keys.append("feature.agents.loop_graph_levels")
+        async with control_db_for(self.db) as control:
+            for key in keys:
+                refusal = await check_feature(control, company_id, key)
+                if refusal:
+                    raise feature_locked(key, refusal)
+            if creating:
+                in_use = (await self.db.execute(select(func.count(HierarchicalEntity.id)).where(
+                    HierarchicalEntity.company_id == company_id))).scalar() or 0
+                refusal = await check_limit(control, company_id, "limit.agents", in_use)
+                if refusal:
+                    raise feature_locked("limit.agents", refusal)
+
     async def update_entity(self, entity_id: UUID, entity_in: HierarchicalEntityUpdate, company_id: UUID, user_role: str = None, user_id: UUID = None) -> HierarchicalEntity:
         entity = await self.get_entity(entity_id, company_id, user_role=user_role)
         if entity.is_template:
@@ -221,6 +252,9 @@ class AIService:
             if refused:
                 raise HTTPException(status_code=422, detail=f"Status: {refused}.")
         await self._require_composition(EntityShape.of(entity).with_changes(update_data))
+        if not entity.is_template:
+            await self._require_plan_for({"type": update_data.get("type") or entity.type}, entity.company_id,
+                                         user_role, creating=False)
         if update_data.get("governance"):
             # A budget in the billed currency carries its cost equivalent (Phase 15 T5-7). An
             # edit that does not mention the budget keeps it: tenants never see max_cost_usd (T9-3).

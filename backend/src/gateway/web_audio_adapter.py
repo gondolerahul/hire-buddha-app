@@ -114,7 +114,7 @@ class WebAudioAdapter:
             try:
                 await self.websocket.send_text(json.dumps({
                     "event": "error", "code": reason,
-                    "message": refusal or live_sessions.cap_message(),
+                    "message": refusal or live_sessions.cap_message(company),
                 }))
                 await self.websocket.close(code=code, reason=reason)
             except Exception:

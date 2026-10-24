@@ -43,7 +43,7 @@ class _Numbers:
 def refused(monkeypatch):
     seen = []
 
-    async def _refuse(db, company_id, *, direction, checkpoint):
+    async def _refuse(db, company_id, *, direction, checkpoint, number=None):
         seen.append((company_id, direction, checkpoint))
         return "Cannot start execution: no free credit"
 

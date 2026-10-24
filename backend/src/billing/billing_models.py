@@ -119,7 +119,8 @@ class CreditWallet(ControlBase):
 
 class SubscriptionTier(ControlBase):
     """
-    App Admin configurable subscription tiers.
+    The subscription tiers before plans (Phase 15 T6-1): read by nothing since
+    ``control_0017_plans`` copied them into ``plans``; dropped a release later.
     """
     __tablename__ = "subscription_tiers"
 
@@ -161,6 +162,17 @@ class Subscription(ControlBase):
     next_billing_date = Column(DateTime(timezone=True), nullable=True)
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Phase 15 T6-4: the plan and version bought, charged in the company's currency.
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=True)
+    plan_version = Column(Integer, nullable=True)
+    currency = Column(CHAR(3), nullable=True)
+    amount_ccy = Column(Numeric(24, 10), nullable=True)          # each cycle's fee, before tax
+    gateway_plan_ref = Column(UUID(as_uuid=True), nullable=True)  # plan_gateway_plans.id charged now
+    # A downgrade (or the next renewal's new version, rate or tax) waits for the cycle's end.
+    pending_plan_id = Column(UUID(as_uuid=True), nullable=True)
+    pending_gateway_plan_ref = Column(UUID(as_uuid=True), nullable=True)
+    cancel_at_cycle_end = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -184,6 +196,13 @@ class PaymentTransaction(ControlBase):
     status = Column(String(20), nullable=False, default="pending")  # pending | success | failed
     credits_awarded = Column(Numeric(24, 10), nullable=True)
     transaction_metadata = Column(JSONB, nullable=True)
+    # Phase 15 T6-5: what was paid, split (prices are tax-exclusive, TX-1), and its invoice.
+    purpose = Column(String(30), nullable=True)                 # topup | subscription | setup_fee | …
+    net_amount = Column(Numeric(24, 10), nullable=True)
+    tax_amount = Column(Numeric(24, 10), nullable=True)
+    gross_amount = Column(Numeric(24, 10), nullable=True)
+    invoice_id = Column(UUID(as_uuid=True), nullable=True)
+    refunded_gross = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -630,3 +649,222 @@ class CompanyLock(ControlBase):
     locked_by = Column(UUID(as_uuid=True), nullable=True)
     reason = Column(Text, nullable=True)
     at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class Plan(ControlBase):
+    """A subscription plan (Phase 15 T6-1, tech design §12.1); replaces ``subscription_tiers``.
+
+    Level 0 is Pay-as-you-go: every company without a live subscription is on
+    it, and its entitlements and tolerance apply to them (SB-6). The price is
+    USD (``monthly_fee_usd``) with optional per-currency overrides; an edit is a
+    new ``version`` (``plan_versions``), and a subscription keeps the version it
+    was bought at until its next renewal (SB-1). Plans are archived, never deleted.
+    """
+    __tablename__ = "plans"
+    __table_args__ = (
+        CheckConstraint("tier_level >= 0", name="ck_plans_tier_level"),
+        CheckConstraint("monthly_fee_usd >= 0 AND bonus_pct >= 0 AND bonus_pct <= 100", name="ck_plans_amounts"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    code = Column(String(40), nullable=False, unique=True)
+    name = Column(Text, nullable=False)
+    tier_level = Column(Integer, nullable=False, unique=True)
+    monthly_fee_usd = Column(Numeric(24, 10), nullable=False)
+    bonus_pct = Column(Numeric(10, 4), nullable=False, default=0, server_default="0")
+    currency_overrides = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    sort = Column(Integer, nullable=False, default=0, server_default="0")
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    updated_by = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class PlanVersion(ControlBase):
+    """Every version a plan has had (append-only)."""
+    __tablename__ = "plan_versions"
+    __table_args__ = (UniqueConstraint("plan_id", "version", name="uq_plan_versions"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=False)
+    version = Column(Integer, nullable=False)
+    name = Column(Text, nullable=False)
+    monthly_fee_usd = Column(Numeric(24, 10), nullable=False)
+    bonus_pct = Column(Numeric(10, 4), nullable=False)
+    currency_overrides = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    active = Column(Boolean, nullable=False)
+    reason = Column(Text, nullable=True)
+    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class PlanGatewayPlan(ControlBase):
+    """The gateway's plan for one (plan version, currency, rate, tax rate) — created on first use (SB-2, K-18).
+
+    A gateway plan cannot change its amount, so a new plan version, a new FX
+    rate or another tax rate is another gateway plan; a subscription moves to
+    it at its next renewal.
+    """
+    __tablename__ = "plan_gateway_plans"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "plan_version", "currency", "fx_rate_id", "tax_rate", "gateway",
+                         name="uq_plan_gateway_plans", postgresql_nulls_not_distinct=True),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    currency = Column(CHAR(3), nullable=False)
+    fx_rate_id = Column(UUID(as_uuid=True), nullable=True)      # NULL: an override price, no conversion
+    tax_rate = Column(Numeric(10, 4), nullable=False)           # 18 (domestic GST) or 0 (export)
+    net_amount = Column(Numeric(24, 10), nullable=False)        # the fee in the currency, before tax
+    amount_minor = Column(Integer, nullable=False)              # what the gateway charges each cycle (net + tax)
+    gateway = Column(String(20), nullable=False, default="razorpay", server_default="razorpay")
+    gateway_plan_id = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class PlanEntitlement(ControlBase):
+    """A plan's setting for one feature or limit of the catalogue (Phase 15 T6-2, tech design §10.2)."""
+    __tablename__ = "plan_entitlements"
+
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), primary_key=True)
+    feature_key = Column(String(80), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    limit_value = Column(Integer, nullable=True)                # a limit's quantity; NULL: no limit
+    updated_by = Column(UUID(as_uuid=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class CompanyEntitlementOverride(ControlBase):
+    """One company's own setting for a feature or limit, whatever its plan (until ``until``)."""
+    __tablename__ = "company_entitlement_overrides"
+
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), primary_key=True)
+    feature_key = Column(String(80), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    limit_value = Column(Integer, nullable=True)
+    until = Column(DateTime(timezone=True), nullable=True)
+    reason = Column(Text, nullable=True)
+    set_by = Column(UUID(as_uuid=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class DocumentSeries(ControlBase):
+    """The next number of a gap-free series (Phase 15 T6-5, TX-4): one per kind, prefix and
+    Indian financial year (April–March), taken under the row lock in the payment's transaction."""
+    __tablename__ = "document_series"
+
+    kind = Column(String(20), primary_key=True)                # invoice | credit_note
+    prefix = Column(String(20), primary_key=True)
+    financial_year = Column(String(7), primary_key=True)       # 2026-27
+    next_number = Column(Integer, nullable=False, default=1, server_default="1")
+
+
+class Invoice(ControlBase):
+    """A tax invoice: one per payment received (Phase 15 T6-5, TX-3)."""
+    __tablename__ = "invoices"
+    __table_args__ = (Index("ix_invoices_company", "company_id", "issued_at"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    number = Column(String(40), nullable=False, unique=True)   # HB/2026-27/000123
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("payment_transactions.id"), nullable=False, unique=True)
+    currency = Column(CHAR(3), nullable=False)
+    net = Column(Numeric(24, 10), nullable=False)
+    cgst = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    sgst = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    igst = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    tax = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    total = Column(Numeric(24, 10), nullable=False)
+    tax_rate = Column(Numeric(10, 4), nullable=False)
+    regime = Column(String(20), nullable=False)                 # intra_state | inter_state | export
+    place_of_supply = Column(String(10), nullable=True)
+    customer = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))   # name, GSTIN, address
+    supplier = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    issued_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+    pdf_key = Column(Text, nullable=True)
+    emailed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class InvoiceLine(ControlBase):
+    __tablename__ = "invoice_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    invoice_id = Column(UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    sac = Column(String(10), nullable=True)
+    quantity = Column(Numeric(24, 10), nullable=False, default=1, server_default="1")
+    amount = Column(Numeric(24, 10), nullable=False)            # net
+
+
+class CreditNote(ControlBase):
+    """A credit note against an invoice, for a refund (Phase 15 T6-6, TX-7)."""
+    __tablename__ = "credit_notes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    number = Column(String(40), nullable=False, unique=True)   # HB-CN/2026-27/000007
+    invoice_id = Column(UUID(as_uuid=True), ForeignKey("invoices.id"), nullable=False, index=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    currency = Column(CHAR(3), nullable=False)
+    net = Column(Numeric(24, 10), nullable=False)
+    cgst = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    sgst = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    igst = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    tax = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    total = Column(Numeric(24, 10), nullable=False)
+    reason = Column(Text, nullable=False)
+    issued_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+    pdf_key = Column(Text, nullable=True)
+
+
+class Refund(ControlBase):
+    """A staff refund of a payment (Phase 15 T6-6): the gateway's refund, the credit taken
+    back (from the payment's lot, the rest as debt), and the credit note."""
+    __tablename__ = "refunds"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("payment_transactions.id"), nullable=False, index=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    currency = Column(CHAR(3), nullable=False)
+    gross = Column(Numeric(24, 10), nullable=False)
+    net = Column(Numeric(24, 10), nullable=False)
+    credit_taken = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    debt_added = Column(Numeric(24, 10), nullable=False, default=0, server_default="0")
+    gateway_refund_id = Column(Text, nullable=True)
+    credit_note_id = Column(UUID(as_uuid=True), nullable=True)
+    reason = Column(Text, nullable=False)
+    actor_id = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+
+
+class NumberRental(ControlBase):
+    """A company's rent of a phone number (Phase 15 T7-1, tech design §13).
+
+    It starts when the number becomes the company's (an admin claims it, or
+    staff assign it) and ends when it is released (NR-1). Each 30-day period is
+    charged in advance at the rent price item's current version (NR-2), from the
+    wallet like usage (NR-3). Over the tolerance for
+    ``numbers.hold_after_days_over_tolerance`` the rental is ``held``: calls to
+    and from the number are refused until the debt is repaid (NR-4).
+    """
+    __tablename__ = "number_rentals"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'held', 'ended')", name="ck_number_rentals_status"),
+        Index("ix_number_rentals_due", "next_charge_at", postgresql_where=text("status <> 'ended'")),
+        Index("uq_number_rentals_open", "phone_number_id", unique=True, postgresql_where=text("status <> 'ended'")),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    phone_number_id = Column(UUID(as_uuid=True), ForeignKey("phone_numbers.id"), nullable=False)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    status = Column(String(10), nullable=False, default="active", server_default="active")
+    started_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, server_default=text("now()"))
+    next_charge_at = Column(DateTime(timezone=True), nullable=False)
+    periods_charged = Column(Integer, nullable=False, default=0, server_default="0")
+    price_item_version = Column(Integer, nullable=True)      # the version the last period was charged at
+    last_amount = Column(Numeric(24, 10), nullable=True)
+    currency = Column(CHAR(3), nullable=True)
+    held_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)

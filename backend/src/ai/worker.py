@@ -52,7 +52,8 @@ from src.ai.campaign_worker import (
 
 from src.mobile.reconciler import mobile_housekeeping_job
 from src.billing.jobs import (
-    billing_settle_standalone, billing_subscription_reconciliation, billing_wallet_check, billing_wallet_tick,
+    billing_number_rent, billing_settle_standalone, billing_subscription_reconciliation, billing_wallet_check,
+    billing_wallet_tick,
 )
 from src.common.tenancy.provisioner import provision_tenant
 from src.schema_engine.engine import apply_schema_change
@@ -66,7 +67,7 @@ from src.automation.worker import automation_sweep, release_parked, route_event
 from src.connections.jobs import connection_refresh, prune_unrouted_events
 from src.automation.pollers import run_pollers
 from src.apps.jobs import (app_hosting_metering, build_app, expire_app_previews, run_review_checks,
-                           sandbox_idle_reaper, tenant_db_metering)
+                           sandbox_idle_reaper, tenant_db_metering, tenant_storage_metering)
 from src.common.telemetry import setup_tracing, shutdown_tracing, traced_job
 from src.common.worker_health import start_heartbeat, stop_heartbeat
 from src.common.worker_metrics import serve_metrics
@@ -154,6 +155,7 @@ class WorkerSettings:
         build_app,
         app_hosting_metering,
         tenant_db_metering,
+        tenant_storage_metering,
         expire_app_previews,
         sandbox_idle_reaper,
     )]
@@ -202,12 +204,14 @@ try:
         # nightly; subscriptions reconciled with Razorpay.
         cron(traced_job(billing_wallet_tick), minute={2, 17, 32, 47}),
         cron(traced_job(billing_settle_standalone), minute={12}),
+        cron(traced_job(billing_number_rent), minute={27}),
         cron(traced_job(billing_wallet_check), hour={2}, minute={10}),
         cron(traced_job(billing_subscription_reconciliation), hour={1}, minute={30}),
         # Tenant runtime (Phase 14 WS6): hosting use of the last hour, database shares of
         # yesterday, expired previews, idle sandbox pods (AKS only).
         cron(traced_job(app_hosting_metering), minute={4}),
         cron(traced_job(tenant_db_metering), hour={0}, minute={20}),
+        cron(traced_job(tenant_storage_metering), hour={0}, minute={35}),
         cron(traced_job(expire_app_previews), minute={34}),
         cron(traced_job(sandbox_idle_reaper), minute=set(range(1, 60, 5))),
     ]

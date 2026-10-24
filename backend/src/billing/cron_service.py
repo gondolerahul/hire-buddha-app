@@ -21,7 +21,7 @@ from src.billing.billing_models import PaymentTransaction, Subscription
 from src.billing.payment_service import (
     LIVE_SUBSCRIPTION_STATUSES, RAZORPAY_SUBSCRIPTION_STATUS, PaymentService, razorpay_time,
 )
-from src.billing.razorpay_gateway import get_razorpay_creds, razorpay_client
+from src.billing.gateways import GatewayUnavailable, get_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -78,18 +78,24 @@ class CronService:
             Subscription.status == "pending_payment",
             Subscription.created_at < cutoff,
         ))).scalars().all()
-        client = razorpay_client(await get_razorpay_creds(self.db)) if subs else None
+        gateway = await self._gateway() if subs else None
         for sub in subs:
             sub.status = "failed"
             sub.updated_at = datetime.utcnow()
-            if client is not None and sub.razorpay_subscription_id:
+            if gateway is not None and sub.razorpay_subscription_id:
                 try:
-                    client.subscription.cancel(sub.razorpay_subscription_id, {"cancel_at_cycle_end": 0})
+                    await gateway.cancel_subscription(sub.razorpay_subscription_id, at_cycle_end=False)
                 except Exception as e:
-                    logger.warning(f"Could not cancel abandoned Razorpay subscription "
+                    logger.warning(f"Could not cancel abandoned gateway subscription "
                                    f"{sub.razorpay_subscription_id}: {e}")
         await self.db.commit()
         return {"expired_orders": len(orders), "failed_subscriptions": len(subs)}
+
+    async def _gateway(self):
+        try:
+            return await get_gateway(self.db)
+        except GatewayUnavailable:
+            return None
 
     async def run_subscription_reconciliation(self) -> dict:
         """Bring each subscription in line with Razorpay (BC-04).
@@ -106,9 +112,13 @@ class CronService:
         Subscriptions paid with a one-time order before BC-16 have no Razorpay
         subscription and nothing can renew them: they end when the month they
         paid for ends.
+
+        Then every live subscription whose price changed — a new plan version,
+        FX rate or tax rate — is moved to its new gateway plan at the cycle's
+        end (Phase 15 T6-4), so its next renewal is at today's price.
         """
         logger.info("Starting subscription reconciliation")
-        client = razorpay_client(await get_razorpay_creds(self.db))
+        gateway = await self._gateway()
         payments = PaymentService(self.db)
         counts = {"checked": 0, "credited": 0, "status_changed": 0,
                   "legacy_ended": 0, "skipped": 0, "errors": 0}
@@ -124,22 +134,23 @@ class CronService:
                         await payments.set_subscription_status(sub, "cancelled")
                         counts["legacy_ended"] += 1
                     continue
-                if client is None:
+                if gateway is None:
                     counts["skipped"] += 1
                     continue
                 counts["checked"] += 1
-                invoices = client.invoice.all({"subscription_id": sub.razorpay_subscription_id})
-                paid = [i for i in (invoices or {}).get("items", [])
-                        if i.get("status") == "paid" and i.get("payment_id")]
+                from src.billing.currency import minor_units
+                digits = Decimal(10) ** await minor_units(self.db, sub.currency or "USD")
+                invoices = await gateway.subscription_invoices(sub.razorpay_subscription_id)
+                paid = [i for i in invoices if i.get("status") == "paid" and i.get("payment_id")]
                 for inv in sorted(paid, key=lambda i: i.get("billing_end") or 0):
                     if await payments.record_subscription_charge(
                         sub,
                         payment_id=inv["payment_id"],
-                        amount=Decimal(str(inv.get("amount_paid") or inv.get("amount") or 0)) / 100,
+                        amount=Decimal(str(inv.get("amount_paid") or inv.get("amount") or 0)) / digits,
                         cycle_end=razorpay_time(inv.get("billing_end")),
                     ):
                         counts["credited"] += 1
-                rz_status = client.subscription.fetch(sub.razorpay_subscription_id).get("status")
+                rz_status = (await gateway.fetch_subscription(sub.razorpay_subscription_id)).get("status")
                 status = RAZORPAY_SUBSCRIPTION_STATUS.get(rz_status or "")
                 if status and status != sub.status:
                     await payments.set_subscription_status(sub, status)
@@ -149,6 +160,9 @@ class CronService:
                 await self.db.rollback()
                 counts["errors"] += 1
 
+        if gateway is not None:
+            from src.billing.subscriptions import reprice_for_renewal
+            counts["repriced"] = (await reprice_for_renewal(self.db, gateway))["moved"]
         logger.info(f"Subscription reconciliation complete: {counts}")
         return {**counts, "timestamp": datetime.utcnow().isoformat()}
 

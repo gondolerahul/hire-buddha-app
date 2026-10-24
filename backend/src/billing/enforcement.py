@@ -33,7 +33,7 @@ async def wallet_changed(db: Any, company_id: UUID, change: Optional[Any]) -> No
     logger.info("wallet of %s: %s -> %s", company_id, before, after)
     from src.billing.suspension import forget
     forget(company_id)                       # read-only (or not) from the next request
-    for step in (_automation, _apps, _notify):
+    for step in (_automation, _apps, _numbers, _notify):
         try:
             await step(db, company_id, before, after)
         except Exception:  # noqa: BLE001 - enforcement must not undo the wallet change
@@ -56,6 +56,22 @@ async def _apps(db: Any, company_id: UUID, before: str, after: str) -> None:
     if after == "ok":
         await start_apps_for_balance(company_id)
     # Stopping waits for the grace period: the apps job (``billing_enforce_wallets``) stops them.
+
+
+async def _numbers(db: Any, company_id: UUID, before: str, after: str) -> None:
+    """Numbers held for the balance take calls again as soon as it is repaid (NR-4)."""
+    if after != "ok":
+        return
+    from sqlalchemy import update
+
+    from src.billing.billing_models import NumberRental
+    from src.common.tenancy.session import control_session
+
+    async with control_session() as session:
+        await session.execute(update(NumberRental).where(NumberRental.company_id == company_id,
+                                                         NumberRental.status == "held")
+                              .values(status="active", held_at=None))
+        await session.commit()
 
 
 async def _notify(db: Any, company_id: UUID, before: str, after: str) -> None:

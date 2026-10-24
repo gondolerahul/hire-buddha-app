@@ -50,6 +50,7 @@ from src.automation.api import capability
 from src.code_lanes import service as code
 from src.code_lanes.git import GitError
 from src.common.tenancy.session import acting_company_id, get_control_db
+from src.billing.features import require_feature
 
 router = APIRouter(tags=["Apps"])
 
@@ -96,7 +97,7 @@ async def get_code_item(item_id: UUID, request: Request, user: User = Depends(ge
     return await _call(code.get_item(await _company(request, user, db), item_id, with_files=True))
 
 
-@router.post("/api/v1/code-items/{item_id}/promote", status_code=201, openapi_extra=capability(
+@router.post("/api/v1/code-items/{item_id}/promote", dependencies=[Depends(require_feature("feature.code.lanes"))], status_code=201, openapi_extra=capability(
     "Open the pull request that makes scratch code an asset; checks run on it", "write_internal", "code.promote",
     idempotent=False))
 async def promote(item_id: UUID, body: PromoteBody, request: Request, user: User = Depends(get_current_user),
@@ -167,7 +168,7 @@ async def list_repos(request: Request, user: User = Depends(get_current_user),
     return await _call(code.list_repos(await _company(request, user, db)))
 
 
-@router.post("/api/v1/git/repos", status_code=201, openapi_extra=capability(
+@router.post("/api/v1/git/repos", dependencies=[Depends(require_feature("feature.code.lanes"))], status_code=201, openapi_extra=capability(
     "Create a repository (built-in or GitHub) or import one from GitHub", "write_external", "code.repos",
     idempotent=False))
 async def create_repo(body: RepoBody, request: Request, user: User = Depends(get_current_user),
@@ -184,7 +185,7 @@ async def create_repo(body: RepoBody, request: Request, user: User = Depends(get
                                         connection_id=body.connection_id, description=body.description))
 
 
-@router.post("/api/v1/git/repos/{repo_id}/push-to-github", status_code=201, openapi_extra=capability(
+@router.post("/api/v1/git/repos/{repo_id}/push-to-github", dependencies=[Depends(require_feature("feature.code.lanes"))], status_code=201, openapi_extra=capability(
     "Push a built-in repository's whole history to a new GitHub repository", "write_external", "code.repos",
     approval="human", idempotent=False))
 async def push_to_github(repo_id: UUID, body: PushBody, request: Request, user: User = Depends(get_current_user),
@@ -235,13 +236,20 @@ async def list_apps(request: Request, user: User = Depends(get_current_user),
     return await _call(apps.list_apps(await _company(request, user, db)))
 
 
-@router.post("/api/v1/apps", status_code=201, openapi_extra=capability(
+@router.post("/api/v1/apps", dependencies=[Depends(require_feature("feature.apps.hosting"))], status_code=201, openapi_extra=capability(
     "Create an app from a template: its repository, first commit, roles, keys and first build", "write_internal",
     "apps.manage", idempotent=False))
 async def create_app(body: AppCreate, request: Request, user: User = Depends(get_current_user),
                      db: AsyncSession = Depends(get_control_db)) -> Dict[str, Any]:
     _manager(user)
-    return await _call(apps.create_app(await _company(request, user, db), user, name=body.name,
+    company_id = await _company(request, user, db)
+    # The plan's number of apps (feature.apps.hosting's limit, Phase 15 T6-2); archived apps do not count.
+    from src.billing.features import check_limit, feature_locked
+    in_use = len([a for a in await apps.list_apps(company_id) if a.get("status") != "archived"])
+    refusal = await check_limit(db, company_id, "feature.apps.hosting", in_use)
+    if refusal:
+        raise feature_locked("feature.apps.hosting", refusal)
+    return await _call(apps.create_app(company_id, user, name=body.name,
                                        display_name=body.display_name, template=body.template, objects=body.objects,
                                        params=body.params, repo_id=body.repo_id, provider=body.provider,
                                        connection_id=body.connection_id))
@@ -278,7 +286,7 @@ async def list_builds(app_id: UUID, request: Request, user: User = Depends(get_c
     return await _call(apps.list_builds(await _company(request, user, db), app_id))
 
 
-@router.post("/api/v1/apps/{app_id}/builds", status_code=202, openapi_extra=capability(
+@router.post("/api/v1/apps/{app_id}/builds", dependencies=[Depends(require_feature("feature.apps.hosting"))], status_code=202, openapi_extra=capability(
     "Build an app's default branch (or a commit)", "write_internal", "apps.manage", idempotent=False))
 async def start_build(app_id: UUID, body: BuildBody, request: Request, user: User = Depends(get_current_user),
                       db: AsyncSession = Depends(get_control_db)) -> Dict[str, Any]:
@@ -301,7 +309,7 @@ async def list_deployments(app_id: UUID, request: Request, user: User = Depends(
     return await _call(apps.list_deployments(await _company(request, user, db), app_id))
 
 
-@router.post("/api/v1/apps/{app_id}/preview", status_code=201, openapi_extra=capability(
+@router.post("/api/v1/apps/{app_id}/preview", dependencies=[Depends(require_feature("feature.apps.hosting"))], status_code=201, openapi_extra=capability(
     "Run a build as a preview (7 days)", "write_internal", "apps.manage", idempotent=False))
 async def preview(app_id: UUID, body: DeployBody, request: Request, user: User = Depends(get_current_user),
                   db: AsyncSession = Depends(get_control_db)) -> Dict[str, Any]:
@@ -310,7 +318,7 @@ async def preview(app_id: UUID, body: DeployBody, request: Request, user: User =
                                     user_id=user.id))
 
 
-@router.post("/api/v1/apps/{app_id}/publish", status_code=201, openapi_extra=capability(
+@router.post("/api/v1/apps/{app_id}/publish", dependencies=[Depends(require_feature("feature.apps.hosting"))], status_code=201, openapi_extra=capability(
     "Publish a build at the app's address and custom domains", "write_external", "apps.publish", approval="human",
     idempotent=False))
 async def publish(app_id: UUID, body: DeployBody, request: Request, user: User = Depends(get_current_user),
@@ -373,7 +381,7 @@ async def list_domains(app_id: UUID, request: Request, user: User = Depends(get_
     return await _call(domains.list_domains(await _company(request, user, db), app_id))
 
 
-@router.post("/api/v1/apps/{app_id}/domains", status_code=201, openapi_extra=capability(
+@router.post("/api/v1/apps/{app_id}/domains", dependencies=[Depends(require_feature("feature.apps.custom_domains"))], status_code=201, openapi_extra=capability(
     "Add a custom domain; the answer says which DNS records to create", "write_internal", "apps.domains"))
 async def add_domain(app_id: UUID, body: DomainBody, request: Request, user: User = Depends(get_current_user),
                      db: AsyncSession = Depends(get_control_db)) -> Dict[str, Any]:

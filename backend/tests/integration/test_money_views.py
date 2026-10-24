@@ -94,14 +94,23 @@ async def test_the_middleware_shows_tenants_billed_only_and_staff_everything(mon
 
 
 @pytest.mark.asyncio
-async def test_the_viewers_currency_is_its_companys():
-    """The middleware reads the viewer's company in its own session: a committed company, removed after."""
+async def test_the_viewers_currency_is_its_companys(monkeypatch):
+    """The middleware reads the viewer's company in its own session: a committed company, removed after.
+
+    On an engine of its own with no pool: the app's pool may hold a connection an
+    earlier test opened on its (now closed) event loop."""
     from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
 
     from src.auth.models import Company
     from src.billing import money_view
+    from src.common import database
+    from src.common.config import settings
     from src.common.tenancy.session import control_session
 
+    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    monkeypatch.setattr(database, "AsyncSessionLocal", async_sessionmaker(engine, expire_on_commit=False))
     company_id = uuid.uuid4()
     async with control_session() as db:
         db.add(Company(id=company_id, name=f"mv-{company_id.hex[:6]}", type="TENANT", status="active",
@@ -116,6 +125,7 @@ async def test_the_viewers_currency_is_its_companys():
         async with control_session() as db:
             await db.execute(delete(Company).where(Company.id == company_id))
             await db.commit()
+        await engine.dispose()
 
 
 # ── the real endpoints ───────────────────────────────────────────────────────

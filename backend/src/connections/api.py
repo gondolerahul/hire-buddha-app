@@ -51,6 +51,7 @@ from src.connections.catalog import catalog_rows, connector_view
 from src.connections.models import CATALOG_STATUSES, ConnectorCatalogEntry, UnroutedEvent
 from src.connections.providers import ProviderError
 from src.connections.webhooks import router as webhook_router
+from src.billing.features import require_feature
 
 router = APIRouter(tags=["Connections"])
 router.include_router(webhook_router)
@@ -141,7 +142,7 @@ async def list_connections(user: User = Depends(get_current_user)):
     return await service.list_connections(user.company_id)
 
 
-@router.post("/api/v1/connections/start", openapi_extra=capability(
+@router.post("/api/v1/connections/start", dependencies=[Depends(require_feature("feature.connections.oauth"))], openapi_extra=capability(
     "Begin connecting an account: a provider sign-in address, Embedded Signup parameters, or a form.",
     "write_external", "owner, admin", idempotent=False))
 async def start(body: StartRequest, user: User = Depends(get_current_user)):

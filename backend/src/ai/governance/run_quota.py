@@ -3,8 +3,9 @@
 There was no per-tenant quota anywhere: a script, a webhook storm or a looping
 integration could start runs as fast as it could call, and every one of them
 held a worker and credit. Now a company may start
-``settings.RUNS_STARTED_PER_MINUTE`` top-level runs in any 60 seconds (0 turns
-the limit off). The count is a ``RedisRateLimiter`` window, which refuses when
+its plan's ``limit.runs_per_minute`` top-level runs in any 60 seconds (Phase 15
+T6-2; the default is ``settings.RUNS_STARTED_PER_MINUTE``, and no limit turns it
+off). The count is a ``RedisRateLimiter`` window, which refuses when
 Redis cannot be reached (GH-21): a quota that lifts in an outage is no quota.
 
 Checked where a top-level run starts:
@@ -30,14 +31,26 @@ class RunQuotaExceeded(Exception):
     """The company has started its quota of runs this minute."""
 
 
+async def _limit(company_id: Any, default: int) -> Any:
+    """The company's ``limit.runs_per_minute``; the platform default when it cannot be read."""
+    from src.billing.features import limit_of
+    from src.common.tenancy.session import control_session
+
+    try:
+        async with control_session() as db:
+            return await limit_of(db, UUID(str(company_id)), "limit.runs_per_minute")
+    except Exception:  # noqa: BLE001
+        return default
+
+
 async def require_run_slot(company_id: Any) -> None:
     """Take one of the company's run starts this minute, or raise ``RunQuotaExceeded``."""
     from src.ai.governance.rate_limiter import RedisRateLimiter
     from src.common.config import settings
     from src.common.redis_client import shared_redis
 
-    limit = int(settings.RUNS_STARTED_PER_MINUTE or 0)
-    if limit <= 0:
+    limit = await _limit(company_id, int(settings.RUNS_STARTED_PER_MINUTE or 0))
+    if not limit or limit <= 0:
         return
     allowed = await RedisRateLimiter(shared_redis()).check_and_consume(
         key=f"runs_started:{UUID(str(company_id))}", limit=limit, window_seconds=WINDOW_SECONDS)

@@ -4,7 +4,7 @@ A setting has a type, bounds, a default and the scopes it may be set at. Values
 live in ``platform_settings`` (``src.common.settings_store``); ``resolve``
 reads a company's value from the most specific scope that sets it:
 
-    company → its partner (the parent PARTNER company) → plan (with T6-1) → platform → the default
+    company → its partner (the parent PARTNER company) → its plan (T6-1) → platform → the default
 
 and says which one did (``explain``). Amounts are USD (K-16): the screens show
 them in the display currency beside it. Only ``app_admin`` edits them (§8.4).
@@ -25,7 +25,7 @@ LEVELS = ("GRAPH", "LOOP", "PROCESS", "AGENT", "SKILL", "ACTION")
 @dataclass(frozen=True)
 class SettingSpec:
     key: str
-    type: str                       # usd | int | bool | choice | usd_list | decimal
+    type: str                       # usd | int | bool | choice | usd_list | decimal | text
     default: Any
     help: str
     scopes: tuple[str, ...] = (PLATFORM,)
@@ -101,6 +101,18 @@ _SPECS = [
     SettingSpec("daily_credits.inherit_up_partner_chain", "bool", False,
                 "A partner's tenant with no policy of its partner's takes the nearest upline partner's",
                 group="daily_credits"),
+    # GST and invoices (Phase 15 T6-5, tech design §12.3, Q8).
+    SettingSpec("tax.gst_rate", "decimal", Decimal("18"), "GST on payments made in India (%, CGST + SGST or IGST)",
+                minimum=Decimal(0), maximum=Decimal(40), unit="%", group="tax"),
+    SettingSpec("tax.supplier_legal_name", "text", "Buddha Consulting LLP", "The supplier on invoices", group="tax"),
+    SettingSpec("tax.supplier_gstin", "text", "", "The supplier's GSTIN on invoices", group="tax"),
+    SettingSpec("tax.supplier_state", "text", "KA",
+                "The supplier's state (two-character code): the same state is CGST + SGST, another IGST",
+                group="tax"),
+    SettingSpec("tax.supplier_address", "text", "", "The supplier's address on invoices", group="tax"),
+    SettingSpec("tax.lut_number", "text", "", "The Letter of Undertaking for zero-rated exports", group="tax"),
+    SettingSpec("invoice.series_prefix", "text", "HB", "Invoice numbers: <prefix>/<financial year>/<number>",
+                group="tax"),
 ]
 CATALOGUE: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}
 
@@ -159,6 +171,10 @@ def coerce(spec: SettingSpec, value: Any) -> Any:
         if not isinstance(value, list) or not value:
             raise InvalidSetting(f"{spec.key} is a list of amounts")
         return [str(_number(v)) for v in value]
+    if spec.type == "text":
+        if not isinstance(value, str) or len(value) > 500:
+            raise InvalidSetting(f"{spec.key} is text of at most 500 characters")
+        return value.strip()
     raise InvalidSetting(f"{spec.key}: unknown type {spec.type}")  # pragma: no cover
 
 
@@ -208,6 +224,11 @@ async def resolve(db: Any, key: str, company_id: Optional[UUID] = None) -> Resol
             partner = await _partner_of(db, company_id)
             if partner is not None:
                 candidates.append((PARTNER, partner))
+        if PLAN in spec.scopes:
+            from src.billing.plans import plan_id_of
+            plan_id = await plan_id_of(db, company_id)
+            if plan_id is not None:
+                candidates.append((PLAN, plan_id))
     candidates.append((PLATFORM, None))
     values = await read_values(db, key, candidates)
     for scope, scope_id in candidates:

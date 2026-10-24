@@ -59,6 +59,11 @@ const WalletsAdminPage = lazy(() => import('@/pages/admin/WalletsAdminPage'));
 const DailyCreditsPage = lazy(() => import('@/pages/admin/DailyCreditsPage'));
 const PricingPage = lazy(() => import('@/pages/admin/PricingPage'));
 const MoneySettingsPage = lazy(() => import('@/pages/admin/MoneySettingsPage'));
+// Phase 15 M15.3 (T6-7): plans, invoices and payments.
+const PlanPage = lazy(() => import('@/pages/billing/PlanPage'));
+const InvoicesPage = lazy(() => import('@/pages/billing/InvoicesPage'));
+const PlansAdminPage = lazy(() => import('@/pages/admin/PlansAdminPage'));
+const PaymentsAdminPage = lazy(() => import('@/pages/admin/PaymentsAdminPage'));
 // Phase 14 WS3: the automation control room (triggers, event log).
 const ControlRoom = lazy(() => import('@/pages/automation/ControlRoom'));
 // Phase 14 WS8: records, connections, apps and code, business settings, platform admin.
@@ -563,6 +568,16 @@ export const AppRouter: React.FC = () => {
                         }
                     />
 
+                    {/* Plan and invoices (Phase 15 T6-7) */}
+                    <Route
+                        path="/billing/plan"
+                        element={<ProtectedRoute><MainLayout><PlanPage /></MainLayout></ProtectedRoute>}
+                    />
+                    <Route
+                        path="/billing/invoices"
+                        element={<ProtectedRoute><MainLayout><InvoicesPage /></MainLayout></ProtectedRoute>}
+                    />
+
                     {/* Billing Settings */}
                     <Route
                         path="/settings/billing"
@@ -662,6 +677,22 @@ export const AppRouter: React.FC = () => {
                         element={
                             <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
                                 <MainLayout><PricingPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/plans"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><PlansAdminPage /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/admin/payments"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN]}>
+                                <MainLayout><PaymentsAdminPage /></MainLayout>
                             </ProtectedRoute>
                         }
                     />

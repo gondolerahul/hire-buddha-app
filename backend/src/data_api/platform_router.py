@@ -26,6 +26,7 @@ from src.automation.api import capability
 from src.common.tenancy.session import acting_company_id, get_control_db
 from src.data_api import tokens
 from src.schema_engine import engine as schema
+from src.billing.features import require_feature
 
 router = APIRouter(tags=["Records"])
 
@@ -39,7 +40,7 @@ async def _location(request: Request, user: User, db: AsyncSession) -> Any:
     return company_id, location
 
 
-@router.post("/api/v1/records/token", openapi_extra=capability(
+@router.post("/api/v1/records/token", dependencies=[Depends(require_feature("feature.records"))], openapi_extra=capability(
     "A short-lived token for the business's records (Data API)", "read", "records.read"))
 async def records_token(request: Request, user: User = Depends(get_current_user),
                         db: AsyncSession = Depends(get_control_db)) -> Dict[str, Any]:
@@ -79,7 +80,7 @@ def _out(row: Any) -> Dict[str, Any]:
             "created_at": row.created_at, "last_used_at": row.last_used_at, "revoked_at": row.revoked_at}
 
 
-@router.post("/api/v1/data-keys", response_model=KeyCreated, status_code=201, openapi_extra=capability(
+@router.post("/api/v1/data-keys", dependencies=[Depends(require_feature("feature.records.data_api_keys"))], response_model=KeyCreated, status_code=201, openapi_extra=capability(
     "Create an app key for the business's records; the key is shown once", "write_internal", "records.keys",
     approval="human", idempotent=False))
 async def create_key(body: KeyCreate, request: Request, user: User = Depends(get_current_user),

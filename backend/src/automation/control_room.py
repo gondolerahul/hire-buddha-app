@@ -307,6 +307,13 @@ async def create_trigger(body: TriggerCreate, request: Request, user: User = Dep
                          db: AsyncSession = Depends(get_acting_tenant_db)) -> TriggerOut:
     _require(user, EDIT_ROLES, "create triggers")
     company_id = await acting_company_id(request, user, control_db)
+    # The plan's automation features (Phase 15 T6-2): event triggers or schedules.
+    from src.automation.triggers import EVENT_KINDS
+    from src.billing.features import check_feature, feature_locked
+    key = "feature.automation.triggers" if body.kind in EVENT_KINDS else "feature.automation.schedules"
+    refusal = await check_feature(control_db, company_id, key)
+    if refusal:
+        raise feature_locked(key, refusal)
     try:
         trigger = await triggers_mod.create(db, control_db, company_id, body.model_dump(exclude_unset=True),
                                             triggers_mod.Actor("user", user.id))

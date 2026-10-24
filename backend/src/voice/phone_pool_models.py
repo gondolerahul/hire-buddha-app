@@ -50,7 +50,8 @@ class PhoneNumber(ControlBase):
     # Inventory metadata (from provider sync)
     provider_sid = Column(String(100), nullable=True)
     capabilities = Column(JSONB, nullable=True)  # {"voice": true, "sms": false}
-    monthly_cost_usd = Column(Numeric(10, 4), nullable=True)
+    # What the provider charges for the number (cost side, staff only; Phase 15 NR-6).
+    provider_monthly_cost_usd = Column(Numeric(10, 4), nullable=True)
     label = Column(String(100), nullable=True)
     notes = Column(String(500), nullable=True)
 

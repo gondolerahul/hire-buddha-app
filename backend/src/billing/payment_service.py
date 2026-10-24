@@ -12,13 +12,12 @@ A subscription grants a cycle's credits only for a Razorpay payment on it
 import hashlib
 import hmac
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.billing.billing_models import CreditWallet, PaymentTransaction, Subscription
@@ -95,10 +94,12 @@ class PaymentService:
             await self.db.commit()  # release the locks
             return txn, wallet, False
 
-        # What was paid, in the wallet's currency: the order's own currency
-        # (an order placed before the wallet cutover was in USD) converted at
-        # the rate in effect now. GST is not taken out yet (T6-5).
-        amount = await self._in_wallet_currency(Decimal(str(txn.amount)), txn.currency, wallet.currency)
+        # The credit is what was paid net of GST (T6-5), in the wallet's
+        # currency: the order's own currency (an order placed before the wallet
+        # cutover was in USD) converted at the rate in effect now. An order
+        # placed before GST carried none: all of it is credit, and it has no invoice.
+        net = Decimal(str(txn.net_amount if txn.net_amount is not None else txn.amount))
+        amount = await self._in_wallet_currency(net, txn.currency, wallet.currency)
         txn.razorpay_payment_id = payment_id
         if signature:
             txn.razorpay_signature = signature
@@ -106,12 +107,34 @@ class PaymentService:
         txn.credits_awarded = amount
         change = await self.credits.add_wallet_credits(txn.company_id, amount, source_type="payment",
                                                        source_id=order_id, commit=False)
+        invoice_id = await self._invoice_topup(txn)
         await self.db.commit()
         await self.db.refresh(wallet)
+        if invoice_id is not None:
+            from src.billing.invoices import store_pdf
+            await store_pdf(self.db, invoice_id)
+            await self.db.refresh(wallet)
         logger.info("Top-up %s credited %s %s to company %s (debt repaid %s)", order_id, amount, wallet.currency,
                     txn.company_id, change.debt_repaid)
         await wallet_changed(self.db, txn.company_id, change)
         return txn, wallet, True
+
+    async def _invoice_topup(self, txn: PaymentTransaction) -> Optional[UUID]:
+        """The tax invoice of a top-up paid with GST (TX-3); none for an order placed before GST."""
+        if txn.net_amount is None or txn.gross_amount is None or txn.invoice_id is not None:
+            return None
+        from src.auth.models import Company
+        from src.billing.invoices import issue_invoice
+        from src.billing.tax import TaxedAmount, apply, tax_for
+
+        company = await self.db.get(Company, txn.company_id)
+        tax = await tax_for(self.db, company)
+        split = apply(Decimal(str(txn.net_amount)), tax)       # the CGST / SGST / IGST split of what was charged
+        taxed = TaxedAmount(Decimal(str(txn.net_amount)), split.cgst, split.sgst, split.igst,
+                            Decimal(str(txn.tax_amount or 0)), Decimal(str(txn.gross_amount)), tax.regime, tax.rate)
+        invoice = await issue_invoice(self.db, payment=txn, company=company, taxed=taxed, currency=txn.currency,
+                                      lines=[("Wallet recharge (prepaid credit)", taxed.net)])
+        return invoice.id
 
     async def _in_wallet_currency(self, amount: Decimal, currency: Optional[str], wallet_currency: str) -> Decimal:
         from src.billing.currency import current_rate, to_ccy, to_usd
@@ -149,10 +172,12 @@ class PaymentService:
         if kind == "subscription.charged":
             if not payment.get("id"):
                 return "ignored"
+            from src.billing.currency import minor_units
+            currency = (payment.get("currency") or sub.currency or "USD").upper()
             credited = await self.record_subscription_charge(
                 sub,
                 payment_id=payment["id"],
-                amount=Decimal(str(payment.get("amount") or 0)) / 100,
+                amount=Decimal(str(payment.get("amount") or 0)) / (Decimal(10) ** await minor_units(self.db, currency)),
                 cycle_end=razorpay_time(rz_sub.get("current_end")),
             )
             return "credited" if credited else "already_credited"
@@ -220,56 +245,11 @@ class PaymentService:
         amount: Decimal,
         cycle_end: Optional[datetime] = None,
     ) -> bool:
-        """Grant one paid billing cycle's credits, once per Razorpay payment.
+        """One subscription payment (``amount`` is what it paid, GST included):
+        credited once per payment id, with its invoice (``src.billing.subscriptions``)."""
+        from src.billing.subscriptions import record_charge
 
-        ``amount`` is what the payment paid; the grant is the tier's fee plus
-        bonus, so a payment for less than the fee grants nothing. The credits
-        last until ``cycle_end`` (the end of the cycle paid for). Returns False
-        when this payment was already recorded.
-        """
-        taken = await self.db.execute(select(PaymentTransaction.id).where(
-            PaymentTransaction.razorpay_payment_id == payment_id))
-        if taken.first() is not None:
-            return False
-        fee = Decimal(str(sub.monthly_fee))
-        if amount < fee:
-            logger.error("Razorpay payment %s paid %s for subscription %s (fee %s) - no credits",
-                         payment_id, amount, sub.id, fee)
-            return False
-
-        # The wallet must exist first: creating one commits.
-        await self.credits.get_or_create_wallet(sub.company_id)
-        bonus_pct = Decimal(str(sub.bonus_pct))
-        cycle_end = cycle_end or datetime.utcnow() + timedelta(days=31)
-        self.db.add(PaymentTransaction(
-            company_id=sub.company_id,
-            razorpay_payment_id=payment_id,
-            amount=amount,
-            currency="USD",
-            transaction_type="subscription_charge",
-            status="success",
-            credits_awarded=fee + fee * bonus_pct / 100,
-            transaction_metadata={"subscription_id": str(sub.id), "tier": sub.plan_tier,
-                                  "razorpay_subscription_id": sub.razorpay_subscription_id,
-                                  "cycle_end": cycle_end.isoformat()},
-        ))
-        now = datetime.utcnow()
-        if cycle_end > now:
-            sub.status = "active"
-        if sub.next_billing_date is None or cycle_end > sub.next_billing_date:
-            sub.next_billing_date = cycle_end
-        sub.updated_at = now
-        try:
-            await self.db.flush()
-        except IntegrityError:
-            # The same payment, recorded concurrently by the webhook or the callback.
-            await self.db.rollback()
-            return False
-        await self.credits.inject_subscription_credits(
-            sub.company_id, base_amount=fee, bonus_pct=bonus_pct, expires_at=cycle_end,
-            source_id=payment_id)  # commits
-        logger.info("Subscription %s: payment %s granted a cycle to %s", sub.id, payment_id, cycle_end)
-        return True
+        return await record_charge(self.db, sub, payment_id=payment_id, gross=amount, cycle_end=cycle_end)
 
     async def set_subscription_status(self, sub: Subscription, status: str) -> None:
         """Move ``sub`` to ``status``. A company left with no live subscription
@@ -279,6 +259,8 @@ class PaymentService:
         now = datetime.utcnow()
         sub.status = status
         sub.updated_at = now
+        from src.billing.plans import forget
+        forget(sub.company_id)
         if status == "cancelled":
             sub.cancelled_at = sub.cancelled_at or now
             live = await self.db.execute(select(Subscription.id).where(

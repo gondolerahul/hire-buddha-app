@@ -22,6 +22,9 @@
 | GET | `/api/v1/admin/billing-settings/{key}/history` | roles: app_admin | `src.billing.settings_router` |
 | GET | `/api/v1/admin/billing-shadow` | roles: app_admin | `src.billing.shadow_router` |
 | PUT | `/api/v1/admin/billing-shadow/mode` | roles: app_admin | `src.billing.shadow_router` |
+| GET | `/api/v1/admin/companies/{company_id}/entitlements` | roles: app_admin | `src.billing.plans_router` |
+| DELETE | `/api/v1/admin/companies/{company_id}/entitlements/{key}` | roles: app_admin | `src.billing.plans_router` |
+| PUT | `/api/v1/admin/companies/{company_id}/entitlements/{key}` | roles: app_admin | `src.billing.plans_router` |
 | GET | `/api/v1/admin/connectors` | roles: app_admin | `src.connections.api` |
 | PATCH | `/api/v1/admin/connectors/{connector_id}` | roles: app_admin | `src.connections.api` |
 | GET | `/api/v1/admin/country-profiles` | roles: app_admin | `src.billing.currency_router` |
@@ -38,11 +41,22 @@
 | DELETE | `/api/v1/admin/daily-credits/policies/{policy_id}` | roles: app_admin | `src.billing.daily_credits_router` |
 | PUT | `/api/v1/admin/daily-credits/policies/{policy_id}` | roles: app_admin | `src.billing.daily_credits_router` |
 | POST | `/api/v1/admin/daily-credits/preview` | roles: app_admin | `src.billing.daily_credits_router` |
+| GET | `/api/v1/admin/features` | roles: app_admin | `src.billing.plans_router` |
 | GET | `/api/v1/admin/fx-rates` | roles: app_admin | `src.billing.currency_router` |
 | POST | `/api/v1/admin/fx-rates` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/fx-rates/preview` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/oauth-apps` | roles: app_admin | `src.connections.api` |
 | PUT | `/api/v1/admin/oauth-apps/{provider}` | roles: app_admin | `src.connections.api` |
+| GET | `/api/v1/admin/payments` | roles: app_admin | `src.billing.invoices_router` |
+| POST | `/api/v1/admin/payments/{payment_id}/refund` | roles: app_admin | `src.billing.invoices_router` |
+| GET | `/api/v1/admin/plans` | roles: app_admin | `src.billing.plans_router` |
+| POST | `/api/v1/admin/plans` | roles: app_admin | `src.billing.plans_router` |
+| GET | `/api/v1/admin/plans/entitlements` | roles: app_admin | `src.billing.plans_router` |
+| PUT | `/api/v1/admin/plans/{plan_id}` | roles: app_admin | `src.billing.plans_router` |
+| POST | `/api/v1/admin/plans/{plan_id}/archive` | roles: app_admin | `src.billing.plans_router` |
+| PUT | `/api/v1/admin/plans/{plan_id}/entitlements` | roles: app_admin | `src.billing.plans_router` |
+| POST | `/api/v1/admin/plans/{plan_id}/entitlements/impact` | roles: app_admin | `src.billing.plans_router` |
+| GET | `/api/v1/admin/plans/{plan_id}/versions` | roles: app_admin | `src.billing.plans_router` |
 | GET | `/api/v1/admin/price-items` | roles: app_admin | `src.billing.price_items_router` |
 | PUT | `/api/v1/admin/price-items/{code}` | roles: app_admin | `src.billing.price_items_router` |
 | GET | `/api/v1/admin/price-items/{code}/versions` | roles: app_admin | `src.billing.price_items_router` |
@@ -202,6 +216,11 @@
 | POST | `/api/v1/automation/waits/{wait_id}/cancel` | signed in | `src.automation.control_room` |
 | GET | `/api/v1/billing/config` | roles: app_admin | `src.billing.billing_router` |
 | PUT | `/api/v1/billing/config` | roles: app_admin | `src.billing.billing_router` |
+| GET | `/api/v1/billing/credit-notes/{note_id}/pdf` | signed in | `src.billing.invoices_router` |
+| GET | `/api/v1/billing/invoices` | signed in | `src.billing.invoices_router` |
+| GET | `/api/v1/billing/invoices/{invoice_id}/pdf` | signed in | `src.billing.invoices_router` |
+| GET | `/api/v1/billing/profile` | signed in | `src.billing.invoices_router` |
+| PUT | `/api/v1/billing/profile` | roles: app_admin, partner_admin, tenant_admin | `src.billing.invoices_router` |
 | GET | `/api/v1/campaigns` | signed in | `src.ai.campaign_router` |
 | POST | `/api/v1/campaigns` | signed in | `src.ai.campaign_router` |
 | GET | `/api/v1/campaigns/interested/download` | signed in | `src.ai.campaign_router` |
@@ -272,12 +291,9 @@
 | GET | `/api/v1/credits/balance` | signed in | `src.billing.credits_router` |
 | GET | `/api/v1/credits/ledger` | signed in | `src.billing.wallet_router` |
 | POST | `/api/v1/credits/razorpay/webhook` | — | `src.billing.razorpay_webhook` |
-| GET | `/api/v1/credits/subscription-tiers` | signed in | `src.billing.credits_router` |
-| POST | `/api/v1/credits/subscription-tiers` | roles: app_admin | `src.billing.credits_router` |
-| DELETE | `/api/v1/credits/subscription-tiers/{tier_id}` | roles: app_admin | `src.billing.credits_router` |
-| PUT | `/api/v1/credits/subscription-tiers/{tier_id}` | roles: app_admin | `src.billing.credits_router` |
 | GET | `/api/v1/credits/subscriptions` | signed in | `src.billing.credits_router` |
 | POST | `/api/v1/credits/subscriptions` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
+| POST | `/api/v1/credits/subscriptions/change` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
 | POST | `/api/v1/credits/subscriptions/verify` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
 | DELETE | `/api/v1/credits/subscriptions/{subscription_id}` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
 | POST | `/api/v1/credits/topup` | roles: app_admin, partner_admin, tenant_admin | `src.billing.credits_router` |
@@ -299,11 +315,12 @@
 | POST | `/api/v1/git/repos` | signed in | `src.apps.api` |
 | POST | `/api/v1/git/repos/{repo_id}/push-to-github` | signed in | `src.apps.api` |
 | GET | `/api/v1/health` | — | `src.common.router_mounts` |
+| GET | `/api/v1/me/entitlements` | signed in | `src.billing.plans_router` |
 | POST | `/api/v1/messaging/send` | signed in | `src.voice.messaging_router` |
 | POST | `/api/v1/messaging/send-template` | signed in | `src.voice.messaging_router` |
 | GET | `/api/v1/mobile/agents` | signed in | `src.mobile.router` |
 | GET | `/api/v1/mobile/analytics/summary` | signed in | `src.mobile.analytics_router` |
-| GET | `/api/v1/mobile/app-version` | — | `src.mobile.router` |
+| GET | `/api/v1/mobile/app-version` | signed in | `src.mobile.router` |
 | POST | `/api/v1/mobile/call-attempts` | signed in | `src.mobile.router` |
 | GET | `/api/v1/mobile/call-attempts/{attempt_id}` | signed in | `src.mobile.router` |
 | POST | `/api/v1/mobile/call-attempts/{attempt_id}/events` | signed in | `src.mobile.router` |
@@ -342,6 +359,7 @@
 | GET | `/api/v1/phone-numbers` | signed in | `src.voice.phone_number_router` |
 | POST | `/api/v1/phone-numbers` | signed in | `src.voice.phone_number_router` |
 | POST | `/api/v1/phone-numbers/bulk` | roles: app_admin | `src.voice.phone_number_router` |
+| GET | `/api/v1/phone-numbers/rent` | signed in | `src.voice.phone_number_router` |
 | POST | `/api/v1/phone-numbers/sync` | roles: app_admin | `src.voice.phone_number_router` |
 | DELETE | `/api/v1/phone-numbers/{number_id}` | signed in | `src.voice.phone_number_router` |
 | GET | `/api/v1/phone-numbers/{number_id}` | signed in | `src.voice.phone_number_router` |
@@ -349,6 +367,7 @@
 | POST | `/api/v1/phone-numbers/{number_id}/assign` | signed in | `src.voice.phone_number_router` |
 | POST | `/api/v1/phone-numbers/{number_id}/claim` | signed in | `src.voice.phone_number_router` |
 | POST | `/api/v1/phone-numbers/{number_id}/release` | signed in | `src.voice.phone_number_router` |
+| GET | `/api/v1/plans` | signed in | `src.billing.plans_router` |
 | POST | `/api/v1/profile/avatar` | signed in | `src.auth.profile_router` |
 | POST | `/api/v1/profile/company-logo` | signed in | `src.auth.profile_router` |
 | GET | `/api/v1/records/settings` | signed in | `src.data_api.platform_router` |

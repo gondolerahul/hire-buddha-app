@@ -8,6 +8,14 @@ platform (APP) company (``src/apps/metering.py``):
     app-egress-gb           per GB sent out
     tenant-db-pool-share    a pool server's daily price (split among its tenants)
     tenant-db-dedicated     a dedicated server's daily price
+    app-build-second        per second of build (Phase 15 T7-3)
+    app-storage-gb-month    per GB-month of app files (sampled daily)
+    tenant-db-storage-gb-month  per GB-month of database size (sampled daily)
+    tenant-backup-gb-month  per GB-month of kept weekly exports
+    custom-domain-month     per verified custom domain a month
+
+The costs are indicative base costs (tech design §9): staff set them from the
+Azure invoice; the formula adds the margin.
 
 Without a row, use is still recorded in ``app_usage`` and nothing is billed.
 
@@ -30,6 +38,11 @@ SKUS = (
     ("app-egress-gb", "PER_GB", os.environ.get("APP_SKU_EGRESS_GB", "0.087")),
     ("tenant-db-pool-share", "PER_DAY", os.environ.get("TENANT_DB_POOL_DAY", "4.50")),
     ("tenant-db-dedicated", "PER_DAY", os.environ.get("TENANT_DB_DEDICATED_DAY", "9.00")),
+    ("app-build-second", "PER_SECOND", os.environ.get("APP_SKU_BUILD_SECOND", "0.0001")),
+    ("app-storage-gb-month", "PER_GB_MONTH", os.environ.get("APP_SKU_STORAGE_GB_MONTH", "0.02")),
+    ("tenant-db-storage-gb-month", "PER_GB_MONTH", os.environ.get("TENANT_DB_STORAGE_GB_MONTH", "0.12")),
+    ("tenant-backup-gb-month", "PER_GB_MONTH", os.environ.get("TENANT_BACKUP_GB_MONTH", "0.05")),
+    ("custom-domain-month", "PER_MONTH", os.environ.get("APP_SKU_CUSTOM_DOMAIN_MONTH", "1.00")),
 )
 
 

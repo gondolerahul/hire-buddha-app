@@ -11,6 +11,7 @@ import { authService } from '@/services/auth.service';
 import { companyService } from '@/services/company.service';
 import { fetchAllPages } from '@/services/pagination';
 import { phonePoolService } from '@/services/platform.service';
+import { plansService } from '@/services/plans.service';
 import { toolService } from '@/services/tool.service';
 import { userService } from '@/services/user.service';
 import type { HierarchicalEntity } from '@/types';
@@ -29,6 +30,16 @@ export function useEntityList<T = HierarchicalEntity>(params: Record<string, unk
 /** The one tool list (API-19), shared by the builder and the registry page. */
 export function useToolRegistry() {
     return useQuery({ queryKey: queryKeys.tools.registry, queryFn: toolService.listTools });
+}
+
+/** The company's plan and what it includes (Phase 15 T6-2); cached for five minutes. */
+export function useEntitlements(enabled = true) {
+    return useQuery({
+        queryKey: queryKeys.entitlements,
+        queryFn: () => plansService.myEntitlements(),
+        staleTime: 5 * 60_000,
+        enabled,
+    });
 }
 
 export function usePhoneNumbers<T = unknown>(status: string, provider: string) {

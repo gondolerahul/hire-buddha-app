@@ -1,0 +1,103 @@
+.plan-summary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    border-radius: 12px;
+    margin-bottom: 1.25rem;
+}
+
+.plan-summary-name {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0.25rem 0;
+}
+
+.plan-summary-notes {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+    max-width: 32rem;
+}
+
+.plan-compare {
+    border-radius: 12px;
+    padding: 0.5rem;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+}
+
+.plan-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 640px;
+}
+
+.plan-table th,
+.plan-table td {
+    padding: 0.55rem 0.75rem;
+    text-align: center;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    vertical-align: top;
+}
+
+.plan-table th:first-child,
+.plan-table td:first-child {
+    text-align: left;
+}
+
+.plan-table .is-current {
+    background: rgba(201, 149, 108, 0.08);
+}
+
+.plan-col-name {
+    font-weight: 600;
+    font-size: 1.05rem;
+}
+
+.plan-col-price {
+    font-size: 1.35rem;
+    font-weight: 600;
+    margin: 0.25rem 0;
+}
+
+.plan-col-price span {
+    font-size: 0.8rem;
+    font-weight: 400;
+    opacity: 0.7;
+}
+
+.plan-col-meta {
+    font-size: 0.75rem;
+    font-weight: 400;
+    opacity: 0.75;
+    min-height: 2rem;
+}
+
+.plan-col-action {
+    margin-top: 0.5rem;
+}
+
+.plan-current-tag {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    background: rgba(201, 149, 108, 0.18);
+}
+
+.plan-group-row td {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+    padding-top: 1rem;
+}
+
+.plan-table .muted {
+    opacity: 0.55;
+}

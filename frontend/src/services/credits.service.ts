@@ -56,31 +56,31 @@ export interface LedgerEntry {
     created_at: string | null;
 }
 
+/** The live subscription, priced in its currency (Phase 15 T6-3; plans.service manages it). */
 export interface Subscription {
     id: string;
+    plan_id: string | null;
     plan_tier: number;
     monthly_fee: number;
     bonus_pct: number;
+    currency: string;
+    amount: string;
     status: string;
+    cancel_at_cycle_end: boolean;
+    pending_plan_id: string | null;
     razorpay_subscription_id: string | null;
     next_billing_date: string | null;
 }
 
+/** A top-up's gateway order: `net` becomes credit, `amount` (net + GST) is charged (Phase 15 T6-4). */
 export interface TopUpOrder {
     order_id: string;
     amount: string;
+    net: string;
+    tax: string;
+    tax_rate: string;
     currency: string;
     key_id: string;
-}
-
-export interface SubscriptionCheckout {
-    razorpay_subscription_id: string;
-    amount: number;
-    currency: string;
-    key_id: string;
-    plan_tier: number;
-    bonus_credits_pct: number;
-    subscription_id: string;
 }
 
 /** What the top-up form offers, in the company's currency, and whether this user may pay (Phase 15 T0-3, T4-3). */
@@ -90,6 +90,9 @@ export interface TopUpOptions {
     max: string;
     presets: string[];
     validity_days: number;
+    /** GST on top of the amount (percent) and how it is split: intra_state (CGST + SGST), inter_state (IGST), export. */
+    tax_rate: string;
+    tax_regime: 'intra_state' | 'inter_state' | 'export';
     can_pay: boolean;
 }
 
@@ -113,7 +116,8 @@ export const creditsService = {
         razorpay_order_id: string;
         razorpay_payment_id: string;
         razorpay_signature: string;
-    }): Promise<{ message: string; currency: string; credits_added: string; new_balance: string; debt: string }> => {
+    }): Promise<{ message: string; currency: string; credits_added: string; new_balance: string; debt: string;
+                  invoice_id: string | null }> => {
         const { data } = await apiClient.post('/credits/topup/verify', payload);
         return data;
     },
@@ -131,32 +135,5 @@ export const creditsService = {
         return data;
     },
 
-    createSubscription: async (tierLevel: number): Promise<SubscriptionCheckout> => {
-        const { data } = await apiClient.post<SubscriptionCheckout>('/credits/subscriptions', { tier_level: tierLevel });
-        return data;
-    },
-
-    verifySubscription: async (payload: {
-        razorpay_payment_id: string;
-        razorpay_subscription_id: string;
-        razorpay_signature: string;
-    }): Promise<{ message: string; plan_tier: number; monthly_fee: number; bonus_credits_pct: number }> => {
-        const { data } = await apiClient.post('/credits/subscriptions/verify', payload);
-        return data;
-    },
-
-    cancelSubscription: async (id: string): Promise<void> => {
-        await apiClient.delete(`/credits/subscriptions/${id}`);
-    },
-
-    getSubscriptionTiers: async (): Promise<Array<{
-        id: string;
-        name: string;
-        tier_level: number;
-        monthly_fee: number;
-        bonus_pct: number;
-    }>> => {
-        const { data } = await apiClient.get('/credits/subscription-tiers');
-        return data;
-    },
+    // Subscribing, changing plan and cancelling: plansService (Phase 15 T6-7).
 };

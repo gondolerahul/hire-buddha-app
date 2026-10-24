@@ -24,10 +24,10 @@ from uuid import UUID
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import or_, and_
+from sqlalchemy import and_, func, or_
 
 from src.common.tenancy.session import get_control_db, is_split, tenant_db_for
 from src.auth.models import User
@@ -82,7 +82,9 @@ class PhoneNumberCreate(BaseModel):
     provider: str  # twilio | tata_tele
     country_code: str = "+91"
     label: Optional[str] = None
-    monthly_cost_usd: Optional[float] = None
+    # What the provider charges for it (cost side, staff only; Phase 15 NR-6). The old name is accepted.
+    provider_monthly_cost_usd: Optional[float] = Field(
+        None, validation_alias=AliasChoices("provider_monthly_cost_usd", "monthly_cost_usd"))
     provider_sid: Optional[str] = None
     capabilities: Optional[dict] = None
     notes: Optional[str] = None
@@ -184,7 +186,7 @@ async def create_phone_number(
         country_code=data.country_code,
         status=status,
         label=data.label,
-        monthly_cost_usd=data.monthly_cost_usd,
+        provider_monthly_cost_usd=data.provider_monthly_cost_usd,
         provider_sid=data.provider_sid,
         capabilities=data.capabilities,
         notes=data.notes,
@@ -199,6 +201,10 @@ async def create_phone_number(
         is_active=True,
     )
     db.add(entry)
+    await db.flush()
+    if company_id is not None:
+        from src.billing.rentals import start_rental
+        await start_rental(db, entry, company_id)
     await db.commit()
     await db.refresh(entry)
     return _to_response(entry)
@@ -224,7 +230,7 @@ async def bulk_add(
             provider=item.provider,
             country_code=item.country_code,
             label=item.label,
-            monthly_cost_usd=item.monthly_cost_usd,
+            provider_monthly_cost_usd=item.provider_monthly_cost_usd,
             provider_sid=item.provider_sid,
             capabilities=item.capabilities,
             notes=item.notes,
@@ -516,10 +522,32 @@ async def list_phone_numbers(
         )
         company_names = {c.id: c.name for c in companies_result.scalars().all()}
 
+    rentals = await _rentals(db, numbers)
     return {
         "total": len(numbers),
-        "phone_numbers": [_to_response(n, agents, company_names) for n in numbers],
+        "phone_numbers": [_to_response(n, agents, company_names, rentals) for n in numbers],
     }
+
+
+@router.get("/rent", summary="The monthly rent of a number, in the company's currency")
+async def number_rent(db: AsyncSession = Depends(get_control_db), current_user: User = Depends(get_current_user)):
+    """What claiming a number costs a month (T7-2, NR-5), and how many the plan allows."""
+    from src.auth.models import Company as CompanyModel
+    from src.billing.features import entitlement
+    from src.billing.price_items import UnknownPriceItem, price_for
+
+    company = await db.get(CompanyModel, current_user.company_id)
+    try:
+        price = await price_for(db, "phone_number_rent", company.billing_currency)
+        amount = str(price.amount)
+    except UnknownPriceItem:
+        amount = None
+    ent = await entitlement(db, current_user.company_id, "feature.phone_numbers")
+    held = (await db.execute(select(func.count(PhoneNumber.id)).where(
+        PhoneNumber.company_id == current_user.company_id, PhoneNumber.status.in_(("claimed", "assigned")))
+    )).scalar() or 0
+    return {"currency": company.billing_currency, "monthly": amount, "period_days": 30, "allowed": ent.enabled,
+            "limit": ent.limit, "held": held}
 
 
 @router.get("/{number_id}")
@@ -597,8 +625,12 @@ async def update_phone_number(
         entry.customer_metadata = data.customer_metadata
     if data.is_active is not None:
         entry.is_active = data.is_active
-    if data.company_id is not None and current_user.role == "app_admin":
+    if data.company_id is not None and current_user.role == "app_admin" and data.company_id != entry.company_id:
         entry.company_id = data.company_id
+        from src.billing.rentals import start_rental
+        await start_rental(db, entry, data.company_id)     # ends the old company's rental
+        if entry.status == "available":
+            entry.status = "claimed"
 
     if data.agent_id is not None:
         # Verify agent exists — app_admin can assign agents from any company
@@ -671,14 +703,26 @@ async def claim_number(
             raise HTTPException(status_code=404, detail="Target company not found")
         target_company_id = body.target_company_id
 
+    company_id = target_company_id or current_user.company_id
+    if current_user.role != "app_admin":
+        # The plan includes numbers, up to its limit (Phase 15 T6-2, NR-5).
+        from src.billing.features import check_limit, feature_locked
+        held = (await db.execute(select(func.count(PhoneNumber.id)).where(
+            PhoneNumber.company_id == company_id, PhoneNumber.status.in_(("claimed", "assigned"))))).scalar() or 0
+        refusal = await check_limit(db, company_id, "feature.phone_numbers", held)
+        if refusal:
+            raise feature_locked("feature.phone_numbers", refusal)
     entry.status = "claimed"
-    entry.company_id = target_company_id or current_user.company_id
+    entry.company_id = company_id
     entry.claimed_by_user_id = current_user.id
     entry.claimed_at = datetime.utcnow()
+    # The rent starts now: its first 30 days are charged in advance (Phase 15 T7-1).
+    from src.billing.rentals import start_rental
+    rental = await start_rental(db, entry, company_id)
 
     await db.commit()
     await db.refresh(entry)
-    return {"status": "claimed", "number": _to_response(entry)}
+    return {"status": "claimed", "number": _to_response(entry, rentals={entry.id: rental})}
 
 
 @router.post("/{number_id}/release")
@@ -701,6 +745,8 @@ async def release_number(
     if entry.status not in ("claimed", "assigned"):
         raise HTTPException(status_code=400, detail="Number is not currently claimed or assigned")
 
+    from src.billing.rentals import end_rental
+    await end_rental(db, entry)                     # no more periods; the current one is not refunded (NR-3)
     entry.status = "available"
     entry.company_id = None
     entry.claimed_by_user_id = None
@@ -822,6 +868,14 @@ async def delete_phone_number(
     if current_user.role != "app_admin" and entry.company_id != current_user.company_id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
+    from src.billing.billing_models import NumberRental
+    from src.billing.rentals import end_rental
+    await end_rental(db, entry)
+    await db.flush()
+    if (await db.execute(select(NumberRental.id).where(NumberRental.phone_number_id == entry.id))).first():
+        entry.is_active, entry.status, entry.company_id = False, "available", None   # its rent history stays
+        await db.commit()
+        return {"message": "Phone number retired (its rent history is kept)"}
     await db.delete(entry)
     await db.commit()
     return {"message": "Phone number deleted successfully"}
@@ -829,17 +883,40 @@ async def delete_phone_number(
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-def _to_response(entry: PhoneNumber, agents: dict = None, companies: dict = None) -> dict:
+def _rental_view(rental) -> Optional[dict]:
+    if rental is None:
+        return None
+    return {"status": rental.status, "started_at": rental.started_at.isoformat() if rental.started_at else None,
+            "next_charge_at": rental.next_charge_at.isoformat() if rental.next_charge_at else None,
+            "amount": str(rental.last_amount) if rental.last_amount is not None else None,
+            "currency": rental.currency, "periods_charged": rental.periods_charged}
+
+
+async def _rentals(db: AsyncSession, numbers: list) -> dict:
+    from src.billing.billing_models import NumberRental
+
+    ids = [n.id for n in numbers if n.company_id]
+    if not ids:
+        return {}
+    rows = (await db.execute(select(NumberRental).where(NumberRental.phone_number_id.in_(ids),
+                                                        NumberRental.status != "ended"))).scalars().all()
+    return {r.phone_number_id: r for r in rows}
+
+
+def _to_response(entry: PhoneNumber, agents: dict = None, companies: dict = None, rentals: dict = None) -> dict:
     agents = agents or {}
     companies = companies or {}
+    rentals = rentals or {}
     return {
+        "rental": _rental_view(rentals.get(entry.id)),
         "id": str(entry.id),
         "phone_number": entry.phone_number,
         "provider": entry.provider,
         "country_code": entry.country_code,
         "status": entry.status,
         "label": entry.label,
-        "monthly_cost_usd": float(entry.monthly_cost_usd) if entry.monthly_cost_usd else None,
+        "provider_monthly_cost_usd": (float(entry.provider_monthly_cost_usd)
+                                      if entry.provider_monthly_cost_usd else None),
         "provider_sid": entry.provider_sid,
         "capabilities": entry.capabilities,
         "notes": entry.notes,

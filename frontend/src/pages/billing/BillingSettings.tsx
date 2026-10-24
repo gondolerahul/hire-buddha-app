@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Settings, Save, Plus, Trash2, Edit } from 'lucide-react';
-import { billingService, BillingConfig, FormulaVersion, SubscriptionTier } from '@/services/billing.service';
+import { Link } from 'react-router-dom';
+import { DollarSign, Layers, Settings, Save } from 'lucide-react';
+import { billingService, BillingConfig, FormulaVersion } from '@/services/billing.service';
 import { parseServerDate } from '@/utils/datetime';
 import './BillingSettings.css';
 import { apiErrorMessage } from '@/utils/apiError';
@@ -14,15 +15,10 @@ export const BillingSettings: React.FC = () => {
     // Formula versions, newest first, and why the next one is made (Phase 15 T3-2).
     const [history, setHistory] = useState<FormulaVersion[]>([]);
     const [reason, setReason] = useState('');
-    const [tiers, setTiers] = useState<SubscriptionTier[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-    // Form state for creating/editing tier
-    const [showTierModal, setShowTierModal] = useState(false);
-    const [editingTier, setEditingTier] = useState<Partial<SubscriptionTier>>({});
 
     useEffect(() => {
         fetchData();
@@ -31,10 +27,7 @@ export const BillingSettings: React.FC = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [configRes, tiersRes] = await Promise.all([
-                billingService.getConfig(),
-                billingService.getSubscriptionTiers()
-            ]);
+            const configRes = await billingService.getConfig();
 
             if (configRes.config) {
                 setConfig(configRes.config);
@@ -43,7 +36,6 @@ export const BillingSettings: React.FC = () => {
                 setConfig({ multiplier_factor: 1.0, platform_fee_pct: 0.0, discount_pct: 0.0 });
             }
             setHistory(configRes.history ?? []);
-            setTiers(tiersRes);
         } catch (err: any) {
             setError(apiErrorMessage(err, 'Failed to load billing configuration.'));
         } finally {
@@ -74,44 +66,6 @@ export const BillingSettings: React.FC = () => {
         }
     };
 
-    const handleTierSave = async () => {
-        setError(null);
-        try {
-            if (editingTier.id) {
-                await billingService.updateSubscriptionTier(editingTier.id, {
-                    name: editingTier.name,
-                    monthly_fee: editingTier.monthly_fee,
-                    bonus_pct: editingTier.bonus_pct,
-                    is_active: editingTier.is_active,
-                });
-            } else {
-                await billingService.createSubscriptionTier({
-                    name: editingTier.name || '',
-                    tier_level: editingTier.tier_level || 0,
-                    monthly_fee: editingTier.monthly_fee || 0,
-                    bonus_pct: editingTier.bonus_pct || 0,
-                    is_active: editingTier.is_active !== false,
-                });
-            }
-            setShowTierModal(false);
-            fetchData();
-            setSuccessMsg('Subscription tier saved successfully.');
-        } catch (err: any) {
-            setError(apiErrorMessage(err, 'Failed to save subscription tier.'));
-        }
-    };
-
-    const handleDeleteTier = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this subscription tier?')) return;
-        try {
-            await billingService.deleteSubscriptionTier(id);
-            fetchData();
-            setSuccessMsg('Subscription tier deleted.');
-        } catch (err: any) {
-            setError(apiErrorMessage(err, 'Failed to delete tier.'));
-        }
-    };
-
     if (loading) {
         return <div className="loading-state"><div className="pulse">Loading Settings...</div></div>;
     }
@@ -124,7 +78,7 @@ export const BillingSettings: React.FC = () => {
                         <Settings size={28} className="mr-3" />
                         Billing & Subscription Administration
                     </h1>
-                    <p className="page-subtitle">Configure formula parameters, costs, tier rules, and feature allocations</p>
+                    <p className="page-subtitle">The usage price formula. Plans and what they include are on Plans &amp; Entitlements.</p>
                 </div>
             </div>
 
@@ -197,101 +151,16 @@ export const BillingSettings: React.FC = () => {
                     </button>
                 </div>
 
-                {/* Subscriptions Section */}
+                {/* Plans replaced subscription tiers (Phase 15 T6-1) */}
                 <div className="settings-card glass">
-                    <div className="tier-header">
-                        <div>
-                            <h2>Subscription Tiers</h2>
-                            <p className="card-desc">Manage tiers shown to tenants/users</p>
-                        </div>
-                        <button className="btn-secondary" onClick={() => { setEditingTier({}); setShowTierModal(true); }}>
-                            <Plus size={16} /> New Tier
-                        </button>
-                    </div>
-
-                    <div className="tier-list">
-                        {tiers.length === 0 && <p className="empty-text">No active tiers configured.</p>}
-                        {tiers.map(tier => (
-                            <div key={tier.id} className="tier-item">
-                                <div className="tier-info">
-                                    <span className="tier-badge">Level {tier.tier_level}</span>
-                                    <h4>{tier.name}</h4>
-                                    <div className="tier-meta">
-                                        <span>${tier.monthly_fee}/mo</span>
-                                        <span>• {tier.bonus_pct}% Bonus</span>
-                                        <span className={tier.is_active ? 'active' : 'inactive'}>
-                                            {tier.is_active ? 'Active' : 'Archived'}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="tier-actions">
-                                    <button onClick={() => { setEditingTier(tier); setShowTierModal(true); }}><Edit size={16} /></button>
-                                    <button className="text-error" onClick={() => handleDeleteTier(tier.id)}><Trash2 size={16} /></button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    <h2><Layers size={18} /> Plans</h2>
+                    <p className="card-desc">
+                        Plans — their price per currency, bonus, tolerance and entitlements — are managed
+                        on <Link to="/admin/plans">Plans &amp; Entitlements</Link>.
+                    </p>
                 </div>
             </div>
 
-            {/* Modal for Tiers */}
-            {showTierModal && (
-                <div className="modal-overlay">
-                    <div className="modal-content glass">
-                        <h3>{editingTier.id ? 'Edit Tier' : 'Create New Tier'}</h3>
-
-                        <div className="form-group">
-                            <label>Tier Name (e.g., Pro Plan)</label>
-                            <input
-                                type="text" value={editingTier.name || ''}
-                                onChange={e => setEditingTier({ ...editingTier, name: e.target.value })}
-                            />
-                        </div>
-
-                        {!editingTier.id && (
-                            <div className="form-group">
-                                <label>Tier Level (1, 2, 3...)</label>
-                                <input
-                                    type="number" value={editingTier.tier_level || ''}
-                                    onChange={e => setEditingTier({ ...editingTier, tier_level: parseInt(e.target.value) })}
-                                />
-                            </div>
-                        )}
-
-                        <div className="form-group">
-                            <label>Monthly Fee ($)</label>
-                            <input
-                                type="number" step="0.01" value={editingTier.monthly_fee || ''}
-                                onChange={e => setEditingTier({ ...editingTier, monthly_fee: parseFloat(e.target.value) })}
-                            />
-                        </div>
-
-                        <div className="form-group">
-                            <label>Bonus Credit Percentage (%)</label>
-                            <input
-                                type="number" step="0.1" value={editingTier.bonus_pct || ''}
-                                onChange={e => setEditingTier({ ...editingTier, bonus_pct: parseFloat(e.target.value) })}
-                            />
-                        </div>
-
-                        <div className="form-group checkbox-group">
-                            <input
-                                type="checkbox" id="activeToggle"
-                                checked={editingTier.is_active !== false}
-                                onChange={e => setEditingTier({ ...editingTier, is_active: e.target.checked })}
-                            />
-                            <label htmlFor="activeToggle">Tier is Active and visible to users</label>
-                        </div>
-
-                        <div className="modal-actions">
-                            <button className="btn-secondary" onClick={() => setShowTierModal(false)}>Cancel</button>
-                            <button className="btn-primary" onClick={handleTierSave}>
-                                <Save size={16} /> Save Tier
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

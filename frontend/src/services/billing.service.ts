@@ -82,30 +82,6 @@ export interface BillingConfigUpdate {
     reason?: string;
 }
 
-export interface SubscriptionTier {
-    id: string;
-    name: string;
-    tier_level: number;
-    monthly_fee: number;
-    bonus_pct: number;
-    is_active: boolean;
-}
-
-export interface SubscriptionTierCreate {
-    name: string;
-    tier_level: number;
-    monthly_fee: number;
-    bonus_pct: number;
-    is_active?: boolean;
-}
-
-export interface SubscriptionTierUpdate {
-    name?: string;
-    monthly_fee?: number;
-    bonus_pct?: number;
-    is_active?: boolean;
-}
-
 export const billingService = {
     getConfig: async (): Promise<{ config: BillingConfig | null; history?: FormulaVersion[] }> => {
         const { data } = await apiClient.get('/billing/config');
@@ -142,28 +118,5 @@ export const billingService = {
         );
         return data;
     },
-
-    // Subscription Tiers
-    // Every tier, archived ones included: this is the admin's management list.
-    getSubscriptionTiers: async (): Promise<SubscriptionTier[]> => {
-        const { data } = await apiClient.get<SubscriptionTier[]>('/credits/subscription-tiers', {
-            params: { include_inactive: true },
-        });
-        return data;
-    },
-
-    createSubscriptionTier: async (payload: SubscriptionTierCreate): Promise<{ id: string; message: string }> => {
-        const { data } = await apiClient.post('/credits/subscription-tiers', payload);
-        return data;
-    },
-
-    updateSubscriptionTier: async (tierId: string, payload: SubscriptionTierUpdate): Promise<{ id: string; message: string }> => {
-        const { data } = await apiClient.put(`/credits/subscription-tiers/${tierId}`, payload);
-        return data;
-    },
-
-    deleteSubscriptionTier: async (tierId: string): Promise<{ message: string }> => {
-        const { data } = await apiClient.delete(`/credits/subscription-tiers/${tierId}`);
-        return data;
-    }
+    // Plans replace subscription tiers: plansService and /admin/plans (Phase 15 T6-1).
 };

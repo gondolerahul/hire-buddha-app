@@ -94,6 +94,11 @@ app.add_middleware(
 
 
 
+# What a plan includes (Phase 15 T6-2): router-level feature gates below.
+from fastapi import Depends  # noqa: E402
+
+from src.billing.features import require_feature  # noqa: E402
+
 app.include_router(auth_router, prefix="/api/v1")
 from src.auth.company_router import router as company_router
 app.include_router(company_router, prefix="/api/v1")
@@ -153,10 +158,12 @@ app.include_router(kernel_admin_router, prefix="/api/v1")
 from src.ai.api.versions import router as entity_versions_router
 app.include_router(entity_versions_router, prefix="/api/v1")
 from src.ai.campaign_router import router as campaign_router
-app.include_router(campaign_router, prefix="/api/v1")
+app.include_router(campaign_router, prefix="/api/v1",
+                   dependencies=[Depends(require_feature("feature.voice.outbound_campaigns"))])
 # Mobile dialer app API (docs/mobile-dialer-app)
 from src.mobile.router import router as mobile_router
-app.include_router(mobile_router, prefix="/api/v1")
+app.include_router(mobile_router, prefix="/api/v1",
+                   dependencies=[Depends(require_feature("feature.voice.mobile_dialer"))])
 from src.mobile.analytics_router import router as mobile_analytics_router
 app.include_router(mobile_analytics_router, prefix="/api/v1")
 # Mobile dialer app push socket (WS /mobile/ws)
@@ -165,7 +172,7 @@ app.include_router(mobile_push_router)
 
 # CORTEX Memory Architecture
 from src.ai.memory.cortex_router import router as cortex_router
-app.include_router(cortex_router)
+app.include_router(cortex_router, dependencies=[Depends(require_feature("feature.knowledge.cortex_explorer"))])
 
 # Artifact management (the legacy /assets routes and their redirects are gone, API-11)
 from src.ai.artifact_router import files_router, router as artifact_router
@@ -183,16 +190,18 @@ mount_optional(app, "src.billing.wallet_router")  # /api/v1/admin/wallets, /api/
 mount_optional(app, "src.billing.daily_credits_router")  # /api/v1/admin/daily-credits (Phase 15 T5-5)
 mount_optional(app, "src.billing.price_items_router")  # /api/v1/admin/price-items (Phase 15 T5-3)
 mount_optional(app, "src.billing.locks")  # /api/v1/companies/{id}/locks (Phase 15 T5-4)
+mount_optional(app, "src.billing.plans_router")  # /api/v1/plans, /api/v1/me/entitlements, /api/v1/admin/plans (Phase 15 T6-1, T6-2)
+mount_optional(app, "src.billing.invoices_router")  # /api/v1/billing/invoices, /billing/profile, /admin/payments (Phase 15 T6-5, T6-6)
 mount_optional(app, "src.billing.cron_router")
 
 # Analytics & Reports
 mount_optional(app, "src.ai.reports_router")
 
 # Email connection management
-mount_optional(app, "src.ai.email_router", prefix="/api/v1")
+mount_optional(app, "src.ai.email_router", prefix="/api/v1", feature="feature.messaging.email")
 
 # Social media connection management
-mount_optional(app, "src.ai.social_router")
+mount_optional(app, "src.ai.social_router", feature="feature.messaging.social")
 
 # Tool Registry Management
 mount_optional(app, "src.ai.tool_management_router")
@@ -205,7 +214,7 @@ mount_optional(app, "src.voice.messaging_router")
 
 # Inbound events and real-time media (formerly the gateway on :8001)
 mount_optional(app, "src.gateway.webhook_inbound")      # POST /webhook/inbound/{endpoint_id}
-mount_optional(app, "src.gateway.webhook_endpoints_router")  # /api/v1/webhook-endpoints
+mount_optional(app, "src.gateway.webhook_endpoints_router", feature="feature.automation.webhooks_inbound")  # /api/v1/webhook-endpoints
 mount_optional(app, "src.gateway.internal_event")       # POST /internal/event
 mount_optional(app, "src.gateway.telephony_streams")    # WS /stream/twilio|tata/{id}, /webhooks/voice/tata/incoming
 mount_optional(app, "src.gateway.audio_gateway")        # WS /stream/audio

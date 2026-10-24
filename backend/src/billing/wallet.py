@@ -244,6 +244,43 @@ class WalletService:
         await self._settle_state(wallet, now, change)
         return change
 
+    async def take_back(self, company_id: UUID, amount: Decimal, *, lot_id: Optional[UUID], reason: str,
+                        source_id: Optional[str] = None, actor_id: Optional[UUID] = None,
+                        now: Optional[datetime] = None) -> Change:
+        """A refund's credit taken back (Phase 15 T6-6): first from the lot the payment
+        granted, then from the other lots in spend order, the rest as debt."""
+        amount = _d(amount)
+        now = now or datetime.utcnow()
+        wallet = await self.lock(company_id)
+        change = Change(state_before=wallet.state)
+        available = await self._available(company_id, now)
+        left = amount
+        if lot_id is not None:
+            lot = (await self.db.execute(select(WalletLot).where(WalletLot.id == lot_id, WalletLot.company_id == company_id)
+                                         .with_for_update())).scalar_one_or_none()
+            if lot is not None and _d(lot.remaining) > 0:
+                take = min(_d(lot.remaining), left)
+                lot.remaining = _d(lot.remaining) - take
+                left -= take
+                live = lot.expires_at is None or lot.expires_at > now
+                if live:
+                    available -= take
+                change.amount += take
+                change.entries.append(self._entry(wallet, "refund", -take, available, lot_id=lot.id, reason=reason,
+                                                  source_type="refund", source_id=source_id, actor_id=actor_id))
+        wallet.cached_available = available
+        await self.db.flush()
+        if left > 0:
+            rest = await self.deduct(company_id, left, source_type="refund", source_id=source_id, reason=reason,
+                                     actor_id=actor_id, now=now)
+            change.amount += rest.amount
+            change.debt_added += rest.debt_added
+            change.entries += rest.entries
+        else:
+            await self._settle_state(wallet, now, change)
+        change.state_after = (await self.lock(company_id)).state
+        return change
+
     async def adjust(self, company_id: UUID, amount: Decimal, *, actor_id: UUID, reason: str,
                      expires_at: Optional[datetime] = None) -> Change:
         """A staff correction (W-1): + grants a ``grant`` lot (not paid; it does not repay debt),
@@ -309,7 +346,7 @@ class WalletService:
         lots = (await self.db.execute(select(WalletLot).where(WalletLot.company_id == company_id))).scalars().all()
         for lot in lots:
             booked = _d((await self.db.execute(select(func.coalesce(func.sum(WalletEntry.amount), 0)).where(
-                WalletEntry.lot_id == lot.id, WalletEntry.kind.in_(("grant", "deduct", "expire", "convert"))))).scalar())
+                WalletEntry.lot_id == lot.id, WalletEntry.kind.in_(("grant", "deduct", "expire", "convert", "refund"))))).scalar())
             if booked != _d(lot.remaining):
                 problems.append(f"lot {lot.id}: remaining {lot.remaining}, entries say {booked}")
         added = _d((await self.db.execute(select(func.coalesce(func.sum(-WalletEntry.amount), 0)).where(

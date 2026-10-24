@@ -37,7 +37,7 @@ async def _creds(_db):
 
 def _client(db, monkeypatch, company_id=None) -> httpx.AsyncClient:
     monkeypatch.setattr(razorpay_webhook, "get_razorpay_creds", _creds)
-    monkeypatch.setattr(credits_router, "_get_razorpay_creds", _creds)
+    monkeypatch.setattr("src.billing.gateways.razorpay.get_razorpay_creds", _creds)  # the gateway (Phase 15 T6-3)
     app = FastAPI()
     app.include_router(razorpay_webhook.router)
     app.include_router(credits_router.router)

@@ -180,15 +180,35 @@ class CreditService:
         *,
         source_id: Optional[str] = None,
     ):
-        """A paid billing cycle's credits (``base_amount`` USD, its bonus %), no carry-forward (W-5).
-
-        The cycle's subscription and bonus lots replace the live ones: those
-        expire now. The subscription credit is paid, so it repays debt first
-        (W-7); the bonus does not. ``expires_at`` is the end of the cycle; a
-        cycle that has ended, or ends before the subscription lot the wallet
-        holds (an older payment recorded late), grants nothing. Commits.
-        """
+        """A paid billing cycle's credits given in USD (``base_amount``): converted at
+        today's rate, then :meth:`grant_cycle`. Commits."""
         from src.billing.currency import to_ccy
+
+        rate = await self.rate(company_id)
+        return await self.grant_cycle(company_id, to_ccy(_dec(base_amount), rate), bonus_pct, expires_at,
+                                      source_id=source_id, fx_rate_id=rate.id)
+
+    async def grant_cycle(
+        self,
+        company_id: UUID,
+        amount: Decimal,
+        bonus_pct: Decimal,
+        expires_at: Optional[datetime] = None,
+        *,
+        source_id: Optional[str] = None,
+        fx_rate_id: Optional[UUID] = None,
+    ):
+        """A subscription payment's credits in the wallet's currency (SB-3): ``amount`` as a
+        paid subscription lot, ``amount × bonus_pct`` as a bonus lot, both ending with the
+        cycle (``expires_at``).
+
+        A payment for a **new** cycle replaces the live subscription lots — no
+        carry-forward (W-5); one for the cycle already held (a mid-cycle upgrade's
+        prorated charge) adds to it. The subscription credit is paid, so it repays
+        debt first (W-7); the bonus does not. A cycle that has ended, or ends
+        before the one the wallet holds (an older payment recorded late), grants
+        nothing. Commits.
+        """
         from src.billing.enforcement import wallet_changed
 
         await self.wallet.lock(company_id)
@@ -196,20 +216,24 @@ class CreditService:
         expires_at = expires_at or now + timedelta(days=31)
         live = [lot for lot in await self.wallet.live_lots(company_id, now=now, lock=True)
                 if lot.kind in ("subscription", "subscription_bonus")]
-        if expires_at <= now or any(lot.expires_at and expires_at < lot.expires_at for lot in live):
+        if expires_at <= now or any(lot.expires_at and expires_at < lot.expires_at - timedelta(minutes=5)
+                                    for lot in live):
             await self.db.commit()
             return None
-        rate = await self.rate(company_id)
-        base = to_ccy(_dec(base_amount), rate)
-        bonus = base * (_dec(bonus_pct) / Decimal("100"))
-        await self.wallet.expire_lots(company_id, live, reason="replaced by the next billing cycle", now=now)
-        change = await self.wallet.grant(company_id, "subscription", base, expires_at=expires_at, paid=True,
+        same_cycle = any(lot.expires_at and abs(lot.expires_at - expires_at) <= timedelta(minutes=5) for lot in live)
+        amount = _dec(amount)
+        bonus = amount * (_dec(bonus_pct) / Decimal("100"))
+        if not same_cycle:
+            await self.wallet.expire_lots(company_id, live, reason="replaced by the next billing cycle", now=now)
+        change = await self.wallet.grant(company_id, "subscription", amount, expires_at=expires_at, paid=True,
                                          source_type="subscription", source_id=source_id,
-                                         reason="subscription credits", fx_rate_id=rate.id, now=now)
+                                         reason="subscription credits" if not same_cycle
+                                         else "subscription credits for the upgraded plan",
+                                         fx_rate_id=fx_rate_id, now=now)
         if bonus > 0:
             await self.wallet.grant(company_id, "subscription_bonus", bonus, expires_at=expires_at, paid=False,
                                     source_type="subscription", source_id=source_id,
-                                    reason="subscription bonus", fx_rate_id=rate.id, now=now)
+                                    reason="subscription bonus", fx_rate_id=fx_rate_id, now=now)
         wallet = await self.wallet.lock(company_id)
         wallet.account_model = "subscription"
         await self.db.commit()

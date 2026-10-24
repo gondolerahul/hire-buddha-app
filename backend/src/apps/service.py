@@ -26,7 +26,6 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import delete, select
@@ -446,7 +445,6 @@ async def run_build(company_id: Any, build_id: Any, *, builder: Any = None) -> D
     from src.apps import events
     from src.apps.build import BuildError, build_context, get_builder
     from src.code_lanes import service as code
-    from src.common.config import settings
     from src.common.platform.storage import company_namespace, get_storage
 
     builder = builder or get_builder()
@@ -490,7 +488,9 @@ async def run_build(company_id: Any, build_id: Any, *, builder: Any = None) -> D
         build = await db.get(AppBuild, build.id)
         app = await db.get(App, build.app_id)
         build.finished_at, build.duration_seconds = datetime.utcnow(), duration
-        build.cost = Decimal(str(round(duration * settings.APP_BUILD_COST_PER_SECOND, 6)))
+        # The seconds are billed as app-build-second usage (Phase 15 T7-3); the cost shown is that usage's.
+        from src.apps.metering import bill_build
+        build.cost = await bill_build(company_id, build, app.name)
         build.log_key = f"{prefix}/build.log"
         if result is not None:
             build.status, build.image, build.image_digest = "succeeded", result.image, result.digest

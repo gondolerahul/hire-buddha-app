@@ -21,7 +21,8 @@ export interface PhonePoolNumber {
     country_code: string;
     status: string;
     label?: string;
-    monthly_cost_usd?: number;
+    /** What the provider charges (cost side, staff only; Phase 15 NR-6). */
+    provider_monthly_cost_usd?: number;
     provider_sid?: string;
     capabilities?: Record<string, boolean>;
     claimed_by_company_id?: string;
@@ -124,7 +125,32 @@ export const partnerService = {
     },
 };
 
+/** A number's rent, charged in advance every 30 days (Phase 15 T7-1). */
+export interface NumberRental {
+    status: 'active' | 'held' | 'ended';
+    started_at: string | null;
+    next_charge_at: string | null;
+    amount: string | null;
+    currency: string | null;
+    periods_charged: number;
+}
+
+/** What claiming a number costs, and how many the plan allows (T7-2). */
+export interface NumberRent {
+    currency: string;
+    monthly: string | null;
+    period_days: number;
+    allowed: boolean;
+    limit: number | null;
+    held: number;
+}
+
 export const phonePoolService = {
+    getRent: async (): Promise<NumberRent> => {
+        const res = await apiClient.get<NumberRent>('/phone-numbers/rent');
+        return res.data;
+    },
+
     listNumbers: async (status?: string, provider?: string): Promise<any> => {
         const params = new URLSearchParams();
         if (status) params.set('status', status);
@@ -138,7 +164,7 @@ export const phonePoolService = {
         provider: string;
         country_code?: string;
         label?: string;
-        monthly_cost_usd?: number;
+        provider_monthly_cost_usd?: number;
         notes?: string;
         agent_id?: string;
         customer_id?: string;

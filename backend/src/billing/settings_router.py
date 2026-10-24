@@ -53,7 +53,9 @@ async def _check_scope(db: AsyncSession, spec: Any, scope: str, scope_id: Option
         if scope == PARTNER and kind != "PARTNER":
             raise HTTPException(status_code=422, detail="that company is not a partner")
     if scope == PLAN:
-        raise HTTPException(status_code=422, detail="plan values come with plans (T6-1)")
+        from src.billing.billing_models import Plan
+        if (await db.execute(select(Plan.id).where(Plan.id == scope_id))).scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="no such plan")
 
 
 @router.get("")

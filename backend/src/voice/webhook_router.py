@@ -116,8 +116,8 @@ async def _twilio_incoming(form_data, session_manager: SessionManager, number_ro
     # 2. Admission (VT-01, HD9): free credit at the floor, under the spend
     # cap; a balance that cannot be read refuses the call too.
     from src.voice.call_admission import call_refusal
-    if await call_refusal(session_manager.db, customer_assignment.company_id,
-                          direction="inbound", checkpoint="twilio_webhook"):
+    if await call_refusal(session_manager.db, customer_assignment.company_id, direction="inbound",
+                          checkpoint="twilio_webhook", number=customer_assignment.phone_number):
         twiml = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say voice="alice">Sorry, this service is temporarily unavailable. Please contact your administrator.</Say>
@@ -708,8 +708,8 @@ async def _tata_incoming(data: dict, call_id, from_number, to_number, custom_ide
         return _tata_refusal("Number not configured")
     # 3. Admission (VT-01, HD9): the same rule as every other call.
     from src.voice.call_admission import call_refusal
-    if await call_refusal(session_manager.db, customer_assignment.company_id,
-                          direction="inbound", checkpoint="tata_webhook"):
+    if await call_refusal(session_manager.db, customer_assignment.company_id, direction="inbound",
+                          checkpoint="tata_webhook", number=customer_assignment.phone_number):
         return _tata_refusal("This service is temporarily unavailable")
     
     # 4. Create NEW session (Inbound Flow)

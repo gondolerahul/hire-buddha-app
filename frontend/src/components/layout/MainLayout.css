@@ -406,3 +406,12 @@ main {
         margin-left: 0 !important;
     }
 }
+/* A menu entry the plan leaves out (Phase 15 T6-2): shown, dimmed, leading to the Plan page. */
+.nav-item.locked {
+    opacity: 0.55;
+}
+
+.nav-item-lock {
+    margin-left: auto;
+    flex-shrink: 0;
+}

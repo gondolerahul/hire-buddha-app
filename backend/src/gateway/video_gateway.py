@@ -436,7 +436,7 @@ async def _admit(websocket: WebSocket, company_id: str) -> Any:
     over_cap = refusal is None or live_sessions.at_cap(company_id)
     code, reason = (TOO_MANY, "too_many_live_sessions") if over_cap else (4002, "insufficient_credits")
     await websocket.send_text(json.dumps({
-        "event": "error", "code": reason, "message": refusal or live_sessions.cap_message(),
+        "event": "error", "code": reason, "message": refusal or live_sessions.cap_message(company_id),
     }))
     await websocket.close(code=code, reason=reason)
     return None

@@ -11,6 +11,8 @@ database (billing is control-plane, Phase 14 WS2):
 * ``billing_settle_standalone`` — hourly: usage outside runs and anything left
   unsettled (T3-6).
 * ``billing_wallet_check`` — nightly: every wallet against its ledger (W-9).
+* ``billing_number_rent`` — hourly: phone-number rentals whose next 30-day
+  period is due are charged in advance (Phase 15 T7-1).
 * ``billing_subscription_reconciliation`` — 01:30 UTC: paid cycles the
   Razorpay webhook missed.
 """
@@ -43,6 +45,14 @@ async def billing_wallet_check(ctx: dict[str, Any]) -> dict[str, Any]:
 
     async with control_session() as db:
         return await check_wallets(db)
+
+
+async def billing_number_rent(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Charge the rentals that are due (Phase 15 T7-1)."""
+    from src.billing.rentals import charge_due
+
+    async with control_session() as db:
+        return await charge_due(db)
 
 
 async def billing_subscription_reconciliation(ctx: dict[str, Any]) -> dict[str, Any]:

@@ -1,10 +1,12 @@
 import { formatDate, formatDateTime } from '@/utils/datetime';
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Wallet, CreditCard, CheckCircle, AlertTriangle, RefreshCw, Star, ListOrdered } from 'lucide-react';
 import {
     creditsService, CreditBalance, LedgerEntry, Subscription, TopUpOptions, WalletLot,
 } from '@/services/credits.service';
 import { formatMoney } from '@/utils/money';
+import { withGst } from '@/services/plans.service';
 import './WalletPage.css';
 import { loadRazorpay } from '@/utils/razorpay';
 
@@ -72,12 +74,6 @@ export const WalletPage: React.FC = () => {
     const [topping, setTopping] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
-    const [cancellingId, setCancellingId] = useState<string | null>(null);
-    // Only the tiers the API offers: the page used to invent three when there
-    // were none, which the API then refused (Phase 15 T0-5).
-    const [plans, setPlans] = useState<Array<{
-        id: string; name: string; tier_level: number; monthly_fee: number; bonus_pct: number;
-    }>>([]);
     const [topUpOptions, setTopUpOptions] = useState<TopUpOptions | null>(null);
     // Paying, subscribing and cancelling are the company admins' (T0-3).
     const canPay = topUpOptions?.can_pay ?? false;
@@ -86,16 +82,14 @@ export const WalletPage: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const [bal, sub, tiers, options, entries] = await Promise.all([
+            const [bal, sub, options, entries] = await Promise.all([
                 creditsService.getBalance(),
                 creditsService.getSubscription(),
-                creditsService.getSubscriptionTiers().catch(() => []),
                 creditsService.getTopUpOptions().catch(() => null),
                 creditsService.getLedger(25).catch(() => []),
             ]);
             setBalance(bal);
             setSubscription(sub.subscription);
-            setPlans(tiers);
             setTopUpOptions(options);
             setLedger(entries);
             if (options) setTopUpAmount(prev => prev || (options.presets[0] ?? options.min));
@@ -134,10 +128,9 @@ export const WalletPage: React.FC = () => {
             if (Razorpay) {
                 const rzp = new Razorpay({
                     key: order.key_id,
-                    amount: Math.round(amt * 100),
                     currency: order.currency,
                     name: 'HireBuddha',
-                    description: 'Wallet Top-Up',
+                    description: `Wallet top-up — ${formatMoney(order.net, order.currency)} + GST`,
                     order_id: order.order_id,
                     handler: async (response: any) => {
                         try {
@@ -146,7 +139,8 @@ export const WalletPage: React.FC = () => {
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature,
                             });
-                            setSuccess(`Added ${formatMoney(result.credits_added, result.currency)} to your wallet.`);
+                            setSuccess(`Added ${formatMoney(result.credits_added, result.currency)} to your wallet.`
+                                + (result.invoice_id ? ' The GST invoice is on the Invoices page.' : ''));
                             fetchData();
                         } catch (e: any) {
                             setError('Payment verification failed. Please contact support.');
@@ -166,67 +160,9 @@ export const WalletPage: React.FC = () => {
         }
     };
 
-    const handleSubscribe = async (tier: number, fee: number) => {
-        setError(null);
-        try {
-            // Step 1: Create a Razorpay subscription on the tier's plan
-            const checkout = await creditsService.createSubscription(tier);
-
-            // Step 2: Razorpay checkout authorises the recurring mandate and takes the first charge
-            let Razorpay: any;
-            try {
-                Razorpay = await loadRazorpay();
-            } catch {
-                Razorpay = null;
-            }
-            if (Razorpay) {
-                const rzp = new Razorpay({
-                    key: checkout.key_id,
-                    subscription_id: checkout.razorpay_subscription_id,
-                    name: 'HireBuddha',
-                    description: `Tier ${tier} Subscription — $${fee}/mo`,
-                    handler: async (response: any) => {
-                        try {
-                            // Step 3: Verify the first payment; its credits are granted now
-                            const result = await creditsService.verifySubscription({
-                                razorpay_payment_id: response.razorpay_payment_id,
-                                razorpay_subscription_id: response.razorpay_subscription_id,
-                                razorpay_signature: response.razorpay_signature,
-                            });
-                            setSuccess(`${result.message} — ${result.bonus_credits_pct}% bonus credits every month.`);
-                            fetchData();
-                        } catch (e: any) {
-                            setError('Payment verification failed. Your credits will arrive when Razorpay confirms the payment.');
-                        }
-                    },
-                    prefill: {},
-                    theme: { color: '#c9956c' },
-                });
-                rzp.open();
-            } else {
-                setError('Razorpay Checkout could not be loaded. Check the connection and try again.');
-            }
-        } catch (e: any) {
-            setError(e?.response?.data?.detail || 'Subscription initiation failed');
-        }
-    };
-
-    const handleCancel = async (id: string) => {
-        if (!confirm('Cancel your subscription? No further payments are taken; credits you have paid for last until they expire.')) return;
-        setCancellingId(id);
-        try {
-            await creditsService.cancelSubscription(id);
-            setSuccess('Subscription cancelled. Credits you have paid for last until they expire.');
-            fetchData();
-        } catch (e: any) {
-            setError(e?.response?.data?.detail || 'Cancellation failed');
-        } finally {
-            setCancellingId(null);
-        }
-    };
-
     if (loading) return <div className="wallet-page"><div className="loading-state"><div className="pulse">Loading wallet…</div></div></div>;
 
+    const gst = withGst(topUpAmount || 0, topUpOptions?.tax_rate ?? 0);
     const totalAvail = Number(balance?.available ?? 0);
     const scale = Math.max(totalAvail, 1);
 
@@ -339,42 +275,44 @@ export const WalletPage: React.FC = () => {
                                     placeholder="Custom amount"
                                 />
                             </div>
+                            {Number(topUpOptions?.tax_rate ?? 0) > 0 && (
+                                <p className="section-desc topup-gst">
+                                    {formatMoney(topUpAmount || 0, currency)} credit + {Number(topUpOptions?.tax_rate)}% GST
+                                    ({formatMoney(gst.tax, currency)}) = <strong>{formatMoney(gst.gross, currency)}</strong> charged
+                                </p>
+                            )}
                             <button className="btn-primary full-width" onClick={handleTopUp} disabled={topping}>
-                                {topping ? 'Processing…' : `Top up ${formatMoney(topUpAmount || 0, currency)}`}
+                                {topping ? 'Processing…' : `Pay ${formatMoney(gst.gross, currency)}`}
                             </button>
                         </div>
                     </div>
                 )}
 
-                {/* Active Subscription */}
-                {subscription && (
-                    <div className="active-subscription glass">
-                        <h2 className="section-title"><Star size={18} /> {subscription.status === 'active' ? 'Active Subscription' : 'Subscription'}</h2>
-                        {subscription.status === 'past_due' && (
-                            <div className="error-banner"><AlertTriangle size={14} /> The last payment failed. Razorpay is retrying; no credits are granted until a payment succeeds.</div>
-                        )}
-                        {subscription.status === 'paused' && (
-                            <div className="error-banner"><AlertTriangle size={14} /> Paused — no payments are taken and no credits are granted.</div>
-                        )}
+                {/* The plan: managed on the Plan page (Phase 15 T6-7) */}
+                <div className="active-subscription glass">
+                    <h2 className="section-title"><Star size={18} /> Plan</h2>
+                    {subscription?.status === 'past_due' && (
+                        <div className="error-banner"><AlertTriangle size={14} /> The last payment failed. Razorpay is retrying; no credits are granted until a payment succeeds.</div>
+                    )}
+                    {subscription?.status === 'paused' && (
+                        <div className="error-banner"><AlertTriangle size={14} /> Paused — no payments are taken and no credits are granted.</div>
+                    )}
+                    {subscription ? (
                         <div className="sub-details">
-                            <div className="sub-tier-badge">Tier {subscription.plan_tier}</div>
-                            <p className="sub-fee">${subscription.monthly_fee}/mo</p>
-                            <p className="sub-bonus">+{subscription.bonus_pct}% Bonus Credits</p>
+                            <div className="sub-tier-badge">Level {subscription.plan_tier}</div>
+                            <p className="sub-fee">{formatMoney(subscription.amount, subscription.currency)}/mo + GST</p>
+                            {subscription.bonus_pct > 0 && <p className="sub-bonus">+{subscription.bonus_pct}% bonus credit</p>}
                             {subscription.next_billing_date && (
-                                <p className="sub-next">Paid through: {formatDate(subscription.next_billing_date)}</p>
+                                <p className="sub-next">
+                                    {subscription.cancel_at_cycle_end ? 'Ends' : 'Paid through'}: {formatDate(subscription.next_billing_date)}
+                                </p>
                             )}
                         </div>
-                        {canPay && (
-                            <button
-                                className="btn-danger"
-                                onClick={() => handleCancel(subscription.id)}
-                                disabled={cancellingId === subscription.id}
-                            >
-                                {cancellingId === subscription.id ? 'Cancelling…' : 'Cancel Subscription'}
-                            </button>
-                        )}
-                    </div>
-                )}
+                    ) : (
+                        <p className="section-desc">Pay-as-you-go: no monthly fee; usage is paid from the wallet.</p>
+                    )}
+                    <Link className="btn-secondary" to="/billing/plan">Compare and change plans</Link>
+                </div>
             </div>
 
             {/* Credit lots and the ledger (Phase 15 T4-1) */}
@@ -434,42 +372,6 @@ export const WalletPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Subscription Plans */}
-            {!subscription && (
-                <div className="plans-section">
-                    <h2 className="section-title"><Star size={18} /> Subscription Plans</h2>
-                    <p className="section-desc">
-                        Subscribe for a monthly auto-debit via Razorpay and bonus credits every month.
-                        Credits are spent soonest-expiring first: daily, then subscription, then your wallet balance.
-                    </p>
-                    {plans.length === 0 && (
-                        <p className="section-desc plans-empty">No plans are available at the moment.</p>
-                    )}
-                    <div className="plans-grid">
-                        {plans.map((plan) => (
-                            <div key={plan.tier_level} className={`plan-card glass ${plan.tier_level === 2 ? 'popular' : ''}`}>
-                                {plan.tier_level === 2 && <div className="popular-badge">Most Popular</div>}
-                                <h3 className="plan-name">{plan.name}</h3>
-                                <p className="plan-price">${plan.monthly_fee}<span>/mo</span></p>
-                                <p className="plan-bonus">+{plan.bonus_pct}% Bonus Credits</p>
-                                <ul className="plan-features">
-                                    <li><CheckCircle size={14} />{plan.bonus_pct}% Bonus Credits</li>
-                                    {plan.tier_level >= 2 && <li><CheckCircle size={14} />Priority Support</li>}
-                                    {plan.tier_level >= 3 && <li><CheckCircle size={14} />Unlimited Agents</li>}
-                                </ul>
-                                {canPay && (
-                                    <button
-                                        className="btn-primary full-width"
-                                        onClick={() => handleSubscribe(plan.tier_level, plan.monthly_fee)}
-                                    >
-                                        Subscribe — ${plan.monthly_fee}/mo
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

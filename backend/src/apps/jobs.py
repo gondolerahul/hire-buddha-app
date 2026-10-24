@@ -4,6 +4,8 @@
 * ``build_app`` — one queued app build (6.7).
 * ``app_hosting_metering`` — hourly: the last full hour of every business's apps (6.12).
 * ``tenant_db_metering`` — daily: each business's database share for yesterday (6.12).
+* ``tenant_storage_metering`` — daily: yesterday's app files, database size,
+  backups and custom domains (Phase 15 T7-3).
 * ``expire_app_previews`` — hourly: previews past ``APP_PREVIEW_DAYS`` stop (6.9).
 * ``sandbox_idle_reaper`` — every 5 minutes on AKS: idle sandbox pods are saved and deleted (6.1).
 """
@@ -52,6 +54,12 @@ async def tenant_db_metering(ctx: Dict[str, Any]) -> Dict[str, int]:
     from src.apps.metering import meter_databases
 
     return await meter_databases(datetime.utcnow() - timedelta(days=1))
+
+
+async def tenant_storage_metering(ctx: Dict[str, Any]) -> Dict[str, int]:
+    from src.apps.metering import meter_storage
+
+    return await meter_storage(datetime.utcnow() - timedelta(days=1))
 
 
 async def expire_app_previews(ctx: Dict[str, Any]) -> Dict[str, int]:

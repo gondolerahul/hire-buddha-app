@@ -52,11 +52,28 @@ import {
     AppWindow,
     Code2,
     Building2,
+    FileText,
+    Lock,
+    Star,
 } from 'lucide-react';
+import { useEntitlements } from '@/queries/hooks';
 import { UserRole } from '@/types';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import logo from '@/assets/logo.png';
 import './MainLayout.css';
+
+/** The feature a menu entry needs (Phase 15 §10.2). */
+const MENU_FEATURES: Record<string, string> = {
+    '/streaming/campaigns': 'feature.voice.outbound_campaigns',
+    '/phone-numbers': 'feature.phone_numbers',
+    '/apps': 'feature.apps.hosting',
+    '/code': 'feature.code.lanes',
+    '/cortex': 'feature.knowledge.cortex_explorer',
+    '/knowledge': 'feature.knowledge.base',
+    '/records': 'feature.records',
+    '/automation': 'feature.automation.triggers',
+    '/ai/templates': 'feature.agents.templates',
+};
 
 interface MainLayoutProps {
     children: React.ReactNode;
@@ -72,6 +89,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         .includes(user?.role as UserRole);
     const { theme, toggleTheme } = useTheme();
     const location = useLocation();
+    // What the plan leaves out is shown locked, not hidden (Phase 15 T6-2); staff are never locked.
+    const isStaff = [UserRole.APP_ADMIN, UserRole.APP_USER].includes(user?.role as UserRole);
+    const entitlements = useEntitlements(!!user && !isStaff).data?.entitlements;
+    const locked = (path: string): boolean => {
+        const key = MENU_FEATURES[path];
+        return !!key && !isStaff && entitlements?.[key]?.enabled === false;
+    };
 
     const menuGroups = [
         {
@@ -148,6 +172,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             icon: CreditCard,
             items: [
                 { path: '/wallet', label: 'Wallet & Credits', icon: Wallet },
+                ...(!isStaff ? [{ path: '/billing/plan', label: 'Plan', icon: Star }] : []),
+                ...(!isStaff ? [{ path: '/billing/invoices', label: 'Invoices', icon: FileText }] : []),
                 { path: '/settings/tenant', label: 'Business Settings', icon: Settings },
                 { path: '/settings/automation', label: 'Automation Settings', icon: Timer },
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/automation', label: 'Platform Automation', icon: Timer }] : []),
@@ -160,6 +186,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/wallets', label: 'Wallets', icon: Wallet }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/daily-credits', label: 'Daily Credits', icon: Timer }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/pricing', label: 'Pricing', icon: Coins }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/plans', label: 'Plans & Entitlements', icon: Layers }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/payments', label: 'Payments', icon: Receipt }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/money-settings', label: 'Money Settings', icon: Settings }] : []),
             ]
         },
@@ -272,17 +300,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                                     <div className={`nav-group-items ${isExpanded && sidebarOpen ? 'expanded' : ''}`}>
                                         {group.items?.map(item => {
                                             const ItemIcon = item.icon;
+                                            const isLocked = locked(item.path);
                                             return (
                                                 <Link
                                                     key={item.path}
-                                                    to={item.path}
-                                                    className={`nav-item sub-item ${isActive(item.path) ? 'active' : ''}`}
-                                                    title={!sidebarOpen ? item.label : ''}
+                                                    to={isLocked ? '/billing/plan' : item.path}
+                                                    className={`nav-item sub-item ${isActive(item.path) ? 'active' : ''} ${isLocked ? 'locked' : ''}`}
+                                                    title={isLocked ? `${item.label}: not in your plan — see Plan` : !sidebarOpen ? item.label : ''}
                                                 >
                                                     <div className="nav-item-icon">
                                                         <ItemIcon size={18} />
                                                     </div>
                                                     {sidebarOpen && <span className="nav-item-label">{item.label}</span>}
+                                                    {sidebarOpen && isLocked && <Lock size={12} className="nav-item-lock" aria-label="Not in your plan" />}
                                                 </Link>
                                             )
                                         })}

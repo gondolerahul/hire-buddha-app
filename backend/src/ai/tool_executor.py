@@ -127,6 +127,25 @@ def _refused(tool_name: Any, args: Any, denied: Any) -> ToolResult:
     )
 
 
+async def _plan_refusal(name: str, context: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Why the company's plan does not include this tool (Phase 15 T6-2), or ``None``.
+    A plan that cannot be read lets the call run: every feature is on by default."""
+    from src.billing.features import check_feature, feature_for_tool
+
+    key = feature_for_tool(name)
+    company_id = (context or {}).get("company_id")
+    if key is None or not company_id:
+        return None
+    try:
+        from uuid import UUID as _UUID
+
+        from src.common.tenancy.session import control_session
+        async with control_session() as db:
+            return await check_feature(db, _UUID(str(company_id)), key)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any],
                context: Optional[Dict[str, Any]], timeout_s: Optional[float] = None) -> ToolResult:
     """One call through the tool's one entry point, ``invoke`` (TL-41).
@@ -136,6 +155,10 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
     """
     from src.ai.governance.idempotency import earlier_result, write_key
 
+    locked = await _plan_refusal(name, context)
+    if locked:
+        return ToolResult(tool=name, args=logged_args, output=f"Error: {locked}", success=False, error=locked,
+                          skipped=True, skip_reason="feature_locked")
     key = write_key((context or {}).get("run_id"), name, args)
     if key:
         try:

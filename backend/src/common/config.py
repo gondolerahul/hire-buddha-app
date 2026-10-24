@@ -405,7 +405,6 @@ class Settings(BaseSettings):
     ACR_REGISTRY_NAME: str = ""
     ACR_LOGIN_SERVER: str = ""
     APP_BUILD_TIMEOUT_SECONDS: int = 1800
-    APP_BUILD_COST_PER_SECOND: float = 0.0001
     # Where apps run (§11.5): docker (local containers) | kubernetes (TenantApp
     # objects for the App Controller).
     APP_RUNTIME: str = ""

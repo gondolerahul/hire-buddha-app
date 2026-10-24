@@ -125,25 +125,48 @@ async def test_fractions_in_range_are_saved(config_calls):
                                                      "d": Decimal("0")})
 
 
+def _plans_app(role):
+    """Plans replaced subscription tiers (Phase 15 T6-1): the same rules, on /api/v1/plans and /api/v1/admin/plans."""
+    from src.auth import router as auth_router
+    from src.billing import plans_router
+    from src.common.tenancy.session import get_control_db
+
+    app = FastAPI()
+    app.include_router(plans_router.router)
+    if role is not None:
+        async def _user():
+            return SimpleNamespace(id=uuid.uuid4(), role=role, company_id=uuid.uuid4())
+        app.dependency_overrides[get_current_user] = _user
+        app.dependency_overrides[auth_router.get_current_user] = _user
+
+    async def _db():
+        yield _DB()
+    app.dependency_overrides[get_control_db] = _db
+    return app
+
+
 @pytest.mark.asyncio
-async def test_the_tier_list_needs_a_signed_in_user():
-    assert (await _call(_app(None), "GET", "/api/v1/credits/subscription-tiers")).status_code == 401
-    assert (await _call(_app("tenant_user"), "GET", "/api/v1/credits/subscription-tiers")).status_code == 200
+async def test_the_plan_list_needs_a_signed_in_user():
+    assert (await _call(_plans_app(None), "GET", "/api/v1/plans")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_the_retired_tier_routes_are_gone():
+    assert (await _call(_app("app_admin"), "GET", "/api/v1/credits/subscription-tiers")).status_code == 404
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["partner_admin", "tenant_admin"])
-async def test_only_app_admin_writes_tiers(role):
-    app = _app(role)
-    created = await _call(app, "POST", "/api/v1/credits/subscription-tiers",
-                          json={"name": "X", "tier_level": 9, "monthly_fee": 1, "bonus_pct": 0})
-    updated = await _call(app, "PUT", f"/api/v1/credits/subscription-tiers/{uuid.uuid4()}",
-                          json={"monthly_fee": 1})
+async def test_only_app_admin_writes_plans(role):
+    app = _plans_app(role)
+    created = await _call(app, "POST", "/api/v1/admin/plans",
+                          json={"code": "x_plan", "name": "X", "tier_level": 9, "monthly_fee_usd": 1})
+    updated = await _call(app, "PUT", f"/api/v1/admin/plans/{uuid.uuid4()}", json={"monthly_fee_usd": 1})
     assert (created.status_code, updated.status_code) == (403, 403)
 
 
 @pytest.mark.asyncio
-async def test_a_tier_bonus_is_a_percentage_up_to_100():
-    res = await _call(_app("app_admin"), "POST", "/api/v1/credits/subscription-tiers",
-                      json={"name": "X", "tier_level": 9, "monthly_fee": 10, "bonus_pct": 150})
+async def test_a_plan_bonus_is_a_percentage_up_to_100():
+    res = await _call(_plans_app("app_admin"), "POST", "/api/v1/admin/plans",
+                      json={"code": "x_plan", "name": "X", "tier_level": 9, "monthly_fee_usd": 10, "bonus_pct": 150})
     assert res.status_code == 422

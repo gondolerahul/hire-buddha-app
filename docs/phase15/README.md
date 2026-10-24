@@ -1,6 +1,6 @@
 # Phase 15 — Configuration, costing & billing, and the partner module
 
-> **Status:** Analysis (01–04), plan (05–08); implementation under way — M15.0 Guardrails, M15.1 Money core and M15.2 Wallet and controls built (09).
+> **Status:** Analysis (01–04), plan (05–08); implementation under way — M15.0 Guardrails, M15.1 Money core, M15.2 Wallet and controls and M15.3 Commercial built (09).
 > **Date:** 2026-10-22 (analysis) · 2026-10-23 (plan)
 > **Branch analysed:** `roadmap-development-defect-fixes` at `53be0bd`
 

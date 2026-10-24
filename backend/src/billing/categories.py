@@ -28,7 +28,8 @@ _MODEL_ATTRIBUTIONS = frozenset({
     "meta_review", "dreaming", "meta_spec_critic", "test_driver", "child_run",
 })
 _MEDIA_SKU_CATEGORIES = frozenset({"IMAGE_GENERATION", "VIDEO_GENERATION", "SPEECH_GENERATION", "MUSIC_GENERATION"})
-_DATABASE_SKUS = frozenset({"tenant-db-pool-share", "tenant-db-dedicated"})
+_DATABASE_SKUS = frozenset({"tenant-db-pool-share", "tenant-db-dedicated", "tenant-db-storage-gb-month",
+                            "tenant-backup-gb-month"})
 
 
 def category_for(attribution: Optional[str], *, sku_category: Optional[str] = None,

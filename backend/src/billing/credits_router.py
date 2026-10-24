@@ -1,13 +1,18 @@
 """
-Credits Router — wallet balance, Razorpay top-up, and subscription management.
-Razorpay credentials are fetched from integration_registry (service_sku='razorpay_keys').
+Credits Router — wallet balance, top-ups and the company's subscription.
+
+Payments go through the gateway interface (``src.billing.gateways``, Phase 15
+T6-3); prices are tax-exclusive, so what is charged is the net amount plus GST
+(``src.billing.tax``, T6-5), and each payment received gets a tax invoice.
+Plans are ``/api/v1/plans`` (``plans_router``); staff edit them at
+``/api/v1/admin/plans``.
 """
 import logging
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -15,39 +20,45 @@ from sqlalchemy import select
 from src.common.tenancy.session import get_control_db
 from src.auth.router import get_current_user
 from src.auth.dependencies import RoleChecker
-from src.auth.models import User
+from src.auth.models import Company, User
 from src.auth.roles import Role
 from src.billing.credit_service import CreditService
+from src.billing.gateways import GatewayError, GatewayUnavailable, get_gateway
 from src.billing.payment_service import (
-    LIVE_SUBSCRIPTION_STATUSES, PaymentNotFound, PaymentService, razorpay_signature_valid, razorpay_time,
+    LIVE_SUBSCRIPTION_STATUSES, PaymentNotFound, PaymentService, razorpay_time,
 )
-from src.billing.razorpay_gateway import get_razorpay_creds, razorpay_client
-from src.billing.billing_models import Subscription, PaymentTransaction, SubscriptionTier
+from src.billing.billing_models import Plan, Subscription, PaymentTransaction
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/credits", tags=["Credits & Payments"])
 
+# Paying, subscribing and cancelling are the company's admins' (Phase 15 T0-3,
+# B-15): any user of the company could, tenant_user included. The Gold
+# partner joins them with the partner programme (WS15-8).
+billing_admin = RoleChecker([Role.PARTNER_ADMIN, Role.TENANT_ADMIN])
 
-# ─── Helper: Get Razorpay credentials ─────────────────────────────────────────
 
-async def _get_razorpay_creds(db: AsyncSession) -> Optional[dict]:
-    """Fetch Razorpay key_id/key_secret from integration_registry."""
-    return await get_razorpay_creds(db)
+async def _gateway(db: AsyncSession):
+    try:
+        return await get_gateway(db)
+    except GatewayUnavailable as missing:
+        raise HTTPException(status_code=503, detail=str(missing)) from None
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class TopUpRequest(BaseModel):
-    # In the company's billing currency (Phase 15 T4-3), at most two decimals:
-    # Razorpay takes whole paise/cents. The limits are the settings
+    # The credit wanted, in the company's billing currency (Phase 15 T4-3), at
+    # most two decimals: GST is added on top (T6-5). The limits are the settings
     # wallet.topup_min_usd / max_usd at today's rate (tech design §6.6).
     amount: Decimal = Field(gt=0, decimal_places=2)
 
 
 async def topup_limits(db: AsyncSession, company_id: UUID) -> dict:
-    """The top-up form's limits and presets in the company's currency (§6.6)."""
+    """The top-up form's limits and presets in the company's currency, and its tax (§6.6, TX-1)."""
     from src.billing.currency import current_rate, to_ccy
     from src.billing.settings_catalogue import value
+    from src.billing.tax import tax_for
 
     currency = (await CreditService(db).get_or_create_wallet(company_id)).currency
     rate = await current_rate(db, currency)
@@ -55,12 +66,15 @@ async def topup_limits(db: AsyncSession, company_id: UUID) -> dict:
     def ccy(usd) -> Decimal:
         return to_ccy(Decimal(str(usd)), rate).quantize(Decimal("0.01"))
 
+    company = await db.get(Company, company_id)
+    tax = await tax_for(db, company)
     return {
         "currency": currency,
         "min": ccy(await value(db, "wallet.topup_min_usd", company_id)),
         "max": ccy(await value(db, "wallet.topup_max_usd", company_id)),
         "presets": [ccy(p) for p in await value(db, "wallet.topup_presets_usd", company_id)],
         "validity_days": await value(db, "wallet.topup_validity_days", company_id),
+        "tax_rate": tax.rate, "tax_regime": tax.regime,
     }
 
 
@@ -71,33 +85,12 @@ class TopUpVerify(BaseModel):
 
 
 class SubscriptionCreate(BaseModel):
-    tier_level: int   # 1, 2, 3, etc.
+    plan_id: Optional[UUID] = None
+    tier_level: Optional[int] = None      # the plan's level, as the wallet page sent it before plans
 
 
-# Tiers are platform-wide, so only app_admin writes them (BC-19; partner_admin
-# could). bonus_pct is a percentage — 30 is 30% — unlike the billing config's
-# fractions.
-app_admin_only = RoleChecker(["app_admin"])
-
-# Paying, subscribing and cancelling are the company's admins' (Phase 15 T0-3,
-# B-15): any user of the company could, tenant_user included. The Gold
-# partner joins them with the partner programme (WS15-8).
-billing_admin = RoleChecker([Role.PARTNER_ADMIN, Role.TENANT_ADMIN])
-
-
-class SubscriptionTierCreate(BaseModel):
-    name: str
-    tier_level: int = Field(ge=1)
-    monthly_fee: Decimal = Field(gt=0)
-    bonus_pct: Decimal = Field(ge=0, le=100)
-    is_active: bool = True
-
-
-class SubscriptionTierUpdate(BaseModel):
-    name: Optional[str] = None
-    monthly_fee: Optional[Decimal] = Field(None, gt=0)
-    bonus_pct: Optional[Decimal] = Field(None, ge=0, le=100)
-    is_active: Optional[bool] = None
+class SubscriptionChange(BaseModel):
+    plan_id: UUID
 
 
 # ─── Balance ──────────────────────────────────────────────────────────────────
@@ -116,7 +109,7 @@ async def get_balance(
 @router.get("/topup-options", summary="Top-up limits and preset amounts")
 async def get_topup_options(current_user: User = Depends(get_current_user),
                             db: AsyncSession = Depends(get_control_db)):
-    """What the top-up form offers, in the company's currency, and whether this user may pay."""
+    """What the top-up form offers, in the company's currency, its GST, and whether this user may pay."""
     limits = await topup_limits(db, current_user.company_id)
     return {
         "currency": limits["currency"],
@@ -124,84 +117,62 @@ async def get_topup_options(current_user: User = Depends(get_current_user),
         "max": str(limits["max"]),
         "presets": [str(p) for p in limits["presets"]],
         "validity_days": limits["validity_days"],
+        "tax_rate": str(limits["tax_rate"]),
+        "tax_regime": limits["tax_regime"],
         "can_pay": current_user.role in billing_admin.allowed_roles,
     }
 
 
-@router.post("/topup", summary="Initiate Razorpay order for wallet top-up")
+@router.post("/topup", summary="Initiate a gateway order for a wallet top-up")
 async def initiate_topup(
     payload: TopUpRequest,
     current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
+    """The order is for the credit plus GST (TX-1): ₹1,000 of credit is a ₹1,180 payment in Karnataka."""
+    from src.billing.currency import minor_units
+    from src.billing.tax import apply, tax_for
+
     limits = await topup_limits(db, current_user.company_id)
     currency = limits["currency"]
     if not limits["min"] <= payload.amount <= limits["max"]:
         raise HTTPException(status_code=422, detail=(
             f"A top-up is between {currency} {limits['min']:,.2f} and {currency} {limits['max']:,.2f}."))
-    creds = await _get_razorpay_creds(db)
-    if not creds:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Payment gateway not configured. Add Razorpay keys to Integration Registry with SKU 'razorpay_keys'.",
-        )
-
+    gateway = await _gateway(db)
+    company = await db.get(Company, current_user.company_id)
+    taxed = apply(payload.amount, await tax_for(db, company), await minor_units(db, currency))
     try:
-        import razorpay
-        client = razorpay.Client(auth=(creds["key_id"], creds["key_secret"]))
-        # Razorpay receipt must be ≤ 40 chars; use first 8 chars of company_id
-        short_cid = str(current_user.company_id).replace("-", "")[:8]
-        from src.billing.currency import gateway_minor_units, minor_units
-        order_data = {
-            # Paise / cents, exact: at most 2 decimals (T0-4), in the company's currency (T4-3).
-            "amount": gateway_minor_units(payload.amount, await minor_units(db, currency)),
-            "currency": currency,
-            "receipt": f"topup_{short_cid}",
-            "notes": {"company_id": str(current_user.company_id), "type": "topup"},
-        }
-        order = client.order.create(data=order_data)
-
-        # Record pending transaction
-        txn = PaymentTransaction(
-            company_id=current_user.company_id,
-            razorpay_order_id=order["id"],
-            amount=payload.amount,
-            currency=currency,
-            transaction_type="topup",
-            status="pending",
-        )
-        db.add(txn)
-        await db.commit()
-
-        return {
-            "order_id": order["id"],
-            "amount": str(payload.amount),
-            "currency": currency,
-            "key_id": creds["key_id"],  # Sent to frontend for Razorpay.js
-        }
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="razorpay package not installed. Run: pip install razorpay",
-        )
-    except Exception as e:
-        logger.error(f"Razorpay order creation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Payment initiation failed: {str(e)}")
+        order = await gateway.create_order(
+            taxed.gross, currency, receipt=f"topup_{str(current_user.company_id).replace('-', '')[:8]}",
+            notes={"company_id": str(current_user.company_id), "type": "topup"})
+    except GatewayError as error:
+        logger.error(f"Top-up order creation failed: {error}")
+        raise HTTPException(status_code=502, detail=f"Payment initiation failed: {error}") from None
+    db.add(PaymentTransaction(
+        company_id=current_user.company_id, razorpay_order_id=order["id"], amount=taxed.gross, currency=currency,
+        transaction_type="topup", purpose="topup", status="pending",
+        net_amount=taxed.net, tax_amount=taxed.tax, gross_amount=taxed.gross,
+    ))
+    await db.commit()
+    return {
+        "order_id": order["id"],
+        "amount": str(taxed.gross),            # what Checkout charges
+        "net": str(taxed.net), "tax": str(taxed.tax), "tax_rate": str(taxed.rate),
+        "currency": currency,
+        "key_id": gateway.key_id,               # sent to the frontend for Razorpay.js
+    }
 
 
-@router.post("/topup/verify", summary="Verify Razorpay payment and credit wallet")
+@router.post("/topup/verify", summary="Verify the payment and credit the wallet")
 async def verify_topup(
     payload: TopUpVerify,
     current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
-    creds = await _get_razorpay_creds(db)
-    if not creds:
-        raise HTTPException(status_code=503, detail="Payment gateway not configured")
-
+    gateway = await _gateway(db)
     # Razorpay signs order_id|payment_id: proof this payment paid this order.
-    body = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}"
-    if not razorpay_signature_valid(creds["key_secret"], body, payload.razorpay_signature):
+    if not gateway.payment_signature_valid(payload.razorpay_order_id, payload.razorpay_payment_id,
+                                           payload.razorpay_signature):
         raise HTTPException(status_code=400, detail="Invalid payment signature")
 
     # The amount credited is the order's, stored when it was created (BC-01);
@@ -222,126 +193,32 @@ async def verify_topup(
         "credits_added": str(txn.credits_awarded) if credited else "0",
         "new_balance": str(wallet.cached_available),
         "debt": str(wallet.debt),
+        "invoice_id": str(txn.invoice_id) if txn.invoice_id else None,
     }
 
 
-# ─── Subscription Tiers ───────────────────────────────────────────────────────
-
-@router.get("/subscription-tiers", summary="List available subscription tiers")
-async def list_subscription_tiers(
-    include_inactive: bool = Query(False, description="app_admin only: archived tiers too"),
-    current_user: User = Depends(get_current_user),  # BC-20: was open to anyone
-    db: AsyncSession = Depends(get_control_db),
-):
-    # The Billing Settings page manages archived tiers too (BC-30); everyone
-    # else sees the plans on offer.
-    stmt = select(SubscriptionTier).order_by(SubscriptionTier.tier_level)
-    if not (include_inactive and current_user.role == "app_admin"):
-        stmt = stmt.where(SubscriptionTier.is_active == True)
-    tiers = (await db.execute(stmt)).scalars().all()
-    return [
-        {
-            "id": str(t.id),
-            "name": t.name,
-            "tier_level": t.tier_level,
-            "monthly_fee": float(t.monthly_fee),
-            "bonus_pct": float(t.bonus_pct),
-            "is_active": t.is_active,
-        }
-        for t in tiers
-    ]
-
-
-@router.post("/subscription-tiers", summary="Create a subscription tier (Admin only)")
-async def create_subscription_tier(
-    payload: SubscriptionTierCreate,
-    current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_control_db),
-):
-
-    tier = SubscriptionTier(
-        name=payload.name,
-        tier_level=payload.tier_level,
-        monthly_fee=payload.monthly_fee,
-        bonus_pct=payload.bonus_pct,
-        is_active=payload.is_active,
-    )
-    db.add(tier)
-    try:
-        await db.commit()
-        await db.refresh(tier)
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail="Failed to create tier (check for duplicate tier_level)")
-
-    return {"id": str(tier.id), "message": "Tier created successfully"}
-
-
-@router.put("/subscription-tiers/{tier_id}", summary="Update a subscription tier (Admin only)")
-async def update_subscription_tier(
-    tier_id: UUID,
-    payload: SubscriptionTierUpdate,
-    current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_control_db),
-):
-
-    result = await db.execute(select(SubscriptionTier).where(SubscriptionTier.id == tier_id))
-    tier = result.scalar_one_or_none()
-    if not tier:
-        raise HTTPException(status_code=404, detail="Subscription tier not found")
-
-    if payload.name is not None:
-        tier.name = payload.name
-    if payload.monthly_fee is not None:
-        if Decimal(str(tier.monthly_fee)) != payload.monthly_fee:
-            tier.razorpay_plan_id = None  # new subscribers get a plan at the new fee
-        tier.monthly_fee = payload.monthly_fee
-    if payload.bonus_pct is not None:
-        tier.bonus_pct = payload.bonus_pct
-    if payload.is_active is not None:
-        tier.is_active = payload.is_active
-
-    await db.commit()
-    await db.refresh(tier)
-    return {"id": str(tier.id), "message": "Tier updated successfully"}
-
-
-@router.delete("/subscription-tiers/{tier_id}", summary="Delete a subscription tier (Admin only)")
-async def delete_subscription_tier(
-    tier_id: UUID,
-    current_user: User = Depends(app_admin_only),
-    db: AsyncSession = Depends(get_control_db),
-):
-
-    result = await db.execute(select(SubscriptionTier).where(SubscriptionTier.id == tier_id))
-    tier = result.scalar_one_or_none()
-    if not tier:
-        raise HTTPException(status_code=404, detail="Subscription tier not found")
-
-    await db.delete(tier)
-    await db.commit()
-    return {"message": "Tier deleted successfully"}
-
-
-# ─── Subscriptions ────────────────────────────────────────────────────────────
+# ─── Subscription ─────────────────────────────────────────────────────────────
 #
-# A subscription is a Razorpay Subscription on a plan made from the tier: the
-# customer authorises a recurring mandate once, Razorpay charges every month,
-# and each charge grants that cycle's credits — through the checkout callback
-# for the first charge and the ``subscription.charged`` webhook (or the
-# reconciliation job) for every one. Nothing grants credits without a payment
-# (BC-03, BC-04, BC-16).
-
-# Razorpay needs a finite number of cycles: the setting subscriptions.total_cycles.
+# A subscription is a gateway subscription on a plan made for the company's
+# currency, rate and GST (src.billing.subscriptions): its first charge is
+# authorised in Checkout, and each charge grants that cycle's credits — through
+# the checkout callback for the first and the ``subscription.charged`` webhook
+# (or the reconciliation job) for every one. Nothing grants credits without a
+# payment (BC-03, BC-04, BC-16).
 
 
 def _subscription_to_dict(sub: Subscription) -> dict:
     return {
         "id": str(sub.id),
+        "plan_id": str(sub.plan_id) if sub.plan_id else None,
         "plan_tier": sub.plan_tier,
         "monthly_fee": float(sub.monthly_fee),
         "bonus_pct": float(sub.bonus_pct),
+        "currency": sub.currency or "USD",
+        "amount": str(sub.amount_ccy) if sub.amount_ccy is not None else str(sub.monthly_fee),
         "status": sub.status,
+        "cancel_at_cycle_end": bool(sub.cancel_at_cycle_end),
+        "pending_plan_id": str(sub.pending_plan_id) if sub.pending_plan_id else None,
         "razorpay_subscription_id": sub.razorpay_subscription_id,
         "next_billing_date": sub.next_billing_date.isoformat() if sub.next_billing_date else None,
     }
@@ -358,38 +235,6 @@ async def _live_subscription(db: AsyncSession, company_id) -> Optional[Subscript
     return result.scalar_one_or_none()
 
 
-def _razorpay_client_or_503(creds: Optional[dict]):
-    client = razorpay_client(creds)
-    if client is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Payment gateway not configured. Add Razorpay keys to Integration Registry with SKU 'razorpay_keys'.",
-        )
-    return client
-
-
-async def _plan_for_tier(db: AsyncSession, client, tier: SubscriptionTier) -> str:
-    """The tier's Razorpay plan, created on first use. Razorpay plans are
-    immutable, so changing a tier's fee clears it and the next subscriber
-    gets a new plan; existing subscribers keep theirs."""
-    if tier.razorpay_plan_id:
-        return tier.razorpay_plan_id
-    plan = client.plan.create(data={
-        "period": "monthly",
-        "interval": 1,
-        "item": {
-            "name": f"HireBuddha {tier.name}",
-            "amount": int(Decimal(str(tier.monthly_fee)) * 100),  # USD cents
-            "currency": "USD",
-            "description": f"Tier {tier.tier_level}, {tier.bonus_pct}% bonus credits",
-        },
-        "notes": {"tier_level": str(tier.tier_level)},
-    })
-    tier.razorpay_plan_id = plan["id"]
-    await db.commit()
-    return tier.razorpay_plan_id
-
-
 @router.get("/subscriptions", summary="Get current subscription info")
 async def get_subscription(
     current_user: User = Depends(get_current_user),
@@ -401,69 +246,40 @@ async def get_subscription(
     return {"subscription": _subscription_to_dict(sub), "account_model": "subscription"}
 
 
-@router.post("/subscriptions", summary="Create a Razorpay subscription for a tier")
+async def _plan_for(db: AsyncSession, payload: SubscriptionCreate) -> Plan:
+    query = select(Plan).where(Plan.active.is_(True), Plan.tier_level > 0)
+    if payload.plan_id is not None:
+        query = query.where(Plan.id == payload.plan_id)
+    elif payload.tier_level is not None:
+        query = query.where(Plan.tier_level == payload.tier_level)
+    else:
+        raise HTTPException(status_code=422, detail="name the plan (plan_id)")
+    plan = (await db.execute(query)).scalar_one_or_none()
+    if plan is None:
+        raise HTTPException(status_code=404, detail="That plan is not on offer")
+    return plan
+
+
+@router.post("/subscriptions", summary="Subscribe to a plan")
 async def create_subscription(
     payload: SubscriptionCreate,
     current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
-    result = await db.execute(
-        select(SubscriptionTier).where(
-            SubscriptionTier.tier_level == payload.tier_level,
-            SubscriptionTier.is_active == True,
-        )
-    )
-    tier = result.scalar_one_or_none()
-    if not tier:
-        raise HTTPException(status_code=404, detail=f"Active subscription tier level {payload.tier_level} not found")
     from src.billing.locks import require_unlocked
+    from src.billing.subscriptions import SubscriptionProblem, subscribe
+
+    plan = await _plan_for(db, payload)
     await require_unlocked(db, current_user.company_id, "plan", current_user)   # Phase 15 T5-4
-
-    live = await _live_subscription(db, current_user.company_id)
-    if live:
-        raise HTTPException(
-            status_code=409,
-            detail=f"This company already has a {live.status} subscription (Tier {live.plan_tier}). Cancel it first.",
-        )
-
-    creds = await _get_razorpay_creds(db)
-    client = _razorpay_client_or_503(creds)
-    from src.billing.settings_catalogue import value
-    total_cycles = await value(db, "subscriptions.total_cycles")   # 120: ten years (Phase 15 T5-2)
+    gateway = await _gateway(db)
+    company = await db.get(Company, current_user.company_id)
     try:
-        plan_id = await _plan_for_tier(db, client, tier)
-        rz_sub = client.subscription.create(data={
-            "plan_id": plan_id,
-            "total_count": total_cycles,
-            "customer_notify": 1,
-            "notes": {"company_id": str(current_user.company_id), "tier_level": str(tier.tier_level)},
-        })
-    except Exception as e:
-        logger.error(f"Razorpay subscription creation failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Subscription initiation failed: {e}")
-
-    # Pending until the first charge is verified (callback or webhook).
-    sub = Subscription(
-        company_id=current_user.company_id,
-        plan_tier=tier.tier_level,
-        monthly_fee=tier.monthly_fee,
-        bonus_pct=tier.bonus_pct,
-        status="pending_payment",
-        razorpay_subscription_id=rz_sub["id"],
-        razorpay_plan_id=plan_id,
-    )
-    db.add(sub)
-    await db.commit()
-
-    return {
-        "razorpay_subscription_id": rz_sub["id"],
-        "amount": float(tier.monthly_fee),
-        "currency": "USD",
-        "key_id": creds["key_id"],
-        "plan_tier": tier.tier_level,
-        "bonus_credits_pct": float(tier.bonus_pct),
-        "subscription_id": str(sub.id),
-    }
+        return await subscribe(db, gateway, company=company, plan=plan)
+    except SubscriptionProblem as problem:
+        raise HTTPException(status_code=problem.status, detail=str(problem)) from None
+    except GatewayError as error:
+        logger.error(f"Subscription creation failed: {error}")
+        raise HTTPException(status_code=502, detail=f"Subscription initiation failed: {error}") from None
 
 
 class SubscriptionVerify(BaseModel):
@@ -478,13 +294,13 @@ async def verify_subscription(
     current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
-    creds = await _get_razorpay_creds(db)
-    if not creds:
-        raise HTTPException(status_code=503, detail="Payment gateway not configured")
+    from src.billing.currency import minor_units
+    from src.billing.subscriptions import record_charge
 
+    gateway = await _gateway(db)
     # Razorpay signs payment_id|subscription_id for a subscription checkout.
-    body = f"{payload.razorpay_payment_id}|{payload.razorpay_subscription_id}"
-    if not razorpay_signature_valid(creds["key_secret"], body, payload.razorpay_signature):
+    if not gateway.subscription_signature_valid(payload.razorpay_payment_id, payload.razorpay_subscription_id,
+                                                payload.razorpay_signature):
         raise HTTPException(status_code=400, detail="Invalid payment signature")
 
     payments = PaymentService(db)
@@ -493,22 +309,22 @@ async def verify_subscription(
     if not sub:
         raise HTTPException(status_code=404, detail="Subscription not found")
 
-    # The cycle this payment paid for ends at Razorpay's current_end.
+    # The cycle this payment paid for ends at the gateway's current_end.
     cycle_end = None
-    client = razorpay_client(creds)
-    if client is not None:
-        try:
-            cycle_end = razorpay_time(client.subscription.fetch(sub.razorpay_subscription_id).get("current_end"))
-        except Exception as e:
-            logger.warning(f"Could not fetch Razorpay subscription {sub.razorpay_subscription_id}: {e}")
-
-    credited = await payments.record_subscription_charge(
-        sub, payment_id=payload.razorpay_payment_id,
-        amount=Decimal(str(sub.monthly_fee)), cycle_end=cycle_end,
-    )
+    try:
+        cycle_end = razorpay_time((await gateway.fetch_subscription(sub.razorpay_subscription_id)).get("current_end"))
+    except GatewayError as e:
+        logger.warning(f"Could not fetch subscription {sub.razorpay_subscription_id}: {e}")
+    # What the first charge took: the gateway plan's amount (net + GST).
+    from src.billing.billing_models import PlanGatewayPlan
+    currency = sub.currency or "USD"
+    gateway_plan = await db.get(PlanGatewayPlan, sub.gateway_plan_ref) if sub.gateway_plan_ref else None
+    gross = (Decimal(gateway_plan.amount_minor) / (Decimal(10) ** await minor_units(db, currency))
+             if gateway_plan else Decimal(str(sub.monthly_fee)))
+    credited = await record_charge(db, sub, payment_id=payload.razorpay_payment_id, gross=gross, cycle_end=cycle_end)
     await db.refresh(sub)
     return {
-        "message": f"Subscription activated for Tier {sub.plan_tier}" if credited
+        "message": f"Subscription activated on plan level {sub.plan_tier}" if credited
         else "Subscription payment already recorded",
         "plan_tier": sub.plan_tier,
         "monthly_fee": float(sub.monthly_fee),
@@ -517,38 +333,57 @@ async def verify_subscription(
     }
 
 
-@router.delete("/subscriptions/{subscription_id}", summary="Cancel subscription")
-async def cancel_subscription(
-    subscription_id: UUID,
+@router.post("/subscriptions/change", summary="Change plan: upgrade now, downgrade at the cycle's end")
+async def change_subscription(
+    payload: SubscriptionChange,
     current_user: User = Depends(billing_admin),
     db: AsyncSession = Depends(get_control_db),
 ):
-    result = await db.execute(
-        select(Subscription).where(
-            Subscription.id == subscription_id,
-            Subscription.company_id == current_user.company_id,
-        )
-    )
-    sub = result.scalar_one_or_none()
+    from src.billing.locks import require_unlocked
+    from src.billing.subscriptions import SubscriptionProblem, change_plan
+
+    await require_unlocked(db, current_user.company_id, "plan", current_user)
+    sub = await _live_subscription(db, current_user.company_id)
+    if sub is None:
+        raise HTTPException(status_code=404, detail="No subscription to change: subscribe to a plan")
+    plan = await db.get(Plan, payload.plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="That plan is not on offer")
+    gateway = await _gateway(db)
+    try:
+        return await change_plan(db, gateway, sub, plan)
+    except SubscriptionProblem as problem:
+        raise HTTPException(status_code=problem.status, detail=str(problem)) from None
+    except GatewayError as error:
+        raise HTTPException(status_code=502, detail=f"The plan could not be changed: {error}") from None
+
+
+@router.delete("/subscriptions/{subscription_id}", summary="Cancel the subscription (at the cycle's end)")
+async def cancel_subscription(
+    subscription_id: UUID,
+    immediately: bool = Query(False, description="End it now instead of at the end of the paid cycle"),
+    current_user: User = Depends(billing_admin),
+    db: AsyncSession = Depends(get_control_db),
+):
+    from src.billing.locks import require_unlocked
+    from src.billing.subscriptions import cancel
+
+    sub = (await db.execute(select(Subscription).where(
+        Subscription.id == subscription_id, Subscription.company_id == current_user.company_id))).scalar_one_or_none()
     if not sub:
         raise HTTPException(status_code=404, detail="Subscription not found")
-    from src.billing.locks import require_unlocked
     await require_unlocked(db, current_user.company_id, "plan", current_user)   # Phase 15 T5-4
-
-    # Stop the mandate first: marking the row cancelled while Razorpay kept
-    # charging would take money for a subscription we show as cancelled.
+    gateway = None
     if sub.razorpay_subscription_id:
-        client = _razorpay_client_or_503(await _get_razorpay_creds(db))
-        try:
-            client.subscription.cancel(sub.razorpay_subscription_id, {"cancel_at_cycle_end": 0})
-        except Exception as e:
-            try:
-                rz_status = client.subscription.fetch(sub.razorpay_subscription_id).get("status")
-            except Exception:
-                rz_status = None
-            if rz_status not in ("cancelled", "completed", "expired"):
-                logger.error(f"Razorpay cancel failed for {sub.razorpay_subscription_id}: {e}")
-                raise HTTPException(status_code=502, detail=f"Could not cancel with Razorpay: {e}")
-
-    await PaymentService(db).set_subscription_status(sub, "cancelled")
-    return {"message": "Subscription cancelled. Credits already paid for last until they expire."}
+        gateway = await _gateway(db)
+    try:
+        # The mandate is stopped first: a cancelled row while the gateway kept
+        # charging would take money for a subscription shown as cancelled.
+        result = await cancel(db, gateway, sub, at_cycle_end=not immediately)
+    except GatewayError as error:
+        logger.error(f"Subscription cancellation failed: {error}")
+        raise HTTPException(status_code=502, detail=(
+            "The subscription could not be cancelled with the payment gateway; nothing was changed. "
+            "Try again.")) from None
+    return {"message": "Subscription cancelled" if result["status"] == "cancelled"
+            else "The subscription ends at the end of the paid cycle", **result}

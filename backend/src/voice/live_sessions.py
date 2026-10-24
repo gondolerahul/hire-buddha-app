@@ -4,7 +4,8 @@ A live session — a phone call's media stream, a browser's ``/stream/audio``,
 a video call — holds a model connection billed to the company for as long as it
 lasts. Nothing limited how many one company could hold at once.
 
-``LIVE_SESSIONS_PER_COMPANY`` caps them. A call is refused at admission
+The company's plan caps them (``limit.live_sessions``, Phase 15 T6-2; its
+default is ``LIVE_SESSIONS_PER_COMPANY``). A call is refused at admission
 (``call_admission.call_refusal``: the provider's webhook, a campaign's dial,
 the media socket) when the company is at the cap, and a session takes its place
 with :func:`acquire` as it connects and gives it back when it ends — so two
@@ -23,9 +24,27 @@ from src.common.config import settings
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["LiveSlot", "acquire", "at_cap", "open_count", "total_open", "cap_message"]
+__all__ = ["LiveSlot", "acquire", "at_cap", "open_count", "total_open", "cap_message", "load_limit"]
 
 _open: Counter[str] = Counter()
+# Each company's plan limit, read at admission (``load_limit``) for the sync checks below.
+_limits: dict[str, Optional[int]] = {}
+
+
+async def load_limit(db: Any, company_id: Any) -> Optional[int]:
+    """Read the company's ``limit.live_sessions`` (its plan's) for :func:`at_cap` and :func:`acquire`."""
+    from src.billing.features import limit_of
+
+    try:
+        limit = await limit_of(db, company_id, "limit.live_sessions")
+    except Exception:  # noqa: BLE001 - the platform default stands
+        limit = settings.LIVE_SESSIONS_PER_COMPANY
+    _limits[str(company_id)] = limit
+    return limit
+
+
+def limit_for(company_id: Any) -> Optional[int]:
+    return _limits.get(str(company_id), settings.LIVE_SESSIONS_PER_COMPANY)
 
 
 class LiveSlot:
@@ -53,12 +72,13 @@ def total_open() -> int:
 
 
 def at_cap(company_id: Any) -> bool:
-    return open_count(company_id) >= settings.LIVE_SESSIONS_PER_COMPANY
+    limit = limit_for(company_id)
+    return limit is not None and open_count(company_id) >= limit
 
 
-def cap_message() -> str:
-    return (f"The company already has {settings.LIVE_SESSIONS_PER_COMPANY} live calls or sessions, "
-            "its limit. Try again when one ends.")
+def cap_message(company_id: Any = None) -> str:
+    return (f"The company already has {limit_for(company_id)} live calls or sessions, "
+            "its plan's limit. Try again when one ends.")
 
 
 def acquire(company_id: Any, *, kind: str) -> Optional[LiveSlot]:

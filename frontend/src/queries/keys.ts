@@ -14,6 +14,8 @@ export const queryKeys = {
         all: ['tools'] as const,
         registry: ['tools', 'registry'] as const,
     },
+    /** The company's plan and entitlements (Phase 15 T6-2): menu locks. */
+    entitlements: ['me', 'entitlements'] as const,
     phoneNumbers: {
         all: ['phone-numbers'] as const,
         list: (status: string, provider: string) => ['phone-numbers', 'list', status, provider] as const,

@@ -98,8 +98,11 @@ async def tick(db: Any, *, now: Optional[datetime] = None) -> dict:
     from src.billing.daily_credits import grant_due
 
     now = now or datetime.utcnow()
+    from src.billing.rentals import hold_for_balance
+
     return {"expired": await expire_due(db, now=now), "daily_credits": await grant_due(db, now=now),
-            "enforcement": await enforce(db, now=now), "notices": await notices(db)}
+            "enforcement": await enforce(db, now=now), "numbers": await hold_for_balance(db, now=now),
+            "notices": await notices(db)}
 
 
 async def settle_standalone(db: Any, *, now: Optional[datetime] = None) -> dict:

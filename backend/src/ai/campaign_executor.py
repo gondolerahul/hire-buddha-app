@@ -461,6 +461,14 @@ class CampaignExecutor:
                     return
 
                 from_number = assignment.phone_number
+                from src.billing.rentals import number_held
+                if await number_held(control, from_number):
+                    # Held for the balance (Phase 15 NR-4): no calls from it.
+                    logger.warning(f"Skipping call {call_id}: {from_number} is held")
+                    await db.execute(update(CampaignCall).where(CampaignCall.id == call_id)
+                                     .values(status="failed", outcome="insufficient_credits"))
+                    await db.commit()
+                    return
 
                 # Create voice session
                 voice_session = VoiceSession(

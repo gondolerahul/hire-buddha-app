@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { phonePoolService } from '@/services/platform.service';
+import { phonePoolService, type NumberRental } from '@/services/platform.service';
+import { apiErrorMessage } from '@/utils/apiError';
+import { formatDate } from '@/utils/datetime';
+import { formatMoney } from '@/utils/money';
 import './PhonePool.css';
 import { queryKeys } from '@/queries/keys';
 import { useCompanyList, useCustomerCompanies, useEntityList, usePhoneNumbers } from '@/queries/hooks';
@@ -13,7 +16,8 @@ interface PhoneNumberEntry {
     country_code: string;
     status: string;
     label: string | null;
-    monthly_cost_usd: number | null;
+    provider_monthly_cost_usd: number | null;
+    rental: NumberRental | null;
     capabilities: any;
     notes: string | null;
     is_active: boolean;
@@ -45,6 +49,16 @@ interface Company {
     id: string;
     name: string;
     type: string;
+}
+
+/** The rent on a number: its amount, and when the next period is charged (or that it is held). */
+function rentalCell(rental: NumberRental | null): React.ReactNode {
+    if (!rental) return '—';
+    const amount = rental.amount ? formatMoney(rental.amount, rental.currency ?? 'INR') : '—';
+    if (rental.status === 'held') {
+        return <span className="status-badge retired" title="Calls are refused until the balance is paid">held · {amount}</span>;
+    }
+    return <span title={rental.next_charge_at ? `Next 30 days charged ${formatDate(rental.next_charge_at)}` : undefined}>{amount}</span>;
 }
 
 const PhonePool: React.FC = () => {
@@ -102,6 +116,11 @@ const PhonePool: React.FC = () => {
     const customers: CustomerCompany[] = useCustomerCompanies(isAdmin).data ?? [];
     const companies: Company[] = useCompanyList<Company>(isAdmin).data ?? [];
     const refreshNumbers = () => queryClient.invalidateQueries({ queryKey: queryKeys.phoneNumbers.all });
+    // The rent a claim starts (Phase 15 T7-2): charged now for 30 days, then every 30 days.
+    const rent = useQuery({ queryKey: ['phone-numbers', 'rent'], queryFn: phonePoolService.getRent,
+                            staleTime: 60_000 }).data;
+    const rentText = rent?.monthly ? `${formatMoney(rent.monthly, rent.currency)} every ${rent.period_days} days` : null;
+    const atLimit = !!rent && !isAdmin && (!rent.allowed || (rent.limit !== null && rent.held >= rent.limit));
 
     const handleSync = async () => {
         setSyncing(true);
@@ -136,12 +155,23 @@ const PhonePool: React.FC = () => {
             setClaimCompanyId('');
             return;
         }
-        // Non-admin: direct claim
+        // Non-admin: the rent is shown before the claim
+        setConfirmModal({
+            message: rentText
+                ? `Claim ${entry.phone_number}? Its rent is ${rentText}, charged from your wallet now and then in advance until you release it.`
+                : `Claim ${entry.phone_number}?`,
+            action: async () => {
+                await claimNow(entry);
+            },
+        });
+    };
+
+    const claimNow = async (entry: PhoneNumberEntry) => {
         try {
             await phonePoolService.claimNumber(entry.id);
             void refreshNumbers();
         } catch (err: any) {
-            alert(err?.response?.data?.detail || 'Failed to claim number');
+            alert(apiErrorMessage(err, 'Failed to claim number'));
         }
     };
 
@@ -156,13 +186,13 @@ const PhonePool: React.FC = () => {
             setClaimCompanyId('');
             void refreshNumbers();
         } catch (err: any) {
-            alert(err?.response?.data?.detail || 'Failed to claim number');
+            alert(apiErrorMessage(err, 'Failed to claim number'));
         }
     };
 
     const handleRelease = (id: string) => {
         setConfirmModal({
-            message: 'Are you sure you want to release this number back to the pool? The agent and customer assignments will be removed.',
+            message: 'Are you sure you want to release this number back to the pool? The agent and customer assignments will be removed, and its rent stops (the current period is not refunded).',
             action: async () => {
                 await phonePoolService.releaseNumber(id);
                 void refreshNumbers();
@@ -360,6 +390,7 @@ const PhonePool: React.FC = () => {
                                 <th>Agent</th>
                                 <th>Customer</th>
                                 <th>Label</th>
+                                <th>Rent</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -383,9 +414,12 @@ const PhonePool: React.FC = () => {
                                     <td>{n.agent_name || '—'}</td>
                                     <td>{n.customer_name || '—'}</td>
                                     <td>{n.label || '—'}</td>
+                                    <td>{rentalCell(n.rental)}</td>
                                     <td className="actions-cell">
                                         {n.status === 'available' && (
-                                            <button className="btn-claim" onClick={() => handleClaim(n)}>
+                                            <button className="btn-claim" onClick={() => handleClaim(n)}
+                                                    disabled={atLimit}
+                                                    title={atLimit ? 'Your plan does not include more numbers' : rentText ?? undefined}>
                                                 Claim
                                             </button>
                                         )}
@@ -620,6 +654,9 @@ const PhonePool: React.FC = () => {
                                     ))}
                                 </select>
                             </div>
+                            <p className="subtitle">
+                                The company is charged the number's rent from now, 30 days in advance, at its currency's price.
+                            </p>
                         </div>
                         <div className="pool-modal-actions">
                             <button type="button" className="btn-release" onClick={() => setShowClaimModal(null)}>Cancel</button>

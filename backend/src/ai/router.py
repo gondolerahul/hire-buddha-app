@@ -22,6 +22,7 @@ from src.ai.service import AIService
 from src.common.pagination import CursorParam, LimitParam, Page, keyset, page_of
 from src.ai.services.knowledge_base import KnowledgeBaseService, file_type_of
 from src.ai.artifact_router import public_file_url
+from src.billing.features import require_feature
 
 router = APIRouter(prefix="/ai", tags=["AI Hierarchical Agent Platform"])
 
@@ -582,7 +583,7 @@ async def respond_to_approval(
 
 # --- Tools ---
 # --- Context Source Upload ---
-@router.post("/context-sources/upload", response_model=dict)
+@router.post("/context-sources/upload", dependencies=[Depends(require_feature("feature.knowledge.base"))], response_model=dict)
 async def upload_context_source(
     file: UploadFile = File(...),
     entity_id: Optional[UUID] = None,
@@ -704,7 +705,7 @@ async def upload_context_source(
     }
 
 # --- Documents (the Knowledge Base, stored in CORTEX Knowledge Trees) ---
-@router.post("/documents/upload", response_model=dict)
+@router.post("/documents/upload", dependencies=[Depends(require_feature("feature.knowledge.base"))], response_model=dict)
 async def upload_document(
     file: UploadFile = File(...),
     entity_id: Optional[UUID] = None,
@@ -784,7 +785,7 @@ async def update_document(
         move="entity_id" in body.model_fields_set, entity_id=body.entity_id,
     )
 
-@router.post("/documents/{document_id}/file", response_model=dict)
+@router.post("/documents/{document_id}/file", dependencies=[Depends(require_feature("feature.knowledge.base"))], response_model=dict)
 async def replace_document_file(
     document_id: UUID,
     file: UploadFile = File(...),
@@ -849,7 +850,7 @@ async def get_template(
         service = AIService(library)
         return _shown(await service.get_entity(template_id, current_user.company_id, current_user.role))
 
-@router.post("/templates", response_model=HierarchicalEntityResponse)
+@router.post("/templates", dependencies=[Depends(require_feature("feature.agents.templates"))], response_model=HierarchicalEntityResponse)
 async def create_template(
     entity_in: HierarchicalEntityCreateRequest,
     db: AsyncSession = Depends(get_control_db),
@@ -884,7 +885,7 @@ async def delete_template(
         service = AIService(library)
         return await service.delete_entity(template_id, current_user.company_id, user_role=current_user.role)
 
-@router.post("/templates/{template_id}/clone", response_model=HierarchicalEntityResponse)
+@router.post("/templates/{template_id}/clone", dependencies=[Depends(require_feature("feature.agents.templates"))], response_model=HierarchicalEntityResponse)
 async def clone_template(
     template_id: UUID,
     db: AsyncSession = Depends(get_tenant_db),

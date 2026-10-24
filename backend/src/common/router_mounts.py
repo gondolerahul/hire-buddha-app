@@ -6,6 +6,7 @@ boots. The failure is kept on ``app.state.unmounted_routers`` and reported by
 404 on every route of that router and a warning line in the startup log.
 """
 import importlib
+from typing import Optional
 import logging
 
 from fastapi import APIRouter, FastAPI, Request
@@ -25,8 +26,11 @@ def _describe(exc: ImportError) -> str:
     return f"{type(exc).__name__}: {message}"
 
 
-def mount_optional(app: FastAPI, module: str, prefix: str = "") -> bool:
-    """Include ``module.router`` in ``app``; on an ImportError, record it and go on."""
+def mount_optional(app: FastAPI, module: str, prefix: str = "", feature: Optional[str] = None) -> bool:
+    """Include ``module.router`` in ``app``; on an ImportError, record it and go on.
+
+    ``feature``: every route of the router needs the plan feature (Phase 15 T6-2).
+    """
     if not hasattr(app.state, "unmounted_routers"):
         app.state.unmounted_routers = []
     try:
@@ -35,7 +39,13 @@ def mount_optional(app: FastAPI, module: str, prefix: str = "") -> bool:
         logger.error("Router %s not mounted; its routes will 404", module, exc_info=True)
         app.state.unmounted_routers.append({"router": module, "error": _describe(exc)})
         return False
-    app.include_router(router, prefix=prefix)
+    if feature:
+        from fastapi import Depends
+
+        from src.billing.features import require_feature
+        app.include_router(router, prefix=prefix, dependencies=[Depends(require_feature(feature))])
+    else:
+        app.include_router(router, prefix=prefix)
     return True
 
 

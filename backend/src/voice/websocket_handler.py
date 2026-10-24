@@ -310,7 +310,7 @@ class BaseStreamHandler:
                 await self.websocket.send_json({
                     "event": "error",
                     "error": "too_many_live_sessions",
-                    "message": live_sessions.cap_message(),
+                    "message": live_sessions.cap_message(self.voice_session.company_id),
                 })
                 await self.websocket.close(code=4429, reason="Too many live sessions")
             except Exception:
