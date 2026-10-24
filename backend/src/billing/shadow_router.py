@@ -59,12 +59,15 @@ async def shadow_summary(days: int = Query(14, ge=1, le=90), company_id: Optiona
 
 
 class ModeBody(BaseModel):
-    mode: Literal["off", "shadow"]
+    mode: Literal["off", "shadow", "on"]
     reason: Optional[str] = None
 
 
 @router.put("/mode")
 async def set_mode(body: ModeBody, db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
+    if body.mode == "on":
+        from src.billing import cutover
+        await cutover.require_ready(db)            # T10-3
     await set_platform_setting(db, "billing.v2_mode", body.mode, actor=user, reason=body.reason)
     await db.commit()
     return {"mode": await v2_mode(db)}

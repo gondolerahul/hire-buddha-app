@@ -50,22 +50,26 @@ async def enforce(db: Any, *, now: Optional[datetime] = None) -> dict:
     from src.billing.settings_catalogue import value
     from src.billing.wallet import WalletService
 
+    from src.billing import rollout
+
     now = now or datetime.utcnow()
     out = {"suspended": 0, "apps_stopped": 0, "errors": 0}
+    enforcing = await rollout.enabled(db, rollout.ENFORCEMENT)            # T10-3
+    stopping = await rollout.enabled(db, rollout.APPS_STOP)
     wallets = (await db.execute(select(CreditWallet.company_id, CreditWallet.state, CreditWallet.in_debt_since,
                                        CreditWallet.over_tolerance_since)
                                 .where(CreditWallet.state != "ok"))).all()
     for w in wallets:
         try:
             days = int(await value(db, "billing.suspend_after_days", w.company_id))
-            if (w.state == "over_tolerance" and w.over_tolerance_since is not None
+            if (enforcing and w.state == "over_tolerance" and w.over_tolerance_since is not None
                     and w.over_tolerance_since <= now - timedelta(days=days)):
                 change = await WalletService(db).suspend(w.company_id, now=now)
                 await db.commit()
                 out["suspended"] += 1
                 await wallet_changed(db, w.company_id, change)
             hours = Decimal(str(await value(db, "billing.app_stop_grace_hours", w.company_id)))
-            if w.in_debt_since is not None and w.in_debt_since <= now - timedelta(hours=float(hours)):
+            if stopping and w.in_debt_since is not None and w.in_debt_since <= now - timedelta(hours=float(hours)):
                 stopped = await stop_apps_for_balance(w.company_id)
                 if stopped:
                     out["apps_stopped"] += stopped

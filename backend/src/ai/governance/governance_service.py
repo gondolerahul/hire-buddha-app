@@ -101,7 +101,7 @@ class GovernanceService:
                 f"Credit exhausted mid-execution for run {run.id}: billed so far ${billed:.4f}, "
                 f"headroom {headroom:.4f} {currency}, wallet {balance['state']}. Stopping."
             )
-            if balance["state"] in ("over_tolerance", "suspended"):
+            if balance["state"] in ("over_tolerance", "suspended") and balance.get("enforced", True):
                 reason = f"the wallet owes {money(balance['debt'], currency)}, over its limit"
             else:
                 reason = (f"credit balance exhausted (free {money(max(balance['free'], Decimal(0)), currency)}, "

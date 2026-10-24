@@ -194,8 +194,11 @@ async def distribute(db: Any, *, tenant_id: UUID, revenue_kind: str, base: Decim
 
     from src.billing.currency import current_rate, to_ccy, to_usd
     from src.billing.settings_catalogue import value
+    from src.billing import rollout
     from src.partners.scope import assignment_of, partner_of
 
+    if not await rollout.enabled(db, rollout.PARTNERS):               # T10-3: the programme is not open yet
+        return []
     at = at or datetime.utcnow()
     base = Decimal(str(base))
     if base <= 0:

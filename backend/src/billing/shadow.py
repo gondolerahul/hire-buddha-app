@@ -1,7 +1,8 @@
 """Shadow billing: each settlement priced the old way and the new way (Phase 15 T3-7, plan §1, §6).
 
 ``billing.v2_mode`` (a staff platform setting): ``off`` — nothing recorded;
-``shadow`` (default) — every settled run and call writes a
+``on`` — the cutover is done (T10-3), nothing recorded; ``shadow`` (default)
+— every settled run and call writes a
 ``billing_shadow_diffs`` row: the formula on the run's total (the pre-M15.2
 charge) against the sum of its usage rows as rated at write (T3-3), which is
 what the settlement (``src.billing.settlement``, T3-5) charges since M15.2.
@@ -16,7 +17,7 @@ from decimal import Decimal
 from typing import Any, Iterable, Optional
 from uuid import UUID
 
-MODES = ("off", "shadow")
+MODES = ("off", "shadow", "on")
 
 
 async def v2_mode(db: Any) -> str:
@@ -29,7 +30,7 @@ async def v2_mode(db: Any) -> str:
 async def record_shadow(control: Any, *, company_id: UUID, subject_type: str, subject_id: Optional[UUID],
                         rows: Iterable[Any], v1_cost_usd: Decimal, v1_billed_usd: Decimal) -> Optional[Any]:
     """Write the comparison for one settlement (the caller commits); nothing when the mode is ``off``."""
-    if await v2_mode(control) == "off":
+    if await v2_mode(control) != "shadow":
         return None
     from src.billing.billing_models import BillingShadowDiff
 

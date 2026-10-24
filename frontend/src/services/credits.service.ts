@@ -22,6 +22,8 @@ export interface WalletLot {
 export interface CreditBalance {
     currency: string;
     state: WalletState;
+    /** False while staff have switched enforcement off (T10-3): debt is recorded, nothing is refused. */
+    enforced?: boolean;
     account_model: 'pay_as_you_go' | 'subscription';
     available: string;
     held: number;

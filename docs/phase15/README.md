@@ -1,6 +1,6 @@
 # Phase 15 — Configuration, costing & billing, and the partner module
 
-> **Status:** Analysis (01–04), plan (05–08); implementation under way — M15.0 Guardrails, M15.1 Money core, M15.2 Wallet and controls, M15.3 Commercial, M15.4 Partner programme and M15.5 New UI built (09).
+> **Status:** Analysis (01–04), plan (05–08); implementation under way — M15.0 Guardrails, M15.1 Money core, M15.2 Wallet and controls, M15.3 Commercial, M15.4 Partner programme and M15.5 New UI built; M15.6 Cutover tooling, runbooks (10, 11) and guides (12) built, production cutover pending (09).
 > **Date:** 2026-10-22 (analysis) · 2026-10-23 (plan)
 > **Branch analysed:** `roadmap-development-defect-fixes` at `53be0bd`
 
@@ -17,6 +17,9 @@ Phase 15 starts by taking stock of three areas that grew piece by piece through 
 | 07 | [UI, navigation and reports](07_ui_navigation_and_reports.md) | Three workspaces, menus per role, key page specs, role × capability matrix, report catalogue (47 reports), dashboards, mapping of every current page |
 | 08 | [Implementation plan](08_implementation_plan.md) | Workstreams WS15-0…10 with tasks and files, milestones, migration order, testing, switches, risks, effort, traceability |
 | 09 | [Implementation status](09_implementation_status.md) | What is built, where, and the proof; decisions taken while building |
+| 10 | [Cutover runbook](10_cutover_runbook.md) | The production migration step by step, dry runs, shadow review, the switch-on order, customer notices |
+| 11 | [Money operations runbooks](11_operations_runbooks.md) | FX change, refunds, partner payouts, businesses in debt or suspended, partner suspension |
+| 12 | [Workspace guides](12_workspace_guides.md) | How the Business Workspace, Partner Portal and Platform Console work, by role and staff function |
 
 Read order: analysis — this page → 02 → 03 → 01 → 04; plan — 05 → 06 → 07 → 08.
 

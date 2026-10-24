@@ -193,11 +193,15 @@ async def entitlements_for(db: Any, company_id: UUID) -> Dict[str, Entitlement]:
     from src.billing.billing_models import CompanyEntitlementOverride, PlanEntitlement
     from src.billing.plans import plan_id_of
 
+    from src.billing import rollout
+
+    specs = catalogue()
+    if not await rollout.enabled(db, rollout.ENTITLEMENTS):          # T10-3: plans do not gate yet
+        return {k: Entitlement(k, True, None, "rollout") for k in specs}
     key = str(company_id)
     hit = _cache.get(key)
     if hit and hit[1] > time.monotonic():
         return hit[0]
-    specs = catalogue()
     out = {k: Entitlement(k, True, s.default_limit, "default") for k, s in specs.items()}
     if not await _is_platform(db, company_id):
         plan_id = await plan_id_of(db, company_id)

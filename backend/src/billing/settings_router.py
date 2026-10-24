@@ -91,8 +91,14 @@ async def put_setting(key: str, body: SettingBody, db: AsyncSession = Depends(ge
         stored = coerce(spec, body.value)
     except InvalidSetting as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
+    if key == "billing.v2_mode" and stored == "on":
+        # The switch-on (T10-3): only when the cutover readiness report has no blockers.
+        from src.billing import cutover
+        await cutover.require_ready(db)
     await set_setting(db, key, stored, scope=body.scope, scope_id=body.scope_id, actor=user, reason=body.reason)
     await db.commit()
+    from src.billing import rollout
+    rollout.forget()
     return {"key": key, "scope": body.scope, "scope_id": str(body.scope_id) if body.scope_id else None,
             "value": stored}
 

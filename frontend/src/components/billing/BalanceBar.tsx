@@ -47,7 +47,7 @@ export const BalanceChip: React.FC<{ enabled: boolean; isAdmin: boolean }> = ({ 
 
 export const BalanceBanner: React.FC<{ enabled: boolean; isAdmin: boolean }> = ({ enabled, isAdmin }) => {
     const balance = useBalance(enabled).data;
-    if (!balance || balance.state === 'ok') return null;
+    if (!balance || balance.state === 'ok' || balance.enforced === false) return null;
     return (
         <div className="shell-banner bad" role="alert">
             <AlertTriangle size={16} />

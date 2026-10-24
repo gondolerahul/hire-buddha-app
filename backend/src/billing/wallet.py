@@ -366,8 +366,10 @@ class WalletService:
         available = sum((_d(lot.remaining) for lot in lots), ZERO)
         by_kind = {kind: sum((_d(lot.remaining) for lot in lots if lot.kind == kind), ZERO) for kind in KINDS}
         tolerance = await self.tolerance(company_id, wallet.currency)
+        from src.billing import rollout
         return {
             "currency": wallet.currency, "state": wallet.state,
+            "enforced": await rollout.enabled(self.db, rollout.ENFORCEMENT),
             "available": available, "held": held, "free": available - held, "debt": _d(wallet.debt),
             "tolerance": tolerance, "by_kind": by_kind,
             "in_debt_since": wallet.in_debt_since, "over_tolerance_since": wallet.over_tolerance_since,

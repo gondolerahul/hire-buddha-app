@@ -54,9 +54,10 @@ def test_values_are_checked_against_type_and_bounds():
     assert coerce(spec_for("wallet.topup_presets_usd"), [10, "25"]) == ["10", "25"]
     assert coerce(spec_for("daily_credits.inherit_up_partner_chain"), True) is True
     assert coerce(spec_for("billing.v2_mode"), "off") == "off"
+    assert coerce(spec_for("billing.v2_mode"), "on") == "on"            # the switch-on (T10-3)
     for key, bad in [("wallet.topup_min_usd", -1), ("wallet.topup_min_usd", "lots"),
                      ("admission.hold_history_runs", 2.5), ("daily_credits.inherit_up_partner_chain", "yes"),
-                     ("billing.v2_mode", "on"), ("wallet.topup_presets_usd", []),
+                     ("billing.v2_mode", "live"), ("wallet.topup_presets_usd", []),
                      ("wallet.topup_min_usd", None), ("wallet.topup_min_usd", True)]:
         with pytest.raises(InvalidSetting):
             coerce(spec_for(key), bad)

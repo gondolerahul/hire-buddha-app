@@ -257,13 +257,20 @@ async def test_a_settlement_adds_lines_in_the_company_currency_and_a_shadow_row(
 
 
 @pytest.mark.asyncio
-async def test_the_shadow_page_and_its_mode(db, test_company_id):
+async def test_the_shadow_page_and_its_mode(db, test_company_id, monkeypatch):
+    from src.billing import cutover
+
+    async def _not_ready(_db, **_kw):
+        return {"ready": False, "checks": [{"step": 9, "name": "Shadow differences", "detail": "2 over",
+                                            "ok": False, "severity": "blocker"}]}
+
+    monkeypatch.setattr(cutover, "readiness", _not_ready)
     async with _client(db, [shadow_router]) as client:
         report = (await client.get("/api/v1/admin/billing-shadow", params={"days": 1})).json()
         on = await client.put("/api/v1/admin/billing-shadow/mode", json={"mode": "on"})
         off = await client.put("/api/v1/admin/billing-shadow/mode", json={"mode": "off", "reason": "test"})
     assert report["mode"] == "shadow" and "summary" in report
-    assert on.status_code == 422 and off.json() == {"mode": "off"}
+    assert on.status_code == 409 and "Shadow differences" in on.text and off.json() == {"mode": "off"}   # T10-3
     from src.billing.shadow import record_shadow
     assert await record_shadow(db, company_id=test_company_id, subject_type="run", subject_id=None, rows=[],
                                v1_cost_usd=Decimal(1), v1_billed_usd=Decimal(1)) is None   # off: nothing

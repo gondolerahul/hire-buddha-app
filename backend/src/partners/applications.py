@@ -73,6 +73,10 @@ async def by_token(db: Any, token: str) -> PartnerApplication:
 async def apply(db: Any, data: Dict[str, Any], *, token: Optional[str] = None) -> PartnerApplication:
     """An application, through an invite or straight to BCL (the caller commits)."""
     from src.auth.models import User
+    from src.billing import rollout
+
+    if not await rollout.enabled(db, rollout.PARTNERS):               # T10-3
+        raise HTTPException(status_code=403, detail="The partner programme is not open for applications yet")
 
     email = (data.get("email") or "").strip().lower()
     if not email or "@" not in email:

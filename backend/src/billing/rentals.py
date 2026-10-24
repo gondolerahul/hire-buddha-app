@@ -157,9 +157,12 @@ async def hold_for_balance(db: Any, *, now: Optional[datetime] = None) -> Dict[s
     from src.billing.billing_models import CreditWallet, NumberRental
     from src.billing.settings_catalogue import value
 
+    from src.billing import rollout
+
     now = now or datetime.utcnow()
     out = {"held": 0, "released": 0}
-    for w in (await db.execute(select(CreditWallet.company_id, CreditWallet.state, CreditWallet.over_tolerance_since)
+    enforcing = await rollout.enabled(db, rollout.ENFORCEMENT)            # T10-3: nothing is held while off
+    for w in [] if not enforcing else (await db.execute(select(CreditWallet.company_id, CreditWallet.state, CreditWallet.over_tolerance_since)
                                .where(CreditWallet.state.in_(("over_tolerance", "suspended"))))).all():
         days = int(await value(db, "numbers.hold_after_days_over_tolerance", w.company_id))
         if w.over_tolerance_since is not None and w.over_tolerance_since <= now - timedelta(days=days):

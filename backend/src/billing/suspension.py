@@ -44,7 +44,8 @@ async def is_suspended(db: Any, company_id: Any) -> bool:
 
     state = (await db.execute(select(CreditWallet.state).where(CreditWallet.company_id == company_id))
              ).scalar_one_or_none()
-    suspended = state == "suspended"
+    from src.billing import rollout
+    suspended = state == "suspended" and await rollout.enabled(db, rollout.ENFORCEMENT)
     _cache[key] = (suspended, time.monotonic() + CACHE_SECONDS)
     return suspended
 

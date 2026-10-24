@@ -61,8 +61,20 @@ _SPECS = [
                 "The billing currency of a company whose country has no profile (REQ-BL-2)",
                 choices=("INR", "USD"), group="currency"),
     SettingSpec("billing.v2_mode", "choice", "shadow",
-                "Record each settlement priced two ways (shadow) or not (off) — T3-7", choices=("off", "shadow"),
-                group="billing"),
+                "Record each settlement priced two ways (shadow), or not: off, or on — the cutover is done, "
+                "allowed only when the readiness report is clean (T3-7, T10-3)", choices=("off", "shadow", "on"),
+                group="rollout"),
+    # The rollout switches (Phase 15 T10-3, plan 08 §6): on is the behaviour as built; production turns
+    # them off before the release and on again once customers have been told.
+    SettingSpec("billing.enforcement_enabled", "bool", True,
+                "A wallet in debt, over its limit or suspended stops new work (off: debt is recorded, nothing is "
+                "blocked)", group="rollout"),
+    SettingSpec("billing.apps_stop_enabled", "bool", True,
+                "Hosted apps stop when the wallet goes over its limit (after the grace)", group="rollout"),
+    SettingSpec("entitlements.enforced", "bool", True,
+                "Plans gate features and limits (off: every feature on, no limits)", group="rollout"),
+    SettingSpec("partners.programme_enabled", "bool", True,
+                "The partner programme: applications open and commissions accrue", group="rollout"),
     *[_usd(f"admission.min_balance.{level}", amount,
            f"Free credit {'an' if level[0] in 'AEIOU' else 'a'} {level.lower()} needs to start (billed amount)", (PLATFORM, PLAN, COMPANY), group="admission")
       for level, amount in _MIN_BALANCE.items()],

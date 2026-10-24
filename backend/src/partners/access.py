@@ -28,7 +28,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import and_, or_, select
 
-from src.partners.models import GRANT_SCOPES, PartnerAccessEvent, PartnerAccessGrant, PartnerAssignment
+from src.partners.models import GRANT_SCOPES, PartnerAccessEvent, PartnerAccessGrant, PartnerAssignment, PartnerProfile
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,11 @@ def allows(scopes: Iterable[str], method: str, path: str) -> bool:
 async def check_acting(db: Any, *, user: Any, tenant_id: UUID, method: str, path: str) -> None:
     """403 unless the partner's person may make this request inside ``tenant_id``; records it when it may."""
     partner_id = user.company_id
+    profile = await db.get(PartnerProfile, partner_id)
+    if profile is not None and profile.status in ("suspended", "terminated"):
+        raise HTTPException(status_code=403, detail={
+            "code": "partner_suspended",
+            "message": f"Your partnership is {profile.status}: you cannot work in your customers' accounts now."})
     grant = await active_grant(db, partner_id, tenant_id)
     if grant is None:
         if not await _legacy(db, partner_id, tenant_id):

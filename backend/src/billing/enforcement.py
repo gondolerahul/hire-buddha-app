@@ -44,8 +44,11 @@ async def wallet_changed(db: Any, company_id: UUID, change: Optional[Any]) -> No
 async def _automation(db: Any, company_id: UUID, before: str, after: str) -> None:
     from src.billing.enforcement_hooks import pause_automation, resume_automation
 
+    from src.billing import rollout
+
     if before == "ok":
-        await pause_automation(company_id)
+        if await rollout.enabled(db, rollout.ENFORCEMENT):              # T10-3
+            await pause_automation(company_id)
     elif after == "ok":
         await resume_automation(company_id)
 

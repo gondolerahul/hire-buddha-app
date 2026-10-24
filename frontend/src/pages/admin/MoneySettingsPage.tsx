@@ -27,6 +27,7 @@ const GROUP_LABEL: Record<string, string> = {
     tax: 'Tax and invoices',
     payments: 'Payments',
     partners: 'Partner programme',
+    rollout: 'Rollout (switches for the Phase 15 cutover)',
 };
 
 function shown(value: unknown): string {

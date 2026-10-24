@@ -55,7 +55,7 @@ def _dec(value) -> Decimal:
 def state_refusal(balance: dict) -> Optional[str]:
     """Why a wallet in this state admits nothing new, or ``None`` when it is ``ok`` (§6.3)."""
     state = balance["state"]
-    if state == OK:
+    if state == OK or balance.get("enforced") is False:      # T10-3: enforcement switched off
         return None
     owed = money(balance["debt"], balance["currency"])
     if state == "suspended":
@@ -130,6 +130,7 @@ class CreditService:
 
         return {
             "currency": b["currency"], "state": b["state"], "account_model": b["account_model"],
+            "enforced": b.get("enforced", True),
             "available": str(b["available"]), "held": float(b["held"]), "free": float(b["free"]),
             "debt": str(b["debt"]), "tolerance": str(b["tolerance"]),
             "in_debt_since": b["in_debt_since"].isoformat() if b["in_debt_since"] else None,
@@ -442,7 +443,7 @@ class CreditService:
         debt − ``billed_usd`` (its bill so far) in the wallet's currency. A
         wallet over its tolerance or suspended has none."""
         b = await self.snapshot(company_id, run_id)
-        if b["state"] in ("over_tolerance", "suspended"):
+        if b["state"] in ("over_tolerance", "suspended") and b.get("enforced", True):
             return ZERO - await self.to_ccy(company_id, billed_usd), b
         billed = await self.to_ccy(company_id, billed_usd)
         return b["free"] + b["tolerance"] - b["debt"] - billed, b
