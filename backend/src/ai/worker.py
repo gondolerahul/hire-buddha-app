@@ -55,6 +55,7 @@ from src.billing.jobs import (
     billing_number_rent, billing_settle_standalone, billing_subscription_reconciliation, billing_wallet_check,
     billing_wallet_tick,
 )
+from src.partners.jobs import partners_daily, partners_monthly
 from src.common.tenancy.provisioner import provision_tenant
 from src.schema_engine.engine import apply_schema_change
 
@@ -205,6 +206,8 @@ try:
         cron(traced_job(billing_wallet_tick), minute={2, 17, 32, 47}),
         cron(traced_job(billing_settle_standalone), minute={12}),
         cron(traced_job(billing_number_rent), minute={27}),
+        cron(traced_job(partners_daily), hour={2}, minute={10}),
+        cron(traced_job(partners_monthly), hour={3}, minute={10}),
         cron(traced_job(billing_wallet_check), hour={2}, minute={10}),
         cron(traced_job(billing_subscription_reconciliation), hour={1}, minute={30}),
         # Tenant runtime (Phase 14 WS6): hosting use of the last hour, database shares of

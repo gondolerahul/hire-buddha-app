@@ -113,6 +113,31 @@ _SPECS = [
     SettingSpec("tax.lut_number", "text", "", "The Letter of Undertaking for zero-rated exports", group="tax"),
     SettingSpec("invoice.series_prefix", "text", "HB", "Invoice numbers: <prefix>/<financial year>/<number>",
                 group="tax"),
+    # The partner programme (Phase 15 WS15-8, tech design §11.3, §11.6, §11.7).
+    _int("partners.max_depth", 3, "Levels a partner may be below the platform (O-9)", minimum=1, maximum=5,
+         group="partners"),
+    _int("partners.holdback_days", 30, "Days a commission is held before it can be paid", minimum=0, maximum=365,
+         unit="days", group="partners"),
+    _int("partners.probation_holdback_days", 60, "The holdback while a partner is on probation", minimum=0,
+         maximum=365, unit="days", group="partners"),
+    _int("partners.probation_days", 90, "How long a new partner is on probation", minimum=0, maximum=730,
+         unit="days", group="partners"),
+    _usd("partners.payout_min_usd", "50", "The smallest payout; less carries forward", group="partners"),
+    SettingSpec("partners.tds_pct", "decimal", Decimal("5"), "TDS deducted from a commission payout (Sec. 194H)",
+                minimum=Decimal(0), maximum=Decimal(40), unit="%", group="partners"),
+    _usd("partners.override_min_monthly_revenue_usd", "100",
+         "The month's own paid revenue an upline needs to earn overrides", group="partners"),
+    _int("partners.override_months", 24, "Months an upline earns overrides on a partner it recruited",
+         minimum=0, maximum=600, unit="months", group="partners"),
+    SettingSpec("partners.max_margin_share_pct", "decimal", Decimal("50"),
+                "Commissions on a tenant's usage in a month may be at most this share of its margin",
+                minimum=Decimal(0), maximum=Decimal(100), unit="%", group="partners"),
+    _int("partners.lead_exclusivity_days", 90, "Days a registered lead is the partner's alone", minimum=1,
+         maximum=365, unit="days", group="partners"),
+    _int("partners.fee_grace_days", 30, "Days after the fee lapses before the partner is suspended", minimum=0,
+         maximum=365, unit="days", group="partners"),
+    _int("partners.statement_day", 5, "The day of the month last month's statements are made", minimum=1,
+         maximum=28, group="partners"),
 ]
 CATALOGUE: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}
 
@@ -200,10 +225,16 @@ class Resolved:
 
 
 async def _partner_of(db: Any, company_id: UUID) -> Optional[UUID]:
+    """The tenant's partner: its current assignment (Phase 15 T8-2), else a partner parent."""
     from sqlalchemy import select
 
     from src.auth.models import Company
+    from src.partners.models import PartnerAssignment
 
+    assigned = (await db.execute(select(PartnerAssignment.partner_id).where(
+        PartnerAssignment.tenant_id == company_id, PartnerAssignment.until.is_(None)))).scalar_one_or_none()
+    if assigned is not None:
+        return assigned
     parent = (await db.execute(select(Company.parent_id).where(Company.id == company_id))).scalar_one_or_none()
     if parent is None:
         return None

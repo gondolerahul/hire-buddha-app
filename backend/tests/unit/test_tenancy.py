@@ -67,6 +67,9 @@ APPENDIX_A_CONTROL = {
     "companies", "users", "refresh_tokens", "user_devices",
     "subscription_tiers", "subscriptions", "payment_transactions", "credit_wallets", "credit_holds",
     "plans", "plan_versions", "plan_gateway_plans", "plan_entitlements", "company_entitlement_overrides",
+    "partner_types", "partner_profiles", "partner_agreements", "partner_assignments", "partner_leads",
+    "partner_applications", "commission_rules", "fee_rules", "one_time_charges", "partner_ledger",
+    "partner_statements", "partner_access_grants", "partner_access_events",
     "document_series", "invoices", "invoice_lines", "credit_notes", "refunds", "number_rentals",
     "wallet_lots", "wallet_entries", "daily_credit_policies", "daily_credit_bands", "company_daily_credit_overrides",
     "price_items", "price_item_versions", "company_locks",
@@ -559,11 +562,25 @@ async def test_single_mode_dependencies_are_the_requests_session(single, opened)
     db, user = object(), SimpleNamespace(company_id=uuid.uuid4(), role="tenant_user")
     other = str(uuid.uuid4())
     assert await _first(tsession.get_tenant_db(_request(), current_user=user, db=db)) is db
-    assert await _first(tsession.get_acting_tenant_db(_request(other), current_user=user, db=db)) is db
+    assert await _first(tsession.get_acting_tenant_db(_request(str(user.company_id)), current_user=user, db=db)) is db
     assert await _first(tsession.get_control_db(db=db)) is db
     async with tsession.tenant_db_for(db, uuid.uuid4()) as same:
         assert same is db
-    assert opened == []  # the header is not even read
+    assert opened == []
+    # The acting header is checked in single mode too (Phase 15 T8-4): another company is refused.
+    from fastapi import HTTPException
+
+    async def own_only(_db, u):
+        return frozenset({u.company_id})
+
+    import src.common.tenancy.session as session_module
+    original, session_module.visible_company_ids = session_module.visible_company_ids, own_only
+    try:
+        with pytest.raises(HTTPException) as refused:
+            await _first(tsession.get_acting_tenant_db(_request(other), current_user=user, db=db))
+        assert refused.value.status_code == 403
+    finally:
+        session_module.visible_company_ids = original
 
 
 async def test_split_mode_get_tenant_db_is_the_users_own_company(split, opened):
@@ -581,6 +598,11 @@ async def test_split_mode_the_acting_company_is_a_visible_one(monkeypatch, split
         return frozenset({u.company_id, tenant})
 
     monkeypatch.setattr(tsession, "visible_company_ids", visible)
+
+    async def granted(db, **kw):        # a partner acts under a grant (Phase 15 T8-4; tested on Postgres)
+        return None
+
+    monkeypatch.setattr("src.partners.access.check_acting", granted)
     await _first(tsession.get_acting_tenant_db(_request(str(tenant)), current_user=user, db=object()))
     await _first(tsession.get_acting_tenant_db(_request(), current_user=user, db=object()))
     assert opened == [tenant, user.company_id]

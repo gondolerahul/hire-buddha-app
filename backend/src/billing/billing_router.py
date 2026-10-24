@@ -1,7 +1,7 @@
 """
 Billing Router — billing config management and reporting endpoints.
 """
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -213,6 +213,24 @@ async def get_costing_report(
     return {"events": rows, "totals": totals, "count": len(rows)}
 
 
+async def _partner_earnings_usd(db: AsyncSession, period_month: Optional[date], company_id: Optional[UUID]) -> float:
+    """Commissions and fee shares earned in the month (net of clawbacks), USD."""
+    from sqlalchemy import func, select
+
+    from src.partners.models import PartnerLedgerEntry
+
+    query = select(func.coalesce(func.sum(PartnerLedgerEntry.amount_usd), 0)).where(
+        PartnerLedgerEntry.kind.in_(("commission", "override", "fee_share", "clawback")),
+        PartnerLedgerEntry.status != "reversed")
+    if period_month is not None:
+        start = period_month.replace(day=1)
+        end = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        query = query.where(PartnerLedgerEntry.created_at >= start, PartnerLedgerEntry.created_at < end)
+    if company_id is not None:
+        query = query.where(PartnerLedgerEntry.tenant_id == company_id)
+    return float((await db.execute(query)).scalar() or 0)
+
+
 # ─── Billing Report (Client-Facing Revenue) ───────────────────────────────────
 
 @router.get("/reports/billing", summary="Client-facing billing report (revenue tracking)")
@@ -234,7 +252,8 @@ async def get_billing_report(
     totals = {
         "total_revenue": sum(r["total_billing"] for r in rows),
         "total_platform_fees": sum(r["platform_fee_amount"] for r in rows),
-        "total_partner_fees": sum(r["partner_fee_amount"] for r in rows),
+        # What partners earned (the ledger, USD), not a share of the customer's price (Phase 15 T8-12, K-10).
+        "total_partner_fees": await _partner_earnings_usd(db, period_month, company_id),
         "total_discounts": sum(r["discount_amount"] for r in rows),
         "total_telephony_charge": sum(r["telephony_charge"] for r in rows),
         "total_llm_charge": sum(r["llm_charge"] for r in rows),

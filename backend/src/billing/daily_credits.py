@@ -105,10 +105,11 @@ async def _bands(db: Any, policy_id: UUID) -> list:
 
 
 async def _partner_chain(db: Any, company: Any) -> list[UUID]:
-    """The company's owning partner, then each upline partner (nearest first)."""
+    """The company's partner (its assignment, Phase 15 T8-2), then each upline partner (nearest first)."""
     from src.auth.models import Company
+    from src.partners.scope import partner_of
 
-    chain, parent_id, seen = [], company.parent_id, set()
+    chain, parent_id, seen = [], await partner_of(db, company.id), set()
     while parent_id and parent_id not in seen:
         seen.add(parent_id)
         parent = (await db.execute(select(Company.id, Company.type, Company.parent_id)

@@ -61,7 +61,8 @@ async def request_workspace(company_id) -> None:
 async def _require_user_admin_over(db: AsyncSession, actor: User, company_id) -> None:
     """403 unless ``actor`` administers users of ``company_id``.
 
-    app_admin: every company. partner_admin: its own company and its tenants.
+    app_admin: every company. partner_admin: its own company and the tenants it
+    resells (Phase 15 T8-3: never a referred customer's or a sub-partner's).
     tenant_admin: its own company. Anyone else: no company.
     """
     if actor.role == Role.APP_ADMIN:
@@ -71,8 +72,8 @@ async def _require_user_admin_over(db: AsyncSession, actor: User, company_id) ->
     if actor.role == Role.PARTNER_ADMIN:
         if company_id == actor.company_id:
             return
-        result = await db.execute(select(Company.parent_id).where(Company.id == company_id))
-        if result.scalar_one_or_none() == actor.company_id:
+        from src.partners.scope import data_scope
+        if company_id in await data_scope(db, actor.company_id):
             return
     raise HTTPException(status_code=403, detail="Not authorized to manage users of this company")
 
@@ -87,6 +88,8 @@ async def create_user_as_admin(db: AsyncSession, user_in: UserCreateAdmin, creat
     await _require_user_admin_over(db, creator, user_in.company_id)
     if user_in.role not in assignable_roles(creator.role):
         raise HTTPException(status_code=403, detail=f"A {creator.role} cannot assign the role {user_in.role}")
+    from src.partners.tree import require_role_fits
+    await require_role_fits(db, str(user_in.role), user_in.company_id)      # Phase 15 T8-1
 
     # Check if email exists
     result = await db.execute(select(User).filter(User.email == user_in.email))
@@ -142,6 +145,9 @@ async def update_user_as_admin(db: AsyncSession, user_id: uuid.UUID, update: Use
             raise HTTPException(status_code=403, detail=f"A {actor.role} cannot manage a {user.role}")
         if "role" in changes and changes["role"] not in allowed:
             raise HTTPException(status_code=403, detail=f"A {actor.role} cannot assign the role {changes['role']}")
+        if "role" in changes:
+            from src.partners.tree import require_role_fits
+            await require_role_fits(db, str(changes["role"]), user.company_id)    # Phase 15 T8-1
 
     for field, value in changes.items():
         setattr(user, field, str(value) if field == "role" else value)

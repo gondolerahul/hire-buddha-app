@@ -47,6 +47,37 @@
 | GET | `/api/v1/admin/fx-rates/preview` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/oauth-apps` | roles: app_admin | `src.connections.api` |
 | PUT | `/api/v1/admin/oauth-apps/{provider}` | roles: app_admin | `src.connections.api` |
+| GET | `/api/v1/admin/partners` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/applications` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/applications/{app_id}/approve` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/applications/{app_id}/reject` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/applications/{app_id}/review` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/assignments` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/assignments/reassign` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/charges` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/charges` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/leads` | roles: app_admin | `src.partners.admin_router` |
+| PATCH | `/api/v1/admin/partners/leads/{lead_id}` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/leads/{lead_id}/convert` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/ledger` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/rules` | roles: app_admin | `src.partners.admin_router` |
+| PUT | `/api/v1/admin/partners/rules/commission` | roles: app_admin | `src.partners.admin_router` |
+| PUT | `/api/v1/admin/partners/rules/fee` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/simulate` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/statements/build` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements/export.csv` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements/{statement_id}` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/statements/{statement_id}/approve` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/statements/{statement_id}/paid` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/statements/{statement_id}/pdf` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/statements/{statement_id}/reopen` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/tree-check` | roles: app_admin | `src.partners.admin_router` |
+| GET | `/api/v1/admin/partners/{partner_id}` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/{partner_id}/adjustment` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/{partner_id}/agreement` | roles: app_admin | `src.partners.admin_router` |
+| PUT | `/api/v1/admin/partners/{partner_id}/kyc` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/{partner_id}/status` | roles: app_admin | `src.partners.admin_router` |
 | GET | `/api/v1/admin/payments` | roles: app_admin | `src.billing.invoices_router` |
 | POST | `/api/v1/admin/payments/{payment_id}/refund` | roles: app_admin | `src.billing.invoices_router` |
 | GET | `/api/v1/admin/plans` | roles: app_admin | `src.billing.plans_router` |
@@ -234,6 +265,9 @@
 | GET | `/api/v1/campaigns/{campaign_id}/mobile-analytics` | signed in | `src.mobile.analytics_router` |
 | GET | `/api/v1/campaigns/{campaign_id}/status` | signed in | `src.ai.campaign_router` |
 | PATCH | `/api/v1/campaigns/{campaign_id}/status` | signed in | `src.ai.campaign_router` |
+| GET | `/api/v1/charges` | signed in | `src.partners.tenant_router` |
+| POST | `/api/v1/charges/{charge_id}/order` | signed in | `src.partners.tenant_router` |
+| POST | `/api/v1/charges/{charge_id}/verify` | signed in | `src.partners.tenant_router` |
 | GET | `/api/v1/code-items` | signed in | `src.apps.api` |
 | GET | `/api/v1/code-items/{item_id}` | signed in | `src.apps.api` |
 | POST | `/api/v1/code-items/{item_id}/promote` | signed in | `src.apps.api` |
@@ -352,10 +386,38 @@
 | POST | `/api/v1/onboarding/skip` | signed in | `src.auth.onboarding_router` |
 | GET | `/api/v1/onboarding/status` | signed in | `src.auth.onboarding_router` |
 | POST | `/api/v1/onboarding/step/{step_name}` | signed in | `src.auth.onboarding_router` |
+| GET | `/api/v1/partner/access` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/access` | signed in | `src.partners.portal_router` |
 | GET | `/api/v1/partner/analytics/revenue` | roles: app_admin, partner_admin | `src.auth.partner_router` |
 | GET | `/api/v1/partner/analytics/summary` | roles: app_admin, partner_admin | `src.auth.partner_router` |
+| GET | `/api/v1/partner/charges` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/charges` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/charges/preview` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/charges/{charge_id}/cancel` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/customers` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/earnings` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/guide` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/leads` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/leads` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/leads/{lead_id}/convert` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/me` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/me/agreement/sign` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/me/fee/order` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/me/fee/verify` | signed in | `src.partners.portal_router` |
+| PUT | `/api/v1/partner/me/kyc` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/network` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/network/invites` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/network/invites` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/overview` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/statements` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/statements/{statement_id}` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/statements/{statement_id}/dispute` | signed in | `src.partners.portal_router` |
+| POST | `/api/v1/partner/statements/{statement_id}/gst-invoice` | signed in | `src.partners.portal_router` |
+| GET | `/api/v1/partner/statements/{statement_id}/pdf` | signed in | `src.partners.portal_router` |
 | GET | `/api/v1/partner/tenants` | roles: app_admin, partner_admin | `src.auth.partner_router` |
 | GET | `/api/v1/partner/tenants/{tenant_id}/details` | roles: app_admin, partner_admin | `src.auth.partner_router` |
+| POST | `/api/v1/partners/apply` | — | `src.partners.tenant_router` |
+| GET | `/api/v1/partners/invites/{token}` | — | `src.partners.tenant_router` |
 | GET | `/api/v1/phone-numbers` | signed in | `src.voice.phone_number_router` |
 | POST | `/api/v1/phone-numbers` | signed in | `src.voice.phone_number_router` |
 | POST | `/api/v1/phone-numbers/bulk` | roles: app_admin | `src.voice.phone_number_router` |
@@ -390,6 +452,9 @@
 | GET | `/api/v1/reports/analytics/wallet-liability` | roles: app_admin | `src.ai.reports_router` |
 | GET | `/api/v1/reports/billing` | roles: app_admin | `src.billing.billing_router` |
 | GET | `/api/v1/reports/costing` | roles: app_admin | `src.billing.billing_router` |
+| GET | `/api/v1/settings/partner-access` | signed in | `src.partners.tenant_router` |
+| POST | `/api/v1/settings/partner-access/{grant_id}/approve` | signed in | `src.partners.tenant_router` |
+| POST | `/api/v1/settings/partner-access/{grant_id}/revoke` | signed in | `src.partners.tenant_router` |
 | GET | `/api/v1/social-connections` | signed in | `src.ai.social_router` |
 | POST | `/api/v1/social-connections` | signed in | `src.ai.social_router` |
 | DELETE | `/api/v1/social-connections/{connection_id}` | signed in | `src.ai.social_router` |

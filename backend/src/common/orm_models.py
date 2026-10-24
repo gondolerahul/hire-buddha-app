@@ -16,6 +16,7 @@ from sqlalchemy import MetaData
 MODEL_MODULES: tuple[str, ...] = (
     "src.auth.models",
     "src.billing.billing_models",
+    "src.partners.models",
     "src.config.models",
     "src.ai.orm.document",
     "src.ai.orm.entity",

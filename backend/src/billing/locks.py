@@ -65,6 +65,12 @@ def _view(lock: CompanyLock) -> dict:
             "at": lock.at.isoformat() if lock.at else None}
 
 
+async def _resells(db: AsyncSession, partner_id: UUID, tenant_id: UUID) -> bool:
+    """Whether the partner currently resells the tenant (Phase 15 T8-3)."""
+    from src.partners.scope import tenant_ids
+    return tenant_id in await tenant_ids(db, partner_id, relationship="resold")
+
+
 async def _may_lock(db: AsyncSession, company_id: UUID, user: User) -> str:
     """The level ``user`` locks at for this company (``app_admin`` | ``partner``), or 403/404."""
     company = await db.get(Company, company_id)
@@ -72,7 +78,7 @@ async def _may_lock(db: AsyncSession, company_id: UUID, user: User) -> str:
         raise HTTPException(status_code=404, detail="Company not found")
     if user.role == Role.APP_ADMIN:
         return "app_admin"
-    if user.role == Role.PARTNER_ADMIN and company.parent_id == user.company_id:
+    if user.role == Role.PARTNER_ADMIN and await _resells(db, user.company_id, company.id):
         return "partner"
     raise HTTPException(status_code=403, detail="Only HireBuddha staff or the company's partner set its locks")
 
@@ -84,7 +90,7 @@ async def list_locks(company_id: UUID, db: AsyncSession = Depends(get_control_db
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
     if not (user.role == Role.APP_ADMIN or company.id == user.company_id
-            or (user.role in PARTNER_ROLES and company.parent_id == user.company_id)):
+            or (user.role in PARTNER_ROLES and await _resells(db, user.company_id, company.id))):
         raise HTTPException(status_code=403, detail="Not your company")
     rows = (await db.execute(select(CompanyLock).where(CompanyLock.company_id == company_id))).scalars().all()
     return [_view(lock) for lock in rows]

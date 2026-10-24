@@ -41,11 +41,11 @@ async def get_tenants(
     if current_user.role == "app_admin":
         result = await db.execute(select(Company).filter(Company.type == "TENANT"))
     else:
-        # Partner admin can see their own tenants
-        result = await db.execute(select(Company).filter(
-            Company.type == "TENANT", 
-            Company.parent_id == current_user.company_id
-        ))
+        # A partner admin's resold tenants (Phase 15 T8-3); a Silver partner's referred customers are
+        # on the partner portal, without their data.
+        from src.partners.scope import data_scope
+        scope = await data_scope(db, current_user.company_id)
+        result = await db.execute(select(Company).filter(Company.type == "TENANT", Company.id.in_(scope)))
     return result.scalars().all()
 
 @router.post("", response_model=CompanyResponse)
@@ -58,7 +58,13 @@ async def create_company(
     if current_user.role == "partner_admin":
         if company.type != "TENANT":
             raise HTTPException(status_code=403, detail="Partner admins can only create Tenants")
+        # Only a partner whose type creates tenants (Gold), in good standing (Phase 15 T8-2, §11.1, §11.3).
+        from src.partners.lifecycle import require_may_create_tenants
+        await require_may_create_tenants(db, current_user.company_id)
         company.parent_id = current_user.company_id
+    # The tree's rules (Phase 15 T8-1): a tenant under the platform or a partner, no cycles.
+    from src.partners.tree import require_valid_parent
+    await require_valid_parent(db, company.type, company.parent_id)
     
     new_company = Company(
         name=company.name,
@@ -81,9 +87,26 @@ async def create_company(
     # A tenant's wallet, and today's daily credits from its policy (Phase 15 T4-1,
     # T5-5); a company's own daily amount is a staff override on the Daily
     # credits page, not a field of this form (DC-1).
+    if company.type == "PARTNER":
+        # Staff adding a partner directly (applications are the usual way, T8-5): its profile, active.
+        from src.partners.lifecycle import create_profile
+        await create_profile(db, new_company, partner_type=company.partner_type or "GOLD", status="active",
+                             recruiter_id=new_company.parent_id, reason="added by staff")
     if company.type == "TENANT":
         from src.auth.service import _provision_new_tenant
         await _provision_new_tenant(db, new_company)
+        parent_type = None
+        if new_company.parent_id is not None:
+            parent_type = (await db.execute(select(Company.type).where(Company.id == new_company.parent_id))
+                           ).scalar_one_or_none()
+        if parent_type == "PARTNER":
+            # The tenant is the partner's: resold, with its admin access (Phase 15 T8-2, T8-4).
+            from src.partners.access import grant_for_created_tenant
+            from src.partners.scope import assign
+            await assign(db, tenant_id=new_company.id, partner_id=new_company.parent_id, relationship="resold",
+                         source="created", actor_id=current_user.id)
+            await grant_for_created_tenant(db, partner_id=new_company.parent_id, tenant_id=new_company.id,
+                                           actor_id=current_user.id)
 
     await db.commit()
     if company.type == "TENANT":
@@ -114,9 +137,10 @@ async def update_company(
         raise HTTPException(status_code=404, detail="Company not found")
 
     is_own = company.id == current_user.company_id
-    is_partners_tenant = (
-        current_user.role == Role.PARTNER_ADMIN and company.parent_id == current_user.company_id
-    )
+    is_partners_tenant = False
+    if current_user.role == Role.PARTNER_ADMIN and not is_own:
+        from src.partners.scope import data_scope
+        is_partners_tenant = company.id in await data_scope(db, current_user.company_id)
     can_rename = (
         current_user.role == Role.APP_ADMIN
         or is_partners_tenant

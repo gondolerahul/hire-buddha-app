@@ -21,6 +21,7 @@ ENCRYPTED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("src.ai.social_models", "SocialConnection", "encrypted_refresh_token"),
     ("src.config.models", "IntegrationRegistry", "encrypted_api_key"),
     ("src.gateway.models", "WebhookEndpoint", "secret_encrypted"),
+    ("src.partners.models", "PartnerProfile", "bank_encrypted"),     # Phase 15 T8-5
 )
 
 # (model module, model class, JSON column, key): a dict of encrypted values

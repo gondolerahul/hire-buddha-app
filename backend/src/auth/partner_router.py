@@ -40,7 +40,7 @@ async def list_tenants_with_health(
     List tenants managed by this partner with health scores (0-100, the one
     score of ``tenant_health``; its signals are read for all tenants at once).
     """
-    result = await db.execute(select(Company).where(*_partner_tenants(current_user)))
+    result = await db.execute(select(Company).where(*await _partner_tenants(db, current_user)))
     tenants = result.scalars().all()
     tenant_summaries = await _tenant_summaries(db, tenants)
 
@@ -63,7 +63,7 @@ async def get_tenant_details(
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
 
-    if current_user.role != "app_admin" and tenant.parent_id != current_user.company_id:
+    if current_user.role != "app_admin" and tenant.id not in await _resold(db, current_user):
         raise HTTPException(status_code=403, detail="Not authorized to view this tenant")
 
     summary = (await _tenant_summaries(db, [tenant]))[0]
@@ -155,7 +155,7 @@ async def get_partner_analytics(
     current_user: User = Depends(partner_only),
 ):
     """Aggregated analytics across all tenants managed by this partner."""
-    result = await db.execute(select(Company.id).where(*_partner_tenants(current_user)))
+    result = await db.execute(select(Company.id).where(*await _partner_tenants(db, current_user)))
     tenant_ids = [row[0] for row in result.fetchall()]
 
     if not tenant_ids:
@@ -216,7 +216,7 @@ async def get_partner_revenue(
     """
     from src.billing.billing_models import BillingEvent
 
-    tenants = (await db.execute(select(Company).where(*_partner_tenants(current_user)))).scalars().all()
+    tenants = (await db.execute(select(Company).where(*await _partner_tenants(db, current_user)))).scalars().all()
     today = datetime.utcnow().date()
     month_starts = [_month_start(today, back) for back in range(months - 1, -1, -1)]
     this_month = month_starts[-1]
@@ -270,11 +270,17 @@ def _month_start(today: date, back: int) -> date:
     index = today.year * 12 + (today.month - 1) - back
     return date(index // 12, index % 12 + 1, 1)
 
-def _partner_tenants(user: User) -> tuple:
-    """The filter for the caller's tenants: a partner's own; every tenant for app_admin."""
+async def _partner_tenants(db: AsyncSession, user: User) -> tuple:
+    """The filter for the caller's tenants: the ones a partner resells (Phase 15 T8-3); every tenant for app_admin."""
     if user.role == "app_admin":
         return (Company.type == "TENANT",)
-    return (Company.type == "TENANT", Company.parent_id == user.company_id)
+    from src.partners.scope import tenant_ids
+    return (Company.type == "TENANT", Company.id.in_(await tenant_ids(db, user.company_id, relationship="resold")))
+
+
+async def _resold(db: AsyncSession, user: User) -> set:
+    from src.partners.scope import tenant_ids
+    return set(await tenant_ids(db, user.company_id, relationship="resold"))
 
 
 async def _tenant_totals(db: AsyncSession, tenant_ids: List[UUID]) -> tuple[int, int, float, float]:

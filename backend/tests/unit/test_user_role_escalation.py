@@ -25,6 +25,25 @@ OTHER_TENANT_CO = uuid.uuid4()  # someone else's tenant
 PARENTS = {TENANT_CO: PARTNER_CO, OTHER_TENANT_CO: None, PARTNER_CO: None, APP_CO: None}
 
 
+TYPES = {APP_CO: "APP", PARTNER_CO: "PARTNER", TENANT_CO: "TENANT", OTHER_TENANT_CO: "TENANT"}
+
+
+@pytest.fixture(autouse=True)
+def _partner_rules(monkeypatch):
+    """The partner programme's scope and the role↔company rule (Phase 15 T8-1, T8-3), on this fake tree:
+    a partner's tenants are its children; a role fits its company's type. Both are tested on Postgres."""
+    async def scope(db, partner_id):
+        return frozenset({partner_id, *(c for c, p in PARENTS.items() if p == partner_id)})
+
+    async def fits(db, role, company_id):
+        from src.partners.tree import TreeProblem, role_fits
+        if not role_fits(role, TYPES.get(company_id)):
+            raise TreeProblem(f"a {role} cannot belong to a {TYPES.get(company_id)} company")
+
+    monkeypatch.setattr("src.partners.scope.data_scope", scope)
+    monkeypatch.setattr("src.partners.tree.require_role_fits", fits)
+
+
 def _user(role: str, company_id, **kw):
     return SimpleNamespace(
         id=uuid.uuid4(), email=f"{role}@example.com", full_name=role, company_id=company_id,

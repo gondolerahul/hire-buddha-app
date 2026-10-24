@@ -82,6 +82,8 @@ class CompanyBase(BaseModel):
 
 class CompanyCreate(CompanyBase):
     parent_id: Optional[UUID] = None
+    # A partner added by staff (Phase 15 T8-2): Silver or Gold; Gold when omitted.
+    partner_type: Optional[Literal["SILVER", "GOLD"]] = None
     # Its billing currency follows (FX-1, Phase 15 T2-3). India when omitted.
     country_code: Optional[CountryCode] = None
     billing_state: Annotated[Optional[str], AfterValidator(_state)] = None

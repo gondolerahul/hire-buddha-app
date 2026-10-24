@@ -63,6 +63,12 @@ class FakeDB:
 
 async def _patch(role: str, own_company, target, body):
     db = FakeDB()
+
+    async def scope(_db, partner_id):           # a partner's tenants: its children here (Phase 15 T8-3)
+        return frozenset({partner_id, *(c.id for c in db.companies.values() if c.parent_id == partner_id)})
+
+    import src.partners.scope as partner_scope
+    original, partner_scope.data_scope = partner_scope.data_scope, scope
     user = SimpleNamespace(id=uuid.uuid4(), role=role, company_id=own_company)
     app = FastAPI()
     app.include_router(company_router.router)
@@ -75,8 +81,11 @@ async def _patch(role: str, own_company, target, body):
 
     app.dependency_overrides[get_current_user] = _user
     app.dependency_overrides[get_db] = _db
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
-        res = await client.patch(f"/companies/{target}", json=body)
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            res = await client.patch(f"/companies/{target}", json=body)
+    finally:
+        partner_scope.data_scope = original
     return res, db.companies[target] if target in db.companies else None, db
 
 

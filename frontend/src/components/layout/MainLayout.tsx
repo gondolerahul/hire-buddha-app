@@ -53,6 +53,10 @@ import {
     Code2,
     Building2,
     FileText,
+    HeartHandshake,
+    Target,
+    Network,
+    BadgeCheck,
     Lock,
     Star,
 } from 'lucide-react';
@@ -91,6 +95,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     const location = useLocation();
     // What the plan leaves out is shown locked, not hidden (Phase 15 T6-2); staff are never locked.
     const isStaff = [UserRole.APP_ADMIN, UserRole.APP_USER].includes(user?.role as UserRole);
+    const isTenant = [UserRole.TENANT_ADMIN, UserRole.TENANT_USER].includes(user?.role as UserRole);
     const entitlements = useEntitlements(!!user && !isStaff).data?.entitlements;
     const locked = (path: string): boolean => {
         const key = MENU_FEATURES[path];
@@ -110,9 +115,24 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             label: 'Platform Hub',
             icon: Server,
         }] : []),
-        ...(([UserRole.APP_ADMIN, UserRole.PARTNER_ADMIN].includes(user?.role as UserRole)) ? [{
+        // The Partner Portal (Phase 15 T8-14, 07 §4.3–4.4): earnings, statements and charges are the admin's.
+        ...(([UserRole.PARTNER_ADMIN, UserRole.PARTNER_USER].includes(user?.role as UserRole)) ? [{
+            title: 'Partner Portal',
+            icon: HeartHandshake,
+            items: [
+                { path: '/partner', label: 'Partner Home', icon: HeartHandshake },
+                ...(user?.role === UserRole.PARTNER_ADMIN ? [{ path: '/partner/tenants', label: 'My Tenants', icon: Users }] : []),
+                { path: '/partner/customers', label: 'Customers', icon: Users },
+                { path: '/partner/leads', label: 'Leads', icon: Target },
+                ...(user?.role === UserRole.PARTNER_ADMIN ? [{ path: '/partner/charges', label: 'Setup Fees', icon: Receipt }] : []),
+                { path: '/partner/network', label: 'My Partners', icon: Network },
+                ...(user?.role === UserRole.PARTNER_ADMIN ? [{ path: '/partner/earnings', label: 'Earnings', icon: PiggyBank }] : []),
+                { path: '/partner/partnership', label: 'Partnership', icon: BadgeCheck },
+            ]
+        }] : []),
+        ...(user?.role === UserRole.APP_ADMIN ? [{
             isStandalone: true,
-            path: '/partner',
+            path: '/partner/tenants',
             label: 'Partner Dashboard',
             icon: Users,
         }] : []),
@@ -174,6 +194,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 { path: '/wallet', label: 'Wallet & Credits', icon: Wallet },
                 ...(!isStaff ? [{ path: '/billing/plan', label: 'Plan', icon: Star }] : []),
                 ...(!isStaff ? [{ path: '/billing/invoices', label: 'Invoices', icon: FileText }] : []),
+                ...(isTenant ? [{ path: '/billing/charges', label: 'Fees to Pay', icon: Receipt }] : []),
+                ...(isTenant ? [{ path: '/settings/partner-access', label: 'Partner Access', icon: ShieldCheck }] : []),
                 { path: '/settings/tenant', label: 'Business Settings', icon: Settings },
                 { path: '/settings/automation', label: 'Automation Settings', icon: Timer },
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/automation', label: 'Platform Automation', icon: Timer }] : []),
@@ -188,6 +210,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/pricing', label: 'Pricing', icon: Coins }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/plans', label: 'Plans & Entitlements', icon: Layers }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/payments', label: 'Payments', icon: Receipt }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/partners', label: 'Partner Network', icon: HeartHandshake }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/partners/rules', label: 'Programme Rules', icon: Scale }] : []),
+                ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/partners/payouts', label: 'Partner Payouts', icon: Wallet }] : []),
                 ...(([UserRole.APP_ADMIN].includes(user?.role as UserRole)) ? [{ path: '/admin/money-settings', label: 'Money Settings', icon: Settings }] : []),
             ]
         },

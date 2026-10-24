@@ -139,6 +139,11 @@ async def acting_company_id(request: Request, user: Any, db: AsyncSession) -> UU
         raise HTTPException(status_code=400, detail=f"{ACTING_COMPANY_HEADER} is not a company id")
     if company_id != user.company_id and not in_scope(await visible_company_ids(db, user), company_id):
         raise HTTPException(status_code=403, detail="Not authorized for this company")
+    if company_id != user.company_id and str(user.role) in ("partner_admin", "partner_user"):
+        # A partner acts in a tenant only under an access grant, recorded (Phase 15 T8-4).
+        from src.partners.access import check_acting
+        await check_acting(db, user=user, tenant_id=company_id, method=getattr(request, "method", "GET"),
+                           path=request.url.path if hasattr(request, "url") else "")
     return company_id
 
 
@@ -152,10 +157,13 @@ def _tenant_db_dependency(user_dependency: Callable[..., Any], *,
                           acting: bool) -> Callable[..., AsyncIterator[AsyncSession]]:
     async def dependency(request: Request, current_user: Any = Depends(user_dependency),
                          db: AsyncSession = Depends(get_db)) -> AsyncIterator[AsyncSession]:
+        user = current_user[0] if isinstance(current_user, tuple) else current_user
         if not is_split():
+            if acting and (request.headers.get(ACTING_COMPANY_HEADER) or "").strip():
+                # The same checks in either mode: the company is visible, a partner holds a grant (T8-4).
+                await acting_company_id(request, user, db)
             yield db
             return
-        user = current_user[0] if isinstance(current_user, tuple) else current_user
         company_id = await acting_company_id(request, user, db) if acting else user.company_id
         async with tenant_session(company_id) as session:
             yield session

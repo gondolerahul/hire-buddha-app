@@ -117,6 +117,9 @@ class PaymentService:
         logger.info("Top-up %s credited %s %s to company %s (debt repaid %s)", order_id, amount, wallet.currency,
                     txn.company_id, change.debt_repaid)
         await wallet_changed(self.db, txn.company_id, change)
+        # The tenant's partners earn on the cash it paid (Phase 15 T8-7); never fails the top-up.
+        from src.partners.commission import on_payment
+        await on_payment(self.db, txn, revenue_kind="usage_topup")
         return txn, wallet, True
 
     async def _invoice_topup(self, txn: PaymentTransaction) -> Optional[UUID]:
@@ -193,7 +196,9 @@ class PaymentService:
             return "ignored"
         txn = await self._topup(order_id, None)
         if txn is None:
-            return "ignored"  # not a top-up order (e.g. a subscription invoice)
+            # A partnership fee or a setup / customisation fee (Phase 15 T8-6, T8-8), else not ours.
+            from src.partners.payments import on_captured
+            return await on_captured(self.db, payment) or "ignored"
         from src.billing.currency import minor_units
         currency = (txn.currency or "USD").upper()
         paid = Decimal(str(payment.get("amount") or 0)) / (Decimal(10) ** await minor_units(self.db, currency))

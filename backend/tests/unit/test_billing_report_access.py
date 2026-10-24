@@ -51,6 +51,11 @@ def calls(monkeypatch):
         return []
 
     monkeypatch.setattr(billing_router_module.BillingService, "get_costing_report", fake_report)
+
+    async def no_earnings(db, period_month, company_id):     # partners' earnings, from the ledger (T8-12)
+        return 0.0
+
+    monkeypatch.setattr(billing_router_module, "_partner_earnings_usd", no_earnings)
     return recorded
 
 

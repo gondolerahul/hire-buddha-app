@@ -165,6 +165,9 @@ async def record_charge(db: Any, sub: Any, *, payment_id: str, gross: Decimal,
     invoice_id = invoice.id
     await CreditService(db).grant_cycle(sub.company_id, taxed.net, bonus_pct, cycle_end, source_id=payment_id)  # commits
     await store_pdf(db, invoice_id)
+    # The tenant's partners earn on the fee paid, net of GST and without the bonus (Phase 15 T8-7, O-11).
+    from src.partners.commission import on_payment
+    await on_payment(db, payment, revenue_kind="subscription", base=taxed.net)
     logger.info("Subscription %s: payment %s credited %s %s to %s", sub.id, payment_id, taxed.net, currency, cycle_end)
     return True
 

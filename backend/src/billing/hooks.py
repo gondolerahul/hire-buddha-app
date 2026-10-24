@@ -1,8 +1,9 @@
 """Billing events other modules act on (Phase 15 T6-6).
 
 The partner programme (WS15-8) claws back the commission earned on a payment
-that is refunded; it registers with :func:`on_refund`. Until it does, nothing
-listens. A listener's failure is logged and never undoes the refund.
+that is refunded, and marks a refunded setup or customisation fee; it
+registers with :func:`on_refund` (``src.partners.listeners``, imported at
+start-up). A listener's failure is logged and never undoes the refund.
 """
 from __future__ import annotations
 
@@ -23,6 +24,8 @@ def on_refund(listener: RefundListener) -> RefundListener:
 
 
 async def refunded(db: Any, payment: Any, refund: Any) -> None:
+    import src.partners.listeners  # noqa: F401 - registers the programme's listeners
+
     for listener in list(_refund_listeners):
         try:
             await listener(db, payment, refund)

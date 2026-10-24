@@ -64,6 +64,21 @@ const PlanPage = lazy(() => import('@/pages/billing/PlanPage'));
 const InvoicesPage = lazy(() => import('@/pages/billing/InvoicesPage'));
 const PlansAdminPage = lazy(() => import('@/pages/admin/PlansAdminPage'));
 const PaymentsAdminPage = lazy(() => import('@/pages/admin/PaymentsAdminPage'));
+// Phase 15 M15.4 (T8-14): the partner programme — portal, business side, console.
+const PartnerHome = lazy(() => import('@/pages/partner/PartnerHome'));
+const PartnerCustomers = lazy(() => import('@/pages/partner/PartnerCustomers'));
+const PartnerLeads = lazy(() => import('@/pages/partner/PartnerLeads'));
+const PartnerCharges = lazy(() => import('@/pages/partner/PartnerCharges'));
+const PartnerNetwork = lazy(() => import('@/pages/partner/PartnerNetwork'));
+const PartnerEarnings = lazy(() => import('@/pages/partner/PartnerEarnings'));
+const PartnerPartnership = lazy(() => import('@/pages/partner/PartnerPartnership'));
+const PartnerApplyPage = lazy(() => import('@/pages/partner/PartnerApplyPage'));
+const ChargesPage = lazy(() => import('@/pages/billing/ChargesPage'));
+const PartnerAccessPage = lazy(() => import('@/pages/settings/PartnerAccessPage'));
+const PartnersAdminPage = lazy(() => import('@/pages/admin/partners/PartnersAdminPage'));
+const PartnerDetailPage = lazy(() => import('@/pages/admin/partners/PartnerDetailPage'));
+const PartnerRulesPage = lazy(() => import('@/pages/admin/partners/PartnerRulesPage'));
+const PartnerPayoutsPage = lazy(() => import('@/pages/admin/partners/PartnerPayoutsPage'));
 // Phase 14 WS3: the automation control room (triggers, event log).
 const ControlRoom = lazy(() => import('@/pages/automation/ControlRoom'));
 // Phase 14 WS8: records, connections, apps and code, business settings, platform admin.
@@ -164,6 +179,8 @@ export const AppRouter: React.FC = () => {
                     <Route path="/reset-password" element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
                     <Route path="/verify-email" element={<PublicRoute><VerifyEmailPage /></PublicRoute>} />
                     <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+                    {/* Applying to the partner programme: no sign-in (Phase 15 T8-5) */}
+                    <Route path="/partners/apply" element={<PartnerApplyPage />} />
 
                     {/* Protected Routes */}
                     <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -178,17 +195,41 @@ export const AppRouter: React.FC = () => {
                         }
                     />
 
-                    {/* Partner Dashboard */}
+                    {/* The Partner Portal (Phase 15 T8-14): home, tenants (the old partner dashboard), customers,
+                        leads, charges, network, earnings, partnership */}
                     <Route
                         path="/partner"
                         element={
-                            <ProtectedRoute>
-                                <MainLayout>
-                                    <PartnerDashboard />
-                                </MainLayout>
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN, UserRole.PARTNER_ADMIN, UserRole.PARTNER_USER]}>
+                                <MainLayout><PartnerHome /></MainLayout>
                             </ProtectedRoute>
                         }
                     />
+                    <Route
+                        path="/partner/tenants"
+                        element={
+                            <ProtectedRoute allowedRoles={[UserRole.APP_ADMIN, UserRole.PARTNER_ADMIN]}>
+                                <MainLayout><PartnerDashboard /></MainLayout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    {([
+                        ['/partner/customers', <PartnerCustomers />, [UserRole.PARTNER_ADMIN, UserRole.PARTNER_USER]],
+                        ['/partner/leads', <PartnerLeads />, [UserRole.PARTNER_ADMIN, UserRole.PARTNER_USER]],
+                        ['/partner/charges', <PartnerCharges />, [UserRole.PARTNER_ADMIN]],
+                        ['/partner/network', <PartnerNetwork />, [UserRole.PARTNER_ADMIN, UserRole.PARTNER_USER]],
+                        ['/partner/earnings', <PartnerEarnings />, [UserRole.PARTNER_ADMIN]],
+                        ['/partner/partnership', <PartnerPartnership />, [UserRole.PARTNER_ADMIN, UserRole.PARTNER_USER]],
+                        ['/billing/charges', <ChargesPage />, [UserRole.TENANT_ADMIN, UserRole.TENANT_USER]],
+                        ['/settings/partner-access', <PartnerAccessPage />, [UserRole.TENANT_ADMIN, UserRole.TENANT_USER]],
+                        ['/admin/partners', <PartnersAdminPage />, [UserRole.APP_ADMIN]],
+                        ['/admin/partners/rules', <PartnerRulesPage />, [UserRole.APP_ADMIN]],
+                        ['/admin/partners/payouts', <PartnerPayoutsPage />, [UserRole.APP_ADMIN]],
+                        ['/admin/partners/:id', <PartnerDetailPage />, [UserRole.APP_ADMIN]],
+                    ] as Array<[string, React.ReactNode, UserRole[]]>).map(([path, page, roles]) => (
+                        <Route key={path} path={path}
+                               element={<ProtectedRoute allowedRoles={roles}><MainLayout>{page}</MainLayout></ProtectedRoute>} />
+                    ))}
 
                     {/* Unified Phone Numbers */}
                     <Route

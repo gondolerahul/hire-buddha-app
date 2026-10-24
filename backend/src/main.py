@@ -192,6 +192,9 @@ mount_optional(app, "src.billing.price_items_router")  # /api/v1/admin/price-ite
 mount_optional(app, "src.billing.locks")  # /api/v1/companies/{id}/locks (Phase 15 T5-4)
 mount_optional(app, "src.billing.plans_router")  # /api/v1/plans, /api/v1/me/entitlements, /api/v1/admin/plans (Phase 15 T6-1, T6-2)
 mount_optional(app, "src.billing.invoices_router")  # /api/v1/billing/invoices, /billing/profile, /admin/payments (Phase 15 T6-5, T6-6)
+mount_optional(app, "src.partners.portal_router")  # /api/v1/partner/* — the Partner Portal (Phase 15 WS15-8)
+mount_optional(app, "src.partners.tenant_router")  # /api/v1/charges, /settings/partner-access, /partners/apply
+mount_optional(app, "src.partners.admin_router")  # /api/v1/admin/partners/* — the programme for staff
 mount_optional(app, "src.billing.cron_router")
 
 # Analytics & Reports
