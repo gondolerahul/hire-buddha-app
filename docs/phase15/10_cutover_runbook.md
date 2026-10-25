@@ -2,7 +2,9 @@
 
 > **Tasks:** T10-1 (migration and dry runs), T10-3 (shadow review and switch-on), T10-4 (customer notices). Plan: 08 §4 (migration order), §6 (switches), §7 (risks).
 > **Tools:** `python -m src.billing.cutover` (readiness and reconciliation), `python -m src.billing.wallet_cutover` (buckets → lots), `python -m src.billing.unit_codes_report` (registry units), `python -m src.billing.cutover_notices` (customer notices). All run from `backend/` against the database in `DATABASE_URL`.
-> **Status:** built and rehearsed on the local stack only. The dry run on a production copy, the production shadow period and the switch-on have not happened (09 §7).
+> **Status:** production migrated on 25 Oct 2026, with no live customers (09 §8 "In production"). Left: the shadow period and `billing.v2_mode = on`, then the drop release. With customers, follow this runbook in full.
+>
+> **The pipeline runs the migration.** The `azure-prod` job of `deploy-azure` copies dev's images, runs every migration in the release's migrations Job and starts the release in one step, as soon as its reviewer approves. So §3's window works this way: do step 0 (backup, workers stopped, maintenance) first, then **approve the job inside the window**. Steps 1–9 run in it; their checks are the readiness report afterwards. Set the switches the moment the API is up (Console → Settings → Rollout). A job waiting outside a window is rejected, not left pending.
 
 ---
 

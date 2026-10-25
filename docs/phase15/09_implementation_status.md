@@ -360,6 +360,22 @@ Dev was off: it runs Monday–Saturday 09:00–21:00 IST (`logic-hb-dev-start` /
 | Public surface, read-only (no sign-in, nothing submitted) | 15 of 15: health; 249 country profiles (IN → INR, US → USD); the balance, report library, shadow, partner-type and costing endpoints refuse an anonymous caller; the JWKS holds public keys only; the sign-up page's currency follows the country; old routes and `/platform-management` send an anonymous visitor to sign in (the redirect fix) |
 | Browser journeys per role (owner's permission to write their data to dev) | **11 passed, 1 skipped** against `https://app.azdev.hirebuddha.com`, twice (7 min each). The skip is by design: the sign-up journey checks the currency labels but does not submit, since a workspace cannot be removed. The data setup runs in the API pod (`JOURNEY_KUBE=hb-platform/deploy/hb-api`: the helpers are copied to `/tmp/hbj` and run by path; the engine signs in with Entra as the platform's does). Six `Journey … persistent` companies now live on dev, each with an `active` workspace, and are reset each run. Found on the way: the world gave a wallet only to the funded business, so the readiness report flagged five companies with none. Every company gets one now, and the report shows 10 wallets equal to their ledgers after the journeys |
 
+### In production (25 Oct)
+
+The owner approved the release with no live customers on production, and holds the release, finance, support and product roles. Production ran `aeb1754` (before Phase 15) with one company (the platform's), one app admin and one tenant database, and no usage, payments, subscriptions or claimed numbers.
+
+| Step (runbook 10 §2–§3) | What was done |
+|---|---|
+| Dry run on a copy | Replaced, given that data, by checks of production's own rows against the migrations: its 5 registry unit spellings all map (`per_call` → PER_REQUEST, `per_million_characters` → PER_1M_CHARACTERS, `per_million_tokens` → PER_1M_TOKENS, `per_second`/`second` → PER_SECOND); `billing_config` mf 10, pf 0.25, spf 0.25 (pf + spf ≤ 1); one wallet with a $2.00 daily bucket. The same chain had run on dev that day |
+| Backup | On-demand server backups are refused on the burstable tier, so the platform's `hb-backup` job was run (`hb-backup-pre-phase15`): `hb_control.dump` and the tenant database's dump, with checksums. Point-in-time restore: 7 days. **Restore point 2026-10-25 16:42:36 UTC** |
+| Migration and start | The pipeline's `azure-prod` job for `2f1fba2`, approved by the owner at 16:47 UTC: images copied from dev's registry with the same digests, `helm upgrade` (revision 7) with the migrations, smoke ok |
+| Rollout switches | Left at their defaults (the behaviour as built); `billing.v2_mode = shadow`. No customers to notify, so nothing is staged |
+| Checks | Every Deployment on `2f1fba2`; control at `control_0021_staff_functions`, the tenant database at `tenant_platform_0005_amounts`; formula mf 10, pf 0.50 (spf folded in); the wallet INR, `ok`, one ₹200 daily lot; seeds 5 plans, 25 cost units, 249 country profiles, 2 partner types. `python -m src.billing.cutover`: every check ok except the shadow period (no shadow rows). Public read-only checks: 15 of 15 against `app.azprod` / `gateway.azprod` |
+| Browser journeys (owner's permission to write their data to production) | **11 passed, 1 skipped** against `https://app.azprod.hirebuddha.com` (`JOURNEY_KUBE=aks-hb-prod:hb-platform/deploy/hb-api`, 7 min); the skip is the sign-up's submit, by design. Six `Journey … persistent` companies now live in production, each with an active workspace, reset each run. Afterwards the readiness report shows 7 companies and 7 wallets equal to their ledgers, the shadow period still its only blocker |
+| Notices (§5) | None to send: no customer companies |
+
+What remains in production: the shadow period (then `billing.v2_mode = on`, which the API refuses until shadow rows exist) and, one release later, the drop migration.
+
 ### Decisions taken in the close-out
 
 | # | Decision | Why |

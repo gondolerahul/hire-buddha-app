@@ -5,10 +5,10 @@ dependency; ``playwright install chromium`` once per machine) against a running
 stack — the Vite dev server and the API it calls — and its database:
 
     JOURNEY_BASE_URL   the frontend, e.g. http://localhost:3000
-    JOURNEY_KUBE       optional: <namespace>/<pod or deploy/name> — run the data
-                       setup in that pod (an Azure environment, whose database
-                       and signing key only its pods reach), e.g.
-                       hb-platform/deploy/hb-api
+    JOURNEY_KUBE       optional: [<kube context>:]<namespace>/<pod or deploy/name>
+                       — run the data setup in that pod (an Azure environment,
+                       whose database and signing key only its pods reach), e.g.
+                       aks-hb-prod:hb-platform/deploy/hb-api
     JOURNEY_TAG        optional: the world's tag (default: fresh per journey;
                        ``persistent`` on a split-tenancy environment)
 
@@ -73,8 +73,10 @@ _DB = ThreadPoolExecutor(max_workers=1)
 
 
 def _kubectl(*args: str, stdin: bytes = b"", timeout: int = 1200) -> str:
-    namespace, target = KUBE.split("/", 1)
-    done = subprocess.run(["kubectl", "-n", namespace, "exec", "-i", target, "--", *args], input=stdin,
+    context, _, place = KUBE.rpartition(":")
+    namespace, target = place.split("/", 1)
+    where = ["--context", context] if context else []
+    done = subprocess.run(["kubectl", *where, "-n", namespace, "exec", "-i", target, "--", *args], input=stdin,
                           capture_output=True, timeout=timeout)
     if done.returncode != 0:
         raise RuntimeError(f"kubectl exec failed ({done.returncode}): {done.stderr.decode(errors='replace')[-2000:]}")
