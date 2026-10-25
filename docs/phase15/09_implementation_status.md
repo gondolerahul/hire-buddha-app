@@ -348,6 +348,18 @@ The code the milestones left open, finished on this laptop. No migration. What s
 
 **Seen, not changed:** after the sign-in form, a business admin's page loads twice (`/home`, then `/dashboard` → `/home`): `login()` reloads to `/dashboard` after the router has already moved on. Harmless. A partner forcing an acting company it does not resell gets 403 from every data call, and the page shows an empty list rather than an error.
 
+### On Azure dev (25 Oct)
+
+Dev was off: it runs Monday–Saturday 09:00–21:00 IST (`logic-hb-dev-start` / `-stop`). It was started by hand: both PostgreSQL servers, then the AKS cluster. The pipeline's dev rollout for `2f1fba2` had failed while the cluster was down, and was re-run. **The production job of that run waits for its reviewer and must not be approved**: production goes through [10_cutover_runbook.md](10_cutover_runbook.md).
+
+| Check | Result |
+|---|---|
+| Rollout | Every platform Deployment on `2f1fba2`; all pods Running; health `ok` with a worker on each queue (default, children, events, provisioning) |
+| Migrations | Control at `control_0021_staff_functions`; the four tenant databases `active` at `tenant_platform_0005_amounts`. The one-way wallet step ran on dev's real wallets |
+| `python -m src.billing.cutover` (in the API pod) | Every check ok — reference data, 4 companies' geography, 9 registry rows coded, the platform formula (mf 5, pf 0.4), usage rated and settled, 4 wallets migrated and equal to their ledgers, plans, partner tree — **except the shadow period** (no shadow rows in 14 days): the next step of the runbook, and why `billing.v2_mode = on` is refused |
+| Public surface, read-only (no sign-in, nothing submitted) | 15 of 15: health; 249 country profiles (IN → INR, US → USD); the balance, report library, shadow, partner-type and costing endpoints refuse an anonymous caller; the JWKS holds public keys only; the sign-up page's currency follows the country; old routes and `/platform-management` send an anonymous visitor to sign in (the redirect fix) |
+| Browser journeys per role (owner's permission to write their data to dev) | **11 passed, 1 skipped** against `https://app.azdev.hirebuddha.com`, twice (7 min each). The skip is by design: the sign-up journey checks the currency labels but does not submit, since a workspace cannot be removed. The data setup runs in the API pod (`JOURNEY_KUBE=hb-platform/deploy/hb-api`: the helpers are copied to `/tmp/hbj` and run by path; the engine signs in with Entra as the platform's does). Six `Journey … persistent` companies now live on dev, each with an `active` workspace, and are reset each run. Found on the way: the world gave a wallet only to the funded business, so the readiness report flagged five companies with none. Every company gets one now, and the report shows 10 wallets equal to their ledgers after the journeys |
+
 ### Decisions taken in the close-out
 
 | # | Decision | Why |

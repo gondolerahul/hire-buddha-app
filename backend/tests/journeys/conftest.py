@@ -5,19 +5,32 @@ dependency; ``playwright install chromium`` once per machine) against a running
 stack — the Vite dev server and the API it calls — and its database:
 
     JOURNEY_BASE_URL   the frontend, e.g. http://localhost:3000
+    JOURNEY_KUBE       optional: <namespace>/<pod or deploy/name> — run the data
+                       setup in that pod (an Azure environment, whose database
+                       and signing key only its pods reach), e.g.
+                       hb-platform/deploy/hb-api
+    JOURNEY_TAG        optional: the world's tag (default: fresh per journey;
+                       ``persistent`` on a split-tenancy environment)
 
-Without it every journey is skipped; ``REQUIRE_JOURNEYS=1`` makes that a
-failure (the release lane). Each journey builds its own people and companies
-(``world.build``), all named with a fresh tag, and deletes them afterwards.
+Without the first, every journey is skipped; ``REQUIRE_JOURNEYS=1`` makes that a
+failure (the release lane). Each journey builds its people and companies
+(``world.build``): locally under a fresh tag, deleted afterwards; with split
+tenancy one kept set, reset before each journey (``world`` says why).
 What a journey cannot do here is said where it stops: a Razorpay checkout is
 credited as the gateway's confirmation would credit it, and nothing calls a
 model provider.
 """
 from __future__ import annotations
 
+import base64
+import io
+import json
 import os
+import subprocess
+import tarfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import httpx
@@ -25,6 +38,12 @@ import pytest
 
 BASE_URL = os.environ.get("JOURNEY_BASE_URL", "").rstrip("/")
 REQUIRED = os.environ.get("REQUIRE_JOURNEYS") == "1"
+KUBE = os.environ.get("JOURNEY_KUBE", "")
+TAG = os.environ.get("JOURNEY_TAG", "")
+TESTS = Path(__file__).resolve().parents[1]
+# What the pod needs of the tests tree (its image has no pytest): copied to /tmp/hbj first.
+REMOTE_FILES = ("__init__.py", "journeys/__init__.py", "journeys/world.py", "journeys/remote.py",
+                "harness/wallet.py", "harness/purge.py")
 
 
 def _unavailable() -> str:
@@ -53,8 +72,53 @@ def _stack() -> None:
 _DB = ThreadPoolExecutor(max_workers=1)
 
 
+def _kubectl(*args: str, stdin: bytes = b"", timeout: int = 1200) -> str:
+    namespace, target = KUBE.split("/", 1)
+    done = subprocess.run(["kubectl", "-n", namespace, "exec", "-i", target, "--", *args], input=stdin,
+                          capture_output=True, timeout=timeout)
+    if done.returncode != 0:
+        raise RuntimeError(f"kubectl exec failed ({done.returncode}): {done.stderr.decode(errors='replace')[-2000:]}")
+    return done.stdout.decode(errors="replace")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _remote_code(_stack: None) -> None:
+    """With ``JOURNEY_KUBE``: this checkout's world helpers on the pod, under /tmp/hbj."""
+    if not KUBE:
+        return
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        for name in REMOTE_FILES:
+            tar.add(TESTS / name, arcname=f"tests/{name}")
+        empty = tarfile.TarInfo("tests/harness/__init__.py")
+        tar.addfile(empty, io.BytesIO(b""))
+    _kubectl("python", "-c", "import sys, tarfile; tarfile.open(fileobj=sys.stdin.buffer, mode='r|')"
+             ".extractall('/tmp/hbj')", stdin=buffer.getvalue())
+
+
+def _remote(fn: Callable[..., Any], *args: Any) -> Any:
+    from tests.journeys import remote
+
+    payload = base64.b64encode(json.dumps(remote.encode(list(args))).encode()).decode()
+    # By path, not ``-m``: ``-m`` puts the working directory (/app, the image's own tests/) first.
+    out = _kubectl("env", "PYTHONPATH=/tmp/hbj:/app", "python", "/tmp/hbj/tests/journeys/remote.py", fn.__name__,
+                   payload)
+    lines = [line for line in out.splitlines() if line.startswith(remote.MARK)]
+    if not lines:
+        raise RuntimeError(f"{fn.__name__} on {KUBE} printed no result: {out[-2000:]}")
+    result = remote.decode(json.loads(lines[-1][len(remote.MARK):]))
+    if fn.__name__ == "partner_state":
+        result["customers"] = {uuid.UUID(k): v for k, v in result["customers"].items()}
+    if fn.__name__ == "company_of" and result:
+        result["id"] = uuid.UUID(result["id"])
+    return result
+
+
 def db_call(fn: Callable[..., Any], *args: Any) -> Any:
-    """Run a ``world`` helper (it uses ``asyncio.run``) off the Playwright thread."""
+    """Run a ``world`` helper off the Playwright thread (it uses ``asyncio.run``): here, or in
+    the ``JOURNEY_KUBE`` pod."""
+    if KUBE:
+        return _remote(fn, *args)
     return _DB.submit(fn, *args).result()
 
 
@@ -62,7 +126,7 @@ def db_call(fn: Callable[..., Any], *args: Any) -> Any:
 def browser() -> Iterator[Any]:
     from playwright.sync_api import expect, sync_playwright
 
-    expect.set_options(timeout=20_000)        # a dev server's first page and the sign-in take a while
+    expect.set_options(timeout=30_000)        # a dev server's first page and the sign-in (a reload) take a while
     with sync_playwright() as playwright:
         chromium = playwright.chromium.launch()
         yield chromium
@@ -73,8 +137,7 @@ def browser() -> Iterator[Any]:
 def world() -> Iterator[Any]:
     from tests.journeys import world as w
 
-    built = db_call(w.build, uuid.uuid4().hex[:8])
-    built.extra_companies = []
+    built = db_call(w.build, TAG or ("persistent" if KUBE else uuid.uuid4().hex[:8]))
     yield built
     db_call(w.teardown, built, built.extra_companies)
 

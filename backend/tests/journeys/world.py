@@ -9,21 +9,36 @@
   customer, and a second business it does **not** resell;
 * a Silver partner with an admin, and a customer it referred.
 
-Every name and address carries ``tag``, and ``teardown`` deletes exactly
-those companies and users (``tests.harness.purge``). Each call runs on an
-engine of its own with no pool, so it can be driven by ``asyncio.run`` from a
-synchronous Playwright test.
+Every name and address carries ``tag``. Locally (one shared database) each
+run uses a fresh tag and ``teardown`` deletes exactly those companies and
+users (``tests.harness.purge``).
+
+With split tenancy (Azure dev) a company's workspace — its database,
+namespace and identity — cannot be removed, so the journeys keep one set of
+companies under a fixed tag (``persistent``): ``build`` makes what is missing
+and has the provisioner set up each new workspace (waiting until it is
+``active``), and on every run puts back the state the journeys start from —
+the wallet, the partners' types, assignments, grants, agreement and
+commission. ``teardown`` then deletes nothing but a sign-up's company.
+
+Each call runs on an engine of its own with no pool, so it can be driven by
+``asyncio.run`` from a synchronous Playwright test, or in an API pod
+(``tests.journeys.remote``).
 """
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Awaitable, Callable, Dict, List
 
 PASSWORD = "Journey-Passw0rd-2026"
+PROVISIONING_TIMEOUT_SECONDS = 900
+# The rows a journey leaves on its business and partners, cleared before each run (children first).
+_STATE_TABLES = ("wallet_entries", "wallet_lots", "credit_holds", "credit_wallets", "usage_logs", "billing_lines")
 
 
 @dataclass
@@ -37,6 +52,8 @@ class World:
     silver_customer: uuid.UUID
     emails: Dict[str, str] = field(default_factory=dict)       # role key -> e-mail
     names: Dict[str, str] = field(default_factory=dict)        # company key -> name
+    persistent: bool = False                                   # split tenancy: kept between runs
+    extra_companies: List[uuid.UUID] = field(default_factory=list)
 
     @property
     def company_ids(self) -> List[uuid.UUID]:
@@ -45,6 +62,16 @@ class World:
     @property
     def email_pattern(self) -> str:
         return f"journey\\_%\\_{self.tag}@example.com"
+
+    def to_json(self) -> Dict[str, Any]:
+        return {k: (str(v) if isinstance(v, uuid.UUID) else [str(x) for x in v] if k == "extra_companies" else v)
+                for k, v in asdict(self).items()}
+
+    @classmethod
+    def from_json(cls, data: Dict[str, Any]) -> "World":
+        ids = ("business", "gold", "gold_customer", "not_resold", "silver", "silver_customer")
+        return cls(**{**data, **{k: uuid.UUID(data[k]) for k in ids},
+                      "extra_companies": [uuid.UUID(x) for x in data.get("extra_companies", [])]})
 
 
 def email(role: str, tag: str) -> str:
@@ -60,7 +87,12 @@ async def _with_db(work: Callable[[Any], Awaitable[Any]]) -> Any:
     from src.common.orm_models import import_all_models
 
     import_all_models()
-    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    # As the platform makes its own (src.common.database): on Azure an Entra token per connection.
+    from src.common.platform.dbauth import install
+
+    engine = create_async_engine(settings.CONTROL_DATABASE_URL, poolclass=NullPool,
+                                 json_serializer=database.json_serializer)
+    install(engine)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     # Code that opens control sessions of its own (notices, audits) uses this engine too.
     saved = database.AsyncSessionLocal, database.engine
@@ -78,34 +110,97 @@ def run(work: Callable[[Any], Awaitable[Any]]) -> Any:
     return asyncio.run(_with_db(work))
 
 
+def split() -> bool:
+    from src.common.tenancy.session import is_split
+    return is_split()
+
+
 async def _company(db: Any, name: str, kind: str, *, parent: Any = None, currency: str = "INR") -> Any:
+    """The company called ``name`` (made if there is none), active under ``parent``."""
+    from sqlalchemy import select
+
     from src.auth.models import Company
 
-    company = Company(name=name, type=kind, status="active", parent_id=parent, billing_currency=currency,
-                      country_code="IN" if currency == "INR" else "US", billing_state="KA" if currency == "INR" else None,
-                      onboarding_status="completed")
-    db.add(company)
+    company = (await db.execute(select(Company).where(Company.name == name))).scalar_one_or_none()
+    if company is None:
+        company = Company(name=name, type=kind, status="active", billing_currency=currency,
+                          country_code="IN" if currency == "INR" else "US",
+                          billing_state="KA" if currency == "INR" else None, onboarding_status="completed")
+        db.add(company)
+    company.status, company.parent_id = "active", parent
     await db.flush()
     return company
 
 
 async def _person(db: Any, address: str, role: str, company_id: Any) -> None:
+    from sqlalchemy import select
+
     from src.auth.models import User
     from src.common.security import get_password_hash
 
-    db.add(User(email=address, full_name=f"Journey {role}", hashed_password=get_password_hash(PASSWORD),
-                role=role, company_id=company_id, is_active=True, is_verified=True))
+    user = (await db.execute(select(User).where(User.email == address))).scalar_one_or_none()
+    if user is None:
+        user = User(email=address, full_name=f"Journey {role}")
+        db.add(user)
+    user.hashed_password, user.role, user.company_id = get_password_hash(PASSWORD), role, company_id
+    user.is_active, user.is_verified = True, True
 
 
 async def _partner(db: Any, name: str, partner_type: str) -> Any:
+    """An active, KYC-verified partner of ``partner_type`` with one signed agreement, whatever a run left."""
+    from sqlalchemy import delete
+
     from src.partners.lifecycle import create_profile, new_agreement
+    from src.partners.models import PartnerAgreement, PartnerProfile
 
     company = await _company(db, name, "PARTNER")
-    profile = await create_profile(db, company, partner_type=partner_type, status="active")
+    profile = await db.get(PartnerProfile, company.id)
+    if profile is None:
+        profile = await create_profile(db, company, partner_type=partner_type, status="active")
+    profile.partner_type, profile.status, profile.status_reason = partner_type, "active", None
     profile.kyc_status, profile.bank_verified = "verified", True
+    profile.agreement_id = None
+    await db.flush()
+    await db.execute(delete(PartnerAgreement).where(PartnerAgreement.partner_id == company.id))
     agreement = await new_agreement(db, profile)
     agreement.signed_at = datetime.utcnow()
     return company
+
+
+async def _clear(db: Any, company_ids: List[Any], partner_ids: List[Any]) -> None:
+    """What earlier runs left: the companies' wallets and usage, the partners' grants, customers and earnings."""
+    from sqlalchemy import delete, text
+
+    from src.partners.models import PartnerAccessEvent, PartnerAccessGrant, PartnerAssignment, PartnerLedgerEntry
+
+    for table in _STATE_TABLES:
+        await db.execute(text(f"DELETE FROM {table} WHERE company_id = ANY(CAST(:ids AS uuid[]))"),
+                         {"ids": [str(i) for i in company_ids]})
+    for model in (PartnerAccessEvent, PartnerAccessGrant, PartnerLedgerEntry):
+        await db.execute(delete(model).where(model.partner_id.in_(partner_ids)))
+    await db.execute(delete(PartnerAssignment).where(PartnerAssignment.tenant_id.in_(company_ids)))
+
+
+async def _provision(company_ids: List[Any]) -> None:
+    """Split tenancy: each company's workspace requested from the provisioner, and waited for."""
+    from src.common.tenancy.provisioner import provisioning_status, request_and_enqueue
+    from src.common.tenancy.session import control_session
+
+    for company_id in company_ids:
+        async with control_session() as db:
+            status = await provisioning_status(db, company_id)
+        if status["status"] == "not_requested" or (not status["ready"] and status["status"] != "provisioning"):
+            await request_and_enqueue(company_id)
+    deadline = time.monotonic() + PROVISIONING_TIMEOUT_SECONDS
+    waiting = list(company_ids)
+    while waiting:
+        async with control_session() as db:
+            waiting = [c for c in waiting if not (await provisioning_status(db, c))["ready"]]
+        if not waiting:
+            return
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"workspaces not active after {PROVISIONING_TIMEOUT_SECONDS} s: {waiting}")
+        await asyncio.sleep(10)
 
 
 def build(tag: str) -> World:
@@ -123,12 +218,15 @@ def build(tag: str) -> World:
         business = await _company(db, names["business"], "TENANT", parent=platform)
         gold = await _partner(db, names["gold"], "GOLD")
         gold_customer = await _company(db, names["gold_customer"], "TENANT", parent=gold.id)
-        await assign(db, tenant_id=gold_customer.id, partner_id=gold.id, relationship="resold", source="created",
-                     since=datetime.utcnow() - timedelta(days=60))
-        await grant_for_created_tenant(db, partner_id=gold.id, tenant_id=gold_customer.id)
         not_resold = await _company(db, names["not_resold"], "TENANT", parent=platform)
         silver = await _partner(db, names["silver"], "SILVER")
         silver_customer = await _company(db, names["silver_customer"], "TENANT", parent=platform)
+        companies = [business, gold, gold_customer, not_resold, silver, silver_customer]
+        await _clear(db, [c.id for c in companies], [gold.id, silver.id])
+
+        await assign(db, tenant_id=gold_customer.id, partner_id=gold.id, relationship="resold", source="created",
+                     since=datetime.utcnow() - timedelta(days=60))
+        await grant_for_created_tenant(db, partner_id=gold.id, tenant_id=gold_customer.id)
         await assign(db, tenant_id=silver_customer.id, partner_id=silver.id, relationship="referred", source="lead",
                      since=datetime.utcnow() - timedelta(days=30))
         db.add(PartnerLedgerEntry(
@@ -146,11 +244,16 @@ def build(tag: str) -> World:
         await _person(db, emails["silver_admin"], "partner_admin", silver.id)
         await _person(db, emails["staff"], "app_admin", platform)
         await db.flush()
+        from src.billing.wallet import WalletService
+        for company in companies:                       # every company has a wallet, as when it is created
+            await WalletService(db).ensure(company.id)
         await fund(db, business.id, "20", expires_in=timedelta(days=30))          # ₹2,000 at the seeded rate
         await db.commit()
+        if split():
+            await _provision([c.id for c in companies])
         return World(tag=tag, business=business.id, gold=gold.id, gold_customer=gold_customer.id,
                      not_resold=not_resold.id, silver=silver.id, silver_customer=silver_customer.id,
-                     emails=emails, names=names)
+                     emails=emails, names=names, persistent=split())
 
     return run(work)
 
@@ -230,11 +333,15 @@ def pay(company_id: uuid.UUID, amount: str) -> None:
 
 
 def teardown(world: World, extra_companies: List[uuid.UUID] = ()) -> None:
+    """Delete the run's companies and people — locally. A persistent world stays for the next run."""
     async def work(db: Any) -> None:
         from tests.harness.purge import purge_companies
 
         conn = await db.connection()
-        await purge_companies(conn, [*world.company_ids, *extra_companies], user_email_pattern=world.email_pattern)
+        if world.persistent:
+            await purge_companies(conn, list(extra_companies))
+        else:
+            await purge_companies(conn, [*world.company_ids, *extra_companies], user_email_pattern=world.email_pattern)
         await db.commit()
 
     run(work)

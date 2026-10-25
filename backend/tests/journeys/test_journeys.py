@@ -16,7 +16,7 @@
 * Old routes redirect for each workspace.
 
 Assertions on what a page shows use Playwright's ``expect``, which waits for
-the page's data to arrive (``conftest`` gives it 20 s), and match the page's
+the page's data to arrive (``conftest`` gives it 30 s), and match the page's
 text as written — not as CSS renders it (some labels are shown upper-case).
 """
 from __future__ import annotations
@@ -40,6 +40,8 @@ def test_a_us_sign_up_is_billed_in_usd(anonymous, world):
     expect(page.get_by_text("Billed in USD")).to_be_visible()
     country.select_option(label="India")
     expect(page.get_by_text("Billed in INR")).to_be_visible()
+    if world.persistent:
+        pytest.skip("not submitted with split tenancy: a sign-up provisions a workspace that cannot be removed")
     country.select_option(label="United States")
     page.locator("input[type=text]").first.fill("Journey Sign-up")
     page.locator("input[type=email]").fill(address)
