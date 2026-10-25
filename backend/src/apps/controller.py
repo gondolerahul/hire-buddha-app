@@ -25,7 +25,6 @@ the egress proxy's allow-lists (:func:`egress_allowlists`).
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Dict, List, Optional
 
 GROUP = "hirebuddha.com"
@@ -62,7 +61,9 @@ def _meta(cr: Dict[str, Any], name: str, extra: Optional[Dict[str, Any]] = None)
 
 def _placement() -> Dict[str, Any]:
     """The apps node pool (slice 4, D53): tenant apps run there, not beside the platform."""
-    pool = os.environ.get("APPS_NODE_POOL", "").strip()
+    from src.common.config import settings
+
+    pool = settings.APPS_NODE_POOL.strip()
     if not pool:
         return {}
     return {"nodeSelector": {"hb/pool": pool},

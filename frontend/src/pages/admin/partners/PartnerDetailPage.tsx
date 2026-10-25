@@ -55,6 +55,14 @@ export const PartnerDetailPage: React.FC = () => {
         if (reason) act(() => partnerAdmin.setStatus(id, { status: next, reason }), `The partnership is ${next}.`);
     };
 
+    const changeType = (next: 'GOLD' | 'SILVER') => {
+        const reason = prompt(next === 'SILVER'
+            ? 'Make this partner Silver? Its resold tenants become referred customers (HireBuddha delivers), its access grants are revoked, and Silver rates apply from now. Reason:'
+            : 'Make this partner Gold? Gold rates apply from now; referred customers stay with HireBuddha until you move them. Reason:');
+        if (reason) act(() => partnerAdmin.changeType(id, { partner_type: next, reason }),
+                        `Now ${next === 'GOLD' ? 'Gold' : 'Silver'}: a new agreement is ready for the partner to sign.`);
+    };
+
     const reassign = (tenantId: string, tenantName: string | null) => {
         const choice = prompt(`Move ${tenantName} to which partner? Type its exact name, or leave blank for HireBuddha direct.`);
         if (choice === null) return;
@@ -107,6 +115,11 @@ export const PartnerDetailPage: React.FC = () => {
                         {p.status !== 'active' && p.status !== 'terminated' && <button className="btn-secondary" onClick={() => status('active')}>Reactivate</button>}
                         {['active', 'renewal_due', 'lapsed', 'approved'].includes(p.status) && <button className="btn-secondary" onClick={() => status('suspended')}>Suspend</button>}
                         {p.status !== 'terminated' && <button className="btn-secondary" onClick={() => status('terminated')}>Terminate</button>}
+                        {p.status !== 'terminated' && (
+                            <button className="btn-secondary" onClick={() => changeType(p.partner_type === 'GOLD' ? 'SILVER' : 'GOLD')}>
+                                Make {p.partner_type === 'GOLD' ? 'Silver' : 'Gold'}
+                            </button>
+                        )}
                     </div>
                 </section>
                 <section className="money-card glass">

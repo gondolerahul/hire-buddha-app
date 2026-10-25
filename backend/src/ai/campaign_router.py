@@ -116,6 +116,9 @@ async def create_campaign(
         if not agent_entity or not in_scope(await visible_company_ids(db, current_user),
                                             agent_entity.company_id):
             raise HTTPException(status_code=404, detail="Agent not found")
+        from src.partners.access import check_target   # a partner: under an access grant (T8-4)
+        await check_target(db, user=current_user, company_id=agent_entity.company_id, method="POST",
+                           path="/api/v1/campaigns")
 
         # Use agent's company (tenant) instead of current_user's company (may be APP)
         resolved_company_id = UUID(str(agent_entity.company_id))

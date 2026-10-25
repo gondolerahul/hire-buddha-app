@@ -1,26 +1,22 @@
 """
-Billing Service — billing events.
+Billing Service — the staff costing and billing reports, from billing lines.
 
 The customer price is ``src.billing.formulas`` (Phase 15 T3-2): versioned
 ``billing_formulas``, ``TB = c·mf·(1 + pf − d)``; daily credits are policies
 (``src.billing.daily_credits``, T5-5). ``billing_config`` is read by nothing. ``calculate_tb`` is the formula as it
 was — four fields with ``spf`` — kept for the golden billing suite (T3-1).
+
+What was billed is ``billing_lines`` (T3-4), written at settlement; since T3-8
+nothing writes ``billing_events`` and the reports below roll the lines up by
+month.
 """
 from decimal import Decimal
-from datetime import date, datetime
+from datetime import date, timedelta
 from typing import Optional
-import uuid
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, true
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import selectinload
-
-from src.billing.billing_models import BILLING_EVENT_UNIQUE_KEY, BillingEvent
-
-_CATEGORY_CHARGES = ("telephony", "llm", "image", "video")
-_CHARGE_COLUMNS = tuple(f"{c}_charge" for c in _CATEGORY_CHARGES) + ("api_charge",)
+from sqlalchemy import func, select
 
 
 def calculate_tb(
@@ -50,101 +46,49 @@ def calculate_tb(
     }
 
 
+def month_bounds(period_month: date) -> tuple[date, date]:
+    """The first day of ``period_month``'s month and of the next."""
+    start = period_month.replace(day=1)
+    return start, (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+
 class BillingService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def record_billing_event(
-        self,
-        company_id: UUID,
-        base_cost: Decimal,
-        grouping_type: Optional[str] = None,
-        grouping_value: Optional[str] = None,
-        telephony_in_seconds: Decimal = Decimal("0"),
-        telephony_out_seconds: Decimal = Decimal("0"),
-        image_gen_count: int = 0,
-        video_gen_count: int = 0,
-        other_ai_cost: Decimal = Decimal("0"),
-        event_category: str = "api",  # "telephony", "llm", "image", "video", "api"
-        *,
-        commit: bool = True,
-    ) -> BillingEvent:
-        """
-        Calculate TB from formula, then upsert a BillingEvent for the current month.
-        Divides the final price into category charges based on event_category.
-        ``commit=False`` leaves it to the caller's transaction (a run's settlement).
-        """
-        from src.billing.formulas import formula_for
-
-        # base_cost is final here: a company's own prices are its registry rows
-        # (the billing-config overrides were migrated to rows, T3-2).
-        tb = (await formula_for(self.db, company_id)).breakdown(base_cost)
-
-        today = datetime.utcnow().date()  # the period follows the UTC timestamps (DM-12)
-        period = date(today.year, today.month, 1)
-
-        # One row per (company, month, grouping) — the unique constraint
-        # uq_billing_events_period_grouping (DM-04). A single INSERT ... ON
-        # CONFLICT adds this event's amounts to the row atomically, so two
-        # concurrent settlements can neither create a second row nor overwrite
-        # each other's increments (the old select-then-write did both).
-        charge_column = f"{event_category}_charge" if event_category in _CATEGORY_CHARGES else "api_charge"
-        amounts = {
-            **{k: Decimal(str(v)) for k, v in tb.items()},
-            "telephony_in_seconds": telephony_in_seconds,
-            "telephony_out_seconds": telephony_out_seconds,
-            "image_gen_count": image_gen_count,
-            "video_gen_count": video_gen_count,
-            "other_ai_cost": other_ai_cost,
-            **{column: Decimal("0") for column in _CHARGE_COLUMNS},
-        }
-        amounts[charge_column] = tb["total_billing"]
-        now = datetime.utcnow()
-        insert_stmt = pg_insert(BillingEvent).values(
-            id=uuid.uuid4(),
-            company_id=company_id,
-            period_month=period,
-            grouping_type=grouping_type,
-            grouping_value=grouping_value,
-            created_at=now,
-            updated_at=now,
-            **amounts,
-        )
-        table = BillingEvent.__table__
-        upsert = insert_stmt.on_conflict_do_update(
-            constraint=BILLING_EVENT_UNIQUE_KEY,
-            set_={
-                **{column: table.c[column] + insert_stmt.excluded[column] for column in amounts},
-                "updated_at": insert_stmt.excluded.updated_at,
-            },
-        ).returning(BillingEvent)
-        result = await self.db.execute(upsert, execution_options={"populate_existing": True})
-        event = result.scalar_one()
-        if commit:
-            await self.db.commit()
-        return event
-
-    async def get_costing_report(
+    async def get_billing_lines(
         self,
         company_id: Optional[UUID] = None,
         period_month: Optional[date] = None,
         grouping_type: Optional[str] = None,
-    ) -> list:
-        """Return billing events for the costing report (internal view).
+    ) -> list[dict]:
+        """Billing lines rolled up per company, month, grouping, category and
+        currency (internal view: cost included).
 
-        ``company_id=None`` returns every company's events. Each event's
-        ``company`` is loaded so the report can name it.
+        ``company_id=None`` covers every company: lines are written under the
+        company that ran the work.
         """
-        conditions = []
-        if company_id:
-            conditions.append(BillingEvent.company_id == company_id)
-        if period_month:
-            conditions.append(BillingEvent.period_month == period_month)
-        if grouping_type:
-            conditions.append(BillingEvent.grouping_type == grouping_type)
+        from src.auth.models import Company
+        from src.billing.billing_models import BillingLine as L
 
-        stmt = select(BillingEvent).options(selectinload(BillingEvent.company)).where(and_(true(), *conditions)).order_by(
-            BillingEvent.period_month.desc(), BillingEvent.total_billing.desc()
-        )
-        result = await self.db.execute(stmt)
-        return result.scalars().all()
+        month = func.date_trunc("month", L.period_day).label("month")
+        query = (select(L.company_id, Company.name, month, L.grouping_type, L.grouping_id, L.category, L.currency,
+                        func.sum(L.cost_usd), func.sum(L.billed_usd), func.sum(L.billed_ccy), func.sum(L.quantity),
+                        func.sum(L.rows))
+                 .join(Company, Company.id == L.company_id)
+                 .group_by(L.company_id, Company.name, month, L.grouping_type, L.grouping_id, L.category, L.currency)
+                 .order_by(month.desc(), func.sum(L.billed_usd).desc()))
+        if company_id:
+            query = query.where(L.company_id == company_id)
+        if period_month:
+            start, end = month_bounds(period_month)
+            query = query.where(L.period_day >= start, L.period_day < end)
+        if grouping_type:
+            query = query.where(L.grouping_type == grouping_type)
+        return [{
+            "company_id": str(cid), "company_name": name, "period_month": f"{m:%Y-%m-%d}",
+            "grouping_type": gtype, "grouping_id": str(gid) if gid else None, "category": category,
+            "currency": currency, "cost_usd": Decimal(cost or 0), "billed_usd": Decimal(billed or 0),
+            "billed_ccy": Decimal(billed_ccy or 0), "quantity": Decimal(quantity or 0), "rows": int(rows or 0),
+        } for cid, name, m, gtype, gid, category, currency, cost, billed, billed_ccy, quantity, rows
+            in (await self.db.execute(query)).all()]

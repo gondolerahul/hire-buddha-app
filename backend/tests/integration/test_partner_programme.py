@@ -424,6 +424,84 @@ async def test_termination_moves_tenants_to_bcl_and_forfeits_unpaid_earnings(db)
 
 
 @pytest.mark.asyncio
+async def test_staff_change_a_gold_partner_to_silver(db):
+    """A type change (09 §5 "not exposed" in M15.4): Silver's rules from now and a new agreement; a Gold
+    partner's resold tenants become its referred customers — attribution kept, grants revoked."""
+    gold = await partner(db, "GOLD")
+    t = await tenant(db, gold, since_days_ago=30)
+    db.add(PartnerAccessGrant(partner_id=gold, tenant_id=t, scopes=["admin"], status="active"))
+    await db.flush()
+    staff = user("app_admin", await _platform(db))
+    assert (await _call(db, user("partner_admin", gold), "POST", f"/api/v1/admin/partners/{gold}/type",
+                        json={"partner_type": "SILVER", "reason": "test"})).status_code == 403
+    res = await _call(db, staff, "POST", f"/api/v1/admin/partners/{gold}/type",
+                      json={"partner_type": "silver", "reason": "test: delivers no more"})
+    assert res.status_code == 200, res.text
+    assert res.json()["converted_to_referred"] == [str(t)]
+    profile = await db.get(PartnerProfile, gold)
+    assert profile.partner_type == "SILVER"
+    agreement = (await db.execute(select(PartnerAgreement).where(PartnerAgreement.partner_id == gold))).scalar_one()
+    assert agreement.version == res.json()["agreement_version"] and agreement.signed_at is None
+    [current] = (await db.execute(select(PartnerAssignment).where(PartnerAssignment.tenant_id == t,
+                                                                  PartnerAssignment.until.is_(None)))).scalars().all()
+    assert (current.partner_id, current.relationship) == (gold, "referred")
+    assert all(g.status == "revoked" for g in (await db.execute(select(PartnerAccessGrant).where(
+        PartnerAccessGrant.partner_id == gold))).scalars().all())
+    assert (await db.get(Company, t)).parent_id == await _platform(db)
+    assert t not in await data_scope(db, gold)                      # a Silver partner sees no tenant data
+    [earned] = await commission.distribute(db, tenant_id=t, revenue_kind="usage_topup", base=D(1000),
+                                           currency="INR", source_type="payment", source_id="after-type")
+    assert earned.partner_id == gold                                 # still its customer, at Silver's rate
+    again = await _call(db, staff, "POST", f"/api/v1/admin/partners/{gold}/type",
+                        json={"partner_type": "SILVER", "reason": "test"})
+    assert again.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_silver_to_gold_leaves_referred_customers_with_bcl(db):
+    silver = await partner(db, "SILVER")
+    t = await tenant(db, silver, "referred")
+    res = await _call(db, user("app_admin", await _platform(db)), "POST", f"/api/v1/admin/partners/{silver}/type",
+                      json={"partner_type": "GOLD", "reason": "test: now delivers"})
+    assert res.status_code == 200 and res.json()["converted_to_referred"] == []
+    assert (await db.get(PartnerProfile, silver)).partner_type == "GOLD"
+    [current] = (await db.execute(select(PartnerAssignment).where(PartnerAssignment.tenant_id == t,
+                                                                  PartnerAssignment.until.is_(None)))).scalars().all()
+    assert current.relationship == "referred" and t not in await data_scope(db, silver)
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_named_in_the_body_needs_a_grant_too(db, own_sessions):
+    """Managing a resold tenant's people names the tenant in the body, not ``X-Company-Id``: the same
+    grant check applies (09 §5: only the header was grant-checked)."""
+    gold = await partner(db, "GOLD")
+    t = await tenant(db, gold)
+    admin = user("partner_admin", gold)
+
+    def body():
+        return {"email": f"p15-{uuid.uuid4().hex[:8]}@example.com", "password": "Correct-Horse-Battery-9",
+                "full_name": "Someone", "role": "tenant_user", "company_id": str(t)}
+
+    refused = await _call(db, admin, "POST", "/api/v1/users", json=body())
+    assert refused.status_code == 403 and refused.json()["detail"]["code"] == "no_access_grant"
+    grant = PartnerAccessGrant(partner_id=gold, tenant_id=t, scopes=["read"], status="active")
+    db.add(grant)
+    await db.flush()
+    read_only = await _call(db, admin, "POST", "/api/v1/users", json=body())
+    assert read_only.status_code == 403 and read_only.json()["detail"]["code"] == "grant_scope"
+    grant.scopes = ["support"]
+    await db.flush()
+    made = await _call(db, admin, "POST", "/api/v1/users", json=body())
+    assert made.status_code == 200, made.text
+    from sqlalchemy import delete
+
+    from src.common.tenancy.session import control_session
+    async with control_session() as other:                   # the audit rows, written in a session of their own
+        await other.execute(delete(PartnerAccessEvent).where(PartnerAccessEvent.tenant_id == t))
+        await other.commit()
+
+
+@pytest.mark.asyncio
 async def test_the_migration_backfill(db):
     """control_0020's backfill, run again on rows made here: a partner and its tenant become a Gold
     profile at depth 1, a resold assignment and an admin grant."""

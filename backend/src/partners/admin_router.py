@@ -499,6 +499,23 @@ async def set_status(partner_id: UUID, body: StatusBody, db: AsyncSession = Depe
     return {"status": profile.status}
 
 
+class TypeBody(BaseModel):
+    partner_type: str
+    reason: str = Field(..., min_length=3, max_length=500)
+
+
+@router.post("/{partner_id}/type")
+async def change_type(partner_id: UUID, body: TypeBody, db: AsyncSession = Depends(get_control_db),
+                      user: User = Depends(staff)):
+    """Silver ↔ Gold: the new type's rules from now, a new agreement to sign (``lifecycle.change_type``)."""
+    from src.partners.lifecycle import change_type as apply
+
+    changed = await apply(db, await _profile(db, partner_id), body.partner_type.upper(), actor=user,
+                          reason=body.reason)
+    await db.commit()
+    return changed
+
+
 @router.post("/{partner_id}/agreement")
 async def new_agreement(partner_id: UUID, db: AsyncSession = Depends(get_control_db), user: User = Depends(staff)):
     from src.partners.lifecycle import new_agreement as make

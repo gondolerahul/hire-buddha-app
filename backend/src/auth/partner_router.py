@@ -149,14 +149,25 @@ async def get_tenant_details(
     return summary
 
 
+async def _usd_in(db: AsyncSession, usd: Decimal, currency: str) -> Decimal:
+    from src.billing.currency import current_rate, to_ccy
+    return to_ccy(usd, await current_rate(db, currency))
+
+
 @router.get("/analytics/summary")
 async def get_partner_analytics(
     db: AsyncSession = Depends(get_control_db),
     current_user: User = Depends(partner_only),
 ):
-    """Aggregated analytics across all tenants managed by this partner."""
+    """Aggregated analytics across all tenants managed by this partner.
+
+    ``total_wallet_balance`` is USD (at today's rate); ``wallet_balance_local``
+    the same in the viewer's own billing currency (``wallet_currency``), which
+    is what the portal shows (Phase 15 T9-3)."""
     result = await db.execute(select(Company.id).where(*await _partner_tenants(db, current_user)))
     tenant_ids = [row[0] for row in result.fetchall()]
+    viewer_currency = (await db.execute(select(Company.billing_currency).where(
+        Company.id == current_user.company_id))).scalar_one_or_none() or "INR"
 
     if not tenant_ids:
         return {
@@ -166,6 +177,8 @@ async def get_partner_analytics(
             "total_cost_usd": 0.0,
             "total_billed_usd": 0.0,
             "total_wallet_balance": 0.0,
+            "wallet_balance_local": 0.0,
+            "wallet_currency": viewer_currency,
             "active_tenants": 0,
             "suspended_tenants": 0,
         }
@@ -196,6 +209,8 @@ async def get_partner_analytics(
         "total_cost_usd": round(total_cost, 4),
         "total_billed_usd": round(total_billed, 4),
         "total_wallet_balance": round(total_wallet, 4),
+        "wallet_balance_local": float(await _usd_in(db, Decimal(str(total_wallet)), viewer_currency)),
+        "wallet_currency": viewer_currency,
         "active_tenants": status_counts.get("active", 0),
         "suspended_tenants": status_counts.get("suspended", 0),
     }
@@ -211,10 +226,10 @@ async def get_partner_revenue(
 
     The partner dashboard called the app-admin-only ``partner-performance``
     report, got 403 and showed nothing (P-27). This is the partner's own view,
-    in **billed** amounts — ``billing_events.total_billing``, what the wallets
+    in **billed** amounts — ``billing_lines.billed_usd``, what the wallets
     were charged — never provider cost (REQ-BL-3). ``app_admin``: every tenant.
     """
-    from src.billing.billing_models import BillingEvent
+    from src.billing.billing_models import BillingLine
 
     tenants = (await db.execute(select(Company).where(*await _partner_tenants(db, current_user)))).scalars().all()
     today = datetime.utcnow().date()
@@ -224,13 +239,15 @@ async def get_partner_revenue(
     billed: dict = {}
     ids = [t.id for t in tenants]
     if ids:
+        period_month = func.date_trunc("month", BillingLine.period_day)
         rows = (await db.execute(
-            select(BillingEvent.company_id, BillingEvent.period_month, func.sum(BillingEvent.total_billing))
-            .where(BillingEvent.company_id.in_(ids), BillingEvent.period_month >= month_starts[0])
-            .group_by(BillingEvent.company_id, BillingEvent.period_month)
+            select(BillingLine.company_id, period_month, func.sum(BillingLine.billed_usd))
+            .where(BillingLine.company_id.in_(ids), BillingLine.period_day >= month_starts[0])
+            .group_by(BillingLine.company_id, period_month)
         )).all()
         for company_id, period, total in rows:
-            billed[(company_id, period)] = Decimal(str(total or 0))
+            day = period.date() if isinstance(period, datetime) else period
+            billed[(company_id, day)] = Decimal(str(total or 0))
 
     per_tenant = []
     for t in tenants:
@@ -325,6 +342,8 @@ async def _tenant_summaries(db: AsyncSession, tenants: List[Company]) -> List[di
     if not ids:
         return []
     signals = await gather(db, ids)
+    from src.billing.wallet import summaries as wallet_summaries
+    wallets = await wallet_summaries(db, ids)
     users = dict((await db.execute(
         select(User.company_id, func.count(User.id)).where(User.company_id.in_(ids)).group_by(User.company_id)
     )).all())
@@ -351,6 +370,9 @@ async def _tenant_summaries(db: AsyncSession, tenants: List[Company]) -> List[di
             "onboarding_status": tenant.onboarding_status or "pending",
             "created_at": tenant.created_at.isoformat() if tenant.created_at else None,
             "wallet_balance": round(s.credit_usd, 2),
+            # What the business itself sees: its wallet in its own currency (T9-3).
+            "wallet_currency": (wallets.get(tenant.id) or {}).get("currency") or tenant.billing_currency,
+            "wallet_available": float((wallets.get(tenant.id) or {}).get("available") or 0),
             "daily_credits": float(daily.get(tenant.id) or 0),
             "integration_count": int(integrations.get(tenant.id, 0)),
             "entity_count": s.agents,

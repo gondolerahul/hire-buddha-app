@@ -28,7 +28,7 @@ from src.ai.orm import (
 from src.ai.memory.cortex_models import CortexNode
 from src.auth.models import Company, User
 from src.billing.billing_models import (
-    BillingEvent, CreditWallet, Subscription, PaymentTransaction,
+    BillingLine, CreditWallet, Subscription, PaymentTransaction,
 )
 
 
@@ -509,16 +509,30 @@ class ReportsService:
         company_id: UUID,
         days: int = 30,
     ) -> Dict[str, Any]:
-        """Campaign execution summary: call minutes, delivery rates, etc."""
-        since = datetime.utcnow() - timedelta(days=days)
+        """Campaign execution summary: call minutes, delivery rates, etc.
 
-        # Billing events for this company in the period
-        be_q = select(BillingEvent).where(
-            BillingEvent.company_id == company_id,
-            BillingEvent.created_at >= since,
-        ).order_by(desc(BillingEvent.created_at))
-        be_result = await self.db.execute(be_q)
-        billing_events = be_result.scalars().all()
+        Minutes are the calls' own seconds (tenant database); charges are the
+        billed amounts of the period's billing lines (control, Phase 15 T3-8).
+        """
+        from src.common.tenancy.session import control_db_for
+        from src.config.models import IntegrationRegistry
+        from src.voice.models import VoiceSession
+
+        since = datetime.utcnow() - timedelta(days=days)
+        seconds = dict((await self.db.execute(
+            select(VoiceSession.direction, func.coalesce(func.sum(VoiceSession.duration_seconds), 0))
+            .where(VoiceSession.company_id == company_id, VoiceSession.started_at >= since)
+            .group_by(VoiceSession.direction))).all())
+        async with control_db_for(self.db) as control:
+            charges = dict((await control.execute(
+                select(BillingLine.category, func.coalesce(func.sum(BillingLine.billed_usd), 0))
+                .where(BillingLine.company_id == company_id, BillingLine.period_day >= since.date())
+                .group_by(BillingLine.category))).all())
+            images = (await control.execute(
+                select(func.coalesce(func.sum(UsageLog.raw_quantity), 0))
+                .join(IntegrationRegistry, UsageLog.sku_id == IntegrationRegistry.id)
+                .where(UsageLog.company_id == company_id, UsageLog.timestamp >= since,
+                       IntegrationRegistry.service_category == "IMAGE_GENERATION"))).scalar()
 
         # Execution stats
         exec_q = select(
@@ -541,12 +555,12 @@ class ReportsService:
             for r in exec_rows
         }
 
-        # Aggregate billing totals
-        total_tel_in = sum(float(be.telephony_in_seconds) for be in billing_events) / 60  # billed seconds (T1-4)
-        total_tel_out = sum(float(be.telephony_out_seconds) for be in billing_events) / 60
-        total_images = sum(be.image_gen_count for be in billing_events)
-        total_tel_charge = sum(float(be.telephony_charge) for be in billing_events)
-        total_llm_charge = sum(float(be.llm_charge) for be in billing_events)
+        # Calls are billed per second (T1-4); minutes = seconds ÷ 60.
+        total_tel_in = float(seconds.get("inbound") or 0) / 60
+        total_tel_out = float(seconds.get("outbound") or 0) / 60
+        total_images = int(images or 0)
+        total_tel_charge = float(charges.get("voice") or 0)
+        total_llm_charge = float(charges.get("ai_models") or 0)
 
         return {
             "status_breakdown": status_breakdown,
@@ -825,7 +839,7 @@ class ReportsService:
         tenant_result = await self.db.execute(tenant_q)
         tenant_counts = {str(r.parent_id): r.tenant_count for r in tenant_result.all()}
 
-        # Billing events aggregated by partner's tenants
+        # Billed amounts (billing lines, USD) aggregated by partner's tenants
         be_data: Dict[str, float] = {}
         if partner_ids:
             tenant_ids_q = select(Company.id, Company.parent_id).where(
@@ -836,10 +850,10 @@ class ReportsService:
 
             if tenant_partner_map:
                 be_q = select(
-                    BillingEvent.company_id,
-                    func.sum(BillingEvent.total_billing).label("total"),
-                ).where(BillingEvent.company_id.in_([UUID(k) for k in tenant_partner_map.keys()])) \
-                 .group_by(BillingEvent.company_id)
+                    BillingLine.company_id,
+                    func.sum(BillingLine.billed_usd).label("total"),
+                ).where(BillingLine.company_id.in_([UUID(k) for k in tenant_partner_map.keys()])) \
+                 .group_by(BillingLine.company_id)
                 be_result = await self.db.execute(be_q)
                 for row in be_result.all():
                     partner_id = tenant_partner_map.get(str(row.company_id))

@@ -356,6 +356,8 @@ export const partnerAdmin = {
     setKyc: (id: string, body: { status: string; bank_verified?: boolean; reason?: string }) => put<AdminPartner>(`/admin/partners/${id}/kyc`, body),
     setStatus: (id: string, body: { status: string; reason: string }) => post<Record<string, unknown>>(`/admin/partners/${id}/status`, body),
     newAgreement: (id: string) => post<{ version: number }>(`/admin/partners/${id}/agreement`),
+    changeType: (id: string, body: { partner_type: 'GOLD' | 'SILVER'; reason: string }) =>
+        post<{ partner_type: string; agreement_version: number; converted_to_referred: string[] }>(`/admin/partners/${id}/type`, body),
     adjust: (id: string, body: { amount: string; reason: string }) => post<LedgerEntry>(`/admin/partners/${id}/adjustment`, body),
     applications: (status?: string) => get<{ checklist: string[]; applications: Application[] }>('/admin/partners/applications', status ? { status } : undefined),
     review: (id: string, body: { checklist?: Record<string, boolean>; notes?: string }) => post<Application>(`/admin/partners/applications/${id}/review`, body),

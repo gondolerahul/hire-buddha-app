@@ -130,5 +130,7 @@ A notice goes to each person once (its dedupe key `phase15:<template>:v1`); a se
 ## 6. After the release
 
 - Day 1, 2, 7: `python -m src.billing.cutover`, `R-A21 Billing exceptions`, `R-A06 Receivables`, the wallet ledger check (the nightly job logs any wallet that does not equal its ledger).
+- Before each switch-on step, on dev and then on staging: the browser journeys per role, `JOURNEY_BASE_URL=<frontend> REQUIRE_JOURNEYS=1 python -m pytest tests/journeys` (from `backend/`, with that environment's database settings). They build their own people and companies and delete them afterwards.
+- `billing_events` is no longer written or read (T3-8). It stays for reference until the drop migration below.
 - One release later: the drop migration (08 §4 step 10), and removal of the old pages left unrouted (09 §6).
 - Runbooks for day-to-day money operations (FX change, refunds, payouts, suspension): [11_operations_runbooks.md](11_operations_runbooks.md).

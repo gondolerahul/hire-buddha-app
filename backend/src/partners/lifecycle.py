@@ -177,6 +177,54 @@ async def new_agreement(db: Any, profile: PartnerProfile) -> PartnerAgreement:
     return agreement
 
 
+async def change_type(db: Any, profile: PartnerProfile, partner_type: str, *, actor: Any,
+                      reason: str) -> dict:
+    """Staff move a partner to another type (the caller commits; audited).
+
+    The new type's rules apply to payments from now on (commission reads the
+    profile's type) and a new agreement version snapshots them, for the
+    partner to sign. Gold → Silver: a Silver partner refers and sees no tenant
+    data, so each tenant it resells becomes a referred customer of the same
+    partner from now — attribution and any ``commission_until`` kept, its
+    grants revoked, the business under the platform (I-47). Silver → Gold
+    changes no customer: referred ones stay with BCL until staff reassign them.
+    """
+    from src.common.admin_audit import record_admin_change
+    from src.partners import assignments
+    from src.partners.models import PartnerAssignment
+
+    if (await db.get(PartnerType, partner_type)) is None:
+        raise HTTPException(status_code=422, detail="the partner type is SILVER or GOLD")
+    before = profile.partner_type
+    if partner_type == before:
+        raise HTTPException(status_code=409, detail=f"the partner is {before} already")
+    if profile.status == "terminated":
+        raise HTTPException(status_code=409, detail="a terminated partnership cannot change type")
+    converted = []
+    if partner_type == "SILVER":
+        resold = (await db.execute(select(PartnerAssignment).where(
+            PartnerAssignment.partner_id == profile.company_id, PartnerAssignment.until.is_(None),
+            PartnerAssignment.relationship == "resold"))).scalars().all()
+        for row in resold:
+            await assignments.reassign(db, tenant_id=row.tenant_id, partner_id=profile.company_id,
+                                       relationship="referred", effective_from=None, actor=actor,
+                                       commission_until=row.commission_until,
+                                       reason=f"partner type {before} → {partner_type}: {reason}")
+            converted.append(row.tenant_id)
+    profile.partner_type, profile.updated_at = partner_type, datetime.utcnow()
+    agreement = await new_agreement(db, profile)
+    record_admin_change(db, actor=actor, action="set", object_type="partner_type",
+                        object_key=str(profile.company_id), target_company_id=profile.company_id,
+                        old_value={"partner_type": before},
+                        new_value={"partner_type": partner_type, "agreement_version": agreement.version,
+                                   "referred_now": len(converted)}, reason=reason)
+    await notify_partner(profile.company_id, kind="partner.type_changed",
+                         title=f"Your partnership is now {partner_type.title()}",
+                         body="Please review and sign the new agreement.")
+    return {"partner_type": partner_type, "agreement_version": agreement.version,
+            "converted_to_referred": [str(t) for t in converted]}
+
+
 async def sign(db: Any, profile: PartnerProfile, user: Any) -> PartnerAgreement:
     """The partner's admin signs its agreement; with no fee due, the partnership starts."""
     from src.partners.fees import fee_due

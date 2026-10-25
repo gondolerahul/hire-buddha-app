@@ -231,13 +231,17 @@ BILLING_EVENT_UNIQUE_KEY = "uq_billing_events_period_grouping"
 
 class BillingEvent(ControlBase):
     """
-    Monthly aggregated billing records for costing and billing reports.
-    Populated by cron job on the 1st of each month and on task completion.
+    Monthly billing records from before billing lines (Phase 15 T3-8).
+
+    Read-only: nothing writes or reads this table since T3-8 — settlement adds
+    to ``BillingLine`` and every report reads that. The rows stay one release
+    for reference and the table is dropped with the other old billing tables
+    (plan §4 step 10).
     """
     __tablename__ = "billing_events"
-    # One row per company, month and grouping; record_billing_event upserts on
-    # it. NULL groupings count as equal (Postgres 15+), or two ungrouped rows
-    # for the same month would both be allowed (DM-04).
+    # One row per company, month and grouping. NULL groupings count as equal
+    # (Postgres 15+), or two ungrouped rows for the same month would both be
+    # allowed (DM-04).
     __table_args__ = (
         UniqueConstraint(
             "company_id", "period_month", "grouping_type", "grouping_value",
@@ -408,8 +412,7 @@ class BillingLine(ControlBase):
 
     Upserted when usage is settled: the rows' cost, billed USD and billed amount
     in the company's currency at the rate locked for that settlement. It
-    replaces ``billing_events`` for reporting (T3-8); monthly views roll up
-    from it. ``grouping_id`` is the entity's (or agent's) id, not its name, so
+    replaced ``billing_events`` (T3-8); monthly views roll up from it. ``grouping_id`` is the entity's (or agent's) id, not its name, so
     renaming an agent keeps one group.
     """
     __tablename__ = "billing_lines"

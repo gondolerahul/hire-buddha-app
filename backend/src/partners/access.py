@@ -13,6 +13,8 @@ A ``partner_user`` never gets more than read and support (07 §6). A tenant the
 partner created gets an ``admin`` grant with no expiry; the tenant's admins
 see, approve, renew and revoke grants (``/api/v1/settings/partner-access``).
 Every request made under a grant is recorded (``partner_access_events``).
+A request that names the tenant in its body or query instead of the header
+goes through the same check (``check_target``).
 
 A tenant attributed to the partner only through ``parent_id`` — no
 assignment and no grant ever (rows made before the programme) — is acted in
@@ -118,6 +120,18 @@ async def check_acting(db: Any, *, user: Any, tenant_id: UUID, method: str, path
                                               f"does not allow this."})
     await record(partner_id=partner_id, user_id=user.id, tenant_id=tenant_id, grant_id=grant.id if grant else None,
                  method=method, path=path)
+
+
+async def check_target(db: Any, *, user: Any, company_id: Optional[UUID], method: str, path: str) -> None:
+    """The grant check for a request that names its tenant in the body or query
+    rather than ``X-Company-Id`` (an agent created for a tenant, a tenant's
+    people): the same rule either way. Nothing for anyone but a partner's
+    people, or for the partner's own company."""
+    if company_id is None or company_id == user.company_id:
+        return
+    if str(user.role) not in ("partner_admin", "partner_user"):
+        return
+    await check_acting(db, user=user, tenant_id=company_id, method=method, path=path)
 
 
 async def record(*, partner_id: UUID, user_id: UUID, tenant_id: UUID, grant_id: Optional[UUID], method: str,

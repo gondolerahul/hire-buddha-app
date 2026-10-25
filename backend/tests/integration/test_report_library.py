@@ -107,6 +107,8 @@ async def test_a_business_sees_its_own_billed_amounts_in_its_currency_and_no_cos
     body = res.json()
     assert body["currency"] == "INR" and _billed(body) == D("10000")
     assert not any(c.get("cost") for c in body["columns"]) and "cost_usd" not in res.text
+    [category] = [f for f in body["filters"] if f["key"] == "category"]
+    assert category["choice_labels"]["ai_models"] == "AI models"        # a label, not the raw key
 
 
 @pytest.mark.asyncio

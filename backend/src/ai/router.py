@@ -80,6 +80,9 @@ async def create_entity(
     if target_company_id:
         if not in_scope(await visible_company_ids(db, current_user), target_company_id):
             raise HTTPException(status_code=403, detail="Not authorized to create entities for this company")
+        from src.partners.access import check_target   # a partner: under an access grant (T8-4)
+        await check_target(db, user=current_user, company_id=target_company_id, method="POST",
+                           path="/api/v1/ai/entities")
         effective_company_id = target_company_id
 
     # The entity lives in its company's database; a template in the library's.

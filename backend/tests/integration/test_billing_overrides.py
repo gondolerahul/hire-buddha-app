@@ -22,7 +22,6 @@ from fastapi import FastAPI
 from src.ai.governance.tool_cost_resolver import ToolCostResolver
 from src.auth.dependencies import get_current_user
 from src.billing import billing_router
-from src.billing.billing_service import BillingService
 from src.common.database import get_db
 from src.config.models import IntegrationRegistry
 
@@ -57,16 +56,6 @@ async def test_a_companys_carrier_rate_is_its_row_billed_per_second(db):
     # 150 s at $0.01/min = $0.025, plus the model's $0.20 — not 3 started minutes.
     assert (usage.telephony_cost, usage.total_cost, usage.telephony_seconds) == (
         Decimal("0.025"), Decimal("0.225"), Decimal("150"))
-
-
-@pytest.mark.asyncio
-async def test_the_billing_event_records_the_cost_and_seconds_it_is_given(db):
-    company = await _company(db)
-    event = await BillingService(db).record_billing_event(
-        company_id=company, base_cost=Decimal("0.225"), grouping_type="agent",
-        grouping_value="a", telephony_out_seconds=Decimal("150"), event_category="telephony")
-    assert Decimal(str(event.base_cost)) == Decimal("0.225")
-    assert Decimal(str(event.telephony_out_seconds)) == Decimal("150")
 
 
 @pytest.mark.asyncio

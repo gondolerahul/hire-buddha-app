@@ -38,7 +38,11 @@ export interface TenantSummary {
     onboarding_status: string;
     health_score: number;
     health_level: 'green' | 'amber' | 'red';
+    /** USD at today's rate (the health score's figure). */
     wallet_balance: number;
+    /** The wallet as the business sees it: `wallet_available` (and `daily_credits`) in `wallet_currency`. */
+    wallet_currency?: string;
+    wallet_available?: number;
     daily_credits: number;
     integration_count: number;
     entity_count: number;
@@ -74,7 +78,10 @@ export interface PartnerAnalytics {
     /** What the tenants were billed, in the viewer's currency (`billed_currency`). */
     total_billed_usd?: number;
     billed_currency?: string;
+    /** USD at today's rate; `wallet_balance_local` is the same in the viewer's `wallet_currency`. */
     total_wallet_balance: number;
+    wallet_balance_local?: number;
+    wallet_currency?: string;
     active_tenants: number;
     suspended_tenants: number;
 }

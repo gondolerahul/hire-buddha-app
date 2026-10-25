@@ -307,9 +307,12 @@ const HomeRedirect: React.FC = () => {
 };
 
 const DirectoryRedirect: React.FC = () => {
-    const { user } = useAuth();
-    const to = user?.role === 'app_admin' || user?.role === 'app_user' ? '/console/companies'
-        : user?.role === 'partner_admin' ? '/partner/tenants' : '/settings/team';
+    const { user, loading } = useAuth();
+    // Wait for the person: on a fresh page load `user` is null at first, which sent everyone to /settings/team.
+    if (loading) return <PageLoader />;
+    const to = !user ? '/login'
+        : user.role === 'app_admin' || user.role === 'app_user' ? '/console/companies'
+        : user.role === 'partner_admin' ? '/partner/tenants' : '/settings/team';
     return <Navigate to={to} replace />;
 };
 

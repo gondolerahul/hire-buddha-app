@@ -24,7 +24,11 @@ from src.billing.wallet import WalletService
 from tests.harness.wallet import available
 
 pytestmark = pytest.mark.needs_db
-NOON_UTC = datetime(2026, 10, 24, 6, 30)        # 12:00 in Asia/Kolkata
+# 12:00 in Asia/Kolkata tomorrow: the wallet spends at the real clock, so a lot granted for this local
+# date must not have expired by then (it ends at the next IST midnight), whatever day the suite runs.
+_TOMORROW = datetime.utcnow().date() + timedelta(days=1)
+NOON_UTC = datetime(_TOMORROW.year, _TOMORROW.month, _TOMORROW.day, 6, 30)
+NEXT_IST_MIDNIGHT = NOON_UTC + timedelta(hours=12)              # 18:30 UTC
 
 
 @pytest.fixture(autouse=True)
@@ -123,16 +127,16 @@ async def test_one_grant_per_local_date_replacing_yesterdays_at_local_midnight(d
     await _policy(db, "direct", [(1, 365, "1.00")], 365)
     company = await _company(db)
     today, day, midnight = local_day(company.created_at, company.timezone, NOON_UTC)
-    assert midnight == datetime(2026, 10, 24, 18, 30)                       # 00:00 IST in UTC
+    assert midnight == NEXT_IST_MIDNIGHT                                    # 00:00 IST in UTC
     assert await grant_today(db, company.id, now=NOON_UTC) is not None
     assert await grant_today(db, company.id, now=NOON_UTC + timedelta(hours=5)) is None   # still the 24th in IST
     await WalletService(db).deduct(company.id, Decimal("30"), source_type="test")
-    after_midnight = datetime(2026, 10, 24, 18, 31)
+    after_midnight = NEXT_IST_MIDNIGHT + timedelta(minutes=1)
     assert await grant_today(db, company.id, now=after_midnight) is not None
     lots = (await db.execute(select(WalletLot).where(WalletLot.company_id == company.id)
                              .order_by(WalletLot.granted_at))).scalars().all()
     assert [(lot.local_date.isoformat(), lot.remaining) for lot in lots] == [
-        ("2026-10-24", Decimal("0")), ("2026-10-25", Decimal("100"))]
+        (_TOMORROW.isoformat(), Decimal("0")), ((_TOMORROW + timedelta(days=1)).isoformat(), Decimal("100"))]
     expired = (await db.execute(select(WalletEntry.amount).where(
         WalletEntry.lot_id == lots[0].id, WalletEntry.kind == "expire"))).scalars().all()
     assert expired == [Decimal("-70")]                                    # ₹70 unspent, never carried over

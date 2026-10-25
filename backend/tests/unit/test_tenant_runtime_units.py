@@ -57,9 +57,11 @@ def test_a_tenant_app_becomes_a_locked_down_deployment_and_its_neighbours():
 def test_a_tenant_app_runs_on_the_apps_pool_when_there_is_one(monkeypatch):
     """Slice 4 (D53): the apps node pool's label and taint; without APPS_NODE_POOL, anywhere."""
     pod = lambda: controller.deployment(_cr())["spec"]["template"]["spec"]  # noqa: E731
-    monkeypatch.delenv("APPS_NODE_POOL", raising=False)
+    from src.common.config import settings
+
+    monkeypatch.setattr(settings, "APPS_NODE_POOL", "")
     assert "nodeSelector" not in pod() and "tolerations" not in pod()
-    monkeypatch.setenv("APPS_NODE_POOL", "apps")
+    monkeypatch.setattr(settings, "APPS_NODE_POOL", "apps")
     assert pod()["nodeSelector"] == {"hb/pool": "apps"}
     assert pod()["tolerations"] == [{"key": "hb/pool", "operator": "Equal", "value": "apps", "effect": "NoSchedule"}]
 

@@ -185,7 +185,7 @@ async def test_a_tenants_run_is_settled_once_in_the_control_database(tenants):
     from src.ai.governance.governance_service import GovernanceService
     from src.ai.orm.execution import ExecutionRun
     from src.ai.orm.usage import UsageLog
-    from src.billing.billing_models import BillingEvent, BillingLine, CreditHold
+    from src.billing.billing_models import BillingLine, CreditHold
     from src.common.tenancy.session import control_session, tenant_session
     from tests.harness.wallet import available, undo_entries
 
@@ -218,9 +218,9 @@ async def test_a_tenants_run_is_settled_once_in_the_control_database(tenants):
         async with control_session() as db:
             hold = (await db.execute(select(CreditHold).where(CreditHold.run_id == run_id))).scalar_one()
             assert hold.settled_at is not None and Decimal(str(hold.billed_amount)) == billed
-            [event] = (await db.execute(select(BillingEvent.total_billing).where(
-                BillingEvent.company_id == beta.company_id, BillingEvent.grouping_value == name))).scalars().all()
-            assert Decimal(str(event)) == billed
+            [line] = (await db.execute(select(BillingLine.billed_usd).where(
+                BillingLine.company_id == beta.company_id, BillingLine.grouping_id == entity_id))).scalars().all()
+            assert Decimal(str(line)) == billed
             row = (await db.execute(select(UsageLog).where(UsageLog.run_id == run_id))).scalar_one()
             assert row.settlement_id is not None and Decimal(str(row.billed_ccy)) == Decimal(str(hold.billed_ccy))
             assert before - await available(db, beta.company_id) == Decimal(str(hold.billed_ccy))
@@ -232,8 +232,6 @@ async def test_a_tenants_run_is_settled_once_in_the_control_database(tenants):
             await db.execute(delete(BillingLine).where(BillingLine.company_id == beta.company_id,
                                                        BillingLine.grouping_id == entity_id))
             await db.execute(delete(CreditHold).where(CreditHold.run_id == run_id))
-            await db.execute(delete(BillingEvent).where(BillingEvent.company_id == beta.company_id,
-                                                        BillingEvent.grouping_value == name))
             await db.commit()
         async with tenant_session(beta.company_id) as db:
             await _drop_entity(db, entity_id)

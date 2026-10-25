@@ -3,8 +3,8 @@
 When usage is settled, its rated rows (``src.billing.rating``) are summed by
 category and added to the day's line for that grouping — in USD and in the
 company's billing currency at the rate locked for the settlement (FX-4).
-``billing_lines`` replaces ``billing_events`` for reporting (T3-8); until then
-both are written. One ``INSERT … ON CONFLICT`` adds to a line, so concurrent
+``billing_lines`` replaced ``billing_events`` (T3-8): it is the only record of
+what was billed, and every report reads it. One ``INSERT … ON CONFLICT`` adds to a line, so concurrent
 settlements cannot lose an increment.
 """
 from __future__ import annotations

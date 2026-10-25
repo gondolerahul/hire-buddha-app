@@ -28,7 +28,7 @@ from src.auth import partner_router
 from src.auth.dependencies import get_current_user
 from src.auth.models import Company
 from src.auth.tenant_health import TenantSignals, score
-from src.billing.billing_models import BillingEvent
+from src.billing.billing_models import BillingLine
 from src.common.database import get_db
 
 pytestmark = pytest.mark.needs_db
@@ -100,8 +100,9 @@ async def portfolio(db):
     last_month = date(today.year - (today.month == 1), (today.month - 2) % 12 + 1, 1)
     for company, month, billed in [(busy, this_month, "12.50"), (busy, last_month, "7.25"),
                                    (quiet, last_month, "3.00"), (elsewhere, this_month, "99.00")]:
-        db.add(BillingEvent(company_id=company.id, period_month=month, grouping_type="process",
-                            grouping_value="x", base_cost=Decimal("1"), total_billing=Decimal(billed)))
+        db.add(BillingLine(company_id=company.id, period_day=month.replace(day=2), category="ai_models",
+                           grouping_type="entity", currency="INR", cost_usd=Decimal("1"),
+                           billed_usd=Decimal(billed), billed_ccy=Decimal(billed) * 100))
     await db.flush()
     return SimpleNamespace(partner=partner, busy=busy, quiet=quiet, elsewhere=elsewhere)
 
@@ -129,6 +130,8 @@ async def test_a_child_run_is_not_counted_twice_and_every_bucket_is_credit(db, p
     assert summary["total_executions"] == 2                    # two top-level runs
     assert summary["total_cost_usd"] == 1.5                     # 1.00 + 0.50, not + 0.40 again
     assert summary["total_wallet_balance"] == 10.0              # 1 + 2 + 3 + 4
+    # Shown in the viewer's own currency, not a "$" figure (T9-3): this partner bills in USD.
+    assert (summary["wallet_currency"], summary["wallet_balance_local"]) == ("USD", 10.0)
 
 
 @pytest.mark.asyncio
@@ -144,3 +147,4 @@ async def test_both_screens_give_a_tenant_the_same_health(db, portfolio):
     # 2 runs this week (6) + 1 of 2 completed (15) + USD 10 of credit (25) + 1 agent (3)
     assert (busy["health_score"], busy["entity_count"], busy["recent_executions_7d"]) == (49.0, 1, 2)
     assert busy["wallet_balance"] == 10.0
+    assert (busy["wallet_currency"], busy["wallet_available"]) == ("USD", 10.0)    # as the business sees it

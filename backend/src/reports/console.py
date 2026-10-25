@@ -79,7 +79,7 @@ def select_lots(kind: str) -> Any:
 
 @report(id="R-A02", title="Revenue & margin", description="Billed, cost and margin by category and company",
         workspaces=C, staff_functions=FIN, group="Finance",
-        filters=(Filter("category", "Category", "choice", tuple(CATEGORY_LABEL)),))
+        filters=(Filter("category", "Category", "choice", tuple(CATEGORY_LABEL), CATEGORY_LABEL),))
 async def revenue_margin(ctx: Context) -> Report:
     from src.billing.billing_models import BillingLine as L
 

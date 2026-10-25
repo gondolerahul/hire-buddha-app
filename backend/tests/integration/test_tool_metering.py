@@ -20,7 +20,7 @@ from src.ai.orm import ExecutionRun, HierarchicalEntity, LLMInteractionLog
 from src.ai.orm.usage import UsageLog
 from src.ai.step_executor import StepExecutorService
 from src.ai.usage_service import UsageService
-from src.billing.billing_models import BillingEvent
+from src.billing.billing_models import BillingLine
 from src.config.models import IntegrationRegistry
 
 pytestmark = pytest.mark.needs_db
@@ -140,8 +140,8 @@ async def test_the_image_tool_no_longer_bills_the_wallet_itself(db):
         assert name not in source.split("# No billing here")[0], name
     company, run = await _tenant_run(db)
     await _executor(db, company)._charge_tool(run, "image_generation")
-    events = (await db.execute(select(BillingEvent).where(BillingEvent.company_id == company))).scalars().all()
-    assert events == []
+    lines = (await db.execute(select(BillingLine).where(BillingLine.company_id == company))).scalars().all()
+    assert lines == []
 
 
 @pytest.mark.asyncio

@@ -111,7 +111,7 @@ export const ReportShell: React.FC<{ reportId: string; companyId?: string; embed
                         {f.choices.length ? (
                             <select value={query[f.key] ?? ''} onChange={e => setQuery({ ...query, [f.key]: e.target.value || undefined })}>
                                 <option value="">All</option>
-                                {f.choices.map(c => <option key={c} value={c}>{c}</option>)}
+                                {f.choices.map(c => <option key={c} value={c}>{f.choice_labels?.[c] ?? c}</option>)}
                             </select>
                         ) : (
                             <input type="text" value={query[f.key] ?? ''} onChange={e => setQuery({ ...query, [f.key]: e.target.value || undefined })} />

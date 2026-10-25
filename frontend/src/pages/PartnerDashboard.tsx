@@ -1,4 +1,4 @@
-import { formatBilled } from '@/utils/money';
+import { formatBilled, formatMoney } from '@/utils/money';
 import React, { useState, useEffect, useCallback } from 'react';
 import { partnerService, TenantSummary, PartnerAnalytics } from '@/services/platform.service';
 import './PartnerDashboard.css';
@@ -71,7 +71,9 @@ const PartnerDashboard: React.FC = () => {
                     </div>
                     <div className="partner-stat-card wallet">
                         <div className="stat-label">Combined Balance</div>
-                        <div className="stat-value">${analytics.total_wallet_balance.toFixed(2)}</div>
+                        <div className="stat-value">{analytics.wallet_currency
+                            ? formatMoney(analytics.wallet_balance_local ?? 0, analytics.wallet_currency)
+                            : formatMoney(analytics.total_wallet_balance, 'USD')}</div>
                         <div className="stat-sub">Aggregate wallet balance</div>
                     </div>
                     <div className="partner-stat-card cost">
@@ -171,11 +173,13 @@ const PartnerDashboard: React.FC = () => {
                             <h4>💰 Billing</h4>
                             <div className="detail-row">
                                 <span className="label">Wallet Balance</span>
-                                <span className="value">${selectedTenant.wallet_balance?.toFixed(2) || '0.00'}</span>
+                                <span className="value">{selectedTenant.wallet_currency
+                                    ? formatMoney(selectedTenant.wallet_available ?? 0, selectedTenant.wallet_currency)
+                                    : formatMoney(selectedTenant.wallet_balance ?? 0, 'USD')}</span>
                             </div>
                             <div className="detail-row">
                                 <span className="label">Daily Credits</span>
-                                <span className="value">${selectedTenant.daily_credits?.toFixed(2) || '0.00'}</span>
+                                <span className="value">{formatMoney(selectedTenant.daily_credits ?? 0, selectedTenant.wallet_currency ?? 'USD')}</span>
                             </div>
                         </div>
 

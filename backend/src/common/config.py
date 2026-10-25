@@ -135,6 +135,9 @@ class Settings(BaseSettings):
     LLM_RETRY_BASE_SECONDS: float = 1.0
     LLM_RETRY_MAX_DELAY_SECONDS: float = 30.0
     WAITING_ON_CHILDREN_TIMEOUT_SECONDS: int = 3600
+    # Per-field ceiling of a run's trace payloads (bytes): full capture is the
+    # default, this only truncates one pathological multi-MB blob.
+    TRACE_MAX_FIELD_BYTES: int = 1024 * 1024
 
     # Phase 12 `02` S4 — per-tenant container sandbox. ON by default (TL-01,
     # D29): model-written code runs in the company's container, never as the
@@ -410,6 +413,9 @@ class Settings(BaseSettings):
     APP_RUNTIME: str = ""
     # Hostnames: <app>-<slug>.apps.<APPS_DOMAIN>; previews expire after this many days.
     APPS_DOMAIN: str = "apps.localhost"
+    # The node pool tenant apps run on (its label and taint ``hb/pool``, slice 4
+    # D53); empty runs them anywhere.
+    APPS_NODE_POOL: str = ""
     APP_PREVIEW_DAYS: int = 7
     # Sleep mode (to zero when idle) needs KEDA's HTTP add-on in the cluster (SP-9).
     # Off: an app set to sleep, and every preview, runs always on with one replica.
@@ -540,8 +546,8 @@ settings = _load_settings()
 # Variables something other than Settings reads (os.environ), so they are not
 # unknown: tooling, the platform, and the seed scripts.
 NON_SETTINGS_ENV = frozenset({
-    "SETTINGS_SECRETS_DIR", "HB_ALEMBIC_INI", "HB_MIGRATION_URL", "ARTIFACTS_DIR", "APPS_NODE_POOL",
-    "TRACE_MAX_FIELD_BYTES", "INSTANCE_ID", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+    "SETTINGS_SECRETS_DIR", "HB_ALEMBIC_INI", "HB_MIGRATION_URL", "ARTIFACTS_DIR",
+    "INSTANCE_ID", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
     "VERTEX_PROJECT_ID", "VERTEX_REGION",
 })
 NON_SETTINGS_PREFIXES = ("AI_FLAG_", "OTEL_", "KUBERNETES_", "PYTHON", "VITE_")

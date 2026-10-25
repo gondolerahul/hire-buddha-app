@@ -804,6 +804,9 @@ async def assign_agent(
                 status_code=403,
                 detail="Agent must belong to your company or one of your tenants"
             )
+        from src.partners.access import check_target   # a tenant's agent: under an access grant (T8-4)
+        await check_target(db, user=current_user, company_id=agent.company_id, method="POST",
+                           path="/api/v1/phone-numbers/assign")
     else:
         # Regular users: agent must belong to the same company as the phone number
         if entry.company_id and agent.company_id != entry.company_id:

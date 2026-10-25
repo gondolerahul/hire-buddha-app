@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -42,6 +41,7 @@ from typing import Any, AsyncIterator, Optional
 from uuid import UUID
 
 from src.ai.core.run_stream import publish_run_event
+from src.common.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ __all__ = [
 # Per-field payload safety ceiling. Full capture is the default; this only
 # guards against a single pathological multi-MB blob (a scraped page, a base64
 # image) exceeding sane row sizes.
-TRACE_MAX_FIELD_BYTES = int(os.getenv("TRACE_MAX_FIELD_BYTES", str(1 * 1024 * 1024)))
+TRACE_MAX_FIELD_BYTES = settings.TRACE_MAX_FIELD_BYTES
 
 _RECORDER: ContextVar[Optional["TraceRecorder"]] = ContextVar(
     "hb_trace_recorder", default=None

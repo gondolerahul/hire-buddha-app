@@ -12,7 +12,8 @@ export interface ReportData {
     currency: string;
     as_of: string;
     period: { from: string; to: string } | null;
-    filters: Array<{ key: string; label: string; kind: string; choices: string[] }>;
+    /** ``choice_labels`` names each choice on screen (its key when absent). */
+    filters: Array<{ key: string; label: string; kind: string; choices: string[]; choice_labels?: Record<string, string> }>;
     tiles: ReportTile[];
     chart: ReportChart | null;
     columns: ReportColumn[];

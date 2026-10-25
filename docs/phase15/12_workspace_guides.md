@@ -63,7 +63,7 @@
 | Area | What it is for | Functions |
 |---|---|---|
 | Directory: Companies, Company 360, Users, Workspaces | Every company; one company's status, wallet, plan, partner, people, revenue, runs and change history; *Work in this business* opens its Business Workspace as its admin (audited) | support, sales, finance |
-| Partners: network, applications, leads, rules | The programme: applications and underwriting, partner 360, commission and fee rules, the simulator | sales (rules: app_admin) |
+| Partners: network, applications, leads, rules | The programme: applications and underwriting, partner 360 (status, KYC, a type change Silver ↔ Gold, customers and their moves), commission and fee rules, the simulator | sales (rules and changes: app_admin) |
 | Money: plans, pricing, formula, daily credits, currency, wallet policy, tax | Commercial settings — every change audited, with a reason | app_admin |
 | Finance: revenue, receivables, payments, payouts, liability, shadow | Revenue and margin, who owes, payments and refunds, partner statements, credit sold but not used, the v1/v2 comparison | finance |
 | Operations: runs, approvals, calls, numbers, apps, automation, health | Oversight of what runs on the platform | ops, support |

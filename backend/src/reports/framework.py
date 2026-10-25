@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -69,6 +69,7 @@ class Filter:
     label: str
     kind: str = "text"          # text | choice | company
     choices: Sequence[str] = ()
+    labels: Mapping[str, str] = field(default_factory=dict)   # a choice's name on screen (the key if none)
 
 
 @dataclass
@@ -253,7 +254,8 @@ def to_payload(definition: ReportDef, ctx: Context, built: Report) -> Dict[str, 
         "id": definition.id, "title": definition.title, "description": definition.description,
         "currency": ctx.currency, "as_of": datetime.utcnow().isoformat(),
         "period": {"from": ctx.start.isoformat(), "to": (ctx.end - timedelta(days=1)).isoformat()} if definition.period else None,
-        "filters": [{"key": f.key, "label": f.label, "kind": f.kind, "choices": list(f.choices)} for f in definition.filters],
+        "filters": [{"key": f.key, "label": f.label, "kind": f.kind, "choices": list(f.choices),
+                     "choice_labels": {c: f.labels.get(c, c) for c in f.choices}} for f in definition.filters],
         "tiles": [{"label": t.label, "value": jsonable(t.value), "kind": t.kind, "hint": t.hint, "cost": t.cost,
                    "tone": t.tone} for t in built.tiles],
         "chart": None if built.chart is None else {

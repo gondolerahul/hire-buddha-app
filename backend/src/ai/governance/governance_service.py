@@ -13,7 +13,6 @@ from uuid import UUID
 from sqlalchemy import select
 
 from src.billing.credit_service import CreditService, InsufficientCreditsError, SpendCapReached
-from src.billing.billing_service import BillingService
 from src.billing.formulas import formula_for_run
 from src.ai.orm import HumanApproval, ExecutionRun
 from src.ai.schemas import HITLCheckpoint, HITLTriggerType, StepType, PlanStep
@@ -34,7 +33,6 @@ class GovernanceService:
         self.db = db
         self.redis = redis
         self.credit_service = CreditService(db)
-        self.billing_service = BillingService(db)
 
     # ------------------------------------------------------------------
     # Credit gate, hold and circuit breaker (BC-05, BC-06)
@@ -155,7 +153,7 @@ class GovernanceService:
         if run.parent_run_id:
             return Decimal("0")  # Only top-level runs settle
         try:
-            return await self._settle(run, entity_name)
+            return await self._settle(run)
         finally:
             # The run is finished: its hold stops reserving credit (BC-06).
             try:
@@ -163,10 +161,10 @@ class GovernanceService:
             except Exception as e:
                 logger.warning(f"Could not release the credit hold of run {run.id}: {e}")
 
-    async def _settle(self, run: 'ExecutionRun', entity_name: str) -> Decimal:
+    async def _settle(self, run: 'ExecutionRun') -> Decimal:
         """The control side of a settlement, in one control transaction (WS2
-        2.6): claim the run's settlement, charge its rows, record the billing
-        event — or nothing at all when the run was settled before. A failure
+        2.6): claim the run's settlement, charge its rows and add them to the
+        day's billing lines — or nothing at all when the run was settled before. A failure
         leaves the rows unsettled for the hourly job (T3-6)."""
         from src.billing.enforcement import wallet_changed
         from src.billing.settlement import settle_run
@@ -181,11 +179,6 @@ class GovernanceService:
                     # run's own session, which a rollback would expire.
                     logger.warning(f"Run {run.id} is already settled; not charged again")
                     return Decimal("0")
-                if settled.cost_usd > 0:
-                    # Billing events stay for the reports until billing lines replace them (T3-8).
-                    await BillingService(control).record_billing_event(
-                        company_id=run.company_id, base_cost=settled.cost_usd, grouping_type="process",
-                        grouping_value=entity_name, other_ai_cost=settled.cost_usd, commit=False)
                 await control.commit()
                 change = settled.change
             run.billed_amount = settled.billed_usd

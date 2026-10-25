@@ -58,11 +58,12 @@ async def request_workspace(company_id) -> None:
         logger.exception("Workspace provisioning not requested for company %s", company_id)
 
 
-async def _require_user_admin_over(db: AsyncSession, actor: User, company_id) -> None:
+async def _require_user_admin_over(db: AsyncSession, actor: User, company_id, method: str = "POST") -> None:
     """403 unless ``actor`` administers users of ``company_id``.
 
     app_admin: every company. partner_admin: its own company and the tenants it
-    resells (Phase 15 T8-3: never a referred customer's or a sub-partner's).
+    resells (Phase 15 T8-3: never a referred customer's or a sub-partner's),
+    under an access grant that allows ``method`` (T8-4, as with ``X-Company-Id``).
     tenant_admin: its own company. Anyone else: no company.
     """
     if actor.role == Role.APP_ADMIN:
@@ -72,8 +73,10 @@ async def _require_user_admin_over(db: AsyncSession, actor: User, company_id) ->
     if actor.role == Role.PARTNER_ADMIN:
         if company_id == actor.company_id:
             return
+        from src.partners.access import check_target
         from src.partners.scope import data_scope
         if company_id in await data_scope(db, actor.company_id):
+            await check_target(db, user=actor, company_id=company_id, method=method, path="/api/v1/users")
             return
     raise HTTPException(status_code=403, detail="Not authorized to manage users of this company")
 
@@ -146,7 +149,7 @@ async def update_user_as_admin(db: AsyncSession, user_id: uuid.UUID, update: Use
     if not is_self or set(changes) - {"full_name"}:
         if actor.role not in USER_ADMIN_ROLES:
             raise HTTPException(status_code=403, detail="Not authorized to update this user")
-        await _require_user_admin_over(db, actor, user.company_id)
+        await _require_user_admin_over(db, actor, user.company_id, method="PATCH")
         allowed = assignable_roles(actor.role)
         if not is_self and user.role not in allowed:
             raise HTTPException(status_code=403, detail=f"A {actor.role} cannot manage a {user.role}")

@@ -1,8 +1,8 @@
 """The costing and billing reports expose raw provider cost — app_admin only (PO-04).
 
-Both routes return BillingEvent rows carrying ``base_cost``; with the platform's
-multiplier known, that is the margin. Billing events are recorded under the
-tenant company that ran the work, so the app_admin view spans every company
+Both routes return billing lines carrying ``cost_usd`` (Phase 15 T3-8); with
+the platform's multiplier known, that is the margin. Lines are recorded under
+the tenant company that ran the work, so the app_admin view spans every company
 unless a ``company_id`` filter is given.
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ def calls(monkeypatch):
         recorded.append({"company_id": company_id, "grouping_type": grouping_type})
         return []
 
-    monkeypatch.setattr(billing_router_module.BillingService, "get_costing_report", fake_report)
+    monkeypatch.setattr(billing_router_module.BillingService, "get_billing_lines", fake_report)
 
     async def no_earnings(db, period_month, company_id):     # partners' earnings, from the ledger (T8-12)
         return 0.0
@@ -79,7 +79,7 @@ async def test_non_app_admin_is_refused(role, path, calls):
 async def test_app_admin_sees_every_company_by_default(path, calls):
     res = await _get(_make_app("app_admin", calls), path)
     assert res.status_code == 200
-    # Not scoped to the APP company — tenant events live under tenant companies.
+    # Not scoped to the APP company — tenant lines live under tenant companies.
     assert calls == [{"company_id": None, "grouping_type": None}]
 
 

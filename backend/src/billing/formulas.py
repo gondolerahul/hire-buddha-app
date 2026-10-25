@@ -38,19 +38,6 @@ class Formula:
         """The billed amount for ``cost`` USD — exact, no rounding."""
         return Decimal(str(cost)) * self.mf * (1 + self.pf - self.d)
 
-    def breakdown(self, cost: Any) -> dict:
-        """The parts a billing event records (``billing_events`` columns)."""
-        c = Decimal(str(cost))
-        multiplied = c * self.mf
-        return {
-            "base_cost": c,
-            "multiplied_cost": multiplied,
-            "platform_fee_amount": multiplied * self.pf,
-            "partner_fee_amount": Decimal("0"),
-            "discount_amount": multiplied * self.d,
-            "total_billing": self.rate(c),
-        }
-
 
 IDENTITY = Formula(Decimal(1), Decimal(0), Decimal(0))
 

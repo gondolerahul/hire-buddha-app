@@ -107,7 +107,7 @@ async def lines_since(ctx: Context, days: int) -> Decimal:
 
 @report(id="R-T02", title="Usage & charges", description="Billed by category, AI employee and day; calls per second",
         workspaces=B, roles=ADMIN, group="Billing",
-        filters=(Filter("category", "Category", "choice", tuple(CATEGORY_LABEL)),))
+        filters=(Filter("category", "Category", "choice", tuple(CATEGORY_LABEL), CATEGORY_LABEL),))
 async def usage(ctx: Context) -> Report:
     from src.billing.billing_models import BillingLine as L
 

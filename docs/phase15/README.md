@@ -1,6 +1,6 @@
 # Phase 15 — Configuration, costing & billing, and the partner module
 
-> **Status:** Analysis (01–04), plan (05–08); implementation under way — M15.0 Guardrails, M15.1 Money core, M15.2 Wallet and controls, M15.3 Commercial, M15.4 Partner programme and M15.5 New UI built; M15.6 Cutover tooling, runbooks (10, 11) and guides (12) built, production cutover pending (09).
+> **Status:** Analysis (01–04), plan (05–08); **build complete** — M15.0 Guardrails, M15.1 Money core, M15.2 Wallet and controls, M15.3 Commercial, M15.4 Partner programme, M15.5 New UI, and M15.6 Cutover tooling, runbooks (10, 11) and guides (12); the close-out (25 Oct) retired `billing_events` and added the browser journeys per role (09 §8). **Remaining: production operations** — the dry runs, the migration window, the shadow weeks, the switch-on and the customer notices (10) — then the drop release.
 > **Date:** 2026-10-22 (analysis) · 2026-10-23 (plan)
 > **Branch analysed:** `roadmap-development-defect-fixes` at `53be0bd`
 

@@ -126,7 +126,7 @@ async def test_get_costing_report(client: httpx.AsyncClient, app_admin_token):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert "events" in data if isinstance(data, dict) else isinstance(data, list)
+    assert "lines" in data and "totals" in data  # billing lines (Phase 15 T3-8)
 
 
 @pytest.mark.asyncio
@@ -137,8 +137,7 @@ async def test_get_billing_report(client: httpx.AsyncClient, app_admin_token):
     )
     assert resp.status_code == 200
     data = resp.json()
-    # Response may be {count, events, totals} or {period, details} depending on billing service
-    assert isinstance(data, dict)
+    assert isinstance(data, dict) and "lines" in data  # {lines, totals, count} from billing lines (T3-8)
 
 
 # ── Cron Jobs ────────────────────────────────────────────────────────────────

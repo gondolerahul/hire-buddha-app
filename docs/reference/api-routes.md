@@ -78,6 +78,7 @@
 | POST | `/api/v1/admin/partners/{partner_id}/agreement` | roles: app_admin | `src.partners.admin_router` |
 | PUT | `/api/v1/admin/partners/{partner_id}/kyc` | roles: app_admin | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/{partner_id}/status` | roles: app_admin | `src.partners.admin_router` |
+| POST | `/api/v1/admin/partners/{partner_id}/type` | roles: app_admin | `src.partners.admin_router` |
 | GET | `/api/v1/admin/payments` | staff: app_admin, app_user with finance | `src.billing.invoices_router` |
 | POST | `/api/v1/admin/payments/{payment_id}/refund` | roles: app_admin | `src.billing.invoices_router` |
 | GET | `/api/v1/admin/plans` | roles: app_admin | `src.billing.plans_router` |

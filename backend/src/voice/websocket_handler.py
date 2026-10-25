@@ -48,7 +48,6 @@ from src.voice.call_guards import (
     parse_disposition,
     parse_not_interested_reason,
 )
-from src.billing.billing_service import BillingService
 from src.common.config import settings
 from src.common.tenancy.session import control_session, is_split, tenant_session
 from decimal import Decimal
@@ -1715,32 +1714,6 @@ class BaseStreamHandler:
                             except Exception as ce:
                                 await session.rollback()
                                 logger.warning(f"Call settlement failed (the hourly job retries it): {ce}")
-
-                        # Fix #7: Pass event_category="telephony" so charges
-                        # appear in the correct report column
-                        try:
-                            # The seconds the usage row billed — exact (T1-4).
-                            billed_seconds = usage.telephony_seconds
-                            await BillingService(session).record_billing_event(
-                                company_id=self.voice_session.company_id,
-                                base_cost=cost_decimal,
-                                grouping_type="agent",
-                                grouping_value=str(self.voice_session.agent_id),
-                                telephony_out_seconds=(
-                                    billed_seconds
-                                    if self.voice_session.direction == "outbound"
-                                    else Decimal("0")
-                                ),
-                                telephony_in_seconds=(
-                                    billed_seconds
-                                    if self.voice_session.direction == "inbound"
-                                    else Decimal("0")
-                                ),
-                                event_category="telephony",
-                            )
-                        except Exception as be:
-                            logger.warning(f"Billing event recording failed: {be}")
-
 
                     if call_run is not None:
                         try:

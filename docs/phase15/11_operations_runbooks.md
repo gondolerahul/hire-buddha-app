@@ -66,6 +66,14 @@ A **platform-wide** problem (a billing bug making good customers owe) is handled
 3. **Terminated**: its tenants pass to HireBuddha direct, its grants are revoked and unpaid earnings are forfeited — say so to the partner in writing first.
 4. A partner whose annual fee lapses is suspended automatically after `partners.fee_grace_days`.
 
+### 5.1 Changing a partner's type (Silver ↔ Gold)
+
+1. **Console → Partners** → Partner 360 → *Make Silver* / *Make Gold*, with a reason (`POST /api/v1/admin/partners/{id}/type`; app_admin; audited as `partner_type`).
+2. The new type's commission and fee rules apply to payments **from now on**; earlier ledger entries keep their rates. A new agreement version snapshots the new rules, and the partner is told to sign it (*Partnership*).
+3. **Gold → Silver**: a Silver partner refers and sees no tenant data. Each tenant it resold becomes its **referred** customer from now: the attribution and any `commission_until` are kept, its access grants on the tenant are revoked, and the business moves under HireBuddha (`parent_id`). Tell the businesses that HireBuddha delivers from now on. Open setup or customisation fees it raised stay payable.
+4. **Silver → Gold**: nothing moves. Referred customers stay with HireBuddha. To let the partner resell one, move it with *Move* (relationship `resold`), which also gives the partner an `admin` grant.
+5. A terminated partner cannot change type.
+
 ---
 
 ## 6. Where to look

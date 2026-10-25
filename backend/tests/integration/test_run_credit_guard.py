@@ -157,10 +157,10 @@ async def test_other_runs_holds_count_against_the_breaker(db):
 @pytest.mark.asyncio
 async def test_a_run_settled_twice_is_charged_once(db):
     """Settlement is keyed by the run (Phase 14 WS2 2.6): the wallet deduction,
-    the billing event and the hold's settlement commit together, and settling
+    the billing lines and the hold's settlement commit together, and settling
     the same run again — a retried finalisation — charges nothing."""
     from src.ai.governance.governance_service import GovernanceService
-    from src.billing.billing_models import BillingEvent
+    from src.billing.billing_models import BillingLine
 
     company = await _company(db, "5")
     run, ent = await _run(db, company)
@@ -171,8 +171,8 @@ async def test_a_run_settled_twice_is_charged_once(db):
     await db.flush()
 
     async def _state():
-        billed = (await db.execute(select(BillingEvent.total_billing)
-                                   .where(BillingEvent.company_id == company)
+        billed = (await db.execute(select(BillingLine.billed_usd)
+                                   .where(BillingLine.company_id == company)
                                    .execution_options(populate_existing=True))).scalars().all()
         return await available(db, company), [Decimal(str(b)) for b in billed]
 
