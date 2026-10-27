@@ -74,8 +74,8 @@ class KeyVaultKeyEncryption:
         return result.key
 
     async def destroy(self, key_name: str) -> None:
+        # The async client deletes and waits in one call (the sync one returns a poller).
         try:
-            poller = await self._client().begin_delete_key(validate_key_name(key_name))
-            await poller.wait()
+            await self._client().delete_key(validate_key_name(key_name))
         except ResourceNotFoundError:
             return

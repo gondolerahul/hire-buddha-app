@@ -379,6 +379,23 @@ def teardown(world: World, extra_companies: List[uuid.UUID] = ()) -> Dict[str, A
         from src.offboarding.models import CompanyOffboarding
         return {i: (await db.get(CompanyOffboarding, uuid.UUID(i))).state for i in ids}
 
+    async def mark_test(db: Any) -> None:
+        """Companies made before the test flag, or a sign-up's: partners first, so their businesses may follow."""
+        from types import SimpleNamespace
+
+        from sqlalchemy import select
+
+        from src.auth.models import Company, User
+        from src.offboarding import service
+
+        staff = (await db.execute(select(User).where(User.email == world.emails.get("staff", "")))).scalar_one()
+        actor = SimpleNamespace(id=staff.id, role="app_admin", company_id=staff.company_id, email=staff.email)
+        for company_id in [*waves[1], *waves[0]]:
+            company = await db.get(Company, company_id)
+            if company is not None and not company.is_test:
+                await service.set_test(db, company_id, True, actor=actor, reason="journey teardown")
+
+    run(mark_test)
     for wave in waves:
         ids = run(lambda db, wave=wave: start(db, wave))
         if not world.split:
