@@ -9,17 +9,20 @@
   customer, and a second business it does **not** resell;
 * a Silver partner with an admin, and a customer it referred.
 
-Every name and address carries ``tag``. Locally (one shared database) each
-run uses a fresh tag and ``teardown`` deletes exactly those companies and
-users (``tests.harness.purge``).
+Every name and address carries ``tag``, and every company is a **test
+business** (``is_test``). ``teardown`` deletes them with the product's own
+immediate delete (docs/phase15/13 §10, decision D-7) — tenants first, then the
+partners — which removes their rows, people, files and, with split tenancy
+(Azure), their workspaces: database, namespace, identity, key. Locally the
+delete runs here; on Azure it runs on the provisioning queue (only the
+provisioner may remove what it made) and ``teardown`` waits until each is
+``erased``. Immediate delete must be switched on
+(``offboarding.immediate_delete_enabled``) where the journeys run.
 
-With split tenancy (Azure dev) a company's workspace — its database,
-namespace and identity — cannot be removed, so the journeys keep one set of
-companies under a fixed tag (``persistent``): ``build`` makes what is missing
-and has the provisioner set up each new workspace (waiting until it is
-``active``), and on every run puts back the state the journeys start from —
-the wallet, the partners' types, assignments, grants, agreement and
-commission. ``teardown`` then deletes nothing but a sign-up's company.
+With split tenancy ``build`` has the provisioner set up each new company's
+workspace and waits until it is ``active``. Run again with a tag that exists,
+``build`` reuses its companies and puts back the state the journeys start
+from (wallet, partner types, assignments, grants, agreement, commission).
 
 Each call runs on an engine of its own with no pool, so it can be driven by
 ``asyncio.run`` from a synchronous Playwright test, or in an API pod
@@ -52,7 +55,7 @@ class World:
     silver_customer: uuid.UUID
     emails: Dict[str, str] = field(default_factory=dict)       # role key -> e-mail
     names: Dict[str, str] = field(default_factory=dict)        # company key -> name
-    persistent: bool = False                                   # split tenancy: kept between runs
+    split: bool = False                                        # each company has its own workspace
     extra_companies: List[uuid.UUID] = field(default_factory=list)
 
     @property
@@ -127,7 +130,7 @@ async def _company(db: Any, name: str, kind: str, *, parent: Any = None, currenc
                           country_code="IN" if currency == "INR" else "US",
                           billing_state="KA" if currency == "INR" else None, onboarding_status="completed")
         db.add(company)
-    company.status, company.parent_id = "active", parent
+    company.status, company.parent_id, company.is_test = "active", parent, True
     await db.flush()
     return company
 
@@ -253,7 +256,7 @@ def build(tag: str) -> World:
             await _provision([c.id for c in companies])
         return World(tag=tag, business=business.id, gold=gold.id, gold_customer=gold_customer.id,
                      not_resold=not_resold.id, silver=silver.id, silver_customer=silver_customer.id,
-                     emails=emails, names=names, persistent=split())
+                     emails=emails, names=names, split=split())
 
     return run(work)
 
@@ -332,16 +335,129 @@ def pay(company_id: uuid.UUID, amount: str) -> None:
     run(work)
 
 
-def teardown(world: World, extra_companies: List[uuid.UUID] = ()) -> None:
-    """Delete the run's companies and people — locally. A persistent world stays for the next run."""
-    async def work(db: Any) -> None:
-        from tests.harness.purge import purge_companies
+TEARDOWN_TIMEOUT_SECONDS = 1200
 
-        conn = await db.connection()
-        if world.persistent:
-            await purge_companies(conn, list(extra_companies))
+
+def teardown(world: World, extra_companies: List[uuid.UUID] = ()) -> Dict[str, Any]:
+    """Delete the run's companies with the immediate delete — the businesses, then the partners once
+    nothing sits under them — and its staff user. Returns each offboarding's final state."""
+    waves = [[world.gold_customer, world.silver_customer, world.not_resold, world.business, *extra_companies],
+             [world.gold, world.silver]]
+    states: Dict[str, str] = {}
+
+    async def start(db: Any, wave: List[uuid.UUID]) -> List[str]:
+        from types import SimpleNamespace
+
+        from src.auth.models import Company, User
+        from src.billing.settings_catalogue import value
+        from src.offboarding import service
+        from sqlalchemy import select
+
+        if not await value(db, "offboarding.immediate_delete_enabled"):
+            raise RuntimeError("turn on offboarding.immediate_delete_enabled where the journeys run")
+        if world.split and extra_companies:
+            await _provision([c for c in extra_companies if c in wave])   # a sign-up's workspace finishes first
+        staff = (await db.execute(select(User).where(User.email == world.emails.get("staff", "")))).scalar_one()
+        actor = SimpleNamespace(id=staff.id, role="app_admin", company_id=staff.company_id, email=staff.email)
+        ids = []
+        for company_id in wave:
+            company = await db.get(Company, company_id)
+            if company is None:
+                continue
+            if not company.is_test:          # a sign-up's company: no money moved, so it may be one
+                await service.set_test(db, company_id, True, actor=actor, reason="journey teardown")
+            made = await service.delete_immediately(db, company_id, actor=actor, reason=f"journeys {world.tag}",
+                                                    confirm_name=company.name, queue=world.split)
+            ids += [str(o.id) for o in made]
+        return ids
+
+    async def inline(db: Any, ids: List[str]) -> Dict[str, str]:
+        from src.offboarding.runner import run as run_offboarding
+        return {i: (await run_offboarding(uuid.UUID(i)))["state"] for i in ids}
+
+    async def current(db: Any, ids: List[str]) -> Dict[str, str]:
+        from src.offboarding.models import CompanyOffboarding
+        return {i: (await db.get(CompanyOffboarding, uuid.UUID(i))).state for i in ids}
+
+    for wave in waves:
+        ids = run(lambda db, wave=wave: start(db, wave))
+        if not world.split:
+            states.update(run(lambda db, ids=ids: inline(db, ids)))
         else:
-            await purge_companies(conn, [*world.company_ids, *extra_companies], user_email_pattern=world.email_pattern)
+            deadline = time.monotonic() + TEARDOWN_TIMEOUT_SECONDS
+            while True:
+                now = run(lambda db, ids=ids: current(db, ids))
+                if all(s in ("erased", "failed") for s in now.values()) or time.monotonic() > deadline:
+                    break
+                time.sleep(10)
+            states.update(now)
+        if any(s != "erased" for s in states.values()):
+            return states                      # a partner is not deleted while its businesses remain
+
+    async def staff_gone(db: Any) -> None:
+        from sqlalchemy import delete
+
+        from src.auth.models import User
+
+        await db.execute(delete(User).where(User.email == world.emails.get("staff", "")))
+        await db.commit()
+
+    run(staff_gone)
+    return states
+
+
+def find(tag: str) -> World:
+    """The world made earlier under ``tag`` (to delete what an old run left)."""
+    async def work(db: Any) -> World:
+        from sqlalchemy import select
+
+        from src.auth.models import Company
+
+        names = {key: f"Journey {label} {tag}" for key, label in (
+            ("business", "Business"), ("gold", "Gold Partner"), ("gold_customer", "Gold Customer"),
+            ("not_resold", "Other Business"), ("silver", "Silver Partner"), ("silver_customer", "Silver Referral"))}
+        ids = dict((await db.execute(select(Company.name, Company.id).where(Company.name.in_(names.values())))).all())
+        missing = uuid.UUID(int=0)
+        return World(tag=tag, **{k: ids.get(v, missing) for k, v in names.items()},
+                     emails={"staff": email("staff", tag)}, names=names, split=split())
+
+    return run(work)
+
+
+def set_immediate_delete(on: bool) -> None:
+    """Switch immediate delete on or off (a local run's own switch; on Azure the owner sets it)."""
+    async def work(db: Any) -> None:
+        from types import SimpleNamespace
+
+        from src.common.settings_store import set_platform_setting
+
+        actor = SimpleNamespace(id=None, role="app_admin", company_id=None, email="journeys@example.com")
+        await set_platform_setting(db, "offboarding.immediate_delete_enabled", on, actor=actor,
+                                   reason="browser journeys")
         await db.commit()
 
     run(work)
+
+
+def throwaway(tag: str) -> Dict[str, str]:
+    """One more test business, made to be deleted by a journey from Company 360 (Delete now)."""
+    async def work(db: Any) -> Dict[str, str]:
+        from src.auth.platform import platform_company_id
+
+        company = await _company(db, f"Journey Throwaway {tag}", "TENANT", parent=await platform_company_id(db))
+        from src.billing.wallet import WalletService
+        await WalletService(db).ensure(company.id)
+        await db.commit()
+        if split():
+            await _provision([company.id])
+        return {"id": str(company.id), "name": company.name}
+
+    return run(work)
+
+
+def company_exists(company_id: uuid.UUID) -> bool:
+    async def work(db: Any) -> bool:
+        from src.auth.models import Company
+        return await db.get(Company, uuid.UUID(str(company_id))) is not None
+
+    return run(work)

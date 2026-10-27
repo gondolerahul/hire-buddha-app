@@ -134,3 +134,12 @@ async def grant_tenant_principal(conn: Any, db_name: str, name: str, object_id: 
         await conn.execute(text(f"GRANT {_q(DATA_API)} TO {_q(name)}"))
     await conn.execute(text(f"GRANT CONNECT ON DATABASE {_q(db_name)} TO {_q(name)}"))
     return {"principal": name, "made": made, "database": db_name}
+
+
+async def drop_tenant_principal(conn: Any, name: str) -> bool:
+    """Drop the tenant's own sign-in once its database is gone (docs/phase15/13 §6 step 8);
+    ``False`` when there was none."""
+    if not await _exists(conn, name):
+        return False
+    await conn.execute(text(f"DROP ROLE {_q(name)}"))
+    return True

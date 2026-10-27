@@ -195,6 +195,7 @@ mount_optional(app, "src.billing.invoices_router")  # /api/v1/billing/invoices, 
 mount_optional(app, "src.partners.portal_router")  # /api/v1/partner/* — the Partner Portal (Phase 15 WS15-8)
 mount_optional(app, "src.partners.tenant_router")  # /api/v1/charges, /settings/partner-access, /partners/apply
 mount_optional(app, "src.partners.admin_router")  # /api/v1/admin/partners/* — the programme for staff
+mount_optional(app, "src.offboarding.router")  # closing and erasing businesses; deleting test ones (Phase 15, docs 13)
 mount_optional(app, "src.reports.router")  # /api/v1/reports, /api/v1/reports/{id} — the report library (Phase 15 T9-4)
 mount_optional(app, "src.billing.cron_router")
 

@@ -18,7 +18,11 @@ class Company(ControlBase):
     type = Column(String, nullable=False)  # APP, PARTNER, TENANT
     parent_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=True)
     logo_url = Column(String, nullable=True)
-    status = Column(String, default="active")  # active, suspended
+    # active, suspended; closing: offboarding_requested → erasing → erased (docs/phase15/13)
+    status = Column(String, default="active")
+    # A throwaway business for testing in production before go-live: the only kind an
+    # app admin may delete at once with its whole workspace (13 §10).
+    is_test = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     onboarding_status = Column(String, default="pending")  # pending, in_progress, completed
     onboarding_metadata = Column(JSONB, nullable=True)  # tracks completed steps & config
     # Retired by the daily-credit policies (Phase 15 T5-5, control_0016): read by nothing.

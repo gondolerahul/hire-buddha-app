@@ -136,6 +136,18 @@ class AzureBlobBackend:
         except ResourceNotFoundError:
             pass
 
+    async def delete_namespace(self, namespace: str) -> int:
+        validate_key(f"{namespace}/x")
+        container = self._service().get_container_client(namespace)
+        count = 0
+        try:
+            async for _ in container.list_blobs(include=["versions"]):
+                count += 1
+            await container.delete_container()
+        except ResourceNotFoundError:
+            return 0
+        return count
+
     async def exists(self, key: str) -> bool:
         try:
             return await self._blob(key).exists()

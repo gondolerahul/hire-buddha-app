@@ -248,6 +248,7 @@ module registry 'modules/registry.bicep' = {
     name: names.acr
     pushPrincipalIds: [identities.outputs.principalIds.ci]
     developersGroupObjectId: developersGroupObjectId
+    deletePrincipalIds: [identities.outputs.principalIds.provisioner]
   }
 }
 

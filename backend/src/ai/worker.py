@@ -57,6 +57,7 @@ from src.billing.jobs import (
 )
 from src.partners.jobs import partners_daily, partners_monthly
 from src.common.tenancy.provisioner import provision_tenant
+from src.offboarding.runner import offboard_company, offboarding_tick
 from src.schema_engine.engine import apply_schema_change
 
 # Model imports needed by arq at module scope
@@ -149,8 +150,9 @@ class WorkerSettings:
         # Enqueued by dreaming_cron_trigger (must be registered to run).
         dreaming_worker,
         graph_maintenance_worker,
-        # A new tenant's database and resources (Phase 14 WS2 2.8).
+        # A new tenant's database and resources (Phase 14 WS2 2.8), and removing them (Phase 15 offboarding).
         provision_tenant,
+        offboard_company,
         # Tenant runtime (Phase 14 WS6): promotion checks, app builds, metering, previews, idle sandboxes.
         run_review_checks,
         build_app,
@@ -206,6 +208,8 @@ try:
         cron(traced_job(billing_wallet_tick), minute={2, 17, 32, 47}),
         cron(traced_job(billing_settle_standalone), minute={12}),
         cron(traced_job(billing_number_rent), minute={27}),
+        # Closing businesses: erasure starts when the grace period ends (docs/phase15/13 §5).
+        cron(traced_job(offboarding_tick), minute={9, 24, 39, 54}),
         cron(traced_job(partners_daily), hour={2}, minute={10}),
         cron(traced_job(partners_monthly), hour={3}, minute={10}),
         cron(traced_job(billing_wallet_check), hour={2}, minute={10}),
@@ -276,7 +280,7 @@ class ProvisionerWorkerSettings:
     queue_name = settings.PROVISIONING_QUEUE or "provisioning"
     # Approved schema changes too: their DDL runs as the DDL role, which only
     # the provisioner (and the migrator) may act as (schema_engine.engine).
-    functions = [traced_job(provision_tenant), traced_job(apply_schema_change)]
+    functions = [traced_job(provision_tenant), traced_job(offboard_company), traced_job(apply_schema_change)]
     max_jobs = 2
     job_timeout = 1800
     redis_settings = WorkerSettings.redis_settings

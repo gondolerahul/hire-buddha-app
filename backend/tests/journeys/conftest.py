@@ -9,13 +9,15 @@ stack — the Vite dev server and the API it calls — and its database:
                        — run the data setup in that pod (an Azure environment,
                        whose database and signing key only its pods reach), e.g.
                        aks-hb-prod:hb-platform/deploy/hb-api
-    JOURNEY_TAG        optional: the world's tag (default: fresh per journey;
-                       ``persistent`` on a split-tenancy environment)
+    JOURNEY_TAG        optional: the world's tag (default: a fresh one)
 
 Without the first, every journey is skipped; ``REQUIRE_JOURNEYS=1`` makes that a
-failure (the release lane). Each journey builds its people and companies
-(``world.build``): locally under a fresh tag, deleted afterwards; with split
-tenancy one kept set, reset before each journey (``world`` says why).
+failure (the release lane). The journeys build their people and companies as
+test businesses (``world.build``) and delete them afterwards with the product's
+immediate delete — one world per journey locally, one per run on an Azure
+environment (its workspaces take minutes to make and remove). Immediate delete
+must be on where they run (``offboarding.immediate_delete_enabled``); locally
+the run turns it on and back off.
 What a journey cannot do here is said where it stops: a Razorpay checkout is
 credited as the gateway's confirmation would credit it, and nothing calls a
 model provider.
@@ -72,7 +74,7 @@ def _stack() -> None:
 _DB = ThreadPoolExecutor(max_workers=1)
 
 
-def _kubectl(*args: str, stdin: bytes = b"", timeout: int = 1200) -> str:
+def _kubectl(*args: str, stdin: bytes = b"", timeout: int = 1800) -> str:
     context, _, place = KUBE.rpartition(":")
     namespace, target = place.split("/", 1)
     where = ["--context", context] if context else []
@@ -135,13 +137,31 @@ def browser() -> Iterator[Any]:
         chromium.close()
 
 
-@pytest.fixture
-def world() -> Iterator[Any]:
+def _world_scope(fixture_name: str, config: Any) -> str:
+    return "session" if KUBE else "function"
+
+
+@pytest.fixture(scope="session")
+def _switch() -> Iterator[None]:
+    """Locally: immediate delete on for the run (teardown uses it), back off afterwards."""
     from tests.journeys import world as w
 
-    built = db_call(w.build, TAG or ("persistent" if KUBE else uuid.uuid4().hex[:8]))
+    if KUBE:
+        yield
+        return
+    db_call(w.set_immediate_delete, True)
+    yield
+    db_call(w.set_immediate_delete, False)
+
+
+@pytest.fixture(scope=_world_scope)
+def world(_switch: None) -> Iterator[Any]:
+    from tests.journeys import world as w
+
+    built = db_call(w.build, TAG or f"j{uuid.uuid4().hex[:7]}")
     yield built
-    db_call(w.teardown, built, built.extra_companies)
+    states = db_call(w.teardown, built, built.extra_companies)
+    assert set(states.values()) <= {"erased"}, f"journey businesses not deleted: {states}"
 
 
 @pytest.fixture

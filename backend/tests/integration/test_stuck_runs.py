@@ -15,7 +15,9 @@ from sqlalchemy import text
 
 pytestmark = pytest.mark.needs_db
 
-NOW = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+# The sweep's clock; the run's elapsed time is measured against the real one, so this stays near it
+# (a fixed date overflowed execution_time_ms, an int32, once the suite ran weeks later).
+NOW = datetime.utcnow().replace(second=0, microsecond=0, tzinfo=timezone.utc)
 
 
 async def _parent_waiting_on(db, company_id, child_status, waited_s, *, stamp=True):

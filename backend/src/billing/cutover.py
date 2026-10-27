@@ -192,6 +192,21 @@ async def _shadow(db: Any, names: Dict[Any, str], days: int, tolerance: Decimal)
                  f"{total} settlements compared, {sum(n for _c, n, _s in rows)} over {tolerance} USD", problems)
 
 
+async def _test_deletes(db: Any, companies: List[Any]) -> Check:
+    """Go-live (docs/phase15/13 §10): immediate delete switched off, no test businesses left — a warning."""
+    from src.billing.settings_catalogue import value
+
+    problems = []
+    if await value(db, "offboarding.immediate_delete_enabled"):
+        problems.append({"what": "offboarding.immediate_delete_enabled is on: turn it off at go-live"})
+    tests = [c for c in companies if getattr(c, "is_test", False)]
+    if tests:
+        problems.append({"what": f"{len(tests)} test businesses remain: delete them (Delete now) before go-live",
+                         "companies": [c.name for c in tests][:20]})
+    return Check(10, "Test deletes off, no test businesses", WARNING, not problems,
+                 f"{len(tests)} test businesses", problems)
+
+
 async def readiness(db: Any, *, shadow_days: int = 14, tolerance_usd: Decimal = Decimal("0.01")) -> Dict[str, Any]:
     """The report: ``{ready, at, checks: [...]}`` — ``ready`` when no blocker fails."""
     from src.auth.models import Company
@@ -202,6 +217,7 @@ async def readiness(db: Any, *, shadow_days: int = 14, tolerance_usd: Decimal = 
         await _reference(db, companies), _geography(companies), await _units(db), await _formula(db),
         await _usage(db, names), await _buckets(db), await _wallets(db, companies), await _plans(db, names),
         await _partners(db, companies), await _shadow(db, names, shadow_days, tolerance_usd),
+        await _test_deletes(db, companies),
     ]
     return {"ready": all(c.ok for c in checks if c.severity == BLOCKER), "at": datetime.utcnow().isoformat(),
             "checks": [asdict(c) for c in checks]}

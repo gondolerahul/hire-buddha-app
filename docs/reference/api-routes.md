@@ -22,9 +22,14 @@
 | GET | `/api/v1/admin/billing-settings/{key}/history` | roles: app_admin | `src.billing.settings_router` |
 | GET | `/api/v1/admin/billing-shadow` | roles: app_admin | `src.billing.shadow_router` |
 | PUT | `/api/v1/admin/billing-shadow/mode` | roles: app_admin | `src.billing.shadow_router` |
+| DELETE | `/api/v1/admin/companies/{company_id}` | roles: app_admin | `src.offboarding.router` |
 | GET | `/api/v1/admin/companies/{company_id}/entitlements` | roles: app_admin | `src.billing.plans_router` |
 | DELETE | `/api/v1/admin/companies/{company_id}/entitlements/{key}` | roles: app_admin | `src.billing.plans_router` |
 | PUT | `/api/v1/admin/companies/{company_id}/entitlements/{key}` | roles: app_admin | `src.billing.plans_router` |
+| DELETE | `/api/v1/admin/companies/{company_id}/offboarding` | roles: app_admin | `src.offboarding.router` |
+| GET | `/api/v1/admin/companies/{company_id}/offboarding` | staff: app_admin, app_user with support | `src.offboarding.router` |
+| POST | `/api/v1/admin/companies/{company_id}/offboarding` | roles: app_admin | `src.offboarding.router` |
+| PUT | `/api/v1/admin/companies/{company_id}/test` | roles: app_admin | `src.offboarding.router` |
 | GET | `/api/v1/admin/connectors` | roles: app_admin | `src.connections.api` |
 | PATCH | `/api/v1/admin/connectors/{connector_id}` | roles: app_admin | `src.connections.api` |
 | GET | `/api/v1/admin/country-profiles` | roles: app_admin | `src.billing.currency_router` |
@@ -47,6 +52,11 @@
 | GET | `/api/v1/admin/fx-rates/preview` | roles: app_admin | `src.billing.currency_router` |
 | GET | `/api/v1/admin/oauth-apps` | roles: app_admin | `src.connections.api` |
 | PUT | `/api/v1/admin/oauth-apps/{provider}` | roles: app_admin | `src.connections.api` |
+| GET | `/api/v1/admin/offboarding` | staff: app_admin, app_user with support | `src.offboarding.router` |
+| GET | `/api/v1/admin/offboarding/{offboarding_id}` | staff: app_admin, app_user with support | `src.offboarding.router` |
+| POST | `/api/v1/admin/offboarding/{offboarding_id}/bring-forward` | roles: app_admin | `src.offboarding.router` |
+| GET | `/api/v1/admin/offboarding/{offboarding_id}/certificate.pdf` | staff: app_admin, app_user with support | `src.offboarding.router` |
+| POST | `/api/v1/admin/offboarding/{offboarding_id}/retry` | roles: app_admin | `src.offboarding.router` |
 | GET | `/api/v1/admin/partners` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
 | GET | `/api/v1/admin/partners/applications` | staff: app_admin, app_user with sales | `src.partners.admin_router` |
 | POST | `/api/v1/admin/partners/applications/{app_id}/approve` | roles: app_admin | `src.partners.admin_router` |
@@ -417,6 +427,7 @@
 | GET | `/api/v1/partner/statements/{statement_id}/pdf` | signed in | `src.partners.portal_router` |
 | GET | `/api/v1/partner/tenants` | roles: app_admin, partner_admin | `src.auth.partner_router` |
 | GET | `/api/v1/partner/tenants/{tenant_id}/details` | roles: app_admin, partner_admin | `src.auth.partner_router` |
+| POST | `/api/v1/partner/tenants/{tenant_id}/offboarding` | roles: app_admin, partner_admin | `src.offboarding.router` |
 | POST | `/api/v1/partners/apply` | — | `src.partners.tenant_router` |
 | GET | `/api/v1/partners/invites/{token}` | — | `src.partners.tenant_router` |
 | GET | `/api/v1/phone-numbers` | signed in | `src.voice.phone_number_router` |
@@ -455,6 +466,13 @@
 | GET | `/api/v1/reports/billing` | roles: app_admin | `src.billing.billing_router` |
 | GET | `/api/v1/reports/costing` | roles: app_admin | `src.billing.billing_router` |
 | GET | `/api/v1/reports/{report_id}` | signed in | `src.reports.router` |
+| POST | `/api/v1/settings/data-requests/erase` | roles: app_admin, tenant_admin | `src.offboarding.router` |
+| POST | `/api/v1/settings/data-requests/search` | roles: app_admin, tenant_admin | `src.offboarding.router` |
+| DELETE | `/api/v1/settings/offboarding` | roles: app_admin, tenant_admin | `src.offboarding.router` |
+| GET | `/api/v1/settings/offboarding` | roles: app_admin, tenant_admin | `src.offboarding.router` |
+| POST | `/api/v1/settings/offboarding` | roles: app_admin, tenant_admin | `src.offboarding.router` |
+| POST | `/api/v1/settings/offboarding/confirm` | roles: app_admin, tenant_admin | `src.offboarding.router` |
+| GET | `/api/v1/settings/offboarding/export` | roles: app_admin, tenant_admin | `src.offboarding.router` |
 | GET | `/api/v1/settings/partner-access` | signed in | `src.partners.tenant_router` |
 | POST | `/api/v1/settings/partner-access/{grant_id}/approve` | signed in | `src.partners.tenant_router` |
 | POST | `/api/v1/settings/partner-access/{grant_id}/revoke` | signed in | `src.partners.tenant_router` |

@@ -441,6 +441,7 @@ exports[`menus by role (07 §4) > tenant_admin 1`] = `
       "Team /settings/team",
       "Automation & data /settings/automation",
       "Partner access /settings/partner-access",
+      "Data & closing /settings/data",
     ],
   },
 ]

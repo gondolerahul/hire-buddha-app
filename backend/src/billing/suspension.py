@@ -23,6 +23,9 @@ WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # Paying, signing in and out, and reading one's notices stay open while suspended.
 ALWAYS_OPEN = ("/api/v1/credits", "/api/v1/auth", "/api/v1/notifications")
 CACHE_SECONDS = 15.0
+CLOSING_DETAIL = ("This business is being closed: it is read-only until its data is erased. Its admin can "
+                  "cancel the closure in Settings.")
+CLOSING_OPEN = ("/api/v1/settings/offboarding", "/api/v1/auth", "/api/v1/notifications")
 
 _cache: Dict[str, Tuple[bool, float]] = {}
 
@@ -64,6 +67,12 @@ async def refuse_writes(request: Any, db: Any, user: Any) -> None:
     if request is None or request.method not in WRITE_METHODS:
         return
     path = request.url.path
+    company = getattr(user, "company", None)
+    if getattr(company, "status", None) == "offboarding_requested" and str(getattr(user, "role", "")) != "app_admin":
+        # A business closing (docs/phase15/13 §5): read-only until erased, except changing its mind.
+        if not any(path.startswith(prefix) for prefix in CLOSING_OPEN):
+            raise HTTPException(status_code=409, detail=CLOSING_DETAIL)
+        return
     if any(path.startswith(prefix) for prefix in ALWAYS_OPEN):
         return
     if await is_suspended(db, getattr(user, "company_id", None)):

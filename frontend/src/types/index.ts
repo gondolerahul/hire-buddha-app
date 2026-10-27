@@ -4,7 +4,10 @@ export interface Company {
     type: 'APP' | 'PARTNER' | 'TENANT';
     parent_id?: string;
     logo_url?: string;
-    status: 'active' | 'suspended';
+    // Closing a business: offboarding_requested → erasing → erased (docs/phase15/13).
+    status: 'active' | 'suspended' | 'offboarding_requested' | 'erasing' | 'erased';
+    // A throwaway business for testing in production; only these can be deleted at once.
+    is_test?: boolean;
     onboarding_status?: 'pending' | 'in_progress' | 'completed';
     // What the company may be billed in a calendar month; null = no cap (GH-18).
     monthly_spend_cap_usd?: number | null;

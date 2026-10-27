@@ -88,6 +88,8 @@ class CompanyCreate(CompanyBase):
     # Its billing currency follows (FX-1, Phase 15 T2-3). India when omitted.
     country_code: Optional[CountryCode] = None
     billing_state: Annotated[Optional[str], AfterValidator(_state)] = None
+    # A throwaway business for testing in production before go-live (app admins only; docs/phase15/13 §10).
+    is_test: bool = False
 
 def _iana_timezone(value: Optional[str]) -> Optional[str]:
     from src.common.timezones import is_valid_timezone
@@ -124,6 +126,7 @@ class CompanyResponse(CompanyBase):
     gstin: Optional[str] = None
     legal_name: Optional[str] = None
     billing_address: Optional[Dict[str, Any]] = None
+    is_test: bool = False
     created_at: Optional[datetime] = None
 
     class Config:

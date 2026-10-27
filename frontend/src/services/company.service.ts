@@ -5,6 +5,9 @@ export interface CompanyCreate {
     name: string;
     type: 'APP' | 'PARTNER' | 'TENANT';
     parent_id?: string;
+    country_code?: string;
+    /** App admins only: a throwaway business that can be deleted at once (docs/phase15/13 §10). */
+    is_test?: boolean;
 }
 
 export interface CompanyUpdate {

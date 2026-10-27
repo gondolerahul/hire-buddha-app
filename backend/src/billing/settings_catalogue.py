@@ -150,6 +150,17 @@ _SPECS = [
          maximum=365, unit="days", group="partners"),
     _int("partners.statement_day", 5, "The day of the month last month's statements are made", minimum=1,
          maximum=28, group="partners"),
+    # Offboarding and erasure (docs/phase15/13_offboarding_and_erasure.md).
+    _int("offboarding.grace_days", 30, "Days a business that asked to close may change its mind before its data "
+         "is erased", minimum=0, maximum=90, unit="days", group="offboarding"),
+    _int("offboarding.export_retention_days", 30, "Days a closing business's export stays downloadable",
+         minimum=1, maximum=90, unit="days", group="offboarding"),
+    SettingSpec("offboarding.allow_staff_bring_forward", "bool", True,
+                "An app admin may start a closing business's erasure before its grace period ends",
+                group="offboarding"),
+    SettingSpec("offboarding.immediate_delete_enabled", "bool", False,
+                "An app admin may delete a test business and its whole workspace at once (production testing "
+                "before go-live; turn off at go-live)", group="offboarding"),
 ]
 CATALOGUE: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}
 

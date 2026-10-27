@@ -62,6 +62,8 @@ async def create_company(
         from src.partners.lifecycle import require_may_create_tenants
         await require_may_create_tenants(db, current_user.company_id)
         company.parent_id = current_user.company_id
+    if company.is_test and current_user.role != "app_admin":
+        raise HTTPException(status_code=403, detail="Only an app admin makes a test business")
     # The tree's rules (Phase 15 T8-1): a tenant under the platform or a partner, no cycles.
     from src.partners.tree import require_valid_parent
     await require_valid_parent(db, company.type, company.parent_id)
@@ -71,6 +73,7 @@ async def create_company(
         type=company.type,
         parent_id=company.parent_id,
         status="active",
+        is_test=company.is_test,
         onboarding_status="pending",
         onboarding_metadata={
             "completed_steps": [],

@@ -71,6 +71,7 @@ const ChargesPage = page(() => import('@/pages/billing/ChargesPage'));
 const SpendControlsPage = page(() => import('@/pages/billing/SpendControlsPage'));
 const TenantSettings = page(() => import('@/pages/settings/TenantSettings'));
 const PartnerAccessPage = page(() => import('@/pages/settings/PartnerAccessPage'));
+const DataAndClosingPage = page(() => import('@/pages/business/DataAndClosingPage'));
 
 // ── Partner Portal ──
 const PartnerHome = page(() => import('@/pages/partner/PartnerHome'));
@@ -161,6 +162,7 @@ export const ROUTES: RouteRow[] = [
     ['/settings/team', <TeamPage />],
     ['/settings/automation', <AutomationSettings />],
     ['/settings/partner-access', <PartnerAccessPage />],
+    ['/settings/data', <DataAndClosingPage />],
 
     // Partner Portal (07 §4.3–4.4)
     ['/partner', <PartnerHome />],

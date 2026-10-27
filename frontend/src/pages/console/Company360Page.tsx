@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { CompanyOffboardingPanel } from '@/components/offboarding/CompanyOffboardingPanel';
 import { ReportShell } from '@/components/reports/ReportShell';
 import { Badge, Button, Card, Notice, PageHeader, Tabs, Tile } from '@/components/ui/brand';
 import { useAuth } from '@/hooks/useAuth';
@@ -24,7 +25,7 @@ import { formatMoney } from '@/utils/money';
 
 const TABS = [
     { id: 'overview', label: 'Overview' }, { id: 'revenue', label: 'Revenue' }, { id: 'health', label: 'Runs' },
-    { id: 'audit', label: 'Changes' },
+    { id: 'audit', label: 'Changes' }, { id: 'offboarding', label: 'Close or delete' },
 ];
 
 export const Company360Page: React.FC = () => {
@@ -69,7 +70,8 @@ export const Company360Page: React.FC = () => {
             {tab === 'overview' && (
                 <>
                     <div className="b-tiles">
-                        <Tile label="Status" value={company ? <Badge tone={company.status === 'active' ? 'positive' : 'negative'}>{company.status}</Badge> : '—'} />
+                        <Tile label="Status" value={company ? <Badge tone={company.status === 'active' ? 'positive' : 'negative'}>{company.status.replace('_', ' ')}</Badge> : '—'}
+                              hint={company?.is_test ? 'test business' : undefined} />
                         <Tile label="Balance" value={w ? formatMoney(w.available, w.currency) : '—'}
                               tone={w && w.state !== 'ok' ? 'negative' : 'neutral'} hint={w ? `wallet ${w.state}` : undefined} />
                         <Tile label="Owed" value={w ? formatMoney(w.debt, w.currency) : '—'} tone={w && Number(w.debt) > 0 ? 'warning' : 'neutral'} />
@@ -112,6 +114,9 @@ export const Company360Page: React.FC = () => {
             {tab === 'revenue' && <ReportShell reportId="R-A02" companyId={id} embedded />}
             {tab === 'health' && <ReportShell reportId="R-A19" companyId={id} embedded />}
             {tab === 'audit' && <ReportShell reportId="R-A24" companyId={id} embedded />}
+            {tab === 'offboarding' && company && company.type !== 'APP' && (
+                <CompanyOffboardingPanel companyId={id} companyName={company.name} isAdmin={admin} />
+            )}
         </div>
     );
 };

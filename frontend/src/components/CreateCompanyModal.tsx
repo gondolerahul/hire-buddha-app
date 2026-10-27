@@ -12,6 +12,8 @@ interface CreateCompanyModalProps {
     type: 'PARTNER' | 'TENANT';
     parentId?: string;
     initialData?: Company;
+    /** An app admin may make a test business: deletable at once, for testing in production (docs/phase15/13 §10). */
+    allowTest?: boolean;
 }
 
 export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
@@ -20,13 +22,15 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
     onSubmit,
     type,
     parentId,
-    initialData
+    initialData,
+    allowTest = false,
 }) => {
     const [name, setName] = useState('');
     // A new company's country: it is billed in that country's currency (Phase 15 T2-3, FX-1).
     const [country, setCountry] = useState('IN');
     // Blank = no cap (GH-18). Set only when editing an existing company.
     const [spendCap, setSpendCap] = useState('');
+    const [isTest, setIsTest] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -51,6 +55,7 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
                 type: initialData?.type || type,
                 parent_id: initialData?.parent_id || parentId,
                 ...(initialData ? { monthly_spend_cap_usd: spendCap.trim() ? Number(spendCap) : null } : { country_code: country }),
+                ...(!initialData && allowTest ? { is_test: isTest } : {}),
             });
             setName('');
             onClose();
@@ -88,6 +93,12 @@ export const CreateCompanyModal: React.FC<CreateCompanyModalProps> = ({
                     />
 
                     {!initialData && <CountrySelect value={country} onChange={setCountry} />}
+                    {!initialData && allowTest && (
+                        <label className="flex items-center gap-2 text-sm text-gray-300">
+                            <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} />
+                            Test business — for testing in production; can be deleted at once with everything it owns
+                        </label>
+                    )}
 
                     {initialData && (
                         <GlassInput

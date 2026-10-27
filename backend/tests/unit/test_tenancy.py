@@ -70,6 +70,7 @@ APPENDIX_A_CONTROL = {
     "partner_types", "partner_profiles", "partner_agreements", "partner_assignments", "partner_leads",
     "partner_applications", "commission_rules", "fee_rules", "one_time_charges", "partner_ledger",
     "partner_statements", "partner_access_grants", "partner_access_events",
+    "company_offboardings", "offboarding_step_log",          # closing and deleting businesses (Phase 15, 13)
     "document_series", "invoices", "invoice_lines", "credit_notes", "refunds", "number_rentals",
     "wallet_lots", "wallet_entries", "daily_credit_policies", "daily_credit_bands", "company_daily_credit_overrides",
     "price_items", "price_item_versions", "company_locks",

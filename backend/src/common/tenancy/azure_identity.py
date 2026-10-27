@@ -77,3 +77,32 @@ async def ensure_tenant_identity(tenant_key: str, *,
         raise TenantIdentityError(f"{name}: Azure returned no principalId")
     return {"name": name, "principal_id": properties["principalId"], "client_id": properties.get("clientId"),
             "subject": subject}
+
+
+async def delete_tenant_identity(tenant_key: str, *,
+                                 transport: Optional[httpx.AsyncBaseTransport] = None) -> bool:
+    """Delete the tenant's identity (its federated credential goes with it) when the business is
+    erased (docs/phase15/13 §6 step 10); ``False`` when it was already gone."""
+    from src.common.platform.identity import get_token_source
+
+    path = _path(identity_name(tenant_key))
+    token = await get_token_source().token(ARM_SCOPE)
+    async with httpx.AsyncClient(base_url=ARM, transport=transport, timeout=60) as client:
+        response = await client.delete(path, params={"api-version": API_VERSION},
+                                       headers={"Authorization": f"Bearer {token}"})
+    if response.status_code == 204 or response.status_code == 404:
+        return False if response.status_code == 404 else True
+    if response.status_code >= 400:
+        raise TenantIdentityError(f"DELETE {path.rsplit('/', 1)[-1]}: {response.status_code} {response.text[:300]}")
+    return True
+
+
+async def tenant_identity_exists(tenant_key: str, *, transport: Optional[httpx.AsyncBaseTransport] = None) -> bool:
+    from src.common.platform.identity import get_token_source
+
+    path = _path(identity_name(tenant_key))
+    token = await get_token_source().token(ARM_SCOPE)
+    async with httpx.AsyncClient(base_url=ARM, transport=transport, timeout=60) as client:
+        response = await client.get(path, params={"api-version": API_VERSION},
+                                    headers={"Authorization": f"Bearer {token}"})
+    return response.status_code == 200

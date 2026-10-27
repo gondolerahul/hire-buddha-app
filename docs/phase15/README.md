@@ -1,6 +1,6 @@
 # Phase 15 — Configuration, costing & billing, and the partner module
 
-> **Status:** Analysis (01–04), plan (05–08); **build complete** — M15.0 Guardrails, M15.1 Money core, M15.2 Wallet and controls, M15.3 Commercial, M15.4 Partner programme, M15.5 New UI, and M15.6 Cutover tooling, runbooks (10, 11) and guides (12); the close-out (25 Oct) retired `billing_events` and added the browser journeys per role (09 §8). **Deployed** to Azure dev and to production (25 Oct, `2f1fba2`; production had no live customers): migrations at head, readiness clean except the shadow period, public checks and browser journeys green on both (09 §8). **Remaining:** the shadow period, then `billing.v2_mode = on` (10 §4), then the drop release.
+> **Status:** Analysis (01–04), plan (05–08); **build complete** — M15.0 Guardrails, M15.1 Money core, M15.2 Wallet and controls, M15.3 Commercial, M15.4 Partner programme, M15.5 New UI, and M15.6 Cutover tooling, runbooks (10, 11) and guides (12); the close-out (25 Oct) retired `billing_events` and added the browser journeys per role (09 §8). **Deployed** to Azure dev and to production (25 Oct, `2f1fba2`; production had no live customers): migrations at head, readiness clean except the shadow period, public checks and browser journeys green on both (09 §8). Offboarding and erasure (13) designed, approved and built (09 §11; Azure rollout pending). **Remaining:** the shadow period, then `billing.v2_mode = on` (10 §4), then the drop release.
 > **Date:** 2026-10-22 (analysis) · 2026-10-23 (plan)
 > **Branch analysed:** `roadmap-development-defect-fixes` at `53be0bd`
 
@@ -20,6 +20,7 @@ Phase 15 starts by taking stock of three areas that grew piece by piece through 
 | 10 | [Cutover runbook](10_cutover_runbook.md) | The production migration step by step, dry runs, shadow review, the switch-on order, customer notices |
 | 11 | [Money operations runbooks](11_operations_runbooks.md) | FX change, refunds, partner payouts, businesses in debt or suspended, partner suspension |
 | 12 | [Workspace guides](12_workspace_guides.md) | How the Business Workspace, Partner Portal and Platform Console work, by role and staff function |
+| 13 | [Offboarding and erasure](13_offboarding_and_erasure.md) | **Design for review.** Closing a business and erasing its data (GDPR / DPDP), what is kept for tax and why, backups; and an immediate delete of test businesses for testing in production until go-live |
 
 Read order: analysis — this page → 02 → 03 → 01 → 04; plan — 05 → 06 → 07 → 08.
 

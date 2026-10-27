@@ -119,6 +119,10 @@ class StorageBackend(Protocol):
     async def list(self, prefix: str) -> List[str]:
         """Keys under ``prefix`` (``<namespace>/`` or deeper), sorted."""
 
+    async def delete_namespace(self, namespace: str) -> int:
+        """Remove a whole namespace — every object and every version (a Blob container) —
+        when its business is erased (docs/phase15/13 §6 step 7); the objects counted first."""
+
     async def signed_url(
         self, key: str, *, ttl_seconds: int, file_name: Optional[str] = None,
         content_type: Optional[str] = None,

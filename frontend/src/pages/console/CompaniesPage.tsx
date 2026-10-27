@@ -6,7 +6,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { Badge, Card, Field, Notice, PageHeader } from '@/components/ui/brand';
+import { CreateCompanyModal } from '@/components/CreateCompanyModal';
+import { Badge, Button, Card, Field, Notice, PageHeader } from '@/components/ui/brand';
+import { useAuth } from '@/hooks/useAuth';
 import { companyService } from '@/services/company.service';
 import { Company } from '@/types';
 import { apiErrorMessage } from '@/utils/apiError';
@@ -20,10 +22,13 @@ export const CompaniesPage: React.FC = () => {
     const [type, setType] = useState('');
     const [status, setStatus] = useState('');
     const [error, setError] = useState<string | null>(null);
+    const [adding, setAdding] = useState(false);
+    const { user } = useAuth();
+    const admin = user?.role === 'app_admin';
 
-    useEffect(() => {
-        companyService.list().then(setCompanies).catch(err => setError(apiErrorMessage(err, 'Companies could not be loaded')));
-    }, []);
+    const load = () => companyService.list().then(setCompanies)
+        .catch(err => setError(apiErrorMessage(err, 'Companies could not be loaded')));
+    useEffect(() => { void load(); }, []);
 
     const byId = useMemo(() => new Map(companies.map(c => [c.id, c.name])), [companies]);
     const shown = useMemo(() => companies.filter(c =>
@@ -33,7 +38,10 @@ export const CompaniesPage: React.FC = () => {
     return (
         <div className="b-page">
             <PageHeader eyebrow="Directory" title="Companies"
-                        subtitle={`${companies.filter(c => c.type === 'TENANT').length} businesses and ${companies.filter(c => c.type === 'PARTNER').length} partners.`} />
+                        subtitle={`${companies.filter(c => c.type === 'TENANT').length} businesses and ${companies.filter(c => c.type === 'PARTNER').length} partners.`}
+                        actions={admin && <Button variant="primary" onClick={() => setAdding(true)}>Add a business</Button>} />
+            <CreateCompanyModal isOpen={adding} onClose={() => setAdding(false)} type="TENANT" allowTest={admin}
+                                onSubmit={async (_id, data) => { await companyService.createCompany(data); await load(); }} />
             {error && <Notice tone="negative">{error}</Notice>}
             <div className="b-row" style={{ marginBottom: 16 }}>
                 <Field label="Search" grow><input type="search" value={q} placeholder="Name or id" onChange={e => setQ(e.target.value)} /></Field>
@@ -46,6 +54,7 @@ export const CompaniesPage: React.FC = () => {
                 <Field label="Status">
                     <select value={status} onChange={e => setStatus(e.target.value)}>
                         <option value="">All</option><option value="active">Active</option><option value="suspended">Suspended</option>
+                        <option value="offboarding_requested">Closing</option><option value="erased">Erased</option>
                     </select>
                 </Field>
             </div>
@@ -55,7 +64,7 @@ export const CompaniesPage: React.FC = () => {
                     <tbody>
                         {shown.map(c => (
                             <tr key={c.id}>
-                                <td><Link to={`/console/companies/${c.id}`}>{c.name}</Link></td>
+                                <td><Link to={`/console/companies/${c.id}`}>{c.name}</Link>{c.is_test && <> <Badge tone="accent">test</Badge></>}</td>
                                 <td>{TYPE_LABEL[c.type]}</td>
                                 <td className="b-muted">{c.parent_id ? byId.get(c.parent_id) ?? '—' : '—'}</td>
                                 <td>{c.country_code ?? '—'}</td>

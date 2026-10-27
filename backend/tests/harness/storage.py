@@ -43,6 +43,13 @@ class MemoryStorage:
     async def delete(self, key: str) -> None:
         self.objects.pop(validate_key(key), None)
 
+    async def delete_namespace(self, namespace: str) -> int:
+        validate_key(f"{namespace}/x")
+        gone = [k for k in self.objects if k.startswith(f"{namespace}/")]
+        for key in gone:
+            del self.objects[key]
+        return len(gone)
+
     async def exists(self, key: str) -> bool:
         return validate_key(key) in self.objects
 

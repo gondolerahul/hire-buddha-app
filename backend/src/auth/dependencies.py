@@ -86,6 +86,10 @@ async def _authenticate_user(token: Optional[str], db: AsyncSession, *,
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Company account is suspended. Please contact support."
         )
+    if user.company and user.company.status in ("erasing", "erased"):
+        # Its data is being erased, or was (docs/phase15/13 §5): nobody of it signs in again.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This business has been closed",
+                            headers={"WWW-Authenticate": "Bearer"})
 
     return user
 

@@ -14,6 +14,9 @@
 * Staff: the console's queues, an FX rate's preview, a daily-credit policy's
   preview, and a partner moved from Gold to Silver on Partner 360.
 * Old routes redirect for each workspace.
+* Staff delete a test business from Company 360 (Delete now) and it is gone; a business admin's
+  Data & closing page says how closing works and that credit is not refunded.
+Every journey business is a test business, deleted afterwards with the same immediate delete.
 
 Assertions on what a page shows use Playwright's ``expect``, which waits for
 the page's data to arrive (``conftest`` gives it 30 s), and match the page's
@@ -40,8 +43,6 @@ def test_a_us_sign_up_is_billed_in_usd(anonymous, world):
     expect(page.get_by_text("Billed in USD")).to_be_visible()
     country.select_option(label="India")
     expect(page.get_by_text("Billed in INR")).to_be_visible()
-    if world.persistent:
-        pytest.skip("not submitted with split tenancy: a sign-up provisions a workspace that cannot be removed")
     country.select_option(label="United States")
     page.locator("input[type=text]").first.fill("Journey Sign-up")
     page.locator("input[type=email]").fill(address)
@@ -186,3 +187,26 @@ def test_old_routes_redirect(signed_in, world, who, old, new):
     page = go(signed_in(world.emails[who]), old)
     expect(page).to_have_url(re.compile(f".*{re.escape(new)}$"))
     assert path_of(page) == new
+
+
+def test_staff_delete_a_test_business_now(signed_in, world):
+    """Testing in production before go-live (docs/phase15/13 §10): Company 360 → Close or delete → Delete now."""
+    target = db_call(w.throwaway, world.tag)
+    page = go(signed_in(world.emails["staff"]), f"/console/companies/{target['id']}")
+    main = page.locator("main")
+    page.get_by_role("tab", name="Close or delete").click()
+    expect(main).to_contain_text("Delete now (test business)")
+    expect(main).to_contain_text("with nothing kept")
+    page.get_by_label(f"Type the name to confirm: {target['name']}").fill(target["name"])
+    page.get_by_label("Reason").last.fill("journey: feature test finished")
+    page.get_by_role("button", name="Delete now").click()
+    expect(main).to_contain_text("Deleted:", timeout=600_000)          # on Azure the provisioner removes a workspace
+    assert not db_call(w.company_exists, target["id"])
+
+
+def test_a_business_admin_sees_how_closing_works(signed_in, world):
+    page = go(signed_in(world.emails["tenant_admin"]), "/settings/data")
+    main = page.locator("main")
+    expect(main).to_contain_text("Data requests")
+    expect(main).to_contain_text("is not refunded")
+    expect(page.get_by_role("button", name="Close this business")).to_be_disabled()   # a reason first

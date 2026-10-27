@@ -76,6 +76,20 @@ A **platform-wide** problem (a billing bug making good customers owe) is handled
 
 ---
 
+## 5.2 Closing a business, erasing a person, deleting a test business (docs/phase15/13)
+
+**A business asks to close.** Its admin does it in *Settings → Data & closing* (confirmed at once), or staff / its reselling partner ask on its behalf with the written request as the reason (*Company 360 → Close or delete → Ask to close*; the admin confirms). From confirmation the business is read-only for `offboarding.grace_days` (30) and may cancel. When the grace ends the 15-minute tick starts erasure on the provisioning queue. Remaining credit is forfeited, not refunded (D-2). Staff may start it at once (*Erase now*, when `offboarding.allow_staff_bring_forward`).
+
+**A step fails.** *Company 360 → Close or delete* shows the step and its error; *Retry* resumes there (every step can run again). From a shell: `python -m src.offboarding.verify <offboarding id>` lists anything left (exit 1 when something is).
+
+**A person asks a business to erase them.** The business's admin uses *Settings → Data & closing → Data requests* (search by e-mail or phone, review, erase). Staff do not do it for them; the business is the controller of its own customers' data.
+
+**Testing in production (until go-live).** Turn `offboarding.immediate_delete_enabled` on (*Console → Settings*, with a reason). Create test businesses with *Add a business → Test business* (or mark one test on Company 360, refused once real money moved). When the test is done, *Company 360 → Close or delete → Delete now* (type the name and a reason): the business, its people, data, files, repositories and workspace go in minutes, with nothing kept but the offboarding record and its audit row. For a partner, tick *Also delete its test businesses*. Turn the switch off when the test window ends; the readiness report (check 10) warns while it is on or test businesses remain.
+
+**A restore that predates an erasure** (point-in-time restore, within 7 days): before the API starts on the restored server, re-run erasure for every offboarding finished after the restore point (`company_offboardings.finished_at`): set each back to `erasing` and *Retry*.
+
+---
+
 ## 6. Where to look
 
 | Question | Report or page |

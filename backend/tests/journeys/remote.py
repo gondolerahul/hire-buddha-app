@@ -55,7 +55,7 @@ def main(argv: list) -> int:
     helper, raw = argv[1], argv[2]
     args = decode(json.loads(base64.b64decode(raw)))
     # Ids arrive as strings; the helpers take UUIDs where they name a company.
-    args = [uuid.UUID(a) if isinstance(a, str) and helper in ("spend", "pay", "partner_state") and i == 0 else a
+    args = [uuid.UUID(a) if isinstance(a, str) and helper in ("spend", "pay", "partner_state", "company_exists") and i == 0 else a
             for i, a in enumerate(args)]
     if helper == "teardown" and len(args) > 1:
         args[1] = [uuid.UUID(str(a)) for a in args[1]]

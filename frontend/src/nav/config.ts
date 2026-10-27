@@ -181,6 +181,7 @@ const BUSINESS: NavGroup[] = [
         { id: 'team', label: 'Team', route: '/settings/team', icon: 'Users', roles: [TA] },
         { id: 'automation-settings', label: 'Automation & data', route: '/settings/automation', icon: 'Timer', roles: [TA] },
         { id: 'partner-access', label: 'Partner access', route: '/settings/partner-access', icon: 'KeyRound', roles: [TA] },
+        { id: 'data-closing', label: 'Data & closing', route: '/settings/data', icon: 'ShieldAlert', roles: [TA] },
     ] },
 ];
 

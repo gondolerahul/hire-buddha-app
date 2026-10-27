@@ -79,6 +79,17 @@ class LocalDiskBackend:
         path = self._path(key)
         await asyncio.to_thread(path.unlink, missing_ok=True)
 
+    async def delete_namespace(self, namespace: str) -> int:
+        import shutil
+
+        validate_key(f"{namespace}/x")
+        base = self.root / namespace
+        if not base.is_dir():
+            return 0
+        count = sum(1 for p in base.rglob("*") if p.is_file())
+        await asyncio.to_thread(shutil.rmtree, base)
+        return count
+
     async def exists(self, key: str) -> bool:
         return await asyncio.to_thread(self._path(key).is_file)
 

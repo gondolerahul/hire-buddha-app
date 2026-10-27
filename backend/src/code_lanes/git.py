@@ -126,6 +126,9 @@ class GitProvider(Protocol):
     async def push_history(self, full_name: str, remote_url: str) -> None:
         """Push every branch and tag to ``remote_url`` (connect GitHub later)."""
 
+    async def delete_owner(self, owner: str) -> int:
+        """Delete every repository of ``owner`` and the owner itself (offboarding); the number deleted."""
+
 
 # ── Local bare repositories ─────────────────────────────────────────────────
 
@@ -320,6 +323,16 @@ class LocalGitProvider:
     async def push_history(self, full_name: str, remote_url: str) -> None:
         await self._git("--git-dir", str(self._repo(full_name)), "push", "--quiet", "--mirror", remote_url)
 
+    async def delete_owner(self, owner: str) -> int:
+        if not owner or "/" in owner or ".." in owner:
+            raise GitError(f"{owner!r} is not an owner")
+        folder = self.root / owner
+        if not folder.exists():
+            return 0
+        count = len(list(folder.glob("*.git")))
+        await asyncio.to_thread(shutil.rmtree, folder)
+        return count
+
 
 # ── Gitea (the built-in Git on Azure) ───────────────────────────────────────
 
@@ -464,6 +477,22 @@ class GiteaProvider:
             "remote_address": clean, "remote_username": parts.username or "x-access-token",
             "remote_password": parts.password or "", "sync_on_commit": False, "interval": "0"})
         await self._call("POST", f"/repos/{full_name}/push_mirrors-sync")
+
+    async def delete_owner(self, owner: str) -> int:
+        async with httpx.AsyncClient(base_url=f"{self.base_url}/api/v1", transport=self._transport, timeout=30) as c:
+            found = await c.get(f"/orgs/{owner}", headers={"Authorization": f"token {self.token}"})
+        if found.status_code == 404:
+            return 0
+        deleted, page = 0, 1
+        while True:
+            repos = await self._call("GET", f"/orgs/{owner}/repos", params={"page": page, "limit": 50}) or []
+            for repo in repos:
+                await self._call("DELETE", f"/repos/{repo['full_name']}", ok=(204, 404))
+                deleted += 1
+            if len(repos) < 50:
+                break
+        await self._call("DELETE", f"/orgs/{owner}", ok=(204, 404))
+        return deleted
 
 
 # ── Selection ───────────────────────────────────────────────────────────────
