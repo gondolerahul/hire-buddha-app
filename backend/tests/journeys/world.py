@@ -478,3 +478,31 @@ def company_exists(company_id: uuid.UUID) -> bool:
         return await db.get(Company, uuid.UUID(str(company_id))) is not None
 
     return run(work)
+
+
+def retry_failed() -> Dict[str, str]:
+    """Queue every failed offboarding again (each resumes at its failed step) and wait for them."""
+    async def queue(db: Any) -> List[str]:
+        from sqlalchemy import select
+
+        from src.offboarding.models import CompanyOffboarding
+        from src.offboarding.runner import enqueue
+
+        ids = (await db.execute(select(CompanyOffboarding.id).where(CompanyOffboarding.state == "failed")))\
+            .scalars().all()
+        for i in ids:
+            await enqueue(i)
+        return [str(i) for i in ids]
+
+    ids = run(queue)
+
+    async def current(db: Any) -> Dict[str, str]:
+        from src.offboarding.models import CompanyOffboarding
+        return {i: (await db.get(CompanyOffboarding, uuid.UUID(i))).state for i in ids}
+
+    deadline = time.monotonic() + TEARDOWN_TIMEOUT_SECONDS
+    while True:
+        now = run(current)
+        if all(s in ("erased", "failed") for s in now.values()) or time.monotonic() > deadline:
+            return now
+        time.sleep(10)

@@ -24,7 +24,7 @@ from src.common.platform.storage import (
 )
 
 try:
-    from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+    from azure.core.exceptions import HttpResponseError, ResourceExistsError, ResourceNotFoundError
     from azure.storage.blob import BlobSasPermissions, ContentSettings, generate_blob_sas
     from azure.storage.blob.aio import BlobServiceClient
 except ImportError:  # pragma: no cover - exercised only where the SDK is absent
@@ -146,6 +146,16 @@ class AzureBlobBackend:
             await container.delete_container()
         except ResourceNotFoundError:
             return 0
+        # Azure deletes a container in the background: until it is gone a list may still see blobs.
+        for _ in range(60):
+            try:
+                await container.get_container_properties()
+            except ResourceNotFoundError:
+                break
+            except HttpResponseError as error:
+                if getattr(error, "error_code", None) != "ContainerBeingDeleted":
+                    raise
+            await asyncio.sleep(2)
         return count
 
     async def exists(self, key: str) -> bool:
