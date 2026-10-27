@@ -146,10 +146,16 @@ class AzureBlobBackend:
             await container.delete_container()
         except ResourceNotFoundError:
             return 0
-        # Azure deletes a container in the background: until it is gone a list may still see blobs.
-        for _ in range(60):
+        # Azure deletes a container in the background: until it is gone a list may still see blobs,
+        # even after its properties already answer "not found". Wait on the list itself.
+        for _ in range(90):
             try:
-                await container.get_container_properties()
+                listed = False
+                async for _ in container.list_blobs(include=["versions"]):
+                    listed = True
+                    break
+                if not listed:
+                    break
             except ResourceNotFoundError:
                 break
             except HttpResponseError as error:
