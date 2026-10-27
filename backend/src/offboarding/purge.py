@@ -42,6 +42,10 @@ SELECT table_name FROM information_schema.columns
 WHERE table_schema = current_schema() AND column_name = 'company_id'
 """
 
+_TABLES_SQL = """
+SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()
+"""
+
 # The proof of an erasure names its company by id and must outlive it (docs/phase15/13 §12).
 PROOF_TABLES = frozenset({"company_offboardings"})
 
@@ -59,7 +63,11 @@ async def _graph(conn: Any) -> tuple[dict, set]:
     foreign_keys: dict[str, list] = {}
     for child, parent, child_cols, parent_cols, on_delete in await conn.execute(text(_FOREIGN_KEYS_SQL)):
         foreign_keys.setdefault(parent, []).append((child, child_cols, parent_cols, on_delete, True))
+    # A tenant-plane table is in this database only where tenancy is not split (or from before the split).
+    present = set((await conn.execute(text(_TABLES_SQL))).scalars().all())
     for ref in cross_plane_references():
+        if ref.table not in present:
+            continue
         foreign_keys.setdefault(ref.referred_table, []).append(
             (ref.table, [ref.column], [ref.referred_column], _ON_DELETE[ref.ondelete], False))
     company_scoped = set((await conn.execute(text(_COMPANY_SCOPED_TABLES_SQL))).scalars().all()) - PROOF_TABLES
