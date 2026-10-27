@@ -500,9 +500,13 @@ def retry_failed() -> Dict[str, str]:
         from src.offboarding.models import CompanyOffboarding
         return {i: (await db.get(CompanyOffboarding, uuid.UUID(i))).state for i in ids}
 
+    # Each row is still "failed" until the worker picks it up: count it done only once it has moved.
+    moved: set = set()
     deadline = time.monotonic() + TEARDOWN_TIMEOUT_SECONDS
     while True:
         now = run(current)
-        if all(s in ("erased", "failed") for s in now.values()) or time.monotonic() > deadline:
+        moved |= {i for i, s in now.items() if s != "failed"}
+        if all(s == "erased" or (s == "failed" and i in moved) for i, s in now.items()) \
+                or time.monotonic() > deadline:
             return now
         time.sleep(10)

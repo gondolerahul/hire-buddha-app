@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+import httpx
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -87,13 +88,33 @@ async def apps_removed(ws: Workspace) -> Dict[str, Any]:
         detail["git"] = f"skipped: {exc}"
         git = None
     if git is not None:
-        for owner in ws.git_owners:
-            count = await git.delete_owner(owner)
-            if count:
-                detail["owners"].append(owner)
-            detail["repositories"] += count
+        try:
+            for owner in ws.git_owners:
+                count = await git.delete_owner(owner)
+                if count:
+                    detail["owners"].append(owner)
+                detail["repositories"] += count
+        except httpx.ConnectError as exc:
+            # A deployment without its Gitea (Azure prod before the tenant runtime) has no repositories
+            # to delete; one the business recorded means a Gitea that should be there is not answering.
+            if await _has_repos(ws):
+                raise
+            detail["git"] = f"skipped: built-in Git unreachable, no repositories on record ({exc})"
     detail["images"] = await _delete_images(ws)
     return detail
+
+
+async def _has_repos(ws: Workspace) -> bool:
+    """Whether the business recorded a built-in Git repository (its database still exists at this step)."""
+    from src.common.tenancy.session import tenant_session
+
+    try:
+        async with tenant_session(ws.company_id) as tdb:
+            return bool((await tdb.execute(text(
+                "SELECT count(*) FROM git_repos WHERE company_id = :c AND provider = 'builtin'"),
+                {"c": ws.company_id})).scalar())
+    except Exception:  # noqa: BLE001 - no database or no table: nothing was recorded here
+        return False
 
 
 async def _delete_images(ws: Workspace) -> Any:
@@ -106,8 +127,6 @@ async def _delete_images(ws: Workspace) -> Any:
         return "skipped: no apps registry"
     if not await _has_builds(ws):
         return "none built"
-    import httpx
-
     from src.common.platform.identity import get_token_source
 
     aad = await get_token_source().token("https://management.azure.com/.default")
