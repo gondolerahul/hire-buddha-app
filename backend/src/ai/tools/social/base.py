@@ -45,8 +45,35 @@ def _backoff(attempt: int) -> float:
     return min(_MAX_WAIT_S, (2 ** attempt) + random.uniform(0, 0.5))
 
 
+def _reset_in(resp: httpx.Response) -> Optional[float]:
+    """Seconds until a rate limit resets, from X's ``x-rate-limit-reset`` (epoch seconds, X-E6)."""
+    import time
+
+    try:
+        return max(0.0, float(resp.headers["x-rate-limit-reset"]) - time.time())
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def rate_limit_note(resp: httpx.Response) -> str:
+    """What to tell the model about a 429: when the platform takes calls again."""
+    wait = _reset_in(resp)
+    if wait is None:
+        try:
+            wait = float(resp.headers.get("Retry-After", ""))
+        except ValueError:
+            wait = None
+    if wait is None:
+        return "the platform's rate limit is reached; try again later"
+    return f"the platform's rate limit is reached; it takes calls again in about {max(1, round(wait / 60))} minute(s)"
+
+
 def _retry_after(resp: httpx.Response, attempt: int) -> float:
-    """``Retry-After`` (seconds or an HTTP date), else exponential backoff; capped."""
+    """``Retry-After`` (seconds or an HTTP date), else X's rate-limit reset, else
+    exponential backoff; capped."""
+    reset = _reset_in(resp) if not resp.headers.get("Retry-After") else None
+    if reset is not None:
+        return min(_MAX_WAIT_S, reset)
     header = resp.headers.get("Retry-After")
     if header:
         try:
@@ -237,6 +264,9 @@ class SocialMediaTool(Tool):
             return json.dumps(result)
         except httpx.HTTPStatusError as e:
             logger.error(f"[{self.name}] HTTP error: {e.response.status_code} {e.response.text}")
+            if e.response.status_code == 429:  # said plainly, with when to try again (X-E6)
+                return json.dumps({"error": f"API request failed: 429: {rate_limit_note(e.response)}",
+                                   "detail": e.response.text[:500]})
             return json.dumps({
                 "error": f"API request failed: {e.response.status_code}",
                 "detail": e.response.text[:500],
@@ -321,6 +351,8 @@ class SocialMediaTool(Tool):
                     await asyncio.sleep(_backoff(attempt))
                     continue
                 retryable = resp.status_code == 429 or (resp.status_code in _RETRY_STATUSES and not write)
+                if resp.status_code == 429 and (_reset_in(resp) or 0) > _MAX_WAIT_S:
+                    retryable = False  # the window resets later than is worth waiting: say when (X-E6)
                 if retryable and not last:
                     wait = _retry_after(resp, attempt)
                     logger.warning(f"[SocialMediaTool] {resp.status_code}; retry {attempt + 1}/{MAX_RETRIES} in {wait:.1f}s")

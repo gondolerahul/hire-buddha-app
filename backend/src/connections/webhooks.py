@@ -211,6 +211,58 @@ async def meta_webhook(request: Request):
     return {"status": "ok", "delivered": delivered, "unrouted": unrouted}
 
 
+async def _meta_person(request: Request) -> Any:
+    """The person a Meta callback names, from its verified ``signed_request``,
+    or the response to send instead."""
+    from src.connections.deletion import BadSignedRequest, parse_signed_request
+
+    try:
+        app = await _app("oauth-app-meta")
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"status": "not_configured"}, status_code=404)
+    form = await request.form()
+    try:
+        return str(parse_signed_request(form.get("signed_request"), app.client_secret or "")["user_id"])
+    except BadSignedRequest:
+        return JSONResponse({"status": "invalid_signed_request"}, status_code=400)
+
+
+@router.post("/webhook/provider/meta/deauthorize")
+async def meta_deauthorize(request: Request):
+    """The person removed HireBuddha from their Facebook account (META-E1): their connections end."""
+    from src.connections.deletion import disconnect_person
+
+    person = await _meta_person(request)
+    if not isinstance(person, str):
+        return person
+    return {"status": "ok", "disconnected": await disconnect_person(person, reason="deauthorized")}
+
+
+@router.post("/webhook/provider/meta/data-deletion")
+async def meta_data_deletion(request: Request):
+    """Meta's data deletion request callback (META-E1, META-07): the person's
+    connections are disconnected and their data deleted; Meta shows the person
+    the code and the status page."""
+    from src.connections.deletion import delete_person, status_url
+
+    person = await _meta_person(request)
+    if not isinstance(person, str):
+        return person
+    code, _ = await delete_person("meta", person)
+    return {"url": status_url(code), "confirmation_code": code}
+
+
+@router.get("/webhook/provider/meta/data-deletion/{code}", include_in_schema=False)
+async def meta_data_deletion_status(code: str):
+    """The public page behind a confirmation code: what was deleted, in plain words."""
+    from fastapi.responses import HTMLResponse
+
+    from src.connections.deletion import status_page
+
+    status, page = await status_page(code)
+    return HTMLResponse(page, status_code=status)
+
+
 # ── GitHub ──────────────────────────────────────────────────────────────────
 
 @router.post("/webhook/provider/github")
@@ -235,6 +287,10 @@ async def github_webhook(request: Request):
         return {"status": "unrouted"}
     if event == "installation" and payload.get("action") == "deleted":
         await _installation_removed(route)
+    elif event == "installation" and payload.get("action") in ("suspend", "unsuspend"):
+        await _installation_suspended(route, payload["action"] == "suspend")
+    elif event == "installation_repositories":
+        await _repositories_changed(route, payload)
     data = {"account_id": installation, "action": payload.get("action"),
             "repository": (payload.get("repository") or {}).get("full_name"),
             "sender": (payload.get("sender") or {}).get("login"), "payload": payload}
@@ -261,6 +317,60 @@ async def _installation_removed(route: ExternalAccountRoute) -> None:
             await db.commit()
     async with control_session() as db:
         await db.execute(delete(ExternalAccountRoute).where(ExternalAccountRoute.connection_id == route.connection_id))
+        await db.commit()
+
+
+async def _installation_suspended(route: ExternalAccountRoute, suspended: bool) -> None:
+    """The account suspended the App, or lifted the suspension (GH-E1). While
+    suspended the connection issues no token, so agents stop with a reason
+    instead of failing on every call."""
+    from src.common.tenancy.session import tenant_session
+    from src.connections.models import ConnectionAudit
+
+    async with tenant_session(route.company_id) as db:
+        connection = await db.get(Connection, route.connection_id)
+        if connection is None or connection.status == "revoked":
+            return
+        health = dict(connection.health or {})
+        if suspended:
+            connection.status = "error"
+            health.update(suspended_at=datetime.utcnow().isoformat(),
+                          last_error="the account suspended HireBuddha's GitHub App")
+        elif health.pop("suspended_at", None) is not None:  # only a suspension this hook recorded is lifted
+            connection.status = "active"
+            health["last_error"] = None
+        connection.health = health
+        db.add(ConnectionAudit(company_id=route.company_id, connection_id=connection.id,
+                               action="suspended" if suspended else "unsuspended", actor_kind="system"))
+        await db.commit()
+
+
+async def _repositories_changed(route: ExternalAccountRoute, payload: Dict[str, Any]) -> None:
+    """Repositories taken from (or given back to) the installation (GH-E1): the
+    connection's ``repositories_removed`` says which, and code lanes name them
+    when GitHub refuses a call on one."""
+    from src.common.tenancy.session import tenant_session
+    from src.connections.models import ConnectionAudit
+
+    removed = [r["full_name"] for r in payload.get("repositories_removed") or [] if r.get("full_name")]
+    added = {r["full_name"] for r in payload.get("repositories_added") or [] if r.get("full_name")}
+    if not removed and not added:
+        return
+    async with tenant_session(route.company_id) as db:
+        connection = await db.get(Connection, route.connection_id)
+        if connection is None:
+            return
+        settings = dict(connection.settings or {})
+        gone = [name for name in settings.get("repositories_removed") or [] if name not in added]
+        gone += [name for name in removed if name not in gone]
+        settings["repositories_removed"] = gone
+        if payload.get("repository_selection"):
+            settings["repository_selection"] = payload["repository_selection"]
+        connection.settings = settings
+        if removed:
+            db.add(ConnectionAudit(company_id=route.company_id, connection_id=connection.id,
+                                   action="repositories_removed", actor_kind="system",
+                                   detail={"repositories": removed}))
         await db.commit()
 
 

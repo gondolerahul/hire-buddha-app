@@ -19,6 +19,7 @@ const SnapshotField: React.FC<{ label: string; value?: string }> = ({ label, val
 /** What the agent is about to do (BEFORE) or has just produced (AFTER). */
 const SnapshotDetails: React.FC<{ snapshot: HITLContextSnapshot }> = ({ snapshot }) => (
     <div className="space-y-3 mt-3">
+        <SnapshotField label="What will be sent (exactly)" value={snapshot.content} />
         <SnapshotField
             label={snapshot.phase === 'AFTER' ? 'Step prompt (ran)' : 'Step prompt (about to run)'}
             value={snapshot.step_prompt}
@@ -117,7 +118,7 @@ export const HITLPanel: React.FC = () => {
                         const snapshot = approval.context_snapshot || {};
                         const isOpen = expanded.has(approval.id);
                         const hasDetails = Boolean(
-                            snapshot.step_prompt || snapshot.step_output ||
+                            snapshot.content || snapshot.step_prompt || snapshot.step_output ||
                             snapshot.run_input || snapshot.step_description
                         );
                         return (

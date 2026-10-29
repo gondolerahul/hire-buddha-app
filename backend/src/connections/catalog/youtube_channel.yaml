@@ -1,0 +1,28 @@
+id: youtube_channel
+provider: google
+display_name: YouTube channel
+category: social
+auth_type: oauth2
+icon: youtube
+# HireBuddha's own Google Cloud project for YouTube and Google Ads (09 §4): its
+# reviews stay apart from Gmail's restricted-scope review and CASA.
+oauth_app_ref: oauth-app-google-marketing
+status: planned
+scopes: [openid, email, "https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/yt-analytics.readonly"]
+capabilities:
+  account_kind: channel
+  actions: [upload_video, manage_playlists, read_analytics, manage_comments]
+  events: [youtube.video.published]
+  disclosure: >-
+    HireBuddha will upload the videos a person on your team approves to the YouTube channel you choose,
+    with the title, description, audience and privacy setting shown on the approval, and show your team
+    the channel's videos, playlists and analytics. By connecting YouTube you agree to the YouTube Terms of
+    Service (youtube.com/t/terms). See how HireBuddha uses YouTube API Services, and Google's privacy
+    policy, in HireBuddha's privacy policy.
+  after_disconnect: >-
+    HireBuddha has revoked its access at Google and will delete the channel's data it holds within 7 days.
+    You can check it on your Google Account's third-party access page (myaccount.google.com/connections).
+approval:
+  state: not_submitted
+  notes: Google brand and sensitive-scope verification of the marketing project; YouTube's API compliance audit for more than 100 uploads a day.
+version: 1

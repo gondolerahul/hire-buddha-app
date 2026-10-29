@@ -150,6 +150,14 @@ async def start(body: StartRequest, user: User = Depends(get_current_user)):
     return await _call(service.start(user.company_id, user.id, body.connector_id, return_path=body.return_path))
 
 
+@router.post("/api/v1/connections/admin-consent", openapi_extra=capability(
+    "A link a Microsoft 365 administrator opens to approve HireBuddha's mail access for the organisation.",
+    "write_external", "owner, admin", idempotent=False))
+async def admin_consent(body: StartRequest, user: User = Depends(get_current_user)):
+    _manager(user)
+    return await _call(service.admin_consent_link(user.company_id, user.id, body.connector_id))
+
+
 @router.get("/oauth/callback/{provider}", include_in_schema=False)
 async def oauth_callback(provider: str, request: Request):
     return RedirectResponse(await service.callback(provider, dict(request.query_params)), status_code=302)

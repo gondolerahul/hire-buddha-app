@@ -27,17 +27,41 @@ def _split(connector: Any, fields: Dict[str, Any]) -> tuple[Dict[str, Any], Dict
                 value = int(value)
             except (TypeError, ValueError):
                 raise ProviderError(f"{item.label} must be a number") from None
+        if item.kind == "select" and item.options and value not in {o.get("value") for o in item.options}:
+            raise ProviderError(f"{item.label}: {value!r} is not one of the choices")
         (secret if item.kind == "secret" else settings)[item.name] = value
     return secret, settings
+
+
+# The servers of the Mailbox connector's providers (MAIL-E3): a blank server
+# field takes its provider's. Microsoft is not one: it refuses passwords.
+MAILBOX_PRESETS: Dict[str, Dict[str, Any]] = {
+    "gmail": {"imap_host": "imap.gmail.com", "imap_port": 993, "smtp_host": "smtp.gmail.com", "smtp_port": 587},
+    "zoho": {"imap_host": "imappro.zoho.in", "imap_port": 993, "smtp_host": "smtppro.zoho.in", "smtp_port": 587},
+    "yahoo": {"imap_host": "imap.mail.yahoo.com", "imap_port": 993, "smtp_host": "smtp.mail.yahoo.com",
+              "smtp_port": 587},
+    "icloud": {"imap_host": "imap.mail.me.com", "imap_port": 993, "smtp_host": "smtp.mail.me.com", "smtp_port": 587},
+}
 
 
 class MailboxProvider(Provider):
     name = "mailbox"
 
     async def from_form(self, connector: Any, fields: Dict[str, Any]) -> Account:
+        from src.connections.mail import microsoft_mailbox
+
         secret, settings = _split(connector, fields)
         address = str(settings["email_address"]).strip().lower()
         settings["email_address"] = address
+        for key, value in MAILBOX_PRESETS.get(str(settings.get("provider_type") or ""), {}).items():
+            settings.setdefault(key, value)
+        refused = microsoft_mailbox(settings)
+        if refused:
+            raise ProviderError(refused)
+        if not settings.get("imap_host") or not settings.get("smtp_host"):
+            raise ProviderError("Give the mailbox's IMAP and SMTP servers (your mail provider lists them)")
+        settings.setdefault("imap_port", 993)
+        settings.setdefault("smtp_port", 587)
         return Account(external_id=address, name=address, secret=secret, settings=settings)
 
     async def test(self, app: Any, connector: Any, settings: Dict[str, Any], secret: Dict[str, Any]) -> Dict[str, Any]:

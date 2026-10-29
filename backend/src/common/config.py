@@ -161,11 +161,19 @@ class Settings(BaseSettings):
     # (IntegrationRegistry.service_sku, owned by the APP company; priced
     # PER_SECOND). Seed it with scripts/seed_sandbox_sku.py.
     SANDBOX_COST_SKU: str = "sandbox-runtime"
-    # The LinkedIn API version every LinkedIn call sends (TL-48). LinkedIn
-    # retires a version about a year after release: whoever touches the
-    # LinkedIn integration owns this value; review it every six months
-    # (next: 2027-04). It was "202401", hardcoded twelve times.
-    LINKEDIN_API_VERSION: str = "202509"
+    # The LinkedIn API version every LinkedIn call sends, the connector's and
+    # the tools' (TL-48, LI-E1). LinkedIn sunsets a version about a year after
+    # release (202509 went on 15 Sep 2026): the API warns at start-up once this
+    # one is more than ten months old (connections/api_versions.py).
+    LINKEDIN_API_VERSION: str = "202610"
+    # The Google Ads API version the Google Ads tools call (GADS-E2) and the
+    # month Google announced for its sunset; the API warns at start-up 60 days
+    # before it. Google ships four major versions a year, each for about a year.
+    GOOGLE_ADS_API_VERSION: str = "v26"
+    GOOGLE_ADS_API_SUNSET: str = "2027-11"
+    # Meta's Graph API version for HireBuddha's Meta app (META-E7); a
+    # ``graph_version`` on the app's registry row wins over it.
+    META_GRAPH_VERSION: str = "v26.0"
     # S5 persistent browser: when enabled, headless_browser uses a persistent
     # Chromium profile under the tenant workspace so cookies/logins survive across
     # calls. OFF by default (ephemeral context = today's behavior).
@@ -313,6 +321,23 @@ class Settings(BaseSettings):
     CONNECTIONS_PUBLIC_URL: str = ""
     # The screen the browser lands on after a provider's window (the frontend).
     CONNECTIONS_RETURN_PATH: str = "/connections"
+    # The privacy policy every connect screen links (SH-13) and the data deletion
+    # page Meta's deletion status page points to (META-E1).
+    PRIVACY_POLICY_URL: str = "https://hirebuddha.com/privacy"
+    DATA_DELETION_URL: str = "https://hirebuddha.com/data-deletion"
+    PRIVACY_CONTACT_EMAIL: str = "privacy@hirebuddha.com"
+    # A run's write to a connected account (an e-mail sent, a post, a comment
+    # reply, a campaign change) waits for a person's approval and is carried
+    # out exactly as approved (SH-E4; ai/governance/connector_actions.py).
+    # Staff may exempt tools for the platform's own use: comma-separated
+    # ``email_send``, ``social_api`` or ``social_api:<platform>.<operation>``.
+    CONNECTOR_ACTION_APPROVAL: bool = True
+    CONNECTOR_ACTION_APPROVAL_EXEMPT: str = ""
+    # Prompt-injection screening of connector content (SH-E3): Azure AI
+    # Content Safety Prompt Shields at this endpoint, its key under this secret
+    # name in the vault. Unset, a pattern check flags but withholds nothing.
+    CONTENT_SAFETY_ENDPOINT: str = ""
+    CONTENT_SAFETY_KEY_NAME: str = ""
     # Tools fall back to the old social_connections / email_connections rows
     # until WS7's conversion has moved them (then switch off; WS9 removes it).
     CONNECTIONS_LEGACY_FALLBACK: bool = True

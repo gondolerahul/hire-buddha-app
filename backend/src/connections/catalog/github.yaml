@@ -9,6 +9,11 @@ status: planned
 scopes: [contents:write, pull_requests:write, issues:write, checks:write, metadata:read]
 capabilities:
   account_kind: installation
+  disclosure: >-
+    HireBuddha will install its GitHub App on the repositories you choose, so your AI employees can push
+    branches, open pull requests, comment and report checks there. It reaches no other repositories. See
+    HireBuddha's privacy policy.
+  after_disconnect: HireBuddha has uninstalled its GitHub App from this account.
   actions: [create_repository, push_branch, open_pull_request, comment, set_check]
   events: [github.push, github.pull_request.opened, github.pull_request.merged, github.pull_request.closed, github.issue.opened, github.check.completed]
 approval:

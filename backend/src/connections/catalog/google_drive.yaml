@@ -9,6 +9,13 @@ status: planned
 scopes: [openid, email, "https://www.googleapis.com/auth/drive.file"]
 capabilities:
   account_kind: user
+  disclosure: >-
+    HireBuddha will open only the Drive files you choose and the files it creates, so your AI employees
+    can read them and save what they produce (reports, drafts) to your Drive. It sees no other files.
+    See how HireBuddha handles Drive data in its privacy policy.
+  after_disconnect: >-
+    HireBuddha has revoked its access at Google. You can check it on your Google Account's third-party
+    access page (myaccount.google.com/connections).
   actions: [read_file, create_file, update_file]
   events: []
 approval:

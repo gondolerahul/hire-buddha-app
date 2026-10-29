@@ -307,6 +307,7 @@
 | DELETE | `/api/v1/config/task-defaults/{task_type}` | roles: app_admin | `src.config.router` |
 | GET | `/api/v1/config/task-types` | signed in | `src.config.router` |
 | GET | `/api/v1/connections` | signed in | `src.connections.api` |
+| POST | `/api/v1/connections/admin-consent` | signed in | `src.connections.api` |
 | POST | `/api/v1/connections/embedded-signup/complete` | signed in | `src.connections.api` |
 | POST | `/api/v1/connections/form` | signed in | `src.connections.api` |
 | GET | `/api/v1/connections/pending/{pending_id}` | signed in | `src.connections.api` |
@@ -512,6 +513,9 @@
 | POST | `/webhook/provider/github` | — | `src.connections.webhooks` |
 | GET | `/webhook/provider/meta` | — | `src.connections.webhooks` |
 | POST | `/webhook/provider/meta` | — | `src.connections.webhooks` |
+| POST | `/webhook/provider/meta/data-deletion` | — | `src.connections.webhooks` |
+| GET | `/webhook/provider/meta/data-deletion/{code}` | — | `src.connections.webhooks` |
+| POST | `/webhook/provider/meta/deauthorize` | — | `src.connections.webhooks` |
 | GET | `/webhooks/voice/tata/incoming` | — | `src.voice.webhook_router` |
 | POST | `/webhooks/voice/tata/incoming` | — | `src.voice.webhook_router` |
 | WS | `/webhooks/voice/tata/incoming` | own handshake | `src.gateway.telephony_streams` |

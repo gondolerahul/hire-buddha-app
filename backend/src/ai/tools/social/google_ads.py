@@ -15,7 +15,29 @@ from src.ai.tools.social.base import SocialMediaTool
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_ADS_API_BASE = "https://googleads.googleapis.com/v18"
+def _api_base() -> str:
+    """The Google Ads API at the one version setting, ``GOOGLE_ADS_API_VERSION`` (GADS-E2)."""
+    from src.connections.api_versions import google_ads_version
+    return f"https://googleads.googleapis.com/{google_ads_version()}"
+
+
+def _customer_id(credentials: Dict[str, Any]) -> str:
+    return str((credentials.get("oauth_metadata") or {}).get("customer_id") or "").replace("-", "")
+
+
+def _ads_headers(credentials: Dict[str, Any]) -> Dict[str, str]:
+    """The bearer token, and the manager account the business works through
+    (``login-customer-id``). No developer token is needed: since 9 Sep 2026 the
+    access level belongs to the Cloud project of the OAuth client (GADS-E1); an
+    old connection's own token is still sent, and Google ignores it."""
+    meta = credentials.get("oauth_metadata") or {}
+    headers = {"Authorization": f"Bearer {credentials['access_token']}", "Content-Type": "application/json"}
+    if meta.get("developer_token"):
+        headers["developer-token"] = str(meta["developer_token"])
+    login = str(meta.get("login_customer_id") or "").replace("-", "")
+    if login:
+        headers["login-customer-id"] = login
+    return headers
 
 
 class GoogleAdsCreateCampaignTool(SocialMediaTool):
@@ -24,8 +46,9 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
     name = "google_ads_create_campaign"
     platform = "google_ads"
     description = (
-        "Create a new Google Ads campaign. Supports Search, Display, Shopping, Video, "
-        "and Performance Max campaign types."
+        "Create a new Google Ads campaign, paused. Supports Search, Display, Shopping "
+        "and Performance Max campaign types. Video campaigns cannot be created through "
+        "the Google Ads API."
     )
 
     def get_function_schema(self) -> Dict[str, Any]:
@@ -42,7 +65,12 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
                     "campaign_type": {
                         "type": "string",
                         "description": "Campaign type",
-                        "enum": ["SEARCH", "DISPLAY", "SHOPPING", "VIDEO", "PERFORMANCE_MAX"]
+                        "enum": ["SEARCH", "DISPLAY", "SHOPPING", "PERFORMANCE_MAX"]
+                    },
+                    "contains_eu_political_advertising": {
+                        "type": "boolean",
+                        "description": "Whether the campaign has EU political advertising; Google requires "
+                                       "the declaration on every new campaign (default false)"
                     },
                     "budget_amount_micros": {
                         "type": "integer",
@@ -90,18 +118,12 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
     async def _execute(
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        access_token = credentials["access_token"]
-        customer_id = (credentials.get("oauth_metadata") or {}).get("customer_id", "")
-        developer_token = (credentials.get("oauth_metadata") or {}).get("developer_token", "")
+        customer_id = _customer_id(credentials)
 
         if not customer_id:
             return {"error": "No customer_id in oauth_metadata. Configure Google Ads customer ID."}
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "developer-token": developer_token,
-            "Content-Type": "application/json",
-        }
+        headers = _ads_headers(credentials)
 
         # The budget and the campaign are created in ONE googleAds:mutate, the
         # campaign naming the budget by a temporary resource name (-1): both
@@ -117,19 +139,27 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
         }
 
         # The campaign
+        # The API reads and reports Video campaigns but cannot create them (YouTube
+        # ads are Demand Gen campaigns, GADS-E3): VIDEO is not offered.
         campaign_type_map = {
             "SEARCH": "SEARCH",
             "DISPLAY": "DISPLAY",
             "SHOPPING": "SHOPPING",
-            "VIDEO": "VIDEO",
             "PERFORMANCE_MAX": "PERFORMANCE_MAX",
         }
+        if params["campaign_type"] not in campaign_type_map:
+            return {"error": f"campaign_type {params['campaign_type']!r} cannot be created through the Google Ads "
+                             f"API; use one of {', '.join(campaign_type_map)}"}
 
         campaign_data: Dict[str, Any] = {
             "name": params["campaign_name"],
-            "advertisingChannelType": campaign_type_map.get(params["campaign_type"], "SEARCH"),
+            "advertisingChannelType": campaign_type_map[params["campaign_type"]],
             "status": "PAUSED",  # Always start paused for safety
             "campaignBudget": budget_resource,
+            # Required on every new campaign since the EU political ads regulation.
+            "containsEuPoliticalAdvertising": ("CONTAINS_EU_POLITICAL_ADVERTISING"
+                                               if params.get("contains_eu_political_advertising")
+                                               else "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"),
         }
 
         # Bidding strategy
@@ -143,7 +173,7 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
         elif bidding == "TARGET_ROAS":
             campaign_data["targetRoas"] = {"targetRoas": params.get("target_roas", 1.0)}
         elif bidding == "MANUAL_CPC":
-            campaign_data["manualCpc"] = {"enhancedCpcEnabled": True}
+            campaign_data["manualCpc"] = {}  # Enhanced CPC was retired for Search and Display (March 2025)
 
         # Dates
         if params.get("start_date"):
@@ -161,7 +191,7 @@ class GoogleAdsCreateCampaignTool(SocialMediaTool):
 
         resp = await self._api_request(
             "POST",
-            f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/googleAds:mutate",
+            f"{_api_base()}/customers/{customer_id}/googleAds:mutate",
             headers=headers,
             json_body={"mutateOperations": [
                 {"campaignBudgetOperation": {"create": budget}},
@@ -218,22 +248,16 @@ class GoogleAdsReportTool(SocialMediaTool):
     async def _execute(
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        access_token = credentials["access_token"]
-        customer_id = (credentials.get("oauth_metadata") or {}).get("customer_id", "")
-        developer_token = (credentials.get("oauth_metadata") or {}).get("developer_token", "")
+        customer_id = _customer_id(credentials)
 
         if not customer_id:
             return {"error": "No customer_id in oauth_metadata."}
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "developer-token": developer_token,
-            "Content-Type": "application/json",
-        }
+        headers = _ads_headers(credentials)
 
         resp = await self._api_request(
             "POST",
-            f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/googleAds:searchStream",
+            f"{_api_base()}/customers/{customer_id}/googleAds:searchStream",
             headers=headers,
             json_body={"query": params["query"]},
         )
@@ -313,18 +337,12 @@ class GoogleAdsManageKeywordsTool(SocialMediaTool):
     async def _execute(
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        access_token = credentials["access_token"]
-        customer_id = (credentials.get("oauth_metadata") or {}).get("customer_id", "")
-        developer_token = (credentials.get("oauth_metadata") or {}).get("developer_token", "")
+        customer_id = _customer_id(credentials)
 
         if not customer_id:
             return {"error": "No customer_id in oauth_metadata."}
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "developer-token": developer_token,
-            "Content-Type": "application/json",
-        }
+        headers = _ads_headers(credentials)
 
         action = params["action"]
         ad_group = params["ad_group_resource"]
@@ -350,7 +368,7 @@ class GoogleAdsManageKeywordsTool(SocialMediaTool):
 
             resp = await self._api_request(
                 "POST",
-                f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/adGroupCriteria:mutate",
+                f"{_api_base()}/customers/{customer_id}/adGroupCriteria:mutate",
                 headers=headers,
                 json_body={"operations": operations},
             )
@@ -369,7 +387,7 @@ class GoogleAdsManageKeywordsTool(SocialMediaTool):
 
             resp = await self._api_request(
                 "POST",
-                f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/adGroupCriteria:mutate",
+                f"{_api_base()}/customers/{customer_id}/adGroupCriteria:mutate",
                 headers=headers,
                 json_body={"operations": [{"remove": criterion}]},
             )
@@ -380,7 +398,7 @@ class GoogleAdsManageKeywordsTool(SocialMediaTool):
             new_status = "PAUSED" if action == "pause" else "ENABLED"
             resp = await self._api_request(
                 "POST",
-                f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/adGroupCriteria:mutate",
+                f"{_api_base()}/customers/{customer_id}/adGroupCriteria:mutate",
                 headers=headers,
                 json_body={"operations": [{"update": {"resourceName": criterion, "status": new_status}, "updateMask": "status"}]},
             )
@@ -391,7 +409,7 @@ class GoogleAdsManageKeywordsTool(SocialMediaTool):
             new_bid = params.get("new_bid_micros", 0)
             resp = await self._api_request(
                 "POST",
-                f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/adGroupCriteria:mutate",
+                f"{_api_base()}/customers/{customer_id}/adGroupCriteria:mutate",
                 headers=headers,
                 json_body={"operations": [{"update": {"resourceName": criterion, "cpcBidMicros": str(new_bid)}, "updateMask": "cpcBidMicros"}]},
             )
@@ -436,18 +454,12 @@ class GoogleAdsGetAdGroupsTool(SocialMediaTool):
     async def _execute(
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        access_token = credentials["access_token"]
-        customer_id = (credentials.get("oauth_metadata") or {}).get("customer_id", "")
-        developer_token = (credentials.get("oauth_metadata") or {}).get("developer_token", "")
+        customer_id = _customer_id(credentials)
 
         if not customer_id:
             return {"error": "No customer_id in oauth_metadata."}
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "developer-token": developer_token,
-            "Content-Type": "application/json",
-        }
+        headers = _ads_headers(credentials)
 
         include_metrics = params.get("include_metrics", True)
         campaign_resource = params.get("campaign_resource")
@@ -475,7 +487,7 @@ class GoogleAdsGetAdGroupsTool(SocialMediaTool):
 
         resp = await self._api_request(
             "POST",
-            f"{GOOGLE_ADS_API_BASE}/customers/{customer_id}/googleAds:searchStream",
+            f"{_api_base()}/customers/{customer_id}/googleAds:searchStream",
             headers=headers,
             json_body={"query": query},
         )

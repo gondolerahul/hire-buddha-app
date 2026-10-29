@@ -9,7 +9,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { JellyButton } from '@/components/ui';
 import { ago } from '@/components/automation/describe';
@@ -138,14 +138,23 @@ const ConnectForm: React.FC<{ connector: Connector; onDone: (message: string) =>
             finally { setBusy(false); }
         }}>
             <h2>Connect {connector.display_name}</h2>
+            {connector.help && <p className="ar-note">{connector.help}</p>}
             <div className="ar-row">
                 <label className="ar-field"><span>Name it (optional)</span>
                     <input className="ar-input" value={displayName} onChange={e => setDisplayName(e.target.value)} /></label>
                 {connector.form.map(f => (
                     <label key={f.name} className="ar-field"><span>{f.label}{f.required ? ' *' : ''}</span>
-                        <input className="ar-input" required={f.required} autoComplete="off"
-                               type={f.kind === 'secret' ? 'password' : f.kind === 'number' ? 'number' : f.kind}
-                               value={values[f.name]} onChange={e => setValues({ ...values, [f.name]: e.target.value })} />
+                        {f.kind === 'select' ? (
+                            <select className="ar-input" required={f.required} value={values[f.name]}
+                                    onChange={e => setValues({ ...values, [f.name]: e.target.value })}>
+                                {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                        ) : (
+                            <input className="ar-input" required={f.required} autoComplete="off"
+                                   type={f.kind === 'secret' ? 'password' : f.kind === 'number' ? 'number' : f.kind}
+                                   value={values[f.name]} onChange={e => setValues({ ...values, [f.name]: e.target.value })} />
+                        )}
+                        {f.help && <small>{f.help}</small>}
                     </label>
                 ))}
             </div>
@@ -160,18 +169,42 @@ const ConnectForm: React.FC<{ connector: Connector; onDone: (message: string) =>
     );
 };
 
+/** What HireBuddha will do with the account, before the provider's window opens (SH-13). */
+const Disclosure: React.FC<{ connector: Connector; onContinue: () => void; onCancel: () => void }> = ({
+    connector, onContinue, onCancel }) => (
+    <section className="ar-section" role="dialog" aria-label={`Before you connect ${connector.display_name}`}>
+        <h2>Before you connect {connector.display_name}</h2>
+        <p>{connector.disclosure}</p>
+        {connector.privacy_url && (
+            <p className="ar-note"><a href={connector.privacy_url} target="_blank" rel="noreferrer">HireBuddha's privacy
+                policy</a> says what is kept, for how long, and how to have it deleted.</p>
+        )}
+        <div className="ar-actions">
+            <JellyButton variant="ghost" size="sm" onClick={onCancel}>Cancel</JellyButton>
+            <JellyButton size="sm" onClick={onContinue}>Continue</JellyButton>
+        </div>
+    </section>
+);
+
 export const ConnectionsPage: React.FC = () => {
     const { user } = useAuth();
     const manager = MANAGERS.includes(user?.role as UserRole);
     const queryClient = useQueryClient();
+    const location = useLocation();
     const [params, setParams] = useSearchParams();
+    const [disclosing, setDisclosing] = useState<Connector | null>(null);
+    const notice = (location.state as { notice?: string } | null)?.notice;
     const connectors = useQuery({ queryKey: ['connections', 'connectors'], queryFn: connectionsService.connectors });
     const connections = useQuery({ queryKey: ['connections', 'list'], queryFn: connectionsService.list });
     const [category, setCategory] = useState('');
     const [search, setSearch] = useState('');
     const [form, setForm] = useState<Connector | null>(null);
     const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(
-        params.get('error') ? { kind: 'error', text: params.get('error')! } : null);
+        params.get('error') ? { kind: 'error', text: params.get('error')! }
+            : params.get('notice') ? { kind: 'ok', text: params.get('notice')! } : null);
+    const [consent, setConsent] = useState<{ url: string; message: string } | null>(null);
+    // Microsoft's "only an administrator may approve mail access" (MS-E3): offer the admin's link.
+    const needsAdmin = message?.kind === 'error' && message.text.includes('Admin consent link');
     const pendingId = params.get('pending');
 
     const byId = useMemo(() => Object.fromEntries((connectors.data || []).map(c => [c.id, c])), [connectors.data]);
@@ -187,8 +220,13 @@ export const ConnectionsPage: React.FC = () => {
         refresh();
     };
 
-    const connect = async (connector: Connector) => {
+    const connect = async (connector: Connector, disclosed = false) => {
         setMessage(null);
+        if (connector.disclosure && !disclosed) {  // the person reads what HireBuddha will do first (SH-13)
+            setDisclosing(connector);
+            return;
+        }
+        setDisclosing(null);
         try {
             const started = await connectionsService.start(connector.id, '/connections');
             if (started.kind === 'redirect') window.location.assign(started.url);
@@ -209,6 +247,24 @@ export const ConnectionsPage: React.FC = () => {
                 </div>
             </header>
             {message && <p className={`ar-note ar-note--${message.kind === 'ok' ? 'ok' : 'bad'}`} role="status">{message.text}</p>}
+            {notice && !message && <p className="ar-note ar-note--ok" role="status">Disconnected. {notice}</p>}
+            {needsAdmin && manager && !consent && (
+                <div className="ar-actions">
+                    <JellyButton size="sm" variant="secondary" onClick={async () => {
+                        try { setConsent(await connectionsService.adminConsent(params.get('connector') || 'outlook_mail')); }
+                        catch (err) { setMessage({ kind: 'error', text: problemText(err, 'Could not make the link.') }); }
+                    }}>Admin consent link</JellyButton>
+                </div>
+            )}
+            {consent && (
+                <section className="ar-section" aria-label="Admin consent link">
+                    <p>{consent.message}</p>
+                    <input className="ar-input" readOnly value={consent.url} aria-label="Link for the administrator"
+                           onFocus={e => e.currentTarget.select()} />
+                </section>
+            )}
+            {disclosing && <Disclosure connector={disclosing} onContinue={() => connect(disclosing, true)}
+                                       onCancel={() => setDisclosing(null)} />}
             {pendingId && manager && <ChooseAccounts pendingId={pendingId} onDone={done} onCancel={() => setParams({})} />}
             {form && <ConnectForm connector={form} onDone={done} onCancel={() => setForm(null)} />}
 

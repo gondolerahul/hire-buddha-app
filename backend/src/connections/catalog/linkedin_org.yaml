@@ -9,6 +9,14 @@ status: planned
 scopes: [r_organization_social, w_organization_social, rw_organization_admin]
 capabilities:
   account_kind: organization
+  disclosure: >-
+    HireBuddha will publish posts to the LinkedIn Page you choose after a person on your team approves
+    each one, and show your team how the Page's posts perform. It doesn't use LinkedIn members' data for
+    sales, recruiting or advertising, and keeps it no longer than LinkedIn allows. See HireBuddha's
+    privacy policy.
+  after_disconnect: >-
+    HireBuddha has deleted its token. LinkedIn gives apps no way to revoke their own access: to remove
+    HireBuddha, open LinkedIn, Settings, Data privacy, Permitted services.
   actions: [post, read_insights]
   events: []
 approval:

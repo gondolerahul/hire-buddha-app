@@ -6,9 +6,18 @@ auth_type: oauth2
 icon: outlook
 oauth_app_ref: oauth-app-microsoft
 status: planned
-scopes: [openid, email, offline_access, Mail.ReadWrite, Mail.Send]
+scopes: [openid, email, offline_access, User.Read, Mail.ReadWrite, Mail.Send]
 capabilities:
   account_kind: user
+  disclosure: >-
+    HireBuddha will read new mail in this mailbox so your AI employees can work on it, save replies as
+    drafts and send them after a person on your team approves each one. In most organisations a
+    Microsoft 365 administrator must approve HireBuddha once. See how HireBuddha handles mail in its
+    privacy policy.
+  after_disconnect: >-
+    HireBuddha has deleted its tokens. Microsoft gives apps no way to revoke their own access: a user
+    removes HireBuddha at myapps.microsoft.com, an administrator under Microsoft Entra, Enterprise
+    applications.
   actions: [read_mail, send_mail, draft_mail]
   events: [email.received]
 approval:

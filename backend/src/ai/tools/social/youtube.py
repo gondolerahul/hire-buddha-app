@@ -9,6 +9,7 @@ Provides tools for YouTube content management via the YouTube Data API v3:
 """
 import json
 import logging
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from src.ai.tools.social.base import SocialMediaTool
@@ -64,9 +65,24 @@ class YouTubeUploadVideoTool(SocialMediaTool):
                         "type": "string",
                         "description": "URL or path to custom thumbnail image",
                     },
+                    "made_for_kids": {
+                        "type": "boolean",
+                        "description": "Whether the video is made for children (YouTube requires the answer; "
+                                       "ask the person when unsure)",
+                    },
+                    "contains_synthetic_media": {
+                        "type": "boolean",
+                        "description": "Whether the video has realistic AI-generated or altered content a viewer "
+                                       "could mistake for real (YouTube requires disclosing it)",
+                    },
+                    "publish_at": {
+                        "type": "string",
+                        "description": "Optional: schedule publishing at this UTC time (ISO 8601); the video "
+                                       "stays private until then",
+                    },
                     "account_name": {"type": "string", "description": "Optional: specific YouTube account"},
                 },
-                "required": ["title", "video_url"],
+                "required": ["title", "video_url", "made_for_kids", "contains_synthetic_media"],
             },
         }
 
@@ -77,6 +93,11 @@ class YouTubeUploadVideoTool(SocialMediaTool):
         video_url = params.get("video_url")
         if not video_url:
             return {"error": "video_url is required: the public URL of the video file to upload"}
+        # YouTube's upload contract (YT-E2): the audience and the AI-content
+        # disclosure are answered, never guessed by default.
+        for answer in ("made_for_kids", "contains_synthetic_media"):
+            if not isinstance(params.get(answer), bool):
+                return {"error": f"{answer} must be true or false: YouTube requires it on every upload"}
         try:
             video, video_type = await self._download(video_url, _MAX_VIDEO_BYTES)
         except Exception as exc:  # noqa: BLE001
@@ -93,7 +114,11 @@ class YouTubeUploadVideoTool(SocialMediaTool):
             "tags": params.get("tags", []),
             "categoryId": params.get("category_id", "22"),
         }
-        status = {"privacyStatus": params.get("privacy_status", "private")}
+        status: Dict[str, Any] = {"privacyStatus": params.get("privacy_status", "private"),
+                                  "selfDeclaredMadeForKids": params["made_for_kids"],
+                                  "containsSyntheticMedia": params["contains_synthetic_media"]}
+        if params.get("publish_at"):  # a scheduled video is private until YouTube publishes it
+            status.update(privacyStatus="private", publishAt=params["publish_at"])
 
         body = {"snippet": snippet, "status": status}
 
@@ -278,8 +303,8 @@ class YouTubeGetAnalyticsTool(SocialMediaTool):
                         "description": "Type of analytics to fetch",
                     },
                     "video_id": {"type": "string", "description": "Video ID (required if analytics_type='video')"},
-                    "start_date": {"type": "string", "description": "Start date YYYY-MM-DD (default: 30 days ago)"},
-                    "end_date": {"type": "string", "description": "End date YYYY-MM-DD (default: today)"},
+                    "start_date": {"type": "string", "description": "Start date YYYY-MM-DD (default: 28 days ago)"},
+                    "end_date": {"type": "string", "description": "End date YYYY-MM-DD (default: today, UTC)"},
                     "metrics": {
                         "type": "string",
                         "description": "Comma-separated metrics (default: views,estimatedMinutesWatched,likes,subscribersGained)",
@@ -298,8 +323,10 @@ class YouTubeGetAnalyticsTool(SocialMediaTool):
         analytics_type = params.get("analytics_type", "channel")
 
         metrics = params.get("metrics", "views,estimatedMinutesWatched,likes,subscribersGained")
-        start_date = params.get("start_date", "2024-01-01")
-        end_date = params.get("end_date", "2024-12-31")
+        # The last 28 days by default, as YouTube Studio shows (it was always 2024).
+        today = datetime.utcnow().date()
+        start_date = params.get("start_date") or (today - timedelta(days=28)).isoformat()
+        end_date = params.get("end_date") or today.isoformat()
 
         query_params = {
             "ids": "channel==MINE",
@@ -408,9 +435,10 @@ class YouTubeManageCommentsTool(SocialMediaTool):
         elif action == "moderate":
             comment_id = params.get("comment_id", "")
             status = params.get("moderation_status", "published")
-            body = {"id": comment_id, "snippet": {"moderationStatus": status}}
-            resp = await self._api_request(
-                "PUT", f"{YOUTUBE_API_BASE}/comments/setModerationStatus",
+            # comments.setModerationStatus is a POST with its arguments in the query (a PUT failed).
+            # Other people's comments are removed this way (``rejected``), not with ``delete``.
+            await self._api_request(
+                "POST", f"{YOUTUBE_API_BASE}/comments/setModerationStatus",
                 headers=headers, params={"id": comment_id, "moderationStatus": status},
             )
             return {"action": "moderate", "success": True, "comment_id": comment_id, "status": status}

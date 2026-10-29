@@ -25,6 +25,15 @@ from src.ai.tools.base import Tool, ToolOutput, ToolParams
 pytestmark = pytest.mark.needs_db
 
 
+@pytest.fixture(autouse=True)
+def _writes_run_now(monkeypatch):
+    """These tests are about replaying a write (TL-39), not about holding it for
+    a person (SH-E4, connector_actions): the approval rule is off here."""
+    from src.common.config import settings
+
+    monkeypatch.setattr(settings, "CONNECTOR_ACTION_APPROVAL", False)
+
+
 def test_only_a_write_in_a_run_has_a_key():
     run = uuid.uuid4()
     assert write_key(run, "web_search", {"query": "x"}) is None

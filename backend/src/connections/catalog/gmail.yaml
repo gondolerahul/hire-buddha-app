@@ -6,9 +6,16 @@ auth_type: oauth2
 icon: gmail
 oauth_app_ref: oauth-app-google
 status: planned
-scopes: [openid, email, "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"]
+scopes: [openid, email, "https://www.googleapis.com/auth/gmail.modify"]
 capabilities:
   account_kind: user
+  disclosure: >-
+    HireBuddha will read new mail in this Gmail account so your AI employees can work on it, label the
+    messages it has handled, save replies as drafts and send them after a person on your team approves
+    each one. It never deletes mail. See how HireBuddha handles Gmail data in its privacy policy.
+  after_disconnect: >-
+    HireBuddha has revoked its access at Google. You can check it on your Google Account's third-party
+    access page (myaccount.google.com/connections).
   actions: [read_mail, send_mail, draft_mail]
   events: [email.received]
 approval:

@@ -278,12 +278,36 @@ async def _pending_from(state_data: Dict[str, Any], state: str, params: Dict[str
     return pending_id
 
 
+async def admin_consent_link(company_id: Any, user_id: Any, connector_id: str = "outlook_mail") -> Dict[str, Any]:
+    """The link a business's Microsoft 365 administrator opens to approve
+    HireBuddha for the organisation (MS-E3); it comes back to the callback."""
+    row, app = await _connector(connector_id)
+    provider = provider_for(row.provider)
+    if not hasattr(provider, "admin_consent_url"):
+        raise ConnectionProblem(f"{row.display_name} has no organisation-wide approval.")
+    state = pysecrets.token_urlsafe(32)
+    await _redis().set(f"oauth:state:{state}", json.dumps({
+        "company_id": str(company_id), "user_id": str(user_id) if user_id else None, "connector_id": row.id,
+        "kind": "admin_consent"}, default=str), ex=7 * 86400)  # the admin may take a few days
+    url = provider.admin_consent_url(app, state=state, redirect_uri=redirect_uri(row.provider))
+    return {"url": url, "message": (
+        f"HireBuddha asks to read and send mail for the people of your organisation who connect {row.display_name}. "
+        "Open the link as a Microsoft 365 administrator and accept; the link works for 7 days.")}
+
+
 async def callback(provider_name: str, params: Dict[str, Any]) -> str:
     """Where the browser goes next: the "choose accounts" step, or back with an error."""
     state = str(params.get("state") or "")
     data = await _take(f"oauth:state:{state}") if state else None
     if data is None:
         return frontend_url(None, error="The sign-in took too long or was already used. Please try again.")
+    if data.get("kind") == "admin_consent":  # an administrator answered the organisation-wide approval (MS-E3)
+        if str(params.get("admin_consent") or "").lower() == "true":
+            return frontend_url(None, notice="Your administrator approved HireBuddha for the organisation. "
+                                             "Connect Outlook now.", connector=data.get("connector_id"))
+        return frontend_url(None, error="The administrator did not approve HireBuddha: "
+                                        f"{params.get('error_description') or params.get('error') or 'no answer'}",
+                            connector=data.get("connector_id"))
     try:
         row, _ = await _connector(data["connector_id"])
         if row.provider != provider_name:
@@ -574,7 +598,26 @@ async def _pause_triggers(db: Any, connection_id: Any) -> List[str]:
     return paused
 
 
-async def revoke(company_id: Any, connection_id: Any, *, actor_id: Any = None) -> Dict[str, Any]:
+async def _delete_stored_events(db: Any, connection: Any) -> int:
+    """The events that came through the connection — mail, comments, messages
+    in their data — are deleted; trigger firings keep their record without them
+    (SH-E1). The connection's own lifecycle events (``connection.*``, source
+    ``connections``) carry no provider content and stay as its history."""
+    from src.automation.models import Event, TriggerFiring
+
+    came_through = (Event.company_id == connection.company_id, Event.subject == f"connection:{connection.id}",
+                    Event.source != "connections")
+    ids = select(Event.id).where(*came_through)
+    await db.execute(update(TriggerFiring).where(TriggerFiring.event_id.in_(ids)).values(event_id=None))
+    result = await db.execute(delete(Event).where(*came_through))
+    return int(result.rowcount or 0)
+
+
+async def revoke(company_id: Any, connection_id: Any, *, actor_id: Any = None, actor_kind: str = "user",
+                 reason: Optional[str] = None) -> Dict[str, Any]:
+    """Disconnect: revoked at the provider where it can be, the secret deleted,
+    what came through the connection deleted (its stored events and poll
+    position, SH-E1), routes removed, dependent triggers paused."""
     from src.common.tenancy.session import control_session, tenant_session
 
     async with tenant_session(company_id) as db:
@@ -587,16 +630,22 @@ async def revoke(company_id: Any, connection_id: Any, *, actor_id: Any = None) -
         except Exception as error:  # noqa: BLE001 - disconnecting here must not depend on the provider
             provider_error = str(error)[:300]
         await db.execute(delete(ConnectionSecret).where(ConnectionSecret.connection_id == connection.id))
+        events_deleted = await _delete_stored_events(db, connection)
+        connection.settings = {k: v for k, v in (connection.settings or {}).items() if k != "poll"}
         connection.status = "revoked"
         paused = await _pause_triggers(db, connection.id)
-        await _audit(db, company_id, connection.id, "revoked", actor_kind="user", actor_id=actor_id,
-                     detail={"provider_error": provider_error, "triggers_paused": paused})
+        await _audit(db, company_id, connection.id, "revoked", actor_kind=actor_kind, actor_id=actor_id,
+                     detail={"provider_error": provider_error, "triggers_paused": paused,
+                             "events_deleted": events_deleted, **({"reason": reason} if reason else {})})
         await db.commit()
     async with control_session() as db:
         await db.execute(delete(ExternalAccountRoute).where(ExternalAccountRoute.connection_id == connection.id))
         await db.commit()
     await _emit(company_id, "connection.revoked", connection, {"triggers_paused": paused})
-    return {"revoked": True, "triggers_paused": paused, "provider_error": provider_error}
+    from src.connections.catalog import after_disconnect
+
+    return {"revoked": True, "triggers_paused": paused, "provider_error": provider_error,
+            "events_deleted": events_deleted, "after": after_disconnect(row)}
 
 
 # ── The token broker ────────────────────────────────────────────────────────
@@ -749,23 +798,43 @@ async def _refresh_one(db: Any, connection: Any, row: Any, app: Any, secret: Dic
     return secret
 
 
-async def _refresh_failed(db: Any, connection: Any, error: str) -> None:
+async def _refresh_failed(db: Any, connection: Any, error: str, *, action: str = "refresh_failed",
+                          reason: str = "HireBuddha could not refresh its access.") -> None:
     from src.notifications.service import notify
 
     connection.status = "needs_reconnect"
     connection.health = {**(connection.health or {}), "last_error": error[:300],
                          "refresh_failures": int((connection.health or {}).get("refresh_failures", 0)) + 1}
     paused = await _pause_triggers(db, connection.id)
-    await _audit(db, connection.company_id, connection.id, "refresh_failed",
+    await _audit(db, connection.company_id, connection.id, action,
                  detail={"error": error[:300], "triggers_paused": paused})
     await db.commit()
     await _emit(connection.company_id, "connection.needs_reconnect", connection, {"triggers_paused": paused})
     await notify(connection.company_id, kind="connection_needs_reconnect",
                  title=f"{connection.display_name} needs to be reconnected",
-                 body=(f"HireBuddha could not refresh its access. {len(paused)} trigger(s) are paused until it is "
-                       "reconnected." if paused else "HireBuddha could not refresh its access."),
+                 body=(f"{reason} {len(paused)} trigger(s) are paused until it is reconnected." if paused else reason),
                  dedupe_key=f"connection:{connection.id}:reconnect:{datetime.utcnow().date()}",
                  link=f"/connections/{connection.id}")
+
+
+REFUSED_PASSWORD = ("The mail server refused the stored password. An app password stops working when the "
+                    "account's password changes or the app password is removed: create a new one and reconnect.")
+
+
+async def mark_needs_reconnect(company_id: Any, connection_id: Any, *, error: str,
+                               reason: str = REFUSED_PASSWORD) -> bool:
+    """The provider refused the stored credential (a mailbox's password, MAIL-E1):
+    the connection is no longer used — ``needs_reconnect``, its triggers paused,
+    its owners told once a day — instead of logging in with it on every poll.
+    ``False`` when it was not in use."""
+    from src.common.tenancy.session import tenant_session
+
+    async with tenant_session(company_id) as db:
+        connection = await db.get(Connection, uuid.UUID(str(connection_id)))
+        if connection is None or connection.status not in ("active", "expiring"):
+            return False
+        await _refresh_failed(db, connection, error, action="credential_refused", reason=reason)
+    return True
 
 
 async def refresh_due(company_id: Any = None) -> Dict[str, Any]:

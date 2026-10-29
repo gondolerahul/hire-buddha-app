@@ -53,6 +53,8 @@ async def lifespan(app: FastAPI):
             await sync_catalog(db)
     except Exception:  # noqa: BLE001 - a missing table before migrations must not stop the API
         logging.getLogger(__name__).warning("connector catalog not synced", exc_info=True)
+    from src.connections.api_versions import warn_if_stale
+    warn_if_stale()  # a provider API version near its sunset (LI-E1, GADS-E2)
     from src.common.tenancy.session import is_split
     if is_split():  # a moved or suspended tenant is seen at once (Phase 14 WS2)
         from src.common.tenancy.directory import listen_for_changes

@@ -20,9 +20,9 @@ LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
 
 
 def _linkedin_version() -> str:
-    """The ``LinkedIn-Version`` header: one setting, ``LINKEDIN_API_VERSION`` (TL-48)."""
-    from src.common.config import settings
-    return settings.LINKEDIN_API_VERSION
+    """The ``LinkedIn-Version`` header: the connector's setting, ``LINKEDIN_API_VERSION`` (TL-48, LI-E1)."""
+    from src.connections.api_versions import linkedin_version
+    return linkedin_version()
 
 
 class LinkedInCreatePostTool(SocialMediaTool):

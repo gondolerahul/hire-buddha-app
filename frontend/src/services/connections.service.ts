@@ -14,9 +14,12 @@ export type ConnectorStatus = 'available' | 'preview' | 'unavailable' | 'planned
 export interface FormField {
     name: string;
     label: string;
-    kind: 'text' | 'secret' | 'email' | 'url' | 'number';
+    kind: 'text' | 'secret' | 'email' | 'url' | 'number' | 'select';
     required: boolean;
     default?: unknown;
+    /** A `select`'s choices. */
+    options?: { value: string; label: string }[];
+    help?: string | null;
 }
 
 export interface Connector {
@@ -32,6 +35,11 @@ export interface Connector {
     actions: string[];
     events: string[];
     form: FormField[];
+    /** What the person reads before the provider's window opens (SH-13). */
+    disclosure?: string | null;
+    /** Help shown on the connector's form. */
+    help?: string | null;
+    privacy_url?: string;
 }
 
 export interface Grant {
@@ -99,7 +107,8 @@ export interface UnroutedEvent {
 }
 
 export const CATEGORY_LABELS: Record<string, string> = {
-    social: 'Social', messaging: 'Messaging', dev: 'Dev', docs: 'Docs', mail: 'Mail', crm: 'CRM', ai: 'AI', other: 'Other',
+    social: 'Social', messaging: 'Messaging', dev: 'Dev', docs: 'Docs', mail: 'Mail', crm: 'CRM', ai: 'AI', ads: 'Ads',
+    other: 'Other',
 };
 
 export const STATUS_BADGE: Record<ConnectorStatus, string> = {
@@ -118,6 +127,10 @@ export const connectionsService = {
     },
     async start(connectorId: string, returnPath = '/connections'): Promise<StartResult> {
         return (await apiClient.post('/connections/start', { connector_id: connectorId, return_path: returnPath })).data;
+    },
+    /** The link a Microsoft 365 administrator opens to approve HireBuddha for the organisation (MS-E3). */
+    async adminConsent(connectorId: string): Promise<{ url: string; message: string }> {
+        return (await apiClient.post('/connections/admin-consent', { connector_id: connectorId })).data;
     },
     async pending(pendingId: string): Promise<Pending> {
         return (await apiClient.get(`/connections/pending/${pendingId}`)).data;

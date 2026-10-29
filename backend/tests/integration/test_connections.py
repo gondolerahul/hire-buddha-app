@@ -297,7 +297,8 @@ async def test_a_mailbox_is_connected_with_a_form(world, monkeypatch):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_app(caller)), base_url="http://t") as client:
         form = (await client.post("/api/v1/connections/start", json={"connector_id": "imap_mailbox"})).json()
         assert form["kind"] == "form" and form["form"][1] == {
-            "name": "password", "label": "App password", "kind": "secret", "required": True, "default": None}
+            "name": "password", "label": "App password", "kind": "secret", "required": True, "default": None,
+            "options": [], "help": None}
         made = await client.post("/api/v1/connections/form", json={
             "connector_id": "imap_mailbox", "fields": {"email_address": "ops@acme.test", "password": "app-pass"}})
         assert made.status_code == 200, made.text
@@ -655,7 +656,8 @@ async def test_staff_register_a_provider_app_with_its_secrets_named_only(world, 
             assert view["secret_in_vault"] is True
             assert view["refs_in_vault"] == {"private_key": True, "webhook_secret": False}  # not put there yet
             listed = (await client.get("/api/v1/admin/oauth-apps")).json()
-            assert [v["provider"] for v in listed] == ["meta", "google", "microsoft", "linkedin", "x", "github"]
+            assert [v["provider"] for v in listed] == ["meta", "google", "google-marketing", "microsoft", "linkedin",
+                                                       "x", "github"]
             assert "client-secret-value" not in saved.text + str(listed) and "BEGIN KEY" not in str(listed)
             staff["user"] = world.acme
             assert (await client.get("/api/v1/admin/oauth-apps")).status_code == 403
@@ -670,3 +672,269 @@ async def test_staff_register_a_provider_app_with_its_secrets_named_only(world, 
             await db.execute(delete(IntegrationRegistry).where(IntegrationRegistry.company_id == platform,
                                                                IntegrationRegistry.service_sku == "oauth-app-github"))
             await db.commit()
+
+
+# ── The provider reviews' fixes (docs/phase15/14_connector_approvals/10) ────
+
+def _github_signed(payload, event, secret=b"whsec"):
+    body = json.dumps(payload).encode()
+    return body, {"x-hub-signature-256": "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest(),
+                  "x-github-event": event, "x-github-delivery": uuid.uuid4().hex,
+                  "content-type": "application/json"}
+
+
+async def test_a_suspended_github_installation_stops_its_connection_until_it_resumes(world):
+    """GH-E1: suspend/unsuspend change the connection's status; removed repositories are recorded."""
+    from fastapi import FastAPI
+
+    from src.common.tenancy.session import control_session, tenant_session
+    from src.connections.apps import ProviderApp, set_app
+    from src.connections.models import Connection, ConnectionAudit, ExternalAccountRoute
+    from src.connections.webhooks import router
+
+    installation = str(uuid.uuid4().int % 10**9)
+    set_app(ProviderApp(ref="oauth-app-github", client_id="1", client_secret=None,
+                        secrets={"webhook_secret": "whsec"}))
+    connection_id = uuid.uuid4()
+    async with tenant_session(world.acme.company_id) as db:
+        db.add(Connection(id=connection_id, company_id=world.acme.company_id, connector_id="github",
+                          display_name="acme", external_account_id=installation, status="active",
+                          settings={"installation_id": installation}))
+        await db.commit()
+    async with control_session() as db:
+        db.add(ExternalAccountRoute(provider="github", external_account_id=installation,
+                                    company_id=world.acme.company_id, connection_id=connection_id))
+        await db.commit()
+    app = FastAPI()
+    app.include_router(router)
+    inst = {"installation": {"id": int(installation)}}
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            async def send(payload, event):
+                body, headers = _github_signed({**inst, **payload}, event)
+                answer = await client.post("/webhook/provider/github", content=body, headers=headers)
+                assert answer.status_code == 200, answer.text
+
+            async def state():
+                async with tenant_session(world.acme.company_id) as db:
+                    row = await db.get(Connection, connection_id)
+                    return row.status, dict(row.health or {}), dict(row.settings or {})
+
+            await send({"action": "suspend"}, "installation")
+            status, health, _ = await state()
+            assert status == "error" and health.get("suspended_at")
+            await send({"action": "unsuspend"}, "installation")
+            status, health, _ = await state()
+            assert status == "active" and "suspended_at" not in health
+            await send({"action": "removed", "repository_selection": "selected",
+                        "repositories_removed": [{"full_name": "acme/site"}]}, "installation_repositories")
+            assert (await state())[2]["repositories_removed"] == ["acme/site"]
+            await send({"action": "added", "repositories_added": [{"full_name": "acme/site"}]},
+                       "installation_repositories")
+            assert (await state())[2]["repositories_removed"] == []
+        async with tenant_session(world.acme.company_id) as db:
+            actions = (await db.execute(select(ConnectionAudit.action).where(
+                ConnectionAudit.connection_id == connection_id))).scalars().all()
+        assert {"suspended", "unsuspended", "repositories_removed"} <= set(actions)
+    finally:
+        set_app(None, "oauth-app-github")
+
+
+async def test_a_refused_mailbox_password_pauses_the_connection_and_tells_the_owners(world, monkeypatch):
+    """MAIL-E1: no more logins with a password the server refused."""
+    from src.common.tenancy.session import tenant_session
+    from src.connections import service
+    from src.connections.models import Connection, ConnectionAudit
+
+    told = []
+
+    async def _notify(company_id, **kw):
+        told.append(kw)
+        return 1
+
+    monkeypatch.setattr("src.notifications.service.notify", _notify)
+    connection_id = uuid.uuid4()
+    async with tenant_session(world.acme.company_id) as db:
+        db.add(Connection(id=connection_id, company_id=world.acme.company_id, connector_id="imap_mailbox",
+                          display_name="ops@acme.test", external_account_id="ops@acme.test", status="active"))
+        await db.commit()
+    assert await service.mark_needs_reconnect(world.acme.company_id, connection_id,
+                                              error="[AUTHENTICATIONFAILED] Invalid credentials")
+    assert not await service.mark_needs_reconnect(world.acme.company_id, connection_id, error="again")
+    async with tenant_session(world.acme.company_id) as db:
+        row = await db.get(Connection, connection_id)
+        assert row.status == "needs_reconnect" and "Invalid credentials" in row.health["last_error"]
+        actions = (await db.execute(select(ConnectionAudit.action).where(
+            ConnectionAudit.connection_id == connection_id))).scalars().all()
+    assert actions == ["credential_refused"]
+    [notice] = told
+    assert "refused the stored password" in notice["body"]
+    with pytest.raises(service.ConnectionProblem, match="needs to be reconnected"):
+        await service.system_credential(world.acme.company_id, connection_id, purpose="poll:mailbox")
+
+
+async def test_disconnecting_a_mailbox_says_how_to_cancel_the_app_password(world, monkeypatch):
+    """MAIL-E4: the revoke answer carries the connector's after-disconnect advice."""
+    from src.connections.providers import PROVIDERS
+
+    async def _test(app, connector, settings, secret):
+        return {"ok": True, "detail": "signed in"}
+
+    monkeypatch.setattr(PROVIDERS["mailbox"], "test", _test)
+    caller = {"user": world.acme}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_app(caller)), base_url="http://t") as client:
+        made = await client.post("/api/v1/connections/form", json={
+            "connector_id": "imap_mailbox", "fields": {"email_address": "desk@acme.test", "password": "p"}})
+        assert made.status_code == 200, made.text
+        gone = await client.delete(f"/api/v1/connections/{made.json()['id']}")
+        assert gone.status_code == 200, gone.text
+        assert "app password" in gone.json()["after"]
+        outlook = await client.post("/api/v1/connections/form", json={
+            "connector_id": "imap_mailbox", "fields": {"email_address": "desk@outlook.com", "password": "p"}})
+        assert outlook.status_code == 409 and "Outlook connector" in outlook.text
+
+
+async def test_a_write_to_a_connected_account_waits_for_a_person_and_runs_as_approved(world, monkeypatch):
+    """SH-E4: the call is held with its exact arguments; approving it carries it out once."""
+    from src.ai.governance import connector_actions
+    from src.ai.orm import HumanApproval
+    from src.ai.tool_executor import _run
+    from src.ai.tools.base import Tool, ToolOutput, ToolRegistry
+    from src.common.tenancy.session import tenant_session
+
+    told, ran = [], []
+
+    async def _notify(company_id, **kw):
+        told.append(kw)
+        return 1
+
+    class FakeSocial(Tool):
+        name = "social_api"
+        description = "played"
+
+        async def invoke(self, args, context):  # noqa: D401 - the played platform
+            ran.append((args, dict(context)))
+            return ToolOutput(output={"success": True, "post_id": "urn:li:share:1"})
+
+        async def run(self, input_data):
+            raise AssertionError("not called")
+
+    fake = FakeSocial()
+    monkeypatch.setattr("src.notifications.service.notify", _notify)
+    monkeypatch.setattr(ToolRegistry, "get_tool", classmethod(lambda cls, name, company_id=None: fake))
+    from src.ai.orm import ExecutionRun
+    from src.ai.orm.entity import HierarchicalEntity
+
+    company = world.acme.company_id
+    async with tenant_session(company) as db:  # the approval belongs to a real run of the business
+        agent = HierarchicalEntity(company_id=company, type="AGENT", status="ACTIVE", name="Social agent")
+        db.add(agent)
+        await db.flush()
+        run = ExecutionRun(entity_id=agent.id, company_id=company, status="RUNNING", input_data={})
+        db.add(run)
+        await db.commit()
+        run_id, agent_id = run.id, agent.id
+    ctx = {"company_id": str(company), "run_id": str(run_id), "agent_id": str(agent_id),
+           "__entity_name__": "Social agent", "user_id": "default"}
+    post = {"platform": "linkedin", "operation": "create_post", "payload": {"text": "We are hiring"}}
+
+    held = await _run(fake, "social_api", post, post, ctx)
+    assert held.success and held.units == 0 and not ran
+    approval_id = held.output["approval_id"]
+    assert (await connector_actions.hold("social_api", post, ctx))["approval_id"] == approval_id  # one per call
+    assert await connector_actions.hold("social_api", {"platform": "linkedin", "operation": "get_analytics",
+                                                       "payload": {}}, ctx) is None             # reads run now
+    async with tenant_session(company) as db:
+        row = await db.get(HumanApproval, uuid.UUID(approval_id))
+        assert row.status == "PENDING" and row.context_snapshot["kind"] == "connector_action"
+        assert "We are hiring" in row.context_snapshot["content"]
+        row.status = "APPROVED"  # what the inbox's answer does first
+        await db.commit()
+    outcome = await connector_actions.decided(company, approval_id, approved=True, user_id=world.acme.id)
+    assert outcome["done"] and outcome["output"]["post_id"] == "urn:li:share:1"
+    [(args, context)] = ran
+    assert args == post and context["run_id"] == ctx["run_id"] and context["__approved_by__"] == str(world.acme.id)
+    assert (await connector_actions.decided(company, approval_id, approved=True, user_id=world.acme.id))["done"]
+    assert len(ran) == 1                                                        # never carried out twice
+    other = await connector_actions.hold("social_api", {**post, "payload": {"text": "Draft two"}}, ctx)
+    rejected = await connector_actions.decided(company, other["approval_id"], approved=False, user_id=world.acme.id)
+    assert not rejected["done"] and len(ran) == 1
+    assert [t["title"] for t in told] == ["Social agent wants to create post on linkedin"] * 2
+    from src.common.config import settings
+
+    monkeypatch.setattr(settings, "CONNECTOR_ACTION_APPROVAL_EXEMPT", "social_api:linkedin.create_post")
+    assert await connector_actions.hold("social_api", post, ctx) is None
+
+
+def _meta_signed_request(payload, secret="appsecret"):
+    import base64
+
+    raw = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), raw.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+    return f"{sig}.{raw}"
+
+
+async def test_meta_data_deletion_disconnects_the_persons_connections_and_shows_a_status_page(world):
+    """META-E1: the signed request is checked; the connections the person made are
+    disconnected with their stored events; the code's page says what was done."""
+    from fastapi import FastAPI
+
+    from src.automation.models import Event
+    from src.common.tenancy.session import control_session, tenant_session
+    from src.connections.apps import ProviderApp, set_app
+    from src.connections.models import Connection, ConnectionAudit, ProviderDeletionRequest
+    from src.connections.webhooks import router
+
+    person = f"asid-{uuid.uuid4().hex[:8]}"
+    set_app(ProviderApp(ref="oauth-app-meta", client_id="111", client_secret="appsecret"))
+    company = world.acme.company_id
+    mine, other = uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(company) as db:
+        db.add(Connection(id=mine, company_id=company, connector_id="facebook_pages", display_name="Acme Store",
+                          external_account_id=f"p-{uuid.uuid4().hex[:6]}", status="active",
+                          settings={"page_id": "p1", "meta_user_id": person, "poll": {"x": 1}}))
+        db.add(Connection(id=other, company_id=company, connector_id="facebook_pages", display_name="Other",
+                          external_account_id=f"p-{uuid.uuid4().hex[:6]}", status="active",
+                          settings={"page_id": "p2", "meta_user_id": "someone-else"}))
+        db.add(Event(id=uuid.uuid4(), company_id=company, type="social.comment.created", source="provider:meta",
+                     trust="verified", time=datetime.utcnow(),
+                     dedupe_key=f"t-{uuid.uuid4().hex}", subject=f"connection:{mine}",
+                     data={"value": {"message": "a comment"}}))
+        await db.commit()
+    app = FastAPI()
+    app.include_router(router)
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            forged = await client.post("/webhook/provider/meta/data-deletion",
+                                       data={"signed_request": _meta_signed_request(
+                                           {"algorithm": "HMAC-SHA256", "user_id": person}, secret="wrong")})
+            assert forged.status_code == 400
+            answer = await client.post("/webhook/provider/meta/data-deletion", data={
+                "signed_request": _meta_signed_request({"algorithm": "HMAC-SHA256", "user_id": person,
+                                                        "issued_at": 1})})
+            assert answer.status_code == 200, answer.text
+            code = answer.json()["confirmation_code"]
+            assert answer.json()["url"].endswith(f"/webhook/provider/meta/data-deletion/{code}")
+            page = await client.get(f"/webhook/provider/meta/data-deletion/{code}")
+            assert page.status_code == 200 and "Done." in page.text and code in page.text
+            assert (await client.get("/webhook/provider/meta/data-deletion/HBNOPE")).status_code == 404
+            nobody = await client.post("/webhook/provider/meta/deauthorize", data={
+                "signed_request": _meta_signed_request({"algorithm": "HMAC-SHA256", "user_id": "never-seen"})})
+            assert nobody.json() == {"status": "ok", "disconnected": 0}
+        async with tenant_session(company) as db:
+            assert (await db.get(Connection, mine)).status == "revoked"
+            assert "poll" not in (await db.get(Connection, mine)).settings
+            assert (await db.get(Connection, other)).status == "active"
+            assert not (await db.execute(select(Event).where(Event.subject == f"connection:{mine}",
+                                                             Event.type == "social.comment.created"))).scalars().all()
+            [audit] = (await db.execute(select(ConnectionAudit).where(ConnectionAudit.connection_id == mine,
+                                                                      ConnectionAudit.action == "revoked"))).scalars().all()
+            assert audit.actor_kind == "provider" and audit.detail["reason"] == "data_deletion_request"
+            assert audit.detail["events_deleted"] == 1
+        async with control_session() as db:
+            row = await db.get(ProviderDeletionRequest, code)
+            assert row.status == "completed" and row.connections == 1 and person not in row.person_sha256
+            await db.delete(row)
+            await db.commit()
+    finally:
+        set_app(None, "oauth-app-meta")

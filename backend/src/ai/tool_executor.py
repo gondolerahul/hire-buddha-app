@@ -159,6 +159,12 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
     if locked:
         return ToolResult(tool=name, args=logged_args, output=f"Error: {locked}", success=False, error=locked,
                           skipped=True, skip_reason="feature_locked")
+    from src.ai.governance.connector_actions import hold
+
+    held = await hold(name, args, context)
+    if held is not None:  # a write to a connected account waits for a person (SH-E4); not billed
+        return ToolResult(tool=name, args=logged_args, output=held, success="error" not in held,
+                          error=held.get("error"), units=0)
     key = write_key((context or {}).get("run_id"), name, args)
     if key:
         try:
@@ -187,6 +193,13 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
         output = f"Error: {error}"
     except Exception as exc:
         error, output = str(exc), f"Error: {exc}"
+    if error is None:  # mail, comments and messages from outside: screened and quoted (SH-E3)
+        from src.ai.governance.untrusted import guard_tool_output
+
+        try:
+            output, _screening = await guard_tool_output(name, args, output)
+        except Exception:  # noqa: BLE001 - never lose a result to the screen; it is logged
+            logger.warning("connector content of %s not screened", name, exc_info=True)
     latency = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
     return ToolResult(tool=name, args=logged_args, output=output, success=error is None,
                       latency_ms=latency, error=error, units=units, also_bill=also_bill,

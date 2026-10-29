@@ -20,11 +20,14 @@ import sys
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence
 
-PROVIDERS = ("meta", "google", "microsoft", "linkedin", "x", "github")
+# ``google-marketing``: the separate Google Cloud project for YouTube and
+# Google Ads (docs/phase15/14_connector_approvals/09 §4), SKU oauth-app-google-marketing.
+PROVIDERS = ("meta", "google", "google-marketing", "microsoft", "linkedin", "x", "github")
 # Settings each provider's adapter needs (connections/apps.py, providers/*).
 REQUIRED: Dict[str, Sequence[str]] = {
     "meta": ("client_id",),
     "google": ("client_id",),
+    "google-marketing": ("client_id",),
     "microsoft": ("client_id",),
     "linkedin": ("client_id",),
     "x": ("client_id",),

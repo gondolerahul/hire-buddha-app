@@ -18,13 +18,30 @@ from src.connections.providers.base import Account, AccessToken, Provider, Provi
 DEFAULT_GRAPH_VERSION = "v26.0"
 
 
+def graph_version(app: Any) -> str:
+    """The app row's ``graph_version``, else the ``META_GRAPH_VERSION`` setting (META-E7)."""
+    from src.common.config import settings
+
+    return app.settings.get("graph_version") or settings.META_GRAPH_VERSION or DEFAULT_GRAPH_VERSION
+
+
+def login_config_id(app: Any, connector: Any) -> Optional[str]:
+    """Facebook Login for Business: the configuration that names the permissions
+    (META-E3). The app row's ``login_config_id`` is one id for every connector,
+    or one per connector (``{"facebook_pages": "…", "instagram_business": "…"}``)."""
+    value = app.settings.get("login_config_id")
+    if isinstance(value, dict):
+        value = value.get(connector.id)
+    return str(value) if value else None
+
+
 class MetaProvider(Provider):
     name = "meta"
     uses_pkce = False
 
     @staticmethod
     def graph(app: Any, path: str) -> str:
-        return f"https://graph.facebook.com/{app.settings.get('graph_version') or DEFAULT_GRAPH_VERSION}/{path.lstrip('/')}"
+        return f"https://graph.facebook.com/{graph_version(app)}/{path.lstrip('/')}"
 
     async def _call(self, method: str, url: str, what: str, **kwargs: Any) -> Dict[str, Any]:
         async with http() as client:
@@ -32,10 +49,23 @@ class MetaProvider(Provider):
 
     async def authorize_url(self, app: Any, connector: Any, *, state: str, redirect_uri: str,
                             code_challenge: Optional[str]) -> str:
-        version = app.settings.get("graph_version") or DEFAULT_GRAPH_VERSION
-        params = {"client_id": app.client_id, "redirect_uri": redirect_uri, "state": state,
-                  "response_type": "code", "scope": ",".join(connector.scopes or [])}
-        return f"https://www.facebook.com/{version}/dialog/oauth?{urlencode(params)}"
+        params = {"client_id": app.client_id, "redirect_uri": redirect_uri, "state": state, "response_type": "code"}
+        config_id = login_config_id(app, connector)
+        if config_id:  # Login for Business grants the configuration's permissions, all or none
+            params["config_id"] = config_id
+        else:
+            params["scope"] = ",".join(connector.scopes or [])
+        return f"https://www.facebook.com/{graph_version(app)}/dialog/oauth?{urlencode(params)}"
+
+    async def _user_id(self, app: Any, user_token: str) -> Optional[str]:
+        """The person's app-scoped user id, which Meta's deletion and deauthorise
+        callbacks name (META-E1). Best effort: a connection without it still works."""
+        try:
+            me = await self._call("GET", self.graph(app, "me"), "reading the person",
+                                  params={"access_token": user_token, "fields": "id"})
+        except ProviderError:
+            return None
+        return str(me["id"]) if me.get("id") else None
 
     async def _long_lived_user_token(self, app: Any, params: Dict[str, Any], redirect_uri: Optional[str]) -> str:
         if params.get("error"):
@@ -60,6 +90,8 @@ class MetaProvider(Provider):
         pages = await self._call("GET", self.graph(app, "me/accounts"), "listing Pages", params={
             "access_token": user_token, "limit": 100,
             "fields": "id,name,access_token,tasks,instagram_business_account{id,username,name}"})
+        person = await self._user_id(app, user_token)
+        who = {"meta_user_id": person} if person else {}
         accounts: List[Account] = []
         for page in pages.get("data", []):
             secret = {"access_token": page.get("access_token")}
@@ -70,11 +102,11 @@ class MetaProvider(Provider):
                 accounts.append(Account(external_id=str(ig["id"]), name=f"@{ig.get('username') or ig.get('name')}",
                                         secret=secret, scopes=list(connector.scopes or []),
                                         settings={"instagram_account_id": ig["id"], "page_id": page["id"],
-                                                  "page_name": page.get("name")}))
+                                                  "page_name": page.get("name"), **who}))
             else:
                 accounts.append(Account(external_id=str(page["id"]), name=str(page.get("name")), secret=secret,
                                         scopes=list(connector.scopes or []),
-                                        settings={"page_id": page["id"], "tasks": page.get("tasks", [])}))
+                                        settings={"page_id": page["id"], "tasks": page.get("tasks", []), **who}))
         if not accounts:
             raise ProviderError("no Page (or Instagram business account linked to a Page) was shared")
         return accounts
@@ -87,6 +119,8 @@ class MetaProvider(Provider):
             raise ProviderError("Meta sent no access token")
         debug = await self._call("GET", self.graph(app, "debug_token"), "reading the shared accounts", params={
             "input_token": token, "access_token": f"{app.client_id}|{app.client_secret or ''}"})
+        person = (debug.get("data") or {}).get("user_id")
+        who = {"meta_user_id": str(person)} if person else {}
         waba_ids: List[str] = []
         for scope in (debug.get("data") or {}).get("granular_scopes", []):
             if scope.get("scope") == "whatsapp_business_management":
@@ -105,7 +139,7 @@ class MetaProvider(Provider):
                     secret={"access_token": token}, scopes=["whatsapp_business_management",
                                                              "whatsapp_business_messaging"],
                     settings={"waba_id": waba_id, "phone_number_id": number["id"],
-                              "display_phone_number": number.get("display_phone_number")}))
+                              "display_phone_number": number.get("display_phone_number"), **who}))
         if not accounts:
             raise ProviderError("no WhatsApp Business number was shared")
         return accounts
@@ -158,5 +192,5 @@ def embedded_signup_params(app: Any, state: str) -> Dict[str, Any]:
     if app.settings.get("solution_id"):
         setup["solutionID"] = str(app.settings["solution_id"])
     return {"app_id": app.client_id, "config_id": config_id, "state": state,
-            "graph_version": app.settings.get("graph_version") or DEFAULT_GRAPH_VERSION,
+            "graph_version": graph_version(app),
             "extras": {"setup": setup, "featureType": "", "sessionInfoVersion": "3"}}

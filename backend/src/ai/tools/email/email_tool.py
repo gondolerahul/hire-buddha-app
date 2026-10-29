@@ -140,6 +140,53 @@ def _get_smtp_connection(smtp_host: str, smtp_port: int, email_address: str, pas
     return server
 
 
+REFUSED_HINT = ("The mail server refused the stored password, so the mailbox is paused. Reconnect it on the "
+                "Connections screen with a new app password.")
+
+
+async def _password_refused(company_id: Any, resolved: Dict[str, Any], error: BaseException) -> bool:
+    """A Mailbox connection whose password the server refused is not used again
+    until it is reconnected (MAIL-E1). OAuth mailboxes refresh through the token
+    broker, and old ``email_connections`` rows have no connection to mark."""
+    from src.connections.mail import password_refused
+
+    if not resolved.get("connection_id") or isinstance(resolved.get("password"), OAuthBearer) \
+            or not password_refused(error):
+        return False
+    from src.connections.service import mark_needs_reconnect
+
+    try:
+        await mark_needs_reconnect(company_id, resolved["connection_id"], error=str(error)[:300])
+    except Exception:  # noqa: BLE001 - the tool's answer stands either way
+        logger.warning("mailbox connection %s not marked for reconnecting", resolved["connection_id"], exc_info=True)
+    return True
+
+
+def _api(resolved: Dict[str, Any]) -> Any:
+    """The Gmail API or Microsoft Graph client of a Gmail or Outlook connection
+    (GOOG-E1, MS-E1); ``None`` for a mailbox reached over IMAP and SMTP."""
+    from src.connections.mail.apis import mail_api
+
+    password = resolved.get("password")
+    return mail_api(resolved.get("api"), str(password) if isinstance(password, OAuthBearer) else None)
+
+
+def _summary(uid: str, msg: email.message.Message) -> Dict[str, Any]:
+    """What the tools return for one message (IMAP and the mail APIs alike)."""
+    body = _parse_email_body(msg)
+    if len(body) > 5000:  # the model's context window
+        body = body[:5000] + "\n\n[... truncated for context window ...]"
+    attachments = []  # names and sizes only
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get("Content-Disposition") and "attachment" in str(part.get("Content-Disposition", "")):
+                attachments.append({"filename": part.get_filename() or "unnamed",
+                                    "size_bytes": len(part.get_payload(decode=True) or b"")})
+    return {"uid": uid, "message_id": msg.get("Message-ID", ""), "from": msg.get("From", ""),
+            "to": msg.get("To", ""), "subject": msg.get("Subject", ""), "date": msg.get("Date", ""),
+            "body": body, "attachments": attachments}
+
+
 async def _resolve_connection(context: Optional[Dict[str, Any]], email_address: Optional[str] = None) -> Dict[str, Any]:
     """The run's agent's mailbox: a granted connection through the token broker
     (Phase 14 WS5), else — until WS7 has moved it — the old EmailConnection row."""
@@ -242,7 +289,23 @@ class EmailIngestTool(Tool):
         folder = params.get("folder", "INBOX")
         count = params.get("count", 5)
         unread_only = params.get("unread_only", True)
-        
+
+        api = _api(resolved)
+        if api is not None:  # Gmail / Outlook through their APIs (GOOG-E1, MS-E1)
+            from src.connections.providers.base import ProviderError
+
+            try:
+                fetched = await api.latest(count, unread_only, folder)
+            except ProviderError as e:
+                return json.dumps({"error": f"Reading the mailbox failed: {e}"})
+            result = {"emails": [_summary(f.id, f.message) for f in fetched]}
+            result["count"] = len(result["emails"])
+            if not result["emails"]:
+                result["message"] = "No emails found"
+            else:
+                await _add_senders(context or {}, result["emails"])
+            return json.dumps(result)
+
         if not all([imap_host, email_address, password]):
             return json.dumps({"error": "Missing email credentials. Please configure an Email Connection for this company first."})
 
@@ -263,26 +326,7 @@ class EmailIngestTool(Tool):
                     status, msg_data = conn.uid("FETCH", uid, "(RFC822)")
                     if status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                         continue
-                    msg = email.message_from_bytes(msg_data[0][1])
-                    body = _parse_email_body(msg)
-                    if len(body) > 5000:  # the model's context window
-                        body = body[:5000] + "\n\n[... truncated for context window ...]"
-                    attachments = []  # names and sizes only
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get("Content-Disposition") and "attachment" in str(part.get("Content-Disposition", "")):
-                                attachments.append({"filename": part.get_filename() or "unnamed",
-                                                    "size_bytes": len(part.get_payload(decode=True) or b"")})
-                    emails.append({
-                        "uid": uid.decode(),
-                        "message_id": msg.get("Message-ID", ""),
-                        "from": msg.get("From", ""),
-                        "to": msg.get("To", ""),
-                        "subject": msg.get("Subject", ""),
-                        "date": msg.get("Date", ""),
-                        "body": body,
-                        "attachments": attachments,
-                    })
+                    emails.append(_summary(uid.decode(), email.message_from_bytes(msg_data[0][1])))
                 return {"emails": emails, "count": len(emails)}
             finally:
                 try:
@@ -294,6 +338,8 @@ class EmailIngestTool(Tool):
             result = await asyncio.to_thread(_fetch)
         except imaplib.IMAP4.error as e:
             logger.error(f"IMAP error: {e}")
+            if await _password_refused(company_id, resolved, e):
+                return json.dumps({"error": REFUSED_HINT})
             return json.dumps({"error": f"IMAP connection failed: {str(e)}"})
         except Exception as e:
             logger.error(f"Email ingest error: {e}", exc_info=True)
@@ -380,7 +426,17 @@ class EmailClassifyTool(Tool):
         uid = params.get("uid")
         category = params.get("category")
         source_folder = params.get("source_folder", "INBOX")
-        
+
+        api = _api(resolved)
+        if api is not None and uid and category:  # a Gmail label / an Outlook folder (GOOG-E1, MS-E1)
+            from src.connections.providers.base import ProviderError
+
+            try:
+                moved_to = await api.classify(str(uid), str(category))
+            except ProviderError as e:
+                return json.dumps({"error": f"Email classification failed: {e}"})
+            return json.dumps({"success": True, "uid": uid, "moved_to": moved_to, "category": category})
+
         if not all([imap_host, email_address, password, uid, category]):
             return json.dumps({"error": "Missing required parameters or email credentials."})
 
@@ -422,6 +478,8 @@ class EmailClassifyTool(Tool):
 
         except imaplib.IMAP4.error as e:
             logger.error(f"IMAP classify error: {e}")
+            if await _password_refused(company_id, resolved, e):
+                return json.dumps({"error": REFUSED_HINT})
             return json.dumps({"error": f"Email classification failed: {str(e)}"})
         except Exception as e:
             logger.error(f"Email classify error: {e}", exc_info=True)
@@ -504,7 +562,8 @@ class EmailDraftTool(Tool):
         imap_port = resolved.get("imap_port") or 993
         email_address = resolved.get("email_address")
         password = resolved.get("password")
-        if not all([imap_host, email_address, password]):
+        api = _api(resolved)
+        if not (api is not None and email_address) and not all([imap_host, email_address, password]):
             return ToolOutput.failed("no email connection: configure one for this company first",
                                      code="no_connection")
 
@@ -517,6 +576,17 @@ class EmailDraftTool(Tool):
         # Thread headers keep the reply in the conversation.
         msg["In-Reply-To"] = params.original_message_id
         msg["References"] = params.original_message_id
+        if api is not None:  # the mailbox's own drafts, through its API (GOOG-E1, MS-E1)
+            from src.connections.providers.base import ProviderError
+
+            try:
+                draft_id = await api.draft(msg)
+            except ProviderError as e:
+                return ToolOutput.failed(f"Draft creation failed: {e}")
+            return ToolOutput(output={
+                "success": True, "draft_saved_to": "Drafts", "draft_id": draft_id, "to": to_addr,
+                "subject": params.subject, "in_reply_to": params.original_message_id,
+            })
         drafts_folder = _drafts_folder(imap_host)
 
         def _append() -> str:
@@ -612,7 +682,8 @@ class EmailSendTool(Tool):
         smtp_port = resolved.get("smtp_port") or 587
         email_address = resolved.get("email_address")
         password = resolved.get("password")
-        if not all([smtp_host, email_address, password]):
+        api = _api(resolved)
+        if not (api is not None and email_address) and not all([smtp_host, email_address, password]):
             return ToolOutput.failed("no email connection: configure one for this company first",
                                      code="no_connection")
 
@@ -658,10 +729,28 @@ class EmailSendTool(Tool):
             finally:
                 server.quit()
 
+        if api is not None:  # Gmail / Outlook through their APIs: Bcc travels in the MIME, not SMTP's envelope
+            from src.connections.providers.base import ProviderError
+
+            if bcc:
+                msg["Bcc"] = ", ".join(bcc)
+            try:
+                await api.send(msg)
+            except ProviderError as e:
+                return ToolOutput.failed(f"Email send failed: {e}")
+            logger.info(f"Email sent through the {resolved.get('api')} API: {email_address} -> {to_addr}")
+            return ToolOutput(output={
+                "success": True, "from": email_address, "to": to_addr, "subject": params.subject,
+                "cc": ", ".join(cc), "message_id": msg["Message-ID"],
+                "attachment": attachment.file_name if attachment is not None else None,
+            })
+
         try:
             await asyncio.to_thread(_send)
         except smtplib.SMTPAuthenticationError as e:
             logger.error(f"SMTP auth error: {e}")
+            if await _password_refused(company_id, resolved, e):
+                return ToolOutput.failed(REFUSED_HINT, code="credential_refused")
             return ToolOutput.failed("SMTP authentication failed. Check email/password (use App Password for Gmail).")
         except Exception as e:  # noqa: BLE001
             logger.error(f"Email send error: {e}", exc_info=True)

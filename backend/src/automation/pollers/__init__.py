@@ -81,7 +81,12 @@ async def poll_scope(scope: Any) -> Dict[str, int]:
                 items, cursor = await poller.poll(connection, credential, (connection.settings or {}).get("poll"))
             except Exception as error:  # noqa: BLE001 - one account does not stop the others
                 logger.warning("poller %s: connection %s failed: %s", poller.name, connection.id, error)
-                await service.record_health(connection.company_id, connection.id, error=str(error)[:300])
+                refused = getattr(poller, "refused", None)
+                if refused is not None and refused(connection, error):
+                    # The stored credential is refused: no more logins with it (MAIL-E1).
+                    await service.mark_needs_reconnect(connection.company_id, connection.id, error=str(error)[:300])
+                else:
+                    await service.record_health(connection.company_id, connection.id, error=str(error)[:300])
                 counts["errors"] += 1
                 continue
             stored = []

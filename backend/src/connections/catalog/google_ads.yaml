@@ -1,0 +1,28 @@
+id: google_ads
+provider: google
+display_name: Google Ads
+category: ads
+auth_type: oauth2
+icon: google-ads
+# The marketing project's OAuth client: since 9 Sep 2026 Google Ads API access
+# belongs to the Cloud project of the OAuth client, not a developer token (09 §3.3).
+oauth_app_ref: oauth-app-google-marketing
+status: planned
+scopes: [openid, email, "https://www.googleapis.com/auth/adwords"]
+capabilities:
+  account_kind: customer
+  actions: [create_campaign, manage_keywords, report]
+  events: []
+  disclosure: >-
+    HireBuddha will read the Google Ads account you choose and its campaigns' results, and create or change
+    campaigns there only when a person on your team approves the change. Campaigns start paused, and
+    nothing that spends money runs without that approval. Google bills ad spend to your own Google Ads
+    account. See HireBuddha's privacy policy.
+  after_disconnect: >-
+    HireBuddha has revoked its access at Google. Campaigns it created stay in your Google Ads account, as
+    they are. You can check the access on your Google Account's third-party access page
+    (myaccount.google.com/connections).
+approval:
+  state: not_submitted
+  notes: Google sensitive-scope verification of the marketing project, and the project's Google Ads API access (Explorer, then Basic).
+version: 1

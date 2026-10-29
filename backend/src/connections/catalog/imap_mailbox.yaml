@@ -10,14 +10,36 @@ capabilities:
   account_kind: mailbox
   actions: [read_mail, send_mail, draft_mail]
   events: [email.received]
+  help: >-
+    For Gmail, Zoho, Yahoo, iCloud and most hosting providers' mail. Gmail: turn on 2-Step Verification,
+    then create an app password at myaccount.google.com/apppasswords (in Google Workspace, the admin must
+    leave IMAP on). Microsoft 365 and Outlook.com mailboxes don't accept app passwords: connect them with
+    the Outlook connector.
+  disclosure: >-
+    HireBuddha will sign in to this mailbox with the app password you give, read new mail so your AI
+    employees can work on it, and send or draft replies from it. The password is stored encrypted under
+    your business's own key. See how HireBuddha handles mail in its privacy policy.
+  after_disconnect: >-
+    HireBuddha has deleted the stored password. To cancel it at your provider too, remove the app password
+    there (Gmail: myaccount.google.com/apppasswords).
   form:
     - {name: email_address, label: Email address, kind: email, required: true}
     - {name: password, label: App password, kind: secret, required: true}
-    - {name: imap_host, label: IMAP server, kind: text, default: imap.gmail.com}
-    - {name: imap_port, label: IMAP port, kind: number, default: 993}
-    - {name: smtp_host, label: SMTP server, kind: text, default: smtp.gmail.com}
-    - {name: smtp_port, label: SMTP port, kind: number, default: 587}
-    - {name: provider_type, label: Provider, kind: text, default: gmail}
+    - name: provider_type
+      label: Provider
+      kind: select
+      required: true
+      default: gmail
+      options:
+        - {value: gmail, label: "Gmail or Google Workspace"}
+        - {value: zoho, label: "Zoho Mail (organisation, India)"}
+        - {value: yahoo, label: "Yahoo Mail"}
+        - {value: icloud, label: "iCloud Mail"}
+        - {value: other, label: "Other (give the servers)"}
+    - {name: imap_host, label: IMAP server, kind: text, help: "Blank for the provider's own"}
+    - {name: imap_port, label: IMAP port, kind: number, help: "Blank for 993"}
+    - {name: smtp_host, label: SMTP server, kind: text, help: "Blank for the provider's own"}
+    - {name: smtp_port, label: SMTP port, kind: number, help: "Blank for 587"}
 approval:
   state: not_needed
-version: 1
+version: 2

@@ -36,7 +36,7 @@ class EmailConnectionCreate(BaseModel):
     imap_port: int = 993
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
-    provider_type: str = "gmail"  # gmail, outlook, custom
+    provider_type: str = "gmail"  # gmail, custom (Microsoft mailboxes refuse passwords: MAIL-E2)
     folder_prefix: Optional[str] = None
 
 
@@ -76,14 +76,8 @@ PROVIDER_DEFAULTS = {
         "folder_prefix": "[Gmail]/",
         "help_url": "https://myaccount.google.com/apppasswords"
     },
-    "outlook": {
-        "imap_host": "outlook.office365.com",
-        "imap_port": 993,
-        "smtp_host": "smtp.office365.com",
-        "smtp_port": 587,
-        "folder_prefix": "",
-        "help_url": "https://support.microsoft.com/en-us/account-billing/manage-app-passwords-for-two-step-verification"
-    }
+    # No "outlook": Exchange Online and Outlook.com refuse passwords, app
+    # passwords included (MAIL-E2); Microsoft mail uses the Outlook connector.
 }
 
 
@@ -117,7 +111,13 @@ async def create_email_connection(
             status_code=409,
             detail=f"Email connection for {data.email_address} already exists"
         )
-    
+    from src.connections.mail import microsoft_mailbox
+    refused = "outlook" if data.provider_type == "outlook" else microsoft_mailbox(
+        {"email_address": data.email_address, "imap_host": data.imap_host, "smtp_host": data.smtp_host})
+    if refused:
+        from src.connections.mail import USE_OUTLOOK
+        raise HTTPException(status_code=400, detail=USE_OUTLOOK)
+
     # Auto-detect provider defaults
     if data.provider_type in PROVIDER_DEFAULTS:
         defaults = PROVIDER_DEFAULTS[data.provider_type]

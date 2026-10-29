@@ -205,8 +205,13 @@ async def start(db: Any, company_id: Any, trigger: Trigger, event: Event, firing
         return await _start_sheet_campaign(db, company_id, trigger, event, firing)
     firing.run_id, firing.outcome = run_id, guards.STARTED
     try:
+        from src.ai.governance.untrusted import guard_event_input
+
+        # Mail, comments and messages from outside the business reach the run
+        # screened and quoted: data, never instructions (SH-E3).
+        input_data = await guard_event_input(event, _render_input(trigger, event, condition))
         await AIService(db).trigger_execution(
-            ExecutionRunCreate(entity_id=trigger.entity_id, input_data=_render_input(trigger, event, condition)),
+            ExecutionRunCreate(entity_id=trigger.entity_id, input_data=input_data),
             company_id,
             user_id=trigger.created_by_id if trigger.created_by_kind == "user" else None,
             entity_version_id=trigger.entity_version_id,

@@ -38,9 +38,11 @@ class FormField(BaseModel):
 
     name: str
     label: str
-    kind: str = "text"                     # text, secret, email, url, number
+    kind: str = "text"                     # text, secret, email, url, number, select
     required: bool = False
     default: Optional[Any] = None
+    options: List[Dict[str, str]] = Field(default_factory=list)   # select: [{value, label}]
+    help: Optional[str] = None
 
 
 class ConnectorSpec(BaseModel):
@@ -161,15 +163,26 @@ async def catalog_row(db: Any, connector_id: str) -> Any:
 
 
 def connector_view(row: Any) -> Dict[str, Any]:
+    from src.common.config import settings
+
     item = specs().get(row.id)
+    capabilities = row.capabilities or {}
     return {
         "id": row.id, "provider": row.provider, "display_name": row.display_name, "category": row.category,
         "auth_type": row.auth_type, "icon": row.icon, "status": row.effective_status,
         "connectable": row.effective_status in CONNECTABLE, "scopes": list(row.scopes or []),
-        "actions": list((row.capabilities or {}).get("actions", [])),
-        "events": list((row.capabilities or {}).get("events", [])),
+        "actions": list(capabilities.get("actions", [])),
+        "events": list(capabilities.get("events", [])),
         "form": [f.model_dump() for f in item.form] if item else [],
+        # What the person reads before the provider's window opens (SH-13), and the form's help.
+        "disclosure": capabilities.get("disclosure"), "help": capabilities.get("help"),
+        "privacy_url": settings.PRIVACY_POLICY_URL,
     }
+
+
+def after_disconnect(row: Any) -> Optional[str]:
+    """What the person can still do at the provider once disconnected (MAIL-E4, MS-E4)."""
+    return (row.capabilities or {}).get("after_disconnect") if row is not None else None
 
 
 async def _cli(command: str) -> int:

@@ -56,10 +56,29 @@ class GitHubProvider:
                 detail = response.json().get("message", detail)
             except ValueError:
                 pass
+            if response.status_code in (403, 404) and path.startswith("/repos/"):
+                removed = await self._removed(path)
+                if removed:  # the business took the repository away from the App (GH-E1)
+                    raise GitError(f"{removed} is no longer shared with HireBuddha's GitHub App: the account removed "
+                                   "it from the installation. Add it back in GitHub to work on it.")
             raise GitError(f"GitHub {method} {path}: {response.status_code} {detail}")
         if raw:
             return response.content
         return response.json() if response.content else None
+
+    async def _removed(self, path: str) -> Optional[str]:
+        """The repository of ``/repos/<owner>/<name>/…`` if the connection records it as removed."""
+        from src.common.tenancy.session import tenant_session
+        from src.connections.models import Connection
+
+        parts = path.split("/")
+        if len(parts) < 4:
+            return None
+        full_name = f"{parts[2]}/{parts[3]}"
+        async with tenant_session(self.company_id) as db:
+            connection = await db.get(Connection, self.connection_id)
+        removed = (connection.settings or {}).get("repositories_removed") or [] if connection is not None else []
+        return full_name if full_name in removed else None
 
     async def account(self) -> str:
         """The organisation (or user) the App is installed on."""

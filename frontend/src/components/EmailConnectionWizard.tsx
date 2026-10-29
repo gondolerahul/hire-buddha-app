@@ -15,7 +15,7 @@ type WizardStep = 'provider' | 'credentials' | 'validate' | 'complete';
 
 const PROVIDERS = [
     { id: 'gmail', name: 'Gmail', icon: '📧', helpUrl: 'https://myaccount.google.com/apppasswords' },
-    { id: 'outlook', name: 'Outlook / Office 365', icon: '📨', helpUrl: 'https://support.microsoft.com/en-us/account-billing/manage-app-passwords-for-two-step-verification' },
+    // No Outlook / Office 365: Microsoft refuses app passwords (MAIL-E2); its mail uses the Outlook connector.
     { id: 'custom', name: 'Custom IMAP/SMTP', icon: '⚙️', helpUrl: '' }
 ];
 

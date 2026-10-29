@@ -451,6 +451,10 @@ export interface HITLContextSnapshot {
     run_input?: string;
     step_output?: string;
     run_cost_usd?: number;
+    /** ``connector_action``: a write to a connected account held for a person (SH-E4). */
+    kind?: string;
+    /** What will be sent or published, exactly as the agent wrote it. */
+    content?: string;
 }
 
 export interface HumanApproval {

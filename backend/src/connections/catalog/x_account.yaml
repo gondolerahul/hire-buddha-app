@@ -9,6 +9,14 @@ status: planned
 scopes: [tweet.read, tweet.write, users.read, offline.access]
 capabilities:
   account_kind: user
+  disclosure: >-
+    HireBuddha will post to this X account, reply only where a person on your team approves it, and read
+    its timeline and mentions so your AI employees can draft posts. If posts go out without a person
+    approving each one, X counts the account as automated: turn on X's Automated label for it. Posts are
+    billed per post. See HireBuddha's privacy policy.
+  after_disconnect: >-
+    HireBuddha has revoked its token at X. You can check under X, Settings, Security and account access,
+    Apps and sessions.
   actions: [post, read]
   events: []
 approval:

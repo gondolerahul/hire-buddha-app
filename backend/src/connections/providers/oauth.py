@@ -78,6 +78,7 @@ class OAuth2Provider(Provider):
         if self.uses_pkce and code_verifier:
             body["code_verifier"] = code_verifier
         token = await self._token(app, body, "code exchange")
+        self.check_granted(connector, token)
         secret = self.secret_from(token)
         granted = str(token.get("scope") or "").replace(",", " ").split() or self.scopes(connector)
         accounts = await self.accounts(app, connector, secret)
@@ -89,6 +90,11 @@ class OAuth2Provider(Provider):
 
     async def accounts(self, app: Any, connector: Any, secret: Dict[str, Any]) -> List[Account]:
         raise NotImplementedError
+
+    def check_granted(self, connector: Any, token: Dict[str, Any]) -> None:
+        """Refuse a sign-in that granted less than the connector needs (a provider
+        with granular consent overrides it)."""
+        return None
 
     async def refresh(self, app: Any, connector: Any, settings: Dict[str, Any],
                       secret: Dict[str, Any]) -> Optional[tuple[Dict[str, Any], Optional[datetime]]]:
@@ -115,6 +121,30 @@ class OAuth2Provider(Provider):
             return raise_for(await client.get(url, headers=headers, **kwargs), what)
 
 
+# What a Google scope is for, said when a person unticks it on Google's consent
+# screen (GOOG-E3: people may grant some scopes and not others).
+GOOGLE_SCOPE_FEATURES = {
+    "https://www.googleapis.com/auth/gmail.modify": "read, label, draft and send your Gmail",
+    "https://www.googleapis.com/auth/gmail.send": "send mail from your Gmail",
+    "https://www.googleapis.com/auth/drive.file": "open the Drive files you choose and save the files it makes",
+    "https://www.googleapis.com/auth/youtube.upload": "upload videos to your channel",
+    "https://www.googleapis.com/auth/youtube.readonly": "see your channel's videos and playlists",
+    "https://www.googleapis.com/auth/youtube.force-ssl": "manage your channel's playlists and comments",
+    "https://www.googleapis.com/auth/yt-analytics.readonly": "see your channel's analytics",
+    "https://www.googleapis.com/auth/yt-analytics-monetary.readonly": "see your channel's revenue",
+    "https://www.googleapis.com/auth/adwords": "manage your Google Ads campaigns",
+}
+# Google returns these short scopes under their full names.
+_GOOGLE_ALIASES = {"email": "https://www.googleapis.com/auth/userinfo.email",
+                   "profile": "https://www.googleapis.com/auth/userinfo.profile"}
+
+
+def missing_google_scopes(requested: List[str], granted: List[str]) -> List[str]:
+    """Of ``requested``, the scopes Google's answer did not grant (``openid`` aside)."""
+    have = {_GOOGLE_ALIASES.get(scope, scope) for scope in granted}
+    return [scope for scope in requested if scope != "openid" and _GOOGLE_ALIASES.get(scope, scope) not in have]
+
+
 class GoogleProvider(OAuth2Provider):
     name = "google"
     authorize_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -122,14 +152,70 @@ class GoogleProvider(OAuth2Provider):
     revoke_endpoint = "https://oauth2.googleapis.com/revoke"
     extra_authorize = {"access_type": "offline", "prompt": "consent", "include_granted_scopes": "true"}
 
+    def check_granted(self, connector: Any, token: Dict[str, Any]) -> None:
+        if not token.get("scope"):
+            return
+        missing = missing_google_scopes(self.scopes(connector), str(token["scope"]).split())
+        if missing:
+            features = "; ".join(GOOGLE_SCOPE_FEATURES.get(scope, scope.rsplit("/", 1)[-1]) for scope in missing)
+            raise ProviderError(f"Google did not grant everything {connector.display_name} needs ({features}). "
+                                "Connect again and leave every permission ticked.")
+
     async def accounts(self, app: Any, connector: Any, secret: Dict[str, Any]) -> List[Account]:
+        if connector.id == "youtube_channel":
+            return await self._channels(secret)
+        if connector.id == "google_ads":
+            return await self._ads_customers(secret)
         me = await self._get("https://openidconnect.googleapis.com/v1/userinfo", secret, "reading the account")
         email = me.get("email") or me.get("sub")
         return [Account(external_id=str(me.get("sub") or email), name=str(email), settings={"email": email})]
 
+    async def _channels(self, secret: Dict[str, Any]) -> List[Account]:
+        """YouTube: the channels of the signed-in account (YT-E1)."""
+        found = await self._get("https://www.googleapis.com/youtube/v3/channels", secret, "listing channels",
+                                params={"part": "snippet", "mine": "true"})
+        accounts = [Account(external_id=str(item["id"]), name=str((item.get("snippet") or {}).get("title") or item["id"]),
+                            settings={"channel_id": item["id"],
+                                      "custom_url": (item.get("snippet") or {}).get("customUrl")})
+                    for item in found.get("items", []) if item.get("id")]
+        if not accounts:
+            raise ProviderError("this Google account has no YouTube channel")
+        return accounts
+
+    async def _ads_customers(self, secret: Dict[str, Any]) -> List[Account]:
+        """Google Ads: the customers the signed-in person can reach directly (GADS-E1).
+        No developer token: the access level is the OAuth client's Cloud project's."""
+        from src.connections.api_versions import google_ads_version
+
+        found = await self._get(f"https://googleads.googleapis.com/{google_ads_version()}/customers:listAccessibleCustomers",
+                                secret, "listing Google Ads accounts")
+        accounts = []
+        for resource in found.get("resourceNames", []):
+            customer = str(resource).rsplit("/", 1)[-1]
+            if customer.isdigit():
+                shown = f"{customer[:3]}-{customer[3:6]}-{customer[6:]}" if len(customer) == 10 else customer
+                accounts.append(Account(external_id=customer, name=f"Google Ads {shown}",
+                                        settings={"customer_id": customer}))
+        if not accounts:
+            raise ProviderError("this Google account can reach no Google Ads account")
+        return accounts
+
     async def test(self, app: Any, connector: Any, settings: Dict[str, Any], secret: Dict[str, Any]) -> Dict[str, Any]:
         me = await self._get("https://openidconnect.googleapis.com/v1/userinfo", secret, "test")
         return {"ok": True, "detail": f"signed in as {me.get('email')}"}
+
+
+# Microsoft's answers when the tenant lets only an administrator consent to the
+# mail permissions (the Microsoft-managed default policy, 04 §2).
+_ADMIN_CONSENT_CODES = ("AADSTS65001", "AADSTS90094", "AADSTS90008", "consent_required", "admin_consent_required")
+ADMIN_CONSENT_NEEDED = ("Your Microsoft 365 organisation lets only an administrator approve mail access for apps. "
+                        "Use 'Admin consent link' and send it to an administrator; once they approve HireBuddha "
+                        "for the organisation, connect Outlook again.")
+
+
+def needs_admin_consent(params: Dict[str, Any]) -> bool:
+    text = f"{params.get('error') or ''} {params.get('error_description') or ''}"
+    return any(code.lower() in text.lower() for code in _ADMIN_CONSENT_CODES)
 
 
 class MicrosoftProvider(OAuth2Provider):
@@ -140,6 +226,20 @@ class MicrosoftProvider(OAuth2Provider):
 
     def endpoint(self, app: Any, url: str) -> str:
         return url.format(tenant=app.settings.get("tenant") or "common")
+
+    async def exchange(self, app: Any, connector: Any, params: Dict[str, Any], *, redirect_uri: str,
+                       code_verifier: Optional[str]) -> List[Account]:
+        if params.get("error") and needs_admin_consent(params):
+            raise ProviderError(ADMIN_CONSENT_NEEDED)
+        return await super().exchange(app, connector, params, redirect_uri=redirect_uri, code_verifier=code_verifier)
+
+    @staticmethod
+    def admin_consent_url(app: Any, *, state: str, redirect_uri: str) -> str:
+        """Where a business's Microsoft 365 administrator grants HireBuddha's
+        mail permissions for the whole organisation (MS-E3)."""
+        params = {"client_id": app.client_id, "scope": "https://graph.microsoft.com/.default",
+                  "redirect_uri": redirect_uri, "state": state}
+        return f"https://login.microsoftonline.com/organizations/v2.0/adminconsent?{urlencode(params)}"
 
     async def accounts(self, app: Any, connector: Any, secret: Dict[str, Any]) -> List[Account]:
         me = await self._get("https://graph.microsoft.com/v1.0/me", secret, "reading the account")
@@ -173,7 +273,13 @@ class LinkedInProvider(OAuth2Provider):
     authorize_endpoint = "https://www.linkedin.com/oauth/v2/authorization"
     token_endpoint = "https://www.linkedin.com/oauth/v2/accessToken"
     uses_pkce = False                      # confidential web apps; LinkedIn offers PKCE to native apps only
-    api_version = "202409"
+
+    @property
+    def api_version(self) -> str:
+        """The one ``LINKEDIN_API_VERSION`` the tools send too (LI-E1)."""
+        from src.connections.api_versions import linkedin_version
+
+        return linkedin_version()
 
     def _headers(self) -> Dict[str, str]:
         return {"LinkedIn-Version": self.api_version, "X-Restli-Protocol-Version": "2.0.0"}

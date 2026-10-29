@@ -70,6 +70,11 @@ class TwitterCreatePostTool(SocialMediaTool):
     ) -> Dict[str, Any]:
         access_token = credentials["access_token"]
         headers = self._bearer_headers(access_token)
+        account = str(credentials.get("connection_id") or credentials.get("platform_user_id") or "")
+        twin = await _posted_elsewhere(params["text"], account)
+        if twin:
+            return {"error": "The same text was posted from another X account in the last 7 days. X counts "
+                             "identical posts across accounts as spam: write this one differently."}
 
         tweet_body: Dict[str, Any] = {"text": params["text"]}
 
@@ -98,12 +103,48 @@ class TwitterCreatePostTool(SocialMediaTool):
         )
         data = resp.json()
         tweet_data = data.get("data", {})
+        await _remember_post(params["text"], account)
         return {
             "success": True,
             "tweet_id": tweet_data.get("id"),
             "text": tweet_data.get("text"),
             "message": "Tweet posted successfully",
         }
+
+
+# X-E3: X's rules forbid identical content across accounts. A post's text is
+# remembered (as a hash) for 7 days with the account that posted it; the same
+# text from another account is refused. Without Redis the guard lets posts by.
+DUPLICATE_DAYS = 7
+
+
+def _text_key(text: str) -> str:
+    import hashlib
+
+    normal = " ".join(str(text or "").lower().split())
+    return "x:posted:" + hashlib.sha256(normal.encode()).hexdigest()
+
+
+async def _posted_elsewhere(text: str, account: str) -> bool:
+    try:
+        from src.common.redis_client import shared_redis
+
+        owner = await shared_redis().get(_text_key(text))
+    except Exception:  # noqa: BLE001 - the guard never blocks a post because Redis is down
+        logger.warning("X duplicate-post guard unavailable", exc_info=True)
+        return False
+    if isinstance(owner, bytes):
+        owner = owner.decode()
+    return bool(owner) and owner != account
+
+
+async def _remember_post(text: str, account: str) -> None:
+    try:
+        from src.common.redis_client import shared_redis
+
+        await shared_redis().set(_text_key(text), account or "unknown", ex=DUPLICATE_DAYS * 86400)
+    except Exception:  # noqa: BLE001
+        logger.warning("X post not remembered for the duplicate guard", exc_info=True)
 
 
 class TwitterSearchTool(SocialMediaTool):

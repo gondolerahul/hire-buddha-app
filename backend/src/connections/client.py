@@ -28,6 +28,8 @@ PLATFORM_CONNECTORS: Dict[str, List[str]] = {
     "github": ["github"],
     "email": ["imap_mailbox", "gmail", "outlook_mail"],
     "google_drive": ["google_drive"],
+    "youtube": ["youtube_channel"],          # YT-E1: HireBuddha's marketing app, not the business's own
+    "google_ads": ["google_ads"],            # GADS-E1
 }
 
 
@@ -106,8 +108,9 @@ async def email_credentials(context: Optional[Dict[str, Any]], email_address: Op
                 "imap_host": meta.get("imap_host"), "imap_port": meta.get("imap_port"),
                 "smtp_host": meta.get("smtp_host"), "smtp_port": meta.get("smtp_port"),
                 "connection_id": found["connection_id"]}
-    hosts = {"gmail": ("imap.gmail.com", "smtp.gmail.com"), "outlook_mail": ("outlook.office365.com",
-                                                                            "smtp.office365.com")}
-    imap_host, smtp_host = hosts.get(found["platform"], (None, None))
-    return {"email_address": meta.get("email"), "oauth_token": found["access_token"], "imap_host": imap_host,
-            "imap_port": 993, "smtp_host": smtp_host, "smtp_port": 587, "connection_id": found["connection_id"]}
+    # Gmail and Outlook go through their APIs (GOOG-E1, MS-E1): IMAP with an
+    # OAuth token needs scopes these connectors do not ask for.
+    from src.connections.mail.apis import API_OF
+
+    return {"email_address": meta.get("email"), "oauth_token": found["access_token"],
+            "api": API_OF.get(found["platform"]), "connection_id": found["connection_id"]}

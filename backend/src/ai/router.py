@@ -556,12 +556,14 @@ async def respond_to_approval(
     A schema change an agent proposed (Phase 14 WS4, D20) is decided by owners
     and admins; the answer applies or rejects it.
     """
+    from src.ai.governance import connector_actions
     from src.ai.orm import HumanApproval
     from src.schema_engine import approvals as schema_approvals
 
     pending = (await db.execute(select(HumanApproval).where(
         HumanApproval.id == approval_id, HumanApproval.company_id == current_user.company_id))).scalar_one_or_none()
     change_id = schema_approvals.change_of(pending) if pending is not None else None
+    held_action = pending is not None and connector_actions.action_of(pending)
     if change_id and current_user.role not in ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="Owners and admins decide changes to the business's data")
     service = AIService(db)
@@ -574,6 +576,12 @@ async def respond_to_approval(
                                                          approved=decision.status == "APPROVED",
                                                          user_id=current_user.id)
         return {"status": "success", "decision": decision.status, "schema_change": change}
+    if held_action:
+        # A write to a connected account held for a person (SH-E4): carried out
+        # now, exactly as approved; the run did not wait for it.
+        outcome = await connector_actions.decided(current_user.company_id, approval_id,
+                                                  approved=decision.status == "APPROVED", user_id=current_user.id)
+        return {"status": "success", "decision": decision.status, "connector_action": outcome}
 
     # The run is parked PAUSED on this approval, holding no worker (GH-07):
     # resume it now. Best-effort — the stuck-run sweep resumes a run whose

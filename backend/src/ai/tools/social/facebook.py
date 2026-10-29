@@ -9,6 +9,7 @@ Provides tools for Facebook Page management via the Meta Graph API v22.0:
 """
 import json
 import logging
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from src.ai.tools.social.base import SocialMediaTool
@@ -16,6 +17,31 @@ from src.ai.tools.social.base import SocialMediaTool
 logger = logging.getLogger(__name__)
 
 FB_GRAPH_BASE = "https://graph.facebook.com/v22.0"
+MESSAGING_WINDOW = timedelta(hours=24)
+
+
+async def last_message_at(company_id: Any, sender_id: str) -> Optional[datetime]:
+    """When the person last wrote to the business's Page (``social.message.received``
+    events, Messenger's ``sender.id``), or ``None``."""
+    if not company_id or not sender_id:
+        return None
+    import uuid
+
+    from sqlalchemy import func, or_, select
+
+    from src.automation.models import Event
+    from src.common.tenancy.session import tenant_session
+
+    try:
+        company = uuid.UUID(str(company_id))
+        async with tenant_session(company) as db:
+            return (await db.execute(select(func.max(Event.received_at)).where(
+                Event.company_id == company, Event.type == "social.message.received",
+                or_(Event.data["value"]["sender"]["id"].astext == sender_id,
+                    Event.data["sender"]["id"].astext == sender_id)))).scalar_one_or_none()
+    except Exception:  # noqa: BLE001 - unknown is treated as outside the window
+        logger.warning("last Messenger message not readable", exc_info=True)
+        return None
 
 
 class FacebookCreatePostTool(SocialMediaTool):
@@ -348,6 +374,13 @@ class FacebookSendMessageTool(SocialMediaTool):
     ) -> Dict[str, Any]:
         access_token = credentials["access_token"]
         page_id = credentials.get("platform_page_id", "me")
+        # Messenger's standard window (META-E4): an automated reply only within
+        # 24 hours of the person's last message to the Page.
+        last = await last_message_at((context or {}).get("company_id"), str(params["recipient_id"]))
+        if last is None or datetime.utcnow() - last > MESSAGING_WINDOW:
+            return {"error": "Messenger allows a reply only within 24 hours of the person's last message to the "
+                             "Page, and theirs is older (or none was received). Wait for them to write again; a "
+                             "person on the team may still answer from the Page's inbox."}
 
         message_body: Dict[str, Any] = {
             "text": params["message_text"],

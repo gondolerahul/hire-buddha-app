@@ -83,8 +83,9 @@ APPENDIX_A_CONTROL = {
     # Notifications (WS3 3.11): one row per person told.
     "notifications",
     # Connections (WS5, tech spec §10.2): what can be connected, who owns which
-    # outside account, provider deliveries nobody owns.
-    "connector_catalog", "external_account_routes", "unrouted_events",
+    # outside account, provider deliveries nobody owns, the deletions a provider
+    # asked for (META-E1: the status page behind each confirmation code).
+    "connector_catalog", "external_account_routes", "unrouted_events", "provider_deletion_requests",
     # Tenant apps (WS6, tech spec §11.5): every hostname the tenant edge serves.
     "custom_domains",
     # Phase 15 (tech design §17): who changed a platform setting, from what.

@@ -33,7 +33,7 @@ from src.common.tenancy.bases import ControlBase, TenantBase
 __all__ = [
     "AUTH_TYPES", "CATALOG_STATUSES", "CONNECTION_STATUSES", "GRANT_KINDS",
     "Connection", "ConnectionAudit", "ConnectionGrant", "ConnectionSecret", "ConnectorCatalogEntry",
-    "ExternalAccountRoute", "TenantKey", "UnroutedEvent",
+    "ExternalAccountRoute", "ProviderDeletionRequest", "TenantKey", "UnroutedEvent",
 ]
 
 AUTH_TYPES = ("oauth2", "github_app", "meta_embedded_signup", "api_key", "mailbox", "mcp")
@@ -111,6 +111,24 @@ class UnroutedEvent(ControlBase):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=_now())
 
 
+class ProviderDeletionRequest(ControlBase):
+    """A provider asked HireBuddha to delete a person's data (META-E1: Meta's
+    data deletion callback). The confirmation code is what the provider shows
+    the person; the status page reads this row. The person's id is kept only as
+    a hash."""
+    __tablename__ = "provider_deletion_requests"
+    __table_args__ = (Index("ix_provider_deletion_requests_received", "received_at"),)
+
+    code: Mapped[str] = mapped_column(Text, primary_key=True)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    person_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)          # completed, nothing_found
+    connections: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=_now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 # ── Tenant plane ────────────────────────────────────────────────────────────
 
 class Connection(TenantBase):
@@ -180,8 +198,9 @@ class ConnectionAudit(TenantBase):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     connection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    # connected, token_issued, refreshed, refresh_failed, used, revoked, test_ok, test_failed,
-    # grants_changed, reconnected, refused
+    # connected, token_issued, refreshed, refresh_failed, credential_refused, used, revoked, test_ok,
+    # test_failed, grants_changed, reconnected, refused, suspended, unsuspended, repositories_removed,
+    # deleted_by_provider
     action: Mapped[str] = mapped_column(Text, nullable=False)
     actor_kind: Mapped[Optional[str]] = mapped_column(Text, nullable=True)     # user, agent, app, system
     actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)

@@ -113,7 +113,23 @@ class SocialAPITool(Tool):
         error = _error_of(out)
         if error:
             return ToolOutput(success=False, output=out, error=error, error_code="platform_error", metadata=meta)
+        price = _platform_price(params.platform, params.operation, params.payload)
+        if price:  # what the platform charges HireBuddha for the call, billed to the business (X-E5)
+            meta["also_bill"] = {price: 1}
         return ToolOutput(output=out, metadata=meta)
+
+
+# X charges per post since 6 Feb 2026, more for a post with a link: each is a
+# priced unit in the integration registry, billed to the business (X-E5).
+X_POST, X_POST_LINK = "x_post", "x_post_link"
+
+
+def _platform_price(platform: str, operation: str, payload: Dict[str, Any]) -> Optional[str]:
+    """The registry SKU the platform charges for this call, if it charges for it."""
+    if platform == "twitter" and operation == "create_post":
+        text = str((payload or {}).get("text") or "")
+        return X_POST_LINK if ("http://" in text or "https://" in text) else X_POST
+    return None
 
 
 _PAGE_SCHEMA = {"type": "string", "description": (

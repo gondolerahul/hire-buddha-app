@@ -6,9 +6,16 @@ auth_type: oauth2
 icon: instagram
 oauth_app_ref: oauth-app-meta
 status: planned
-scopes: [pages_show_list, instagram_basic, instagram_content_publish, instagram_manage_comments, instagram_manage_messages, pages_read_engagement]
+scopes: [pages_show_list, instagram_basic, instagram_content_publish, instagram_manage_comments, instagram_manage_messages, pages_read_engagement, pages_read_user_content]
 capabilities:
   account_kind: instagram_business_account
+  disclosure: >-
+    HireBuddha will read your Instagram professional account's posts, comments and Direct messages, and
+    publish the posts, comment replies and message answers a person on your team approves. See how
+    HireBuddha handles Instagram data, and how to ask for its deletion, in its privacy policy.
+  after_disconnect: >-
+    HireBuddha has unsubscribed the account and deleted its token. To remove HireBuddha from your Facebook
+    account too, open Facebook, Settings and privacy, Settings, Business integrations.
   actions: [post, reply_to_comment, reply_to_message]
   events: [social.comment.created, social.mention.created, social.message.received]
   webhook_object: instagram

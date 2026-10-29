@@ -84,6 +84,7 @@ async def test_youtube_uploads_the_bytes_to_the_session_it_opens(platform):
         httpx.Response(200, json={}),
     ]
     out = await _run(YouTubeUploadVideoTool(), {"title": "T", "video_url": "https://cdn.example.com/v.mp4",
+                                                "made_for_kids": False, "contains_synthetic_media": False,
                                                 "thumbnail_url": "https://cdn.example.com/t.png"})
     get, start, put, _thumb_get, thumb = platform.requests
     assert start.url.path == "/upload/youtube/v3/videos" and start.headers["X-Upload-Content-Length"] == "10"
@@ -98,7 +99,8 @@ async def test_youtube_without_a_session_is_a_failure(platform):
     from src.ai.tools.social.youtube import YouTubeUploadVideoTool
     platform.script += [httpx.Response(200, content=b"V", headers={"content-type": "video/mp4"}),
                         httpx.Response(200)]
-    out = await _run(YouTubeUploadVideoTool(), {"title": "T", "video_url": "https://cdn.example.com/v.mp4"})
+    out = await _run(YouTubeUploadVideoTool(), {"title": "T", "video_url": "https://cdn.example.com/v.mp4",
+                                                "made_for_kids": False, "contains_synthetic_media": False})
     assert "error" in out and "Location" in out["error"]
 
 

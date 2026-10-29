@@ -21,6 +21,7 @@ Phase 15 starts by taking stock of three areas that grew piece by piece through 
 | 11 | [Money operations runbooks](11_operations_runbooks.md) | FX change, refunds, partner payouts, businesses in debt or suspended, partner suspension |
 | 12 | [Workspace guides](12_workspace_guides.md) | How the Business Workspace, Partner Portal and Platform Console work, by role and staff function |
 | 13 | [Offboarding and erasure](13_offboarding_and_erasure.md) | **Design for review.** Closing a business and erasing its data (GDPR / DPDP), what is kept for tax and why, backups; and an immediate delete of test businesses for testing in production until go-live |
+| 14 | [Connector approvals](14_connector_approvals/README.md) | What Meta, Google (Gmail, Drive, YouTube, Google Ads), LinkedIn, Microsoft, X and GitHub require before they approve HireBuddha's apps for the connectors; how ready the two websites are; whether app-password mailboxes work; the code changes found and the ones built (10), the draft Privacy, Terms and Data deletion pages for both sites (11), what to submit, and the common rejections and their fixes |
 
 Read order: analysis — this page → 02 → 03 → 01 → 04; plan — 05 → 06 → 07 → 08.
 

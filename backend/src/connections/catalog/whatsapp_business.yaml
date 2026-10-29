@@ -9,6 +9,15 @@ status: planned
 scopes: [whatsapp_business_management, whatsapp_business_messaging]
 capabilities:
   account_kind: phone_number
+  disclosure: >-
+    HireBuddha will send and receive WhatsApp messages for your business's number. Your AI employee
+    answers your customers within WhatsApp's customer service window and sends approved templates only to
+    customers who opted in. WhatsApp messages are not used to train AI models. See how HireBuddha handles
+    WhatsApp data in its privacy policy.
+  after_disconnect: >-
+    HireBuddha has unsubscribed from your WhatsApp Business Account and deleted its token. To end its
+    access in Meta too, remove HireBuddha under Partners in your business portfolio's WhatsApp account
+    settings.
   actions: [send_message, send_template]
   events: [whatsapp.message.received, whatsapp.status.updated]
   webhook_object: whatsapp_business_account

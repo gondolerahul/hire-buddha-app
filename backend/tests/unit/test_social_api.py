@@ -76,7 +76,9 @@ async def test_an_operation_runs_with_the_calls_context_and_the_companys_connect
     out = await SocialAPITool().invoke({"platform": "twitter", "operation": "create_post",
                                         "payload": {"text": "hello"}}, CTX)
     assert out.success and json.loads(out.output)["tweet_id"] == "1"
-    assert out.metadata == {"platform": "twitter", "operation": "create_post", "writes": True}
+    # X charges per post: the call carries its price for the business (X-E5).
+    assert out.metadata == {"platform": "twitter", "operation": "create_post", "writes": True,
+                            "also_bill": {"x_post": 1}}
     assert seen["params"] == {"text": "hello"} and seen["context"]["company_id"] == CTX["company_id"]
     assert resolve.await_args.kwargs["company_id"] == CTX["company_id"]
 

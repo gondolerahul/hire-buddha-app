@@ -92,7 +92,13 @@ export const ConnectionDetail: React.FC = () => {
                     <div className="ar-actions">
                         <JellyButton variant="ghost" size="sm" onClick={() => setConfirming(false)}>Keep it</JellyButton>
                         <JellyButton variant="danger" size="sm" onClick={async () => {
-                            try { await connectionsService.revoke(id); refresh(); navigate('/connections'); }
+                            try {
+                                const result = await connectionsService.revoke(id);
+                                refresh();
+                                // What the person can still do at the provider (MAIL-E4, MS-E4).
+                                const after = typeof result.after === 'string' ? result.after : null;
+                                navigate('/connections', { state: after ? { notice: after } : undefined });
+                            }
                             catch (err) { setMessage({ kind: 'error', text: problemText(err, 'Could not disconnect.') }); }
                         }}>Disconnect</JellyButton>
                     </div>
