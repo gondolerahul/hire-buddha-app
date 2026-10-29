@@ -114,6 +114,46 @@ jobs:
         env:
           VITE_API_BASE_URL: /api/v1
 
+  security:
+    # SH-E5 / GOOG-E9 (CASA's baseline): known vulnerabilities in what the
+    # platform ships — the Python lock, the npm lock, the Dockerfiles — before
+    # it deploys. A CRITICAL one with a fix fails the build; HIGH ones and
+    # misconfigurations are listed in the job summary until the pre-assessment
+    # wants none (docs/phase15/14_connector_approvals/13_security_baseline.md).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies with a critical fix waiting (fails the build)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-dirs: backend/.venv,frontend/node_modules
+      - name: High findings and misconfigurations (listed)
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+          output: trivy-fs.txt
+          skip-dirs: backend/.venv,frontend/node_modules
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f trivy-fs.txt ]; then
+            { echo "### Dependencies and configuration: HIGH and CRITICAL"; echo '```'; cat trivy-fs.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   charts:
     runs-on: ubuntu-latest
     timeout-minutes: 10

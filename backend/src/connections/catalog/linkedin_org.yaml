@@ -22,4 +22,14 @@ capabilities:
 approval:
   state: not_submitted
   notes: LinkedIn Community Management API access (organisation scopes, programmatic refresh tokens).
+# LI-E2, LI-E3 (SH-E2): comments and mentions carry members' activity (48 hours)
+# and profile fields (24 hours); 23, so the hourly removal is inside both. The
+# Page's own statistics are kept a year (the privacy policy). Never in records.
+retention:
+  hours: 23
+  results: true
+  records: false
+  exempt: [get_analytics]
+  exempt_hours: 8760
+  rule: "LinkedIn's API terms: members' activity at most 48 hours, their profile data at most 24 hours"
 version: 1

@@ -41,6 +41,15 @@ class SendTemplateRequest(BaseModel):
     language: str = "en"
 
 
+async def _whatsapp_rules(user: User, to: str, *, template: Optional[str]) -> None:
+    """WhatsApp's rules for a message the business starts (a person sends it, so a hand-off does not stop it)."""
+    from src.messaging.rules import business_initiated_refusal
+
+    refusal = await business_initiated_refusal(user.company_id, to, template=template, by_person=True)
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+
+
 @router.post("/send")
 async def send_whatsapp_message(
     request: SendMessageRequest,
@@ -57,7 +66,9 @@ async def send_whatsapp_message(
         # Validate provider
         if request.provider not in ["twilio", "tata_tele"]:
             raise HTTPException(status_code=400, detail="Invalid provider")
-        
+        # Free text only inside WhatsApp's 24-hour window (META-E5).
+        await _whatsapp_rules(current_user, request.to, template=None)
+
         # Determine sender number if not provided
         # Use company's default number for provider (TODO: lookup from DB)
         # For now, rely on env vars in service or explicit input
@@ -109,8 +120,10 @@ async def send_whatsapp_template(
     Required for initiating conversations outside the 24-hour window.
     """
     try:
+        # Outside the window, a template goes only to a customer who opted in (META-E5).
+        await _whatsapp_rules(current_user, request.to, template=request.template_id)
         service = WhatsAppMessagingFactory.get_service(request.provider)
-        
+
         result = await service.send_template_message(
             to=request.to,
             template_id=request.template_id,

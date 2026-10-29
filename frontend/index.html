@@ -10,9 +10,9 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Not render-blocking: the page draws in the fallback font and swaps (FE-22). -->
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
-          onload="this.onload=null;this.rel='stylesheet'" />
+    <!-- Not render-blocking: the page draws in the fallback font and swaps (FE-22). Fetched early here;
+         src/main.tsx applies it, so no inline script is needed (the content policy allows none, SH-E5). -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
     <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" /></noscript>
 
     <title>HireBuddha - AI Agent Platform</title>

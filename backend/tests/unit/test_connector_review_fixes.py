@@ -12,6 +12,7 @@ import json
 import smtplib
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -275,21 +276,32 @@ async def test_google_ads_needs_no_developer_token_and_declares_eu_political_ads
     from src.ai.tools.social import google_ads
     from src.common.config import settings
 
+    from src.ai.tools.social import quota
+    from src.automation.limits import AutomationLimits
+
     monkeypatch.setattr(settings, "GOOGLE_ADS_API_VERSION", "v26")
     sent = []
 
     async def request(method, url, **kw):
+        if url.endswith("googleAds:searchStream"):    # the account's budgets, for the ceiling (GADS-E3)
+            return _Reply([{"results": []}])
         sent.append((url, kw.get("headers"), kw.get("json_body")))
         return _Reply({"mutateOperationResponses": [{"campaignResult": {"resourceName": "customers/1/campaigns/2"}}]})
 
+    async def limits(company_id):
+        return AutomationLimits(ads_monthly_ceiling=100_000)
+
     monkeypatch.setattr(google_ads.GoogleAdsCreateCampaignTool, "_api_request", staticmethod(request))
+    monkeypatch.setattr("src.automation.limits.limits_for", limits)
+    monkeypatch.setattr(quota, "draw", AsyncMock(return_value=None))
     creds = {"access_token": "t", "oauth_metadata": {"customer_id": "123-456-7890", "login_customer_id": "999"}}
+    ctx = {"company_id": "00000000-0000-0000-0000-000000000001"}
     tool = google_ads.GoogleAdsCreateCampaignTool()
     refused = await tool._execute({"campaign_name": "Promo", "campaign_type": "VIDEO", "budget_amount_micros": 1,
-                                   "bidding_strategy": "MANUAL_CPC"}, creds, None)
+                                   "bidding_strategy": "MANUAL_CPC"}, creds, ctx)
     assert "cannot be created" in refused["error"] and not sent
     await tool._execute({"campaign_name": "Promo", "campaign_type": "SEARCH", "budget_amount_micros": 5_000_000,
-                         "bidding_strategy": "MANUAL_CPC"}, creds, None)
+                         "bidding_strategy": "MANUAL_CPC"}, creds, ctx)
     url, headers, body = sent[0]
     assert url == "https://googleads.googleapis.com/v26/customers/1234567890/googleAds:mutate"
     assert "developer-token" not in headers and headers["login-customer-id"] == "999"
@@ -689,6 +701,7 @@ async def test_a_providers_event_reaches_a_triggered_run_screened(monkeypatch):
 
 
 async def test_a_youtube_upload_must_answer_the_audience_and_the_ai_disclosure(monkeypatch):
+    from src.ai.tools.social import quota, youtube
     from src.ai.tools.social.youtube import YouTubeUploadVideoTool
 
     tool = YouTubeUploadVideoTool()
@@ -697,21 +710,26 @@ async def test_a_youtube_upload_must_answer_the_audience_and_the_ai_disclosure(m
     assert "made_for_kids must be true or false" in refused["error"]
     sent = {}
 
-    async def download(url, max_bytes):
-        return b"bytes", "video/mp4"
+    async def bytes_of():
+        yield b"bytes"
+
+    async def source(params, context):
+        return youtube._Source(bytes_of(), 5, "video/mp4")
+
+    async def chunks(location, token, src):
+        return {"id": "vid1"}
 
     class _Session:
         headers = {"Location": "https://upload.example/session"}
-
-        def json(self):
-            return {"id": "vid1"}
 
     async def request(method, url, **kw):
         if kw.get("json_body"):
             sent.update(kw["json_body"])
         return _Session()
 
-    monkeypatch.setattr(YouTubeUploadVideoTool, "_download", staticmethod(download))
+    monkeypatch.setattr(youtube, "_video_source", source)
+    monkeypatch.setattr(youtube, "_send_chunks", chunks)
+    monkeypatch.setattr(quota, "draw", AsyncMock(return_value=None))
     monkeypatch.setattr(YouTubeUploadVideoTool, "_api_request", staticmethod(request))
     done = await tool._execute({"title": "Demo", "video_url": "https://cdn.example/v.mp4", "made_for_kids": False,
                                 "contains_synthetic_media": True, "privacy_status": "public",
@@ -723,8 +741,12 @@ async def test_a_youtube_upload_must_answer_the_audience_and_the_ai_disclosure(m
 
 async def test_messenger_replies_only_inside_the_24_hour_window(monkeypatch):
     from src.ai.tools.social import facebook
+    from src.messaging import rules
 
     sent = []
+    monkeypatch.setattr(rules, "before_reply", AsyncMock(
+        side_effect=lambda company, channel, account, contact, text: rules.Reply(text=text)))
+    monkeypatch.setattr(rules, "replied", AsyncMock())
 
     async def request(method, url, **kw):
         sent.append(kw["json_body"])

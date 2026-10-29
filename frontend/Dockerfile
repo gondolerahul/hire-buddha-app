@@ -25,5 +25,7 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 ENV API_UPSTREAM=http://hb-api:8000 \
     NGINX_ENVSUBST_FILTER=^API_UPSTREAM$
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
+# The security headers every page and asset carries (SH-E5): a snippet each location includes.
+COPY nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

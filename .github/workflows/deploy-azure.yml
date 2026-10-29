@@ -102,6 +102,24 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.context }}
           provenance: true
           sbom: true
+      # SH-E5 / GOOG-E9: the image as pushed, scanned for known vulnerabilities in
+      # its OS packages and libraries. Listed in the job summary; the CI security
+      # job is the one that fails a build (docs/phase15/14_connector_approvals/13).
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ vars.ACR_NAME }}.azurecr.io/${{ matrix.image }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table
+          output: trivy-${{ matrix.image }}.txt
+      - name: Image scan summary
+        if: always()
+        run: |
+          if [ -f "trivy-${{ matrix.image }}.txt" ]; then
+            { echo "### ${{ matrix.image }}: HIGH and CRITICAL with a fix"; echo '```'; cat "trivy-${{ matrix.image }}.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # The App Controller is the release's API image plus kopf (services/app_controller/Dockerfile).
   app-controller:

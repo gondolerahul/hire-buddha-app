@@ -67,6 +67,7 @@ from src.common.job_queue import CHILD_RUN_QUEUE, EVENT_QUEUE, arq_redis_setting
 from src.automation.retention import prune_event_history
 from src.automation.worker import automation_sweep, release_parked, route_event
 from src.connections.jobs import connection_refresh, prune_unrouted_events
+from src.connections.source_data import redact_connector_data
 from src.automation.pollers import run_pollers
 from src.apps.jobs import (app_hosting_metering, build_app, expire_app_previews, run_review_checks,
                            sandbox_idle_reaper, tenant_db_metering, tenant_storage_metering)
@@ -259,7 +260,8 @@ class EventWorkerSettings:
     """
     queue_name = EVENT_QUEUE
     functions = [traced_job(job) for job in (route_event, release_parked, automation_sweep, prune_event_history,
-                                             connection_refresh, prune_unrouted_events, run_pollers)]
+                                             connection_refresh, prune_unrouted_events, run_pollers,
+                                             redact_connector_data)]
     max_jobs = settings.EVENT_WORKER_MAX_JOBS
     job_timeout = 600
     redis_settings = WorkerSettings.redis_settings
@@ -298,6 +300,9 @@ try:
         # Connections (WS5): tokens refreshed before they expire; unrouted deliveries kept 7 days.
         cron(traced_job(connection_refresh), minute=set(range(3, 60, 10))),
         cron(traced_job(prune_unrouted_events), hour={3}, minute={10}),
+        # What runs read through connections, once its provider's limit is up (SH-E2):
+        # hourly, so LinkedIn's 24 hours is never passed by more than one.
+        cron(traced_job(redact_connector_data), minute={50}),
         # Pollers (WS3 3.13): new mail on connected mailboxes, while a trigger listens.
         cron(traced_job(run_pollers), minute=set(range(0, 60, 2)), second={15}),
     ]

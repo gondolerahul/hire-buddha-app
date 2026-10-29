@@ -56,15 +56,26 @@ async def _run(tool, params):
 
 
 @pytest.mark.asyncio
-async def test_google_ads_creates_budget_and_campaign_in_one_mutate(platform):
+async def test_google_ads_creates_budget_and_campaign_in_one_mutate(platform, monkeypatch):
+    from src.ai.tools.social import quota
     from src.ai.tools.social.google_ads import GoogleAdsCreateCampaignTool
-    platform.script.append(httpx.Response(200, json={"mutateOperationResponses": [
-        {"campaignBudgetResult": {"resourceName": "customers/999/campaignBudgets/5"}},
-        {"campaignResult": {"resourceName": "customers/999/campaigns/7"}}]}))
+    from src.automation.limits import AutomationLimits
+
+    async def limits(company_id):
+        return AutomationLimits(ads_monthly_ceiling=1000)
+
+    monkeypatch.setattr("src.automation.limits.limits_for", limits)
+    monkeypatch.setattr(quota, "draw", AsyncMock(return_value=None))
+    platform.script += [
+        httpx.Response(200, json=[{"results": []}]),          # the account's budgets, for the ceiling
+        httpx.Response(200, json={"mutateOperationResponses": [
+            {"campaignBudgetResult": {"resourceName": "customers/999/campaignBudgets/5"}},
+            {"campaignResult": {"resourceName": "customers/999/campaigns/7"}}]})]
     out = await _run(GoogleAdsCreateCampaignTool(), {
         "campaign_name": "C", "campaign_type": "SEARCH", "budget_amount_micros": 1000000,
         "bidding_strategy": "MAXIMIZE_CLICKS"})
-    [req] = platform.requests
+    budgets, req = platform.requests
+    assert budgets.url.path.endswith("/googleAds:searchStream")
     assert req.url.path.endswith("/customers/999/googleAds:mutate")
     ops = json.loads(req.content)["mutateOperations"]
     temp = ops[0]["campaignBudgetOperation"]["create"]["resourceName"]
@@ -74,11 +85,15 @@ async def test_google_ads_creates_budget_and_campaign_in_one_mutate(platform):
 
 
 @pytest.mark.asyncio
-async def test_youtube_uploads_the_bytes_to_the_session_it_opens(platform):
+async def test_youtube_uploads_the_bytes_to_the_session_it_opens(platform, monkeypatch):
+    from src.ai.tools.social import quota
     from src.ai.tools.social.youtube import YouTubeUploadVideoTool
+
+    monkeypatch.setattr(quota, "draw", AsyncMock(return_value=None))
     platform.script += [
-        httpx.Response(200, content=b"VIDEOBYTES", headers={"content-type": "video/mp4"}),
+        httpx.Response(200, headers={"content-type": "video/mp4", "content-length": "10"}),   # HEAD: the size
         httpx.Response(200, headers={"Location": "https://www.googleapis.com/upload/session/abc"}),
+        httpx.Response(200, content=b"VIDEOBYTES", headers={"content-type": "video/mp4"}),   # streamed
         httpx.Response(200, json={"id": "vid1"}),
         httpx.Response(200, content=b"PNG", headers={"content-type": "image/png"}),
         httpx.Response(200, json={}),
@@ -86,18 +101,23 @@ async def test_youtube_uploads_the_bytes_to_the_session_it_opens(platform):
     out = await _run(YouTubeUploadVideoTool(), {"title": "T", "video_url": "https://cdn.example.com/v.mp4",
                                                 "made_for_kids": False, "contains_synthetic_media": False,
                                                 "thumbnail_url": "https://cdn.example.com/t.png"})
-    get, start, put, _thumb_get, thumb = platform.requests
+    head, start, get, put, _thumb_get, thumb = platform.requests
+    assert head.method == "HEAD" and get.method == "GET"
     assert start.url.path == "/upload/youtube/v3/videos" and start.headers["X-Upload-Content-Length"] == "10"
     assert (put.method, str(put.url), put.content) == ("PUT", "https://www.googleapis.com/upload/session/abc",
                                                        b"VIDEOBYTES")
+    assert put.headers["Content-Range"] == "bytes 0-9/10"                     # one chunk, resumable (YT-E4)
     assert thumb.url.path == "/upload/youtube/v3/thumbnails/set" and thumb.url.params["videoId"] == "vid1"
     assert out["success"] and out["video_id"] == "vid1" and out["thumbnail_set"] is True
 
 
 @pytest.mark.asyncio
-async def test_youtube_without_a_session_is_a_failure(platform):
+async def test_youtube_without_a_session_is_a_failure(platform, monkeypatch):
+    from src.ai.tools.social import quota
     from src.ai.tools.social.youtube import YouTubeUploadVideoTool
-    platform.script += [httpx.Response(200, content=b"V", headers={"content-type": "video/mp4"}),
+
+    monkeypatch.setattr(quota, "draw", AsyncMock(return_value=None))
+    platform.script += [httpx.Response(200, headers={"content-type": "video/mp4", "content-length": "1"}),
                         httpx.Response(200)]
     out = await _run(YouTubeUploadVideoTool(), {"title": "T", "video_url": "https://cdn.example.com/v.mp4",
                                                 "made_for_kids": False, "contains_synthetic_media": False})

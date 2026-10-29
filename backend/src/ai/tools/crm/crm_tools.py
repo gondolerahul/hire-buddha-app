@@ -169,6 +169,13 @@ class WhatsAppSendTenantTool(Tool):
                               needs="phone", field_name="to")
         if error:
             return ToolOutput.failed(error, code="recipient_not_in_scope")
+        # WhatsApp's rules for messages the business starts (META-E5): free text in
+        # the 24-hour window; outside it an approved template, to an opted-in contact.
+        from src.messaging.rules import business_initiated_refusal
+
+        refusal = await business_initiated_refusal(company_id, str(to), template=params.template_name)
+        if refusal:
+            return ToolOutput.failed(refusal, code="whatsapp_rules")
 
         integration = await _resolve_integration(company_id, "whatsapp_tenant")
         if not integration:

@@ -20,11 +20,12 @@ def test_the_event_worker_consumes_the_events_queue_and_sweeps():
 
     assert EventWorkerSettings.queue_name == EVENT_QUEUE == "events"
     names = {f.__qualname__ for f in EventWorkerSettings.functions}
-    assert {"route_event", "release_parked", "automation_sweep", "prune_event_history"} <= names
+    assert {"route_event", "release_parked", "automation_sweep", "prune_event_history",
+            "redact_connector_data"} <= names
     assert [c.name for c in EventWorkerSettings.cron_jobs] == [
         "cron:automation_sweep", "cron:prune_event_history",
-        # Connections and pollers (WS5, WS3 3.13).
-        "cron:connection_refresh", "cron:prune_unrouted_events", "cron:run_pollers"]
+        # Connections, their providers' limits on what runs read (SH-E2), and pollers (WS5, WS3 3.13).
+        "cron:connection_refresh", "cron:prune_unrouted_events", "cron:redact_connector_data", "cron:run_pollers"]
     assert EVENT_QUEUE in EXPECTED_QUEUES  # /api/v1/health reports a missing event worker
 
 

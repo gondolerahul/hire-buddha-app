@@ -11,6 +11,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { JellyButton } from '@/components/ui';
 import { ago, formatTime } from '@/components/automation/describe';
+import { DriveFiles } from '@/components/connections/DriveFiles';
 import { useAuth } from '@/hooks/useAuth';
 import { connectionsService, type Grant, type Impact } from '@/services/connections.service';
 import { problemText } from '@/services/records.service';
@@ -116,6 +117,9 @@ export const ConnectionDetail: React.FC = () => {
                     <tr><td>Connected</td><td>{formatTime(c.connected_at, LOCAL_TZ)}</td></tr>
                 </tbody></table>
             </section>
+            {c.connector_id === 'google_drive' && (
+                <DriveFiles connectionId={id} settings={c.settings} manager={manager} onSaved={refresh} />
+            )}
             {grants && (
                 <section className="ar-section" aria-label="Who may use it">
                     <GrantPicker value={grants} onChange={setGrants} />

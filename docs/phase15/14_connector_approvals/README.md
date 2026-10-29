@@ -22,6 +22,8 @@ A business connects its Gmail, Facebook Page, WhatsApp number, LinkedIn Page or 
 | 09 | [YouTube and Google Ads](09_youtube_and_google_ads.md): OAuth verification, YouTube's audit and quota, Google Ads API access | YouTube (publishing, comments, analytics), Google Ads (YouTube ads and their performance) |
 | 10 | [Code fixes](10_code_fix_plan.md): every engineering item in three waves, what was built and tested, what remains, how to deploy | All |
 | 11 | [Website content](11_website_content/README.md): Privacy, Terms and Data deletion pages for both sites, and the site-wide changes | All: every provider reads them |
+| 12 | [Where connected-account data goes](12_data_flow_note.md): the data-flow note for the CASA lab and the privacy policy (GOOG-E6) | Google; all |
+| 13 | [Security baseline](13_security_baseline.md): headers, scans, the CASA pre-assessment and the incident-response note (SH-E5) | Google (CASA); all |
 
 ## Which connectors need a review
 
@@ -40,7 +42,7 @@ A business connects its Gmail, Facebook Page, WhatsApp number, LinkedIn Page or 
 
 ## What would fail today
 
-Found while writing these documents. Each is a requirement in the document named. **Since 28 Oct 2026, items 2–5 and 10 are fixed in the code ([10](10_code_fix_plan.md)), not yet deployed. Items 6 and 11 are partly fixed: approvals and prompt-injection screening are built, retention and staff access are open; Microsoft mailboxes are refused on the password path, the platform's own mail is open. The pages for item 1 are drafted ([11](11_website_content/README.md)), not yet published.**
+Found while writing these documents. Each is a requirement in the document named. **Since 28–29 Oct 2026, items 2–6 and 10 are fixed in the code ([10](10_code_fix_plan.md)), not yet deployed: approvals, prompt-injection screening, retention by source and staff access are all built. Item 11 is partly fixed: Microsoft mailboxes are refused on the password path; the platform's own mail is open. The pages for item 1 are drafted ([11](11_website_content/README.md)), not yet published.**
 
 1. **The websites** ([08](08_website_readiness.md)). On hirebuddha.com, `/privacy` and `/terms` are templates that say so, `/data-deletion` is a 404, no page shows the legal name, address or a support contact, and **the domain can't receive mail** (no MX record), so the `privacy@`, `hello@` and `enterprise@` addresses it shows bounce. On buddhalab.in, the legal pages carry a San Francisco placeholder address and a contact domain nobody owns, the office addresses come from a template, testimonials and *partner* labels can't be verified, and the link to HireBuddha is broken. Every provider reads these pages (SH-06…SH-09, WEB-02…WEB-11).
 2. **Gmail asks for the wrong scopes for how it works.** The product reads and sends Gmail over IMAP/SMTP, which Google allows only with `https://mail.google.com/`, the broadest Gmail scope. The connector asks for `gmail.modify` and `gmail.send`. Move Gmail to the Gmail API with `gmail.modify` alone (GOOG-E1, GOOG-E2).

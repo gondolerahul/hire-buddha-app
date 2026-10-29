@@ -121,9 +121,12 @@ async def resolve_connection(
     Look up social media credentials from the social_connections table.
 
     Returns a dict with decrypted access_token, refresh_token, and metadata.
-    Returns empty dict if no matching connection is found.
+    Returns empty dict if no matching connection is found — always for LinkedIn
+    and X, which only their connectors reach (LI-E5, X-E7).
     """
-    if not company_id:
+    from src.connections.client import CONNECTOR_ONLY
+
+    if not company_id or platform in CONNECTOR_ONLY:
         return {}
 
     try:
@@ -199,7 +202,13 @@ async def _refresh_token(conn, credentials: Dict[str, Any]) -> Optional[Dict[str
 
     Returns updated credentials dict on success, None on failure.
     """
+    from src.connections.client import CONNECTOR_ONLY
+
     platform = conn.platform
+    if platform in CONNECTOR_ONLY:   # refreshed by the connector's broker only (LI-E5, X-E7)
+        logger.warning("[SocialConnSvc] %s is reached only through its connector; old row %s not refreshed",
+                       platform, getattr(conn, "id", None))
+        return None
     config = PLATFORM_REFRESH_CONFIG.get(platform)
     if not config:
         logger.warning(f"[SocialConnSvc] No refresh config for platform: {platform}")

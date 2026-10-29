@@ -22,7 +22,8 @@ MESSAGING_WINDOW = timedelta(hours=24)
 
 async def last_message_at(company_id: Any, sender_id: str) -> Optional[datetime]:
     """When the person last wrote to the business's Page (``social.message.received``
-    events, Messenger's ``sender.id``), or ``None``."""
+    events — ``social.message.with_person`` while a person had the conversation —
+    Messenger's ``sender.id``), or ``None``."""
     if not company_id or not sender_id:
         return None
     import uuid
@@ -36,7 +37,8 @@ async def last_message_at(company_id: Any, sender_id: str) -> Optional[datetime]
         company = uuid.UUID(str(company_id))
         async with tenant_session(company) as db:
             return (await db.execute(select(func.max(Event.received_at)).where(
-                Event.company_id == company, Event.type == "social.message.received",
+                Event.company_id == company,
+                Event.type.in_(("social.message.received", "social.message.with_person")),
                 or_(Event.data["value"]["sender"]["id"].astext == sender_id,
                     Event.data["sender"]["id"].astext == sender_id)))).scalar_one_or_none()
     except Exception:  # noqa: BLE001 - unknown is treated as outside the window
@@ -381,9 +383,18 @@ class FacebookSendMessageTool(SocialMediaTool):
             return {"error": "Messenger allows a reply only within 24 hours of the person's last message to the "
                              "Page, and theirs is older (or none was received). Wait for them to write again; a "
                              "person on the team may still answer from the Page's inbox."}
+        # A person may have taken the conversation over; the assistant says it is
+        # one first in a conversation, after a long gap, after a hand-back (META-E4).
+        from src.messaging import rules
+
+        company_id = (context or {}).get("company_id")
+        recipient = str(params["recipient_id"])
+        reply = await rules.before_reply(company_id, "messenger", str(page_id), recipient, params["message_text"])
+        if reply.refusal:
+            return {"error": reply.refusal}
 
         message_body: Dict[str, Any] = {
-            "text": params["message_text"],
+            "text": reply.text,
         }
 
         # Quick replies
@@ -406,8 +417,10 @@ class FacebookSendMessageTool(SocialMediaTool):
             json_body=request_body,
         )
         data = resp.json()
+        await rules.replied(company_id, "messenger", str(page_id), recipient, disclosed=reply.disclosed)
         return {
             "success": True,
             "recipient_id": data.get("recipient_id"),
             "message_id": data.get("message_id"),
+            "disclosed_ai": reply.disclosed,
         }

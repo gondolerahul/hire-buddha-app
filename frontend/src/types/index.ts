@@ -501,4 +501,6 @@ export interface ExecutionRun {
     human_approvals?: HumanApproval[];
     child_runs?: ExecutionRun[];
     entity?: HierarchicalEntity;
+    /** Set for HireBuddha staff without the business's support access: what the run read is withheld (SH-E6). */
+    content_withheld?: { connectors: string[]; message: string } | null;
 }

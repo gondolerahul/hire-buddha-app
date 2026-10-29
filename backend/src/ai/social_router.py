@@ -75,6 +75,16 @@ class SocialConnectionListResponse(BaseModel):
 VALID_PLATFORMS = set(PLATFORM_REFRESH_CONFIG)
 
 
+def _connector_only(platform: str) -> None:
+    """LinkedIn and X connect on the Connections screen only (LI-E5, X-E7)."""
+    from src.connections.client import CONNECTOR_ONLY
+
+    if platform in CONNECTOR_ONLY:
+        raise HTTPException(status_code=410, detail=(
+            f"{platform} is connected on the Connections screen now; HireBuddha reaches it only through "
+            "that connection"))
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -92,6 +102,7 @@ async def create_social_connection(
             status_code=400,
             detail=f"Invalid platform '{body.platform}'. Must be one of: {sorted(VALID_PLATFORMS)}"
         )
+    _connector_only(body.platform)
 
     async with tenant_session(company.id) as db:
         # Check for existing connection
@@ -205,6 +216,7 @@ async def refresh_social_connection(
         conn = result.scalars().first()
         if not conn:
             raise HTTPException(status_code=404, detail="Connection not found")
+        _connector_only(conn.platform)
 
         if not conn.encrypted_refresh_token:
             raise HTTPException(

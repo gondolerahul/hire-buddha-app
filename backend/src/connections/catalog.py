@@ -45,6 +45,22 @@ class FormField(BaseModel):
     help: Optional[str] = None
 
 
+class Retention(BaseModel):
+    """What the provider's rules let HireBuddha keep of what a run read through
+    the connection (SH-E2; ``connections.source_data``). Nothing set: no limit
+    of the provider's own (the business's history settings apply)."""
+    model_config = ConfigDict(extra="forbid")
+
+    hours: Optional[int] = Field(default=None, ge=1)   # in the run's logs, traces, prompts and memory
+    results: bool = False      # the run's own result and working state go too
+    records: bool = True       # an agent may save it to records (LI-E3: LinkedIn may not)
+    # Operations whose data is the account's own (a Page's statistics): kept
+    # ``exempt_hours`` (none: while connected), may be saved, go on disconnect.
+    exempt: List[str] = Field(default_factory=list)
+    exempt_hours: Optional[int] = Field(default=None, ge=1)
+    rule: str = ""             # the provider's rule, as the removal notice names it
+
+
 class ConnectorSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -59,6 +75,7 @@ class ConnectorSpec(BaseModel):
     scopes: List[str] = Field(default_factory=list)
     capabilities: Dict[str, Any] = Field(default_factory=dict)
     approval: Dict[str, Any] = Field(default_factory=dict)
+    retention: Retention = Field(default_factory=Retention)
     version: int = 1
 
     @field_validator("auth_type")

@@ -106,9 +106,9 @@ def test_each_platforms_next_page(body, cursor):  # noqa: D103
 
 @pytest.mark.asyncio
 async def test_a_list_operation_says_it_is_partial(server, monkeypatch):
-    import src.ai.social_connection_service as conns
+    import src.connections.client as conns   # X is reached through its connector (X-E7)
     from src.ai.tools.social.twitter import TwitterSearchTool
-    monkeypatch.setattr(conns, "resolve_connection", AsyncMock(return_value={"access_token": "t"}))
+    monkeypatch.setattr(conns, "credentials_for", AsyncMock(return_value={"access_token": "t"}))
     server.script += [ok({"data": [{"id": "1", "text": "a"}], "meta": {"next_token": "NEXT"}})]
     out = json.loads(await TwitterSearchTool().run_with_context(
         json.dumps({"query": "ai"}), {"company_id": "00000000-0000-0000-0000-000000000001"}))
@@ -120,8 +120,8 @@ async def test_a_list_operation_says_it_is_partial(server, monkeypatch):
 
 @pytest.fixture
 def connected(server, monkeypatch):
-    import src.ai.social_connection_service as conns
-    monkeypatch.setattr(conns, "resolve_connection",
+    import src.connections.client as conns   # X is reached through its connector (X-E7)
+    monkeypatch.setattr(conns, "credentials_for",
                         AsyncMock(return_value={"access_token": "t", "platform_user_id": "42"}))
     requests: list = []
     real = _REAL_CLIENT

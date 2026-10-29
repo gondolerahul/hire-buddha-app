@@ -171,6 +171,14 @@ class Settings(BaseSettings):
     # before it. Google ships four major versions a year, each for about a year.
     GOOGLE_ADS_API_VERSION: str = "v26"
     GOOGLE_ADS_API_SUNSET: str = "2027-11"
+    # The developer token's daily operations (15,000 on Basic access), shared by
+    # every business, and one business's share of them (GADS-E6).
+    GOOGLE_ADS_OPERATIONS_PER_DAY: int = 15000
+    GOOGLE_ADS_OPERATIONS_PER_BUSINESS_PER_DAY: int = 2000
+    # The YouTube project's daily uploads, shared by every business, and one
+    # business's share (YT-E4); raise both with YouTube's quota extension.
+    YOUTUBE_UPLOADS_PER_DAY: int = 100
+    YOUTUBE_UPLOADS_PER_BUSINESS_PER_DAY: int = 10
     # Meta's Graph API version for HireBuddha's Meta app (META-E7); a
     # ``graph_version`` on the app's registry row wins over it.
     META_GRAPH_VERSION: str = "v26.0"
@@ -338,6 +346,10 @@ class Settings(BaseSettings):
     # name in the vault. Unset, a pattern check flags but withholds nothing.
     CONTENT_SAFETY_ENDPOINT: str = ""
     CONTENT_SAFETY_KEY_NAME: str = ""
+    # Security headers on every API answer (SH-E5): HSTS for this long (0: none,
+    # e.g. a local http-only setup), nosniff, no framing, a content policy.
+    SECURITY_HEADERS_ENABLED: bool = True
+    SECURITY_HSTS_SECONDS: int = 31536000
     # Tools fall back to the old social_connections / email_connections rows
     # until WS7's conversion has moved them (then switch off; WS9 removes it).
     CONNECTIONS_LEGACY_FALLBACK: bool = True

@@ -315,11 +315,15 @@
 | POST | `/api/v1/connections/start` | signed in | `src.connections.api` |
 | DELETE | `/api/v1/connections/{connection_id}` | signed in | `src.connections.api` |
 | GET | `/api/v1/connections/{connection_id}` | signed in | `src.connections.api` |
+| PUT | `/api/v1/connections/{connection_id}/files` | signed in | `src.connections.api` |
 | PUT | `/api/v1/connections/{connection_id}/grants` | signed in | `src.connections.api` |
 | GET | `/api/v1/connections/{connection_id}/impact` | signed in | `src.connections.api` |
+| POST | `/api/v1/connections/{connection_id}/picker` | signed in | `src.connections.api` |
 | POST | `/api/v1/connections/{connection_id}/reconnect` | signed in | `src.connections.api` |
 | POST | `/api/v1/connections/{connection_id}/test` | signed in | `src.connections.api` |
 | GET | `/api/v1/connectors` | signed in | `src.connections.api` |
+| GET | `/api/v1/conversations` | signed in | `src.messaging.api` |
+| POST | `/api/v1/conversations/{conversation_id}/hand-back` | signed in | `src.messaging.api` |
 | GET | `/api/v1/cortex/trees` | signed in | `src.ai.memory.cortex_router` |
 | POST | `/api/v1/cortex/trees` | signed in | `src.ai.memory.cortex_router` |
 | GET | `/api/v1/cortex/trees/{tree_id}` | signed in | `src.ai.memory.cortex_router` |
@@ -488,12 +492,17 @@
 | PATCH | `/api/v1/streaming/voice-sessions/{session_id}/next-action` | signed in | `src.voice.sessions_router` |
 | GET | `/api/v1/streaming/whatsapp-sessions` | signed in | `src.voice.sessions_router` |
 | GET | `/api/v1/streaming/whatsapp-sessions/{session_id}` | signed in | `src.voice.sessions_router` |
+| GET | `/api/v1/support-access` | signed in | `src.auth.support_access` |
+| POST | `/api/v1/support-access` | signed in | `src.auth.support_access` |
+| DELETE | `/api/v1/support-access/{grant_id}` | signed in | `src.auth.support_access` |
 | GET | `/api/v1/users` | signed in | `src.auth.user_router` |
 | POST | `/api/v1/users` | roles: app_admin, partner_admin, tenant_admin | `src.auth.user_router` |
 | PATCH | `/api/v1/users/{user_id}` | signed in | `src.auth.user_router` |
 | GET | `/api/v1/webhook-endpoints` | roles: app_admin, partner_admin, tenant_admin | `src.gateway.webhook_endpoints_router` |
 | POST | `/api/v1/webhook-endpoints` | roles: app_admin, partner_admin, tenant_admin | `src.gateway.webhook_endpoints_router` |
 | DELETE | `/api/v1/webhook-endpoints/{endpoint_id}` | roles: app_admin, partner_admin, tenant_admin | `src.gateway.webhook_endpoints_router` |
+| GET | `/api/v1/whatsapp/opt-ins` | signed in | `src.messaging.api` |
+| POST | `/api/v1/whatsapp/opt-ins` | signed in | `src.messaging.api` |
 | GET | `/api/v1/workspace` | signed in | `src.common.tenancy.api` |
 | GET | `/health` | — | `src.common.router_mounts` |
 | POST | `/internal/event` | internal token | `src.gateway.internal_event` |

@@ -837,6 +837,14 @@ async def assign_agent(
             detail="Only voice-enabled agents can be assigned to phone numbers. "
                    "Configure a voice identity in the agent's persona settings."
         )
+    # A number may answer on WhatsApp (unless it says it cannot), and WhatsApp
+    # allows only assistants built for the business (META-E5).
+    if (entry.capabilities or {}).get("whatsapp", True):
+        from src.messaging.rules import whatsapp_agent_problem
+
+        problem = whatsapp_agent_problem(agent)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
 
     entry.status = "assigned"
     entry.agent_id = data.agent_id

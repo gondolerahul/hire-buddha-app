@@ -158,6 +158,33 @@ async def admin_consent(body: StartRequest, user: User = Depends(get_current_use
     return await _call(service.admin_consent_link(user.company_id, user.id, body.connector_id))
 
 
+class ChosenFile(BaseModel):
+    id: str = Field(..., min_length=1, max_length=200)
+    name: Optional[str] = Field(None, max_length=300)
+    mime_type: Optional[str] = Field(None, max_length=200)
+
+
+class ChosenFiles(BaseModel):
+    files: List[ChosenFile] = Field(default_factory=list, max_length=service.MAX_DRIVE_FILES)
+
+
+@router.post("/api/v1/connections/{connection_id}/picker", openapi_extra=capability(
+    "What the Google Picker needs to let a person choose Drive files for HireBuddha (GOOG-E4).",
+    "read", "owner, admin"))
+async def drive_picker(connection_id: uuid.UUID, user: User = Depends(get_current_user)):
+    _manager(user)
+    return await _call(service.picker_session(user.company_id, connection_id, user_id=user.id))
+
+
+@router.put("/api/v1/connections/{connection_id}/files", openapi_extra=capability(
+    "The Drive files a person chose: the only existing files agents may open (GOOG-E4).",
+    "write", "owner, admin", idempotent=True))
+async def drive_files(connection_id: uuid.UUID, body: ChosenFiles, user: User = Depends(get_current_user)):
+    _manager(user)
+    return await _call(service.set_picked_files(user.company_id, connection_id,
+                                                [f.model_dump() for f in body.files], actor_id=user.id))
+
+
 @router.get("/oauth/callback/{provider}", include_in_schema=False)
 async def oauth_callback(provider: str, request: Request):
     return RedirectResponse(await service.callback(provider, dict(request.query_params)), status_code=302)

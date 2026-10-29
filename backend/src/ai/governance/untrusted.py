@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # The tools whose results are outside content, and the fields that hold it.
-READ_TOOLS = frozenset({"email_ingest", "social_api"})
+READ_TOOLS = frozenset({"email_ingest", "social_api", "google_drive"})
 TEXT_KEYS = frozenset({"body", "message", "text", "snippet", "comment", "caption", "content", "description"})
 MIN_LENGTH = 20
 WITHHELD = ("[withheld by HireBuddha: this text carries instructions aimed at the AI (prompt injection). "

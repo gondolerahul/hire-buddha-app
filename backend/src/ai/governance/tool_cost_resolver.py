@@ -143,6 +143,7 @@ FREE_TOOLS: dict[str, str] = {
     "get_current_datetime": _LOCAL,
     "list_schedules": _LOCAL,
     "google_calendar_create_event": _TENANT,
+    "google_drive": _TENANT,
     "meta_entity_creator": _LOCAL,
     "meta_entity_executor": _RUN,
     "meta_platform_introspect": _LOCAL,

@@ -110,13 +110,33 @@ class WhatsAppHandler:
                 }
             )
             
-            # 3. Generate AI response using Gemini
-            response_text = await self._generate_response(
-                session=session,
-                customer_message=message_body,
-                media_url=media_url
-            )
-            
+            # 3. The conversation's rules (META-E4, META-E5): STOP / START, a
+            # request for a person, the AI disclosure. While a person from the
+            # team has the conversation the assistant does not answer.
+            from src.messaging import rules
+
+            seen = await rules.inbound(session.company_id, "whatsapp", business_phone, customer_phone,
+                                       message_body or "")
+            disclosed = False
+            if seen.reply:
+                response_text = seen.reply
+            elif seen.with_person:
+                await self.session_manager.update_whatsapp_session(
+                    session.id, {"last_message_at": datetime.utcnow()})
+                return ""
+            else:
+                # Generate AI response using Gemini
+                generated = await self._generate_response(
+                    session=session,
+                    customer_message=message_body,
+                    media_url=media_url
+                )
+                reply = await rules.before_reply(session.company_id, "whatsapp", business_phone, customer_phone,
+                                                 generated)
+                if reply.refusal:
+                    return ""
+                response_text, disclosed = reply.text, reply.disclosed
+
             # 4. Log agent response
             await self.conversation_logger.log_turn(
                 company_id=session.company_id,
@@ -146,7 +166,10 @@ class WhatsAppHandler:
                     message=response_text,
                     from_number=business_phone
                 )
-            
+            if not seen.reply:   # the assistant answered (the platform's own answers are not its)
+                await rules.replied(session.company_id, "whatsapp", business_phone, customer_phone,
+                                    disclosed=disclosed)
+
             return response_text
             
         except Exception as e:
@@ -208,10 +231,14 @@ class WhatsAppHandler:
             
             # 2. Initialize Gemini Service on the company's Google integration
             # (VT-03): get_service needs its service_metadata, and without it
-            # every reply was the apology below.
+            # every reply was the apology below. On WhatsApp the assistant is the
+            # business's alone: no general-purpose assistant (META-E5).
+            from src.messaging.rules import WHATSAPP_SCOPE, business_name
+
+            business = await business_name(session.company_id)
             gemini_service = await GeminiTextServiceFactory.from_company(
                 self.db, session.company_id,
-                system_instruction=agent_context.system_instruction,
+                system_instruction=agent_context.system_instruction + WHATSAPP_SCOPE.format(business=business),
                 model="gemini-2.0-flash",  # a fast model for chat
             )
             

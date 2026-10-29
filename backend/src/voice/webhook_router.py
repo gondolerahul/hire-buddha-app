@@ -1151,9 +1151,10 @@ async def whatsapp_incoming_message(
                 provider="twilio"
             )
 
-    # Create TwiML response
+    # Create TwiML response (none while a person from the team has the conversation, META-E4)
     resp = MessagingResponse()
-    resp.message(response_text)
+    if response_text:
+        resp.message(response_text)
 
     return Response(content=str(resp), media_type="application/xml")
 

@@ -203,12 +203,66 @@ async def meta_webhook(request: Request):
         dedupe = "meta:" + hashlib.sha256(json.dumps([account_id, event_type, data], sort_keys=True,
                                                      default=str).encode()).hexdigest()
         route = await _route("meta", account_id)
+        if route is not None and event_type == "social.message.received":
+            event_type = await _conversation_rules(route, app, data)
         if route is None or not await _deliver(route, event_type, dedupe, data):
             await _unrouted("meta", account_id, event_type, body)
             unrouted += 1
         else:
             delivered += 1
     return {"status": "ok", "delivered": delivered, "unrouted": unrouted}
+
+
+HANDED_OFF_EVENT = "social.message.with_person"
+
+
+def _dm(data: Dict[str, Any]) -> Optional[Tuple[str, str, str, str]]:
+    """``(channel, account, sender, text)`` of a customer's text message, or ``None``
+    (the Page's own echoes, reads, reactions and attachments without text)."""
+    value = data.get("value") or {}
+    message = value.get("message") or {}
+    sender = str((value.get("sender") or {}).get("id") or "")
+    if not sender or message.get("is_echo") or not isinstance(message.get("text"), str):
+        return None
+    channel = "instagram" if data.get("platform") == "instagram" else "messenger"
+    return channel, str(data.get("account_id") or ""), sender, message["text"]
+
+
+async def _conversation_rules(route: ExternalAccountRoute, app: Any, data: Dict[str, Any]) -> str:
+    """A customer's message: a request for a person hands the conversation off,
+    and while a person has it the event is not one the assistant's triggers take
+    (META-E4). Returns the event type to store."""
+    from src.messaging import rules
+
+    dm = _dm(data)
+    if dm is None:
+        return "social.message.received"
+    channel, account, sender, text = dm
+    try:
+        seen = await rules.inbound(route.company_id, channel, account, sender, text)
+    except Exception:  # noqa: BLE001 - the message is still delivered; the rules are logged
+        logger.warning("conversation rules failed for %s", route.company_id, exc_info=True)
+        return "social.message.received"
+    if seen.reply and channel == "messenger":
+        await _acknowledge(route, app, account, sender, seen.reply)
+    return HANDED_OFF_EVENT if seen.with_person else "social.message.received"
+
+
+async def _acknowledge(route: ExternalAccountRoute, app: Any, page_id: str, recipient: str, text: str) -> None:
+    """The platform's own answer to a request for a person (Messenger, inside the window it just opened)."""
+    from src.connections import service
+    from src.connections.providers.base import http
+    from src.connections.providers.meta import graph_version
+
+    try:
+        token = await service.system_credential(route.company_id, route.connection_id, purpose="handoff_reply")
+        async with http() as client:
+            await client.post(f"https://graph.facebook.com/{graph_version(app)}/{page_id}/messages",
+                              params={"access_token": token.access_token},
+                              json={"recipient": {"id": recipient}, "message": {"text": text},
+                                    "messaging_type": "RESPONSE"})
+    except Exception:  # noqa: BLE001 - the team is told either way
+        logger.warning("hand-off reply not sent on %s", route.connection_id, exc_info=True)
 
 
 async def _meta_person(request: Request) -> Any:

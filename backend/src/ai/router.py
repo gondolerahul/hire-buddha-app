@@ -231,12 +231,37 @@ async def list_executions(
 @router.get("/executions/{execution_id}", response_model=ExecutionRunResponse)
 async def get_execution(
     execution_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user)
 ):
     service = AIService(db)
     execution = await service.get_execution(execution_id, current_user.company_id, current_user.role)
-    return execution
+    return await _as_viewer(db, current_user, execution, request)
+
+
+def _path(request: Any) -> str:
+    """The request's path, for the record of a staff view (a test's request may have none)."""
+    url = getattr(request, "url", None)
+    return str(getattr(url, "path", "") or "")
+
+
+async def _as_viewer(db: AsyncSession, user: Any, execution: Any, request: Request) -> Any:
+    """The run as ``user`` may see it: HireBuddha staff without the business's
+    support access get what it read through connections withheld (SH-E6)."""
+    from src.auth.support_access import run_access, staff_elsewhere, withhold_run
+
+    if not staff_elsewhere(user, execution.company_id):
+        return execution
+    view = ExecutionRunResponse.model_validate(execution)
+
+    def ids(run: Any) -> Any:
+        yield run.id
+        for child in run.child_runs or []:
+            yield from ids(child)
+
+    access = await run_access(db, user, execution.company_id, list(ids(view)), path=_path(request))
+    return withhold_run(view, access) if access.withheld else view
 
 @router.post("/executions/{execution_id}/csat", response_model=ExecutionRunResponse)
 async def record_execution_csat(
@@ -255,6 +280,7 @@ async def record_execution_csat(
 @router.get("/executions/{execution_id}/agent_state")
 async def get_agent_state(
     execution_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -271,7 +297,10 @@ async def get_agent_state(
 
     # Reuse existing access check.
     service = AIService(db)
-    await service.get_execution(execution_id, current_user.company_id, current_user.role)
+    run = await service.get_execution(execution_id, current_user.company_id, current_user.role)
+    from src.auth.support_access import run_access
+
+    access = await run_access(db, current_user, run.company_id, [execution_id], path=_path(request))
 
     # Walk the run's CORTEX tree (if any) for the newest snapshot node.
     try:
@@ -305,6 +334,8 @@ async def get_agent_state(
         payload = _json.loads(row[0]) if isinstance(row[0], str) else row[0]
     except Exception:
         payload = {"raw": str(row[0])}
+    if access.withheld:   # staff without the business's support access (SH-E6)
+        payload = {"withheld": access.note(execution_id)}
     return {
         "run_id": str(execution_id),
         "snapshot_at": row[1].isoformat() if row[1] else None,
@@ -315,6 +346,7 @@ async def get_agent_state(
 @router.get("/executions/{execution_id}/trace")
 async def get_execution_trace(
     execution_id: UUID,
+    request: Request,
     iteration: Optional[int] = None,
     db: AsyncSession = Depends(get_acting_tenant_db),
     current_user: User = Depends(get_current_user),
@@ -332,8 +364,11 @@ async def get_execution_trace(
 
     from src.ai.orm.trace import ExecutionTraceEvent
 
+    from src.auth.support_access import run_access, withhold_spans
+
     service = AIService(db)
-    await service.get_execution(execution_id, current_user.company_id, current_user.role)
+    run = await service.get_execution(execution_id, current_user.company_id, current_user.role)
+    access = await run_access(db, current_user, run.company_id, [execution_id], path=_path(request))
 
     stmt = (
         _select(ExecutionTraceEvent)
@@ -344,10 +379,7 @@ async def get_execution_trace(
         stmt = stmt.where(ExecutionTraceEvent.iteration == iteration)
 
     rows = (await db.execute(stmt)).scalars().all()
-    return {
-        "run_id": str(execution_id),
-        "count": len(rows),
-        "spans": [
+    spans = [
             {
                 "span_id": str(r.span_id),
                 "parent_span_id": str(r.parent_span_id) if r.parent_span_id else None,
@@ -367,7 +399,14 @@ async def get_execution_trace(
                 "error": r.error_message,
             }
             for r in rows
-        ],
+    ]
+    if access.withheld:   # staff without the business's support access (SH-E6)
+        withhold_spans(spans, access.note(execution_id))
+    return {
+        "run_id": str(execution_id),
+        "count": len(rows),
+        "spans": spans,
+        "content_withheld": access.summary(execution_id),
     }
 
 
@@ -418,6 +457,11 @@ async def stream_execution(
     service = AIService(db)
     run = await service.get_execution(execution_id, current_user.company_id, current_user.role)
     run_company_id = run.company_id
+    from src.auth.support_access import stream_withheld, withhold_frame
+
+    # Staff without the business's support access: a run may read through a
+    # connection at any point, so the stream's content is held back throughout (SH-E6).
+    withheld = await stream_withheld(current_user, run_company_id, execution_id, path=_path(request))
 
     import json
     import logging
@@ -442,7 +486,8 @@ async def stream_execution(
                 frames = await read_run_events(r, execution_id, after, block_ms=wait)
                 for entry_id, data in frames:
                     after = entry_id
-                    yield f"id: {entry_id}\ndata: {await sse_data(viewer, data)}\n\n"
+                    shown = withhold_frame(data) if withheld else data
+                    yield f"id: {entry_id}\ndata: {await sse_data(viewer, shown)}\n\n"
                     if is_terminal(data):
                         return
                 if not frames:

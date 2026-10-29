@@ -175,24 +175,32 @@ async def _run(tool: _BaseTool, name: str, args: Any, logged_args: Dict[str, Any
         if prior is not None:
             return ToolResult(tool=name, args=logged_args, output=prior, success=True,
                               units=0, idempotency_key=key, replayed=True)
+    from src.connections import source_data
+
     start = datetime.now(timezone.utc)
     units = 1.0
     also_bill: Dict[str, float] = {}
     limit = float(timeout_s or tool.timeout_seconds)
-    try:
-        # One call may not hold the worker past its timeout (EP-08): before,
-        # only the enclosing step's timeout bounded it.
-        out: ToolOutput = await asyncio.wait_for(tool.invoke(args, context), timeout=limit)
-        error = None if out.success else (out.error or "the tool failed")
-        output = out.output
-        units = float(out.metadata.get("billable_units", 1))
-        extra = out.metadata.get("also_bill") or {}
-        also_bill = {str(k): float(v) for k, v in extra.items() if float(v) > 0} if isinstance(extra, dict) else {}
-    except asyncio.TimeoutError:
-        error = f"tool_timeout: '{name}' did not finish within {limit:g}s"
-        output = f"Error: {error}"
-    except Exception as exc:
-        error, output = str(exc), f"Error: {exc}"
+    with source_data.watch() as used:
+        try:
+            # One call may not hold the worker past its timeout (EP-08): before,
+            # only the enclosing step's timeout bounded it.
+            out: ToolOutput = await asyncio.wait_for(tool.invoke(args, context), timeout=limit)
+            error = None if out.success else (out.error or "the tool failed")
+            output = out.output
+            units = float(out.metadata.get("billable_units", 1))
+            extra = out.metadata.get("also_bill") or {}
+            also_bill = {str(k): float(v) for k, v in extra.items() if float(v) > 0} if isinstance(extra, dict) else {}
+        except asyncio.TimeoutError:
+            error = f"tool_timeout: '{name}' did not finish within {limit:g}s"
+            output = f"Error: {error}"
+        except Exception as exc:
+            error, output = str(exc), f"Error: {exc}"
+    if error is None and used:  # the run read through a connection: its provider's rules follow (SH-E2)
+        try:
+            await source_data.mark(context, name, args, used)
+        except Exception:  # noqa: BLE001 - never lose a result to the mark; it is logged
+            logger.warning("the read of %s through %s was not marked", name, used, exc_info=True)
     if error is None:  # mail, comments and messages from outside: screened and quoted (SH-E3)
         from src.ai.governance.untrusted import guard_tool_output
 

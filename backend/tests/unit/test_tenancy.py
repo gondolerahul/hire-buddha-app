@@ -86,6 +86,8 @@ APPENDIX_A_CONTROL = {
     # outside account, provider deliveries nobody owns, the deletions a provider
     # asked for (META-E1: the status page behind each confirmation code).
     "connector_catalog", "external_account_routes", "unrouted_events", "provider_deletion_requests",
+    # SH-E6: a business's grant of support access to staff, and each staff view under it.
+    "support_access_grants", "support_access_views",
     # Tenant apps (WS6, tech spec §11.5): every hostname the tenant edge serves.
     "custom_domains",
     # Phase 15 (tech design §17): who changed a platform setting, from what.
@@ -113,6 +115,10 @@ APPENDIX_A_TENANT = {
     "schema_blueprints", "schema_changes", "audit_log", "api_keys", "records_settings",
     # Connections (WS5, tech spec §10.3): accounts, sealed secrets, grants, use, the DEK.
     "connections", "connection_secrets", "connection_grants", "connection_audit", "tenant_keys",
+    # What a run read through a connection and its provider's rules on it (SH-E2).
+    "connector_data_marks",
+    # Conversations with a business's customers and WhatsApp opt-ins (META-E4, META-E5).
+    "messaging_conversations", "messaging_opt_ins",
     # Code lanes and apps (WS6, tech spec §11.2–§11.7).
     "git_repos", "code_items", "code_reviews", "apps", "app_builds", "app_deployments", "app_users",
     "app_roles", "app_user_roles", "app_user_sessions", "app_auth_keys", "app_usage",

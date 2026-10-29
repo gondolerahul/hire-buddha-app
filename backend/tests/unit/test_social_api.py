@@ -62,16 +62,17 @@ async def test_what_social_api_refuses():
 
 @pytest.mark.asyncio
 async def test_an_operation_runs_with_the_calls_context_and_the_companys_connection(monkeypatch):
-    import src.ai.social_connection_service as conns
+    import src.connections.client as client
     from src.ai.tools.social.twitter import TwitterCreatePostTool
-    resolve = AsyncMock(return_value={"access_token": "tok"})
+    # X is reached through its connector only (X-E7): the run's agent's x_account connection.
+    resolve = AsyncMock(return_value={"access_token": "tok", "source": "connections"})
     seen = {}
 
     async def _execute(self, params, credentials, context):
         seen.update(params=params, credentials=credentials, context=context)
         return {"success": True, "tweet_id": "1"}
 
-    monkeypatch.setattr(conns, "resolve_connection", resolve)
+    monkeypatch.setattr(client, "credentials_for", resolve)
     monkeypatch.setattr(TwitterCreatePostTool, "_execute", _execute)
     out = await SocialAPITool().invoke({"platform": "twitter", "operation": "create_post",
                                         "payload": {"text": "hello"}}, CTX)
@@ -80,7 +81,7 @@ async def test_an_operation_runs_with_the_calls_context_and_the_companys_connect
     assert out.metadata == {"platform": "twitter", "operation": "create_post", "writes": True,
                             "also_bill": {"x_post": 1}}
     assert seen["params"] == {"text": "hello"} and seen["context"]["company_id"] == CTX["company_id"]
-    assert resolve.await_args.kwargs["company_id"] == CTX["company_id"]
+    assert resolve.await_args.args[0]["company_id"] == CTX["company_id"] and resolve.await_args.args[1] == "twitter"
 
 
 @pytest.mark.asyncio

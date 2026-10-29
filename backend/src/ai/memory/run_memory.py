@@ -217,6 +217,10 @@ async def record_episode(db: AsyncSession, run_id: UUID, *, runtime_tree_id: Opt
         )).scalar_one_or_none()
         if run is None or memory_scope_for(run.entity) is None:
             return
+        from src.connections.source_data import keeps_no_memory
+
+        if await keeps_no_memory(db, run.id):   # LinkedIn, X, YouTube data stay out of memory (LI-E3)
+            return
 
         def _main(data: Any, key: str) -> Any:
             return data.get(key, data) if isinstance(data, dict) else data

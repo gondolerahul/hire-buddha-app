@@ -35,6 +35,7 @@ def _db_returning(run):
     db = MagicMock()
     result = MagicMock()
     result.scalar_one_or_none.return_value = run
+    result.scalar.return_value = None          # the run read nothing it may not keep (LI-E3)
     db.execute = AsyncMock(return_value=result)
     db.commit = AsyncMock()
     db.rollback = AsyncMock()

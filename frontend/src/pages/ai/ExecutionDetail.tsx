@@ -732,6 +732,11 @@ export const ExecutionDetail: React.FC = () => {
                 </div>
             </header>
 
+            {/* HireBuddha staff without the business's support access (SH-E6). */}
+            {run.content_withheld && (
+                <p className="ar-note ar-note--bad" role="status">{run.content_withheld.message}</p>
+            )}
+
             {/* ── Refine Panel ─────────────────────────────────────────── */}
             {showRefinePanel && run.status === RunStatus.COMPLETED && (
                 <div className="refine-panel-wrapper">

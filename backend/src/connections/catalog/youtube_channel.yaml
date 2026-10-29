@@ -25,4 +25,13 @@ capabilities:
 approval:
   state: not_submitted
   notes: Google brand and sensitive-scope verification of the marketing project; YouTube's API compliance audit for more than 100 uploads a day.
+# YT-E5 (SH-E2): YouTube data is refreshed or deleted within 30 days; analytics
+# may stay while the authorisation is checked every 30 days (connection_refresh),
+# and everything goes within 7 days of disconnecting (the hourly pass).
+retention:
+  hours: 720
+  results: true
+  records: false
+  exempt: [get_analytics, manage_reports]
+  rule: "YouTube API Services policies: YouTube data is refreshed or deleted within 30 days"
 version: 1

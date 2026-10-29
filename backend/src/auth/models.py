@@ -87,3 +87,37 @@ class RefreshToken(ControlBase):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     user = relationship("User", back_populates="refresh_tokens")
+
+
+class SupportAccessGrant(ControlBase):
+    """A business lets HireBuddha's staff read what came through its connections
+    (SH-E6): e-mail bodies, messages, comments in its runs. Until ``expires_at``
+    or revoked; without one, staff working in the business see a run's steps,
+    timings and errors but not that content (src/auth/support_access.py)."""
+    __tablename__ = "support_access_grants"
+    __table_args__ = (Index("ix_support_access_grants_company", "company_id", "expires_at"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    granted_by = Column(UUID(as_uuid=True), nullable=True)
+    reason = Column(Text, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+
+class SupportAccessView(ControlBase):
+    """A staff member opened a run of the business that read connected-account
+    content: under which grant, or with the content withheld (SH-E6 audit)."""
+    __tablename__ = "support_access_views"
+    __table_args__ = (Index("ix_support_access_views_company_at", "company_id", "at"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    grant_id = Column(UUID(as_uuid=True), nullable=True)
+    run_id = Column(UUID(as_uuid=True), nullable=True)
+    path = Column(Text, nullable=False)
+    withheld = Column(Boolean, nullable=False, server_default=text("false"))
+    at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

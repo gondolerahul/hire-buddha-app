@@ -36,18 +36,18 @@ hirebuddha.com's pages cover everything the providers check: Google's Limited Us
 
 A privacy policy is a promise. Each line below is true only once its engineering item is live in production ([10](../10_code_fix_plan.md)).
 
-| Statement | Item | State (28 Oct 2026) |
+| Statement | Item | State (29 Oct 2026) |
 |---|---|---|
 | A person approves every message, post, reply, upload or campaign change before it goes out | SH-E4 | Built |
-| Disconnecting deletes the tokens and the events stored from the account | SH-E1 | Built (traces and memory follow SH-E2) |
+| Disconnecting deletes the tokens and the events stored from the account | SH-E1 | Built; what runs read through it goes on the next hourly pass (SH-E2) |
 | Outside content is screened for prompt injection; an attack is withheld | SH-E3 | Built. Withholding needs Prompt Shields configured in production (`CONTENT_SAFETY_ENDPOINT`, `CONTENT_SAFETY_KEY_NAME`); without it the pattern check only flags |
 | Meta's deletion request gives a confirmation code and a status page | META-E1 | Built |
 | Gmail through the Gmail API; Outlook through Microsoft Graph | GOOG-E1, MS-E1 | Built |
-| Messenger replies only within 24 hours | META-E4 | Window built; the AI disclosure line and the hand-off are open |
-| LinkedIn 48 h / 24 h, X 24 h, YouTube 30 days and 7 days | SH-E2 | **Open**: publish these sections only with the connectors that need them, after SH-E2 |
-| Staff don't read connected-account content without a grant | SH-E6 | **Open** |
-| No training on customer or connected data; learning stays in each business | GOOG-E6 | **Open**: confirm the Learning System and any BabyBuddha training pipeline exclude customer data, in a written data-flow note |
-| WhatsApp templates only to opted-in customers; no general-purpose assistant | META-E5 | **Open** |
+| Messenger replies only within 24 hours; automated replies say they come from an AI assistant; a person can take over | META-E4 | Built |
+| LinkedIn 48 h / 24 h, X 24 h, YouTube 30 days and 7 days; LinkedIn post statistics a year | SH-E2 | Built (LinkedIn and X kept at most 24 hours; YouTube 30 days, its analytics while connected) |
+| Staff don't read connected-account content without a grant | SH-E6 | Built: Settings → Support access |
+| No training on customer or connected data; learning stays in each business | GOOG-E6 | Written: [12](../12_data_flow_note.md). **The owner confirms** the BabyBuddha sentence and the training settings of any direct model-provider key (12 §2) |
+| WhatsApp templates only to opted-in customers; no general-purpose assistant | META-E5 | Built |
 | X posts billed per post | X-E5 | Built; staff set the registry prices `x_post` and `x_post_link` |
 | A published list of sub-processors | SH-10 | **Open**: publish `/subprocessors` |
 

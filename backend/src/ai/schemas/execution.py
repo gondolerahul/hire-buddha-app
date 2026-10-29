@@ -186,6 +186,9 @@ class ExecutionRunResponse(ExecutionRunSummary):
     tool_logs: List[ToolInteractionLogResponse] = []
     human_approvals: List[HumanApprovalResponse] = []
     child_runs: List["ExecutionRunResponse"] = []
+    # Set for HireBuddha staff without the business's support access: what the
+    # run read through its connections is withheld (SH-E6, auth.support_access).
+    content_withheld: Optional[Dict[str, Any]] = None
 
 
 ExecutionRunResponse.model_rebuild()

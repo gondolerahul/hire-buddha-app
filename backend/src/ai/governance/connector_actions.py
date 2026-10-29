@@ -39,6 +39,8 @@ TRIGGER = "CONNECTOR_ACTION"
 # conversation rather than publication.
 READ_ACTIONS = frozenset({"list", "get", "read", "search", "describe"})
 CONVERSATION = frozenset({"send_message"})
+# Google Drive's writes (GOOG-E4): Google's Workspace rules want a person to confirm an agent's actions.
+DRIVE_WRITES = frozenset({"create_file", "update_file"})
 
 
 def outbound(name: str, args: Any) -> Optional[str]:
@@ -46,6 +48,8 @@ def outbound(name: str, args: Any) -> Optional[str]:
     or ``None`` when it reads, or converses, or is not a connector tool."""
     if name == "email_send":
         return "send an e-mail"
+    if name == "google_drive" and isinstance(args, Mapping) and args.get("operation") in DRIVE_WRITES:
+        return f"{str(args['operation']).replace('_', ' ')} in Google Drive"
     if name != "social_api" or not isinstance(args, Mapping):
         return None
     from src.ai.tools.social.social_api import writes

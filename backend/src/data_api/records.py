@@ -373,11 +373,22 @@ def _integrity(error: IntegrityError) -> RecordError:
     return RecordError(422, "constraint", message)
 
 
+async def _source_allows(db: Any, actor: str) -> None:
+    """A run that read what its provider forbids saving (LinkedIn member data,
+    X and YouTube content) writes no records (LI-E3, ``connections.source_data``)."""
+    from src.connections.source_data import records_refusal
+
+    refusal = await records_refusal(db, actor)
+    if refusal:
+        raise RecordError(403, "source_restricted", refusal)
+
+
 async def create_record(db: Any, model: Model, company_id: Any, object_name: str, body: Any, *,
                         actor: str) -> Tuple[Dict[str, Any], Optional[uuid.UUID]]:
     """Insert, audit and emit in ``db``'s transaction (the caller commits, then nudges)."""
     name, obj, table = model.object(object_name)
     values = _values(obj, body, creating=True)
+    await _source_allows(db, actor)
     try:
         async with db.begin_nested():
             row = (await db.execute(insert(table).values(
@@ -398,6 +409,7 @@ async def update_record(db: Any, model: Model, company_id: Any, object_name: str
     values = _values(obj, body, creating=False)
     if not values:
         raise RecordError(422, "invalid_body", "nothing to change")
+    await _source_allows(db, actor)
     if if_match is None:
         raise RecordError(428, "if_match_required", "send If-Match with the record's ETag")
     try:

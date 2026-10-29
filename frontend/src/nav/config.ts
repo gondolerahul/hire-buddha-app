@@ -156,6 +156,7 @@ const BUSINESS: NavGroup[] = [
     { id: 'calls', label: 'Customers & calls', icon: 'PhoneCall', items: [
         { id: 'campaigns', label: 'Campaigns', route: '/calls/campaigns', icon: 'Megaphone', entitlement: 'feature.voice.outbound_campaigns' },
         { id: 'calls', label: 'Calls', route: '/calls', icon: 'PhoneCall', entitlement: 'feature.voice.inbound' },
+        { id: 'conversations', label: 'Conversations', route: '/conversations', icon: 'MessagesSquare' },
         { id: 'numbers', label: 'Phone numbers', route: '/calls/numbers', icon: 'Phone', roles: [TA], entitlement: 'feature.phone_numbers' },
     ] },
     { id: 'data', label: 'Data & apps', icon: 'Database', items: [
@@ -181,6 +182,7 @@ const BUSINESS: NavGroup[] = [
         { id: 'team', label: 'Team', route: '/settings/team', icon: 'Users', roles: [TA] },
         { id: 'automation-settings', label: 'Automation & data', route: '/settings/automation', icon: 'Timer', roles: [TA] },
         { id: 'partner-access', label: 'Partner access', route: '/settings/partner-access', icon: 'KeyRound', roles: [TA] },
+        { id: 'support-access', label: 'Support access', route: '/settings/support-access', icon: 'LifeBuoy', roles: [TA] },
         { id: 'data-closing', label: 'Data & closing', route: '/settings/data', icon: 'ShieldAlert', roles: [TA] },
     ] },
 ];

@@ -60,6 +60,10 @@ CATALOGUE: Tuple[Limit, ...] = (
           "How long a run may wait for an event before it times out.", "count", unit="days"),
     Limit("event_retention_days", "Event history kept",
           "Events older than this are deleted; with no limit they are kept.", "count", unit="days"),
+    Limit("ads_monthly_ceiling", "Google Ads monthly ceiling",
+          "The most the ad account's campaigns may plan to spend in a month (daily budgets × 30.4, in the "
+          "account's currency) when an agent creates one; with none set, agents create no campaigns.",
+          "count", unit="per month"),
 )
 BY_KEY: Dict[str, Limit] = {limit.key: limit for limit in CATALOGUE}
 MAX_COUNT = 1_000_000
@@ -109,6 +113,7 @@ class AutomationLimits:
     agent_events_per_run: Optional[int] = None
     max_wait_days: Optional[int] = None
     event_retention_days: Optional[int] = None
+    ads_monthly_ceiling: Optional[int] = None      # GADS-E3: agents' Google Ads campaigns
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)

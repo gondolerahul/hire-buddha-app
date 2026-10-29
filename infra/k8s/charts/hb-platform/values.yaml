@@ -240,6 +240,9 @@ gateway:
     app: ""        # SPA (+ /api through its nginx)
     api: ""        # REST API
     gateway: ""    # webhooks and telephony media streams
+  # Every answer on these hostnames tells browsers to keep to HTTPS (SH-E5);
+  # the app's nginx and the API send it too. Empty: none (a plain-HTTP setup).
+  hsts: "max-age=31536000; includeSubDomains"
 
 networkPolicy:
   enabled: true

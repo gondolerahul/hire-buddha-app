@@ -17,6 +17,8 @@ Tenant plane (each business's own database):
 * ``connection_grants``   — who may use it: all agents, one agent, an app
 * ``connection_audit``    — connected, token issued, refreshed, used, revoked …
 * ``tenant_keys``         — the tenant's DEK versions, wrapped by its KEK
+* ``connector_data_marks`` — a run read through a connection, and the rules
+  its provider sets on what it read (SH-E2; ``connections.source_data``)
 """
 from __future__ import annotations
 
@@ -24,7 +26,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, LargeBinary, Text, text
+from sqlalchemy import (Boolean, CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index, Integer,
+                        LargeBinary, Text, text)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,7 +36,7 @@ from src.common.tenancy.bases import ControlBase, TenantBase
 __all__ = [
     "AUTH_TYPES", "CATALOG_STATUSES", "CONNECTION_STATUSES", "GRANT_KINDS",
     "Connection", "ConnectionAudit", "ConnectionGrant", "ConnectionSecret", "ConnectorCatalogEntry",
-    "ExternalAccountRoute", "ProviderDeletionRequest", "TenantKey", "UnroutedEvent",
+    "ConnectorDataMark", "ExternalAccountRoute", "ProviderDeletionRequest", "TenantKey", "UnroutedEvent",
 ]
 
 AUTH_TYPES = ("oauth2", "github_app", "meta_embedded_signup", "api_key", "mailbox", "mcp")
@@ -200,7 +203,7 @@ class ConnectionAudit(TenantBase):
     connection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     # connected, token_issued, refreshed, refresh_failed, credential_refused, used, revoked, test_ok,
     # test_failed, grants_changed, reconnected, refused, suspended, unsuspended, repositories_removed,
-    # deleted_by_provider
+    # deleted_by_provider, picker_opened, files_chosen (GOOG-E4)
     action: Mapped[str] = mapped_column(Text, nullable=False)
     actor_kind: Mapped[Optional[str]] = mapped_column(Text, nullable=True)     # user, agent, app, system
     actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
@@ -219,3 +222,35 @@ class TenantKey(TenantBase):
     kek_key_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=_now())
     retired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ConnectorDataMark(TenantBase):
+    """A run read data through a connection (SH-E2): what the provider's rules
+    say about it. Until ``expires_at`` it stays in the run's tool logs, trace
+    spans, model prompts and CORTEX nodes; then the nightly job removes it
+    (``redacted_at``). ``results``: the run's own result and working state go
+    with it. ``records``: whether the run may save it to records (LI-E3)."""
+    __tablename__ = "connector_data_marks"
+    __table_args__ = (
+        # (run_id, company_id) → execution_runs (DM-09), as every run-scoped table.
+        ForeignKeyConstraint(["run_id", "company_id"], ["execution_runs.id", "execution_runs.company_id"],
+                             name="fk_connector_data_marks_run_company", ondelete="CASCADE"),
+        # One per read kind: social_api's operations each have their own rules (a Page's
+        # statistics are not its members' comments); '' for a tool without operations.
+        Index("uq_connector_data_marks_read", "run_id", "connection_id", "tool_name", "operation", unique=True),
+        Index("ix_connector_data_marks_due", "expires_at", postgresql_where=text("redacted_at IS NULL")),
+        Index("ix_connector_data_marks_connection", "connection_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    connection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    connector_id: Mapped[str] = mapped_column(Text, nullable=False)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    operation: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=_now())
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    results: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    records: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    redacted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

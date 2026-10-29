@@ -9,13 +9,15 @@ Provides tools for LinkedIn content management via the LinkedIn API:
 """
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from src.ai.tools.social.base import SocialMediaTool
 
 logger = logging.getLogger(__name__)
 
 LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
+NO_PAGE = "This LinkedIn connection names no Page: reconnect LinkedIn and choose the Page HireBuddha acts for."
 
 
 
@@ -23,6 +25,44 @@ def _linkedin_version() -> str:
     """The ``LinkedIn-Version`` header: the connector's setting, ``LINKEDIN_API_VERSION`` (TL-48, LI-E1)."""
     from src.connections.api_versions import linkedin_version
     return linkedin_version()
+
+
+def _organization(credentials: Dict[str, Any]) -> Optional[str]:
+    """The Page the connection acts as, ``urn:li:organization:<id>`` (LI-E4).
+
+    ``linkedin_org`` is a Page connection: its token is a Page administrator's,
+    and every post, comment reply and statistic is the Page's, never the member's.
+    """
+    meta = credentials.get("oauth_metadata") or {}
+    urn = str(meta.get("organization_urn") or credentials.get("platform_user_id") or "")
+    if urn.startswith("urn:li:organization:"):
+        return urn
+    page = credentials.get("platform_page_id")
+    return f"urn:li:organization:{page}" if page else None
+
+
+def _comment(element: Dict[str, Any]) -> Dict[str, Any]:
+    """A comment with the least member data LinkedIn's terms allow to be shown
+    (LI-E3, LI-E4): who (the member's URN, no profile fields), what and when."""
+    created = element.get("created") or {}
+    likes = element.get("likesSummary") or {}
+    return {"comment_urn": element.get("$URN") or element.get("commentUrn") or element.get("id"),
+            "author": element.get("actor"), "text": (element.get("message") or {}).get("text", ""),
+            "created_at_ms": created.get("time"), "likes": likes.get("totalLikes")}
+
+
+def _statistics_url(organization: str, posts: List[str]) -> str:
+    """``organizationalEntityShareStatistics`` for the Page, or for some of its
+    posts (Rest.li 2.0 lists: the URNs inside are encoded once, by hand)."""
+    url = (f"{LINKEDIN_API_BASE}/organizationalEntityShareStatistics?q=organizationalEntity"
+           f"&organizationalEntity={quote(organization, safe='')}")
+    shares = [p for p in posts if p.startswith("urn:li:share:")]
+    ugc = [p for p in posts if p.startswith("urn:li:ugcPost:")]
+    if shares:
+        url += "&shares=List(" + ",".join(quote(p, safe="") for p in shares) + ")"
+    if ugc:
+        url += "&ugcPosts=List(" + ",".join(quote(p, safe="") for p in ugc) + ")"
+    return url
 
 
 class LinkedInCreatePostTool(SocialMediaTool):
@@ -56,10 +96,6 @@ class LinkedInCreatePostTool(SocialMediaTool):
                         "type": "string",
                         "description": "Optional URL to share as a link post with preview"
                     },
-                    "post_as_organization": {
-                        "type": "boolean",
-                        "description": "If true, post as the connected company page instead of personal profile"
-                    },
                     "account_name": {
                         "type": "string",
                         "description": "Optional: specific LinkedIn account to use"
@@ -73,15 +109,9 @@ class LinkedInCreatePostTool(SocialMediaTool):
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
         access_token = credentials["access_token"]
-        platform_user_id = credentials.get("platform_user_id", "")
-        platform_page_id = credentials.get("platform_page_id")
-
-        # Determine author URN
-        post_as_org = params.get("post_as_organization", False)
-        if post_as_org and platform_page_id:
-            author = f"urn:li:organization:{platform_page_id}"
-        else:
-            author = f"urn:li:person:{platform_user_id}"
+        author = _organization(credentials)   # always the Page (LI-E4)
+        if not author:
+            return {"error": NO_PAGE}
 
         visibility = params.get("visibility", "PUBLIC")
 
@@ -168,7 +198,9 @@ class LinkedInGetAnalyticsTool(SocialMediaTool):
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
         access_token = credentials["access_token"]
-        platform_page_id = credentials.get("platform_page_id")
+        org_urn = _organization(credentials)
+        if not org_urn:
+            return {"error": NO_PAGE}
         analytics_type = params.get("analytics_type", "page")
 
         headers = self._bearer_headers(access_token, {
@@ -180,36 +212,16 @@ class LinkedInGetAnalyticsTool(SocialMediaTool):
             post_id = params.get("post_id", "")
             if not post_id:
                 return {"error": "post_id is required for post analytics"}
+            if not post_id.startswith(("urn:li:share:", "urn:li:ugcPost:")):
+                return {"error": "post_id is the post's URN: urn:li:share:… or urn:li:ugcPost:…"}
+            # One of the Page's posts: the share statistics filtered to it (LI-E4).
+            resp = await self._api_request("GET", _statistics_url(org_urn, [post_id]), headers=headers)
+            return {"analytics_type": "post", "post_id": post_id, "organization": org_urn,
+                    "source": "LinkedIn", "data": resp.json()}
 
-            # Fetch post statistics
-            query_params = {
-                "q": "statistics",
-                "posts[0]": post_id,
-            }
-            resp = await self._api_request(
-                "GET", f"{LINKEDIN_API_BASE}/postStatistics",
-                headers=headers,
-                params=query_params,
-            )
-            return {"analytics_type": "post", "post_id": post_id, "data": resp.json()}
-
-        else:
-            # Page/organization analytics
-            if not platform_page_id:
-                return {"error": "No platform_page_id configured for company page analytics"}
-
-            org_urn = f"urn:li:organization:{platform_page_id}"
-            query_params = {
-                "q": "organizationalEntity",
-                "organizationalEntity": org_urn,
-            }
-            resp = await self._api_request(
-                "GET",
-                f"{LINKEDIN_API_BASE}/organizationalEntityShareStatistics",
-                headers=headers,
-                params=query_params,
-            )
-            return {"analytics_type": "page", "organization": org_urn, "data": resp.json()}
+        # The Page's lifetime share statistics.
+        resp = await self._api_request("GET", _statistics_url(org_urn, []), headers=headers)
+        return {"analytics_type": "page", "organization": org_urn, "source": "LinkedIn", "data": resp.json()}
 
 
 class LinkedInManageCommentsTool(SocialMediaTool):
@@ -259,7 +271,7 @@ class LinkedInManageCommentsTool(SocialMediaTool):
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
         access_token = credentials["access_token"]
-        platform_user_id = credentials.get("platform_user_id", "")
+        org_urn = _organization(credentials)
         action = params["action"]
         post_id = params["post_id"]
 
@@ -271,30 +283,35 @@ class LinkedInManageCommentsTool(SocialMediaTool):
         if action == "list":
             resp = await self._api_request(
                 "GET",
-                f"{LINKEDIN_API_BASE}/socialActions/{post_id}/comments",
+                f"{LINKEDIN_API_BASE}/socialActions/{quote(post_id, safe='')}/comments",
                 headers=headers,
             )
             data = resp.json()
             comments = data.get("elements", [])
+            # Members' activity: shown to this business only, kept 24 hours,
+            # never saved to records or memory (LI-E2, LI-E3; the run is marked).
             return {
                 "action": "list",
                 "post_id": post_id,
-                "comments": comments[:20],  # Limit for LLM context
+                "comments": [_comment(c) for c in comments[:20]],  # Limit for LLM context
                 "total": len(comments),
+                "note": "Members' comments: use them in this run only; LinkedIn's terms forbid saving them.",
             }
 
         elif action == "create":
             comment_text = params.get("comment_text", "")
             if not comment_text:
                 return {"error": "comment_text is required for 'create' action"}
+            if not org_urn:
+                return {"error": NO_PAGE}
 
             body = {
-                "actor": f"urn:li:person:{platform_user_id}",
+                "actor": org_urn,   # the Page replies, not the member who connected it
                 "message": {"text": comment_text},
             }
             resp = await self._api_request(
                 "POST",
-                f"{LINKEDIN_API_BASE}/socialActions/{post_id}/comments",
+                f"{LINKEDIN_API_BASE}/socialActions/{quote(post_id, safe='')}/comments",
                 headers=headers,
                 json_body=body,
             )
@@ -312,7 +329,7 @@ class LinkedInManageCommentsTool(SocialMediaTool):
 
             await self._api_request(
                 "DELETE",
-                f"{LINKEDIN_API_BASE}/socialActions/{post_id}/comments/{comment_id}",
+                f"{LINKEDIN_API_BASE}/socialActions/{quote(post_id, safe='')}/comments/{quote(comment_id, safe='')}",
                 headers=headers,
             )
             return {"action": "delete", "success": True, "comment_id": comment_id}
@@ -339,8 +356,8 @@ class LinkedInGetProfileTool(SocialMediaTool):
                 "properties": {
                     "profile_type": {
                         "type": "string",
-                        "description": "Type of profile: 'user' for personal, 'organization' for company page",
-                        "enum": ["user", "organization"]
+                        "description": "'organization': the connected Page (members' profiles are not read)",
+                        "enum": ["organization", "user"]
                     },
                     "account_name": {
                         "type": "string",
@@ -355,26 +372,20 @@ class LinkedInGetProfileTool(SocialMediaTool):
         self, params: Dict[str, Any], credentials: Dict[str, Any], context: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
         access_token = credentials["access_token"]
-        profile_type = params.get("profile_type", "user")
+        if params.get("profile_type", "organization") == "user":
+            # A member's profile is member data the Page connection neither asks for nor keeps (LI-E3).
+            return {"error": "HireBuddha reads the connected Page's profile only, not members' profiles"}
+        org_urn = _organization(credentials)
+        if not org_urn:
+            return {"error": NO_PAGE}
 
         headers = self._bearer_headers(access_token, {
             "LinkedIn-Version": _linkedin_version(),
             "X-Restli-Protocol-Version": "2.0.0",
         })
-
-        if profile_type == "user":
-            resp = await self._api_request(
-                "GET", f"{LINKEDIN_API_BASE}/me", headers=headers
-            )
-            return {"profile_type": "user", "profile": resp.json()}
-        else:
-            platform_page_id = credentials.get("platform_page_id")
-            if not platform_page_id:
-                return {"error": "No platform_page_id configured for organization profile"}
-
-            resp = await self._api_request(
-                "GET",
-                f"{LINKEDIN_API_BASE}/organizations/{platform_page_id}",
-                headers=headers,
-            )
-            return {"profile_type": "organization", "organization": resp.json()}
+        resp = await self._api_request(
+            "GET",
+            f"{LINKEDIN_API_BASE}/organizations/{org_urn.rsplit(':', 1)[-1]}",
+            headers=headers,
+        )
+        return {"profile_type": "organization", "organization": resp.json()}

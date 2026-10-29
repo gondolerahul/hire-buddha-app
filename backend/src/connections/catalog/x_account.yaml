@@ -22,4 +22,11 @@ capabilities:
 approval:
   state: not_submitted
   notes: An X developer project with OAuth 2.0 (PKCE) and a tier that allows posting.
+# X-E4 (SH-E2): content deleted on X goes within 24 hours; keeping none longer
+# than that (23 + the hourly pass) meets it without following X's deletions.
+retention:
+  hours: 23
+  results: true
+  records: false
+  rule: "X's developer terms: content deleted on X is deleted here within 24 hours"
 version: 1

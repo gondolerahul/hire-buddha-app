@@ -41,6 +41,7 @@ MODEL_MODULES: tuple[str, ...] = (
     "src.notifications.models",
     "src.schema_engine.models",
     "src.connections.models",
+    "src.messaging.models",
     "src.code_lanes.models",
     "src.apps.models",
     "src.common.admin_audit",

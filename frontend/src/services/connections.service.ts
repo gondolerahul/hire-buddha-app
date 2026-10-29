@@ -48,6 +48,22 @@ export interface Grant {
     actions: string[];
 }
 
+/** A Drive file a person chose for HireBuddha in the Google Picker, or one it created (GOOG-E4). */
+export interface DriveFile {
+    id: string;
+    name?: string | null;
+    mime_type?: string | null;
+}
+
+/** What the browser's Google Picker needs: a short-lived token, the project's key and number. */
+export interface PickerSession {
+    access_token: string;
+    developer_key: string;
+    app_id: string;
+    expires_at: string | null;
+    chosen: DriveFile[];
+}
+
 export interface Connection {
     id: string;
     connector_id: string;
@@ -154,6 +170,12 @@ export const connectionsService = {
     },
     async impact(id: string): Promise<Impact> {
         return (await apiClient.get(`/connections/${id}/impact`)).data;
+    },
+    async picker(id: string): Promise<PickerSession> {
+        return (await apiClient.post(`/connections/${id}/picker`)).data;
+    },
+    async setFiles(id: string, files: DriveFile[]): Promise<{ files: DriveFile[] }> {
+        return (await apiClient.put(`/connections/${id}/files`, { files })).data;
     },
     async revoke(id: string): Promise<Record<string, unknown>> {
         return (await apiClient.delete(`/connections/${id}`)).data;

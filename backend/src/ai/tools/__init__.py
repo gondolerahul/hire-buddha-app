@@ -89,6 +89,9 @@ ToolRegistry.register(CRMUpdateLeadTool())
 # Social platforms: one primitive; the per-verb classes are its operations (P6.2)
 from src.ai.tools.social import SocialAPITool
 ToolRegistry.register(SocialAPITool())
+# Google Drive, the files a person chose and the ones it created (GOOG-E4)
+from src.ai.tools.drive import GoogleDriveTool
+ToolRegistry.register(GoogleDriveTool())
 
 # Meta-Agent tools (context-aware — use run_with_context)
 from src.ai.tools.meta import (

@@ -631,6 +631,9 @@ async def revoke(company_id: Any, connection_id: Any, *, actor_id: Any = None, a
             provider_error = str(error)[:300]
         await db.execute(delete(ConnectionSecret).where(ConnectionSecret.connection_id == connection.id))
         events_deleted = await _delete_stored_events(db, connection)
+        from src.connections.source_data import expire_connection
+
+        await expire_connection(db, connection.id)   # what runs read through it goes on the next pass (SH-E2)
         connection.settings = {k: v for k, v in (connection.settings or {}).items() if k != "poll"}
         connection.status = "revoked"
         paused = await _pause_triggers(db, connection.id)
@@ -712,6 +715,69 @@ async def system_credential(company_id: Any, connection_id: Any, *, purpose: str
         await _audit(db, company_id, connection.id, "used", actor_kind="system", detail={"purpose": purpose})
         await db.commit()
     return token
+
+
+# ── Files a person chose in the Google Picker (GOOG-E4) ─────────────────────
+
+MAX_DRIVE_FILES = 500
+
+
+def _drive_file(item: Dict[str, Any]) -> Dict[str, str]:
+    return {"id": str(item["id"])[:200], "name": str(item.get("name") or "")[:300],
+            "mime_type": str(item.get("mime_type") or item.get("mimeType") or "")[:200]}
+
+
+async def picker_session(company_id: Any, connection_id: Any, *, user_id: Any) -> Dict[str, Any]:
+    """What the browser's Google Picker needs: a short-lived token of the Drive
+    connection, the project's browser API key and its number (the Picker's app id)."""
+    from src.common.tenancy.session import tenant_session
+
+    async with tenant_session(company_id) as db:
+        connection = await _load(db, company_id, connection_id)
+        if connection.connector_id != "google_drive":
+            raise ConnectionProblem("Only a Google Drive connection has files to choose.")
+        await _audit(db, company_id, connection.id, "picker_opened", actor_kind="user", actor_id=user_id)
+        await db.commit()
+    row, app = await _connector(connection.connector_id, connectable=False)
+    settings = getattr(app, "settings", None) or {}
+    if not settings.get("picker_api_key") or not settings.get("project_number"):
+        raise ConnectionProblem("The Google Picker is not set up yet (the Google app's picker_api_key and "
+                                "project_number); ask HireBuddha's support.")
+    token = await system_credential(company_id, connection_id, purpose="drive_picker")
+    return {"access_token": token.access_token, "developer_key": settings["picker_api_key"],
+            "app_id": str(settings["project_number"]),
+            "expires_at": token.expires_at.isoformat() if token.expires_at else None,
+            "chosen": list((connection.settings or {}).get("picked_files") or [])}
+
+
+async def set_picked_files(company_id: Any, connection_id: Any, files: List[Dict[str, Any]], *,
+                           actor_id: Any) -> Dict[str, Any]:
+    """The Drive files a person chose: the only existing files agents may open (GOOG-E4)."""
+    from src.common.tenancy.session import tenant_session
+
+    chosen = [_drive_file(f) for f in files if isinstance(f, dict) and f.get("id")][:MAX_DRIVE_FILES]
+    async with tenant_session(company_id) as db:
+        connection = await _load(db, company_id, connection_id)
+        if connection.connector_id != "google_drive":
+            raise ConnectionProblem("Only a Google Drive connection has chosen files.")
+        connection.settings = {**(connection.settings or {}), "picked_files": chosen}
+        await _audit(db, company_id, connection.id, "files_chosen", actor_kind="user", actor_id=actor_id,
+                     detail={"files": len(chosen)})
+        await db.commit()
+    return {"files": chosen}
+
+
+async def remember_created_file(company_id: Any, connection_id: Any, item: Dict[str, Any]) -> None:
+    """A file HireBuddha created in the Drive: its agents may open it again later."""
+    from src.common.tenancy.session import tenant_session
+
+    async with tenant_session(company_id) as db:
+        connection = await _load(db, company_id, connection_id)
+        settings = dict(connection.settings or {})
+        created = [f for f in settings.get("created_files") or [] if f.get("id") != item.get("id")]
+        settings["created_files"] = (created + [_drive_file(item)])[-MAX_DRIVE_FILES:]
+        connection.settings = settings
+        await db.commit()
 
 
 async def business_key(company_id: Any, *, provider: Optional[str] = None, sku: Optional[str] = None,

@@ -32,6 +32,11 @@ PLATFORM_CONNECTORS: Dict[str, List[str]] = {
     "google_ads": ["google_ads"],            # GADS-E1
 }
 
+# One client per provider (LI-E5, X-E7): LinkedIn and X are reached only through
+# their connectors — the connector's token, API version and audit — so their old
+# ``social_connections`` rows are never read, whatever CONNECTIONS_LEGACY_FALLBACK says.
+CONNECTOR_ONLY = frozenset({"linkedin", "twitter", "x"})
+
 
 def _principal(context: Optional[Dict[str, Any]]) -> tuple[Optional[str], Optional[str], Optional[str]]:
     ctx = context or {}
@@ -80,8 +85,11 @@ async def credentials_for(context: Optional[Dict[str, Any]], platform: str, *, a
             except (service.NotGranted, service.ConnectionProblem) as error:
                 logger.info("connection %s not usable for this run: %s", connection["id"], error)
                 continue
+            from src.connections.source_data import note_use
+
+            note_use(connection["id"], connection["connector_id"])   # the run is marked if the call reads (SH-E2)
             return _social_shape(connection, token)
-    if not settings.CONNECTIONS_LEGACY_FALLBACK:
+    if not settings.CONNECTIONS_LEGACY_FALLBACK or platform in CONNECTOR_ONLY:
         return {}
     return await _legacy(company_id, platform, account)
 

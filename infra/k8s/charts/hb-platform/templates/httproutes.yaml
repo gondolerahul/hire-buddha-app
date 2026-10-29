@@ -16,6 +16,14 @@ spec:
     - backendRefs:
         - name: hb-frontend
           port: 80
+      {{- with .Values.gateway.hsts }}
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: {{ . | quote }}
+      {{- end }}
 {{- end }}
 {{- range $name, $host := (dict "api" $h.api "gateway" $h.gateway) }}
 {{- if $host }}
@@ -38,6 +46,14 @@ spec:
       # A call's media WebSocket lasts as long as the call (spike SP-7).
       timeouts:
         request: 0s
+      {{- with $.Values.gateway.hsts }}
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            set:
+              - name: Strict-Transport-Security
+                value: {{ . | quote }}
+      {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

@@ -36,7 +36,11 @@ async def test_a_reply_is_the_models_answer(monkeypatch):
         return SimpleNamespace(system_instruction="You are the clinic's receptionist.",
                                conversation_history=[], api_key=None)
 
+    async def _name(company_id):
+        return "Sunrise Clinic"
+
     monkeypatch.setattr(GeminiTextServiceFactory, "from_company", staticmethod(_from_company))
+    monkeypatch.setattr("src.messaging.rules.business_name", _name)
     handler = WhatsAppHandler.__new__(WhatsAppHandler)
     handler.db = object()
     handler.agent_loader = SimpleNamespace(load_agent_for_session=_context)
@@ -44,7 +48,11 @@ async def test_a_reply_is_the_models_answer(monkeypatch):
 
     reply = await handler._generate_response(session, "Can I book Tuesday?")
     assert reply == "Re: Can I book Tuesday?"
-    assert asked == [(session.company_id, "gemini-2.0-flash", "You are the clinic's receptionist.")]
+    [(company, model, instruction)] = asked
+    assert (company, model) == (session.company_id, "gemini-2.0-flash")
+    # The agent's own prompt, then WhatsApp's business-only scope (META-E5).
+    assert instruction.startswith("You are the clinic's receptionist.\n\n## Scope (WhatsApp)")
+    assert "Help only with Sunrise Clinic" in instruction
 
 
 def test_two_agents_on_one_project_do_not_share_a_prompt(monkeypatch):
