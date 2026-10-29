@@ -125,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Dependencies with a critical fix waiting (fails the build)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0, pinned by commit
         with:
           scan-type: fs
           scan-ref: .
@@ -136,7 +136,7 @@ jobs:
           skip-dirs: backend/.venv,frontend/node_modules
       - name: High findings and misconfigurations (listed)
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0, pinned by commit
         with:
           scan-type: fs
           scan-ref: .

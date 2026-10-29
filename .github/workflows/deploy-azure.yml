@@ -106,7 +106,7 @@ jobs:
       # its OS packages and libraries. Listed in the job summary; the CI security
       # job is the one that fails a build (docs/phase15/14_connector_approvals/13).
       - name: Scan the image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0, pinned by commit
         with:
           image-ref: ${{ vars.ACR_NAME }}.azurecr.io/${{ matrix.image }}:${{ github.sha }}
           severity: HIGH,CRITICAL

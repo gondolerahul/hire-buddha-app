@@ -19,6 +19,18 @@ param platformPoolMaxCount int
 @allowed(['Free', 'Standard'])
 param tier string = 'Free'
 param systemPoolCount int = 1
+// When AKS may upgrade the cluster and its node images: one weekly window,
+// at least 4 hours, for both channels. Without one, Azure upgrades at any hour:
+// on 28 Oct 2026 a node image upgrade began at 20:57 IST, the 21:00 stop of the
+// dev schedule was refused, and dev ran all night against stopped databases.
+// Dev's window must fall inside its working hours (a stopped cluster is not upgraded).
+@allowed(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
+param maintenanceDay string = 'Sunday'
+@description('HH:mm, in maintenanceUtcOffset.')
+param maintenanceStartTime string = '02:00'
+@minValue(4)
+param maintenanceDurationHours int = 4
+param maintenanceUtcOffset string = '+05:30'
 
 resource cluster 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
   name: name
@@ -103,6 +115,27 @@ resource cluster 'Microsoft.ContainerService/managedClusters@2024-09-01' = {
       }
     ]
   }
+}
+
+var maintenanceWindow = {
+  schedule: { weekly: { intervalWeeks: 1, dayOfWeek: maintenanceDay } }
+  durationHours: maintenanceDurationHours
+  startTime: maintenanceStartTime
+  utcOffset: maintenanceUtcOffset
+}
+
+// Kubernetes patch versions (upgradeChannel: patch).
+resource autoUpgradeWindow 'Microsoft.ContainerService/managedClusters/maintenanceConfigurations@2024-09-01' = {
+  parent: cluster
+  name: 'aksManagedAutoUpgradeSchedule'
+  properties: { maintenanceWindow: maintenanceWindow }
+}
+
+// Node images (nodeOSUpgradeChannel: NodeImage), weekly as AKS releases them.
+resource nodeOsUpgradeWindow 'Microsoft.ContainerService/managedClusters/maintenanceConfigurations@2024-09-01' = {
+  parent: cluster
+  name: 'aksManagedNodeOSUpgradeSchedule'
+  properties: { maintenanceWindow: maintenanceWindow }
 }
 
 output name string = cluster.name

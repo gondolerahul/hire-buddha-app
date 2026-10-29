@@ -109,6 +109,10 @@ param scheduleStartHour int = 9
 param scheduleStopHour int = 21
 param scheduleTimeZone string = 'India Standard Time'
 
+@description('The weekly 4-hour window (IST) in which AKS upgrades the cluster and its node images. Dev: inside working hours.')
+param aksMaintenanceDay string = 'Sunday'
+param aksMaintenanceStartTime string = '02:00'
+
 @description('Azure Managed Redis SKU (dev: no HA).')
 param redisSku string = 'Balanced_B0'
 
@@ -297,6 +301,8 @@ module aks 'modules/aks.bicep' = {
     platformPoolMinCount: platformPoolMinCount
     platformPoolMaxCount: platformPoolMaxCount
     tier: aksTier
+    maintenanceDay: aksMaintenanceDay
+    maintenanceStartTime: aksMaintenanceStartTime
   }
 }
 

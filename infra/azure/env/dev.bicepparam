@@ -53,3 +53,7 @@ param scheduleWeekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'
 param scheduleStartHour = 9
 param scheduleStopHour = 21
 param scheduleTimeZone = 'India Standard Time'
+// AKS upgrades inside working hours, never into the 21:00 stop (28 Oct 2026):
+// Tuesdays 11:00–15:00 IST.
+param aksMaintenanceDay = 'Tuesday'
+param aksMaintenanceStartTime = '11:00'
